@@ -79,7 +79,7 @@
     "@types/react-dom": "catalog:",
     "every-plugin": "0.9.0",
     "everything-dev": "workspace:*",
-    "jsdom": "^27.2.0",
+    "jsdom": "^29.0.1",
     "sharp": "^0.34.5",
     "tailwindcss": "^4.1.17",
     "typescript": "catalog:",
