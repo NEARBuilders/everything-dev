@@ -110,7 +110,7 @@
     "hono": "^4.7.11",
     "ink": "^5.2.1",
     "react": "18.3.1",
-    "react-dom": "18.3.1",
+    "react-dom": "19.2.4",
     "zod": "^3.25.0"
   },
   "peerDependencies": {
