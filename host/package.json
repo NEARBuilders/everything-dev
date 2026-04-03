@@ -59,6 +59,6 @@
     "vite-tsconfig-paths": "^6.0.4",
     "vitest": "catalog:",
     "web-vitals": "^5.1.0",
-    "zephyr-rsbuild-plugin": "^0.1.4"
+    "zephyr-rsbuild-plugin": "^0.2.0"
   }
 }

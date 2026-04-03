@@ -24,7 +24,7 @@
     "near-kit": "catalog:"
   },
   "devDependencies": {
-    "@effect/language-service": "^0.41.1",
+    "@effect/language-service": "^0.84.3",
     "@module-federation/node": "catalog:",
     "@rspack/cli": "^1.6.8",
     "@rspack/core": "^1.6.8",
@@ -34,7 +34,7 @@
     "every-plugin": "workspace:*",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "catalog:",
-    "zephyr-rspack-plugin": "^0.1.2"
+    "zephyr-rspack-plugin": "^0.2.0"
   },
   "scripts": {
     "build": "bun run build:types && rspack build",
