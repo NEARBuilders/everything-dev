@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.0.2
+
+### Patch Changes
+
+- 53ac5f1: Fix CLI shutdown and streamed process output so terminal formatting stays intact during interactive runs and progress updates.
+
 ## 1.0.1
 
 ### Patch Changes
