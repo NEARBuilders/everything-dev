@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.0.1
+
+### Patch Changes
+
+- 20cb357: Add a local `bos key publish` command for creating a restricted publish key and make publish fall back to local keychain signing when no plaintext key is provided.
+
 ## 1.0.0
 
 ### Major Changes
