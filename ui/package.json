@@ -84,6 +84,6 @@
     "tailwindcss": "^4.1.17",
     "typescript": "catalog:",
     "vitest": "catalog:",
-    "zephyr-rsbuild-plugin": "^0.1.2"
+    "zephyr-rsbuild-plugin": "^0.2.0"
   }
 }
