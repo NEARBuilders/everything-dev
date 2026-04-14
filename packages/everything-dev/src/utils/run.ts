@@ -1,8 +1,10 @@
+type RunResult = { stdout: string; stderr: string; exitCode: number };
+
 export async function run(
   cmd: string,
   args: string[],
   options: { cwd?: string; env?: Record<string, string>; capture?: boolean } = {},
-): Promise<void | { stdout: string; stderr: string; exitCode: number }> {
+): Promise<RunResult | undefined> {
   const proc = Bun.spawn({
     cmd: [cmd, ...args],
     cwd: options.cwd,

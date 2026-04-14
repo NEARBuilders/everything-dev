@@ -208,7 +208,7 @@ function defaultPluginKey(source: string): string {
 
 function pluginLocalPath(configDir: string, attachment: PluginAttachmentConfig): string | null {
   const source = attachment.development ?? attachment.production;
-  if (!source || !source.startsWith("local:")) {
+  if (!source?.startsWith("local:")) {
     return null;
   }
 

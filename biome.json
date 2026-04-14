@@ -45,7 +45,13 @@
     }
   },
   "files": {
-    "includes": ["**", "!!**/ui/src/routeTree.gen.ts", "!!**/plugins/**/types/**/*.d.ts"],
+    "includes": [
+      "**",
+      "!!**/ui/src/routeTree.gen.ts",
+      "!!**/plugins/**/types/**/*.d.ts",
+      "!!**/env.d.ts",
+      "!!**/virtual-modules.d.ts"
+    ],
     "ignoreUnknown": true
   },
   "vcs": {

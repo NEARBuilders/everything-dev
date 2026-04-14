@@ -1,7 +1,6 @@
 import type { Compiler, RspackPluginInstance } from "@rspack/core";
 
 const MF_DATA_URI_MARKER = "data:text/javascript,";
-const MF_ENTRY_PREFIX = "@module-federation/runtime/rspack.js!=!";
 
 export class FixMfDataUriPlugin implements RspackPluginInstance {
   name = "FixMfDataUriPlugin";
