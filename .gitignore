@@ -298,5 +298,9 @@ fabric.properties
 
 .turbo
 .bos
+
+# Module Federation DTS artifacts
+.mf
+node_modules/.federation
 # CSS files (Tailwind - handled by build tools)
 *.css

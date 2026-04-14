@@ -137,6 +137,15 @@ export class EveryPluginDevServer implements RspackPluginInstance {
       shared: buildSharedDependencies(pluginInfo),
       shareStrategy: "version-first",
     }).apply(compiler);
+
+    if (this.options.dts === false) {
+      compiler.options.plugins = (compiler.options.plugins ?? []).filter(
+        (p) =>
+          !p ||
+          typeof p !== "object" ||
+          ((p as any).name !== "MFDevPlugin" && (p as any).name !== "ModuleFederationDtsPlugin"),
+      );
+    }
   }
 
   private configureDefaults(compiler: Compiler, pluginInfo: any) {

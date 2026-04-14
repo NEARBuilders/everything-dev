@@ -51,7 +51,7 @@ function updateBosConfig(url) {
 }
 
 const baseConfig = {
-  plugins: [new EveryPluginDevServer(), new FixMfDataUriPlugin()],
+  plugins: [new EveryPluginDevServer({ dts: false }), new FixMfDataUriPlugin()],
   infrastructureLogging: {
     level: "error",
   },
