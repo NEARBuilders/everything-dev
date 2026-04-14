@@ -11,6 +11,7 @@ export interface EveryPluginOptions {
   devConfigPath?: string;
   port?: number;
   pluginId?: string;
+  dts?: boolean;
 }
 
 export interface PluginManifestEmitterOptions {
@@ -126,7 +127,8 @@ export class EveryPluginDevServer implements RspackPluginInstance {
     new ModuleFederationPlugin({
       name: pluginInfo.normalizedName,
       filename: "remoteEntry.js",
-      dts: false,
+      dts: this.options.dts !== false,
+      manifest: {},
       runtimePlugins: [require.resolve("@module-federation/node/runtimePlugin")],
       library: { type: "commonjs-module" },
       exposes: {
@@ -173,6 +175,11 @@ export class EveryPluginDevServer implements RspackPluginInstance {
       compiler.options.resolve = {};
     }
     compiler.options.resolve.extensions = ["...", ".tsx", ".ts"];
+    compiler.options.resolve.fallback = {
+      ...compiler.options.resolve.fallback,
+      bufferutil: false,
+      "utf-8-validate": false,
+    };
   }
 
   private ensureTypeScriptLoader(compiler: Compiler) {

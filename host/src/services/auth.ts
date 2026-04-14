@@ -142,7 +142,9 @@ export const createAuth = Effect.gen(function* () {
     }),
     trustedOrigins: process.env.CORS_ORIGIN?.split(",") || ["*"],
     secret: process.env.BETTER_AUTH_SECRET || "default-secret-change-in-production",
-    baseURL: process.env.BETTER_AUTH_URL,
+    baseURL:
+      process.env.BETTER_AUTH_URL ||
+      (process.env.NODE_ENV !== "production" ? "http://localhost:3000" : undefined),
     socialProviders: {
       github: {
         clientId: process.env.GITHUB_CLIENT_ID!,
