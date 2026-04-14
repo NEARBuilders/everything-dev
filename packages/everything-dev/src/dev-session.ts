@@ -290,13 +290,24 @@ export const startApp = (orchestrator: AppOrchestrator) => {
     process.exit(0);
   };
 
-  process.once("SIGINT", () => {
+  let signalCount = 0;
+  process.on("SIGINT", () => {
+    signalCount++;
+    if (signalCount > 1) {
+      forceExit();
+      return;
+    }
     const timeout = setTimeout(forceExit, 5000);
     void handleSignal().finally(() => {
       clearTimeout(timeout);
     });
   });
-  process.once("SIGTERM", () => {
+  process.on("SIGTERM", () => {
+    signalCount++;
+    if (signalCount > 1) {
+      forceExit();
+      return;
+    }
     const timeout = setTimeout(forceExit, 5000);
     void handleSignal().finally(() => {
       clearTimeout(timeout);

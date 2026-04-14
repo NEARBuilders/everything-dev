@@ -96,9 +96,9 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",
-    "@module-federation/enhanced": "^0.24.1",
-    "@module-federation/node": "^2.7.32",
-    "@module-federation/runtime-core": "^0.24.1",
+    "@module-federation/enhanced": "catalog:",
+    "@module-federation/node": "catalog:",
+    "@module-federation/runtime-core": "catalog:",
     "@orpc/contract": "^1.13.4",
     "@orpc/server": "^1.13.4",
     "@orpc/openapi": "^1.13.4",

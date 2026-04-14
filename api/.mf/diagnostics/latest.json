@@ -1,10 +1,10 @@
 {
   "latestErrorEvent": {
     "code": "TYPE-001",
-    "message": "Failed to generate type declaration. Execute the below cmd to reproduce and fix the error. #TYPE-001\nargs: {\"cmd\":\"npx tsc --project /Users/elliot.braem/workspace/product/everything.dev/api/node_modules/.federation/tsconfig.f73cd8602b048513e0452f3715d15fcd.json\"}\nView the docs to see how to solve: https://module-federation.io/guide/troubleshooting/type#type-001",
+    "message": "Failed to generate type declaration. Execute the below cmd to reproduce and fix the error. #TYPE-001\nargs: {\"cmd\":\"npx tsc --project /Users/elliot.braem/workspace/product/everything.dev/api/node_modules/.federation/tsconfig.11a271733189f4bef383a21e235be17b.json\"}\nView the docs to see how to solve: https://module-federation.io/guide/troubleshooting/type#type-001",
     "args": {
-      "cmd": "npx tsc --project /Users/elliot.braem/workspace/product/everything.dev/api/node_modules/.federation/tsconfig.f73cd8602b048513e0452f3715d15fcd.json"
+      "cmd": "npx tsc --project /Users/elliot.braem/workspace/product/everything.dev/api/node_modules/.federation/tsconfig.11a271733189f4bef383a21e235be17b.json"
     },
-    "timestamp": 1776180718370
+    "timestamp": 1776183415558
   }
 }

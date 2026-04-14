@@ -66,6 +66,9 @@ export default defineConfig({
         library: { type: "commonjs-module" },
       },
       externals: [/^node:/, /^bun:/, "@libsql/client"],
+      resolve: {
+        fallback: { bufferutil: false, "utf-8-validate": false },
+      },
       infrastructureLogging: {
         level: "error",
       },

@@ -15,7 +15,6 @@ import {
   getRegistryStatus,
   listRegistryApps,
   prepareRegistryMetadataWrite,
-  RegistryService,
   relayRegistryMetadataWrite,
 } from "./services/registry";
 
@@ -111,7 +110,7 @@ export default createPlugin({
       const AllServices = Layer.merge(Layer.merge(KvServices, ProjectServices), RegistryConfig);
 
       const [kv, project, registryConfig] = yield* Effect.provide(
-        Effect.all([KvService, ProjectService, RegistryService]),
+        Effect.all([KvService, ProjectService, RegistryConfigService]),
         AllServices,
       );
 

@@ -104,6 +104,9 @@ function createClientConfig() {
         output: {
           uniqueName: normalizedName,
         },
+        resolve: {
+          fallback: { bufferutil: false, "utf-8-validate": false },
+        },
         infrastructureLogging: { level: "error" },
         stats: "errors-warnings",
         plugins: [
@@ -169,6 +172,9 @@ function createServerConfig() {
           uniqueName: `${normalizedName}_server`,
           publicPath: "/",
           library: { type: "commonjs-module" },
+        },
+        resolve: {
+          fallback: { bufferutil: false, "utf-8-validate": false },
         },
         externals: [/^node:/],
         infrastructureLogging: { level: "error" },

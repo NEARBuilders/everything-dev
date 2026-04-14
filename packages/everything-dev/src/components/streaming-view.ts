@@ -163,12 +163,18 @@ export function renderStreamingView(
 
   const unmount = () => onExit?.();
 
+  let signalCount = 0;
   const forceExit = () => {
     console.log("\n[CLI] Force exit");
     process.exit(0);
   };
 
-  process.once("SIGINT", () => {
+  process.on("SIGINT", () => {
+    signalCount++;
+    if (signalCount > 1) {
+      forceExit();
+      return;
+    }
     console.log();
     console.log(colors.dim(`[${getTimestamp()}] Shutting down...`));
     const timeout = setTimeout(forceExit, 5000);

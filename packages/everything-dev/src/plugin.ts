@@ -298,7 +298,6 @@ async function buildEveryPluginQuietly(cwd: string) {
   const distExists = await Bun.file(distPath).exists();
 
   if (distExists) {
-    console.log("[build:ssr] using existing every-plugin dist");
     return;
   }
 
