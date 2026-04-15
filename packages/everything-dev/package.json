@@ -139,6 +139,6 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "tsdown": "^0.21.7",
-    "typescript": "^5.7.2"
+    "typescript": "^6.0.2"
   }
 }
