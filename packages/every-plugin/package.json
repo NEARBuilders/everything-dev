@@ -1,6 +1,6 @@
 {
   "name": "every-plugin",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -29,7 +29,6 @@
       "import": "./dist/build/rspack/index.mjs",
       "require": "./dist/build/rspack/index.cjs"
     },
-
     "./package.json": "./package.json"
   },
   "files": [
