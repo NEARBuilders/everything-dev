@@ -1,5 +1,13 @@
 # everything-dev
 
+## 1.3.3
+
+### Patch Changes
+
+- 2b86efd: Fix npm manifests — resolve workspace/catalog refs for published packages
+- Updated dependencies [2b86efd]
+  - every-plugin@2.2.3
+
 ## 1.3.2
 
 ### Patch Changes

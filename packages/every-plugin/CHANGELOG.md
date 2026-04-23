@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.2.3
+
+### Patch Changes
+
+- 2b86efd: Fix npm manifests — resolve workspace/catalog refs for published packages
+
 ## 2.2.2
 
 ### Patch Changes
