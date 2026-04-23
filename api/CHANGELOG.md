@@ -1,5 +1,11 @@
 # api
 
+## 2.1.0
+
+### Minor Changes
+
+- aeab5ce: Remove demo routes and fix plugin routing. API shell now only exposes `ping` and `authHealth` (with `requireAuth` middleware). Plugin-specific routes are registered before the base API catch-all in Hono, fixing 404s on `/api/rpc/{plugin}/*`. OpenAPI spec includes the current domain as an available server.
+
 ## 2.0.0
 
 ### Major Changes
