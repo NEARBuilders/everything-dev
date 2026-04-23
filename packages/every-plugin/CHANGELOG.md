@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.2.4
+
+### Patch Changes
+
+- ce2c9fe: Fix `z.object().loose()` TypeError — replaced with valid Zod v3 method `.passthrough()`
+
 ## 2.2.3
 
 ### Patch Changes

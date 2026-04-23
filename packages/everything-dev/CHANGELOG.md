@@ -1,5 +1,12 @@
 # everything-dev
 
+## 1.3.4
+
+### Patch Changes
+
+- Updated dependencies [ce2c9fe]
+  - every-plugin@2.2.4
+
 ## 1.3.3
 
 ### Patch Changes
