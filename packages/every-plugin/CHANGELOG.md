@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.2.5
+
+### Patch Changes
+
+- f276764: Fix Docker image to install framework packages from npm instead of local symlinks
+
 ## 2.2.4
 
 ### Patch Changes

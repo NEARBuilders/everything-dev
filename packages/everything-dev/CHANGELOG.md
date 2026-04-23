@@ -1,5 +1,13 @@
 # everything-dev
 
+## 1.3.5
+
+### Patch Changes
+
+- f276764: Fix Docker image to install framework packages from npm instead of local symlinks
+- Updated dependencies [f276764]
+  - every-plugin@2.2.5
+
 ## 1.3.4
 
 ### Patch Changes
