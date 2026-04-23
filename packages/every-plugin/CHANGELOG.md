@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.2.2
+
+### Patch Changes
+
+- 1859d7f: Fix npm trusted publishing provenance verification by aligning package repository metadata with the GitHub repository URL.
+
 ## 2.2.1
 
 ### Patch Changes
