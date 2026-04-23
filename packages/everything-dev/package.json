@@ -232,7 +232,7 @@
     "hono": "^4.7.11",
     "ink": "^6.8.0",
     "tar": "^7.4.3",
-    "zod": "^3.25.0"
+    "zod": "^4.3.6"
   },
   "peerDependencies": {
     "@tanstack/react-query": ">=5.0.0",
@@ -240,7 +240,7 @@
     "react": ">=19.0.0",
     "react-dom": ">=19.0.0",
     "effect": "^3.21.0",
-    "zod": "^3.25.0"
+    "zod": "^4.3.6"
   },
   "peerDependenciesMeta": {
     "@tanstack/react-query": {
