@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.2.6
+
+### Patch Changes
+
+- 466664d: Strip `development` exports conditions from published package and override rspack `conditionNames` to prevent resolving to `.ts` source files in npm-installed projects
+
 ## 2.2.5
 
 ### Patch Changes
