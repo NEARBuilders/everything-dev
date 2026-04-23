@@ -77,7 +77,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "every-plugin": "2.1.0",
+    "every-plugin": "2.2.0",
     "everything-dev": "workspace:*",
     "host": "workspace:*",
     "jsdom": "^27.2.0",
