@@ -20,7 +20,7 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.9",
+    "@hono/node-server": "^2.0.0",
     "@hot-labs/near-connect": "catalog:",
     "@libsql/client": "catalog:",
     "@module-federation/enhanced": "catalog:",

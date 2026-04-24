@@ -221,7 +221,7 @@
     "test:full": "CI=true vitest run tests/integration/init.full.test.ts --testTimeout=120000"
   },
   "dependencies": {
-    "@hono/node-server": "^1.14.4",
+    "@hono/node-server": "^2.0.0",
     "@module-federation/enhanced": "catalog:",
     "@module-federation/node": "catalog:",
     "@module-federation/runtime-core": "catalog:",
