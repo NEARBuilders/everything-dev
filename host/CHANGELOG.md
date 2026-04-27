@@ -1,5 +1,11 @@
 # host
 
+## 1.3.2
+
+### Patch Changes
+
+- 3627dd8: Fix production deploy EACCES errors: appuser now owns /app, /app/data, and .bos directories so runtime file creation (database.db, logs, pids) works correctly in the Docker container
+
 ## 1.3.1
 
 ### Patch Changes
