@@ -1,5 +1,94 @@
 # everything-dev
 
+## 1.5.0
+
+### Minor Changes
+
+- 8582862: Add plugin-owned routes via `routes` field in `bos.config.json`, protect user-owned files on upgrade, resolve `catalog:` refs
+
+  **Plugin routes:**
+
+  - Each plugin in `bos.config.json` can declare a `routes` array (e.g. `"routes": ["ui/src/routes/_layout/apps/**"]`)
+  - During init, only routes for selected plugins are copied
+  - During sync, routes are dynamically included/excluded based on the child project's plugin config
+  - Removed plugin-owned routes from `.templatekeep` — they're now managed via `routes`
+
+  **Upgrade protection (`.templatesync-exclude`):**
+
+  - `ui/src/components/**` and `ui/src/styles.css` — never overwritten
+  - `ui/src/routes` — managed dynamically via plugin `routes`; removed blanket `ui/src/routes/**` exclude so enabled plugin routes can sync
+  - `api/src/contract.ts`, `api/src/index.ts`, `api/src/db/schema.ts` — core business logic protected
+  - `api/drizzle.config.ts`, `api/tsconfig.*` — project-specific config protected
+  - `api/package.json`, `api/plugin.dev.ts`, `api/rspack.config.js` now syncable on upgrade (with package.json merge)
+
+  **`catalog:` resolution:**
+
+  - `resolveCatalogRefs: true` during init — `catalog:` version refs are resolved to actual versions so consumer projects don't need a workspace catalog
+
+- 8582862: Redesign `bos init` flow and improve `bos sync`/`bos upgrade` safety
+
+  **Init prompt redesign:**
+
+  - Domain is now the first prompt
+  - Single "Extend from" field accepts `account/gateway` format (e.g. `dev.everything.near/everything.dev`) instead of separate prompts
+  - Plugin selection prompt with toggle-by-number UI; only `_template` is selected by default, `registry` is opt-in
+  - Directory defaults to full domain name (e.g. `sample.com`)
+  - Output shows relative directory path instead of absolute
+
+  **Plugin handling:**
+
+  - Only selected plugins are copied, configured in `bos.config.json`, and included in workspaces
+  - `bos sync` filters plugin files based on the child project's `bos.config.json` plugins list
+  - `plugins/registry/**` removed from `.templatekeep`; `plugins/_template/**` is the only plugin carried by default
+
+  **Sync/upgrade safety:**
+
+  - `.templatesync-exclude` now protects all API config files: `drizzle.config.ts`, `package.json`, `plugin.dev.ts`, `rspack.config.js`, `tsconfig.json`, `tsconfig.contract.json`
+  - `.github/workflows/**` added to `.templatekeep` so CI workflows carry forward
+  - `.gitignore` added to `.templatekeep`
+
+### Patch Changes
+
+- 8582862: Allow `api/package.json`, `api/plugin.dev.ts`, and `api/rspack.config.js` to sync on upgrade with package.json merge logic that preserves project-specific deps and scripts; protect `ui/src/components/**` and all `api/src/**` from sync overwrite
+- 8445bc2: Fix `bos init` output: default directory to full domain name instead of first segment, and show relative path instead of absolute
+- 8582862: Add helpful merge guidance to upgrade and sync output, use `.templates/` directory for consumer workflows
+
+  **Upgrade/sync output:**
+
+  - "Upgrade successful" with categorized guidance: never overwritten (safe), replaced (review), merged (deps preserved), skipped (already yours)
+  - Sync output includes similar review prompt when files are updated
+
+  **Consumer workflow templates (`.templates/`):**
+
+  - `release-sync.yml` — build, deploy, publish, Docker (no monorepo-specific steps)
+  - `ci.yml` — lint, typecheck, Docker build
+  - `dependabot.yml` — dependency updates
+  - `.templates/` prefix stripped on copy so files land at correct paths
+
+  **Sync exclude refinements:**
+
+  - Removed `AGENTS.md`, `api/drizzle.config.ts`, `api/tsconfig.*` from exclude — these are replaced/merged on upgrade
+  - Only core business logic remains protected: `api/src/contract.ts`, `api/src/index.ts`, `api/src/db/schema.ts`
+
+- 8582862: Add consumer-friendly workflow templates (`.templates/`), remove AGENTS.md and API config from sync exclude, add `routes` to plugin schema
+
+  **Workflow templates:**
+
+  - `.templates/.github/workflows/release-sync.yml` — consumer build/deploy/publish pipeline (no monorepo-specific steps)
+  - `.templates/.github/workflows/ci.yml` — consumer lint/typecheck/docker workflow
+  - `.templates/.github/dependabot.yml` — consumer dependency updates
+  - `.templates/` prefix is stripped on copy so files land at correct paths
+
+  **Sync exclude changes:**
+
+  - Removed `AGENTS.md` — synced on upgrade, user can merge or revert
+  - Removed `api/drizzle.config.ts`, `api/tsconfig.json`, `api/tsconfig.contract.json` — replaced/merged on upgrade
+  - Only `api/src/contract.ts`, `api/src/index.ts`, `api/src/db/schema.ts` remain protected (core business logic)
+
+  **Schema:**
+
+  - Added `routes` field to `BosPluginRefSchema` — each plugin can declare route patterns it owns
+
 ## 1.4.1
 
 ### Patch Changes
