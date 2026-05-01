@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.4.1
+
+### Patch Changes
+
+- ab66f0d: Add `@libsql/client` to root dependencies so `bos init` carries it forward to consumer projects, fixing Module Federation resolution error when loading remote host
+
 ## 1.4.0
 
 ### Minor Changes
