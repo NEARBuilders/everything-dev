@@ -1,5 +1,11 @@
 # ui
 
+## 1.1.2
+
+### Patch Changes
+
+- f199d5e: Remove stale `./types` Module Federation expose pointing to non-existent `src/types/index.ts`, fixing build error
+
 ## 1.1.1
 
 ### Patch Changes
