@@ -45,7 +45,7 @@
     "effect": "catalog:",
     "clsx": "^2.1.1",
     "framer-motion": "^12.37.0",
-    "lucide-react": "^0.544.0",
+    "lucide-react": "^1.14.0",
     "near-social-js": "^2.0.4",
     "near-kit": "catalog:",
     "@scure/base": "catalog:",
