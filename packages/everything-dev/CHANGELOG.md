@@ -1,5 +1,33 @@
 # everything-dev
 
+## 1.7.0
+
+### Minor Changes
+
+- ab0a308: Move auth from plugin to app-level infrastructure with oRPC contract generation
+
+  Auth is now `app.auth` in bos.config.json instead of `plugins.auth`. The host loads the auth plugin as Phase 0 (app-level infrastructure) before other plugins. Session resolution and auth HTTP handler are provided through the auth plugin's oRPC client and initialized context, eliminating direct Better Auth coupling in the host. The `syncApiContractBridge` now generates typed auth contract clients in `api/src/plugins-client.gen.ts` and `ui/src/api-contract.gen.ts`, enabling plugins to call auth routes via `services.plugins.auth()` instead of importing the raw `Auth` type.
+
+- 368c872: Improve plugin lifecycle cleanup, add additionalExports, and share BosConfigInput
+
+  Plugin shutdown now logs warnings instead of silently swallowing errors. DB layers use Effect acquireRelease for proper connection cleanup. Build system supports additionalExports for bundling extra type files. BosConfigInput is now exported from everything-dev/types for shared use. Registry plugin validates private key format before creating relay clients.
+
+- c0452e7: Renamed `productionIntegrity` to `integrity` across all schemas, build configs, and `bos.config.json`. Added `name` and `version` fields to `BosPluginRef`. Enhanced `bos plugin add` with `bos://account/plugins/name` registry resolution, manifest validation, and automatic integrity computation. Enhanced `bos plugin publish` with manifest validation, integrity computation, and FastKV plugin registry writes. Added generic KV routes (`kvGet`, `kvList`, `kvPrepareWrite`, `kvRelayWrite`) to the registry plugin.
+
+### Patch Changes
+
+- 069cb6a: Upgrade better-near-auth from local file import to published v1.0.0
+
+  Switches the workspace catalog entry from `file:../../lib/better-near-auth` to `^1.0.0`, consuming the official npm release. The v1.0.0 package already includes the near-kit + @hot-labs/near-connect migration and the relay API shape used by the gateway page, so no source code changes are required.
+
+  - `relayer: {}` in server config continues to use all defaults (ephemeral auto-generated keypair)
+  - Client `siwnClient({ recipient, networkId })` remains valid
+  - `auth.near.buildSignedDelegateAction()` and `auth.near.relayTransaction({ payload })` APIs unchanged
+
+- c038761: Move consumer workflow templates from `.templates/` to `.github/templates/` and update prefix logic so `.github/templates/` is replaced with `.github/` on copy
+- Updated dependencies [368c872]
+  - every-plugin@2.4.0
+
 ## 1.6.0
 
 ### Minor Changes

@@ -1,5 +1,17 @@
 # @everything-dev/registry-plugin
 
+## 1.2.0
+
+### Minor Changes
+
+- c0452e7: Renamed `productionIntegrity` to `integrity` across all schemas, build configs, and `bos.config.json`. Added `name` and `version` fields to `BosPluginRef`. Enhanced `bos plugin add` with `bos://account/plugins/name` registry resolution, manifest validation, and automatic integrity computation. Enhanced `bos plugin publish` with manifest validation, integrity computation, and FastKV plugin registry writes. Added generic KV routes (`kvGet`, `kvList`, `kvPrepareWrite`, `kvRelayWrite`) to the registry plugin.
+
+### Patch Changes
+
+- 368c872: Improve plugin lifecycle cleanup, add additionalExports, and share BosConfigInput
+
+  Plugin shutdown now logs warnings instead of silently swallowing errors. DB layers use Effect acquireRelease for proper connection cleanup. Build system supports additionalExports for bundling extra type files. BosConfigInput is now exported from everything-dev/types for shared use. Registry plugin validates private key format before creating relay clients.
+
 ## 1.1.0
 
 ### Minor Changes

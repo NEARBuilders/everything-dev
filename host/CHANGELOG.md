@@ -1,5 +1,27 @@
 # host
 
+## 1.4.0
+
+### Minor Changes
+
+- ab0a308: Move auth from plugin to app-level infrastructure with oRPC contract generation
+
+  Auth is now `app.auth` in bos.config.json instead of `plugins.auth`. The host loads the auth plugin as Phase 0 (app-level infrastructure) before other plugins. Session resolution and auth HTTP handler are provided through the auth plugin's oRPC client and initialized context, eliminating direct Better Auth coupling in the host. The `syncApiContractBridge` now generates typed auth contract clients in `api/src/plugins-client.gen.ts` and `ui/src/api-contract.gen.ts`, enabling plugins to call auth routes via `services.plugins.auth()` instead of importing the raw `Auth` type.
+
+- 7c62044: Upgrade better-auth to 1.6.9, mature auth plugin, and add auth orchestration
+
+  Auth plugin now uses Drizzle migrations with virtual:drizzle-migrations, Effect acquireRelease for DB lifecycle, and requires BETTER_AUTH_SECRET. Fixes API key and invitation method shapes for better-auth 1.6.9. The everything-dev CLI orchestrates auth as a first-class dev process. Host replaces Deferred with FiberHandle and resets federation state on shutdown.
+
+- c0452e7: Renamed `productionIntegrity` to `integrity` across all schemas, build configs, and `bos.config.json`. Added `name` and `version` fields to `BosPluginRef`. Enhanced `bos plugin add` with `bos://account/plugins/name` registry resolution, manifest validation, and automatic integrity computation. Enhanced `bos plugin publish` with manifest validation, integrity computation, and FastKV plugin registry writes. Added generic KV routes (`kvGet`, `kvList`, `kvPrepareWrite`, `kvRelayWrite`) to the registry plugin.
+- c29e058: Migrate auth from plugin to app-level infrastructure. Host mounts only the raw Better Auth handler; authClient is injected separately from pluginsClient. Plugins receive auth context per-request, not via injected clients. Projects plugin cleaned of auth-proxying routes. Deleted every-plugin/context.ts.
+
+### Patch Changes
+
+- 0dc8772: Fix host crash when accessing auth plugin initialized context
+- 39588a1: Remove dead code: bootstrap script, drizzle/database infrastructure, and unused dependencies
+
+  The host no longer has a local database — auth is handled by a runtime-loaded plugin. Removed bootstrap.ts (superseded by orchestrator's spawnRemoteHost), drizzle.config.ts (schema directory already deleted), DrizzleORMMigrations rspack plugin, $apiClient global declaration, and 11 unused dependencies (drizzle-orm, drizzle-kit, better-auth, better-near-auth, @libsql/client, @proj-airi/unplugin-drizzle-orm-migrations, @t3-oss/env-core, @fastnear/near-connect, web-vitals, @tanstack/react-query, @tanstack/react-router). Cleaned up Dockerfile and .env.example accordingly.
+
 ## 1.3.2
 
 ### Patch Changes
