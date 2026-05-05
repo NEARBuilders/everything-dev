@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.7.1
+
+### Patch Changes
+
+- 1744ec3: Remove duplicate `zod` from `dependencies` (already in `peerDependencies`). Add `@tanstack/router-plugin>zod` override to root `package.json` so the TanStack Router plugin resolves `zod` v3 instead of the hoisted v4 during build.
+
 ## 1.7.0
 
 ### Minor Changes
