@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.7.2
+
+### Patch Changes
+
+- 3ce93d9: `bos upgrade` now bumps `every-plugin` and `everything-dev` in **all workspace `package.json`s**, not just the root. It also updates `peerDependencies` and `workspaces.catalog` while correctly skipping `workspace:*` and `catalog:` references.
+
 ## 1.7.1
 
 ### Patch Changes
