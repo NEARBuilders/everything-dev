@@ -21,7 +21,7 @@
     "@orpc/server": "^1.13.4"
   },
   "devDependencies": {
-    "@effect/language-service": "^0.84.3",
+    "@effect/language-service": "^0.85.1",
     "@module-federation/node": "catalog:",
     "@rspack/cli": "^1.6.8",
     "@rspack/core": "^1.6.8",
