@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.4.2
+
+### Patch Changes
+
+- fac9cf6: Fix rspack build error: add `@opentelemetry/api` to resolve.fallback so optional peer dependency from `@better-auth/core` doesn't fail the build
+
 ## 2.4.1
 
 ### Patch Changes
