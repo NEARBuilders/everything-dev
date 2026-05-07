@@ -1,5 +1,16 @@
 # everything-dev
 
+## 1.8.8
+
+### Patch Changes
+
+- 543c595: Buffer startup and streaming view headers into single console.log writes.
+
+  Replaces scattered `console.log()` calls in `bos start` summary and
+  `renderStreamingView` header/ready block with single buffered strings.
+  Prevents stdout interleaving when multiple streams write concurrently
+  in non-interactive / Docker / CI environments.
+
 ## 1.8.7
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @everything-dev/auth-plugin
 
+## 1.2.1
+
+### Patch Changes
+
+- fd962b6: Clean up tracked generated types and old SQLite artifacts.
+
+  - Added `types/` to `.gitignore` to prevent generated `.d.ts` files from being tracked
+  - Removed previously tracked generated type declarations from git history
+  - Removed leftover `auth.db` and `test-auth-sandbox.db` SQLite files from pre-PostgreSQL migration
+  - No source code changes, no functional impact
+
 ## 1.2.0
 
 ### Minor Changes

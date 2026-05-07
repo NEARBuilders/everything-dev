@@ -1,6 +1,6 @@
 {
   "name": "@everything-dev/auth-plugin",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Authentication plugin using Better Auth with NEAR Protocol, passkeys, and more",
   "type": "module",
   "exports": {
