@@ -1,5 +1,17 @@
 # everything-dev
 
+## 1.8.10
+
+### Patch Changes
+
+- 2e79fea: Fix init config ordering, parent plugin leakage, auth pglite resolution, and plugin selection
+
+  - `packages/everything-dev/src/cli/init.ts`: Fix `bos.config.json` key ordering so `extends` is always first and trailing group (`app`, `plugins`, `shared`) is last. Prevent parent plugin leakage by writing `"plugins": {}` instead of deleting the key when no plugins are selected.
+  - `packages/everything-dev/src/cli/prompts.ts`: Remove `registry` from `AVAILABLE_PLUGINS` since `.templatekeep` only includes `plugins/_template/**`.
+  - `plugins/auth/package.json`, `host/package.json`, `package.json`: Move `@electric-sql/pglite` to runtime `dependencies` so the auth plugin can resolve it when loaded remotely via Module Federation.
+
+- 2e79fea: Fix `syncApiContractBridge` to correctly include local plugins in generated contract types. Previously, plugins with `local:` development paths were skipped because the sync script checked `!plugin.url` — but local plugins intentionally have empty URLs. The guard now checks `!plugin.url && !plugin.localPath`, allowing the contract sync to read `src/contract.ts` directly from disk for locally-developed plugins.
+
 ## 1.8.9
 
 ### Patch Changes
