@@ -1,5 +1,12 @@
 # everything-dev
 
+## 1.8.2
+
+### Patch Changes
+
+- Updated dependencies [b20445f]
+  - every-plugin@2.4.3
+
 ## 1.8.1
 
 ### Patch Changes

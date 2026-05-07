@@ -1,5 +1,12 @@
 # @everything-dev/auth-plugin
 
+## 1.1.2
+
+### Patch Changes
+
+- Updated dependencies [b20445f]
+  - every-plugin@2.4.3
+
 ## 1.1.1
 
 ### Patch Changes
