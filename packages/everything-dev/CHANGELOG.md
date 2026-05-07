@@ -1,5 +1,30 @@
 # everything-dev
 
+## 1.8.13
+
+### Patch Changes
+
+- 30323b6: Fix typecheck failures in `bos init` output.
+
+  - Keep `sync:api-contract` as a standalone script (remove only from premature `typecheck` / `postinstall` chains).
+  - Strip deleted workspace references (`packages/everything-dev`, `host`) from the generated `typecheck` script.
+  - Prune missing `"files"` entries in `api/tsconfig.json` after template copy.
+  - Remove local `plugins/auth` import and `inferAdditionalFields` usage from copied `ui/src/lib/auth-client.ts`.
+  - Generate `api/src/auth-client.gen.ts` and `api/src/plugins-client.gen.ts` stubs so API compiles without local plugin types.
+  - Expand `.templatekeep` to include `api/tests/types.d.ts`, `ui/src/routes/_layout/apps/**`, and `ui/src/routes/_layout/_authenticated/organizations/**`.
+  - Update `init.structure.test.ts` assertions for newly included route files.
+
+- 03bb4a0: Fix orchestrator crash cascade from MF DTS plugin failures.
+
+  - `everything-dev`: Add `Effect.catchAllDefect` boundary to `dev-session.ts` so an unhandled rejection in one process (e.g., Module Federation DTS `EISDIR`) no longer tears down the entire `Effect.scoped` scope and kills all child processes.
+  - `everything-dev`: Add process-level `unhandledRejection` and `uncaughtException` handlers in `orchestrator.ts` to prevent Node.js from aborting the orchestrator on internal plugin errors.
+  - `every-plugin`: Add `.catch()` to the plugin dev server async IIFE in `dev-server-middleware.ts` so fatal middleware setup errors are logged instead of becoming unhandled rejections that crash the child process.
+
+  This prevents the scenario where a TYPE-001 error in one plugin's MF DTS plugin would, within 1-2 minutes, cascade via `EISDIR` into killing the UI and all other plugins simultaneously.
+
+- Updated dependencies [03bb4a0]
+  - every-plugin@2.5.4
+
 ## 1.8.12
 
 ### Patch Changes
