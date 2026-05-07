@@ -23,7 +23,7 @@
     "drizzle-orm": "catalog:"
   },
   "devDependencies": {
-    "@effect/language-service": "^0.84.3",
+    "@effect/language-service": "^0.85.1",
     "@module-federation/node": "catalog:",
     "@proj-airi/unplugin-drizzle-orm-migrations": "^0.1.4",
     "@rspack/cli": "^1.6.8",

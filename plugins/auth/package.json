@@ -26,7 +26,7 @@
     "every-plugin": "workspace:*"
   },
   "devDependencies": {
-    "@effect/language-service": "^0.84.3",
+    "@effect/language-service": "^0.85.1",
     "@module-federation/node": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/server": "catalog:",
