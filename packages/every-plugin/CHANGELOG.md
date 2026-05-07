@@ -1,5 +1,13 @@
 # every-plugin
 
+## 2.5.1
+
+### Patch Changes
+
+- f185a6c: Remove `@opentelemetry/api` resolve.fallback stub.
+
+  The package is now a direct dependency, so the `false` fallback workaround is no longer needed. Bundlers will resolve it normally.
+
 ## 2.5.0
 
 ### Minor Changes

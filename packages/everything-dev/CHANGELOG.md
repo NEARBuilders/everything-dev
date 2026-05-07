@@ -1,5 +1,16 @@
 # everything-dev
 
+## 1.8.4
+
+### Patch Changes
+
+- 5a31eff: Remove noisy `[SRI] Integrity verified for ...` console.log from `verifySriForUrl`.
+
+  The success log fired on every integrity check (plugin loads, SSR boot, and periodic production monitor), producing excessive output. Failures still throw descriptive errors. Silent success, loud failure.
+
+- Updated dependencies [f185a6c]
+  - every-plugin@2.5.1
+
 ## 1.8.3
 
 ### Patch Changes
