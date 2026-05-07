@@ -1,5 +1,11 @@
 # @every-plugin/template
 
+## 1.0.1
+
+### Patch Changes
+
+- 0a67206: Refactor dev orchestrator to service-descriptor architecture; add NEAR auth contract routes (nonce, verify, profile, relay, view); consolidate session queries in UI; add source-map devtool for plugin builds
+
 ## 1.0.0
 
 ### Major Changes

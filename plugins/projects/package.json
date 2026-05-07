@@ -1,6 +1,6 @@
 {
   "name": "@everything-dev/projects-plugin",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Projects, KV store, and organization management plugin",
   "type": "module",
   "exports": {
