@@ -1,5 +1,22 @@
 # everything-dev
 
+## 1.8.7
+
+### Patch Changes
+
+- ac564ad: Fix `resolveWorkspaceTarget` to respect `development` path for app entries.
+
+  Previously, app entries (host, ui, api, auth) were hardcoded to `${configDir}/${key}`, ignoring the `development` field in `bos.config.json`. This caused the auth plugin to be skipped during deploy because it lives at `plugins/auth/` rather than the workspace root.
+
+  Now, if an app entry has a `development` field (e.g., `"local:plugins/auth"`), the path is resolved correctly before falling back to the hardcoded root path.
+
+- ac564ad: Improve `bos start` non-interactive logging and startup summary.
+
+  - Add a clear startup summary showing Config Source (with clickable FastKV URL when loading from registry), Account, Domain, and loaded Modules (HOST, UI, API, AUTH).
+  - Consolidate warnings (missing secrets, CORS_ORIGIN defaulting) into the summary instead of scattered log lines.
+  - Expand `LOG_NOISE_PATTERNS` to suppress host-internal chatter: Module Federation loading, `[IntegrityMonitor]`, `[Plugins]` internals, separator dumps, and empty `{}` lines.
+  - Skip whitespace-only lines in `renderStreamingView` to prevent blank log output.
+
 ## 1.8.6
 
 ### Patch Changes
