@@ -229,7 +229,7 @@
     "@clack/prompts": "^0.10.1",
     "@effect/platform": "^0.96.1",
     "@effect/platform-node": "^0.106.0",
-    "@hono/node-server": "^1.14.4",
+    "@hono/node-server": "^2.0.1",
     "@module-federation/enhanced": "catalog:",
     "@module-federation/node": "catalog:",
     "@module-federation/runtime-core": "catalog:",
