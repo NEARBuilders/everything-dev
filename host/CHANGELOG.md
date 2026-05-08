@@ -1,5 +1,28 @@
 # host
 
+## 1.5.6
+
+### Patch Changes
+
+- 369c59b: Remove redundant auth plugin variables from `bos.config.json` and inject them at runtime instead.
+
+  - **`host/src/services/plugins.ts`**: Added `baseVariables` parameter to `loadPluginEntry` so runtime-derived values can be merged before explicit `variables` from `bos.config.json`. When loading the auth plugin, the host now injects `account` (from `config.account`) and `domain` (from `config.domain`, defaulting to `"localhost:3000"` in development) as base variables. Explicit values in `bos.config.json` still take precedence if present.
+
+  - **`bos.config.json`**: Removed the `app.auth.variables` block. `account`, `hostUrl`, and `uiUrl` are no longer required here since the host provides `account` and `domain` automatically at plugin initialization time.
+
+- ddb9952: Extract auth plugin from monorepo and remove `BETTER_AUTH_URL` env dependency.
+
+  - **Deleted `plugins/auth/`**: The auth plugin is now maintained as an external package and loaded at runtime via Module Federation. The `app.auth` entry in `bos.config.json` remains intact for runtime loading.
+
+  - **`host/src/services/plugins.ts`**: Added `normalizeDomain(domain, env)` helper that:
+
+    - Returns as-is if the domain already has `http://` or `https://`
+    - Prepends `http://` for `localhost` / `127.0.0.1` in development
+    - Prepends `https://` for everything else
+    - Applied to `domain` and `hostUrl` base variables when loading the auth plugin.
+
+  - **Removed `BETTER_AUTH_URL`**: Dropped from `.env.example` and `packages/everything-dev/src/plugin.ts` env generation. The auth plugin now derives its base URL from the normalized `hostUrl` variable passed by the host at initialization time.
+
 ## 1.5.5
 
 ### Patch Changes

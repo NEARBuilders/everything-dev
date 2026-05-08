@@ -1,5 +1,54 @@
 # everything-dev
 
+## 1.9.6
+
+### Patch Changes
+
+- 369c59b: Remove redundant auth plugin variables from `bos.config.json` and inject them at runtime instead.
+
+  - **`host/src/services/plugins.ts`**: Added `baseVariables` parameter to `loadPluginEntry` so runtime-derived values can be merged before explicit `variables` from `bos.config.json`. When loading the auth plugin, the host now injects `account` (from `config.account`) and `domain` (from `config.domain`, defaulting to `"localhost:3000"` in development) as base variables. Explicit values in `bos.config.json` still take precedence if present.
+
+  - **`bos.config.json`**: Removed the `app.auth.variables` block. `account`, `hostUrl`, and `uiUrl` are no longer required here since the host provides `account` and `domain` automatically at plugin initialization time.
+
+- 369c59b: Fix `bos init` failing on fresh projects due to missing database migration files.
+
+  - **`.templatekeep`**: Add `api/src/db/load-migrations.ts`, `api/src/db/migrator.ts`, and `api/src/global.d.ts` to the template allowlist. These source files are imported by `api/src/index.ts` and are required for the API to compile.
+  - **`src/cli/init.ts`**: Export `execCommand` and add `generateDatabaseMigrations()`. This function scans the initialized project for any `drizzle.config.ts` (excluding `node_modules`), checks if the workspace has a `db:generate` script, and runs it.
+  - **`src/plugin.ts`**: Call `generateDatabaseMigrations()` after `runBunInstall()` during `bos init`. This ensures fresh projects have their Drizzle migrations generated from the schema before the first build, fixing both `MODULE_NOT_FOUND` errors for missing source files and `ENOENT` errors for missing `_journal.json`.
+
+- 369c59b: Fix plugins with `local:` development targets falling back to production URL when the local path is missing.
+
+  - **`src/config.ts` (`resolveRuntimeTarget`)**: When a `local:` path does not exist, return `source: "local"` instead of `source: defaultSource` (which was always `"remote"`). This preserves the semantic intent that the config value is a local reference, allowing `resolveDevelopmentTarget` to detect the missing path and fall back to the production URL.
+  - **`src/config.ts` (`buildRuntimePluginConfig`)**: Use `resolveDevelopmentTarget` for the development environment instead of calling `resolveRuntimeTarget` directly. This gives plugins the same production-fallback behavior already used by `app.*` entries (host, ui, api, auth) when a local development path is absent.
+
+- 00df0ce: Fix false-positive outdated package warnings when installed and latest versions are identical.
+
+  - `status.ts`: Fix the regex in `readInstalledVersion` that strips semver prefixes. The negated character class `/^[^^~>=]+/` was accidentally leaving the `^` prefix intact, so `^1.9.5` was never stripped and always compared unequally to `1.9.5`.
+  - `cli.ts`: Introduce `normalizeVersion()` helper that strips `^`, `~`, `>=`, and `v` prefixes from both sides before comparing. Applied to `warnIfOutdated`, the `status` command display, and the `status` footer check to prevent all edge-case false positives.
+
+- 2c58902: Remove stale `auth-client.gen.ts` and fix UI implicit-any TypeScript errors.
+
+  - **everything-dev**: Removed `api/src/auth-client.gen.ts` from the `typesGen` generated file list in `plugin.ts`. This file was consolidated into `plugins-client.gen.ts` in a previous release but the metadata still referenced it, causing confusion when the stale file was left in workspaces.
+
+  - **ui**: Added explicit type annotations to callback parameters in:
+    - `src/routes/_layout/login.tsx`: `onError` callbacks for NEAR sign-in, passkey, anonymous, email, phone OTP, and GitHub social login.
+    - `src/routes/_layout/apps/$accountId/$gatewayId.tsx`: `TransactionBuilder` parameter in two `buildSignedDelegateAction` calls.
+
+  These fixes resolve `noImplicitAny` errors under `strict` mode without changing runtime behavior.
+
+- ddb9952: Extract auth plugin from monorepo and remove `BETTER_AUTH_URL` env dependency.
+
+  - **Deleted `plugins/auth/`**: The auth plugin is now maintained as an external package and loaded at runtime via Module Federation. The `app.auth` entry in `bos.config.json` remains intact for runtime loading.
+
+  - **`host/src/services/plugins.ts`**: Added `normalizeDomain(domain, env)` helper that:
+
+    - Returns as-is if the domain already has `http://` or `https://`
+    - Prepends `http://` for `localhost` / `127.0.0.1` in development
+    - Prepends `https://` for everything else
+    - Applied to `domain` and `hostUrl` base variables when loading the auth plugin.
+
+  - **Removed `BETTER_AUTH_URL`**: Dropped from `.env.example` and `packages/everything-dev/src/plugin.ts` env generation. The auth plugin now derives its base URL from the normalized `hostUrl` variable passed by the host at initialization time.
+
 ## 1.9.5
 
 ### Patch Changes
