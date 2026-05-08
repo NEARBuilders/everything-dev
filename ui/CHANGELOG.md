@@ -1,5 +1,79 @@
 # ui
 
+## 1.3.0
+
+### Minor Changes
+
+- c5fecc9: Switch from PGlite to Docker Postgres for development, fix multi-instance WASM crash, add auto-migration and infinite scroll for projects
+
+  The host was crashing with `RuntimeError: Aborted()` because multiple PGlite WASM instances cannot coexist in a single Node.js process. This replaces in-process PGlite with Docker Postgres for development, and adds several related fixes:
+
+  - Add `docker-compose.yml` with 3 postgres:17-alpine services (api:5432, auth:5433, projects:5434)
+  - Add `dev:postgres`, `dev:postgres:down`, `dev:postgres:reset` convenience scripts
+  - Declare `API_DATABASE_URL` and `PROJECTS_DATABASE_URL` secrets in `bos.config.json` so the host injects them into plugins
+  - Conditionally disable SSL for localhost connections in `createDatabaseDriver` (3 files)
+  - Add auto-migration to API and projects plugins on startup (matching auth plugin's existing pattern)
+  - Fix projects `listProjects` pagination: move visibility filter from JS post-filter to SQL WHERE clause, add offset-based cursor pagination
+  - Add infinite scroll with IntersectionObserver to projects list UI
+  - Default project visibility to `public` instead of `private`
+  - Show all visible projects (public/unlisted from everyone + own private) instead of filtering to current user only
+  - Fix CI: replace broken `file:./api-test.db` with postgres service container
+
+- f3f9e64: Migrate projects and API plugins to PostgreSQL with pglite fallback, add generic upvote system with SSE live ranking, and redesign projects page as a real-time ranked leaderboard.
+
+  ### What Changed
+
+  **API Plugin**
+
+  - Migrated from SQLite to PostgreSQL (`pg` production, `pglite` local fallback)
+  - Added `upvotes` table with unique constraint on `(thing_id, user_id)`
+  - New upvote endpoints: `upvoteThing`, `downvoteThing`, `getUpvoteCount`, `getUpvoteFeed`
+  - Real-time SSE stream at `/api/upvotes/stream` with in-memory pub/sub
+  - Unified database defaults to `pglite:.bos/<plugin>/:memory:`
+
+  **Projects Plugin**
+
+  - Migrated from SQLite/libsql to PostgreSQL (same driver pattern as auth)
+  - Dropped KV store (`kvStore` table, `KvService`, and all KV routes)
+  - Regenerated Drizzle schema with `pgTable` and `timestamp with time zone`
+  - Unified database defaults to `pglite:.bos/projects/:memory:`
+
+  **Auth Plugin**
+
+  - Updated default `AUTH_DATABASE_URL` to `pglite:.bos/auth/:memory:`
+  - Driver now detects `:memory:` basename for true in-memory mode
+
+  **UI**
+
+  - Complete redesign of projects list page
+  - Full-width horizontal cards with rank numbers (`#1`, `#2`, etc.)
+  - Vote stack on right (↑ count ↓)
+  - Projects sorted by upvote count descending
+  - Framer Motion `Reorder.Group` for smooth rank transitions
+  - SSE integration pushes live vote updates that trigger re-sorting
+  - Removed legacy `keys/` KV test routes and UI
+
+  **Config**
+
+  - Updated `.env.example` with new PostgreSQL default comments
+  - Removed `keys/**` from `bos.config.json` projects plugin routes
+
+- 89c20cb: Remove opencode plugin and related UI routes
+
+  ### What Changed
+
+  - **Deleted** `plugins/opencode/` — the opencode plugin is no longer part of the project
+  - **Deleted** `ui/src/routes/_layout/opencode.tsx` — removed the `/opencode` route page
+  - **Updated** `ui/src/routes/_layout/_authenticated/_admin/dashboard.tsx` — replaced opencode-specific server/prompt tabs with a simple admin placeholder
+  - **Updated** `ui/src/routes/_layout/about.tsx` — removed the `/opencode` link
+  - **Updated** `ui/public/llms.txt` and `ui/public/skill.md` — removed `/opencode` from public paths
+  - **Updated** `AGENTS.md` and `CONTRIBUTING.md` — removed opencode plugin references
+  - **Updated** `bos.config.json` — removed the `opencode` plugin entry
+
+### Patch Changes
+
+- 033f41f: Add projects link to sidebar and mobile nav, fix missing useQuery import
+
 ## 1.2.1
 
 ### Patch Changes
