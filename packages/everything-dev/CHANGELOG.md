@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.9.4
+
+### Patch Changes
+
+- b1adcb2: Fix SSR crash: pass runtimeConfig from router context to auth client instead of reading window.**RUNTIME_CONFIG** during server-side route matching
+
 ## 1.9.3
 
 ### Patch Changes

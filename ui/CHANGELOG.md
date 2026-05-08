@@ -1,5 +1,11 @@
 # ui
 
+## 1.3.1
+
+### Patch Changes
+
+- b1adcb2: Fix SSR crash: pass runtimeConfig from router context to auth client instead of reading window.**RUNTIME_CONFIG** during server-side route matching
+
 ## 1.3.0
 
 ### Minor Changes
