@@ -1,5 +1,12 @@
 # everything-dev
 
+## 1.9.7
+
+### Patch Changes
+
+- Updated dependencies [7e498bb]
+  - every-plugin@2.5.5
+
 ## 1.9.6
 
 ### Patch Changes
