@@ -1,5 +1,11 @@
 # api
 
+## 2.4.1
+
+### Patch Changes
+
+- fe97094: Fix virtual:drizzle-migrations.sql resolution in bun test by falling back to disk-read migrations when the virtual module is unavailable
+
 ## 2.4.0
 
 ### Minor Changes
