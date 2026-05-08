@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.9.3
+
+### Patch Changes
+
+- f99047b: Fix plugins not loading in production: `bos start` now always resolves plugin URLs for production mode instead of using development-resolved configs with empty URLs
+
 ## 1.9.1
 
 ### Patch Changes
