@@ -1,5 +1,11 @@
 # host
 
+## 1.5.10
+
+### Patch Changes
+
+- 3a875e2: Fix OpenAPI spec blank page (CSP blocks CDN scripts), host assets 403, and add auth/plugin status to health endpoint
+
 ## 1.5.9
 
 ### Patch Changes
