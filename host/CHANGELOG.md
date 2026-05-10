@@ -1,5 +1,11 @@
 # host
 
+## 1.5.9
+
+### Patch Changes
+
+- 6822f5e: Fix OpenAPI spec page showing blank white screen, add auth/plugin status to health endpoint, and serve host assets locally instead of proxying to UI CDN
+
 ## 1.5.8
 
 ### Patch Changes
