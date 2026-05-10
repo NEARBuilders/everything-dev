@@ -1,5 +1,15 @@
 # ui
 
+## 1.4.0
+
+### Minor Changes
+
+- b06192b: Consolidate auth-client and session into single auth.ts with router context singleton pattern. Add useAuthClient() hook, remove runtimeConfig prop threading from components, upgrade better-near-auth to 1.4.0.
+
+### Patch Changes
+
+- 05c9fe2: Fix changeset CI errors: replace catalog: protocol for every-plugin dependency so changesets can resolve versions
+
 ## 1.3.4
 
 ### Patch Changes

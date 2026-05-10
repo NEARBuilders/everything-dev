@@ -1,5 +1,12 @@
 # host
 
+## 1.5.8
+
+### Patch Changes
+
+- ba974d4: Fix OpenAPI spec page showing blank white screen and add auth/plugin status to health endpoint
+- 05c9fe2: Fix changeset CI errors: replace catalog: protocol for every-plugin dependency so changesets can resolve versions
+
 ## 1.5.7
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # api
 
+## 2.4.4
+
+### Patch Changes
+
+- 05c9fe2: Fix changeset CI errors: replace catalog: protocol for every-plugin dependency so changesets can resolve versions
+
 ## 2.4.3
 
 ### Patch Changes
