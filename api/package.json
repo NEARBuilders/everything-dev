@@ -1,6 +1,6 @@
 {
   "name": "api",
-  "version": "2.4.5",
+  "version": "2.4.6",
   "type": "module",
   "exports": {
     ".": {
@@ -21,7 +21,7 @@
     "drizzle-kit": "catalog:",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
-    "every-plugin": "2.5.7",
+    "every-plugin": "2.5.8",
     "pg": "catalog:",
     "@electric-sql/pglite": "catalog:",
     "zod": "catalog:"

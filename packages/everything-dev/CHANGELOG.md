@@ -1,5 +1,16 @@
 # everything-dev
 
+## 1.12.0
+
+### Minor Changes
+
+- cd7692f: Strengthen the generated auth surface and remove duplicate client facades so downstream packages rely on the canonical typed auth client.
+
+### Patch Changes
+
+- Updated dependencies [cd7692f]
+  - every-plugin@2.5.8
+
 ## 1.11.5
 
 ### Patch Changes

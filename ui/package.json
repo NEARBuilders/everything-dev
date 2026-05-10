@@ -1,6 +1,6 @@
 {
   "name": "ui",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -83,7 +83,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "every-plugin": "2.5.7",
+    "every-plugin": "2.5.8",
     "everything-dev": "workspace:*",
     "host": "workspace:*",
     "sharp": "^0.34.5",

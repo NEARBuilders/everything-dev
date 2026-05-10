@@ -1,5 +1,11 @@
 # ui
 
+## 1.4.1
+
+### Patch Changes
+
+- cd7692f: Strengthen the generated auth surface and remove duplicate client facades so downstream packages rely on the canonical typed auth client.
+
 ## 1.4.0
 
 ### Minor Changes

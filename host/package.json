@@ -1,6 +1,6 @@
 {
   "name": "host",
-  "version": "1.5.12",
+  "version": "1.5.13",
   "private": true,
   "type": "module",
   "scripts": {
@@ -24,7 +24,7 @@
     "@orpc/server": "catalog:",
     "@orpc/zod": "catalog:",
     "dotenv": "^17.2.3",
-    "every-plugin": "2.5.7",
+    "every-plugin": "2.5.8",
     "pg": "catalog:",
     "@electric-sql/pglite": "catalog:",
     "hono": "^4.11.4",
@@ -42,7 +42,7 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "every-plugin": "2.5.7",
+    "every-plugin": "2.5.8",
     "tsx": "^4.21.0",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "^6.0.4",

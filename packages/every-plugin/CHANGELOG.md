@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.5.8
+
+### Patch Changes
+
+- cd7692f: Strengthen the generated auth surface and remove duplicate client facades so downstream packages rely on the canonical typed auth client.
+
 ## 2.5.7
 
 ### Patch Changes

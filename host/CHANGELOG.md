@@ -1,5 +1,13 @@
 # host
 
+## 1.5.13
+
+### Patch Changes
+
+- cd7692f: Strengthen the generated auth surface and remove duplicate client facades so downstream packages rely on the canonical typed auth client.
+- Updated dependencies [cd7692f]
+  - every-plugin@2.5.8
+
 ## 1.5.12
 
 ### Patch Changes
