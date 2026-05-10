@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.11.5
+
+### Patch Changes
+
+- e2b4b85: Remove host/api/ui/plugins source from Docker image (loaded remotely at runtime). Remove deprecated `GATEWAY_DOMAIN` environment variable in favor of consistent `BOS_GATEWAY`.
+
 ## 1.11.4
 
 ### Patch Changes
