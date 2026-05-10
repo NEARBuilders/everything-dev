@@ -1,5 +1,11 @@
 # ui
 
+## 1.4.3
+
+### Patch Changes
+
+- e2a3d4a: Move theme toggle to fixed bottom-left position when not authenticated, keeping it always visible independent of page content.
+
 ## 1.4.2
 
 ### Patch Changes
