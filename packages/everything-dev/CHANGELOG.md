@@ -1,5 +1,13 @@
 # everything-dev
 
+## 1.11.4
+
+### Patch Changes
+
+- 6189953: Compile CLI to standalone binary in Dockerfile for faster cold starts. Remove deprecated `GATEWAY_DOMAIN` environment variable in favor of consistent `BOS_GATEWAY`.
+- Updated dependencies [b193ad6]
+  - every-plugin@2.5.7
+
 ## 1.11.3
 
 ### Patch Changes

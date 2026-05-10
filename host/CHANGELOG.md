@@ -1,5 +1,14 @@
 # host
 
+## 1.5.11
+
+### Patch Changes
+
+- 6189953: Compile CLI to standalone binary in Dockerfile for faster cold starts. Remove deprecated `GATEWAY_DOMAIN` environment variable in favor of consistent `BOS_GATEWAY`.
+- b193ad6: Fix `reqHeaders` runtime type to be a real `Headers` instance instead of `Record<string, string>`, preventing `TypeError: undefined is not a function` when calling `.get()` in plugin handlers
+- Updated dependencies [b193ad6]
+  - every-plugin@2.5.7
+
 ## 1.5.10
 
 ### Patch Changes

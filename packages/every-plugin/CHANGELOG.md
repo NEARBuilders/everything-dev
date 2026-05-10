@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.5.7
+
+### Patch Changes
+
+- b193ad6: Fix `reqHeaders` runtime type to be a real `Headers` instance instead of `Record<string, string>`, preventing `TypeError: undefined is not a function` when calling `.get()` in plugin handlers
+
 ## 2.5.6
 
 ### Patch Changes
