@@ -1,6 +1,6 @@
 {
   "name": "@every-plugin/template",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Template plugin for every-plugin framework",
   "type": "module",
   "exports": {

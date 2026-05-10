@@ -1,5 +1,16 @@
 # @everything-dev/registry-plugin
 
+## 1.2.3
+
+### Patch Changes
+
+- 13f68ff: Inject `getRawBody` and `reqHeaders` into oRPC handler context so plugins can verify webhook signatures
+
+  - Host session middleware now clones the request body before oRPC consumes it, exposing `getRawBody()` in context for raw body access
+  - Dev server middleware also injects `reqHeaders` and `getRawBody` (previously passed `context: {}`)
+  - API, projects, registry, and template plugins declare `getRawBody` in their context schemas
+  - API plugin `reqHeaders` type changed from `z.custom<Record<string, string>>()` to `z.record(z.string(), z.string())` for proper runtime validation
+
 ## 1.2.2
 
 ### Patch Changes
