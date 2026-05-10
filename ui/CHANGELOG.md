@@ -1,5 +1,11 @@
 # ui
 
+## 1.4.2
+
+### Patch Changes
+
+- f64f1a8: Fix theme toggle positioning: sticky sidebar on desktop with internal scrolling, add toggle to mobile bottom nav, and make it visible on desktop header when not authenticated.
+
 ## 1.4.1
 
 ### Patch Changes
