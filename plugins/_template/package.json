@@ -24,7 +24,7 @@
     "@effect/language-service": "^0.85.1",
     "@module-federation/node": "catalog:",
     "@rspack/cli": "^1.6.8",
-    "@rspack/core": "^1.6.8",
+    "@rspack/core": "^2.0.2",
     "@types/node": "catalog:",
     "dotenv": "^17.2.3",
     "everything-dev": "catalog:",
