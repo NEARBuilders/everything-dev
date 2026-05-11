@@ -1,5 +1,11 @@
 # ui
 
+## 1.4.7
+
+### Patch Changes
+
+- 09a1405: Restore the UI app barrel helpers used by route code so the build keeps working with runtime-config-driven pages.
+
 ## 1.4.6
 
 ### Patch Changes
