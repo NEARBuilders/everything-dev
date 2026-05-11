@@ -267,7 +267,7 @@
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
     "@types/gradient-string": "^1.1.6",
-    "@types/node": "^22.10.2",
+    "@types/node": "^25.6.2",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@types/tar": "^7.0.0",
