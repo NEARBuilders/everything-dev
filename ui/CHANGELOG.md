@@ -1,5 +1,11 @@
 # ui
 
+## 1.4.6
+
+### Patch Changes
+
+- 21836cb: Remove legacy UI generator plumbing and tighten the scaffold surface so fresh projects and upgrades do not ship references to missing files.
+
 ## 1.4.5
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # everything-dev
 
+## 1.12.3
+
+### Patch Changes
+
+- b5e684b: Preserve catalog references in scaffolded projects so framework versions update from a single root catalog entry.
+- 21836cb: Remove legacy UI generator plumbing and tighten the scaffold surface so fresh projects and upgrades do not ship references to missing files.
+
 ## 1.12.2
 
 ### Patch Changes
