@@ -1,5 +1,34 @@
 # everything-dev
 
+## 1.14.0
+
+### Minor Changes
+
+- ffa8200: Catalog-ify rspack/rsbuild packages and propagate via bos upgrade/sync
+
+  - Add @rspack/core, @rspack/cli, @rsbuild/core, @rsbuild/plugin-react to root package.json catalog
+  - Convert all workspace package.json rspack/rsbuild deps from version ranges to catalog: refs
+  - Change every-plugin @rspack/core peerDep from exact 1.7.4 to range ^1.7.4
+  - Add CATALOG_TOOL_PACKAGES to manifest-normalizer for catalog: conversion during init/sync
+  - Extend bos upgrade to also bump catalog tool packages to latest npm versions
+  - Extend bos status to report catalog tool package versions
+
+- 8a441fe: Eliminate cli.js shim — bin entry points directly to dist/cli.mjs
+
+  The `cli.js` shim was a dual-purpose entry that fell back between `dist/` and `src/`, creating a shebang conflict (npm needs `#!/usr/bin/env node`, Bun needed `#!/usr/bin/env bun` for TS). This caused `bunx everything-dev upgrade` to fail with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` because Node can't strip TS from node_modules.
+
+  - Delete `cli.js` — the shim is eliminated
+  - `src/cli.ts` shebang → `#!/usr/bin/env node` (tsdown carries it to `dist/cli.mjs`)
+  - `bin.bos` → `dist/cli.mjs` (Node-compatible, no fallback needed)
+  - Root scripts → `packages/everything-dev/src/cli.ts` (Bun handles TS natively)
+  - CI workflows → `packages/everything-dev/src/cli.ts`
+  - `init.ts` rewrite rules updated for new script paths
+
+### Patch Changes
+
+- Updated dependencies [ffa8200]
+  - every-plugin@2.5.9
+
 ## 1.13.1
 
 ### Patch Changes

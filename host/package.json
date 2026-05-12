@@ -1,6 +1,6 @@
 {
   "name": "host",
-  "version": "1.5.14",
+  "version": "1.5.15",
   "private": true,
   "type": "module",
   "scripts": {
@@ -24,7 +24,7 @@
     "@orpc/server": "catalog:",
     "@orpc/zod": "catalog:",
     "dotenv": "^17.2.3",
-    "every-plugin": "2.5.8",
+    "every-plugin": "2.5.9",
     "pg": "catalog:",
     "@electric-sql/pglite": "catalog:",
     "hono": "^4.12.18",
