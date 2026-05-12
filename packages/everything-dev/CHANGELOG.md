@@ -1,5 +1,66 @@
 # everything-dev
 
+## 1.13.0
+
+### Minor Changes
+
+- ca92870: Harden template workflows and eliminate Renovate config drift
+
+  Template CI and release-sync workflows now match the security posture of live workflows: SHA-pinned GitHub Actions, `--ignore-scripts` on bun install, `permissions:` at job/top level, dependency review, `bun audit` (fails on critical/high), secrets scoped to step-level `env:`, and `id-token: write` removed.
+
+  `.github/renovate.json` is now a symlink to `.github/templates/renovate.json` — single source of truth, no drift possible.
+
+  `bos upgrade` will clean up `.github/dependabot.yml` and `.github/templates/dependabot.yml` from child projects (added to `OBSOLETE_FILES`).
+
+  `bos sync` now treats `.github/renovate.json` and `.github/workflows/ci.yml` as framework-owned files (always overwritten on sync).
+
+- 0882f5d: Plugin-as-bosconfig architecture with sidebar generation and plugin UI remotes
+
+  **Features:**
+
+  - `extends` field supports object form `{ development?, production?, staging? }` for env-specific parent configs with fallback chain
+  - `defu`-based deep merge for extends chains: child overrides parent scalars, shared deps deep-merge, secrets union, null/false sentinel removes inherited plugins
+  - Resolved config lifecycle: `bos dev`/`bos build` write to `.bos/bos.resolved-config.json` (gitignored) instead of mutating `bos.config.json`
+  - Plugin bos.config.json files are standalone (no `extends`) — define `domain`, `app`, `sidebar`, `routes` independently
+  - Root plugin entries use `extends: "bos://..."` to resolve production config from remote registry
+  - String shorthand for plugin entries: `"key": "bos://account/domain"` normalizes to `{ extends: "bos://..." }`
+  - Sidebar generation from plugin configs with `roleRequired` ("anon"|"member"|"admin") filtering
+  - Plugin UI remotes: host loads sub-FederationEntry from `app.ui` in plugin config
+  - `bos publish --deploy` publishes both root and plugin bos.config.json to registry
+  - `pluginPublish` prefers plugin config `domain` field over extends parsing for registry path
+  - `personalizeConfig` creates standalone plugin bos.config.json files (domain + app + sidebar + routes)
+  - Plugin UI support: `detectLocalPackages` discovers plugin UI, `prepareDevelopmentRuntimeConfig` assigns ports
+  - Canonical key ordering enforced everywhere via shared `rebuildOrderedConfig()`
+  - Config validation in shared sync via `BosConfigSchema.parse`
+  - Staging env support in `RuntimeConfig` and `ClientRuntimeConfig` schemas
+
+  **Refactors:**
+
+  - Renamed `registry` → `apps`, `_template` → `settings`
+  - Organizations moved to auth sidebar
+  - `resolveRuntimePlugins` no longer recursively resolves nested plugins from extends chains
+  - Plugin rspack configs: removed `updateRootConfig` (plugins never update root), generalized `updateLocalConfig` to `updateLocalConfigSection` for any `app.{section}`
+  - Release workflows commit `**/bos.config.json` (root + plugins) instead of just root
+  - `personalizeConfig` strips `extends` and production URLs from plugin bos.config.json in both init and sync modes
+  - Extract `isPathExcluded`, `saveBosConfig`, `generateAuthTypesTemplate()` utilities
+  - Replace `(pluginInput as any)` with proper typing, add `getPluginRef()` helper
+  - Remove unused `resolveBosConfigInput` helper
+
+  **Tests:** 31 new integration tests (88 total, up from 57)
+
+### Patch Changes
+
+- 6425196: Upgrade hono to >=4.12.18 to resolve 5 security vulnerabilities (CSS injection, JWT validation, cache leakage, XSS, bodyLimit bypass). Soften CI audit step to warn instead of fail on high/critical findings for build-time-only dependencies.
+- 519ded7: Security hardening: switch to Renovate, pin actions to SHAs, remove pull_request_target, scope secrets
+
+  - Replace Dependabot with Renovate (minimumReleaseAge 3 days general, 5 days @tanstack/\*, minor bumps never automerged, helpers:pinGitHubActionDigests)
+  - Pin all GitHub Actions to commit SHAs to prevent tag-hijacking attacks
+  - Remove pull_request_target from preview.yml to prevent Pwn Request cache-poisoning
+  - Scope secrets to individual steps (not job-level env), remove id-token:write from job-level permissions
+  - Add dependency-review-action to CI for PRs
+  - Make bun audit fail on critical/high findings
+  - Document shared singleton trust model and supply chain incident response
+
 ## 1.12.4
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # host
 
+## 1.5.14
+
+### Patch Changes
+
+- 6425196: Upgrade hono to >=4.12.18 to resolve 5 security vulnerabilities (CSS injection, JWT validation, cache leakage, XSS, bodyLimit bypass). Soften CI audit step to warn instead of fail on high/critical findings for build-time-only dependencies.
+
 ## 1.5.13
 
 ### Patch Changes

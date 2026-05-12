@@ -1,5 +1,12 @@
 # ui
 
+## 1.4.8
+
+### Patch Changes
+
+- 6425196: Upgrade hono to >=4.12.18 to resolve 5 security vulnerabilities (CSS injection, JWT validation, cache leakage, XSS, bodyLimit bypass). Soften CI audit step to warn instead of fail on high/critical findings for build-time-only dependencies.
+- 519ded7: Fix sidebar active state: use TanStack Router `useLocation()` for reactivity and segment-boundary matching to prevent false positives
+
 ## 1.4.7
 
 ### Patch Changes
