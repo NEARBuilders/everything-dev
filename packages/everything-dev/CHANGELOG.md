@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.14.4
+
+### Patch Changes
+
+- 81f90a3: Fix `bos upgrade` to create missing catalog entries for tool packages (rspack, rsbuild, module-federation). Previously `updateRootCatalogVersion` skipped packages not already in the catalog, causing `catalog:` refs to resolve to nothing and `bun install` to fail with "failed to resolve" errors.
+
 ## 1.14.3
 
 ### Patch Changes
