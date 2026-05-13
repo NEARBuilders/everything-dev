@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.16.1
+
+### Patch Changes
+
+- 0e1c067: Stop inheriting parent plugins through `extends`, remove the fake plugin registry path, and make `bos upgrade` offer new parent plugins as an explicit opt-in.
+
 ## 1.16.0
 
 ### Minor Changes
