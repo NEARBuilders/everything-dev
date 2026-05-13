@@ -1,5 +1,12 @@
 # everything-dev
 
+## 1.16.3
+
+### Patch Changes
+
+- d5b4f00: Lazy-load the dev runtime so `bos types gen` does not pull in `@effect/platform-node` during CLI startup, and add regression coverage for init-generated projects running type generation after install.
+- d5b4f00: Stop inheriting parent plugins through `extends`, remove the fake plugin registry path, make `bos upgrade` offer new parent plugins as an explicit opt-in, and fix `bos init` to generate `.env.example`, `.env`, and `docker-compose.yml` from resolved secrets. Also speed up `bos init` by removing duplicate codegen, add timeouts to remote contract fetches, and print per-phase timing summaries for `bos init` and `bos upgrade`.
+
 ## 1.16.2
 
 ### Patch Changes
