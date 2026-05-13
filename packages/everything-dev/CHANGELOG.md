@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.17.0
+
+### Minor Changes
+
+- e4e6e3a: Add targeted `extends#path` support for composable app entries, move plugin provider metadata onto `plugins.<id>` entries, and migrate `bos init`/`bos upgrade` to the new plugin config shape. This also fixes local plugin path resolution during scaffolding so selected plugins are copied and wired correctly, including the no-plugins init path.
+
 ## 1.16.3
 
 ### Patch Changes
