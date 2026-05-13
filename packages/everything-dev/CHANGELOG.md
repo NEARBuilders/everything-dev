@@ -1,5 +1,30 @@
 # everything-dev
 
+## 1.20.0
+
+### Minor Changes
+
+- ebbbffa: Add `bos init` support for extending any deployed app. The `--extends` flag now accepts `bos://account/gateway` or `account/gateway` shorthand to extend any published app. When the parent config has no `repository`, `bos init` walks the `extends` chain to find one, then falls back to a minimal scaffold inheriting the parent runtime config. Removed `--extends-account` and `--extends-gateway` in favor of the single `--extends` flag. Init now shows progress labels for each phase (fetching config, resolving source, copying files, installing deps, etc.) instead of a single stalled spinner.
+
+### Patch Changes
+
+- ebbbffa: Reverted catalog dependencies to stable versions:
+
+  - @rspack/core: 2.0.3 → 1.7.11
+  - @rspack/cli: 2.0.3 → 1.7.11
+  - @rsbuild/core: 2.0.6 → 1.7.5
+  - @rsbuild/plugin-react: 2.0.0 → 1.4.6
+  - @module-federation/enhanced: 2.4.0 → 2.3.2
+  - @module-federation/node: 2.7.42 → 2.7.40
+  - @module-federation/rsbuild-plugin: 2.4.0 → 2.3.2
+  - @module-federation/runtime-core: 2.4.0 → 2.3.2
+  - @module-federation/sdk: 2.4.0 → 2.3.2
+  - @module-federation/dts-plugin: 2.4.0 → 2.3.2
+
+  The 2.0 rspack/rsbuild and 2.4 module-federation upgrades introduced breaking
+  dev-server middleware API changes that broke plugin hot-reload. Reverting to
+  the last known-good 1.7.x / 2.3.2 line until the ecosystem stabilizes.
+
 ## 1.19.0
 
 ### Minor Changes
