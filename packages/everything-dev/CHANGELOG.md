@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.16.2
+
+### Patch Changes
+
+- 33bd84e: Stop inheriting parent plugins through `extends`, remove the fake plugin registry path, make `bos upgrade` offer new parent plugins as an explicit opt-in, and fix `bos init` to generate `.env.example`, `.env`, and `docker-compose.yml` from resolved secrets.
+
 ## 1.16.1
 
 ### Patch Changes
