@@ -1,5 +1,11 @@
 # host
 
+## 1.6.1
+
+### Patch Changes
+
+- 52bb6cd: Fix spurious `serveStatic: root path './dist' is not found` warning in development by skipping the static file middleware when `./dist` doesn't exist.
+
 ## 1.6.0
 
 ### Minor Changes

@@ -1,5 +1,12 @@
 # everything-dev
 
+## 1.21.0
+
+### Minor Changes
+
+- 52bb6cd: Add `bos init` support for extending any deployed app. The `--extends` flag now accepts `bos://account/gateway` or `account/gateway` shorthand to extend any published app. When the parent config has no `repository`, `bos init` walks the `extends` chain to find one, then falls back to a minimal scaffold inheriting the parent runtime config. Removed `--extends-account` and `--extends-gateway` in favor of the single `--extends` flag. Init now shows progress labels for each phase (fetching config, resolving source, copying files, installing deps, etc.) instead of a single stalled spinner. Outdated package warnings now only show for `everything-dev` and `every-plugin` (framework packages), not transitive deps like rspack or module-federation.
+- 52bb6cd: Replace `--withHost` with `--overrides` flag for `bos init`. The new `--overrides` flag accepts a comma-separated list of sections to include locally: `ui`, `api`, `host`, `plugins`. Default is `ui,api` — a minimal config that inherits everything else from the parent at runtime. Use `--overrides=ui,api,host,plugins` to match the old `--withHost` behavior. Specifying `--overrides=plugins` (with or without `--plugins`) controls which plugins get local source. Plugin inheritance via `extends` works without local overrides — `--overrides=plugins` is only needed for local plugin development. Also adds automatic `repository` detection from git remote and produces a minimal `bos.config.json` by default.
+
 ## 1.20.0
 
 ### Minor Changes
