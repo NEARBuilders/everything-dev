@@ -1,5 +1,24 @@
 # everything-dev
 
+## 1.28.0
+
+### Minor Changes
+
+- 6b7c0da: Use `plugins/*` workspace glob instead of individual `plugins/X` entries in `package.json`. This prevents `bun install` errors when upgrading projects that reference plugin workspaces that don't exist locally. Also removes `docker-compose.yml` from framework-owned sync files (it's now generated dynamically from runtime config). CI workflow templates no longer include the internal `packages/every-plugin` build step and Docker build steps are conditional on `Dockerfile` existing.
+- 6b7c0da: Separate CLI presentation from plugin handler logic. Plugin handlers now emit structured progress events via `EventEmitter` instead of calling `@clack/prompts` directly; the CLI adapter subscribes and renders spinners, prompts, and colors. This makes `everything-dev/plugin` platform-agnostic — it can spawn processes and return data, but no longer imports terminal UI libraries.
+
+  - Removed `src/` from package `files` (halves published size) and added `sideEffects: false`
+  - Expanded `neverBundle` list: `@clack/prompts`, `@effect/*`, `@orpc/*`, `@standard-schema/*`, `execa`, `defu`, `openapi-types`
+  - Removed `plugin` from barrel export (`everything-dev`) — import `everything-dev/plugin` directly
+  - `init` handler no longer prompts or shows spinners — CLI handles interactive `docker compose` confirm, parent config confirmation, and live progress via `pluginEvents`
+  - `dev`/`start` handlers store session data via `consumeDevSession()` instead of starting Ink UI directly — CLI launches the terminal session
+  - `start` handler returns structured `StartSummary` data instead of printing colored output
+  - Added `DevResult` and `StartResult` type exports to contract
+
+### Patch Changes
+
+- 6b7c0da: Fix `bos init` plugin selection: choosing "override plugins" but selecting zero plugins now correctly omits all parent plugins instead of defaulting to all of them. The `init` handler previously treated an empty `plugins` array (`[]`) the same as `undefined` ("not specified"), overwriting the user's explicit choice with all parent plugin keys.
+
 ## 1.27.0
 
 ### Minor Changes
