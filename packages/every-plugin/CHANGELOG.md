@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.5.11
+
+### Patch Changes
+
+- 46988c0: Require package typecheck and test gates before publishing framework releases, and allow manual release workflow retries even when there are no fresh changesets to consume.
+
 ## 2.5.10
 
 ### Patch Changes

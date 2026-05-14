@@ -1,5 +1,47 @@
 # everything-dev
 
+## 1.27.0
+
+### Minor Changes
+
+- 521f85e: Fix SSR auth client injection, proxy test mock shape, and test config resolution
+
+  - **host**: Pass `authClient` to SSR `renderToStream` so the host's pre-resolved auth client
+    is reused instead of creating a new one from config. Export `toAuthClientContext` for use
+    in program.ts. Proxy test mock updated to use correct `initialized.context` shape instead
+    of putting handler directly on `initialized`.
+
+  - **everything-dev**: Add optional `authClient` field to `RenderOptionsWithApi` type so
+    callers can provide a pre-configured auth client for SSR rendering.
+
+  - **ui**: `renderToStream` now uses `authClient` from render options when provided, falling
+    back to `createAuthClient(runtimeConfig)` when not specified.
+
+  - **host/tests**: Replace `process.env`-based `BOS_UI_URL`/`BOS_UI_SSR_URL` with production
+    URL fallbacks from `bos.config.json` (`app.ui.production`, `app.ui.ssr`). Add
+    `createMockAuthClient` helper returning a null-session auth client for SSR tests. Pass
+    `session: null` and `authClient` in test render options to match production SSR semantics.
+
+### Patch Changes
+
+- 1f75d34: Remove `.templatekeep` and `.templatesync-exclude` during `bos upgrade` — these files belong to the deprecated template sync pattern that has been replaced by `bos sync`.
+- 212ea6f: Clean up test infrastructure: proxy mock, dead env plumbing, and type cast
+
+  - **host/tests**: Replace 80-line manual `AuthClient` mock with an 8-line
+    `Proxy`-based mock that auto-implements any property, making it resilient
+    to auth client API changes.
+  - **host/tests**: Remove dead `vitest.setup.ts` and its `setupFiles` entry
+    from `vitest.config.ts`. The `BOS_UI_URL`/`BOS_UI_SSR_URL` env var
+    plumbing was unused after switching `loadTestRuntimeConfig` to read
+    production URLs from `bos.config.json`. Simplify `global-setup.ts` to
+    just build the UI dist (no HTTP server or env var setup needed).
+  - **ui**: Remove unnecessary type cast in `renderToStream` —
+    `renderOptions.authClient` is now typed directly via `RenderOptions`.
+    Remove unused `AuthClient` type import.
+
+- f78dcb8: Fix `bos init` to scaffold the selected local surfaces directly from the extended repository, and fix `bos upgrade` to take tool versions from the extended repo's root catalog instead of drifting to newer npm releases.
+- 46988c0: Require package typecheck and test gates before publishing framework releases, and allow manual release workflow retries even when there are no fresh changesets to consume.
+
 ## 1.26.1
 
 ### Patch Changes
