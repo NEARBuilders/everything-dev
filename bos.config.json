@@ -80,17 +80,7 @@
       ]
     },
     "projects": {
-      "development": "local:plugins/projects",
-      "production": "https://elliot-braem-3750-everything-dev-projects-plugin--8a80b3720-ze.zephyrcloud.app",
-      "integrity": "sha384-SuX+AholEqT8sbEXPglTeRjXGVnQCFBK1j6zJPzs42L73xLYz9oH6sHqh+Ap+pn6",
-      "secrets": ["PROJECTS_DATABASE_URL"],
-      "routes": ["ui/src/routes/_layout/_authenticated/projects/**"],
-      "sidebar": [
-        {
-          "icon": "FolderKanban",
-          "label": "projects"
-        }
-      ]
+      "extends": "bos://project.everything.near/everything.dev"
     },
     "settings": {
       "development": "local:plugins/settings",

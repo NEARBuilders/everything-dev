@@ -29,6 +29,12 @@ The host orchestrates both UI and API federation:
 └─────────────────────────────────────────────────────────┘
 ```
 
+Today the host boots from one `RuntimeConfig` snapshot and shares that config across auth, plugins, proxying, and SSR for the lifetime of the process.
+
+It already supports request-scoped runtime identity metadata through `/_runtime/:account/:gateway`, but that does not yet swap the underlying remote URLs or plugin wiring per request.
+
+For true domain-based multi-tenancy and runtime config hot-swap, see [`../plans/runtime-config-hot-swap.md`](../plans/runtime-config-hot-swap.md).
+
 ## Development
 
 ```bash
@@ -89,6 +95,13 @@ For the temporary publish registry, use `bos publish` or `bos publish --deploy`.
 | `BETTER_AUTH_SECRET` | Secret for session encryption | - |
 | `BETTER_AUTH_URL` | Base URL for auth endpoints | - |
 | `CORS_ORIGIN` | Comma-separated allowed origins | Host + UI URLs |
+
+## Multi-Tenant Status
+
+- Current: one process-wide `RuntimeConfig`, request-scoped runtime metadata
+- Current: host can inject active runtime info into the client shell
+- Not yet implemented: per-request config resolution for wildcard domains like `project.everything.dev`
+- Planned direction: build request-scoped apps and atomically swap handlers when config changes
 
 ### Proxy Mode
 

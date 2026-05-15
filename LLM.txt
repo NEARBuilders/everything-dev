@@ -1,10 +1,15 @@
 # Technical Guide for LLMs
 
-This is the technical guide for a Module Federation monorepo demonstrating every-plugin architecture, runtime-loaded configuration, and NEAR Protocol integration. The canonical runtime package is `everything-dev`; `bos` is its CLI alias.
+This is the technical guide for the parent `everything.dev` repository: a Module Federation monorepo demonstrating every-plugin architecture, runtime-loaded configuration, and NEAR Protocol integration. The canonical runtime package is `everything-dev`; `bos` is its CLI alias.
 
 For contribution guidelines, see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Architecture Overview
+
+This repo is both:
+
+1. The parent runtime platform, including the host in `host/` and the CLI/tooling in `packages/everything-dev/`.
+2. The reference runtime-composed application used to demonstrate how published `bos.config.json` drives the host, UI, API, and plugins.
 
 This is a **Module Federation monorepo** with runtime-loaded configuration:
 
@@ -31,6 +36,20 @@ This is a **Module Federation monorepo** with runtime-loaded configuration:
 - ✅ Type-safe RPC with oRPC
 - ✅ NEAR Protocol authentication via Better-Auth
 - ✅ CDN-ready with Module Federation
+
+## Current Runtime Resolution Status
+
+The host already has request-scoped runtime identity support. In `host/src/program.ts`, `resolveActiveRuntime()` can derive runtime metadata from `/_runtime/:account/:gateway`, and the host injects that into `window.__RUNTIME_CONFIG__` for the UI.
+
+However, the underlying `RuntimeConfig` is still process-wide. `ConfigService` is an immutable Effect layer, so auth wiring, plugin loading, remote URLs, and SSR federation are still built from a single startup config snapshot.
+
+Practical consequence:
+
+- Path-based runtime metadata works today.
+- True wildcard-domain multi-tenancy still needs dynamic config resolution and scoped runtime swapping in the host.
+- The active design doc for that work is `plans/runtime-config-hot-swap.md`.
+
+If a task mentions `project.everything.dev -> bos://project.everything.near/everything.dev`, work in the host/runtime path, not just the UI.
 
 ## Configuration System: bos.config.json
 

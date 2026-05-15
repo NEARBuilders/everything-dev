@@ -13,7 +13,9 @@
 
 Runtime apps that compose, verify, and evolve without rebuilding — built on [Module Federation](https://module-federation.io/), [every-plugin](https://plugin.everything.dev/), and [NEAR Protocol](https://near.dev/).
 
-A published `bos.config.json` defines how host, UI, and API load together. Changing the config changes the composition. No rebuild needed. The configuration lives on-chain — inspectable, verifiable, and extendable by anyone.
+A published `bos.config.json` defines how host, UI, and API load together. Changing the config changes the composition. UI and API remotes do not need to be rebuilt for URL changes, though the host still needs a restart to pick up a new runtime config snapshot today. The configuration lives on-chain — inspectable, verifiable, and extendable by anyone.
+
+This repository is the parent runtime platform: it contains the host, the reference UI, the reference API, and the CLI/tooling used to create and run child project remotes.
 
 Built with [Tanstack Start](https://tanstack.com/start/latest/docs/framework/react/quick-start), [Hono.js](https://hono.dev/), [oRPC](https://orpc.dev/), [better-auth](https://better-auth.com/), and [rsbuild](https://rsbuild.rs/).
 
@@ -22,6 +24,15 @@ Built with [Tanstack Start](https://tanstack.com/start/latest/docs/framework/rea
 ```bash
 bunx everything-dev@latest init
 ```
+
+## Repo Identity
+
+Use this repo in two modes:
+
+1. As the parent runtime platform that defines the host/runtime gateway in `host/` and the CLI in `packages/everything-dev/`.
+2. As the reference app that demonstrates a runtime-composed UI/API/plugin stack driven by `bos.config.json`.
+
+Child projects created from this platform should stay config-driven and treat this repository as the upstream host/runtime implementation.
 
 ## Why
 
@@ -166,6 +177,14 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed contribution guidelines in
 - ✅ **Type Safety** - End-to-end with oRPC contracts
 - ✅ **UI Runtime Boundary** - `everything-dev/ui/client` and `/server` own router/runtime glue
 - ✅ **CDN-Ready** - Module Federation with [Zephyr Cloud](https://zephyr-cloud.io/)
+
+## Multi-Tenant Status
+
+The host already supports request-scoped runtime metadata via `/_runtime/:account/:gateway`, and it injects request-specific `window.__RUNTIME_CONFIG__` data for the active runtime.
+
+What it does not do yet is swap the underlying `RuntimeConfig` per request. Today, `host/src/program.ts` still starts from one process-wide config snapshot via `ConfigService`, so remote URLs, auth setup, plugin loading, and SSR wiring are still derived from the startup config.
+
+That means wildcard-domain multi-tenancy such as `project.everything.dev -> bos://project.everything.near/everything.dev` still needs true dynamic config resolution in the host, not just path-based runtime metadata. The current design direction is documented in [`plans/runtime-config-hot-swap.md`](./plans/runtime-config-hot-swap.md).
 
 ## Configuration
 
