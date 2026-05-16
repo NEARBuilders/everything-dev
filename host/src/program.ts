@@ -29,12 +29,12 @@ import {
 import { type ClientRuntimeConfig, ConfigService, type RuntimeConfig } from "./services/config";
 import {
   loadRouterModule,
-  type RouterModule,
   resetFederationInstance,
 } from "./services/federation.server";
 import { startIntegrityMonitor } from "./services/integrity-monitor";
 import { createPluginsClient, type PluginResult, PluginsService } from "./services/plugins";
 import { createRouterMounts } from "./services/router";
+import { getTenantRuntimeErrorResponse, resolveRequestRuntime } from "./services/tenant-runtime";
 import { logger } from "./utils/logger";
 
 type ActiveRuntimeState = NonNullable<ClientRuntimeConfig["runtime"]>;
@@ -524,7 +524,7 @@ export const createStartServer = (onReady?: () => void) =>
 
     const cspScriptSrc = CSP_STRICT
       ? [NONCE, "'strict-dynamic'", "'unsafe-eval'"]
-      : ["'self'", "'unsafe-inline'", "'unsafe-eval'", ...uniqueOrigins, ...cdnOrigins];
+      : ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:", ...uniqueOrigins, ...cdnOrigins];
 
     app.use(
       "*",
@@ -542,23 +542,21 @@ export const createStartServer = (onReady?: () => void) =>
           ],
           connectSrc: ["'self'", "https:", ...uniqueOrigins, ...wsOrigins, ...cdnOrigins],
           fontSrc: ["'self'", "https:", ...uniqueOrigins],
-          manifestSrc: ["'self'", ...(uiConfig.url ? [new URL(uiConfig.url).origin] : [])],
+          manifestSrc: ["'self'", "https:", ...(uiConfig.url ? [new URL(uiConfig.url).origin] : [])],
           frameSrc: ["'self'", "https:", ...uniqueOrigins],
           objectSrc: ["'none'"],
           baseUri: ["'self'"],
           formAction: ["'self'"],
           frameAncestors: ["'none'"],
-          workerSrc: ["'self'", ...uniqueOrigins],
+          workerSrc: ["'self'", "https:", ...uniqueOrigins],
         },
       }),
     );
 
     app.get("/health", (c: Context<HonoEnv>) => c.text("OK"));
 
-    let ssrRouterModule: RouterModule | null = null;
-
     const loadingState = {
-      status: "loading" as "loading" | "ready" | "failed",
+      status: "ready" as "loading" | "ready" | "failed",
       startTime: Date.now(),
       milestones: [] as string[],
       error: null as Error | null,
@@ -567,12 +565,13 @@ export const createStartServer = (onReady?: () => void) =>
 
     const renderClientShell = (
       ctx: Context<HonoEnv>,
+      runtimeSourceConfig: RuntimeConfig,
       runtimeConfig: ClientRuntimeConfig,
       error?: Error | null,
     ) => {
       const nonce = CSP_STRICT ? ctx.get("secureHeadersNonce") : undefined;
-      const clientUrl = uiConfig.url;
-      const uiIntegrity = uiConfig.integrity;
+      const clientUrl = runtimeSourceConfig.ui.url;
+      const uiIntegrity = runtimeSourceConfig.ui.integrity;
       const themeInitScript = (getThemeInitScript() as { children?: string }).children ?? "";
       const configWithNonce = nonce ? { ...runtimeConfig, cspNonce: nonce } : runtimeConfig;
       const hydrateScript =
@@ -582,7 +581,7 @@ export const createStartServer = (onReady?: () => void) =>
       const sriAttr = uiIntegrity ? ` integrity="${uiIntegrity}" crossorigin="anonymous"` : "";
       const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
 
-      const pluginUiScripts = Object.values(config.plugins ?? {})
+      const pluginUiScripts = Object.values(runtimeSourceConfig.plugins ?? {})
         .filter((p: RuntimePlugin) => p.ui?.url && p.ui.source === "remote")
         .map((p: RuntimePlugin) => {
           const uiSri = p.ui!.integrity
@@ -598,7 +597,7 @@ export const createStartServer = (onReady?: () => void) =>
             <head>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-              <title>${config.domain || "App"}</title>
+              <title>${runtimeConfig.runtime?.title ?? runtimeSourceConfig.title ?? runtimeSourceConfig.account}</title>
               <link rel="icon" type="image/x-icon" href="${clientUrl}/favicon.ico" />
               <link rel="icon" type="image/svg+xml" href="${clientUrl}/icon.svg" />
               <link rel="manifest" href="${clientUrl}/manifest.json" />
@@ -632,13 +631,10 @@ export const createStartServer = (onReady?: () => void) =>
       );
     };
 
-    const logMilestone = (name: string) => {
-      const elapsed = Date.now() - loadingState.startTime;
-      const message = `[SSR] [+${elapsed}ms] ${name}`;
-      loadingState.milestones.push(message);
+    const proxyUiAssetRequest = async (c: Context<HonoEnv>) => {
+      const runtime = await resolveRequestRuntime(config, c.req.raw);
+      return proxyRequest(c.req.raw, runtime.config.ui.url);
     };
-
-    const proxyUiAssetRequest = (c: Context<HonoEnv>) => proxyRequest(c.req.raw, uiConfig.url);
 
     const sessionMiddleware = createSessionMiddleware(plugins);
 
@@ -650,52 +646,64 @@ export const createStartServer = (onReady?: () => void) =>
         return next();
       }
 
-      return proxyUiAssetRequest(c);
+      try {
+        return await proxyUiAssetRequest(c);
+      } catch (error) {
+        const { message, status } = getTenantRuntimeErrorResponse(error);
+        return c.text(message, { status: status as 404 | 500 | 502 });
+      }
     });
 
     for (const [pluginKey, pluginConfig] of Object.entries(config.plugins ?? {}) as Array<
       [string, RuntimePlugin]
     >) {
       if (!pluginConfig.ui?.url) continue;
-      const pluginUiUrl = pluginConfig.ui.url;
       const proxyPrefix = `/__mf/plugin-ui/${pluginKey}`;
-      app.all(`${proxyPrefix}/*`, (c: Context<HonoEnv>) => proxyRequest(c.req.raw, pluginUiUrl));
-    }
-
-    if (uiConfig.ssrUrl) {
-      const routerModuleResult = yield* loadRouterModule(config).pipe(Effect.either);
-
-      if (routerModuleResult._tag === "Left") {
-        loadingState.status = "failed";
-        loadingState.error = routerModuleResult.left;
-        logMilestone("Load failed");
-        logger.error("[SSR] Failed to load Router module:", routerModuleResult.left);
-        yield* Effect.fail(routerModuleResult.left);
-      } else {
-        ssrRouterModule = routerModuleResult.right;
-        loadingState.status = "ready";
-      }
-    } else {
-      loadingState.status = "ready";
+      app.all(`${proxyPrefix}/*`, async (c: Context<HonoEnv>) => {
+        try {
+          const runtime = await resolveRequestRuntime(config, c.req.raw);
+          const pluginUiUrl = runtime.config.plugins?.[pluginKey]?.ui?.url;
+          if (!pluginUiUrl) {
+            return c.text(`Plugin UI unavailable for ${pluginKey}`, 404);
+          }
+          return await proxyRequest(c.req.raw, pluginUiUrl);
+        } catch (error) {
+          const { message, status } = getTenantRuntimeErrorResponse(error);
+          return c.text(message, { status: status as 404 | 500 | 502 });
+        }
+      });
     }
 
     app.use("/*", sessionMiddleware);
 
     app.get("*", async (c: Context<HonoEnv>) => {
-      const activeRuntime = await resolveActiveRuntime(config, c.req.raw);
-
-      const runtimeConfig = buildRuntimeClientConfig(config, c.req.raw, activeRuntime, plugins);
-
-      if (!uiConfig.ssrUrl) {
-        return renderClientShell(c, runtimeConfig);
+      let resolvedRuntime;
+      try {
+        resolvedRuntime = await resolveRequestRuntime(config, c.req.raw);
+      } catch (error) {
+        const { message, status } = getTenantRuntimeErrorResponse(error);
+        return c.text(message, { status: status as 404 | 500 | 502 });
       }
 
-      if (!ssrRouterModule) {
-        return c.text("SSR router unavailable", 503);
+      const effectiveConfig = resolvedRuntime.config;
+      const activeRuntime = await resolveActiveRuntime(effectiveConfig, c.req.raw);
+      const runtimeConfig = buildRuntimeClientConfig(effectiveConfig, c.req.raw, activeRuntime, plugins);
+
+      if (!effectiveConfig.ui.ssrUrl) {
+        return renderClientShell(c, effectiveConfig, runtimeConfig);
       }
+
+      const routerModuleResult = await Effect.runPromise(loadRouterModule(effectiveConfig).pipe(Effect.either));
+
+      if (routerModuleResult._tag === "Left") {
+        logger.error("[SSR] Failed to load Router module:", routerModuleResult.left);
+        return renderClientShell(c, effectiveConfig, runtimeConfig, routerModuleResult.left);
+      }
+
+      const ssrRouterModule = routerModuleResult.right;
 
       try {
-        const assetsUrl = uiConfig.url;
+        const assetsUrl = effectiveConfig.ui.url;
         const nonce = CSP_STRICT ? c.get("secureHeadersNonce") : undefined;
         const pluginContext = buildPluginContext(c);
         const ssrApiClient = createPluginsClient(plugins, pluginContext);

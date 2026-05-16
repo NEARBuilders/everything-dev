@@ -145,6 +145,13 @@ export const KeyPublishResultSchema = z.object({
 
 export const OverrideSectionSchema = z.enum(["ui", "api", "host", "plugins"]);
 
+export const RuntimeOverrideTargetBaseSchema = z.enum(["ui", "api", "plugins"]);
+
+export const RuntimeOverrideTargetSchema = z.union([
+  RuntimeOverrideTargetBaseSchema,
+  z.string().regex(/^plugins\.(\*|[a-z0-9_-]+)$/),
+]);
+
 export const InitOptionsSchema = z.object({
   extends: z.string().optional(),
   directory: z.string().optional(),
@@ -327,3 +334,4 @@ export type UpgradeResult = z.infer<typeof UpgradeResultSchema>;
 export type StatusResult = z.infer<typeof StatusResultSchema>;
 export type TypesGenOptions = z.infer<typeof TypesGenOptionsSchema>;
 export type TypesGenResult = z.infer<typeof TypesGenResultSchema>;
+export type RuntimeOverrideTarget = z.infer<typeof RuntimeOverrideTargetSchema>;

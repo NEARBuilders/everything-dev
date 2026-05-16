@@ -33,6 +33,27 @@ Understand and interact with everything.dev as a runtime-composed site on NEAR.
 - Compare canonical config with public metadata
 - Help authors understand runtime inheritance and composition
 
+## Build Skills
+
+For project creation, extension, and packaged framework workflows, load the published `everything-dev` TanStack Intent skills rather than inventing the workflow from scratch.
+
+Useful packaged skills:
+
+- `everything-dev#dev-workflow` — start dev servers, understand host/UI/API runtime wiring, inspect logs, and debug hot reload
+- `everything-dev#extends-config` — reason about `bos.config.json`, `extends`, deep merge semantics, and resolved config lifecycle
+- `everything-dev#init-upgrade` — initialize a fresh app, extend an existing app from a parent runtime, sync upstream files, and upgrade framework packages
+- `everything-dev#publish-sync` — build, deploy, publish, and sync runtime config changes
+
+Use these skills when you need to:
+
+- init a fresh app from an existing runtime
+- extend an existing project from a parent config
+- build a custom UI against an existing API contract
+- create or evolve plugins under the `everything-dev` runtime model
+- publish or sync runtime config safely
+
+In this repository, those packaged skill sources live under `packages/everything-dev/skills/`.
+
 ## Public entry points
 
 - `/`

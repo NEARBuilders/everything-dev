@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { RuntimeOverrideTargetSchema, type RuntimeOverrideTarget } from "./contract";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import {
   type BosEnv,
@@ -72,6 +73,13 @@ export interface ConfigResult {
     extended?: string[];
     remote?: boolean;
   };
+}
+
+export interface RemoteConfigResult {
+  rawConfig: BosConfigInput;
+  config: BosConfig;
+  source: string;
+  extendsChain: string[];
 }
 
 export interface ResolvedComposableReference {
@@ -149,6 +157,52 @@ export async function loadBosConfig(options?: {
   }
 
   return result.runtime;
+}
+
+export async function loadRemoteConfig(
+  bosUrl: string,
+  env: BosEnv = "production",
+): Promise<RemoteConfigResult> {
+  const runtimeEnv: BosEnv = env === "staging" ? "production" : env;
+  const extendedChain: string[] = [];
+  const parsed = await resolveConfigWithExtends(bosUrl, process.cwd(), new Set(), extendedChain, env);
+  const config = await resolveRootComposableEntries(
+    BosConfigSchema.parse(parsed),
+    process.cwd(),
+    runtimeEnv,
+  );
+
+  return {
+    rawConfig: await loadConfigFile(bosUrl, process.cwd()),
+    config,
+    source: bosUrl,
+    extendsChain: extendedChain,
+  };
+}
+
+export function parseRuntimeOverrideTargets(value?: string | null): RuntimeOverrideTarget[] {
+  if (!value) {
+    return [];
+  }
+
+  return [...new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean))].map((entry) =>
+    RuntimeOverrideTargetSchema.parse(entry),
+  );
+}
+
+export function isRuntimeOverrideAllowed(
+  allowedTargets: ReadonlyArray<RuntimeOverrideTarget>,
+  target: "ui" | "api" | "plugins" | `plugins.${string}`,
+): boolean {
+  if (allowedTargets.includes(target as RuntimeOverrideTarget)) {
+    return true;
+  }
+
+  if (target.startsWith("plugins.")) {
+    return allowedTargets.includes("plugins.*");
+  }
+
+  return false;
 }
 
 export async function buildRuntimePluginsForConfig(

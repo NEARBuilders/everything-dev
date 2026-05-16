@@ -180,11 +180,26 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed contribution guidelines in
 
 ## Multi-Tenant Status
 
-The host already supports request-scoped runtime metadata via `/_runtime/:account/:gateway`, and it injects request-specific `window.__RUNTIME_CONFIG__` data for the active runtime.
+The host now supports a fixed-core tenant mode for domain-based UI composition.
 
-What it does not do yet is swap the underlying `RuntimeConfig` per request. Today, `host/src/program.ts` still starts from one process-wide config snapshot via `ConfigService`, so remote URLs, auth setup, plugin loading, and SSR wiring are still derived from the startup config.
+What works today:
+- The host still boots once from one base `RuntimeConfig`.
+- Auth, API, and server-side plugin routers stay fixed from that base config.
+- Requests can resolve a tenant runtime from the subdomain, such as `alice.linktree.com -> bos://alice.near/linktree.com`.
+- Tenant configs must extend the base BOS runtime.
+- Per-request tenant overrides can currently change:
+  - `app.ui`
+  - existing `plugins.<pluginId>.ui`
+  - existing `plugins.<pluginId>.sidebar`
+- Tenant SSR is gated by `TENANT_WHITELIST` and `ALLOW_UNTRUSTED_SSR`.
 
-That means wildcard-domain multi-tenancy such as `project.everything.dev -> bos://project.everything.near/everything.dev` still needs true dynamic config resolution in the host, not just path-based runtime metadata. The current design direction is documented in [`plans/runtime-config-hot-swap.md`](./plans/runtime-config-hot-swap.md).
+What does not work yet:
+- tenant-specific API overrides in fixed-core mode
+- tenant-specific auth overrides
+- loading new plugin IDs dynamically per tenant
+- full per-request host/plugin/auth/api swapping
+
+That fuller hot-swap path is still documented in [`plans/runtime-config-hot-swap.md`](./plans/runtime-config-hot-swap.md), but the current production-ready path is shared host + request-scoped tenant UI.
 
 ## Configuration
 

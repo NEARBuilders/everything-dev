@@ -1,23 +1,85 @@
-import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
-import { setGlobalFederationInstance } from "@module-federation/runtime-core";
+import { createInstance } from "@module-federation/enhanced/runtime";
 import { Effect, Schedule } from "every-plugin/effect";
-import { verifySriForUrl } from "everything-dev/integrity";
+import { computeSriHash } from "everything-dev/integrity";
 import type { RouterModule } from "../types";
 import type { RuntimeConfig } from "./config";
 import { FederationError } from "./errors";
 
 export type { RouterModule };
 
-let federationInstance: ReturnType<typeof createInstance> | null = null;
+const ROUTER_MODULE_CACHE_TTL_MS = 5 * 60_000;
+const SSR_INTEGRITY_CACHE_TTL_MS = 5 * 60_000;
+const MAX_ROUTER_MODULE_CACHE_SIZE = 128;
+const MAX_SSR_INTEGRITY_CACHE_SIZE = 256;
 
-export function resetFederationInstance() {
-  federationInstance = null;
+interface CachedPromise<T> {
+  expiresAt: number;
+  value: Promise<T>;
 }
 
-function getOrCreateFederationInstance(config: RuntimeConfig) {
-  if (federationInstance) return federationInstance;
+const routerModuleCache = new Map<string, CachedPromise<RouterModule>>();
+const verifiedSsrEntryCache = new Map<string, CachedPromise<void>>();
 
-  const existingInstance = getInstance();
+function pruneExpiredCacheEntries<T>(cache: Map<string, CachedPromise<T>>, now: number) {
+  for (const [key, entry] of cache.entries()) {
+    if (entry.expiresAt <= now) {
+      cache.delete(key);
+    }
+  }
+}
+
+function enforceCacheLimit<T>(cache: Map<string, CachedPromise<T>>, maxSize: number) {
+  while (cache.size > maxSize) {
+    const oldestKey = cache.keys().next().value;
+    if (!oldestKey) break;
+    cache.delete(oldestKey);
+  }
+}
+
+export function resetFederationInstance() {
+  routerModuleCache.clear();
+  verifiedSsrEntryCache.clear();
+}
+
+async function verifySsrEntryIntegrity(entryUrl: string, expectedIntegrity: string): Promise<void> {
+  const cacheKey = `${entryUrl}::${expectedIntegrity}`;
+  const now = Date.now();
+  pruneExpiredCacheEntries(verifiedSsrEntryCache, now);
+
+  const cached = verifiedSsrEntryCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  const verification = (async () => {
+  const response = await fetch(entryUrl);
+  if (!response.ok) {
+    console.warn(`[SRI] Failed to fetch ${entryUrl} for verification: ${response.status}`);
+    return;
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const computed = computeSriHash(buffer);
+
+  if (computed !== expectedIntegrity) {
+    throw new Error(
+      `[SRI] Integrity check failed for ${entryUrl}\n  Expected: ${expectedIntegrity}\n  Computed: ${computed}`,
+    );
+  }
+  })().catch((error) => {
+    verifiedSsrEntryCache.delete(cacheKey);
+    throw error;
+  });
+
+  verifiedSsrEntryCache.set(cacheKey, {
+    value: verification,
+    expiresAt: now + SSR_INTEGRITY_CACHE_TTL_MS,
+  });
+  enforceCacheLimit(verifiedSsrEntryCache, MAX_SSR_INTEGRITY_CACHE_SIZE);
+  return verification;
+}
+
+function getSsrEntryUrl(config: RuntimeConfig) {
   const isLocalDev = config.ui.source === "local";
   const ssrUrl = config.ui.ssrUrl ?? (isLocalDev ? config.ui.url : undefined);
 
@@ -35,33 +97,7 @@ function getOrCreateFederationInstance(config: RuntimeConfig) {
     );
   }
 
-  const ssrEntryUrl = `${ssrUrl.replace(/\/$/, "")}/remoteEntry.server.js`;
-
-  if (existingInstance) {
-    existingInstance.registerRemotes([
-      {
-        name: config.ui.name,
-        entry: ssrEntryUrl,
-        alias: config.ui.name,
-      },
-    ]);
-    federationInstance = existingInstance;
-    return federationInstance;
-  }
-
-  federationInstance = createInstance({
-    name: "host",
-    remotes: [
-      {
-        name: config.ui.name,
-        entry: ssrEntryUrl,
-        alias: config.ui.name,
-      },
-    ],
-  });
-
-  setGlobalFederationInstance(federationInstance);
-  return federationInstance;
+  return `${ssrUrl.replace(/\/$/, "")}/remoteEntry.server.js`;
 }
 
 const retrySchedule = Schedule.addDelay(Schedule.recurs(5), () => 500);
@@ -69,45 +105,79 @@ const retrySchedule = Schedule.addDelay(Schedule.recurs(5), () => 500);
 export const loadRouterModule = (config: RuntimeConfig) =>
   Effect.gen(function* () {
     if (config.ui.ssrIntegrity) {
-      const ssrUrl = config.ui.ssrUrl ?? config.ui.url;
-      if (ssrUrl) {
-        yield* Effect.tryPromise({
-          try: () => verifySriForUrl(ssrUrl, config.ui.ssrIntegrity!),
-          catch: (e) =>
-            new FederationError({
-              remoteName: config.ui.name,
-              remoteUrl: config.ui.ssrUrl,
-              cause: e instanceof Error ? e : new Error(String(e)),
-            }),
-        });
-      }
+      const ssrEntryUrl = getSsrEntryUrl(config);
+      yield* Effect.tryPromise({
+        try: () => verifySsrEntryIntegrity(ssrEntryUrl, config.ui.ssrIntegrity!),
+        catch: (e) =>
+          new FederationError({
+            remoteName: config.ui.name,
+            remoteUrl: config.ui.ssrUrl,
+            cause: e instanceof Error ? e : new Error(String(e)),
+          }),
+      });
     }
 
-    const loadedModule = yield* Effect.retry(
-      Effect.gen(function* () {
-        const mf = getOrCreateFederationInstance(config);
-        return yield* Effect.tryPromise({
-          try: async () => {
-            const result = await mf.loadRemote<any>(`${config.ui.name}/Router`, {
-              from: "build",
+    const ssrEntryUrl = getSsrEntryUrl(config);
+    const cacheKey = `${config.ui.name}::${ssrEntryUrl}`;
+    const now = Date.now();
+    pruneExpiredCacheEntries(routerModuleCache, now);
+    let cached = routerModuleCache.get(cacheKey);
+
+    if (!cached || cached.expiresAt <= now) {
+      const value = Effect.runPromise(
+        Effect.retry(
+          Effect.gen(function* () {
+            const mf = createInstance({
+              name: `host-${Buffer.from(cacheKey).toString("base64url")}`,
+              remotes: [
+                {
+                  name: config.ui.name,
+                  entry: ssrEntryUrl,
+                  alias: config.ui.name,
+                },
+              ],
             });
 
-            if (!result) {
-              throw new Error(`Module not found: ${config.ui.name}/Router`);
-            }
+            return yield* Effect.tryPromise({
+              try: async () => {
+                const result = await mf.loadRemote<any>(`${config.ui.name}/Router`, {
+                  from: "build",
+                });
 
-            return result.default as RouterModule;
-          },
-          catch: (e) =>
-            new FederationError({
-              remoteName: config.ui.name,
-              remoteUrl: config.ui.ssrUrl,
-              cause: e,
-            }),
-        });
-      }),
-      retrySchedule,
-    );
+                if (!result) {
+                  throw new Error(`Module not found: ${config.ui.name}/Router`);
+                }
+
+                return result.default as RouterModule;
+              },
+              catch: (e) =>
+                new FederationError({
+                  remoteName: config.ui.name,
+                  remoteUrl: config.ui.ssrUrl,
+                  cause: e,
+                }),
+            });
+          }),
+          retrySchedule,
+        ),
+      ).catch((error) => {
+        routerModuleCache.delete(cacheKey);
+        throw error;
+      });
+      cached = { value, expiresAt: now + ROUTER_MODULE_CACHE_TTL_MS };
+      routerModuleCache.set(cacheKey, cached);
+      enforceCacheLimit(routerModuleCache, MAX_ROUTER_MODULE_CACHE_SIZE);
+    }
+
+    const loadedModule = yield* Effect.tryPromise({
+      try: () => cached.value,
+      catch: (e) =>
+        new FederationError({
+          remoteName: config.ui.name,
+          remoteUrl: config.ui.ssrUrl,
+          cause: e,
+        }),
+    });
 
     return loadedModule;
   }).pipe(

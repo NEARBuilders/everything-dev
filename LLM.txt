@@ -41,12 +41,15 @@ This is a **Module Federation monorepo** with runtime-loaded configuration:
 
 The host already has request-scoped runtime identity support. In `host/src/program.ts`, `resolveActiveRuntime()` can derive runtime metadata from `/_runtime/:account/:gateway`, and the host injects that into `window.__RUNTIME_CONFIG__` for the UI.
 
-However, the underlying `RuntimeConfig` is still process-wide. `ConfigService` is an immutable Effect layer, so auth wiring, plugin loading, remote URLs, and SSR federation are still built from a single startup config snapshot.
+However, the underlying server core is still process-wide. `ConfigService` is an immutable Effect layer, so auth wiring, API/plugin routers, and the base host runtime are still built from a single startup config snapshot.
 
 Practical consequence:
 
 - Path-based runtime metadata works today.
-- True wildcard-domain multi-tenancy still needs dynamic config resolution and scoped runtime swapping in the host.
+- Shared-host tenant UI mode now works today: the host can resolve a tenant config per request, enforce that it extends the base BOS runtime, and apply request-scoped UI overrides while keeping auth/API/plugin routers fixed.
+- Supported tenant overrides today are `app.ui`, existing `plugins.<id>.ui`, and existing `plugins.<id>.sidebar`.
+- Tenant SSR is gated by `TENANT_WHITELIST` and `ALLOW_UNTRUSTED_SSR`.
+- True wildcard-domain full runtime swapping for host/plugin/auth/api still needs dynamic scoped app rebuilding in the host.
 - The active design doc for that work is `plans/runtime-config-hot-swap.md`.
 
 If a task mentions `project.everything.dev -> bos://project.everything.near/everything.dev`, work in the host/runtime path, not just the UI.

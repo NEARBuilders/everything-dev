@@ -29,11 +29,16 @@ The host orchestrates both UI and API federation:
 └─────────────────────────────────────────────────────────┘
 ```
 
-Today the host boots from one `RuntimeConfig` snapshot and shares that config across auth, plugins, proxying, and SSR for the lifetime of the process.
+Today the host boots from one base `RuntimeConfig` snapshot and keeps auth, API, and server-side plugin wiring fixed for the lifetime of the process.
 
-It already supports request-scoped runtime identity metadata through `/_runtime/:account/:gateway`, but that does not yet swap the underlying remote URLs or plugin wiring per request.
+On top of that fixed server core, the host now supports request-scoped tenant UI resolution:
 
-For true domain-based multi-tenancy and runtime config hot-swap, see [`../plans/runtime-config-hot-swap.md`](../plans/runtime-config-hot-swap.md).
+- base config boots the host, auth, API, and plugin routers once
+- subdomains resolve tenants by convention, for example `alice.linktree.com -> alice.near`
+- tenant config must extend the base BOS runtime
+- tenant requests may override UI-facing remotes and sidebar metadata without changing the server core
+
+For full host/plugin/auth/api hot-swap, see [`../plans/runtime-config-hot-swap.md`](../plans/runtime-config-hot-swap.md). That is still a larger future design than the fixed-core tenant mode implemented now.
 
 ## Development
 
@@ -90,6 +95,10 @@ For the temporary publish registry, use `bos publish` or `bos publish --deploy`.
 | `UI_SOURCE` | `local` or `remote` | Based on NODE_ENV |
 | `API_SOURCE` | `local` or `remote` | Based on NODE_ENV |
 | `API_PROXY` | Proxy API requests to another host URL | - |
+| `NETWORK_ID` | Tenant account suffix resolution: `mainnet` or `testnet` | `mainnet` |
+| `ALLOW_OVERRIDE` | Comma-separated tenant override targets like `ui`, `plugins.*`, `plugins.apps` | - |
+| `TENANT_WHITELIST` | Comma-separated tenant account IDs allowed to SSR | - |
+| `ALLOW_UNTRUSTED_SSR` | Allow tenant SSR without whitelist | `false` |
 | `HOST_DATABASE_URL` | SQLite database URL for auth | `file:./database.db` |
 | `HOST_DATABASE_AUTH_TOKEN` | Auth token for remote database | - |
 | `BETTER_AUTH_SECRET` | Secret for session encryption | - |
@@ -98,10 +107,47 @@ For the temporary publish registry, use `bos publish` or `bos publish --deploy`.
 
 ## Multi-Tenant Status
 
-- Current: one process-wide `RuntimeConfig`, request-scoped runtime metadata
-- Current: host can inject active runtime info into the client shell
-- Not yet implemented: per-request config resolution for wildcard domains like `project.everything.dev`
-- Planned direction: build request-scoped apps and atomically swap handlers when config changes
+- Current: one process-wide base `RuntimeConfig`, fixed auth/API/plugin server core
+- Current: tenant subdomains can resolve request-scoped UI remotes from FastKV-backed BOS config
+- Current: tenant config must extend the base BOS runtime
+- Current: supported tenant overrides are `app.ui`, existing `plugins.<id>.ui`, and existing `plugins.<id>.sidebar`
+- Current: tenant SSR is opt-in via `TENANT_WHITELIST` or `ALLOW_UNTRUSTED_SSR=true`
+- Not yet implemented: tenant API/auth overrides in fixed-core mode
+- Not yet implemented: dynamic new plugin IDs per tenant
+
+## Tenant Mode
+
+Example deployment:
+
+```bash
+BOS_ACCOUNT=linktree.near
+BOS_GATEWAY=linktree.com
+NETWORK_ID=mainnet
+ALLOW_OVERRIDE=ui,plugins.*
+TENANT_WHITELIST=alice.near,bob.near
+ALLOW_UNTRUSTED_SSR=false
+bos start --no-interactive
+```
+
+Example tenant behavior:
+
+- `linktree.com` serves the base runtime
+- `alice.linktree.com` resolves `bos://alice.near/linktree.com`
+- `bob.linktree.com` resolves `bos://bob.near/linktree.com`
+
+Tenant config rules:
+
+- must extend the base BOS runtime
+- may only override targets allowed by `ALLOW_OVERRIDE`
+- in fixed-core mode, only UI-facing overrides are applied
+- custom UI remotes must provide integrity
+- custom plugin UI remotes must provide integrity
+
+Tenant SSR rules:
+
+- if `ALLOW_UNTRUSTED_SSR=true`, any valid tenant UI with SSR config may SSR
+- otherwise the tenant account must appear in `TENANT_WHITELIST`
+- non-whitelisted tenants fall back to client rendering
 
 ### Proxy Mode
 

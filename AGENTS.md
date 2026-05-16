@@ -27,6 +27,10 @@ skills:
     use: "every-plugin#plugin-testing"
   - when: "Development workflow for everything-dev projects using bos dev, bos start, and the Module Federation runtime. Use when starting dev servers, debugging hot reload, or understanding the service-descriptor architecture."
     use: "everything-dev#dev-workflow"
+  - when: "How bos.config.json extends chains work, deep merge semantics, resolved config lifecycle, env-specific parents, tenant runtime inheritance, or debugging config merge behavior."
+    use: "everything-dev#extends-config"
+  - when: "Scaffold a new project, extend an existing project from a parent runtime, sync upstream files, upgrade framework packages, or choose local override sections for ui/api/host/plugins."
+    use: "everything-dev#init-upgrade"
   - when: "Publish bos.config.json to the FastKV registry, sync from upstream, and upgrade workspace packages. Use when deploying, syncing, or managing runtime configuration across projects."
     use: "everything-dev#publish-sync"
 <!-- intent-skills:end -->
@@ -80,7 +84,7 @@ This is the parent **Module Federation monorepo** for `everything.dev`. The host
 └──────────────────┘ └──────────────────┘ └──────────────────┘
 ```
 
-The host loads UI and API at runtime from URLs in `bos.config.json`. In production today, the host still freezes one `RuntimeConfig` at startup and must restart to pick up a different published config.
+The host loads UI and API at runtime from URLs in `bos.config.json`. In production today, the host still boots one base `RuntimeConfig` snapshot at startup, but it can resolve tenant-specific UI overrides per request while keeping the server core fixed.
 
 ### Runtime Config
 
@@ -93,7 +97,18 @@ Use these helpers from `@/app`:
 - `getActiveRuntime()` — active runtime info (accountId, gatewayId, title)
 - `getRuntimeConfig()` — full client config
 
-Important: `host/src/program.ts` already supports path-based runtime metadata overrides via `/_runtime/:account/:gateway`, but that is not yet full per-request config swapping. For that work, start from `plans/runtime-config-hot-swap.md`.
+Important: fixed-core tenant runtime composition now lives primarily in:
+- `host/src/services/tenant-runtime.ts`
+- `host/src/program.ts`
+- `host/src/services/federation.server.ts`
+
+Tenant rules:
+- subdomain convention maps `alice.<domain>` to `alice.near` or `alice.testnet` based on `NETWORK_ID`
+- tenant config must extend the base BOS runtime
+- supported tenant overrides are `ui`, existing `plugins.<id>.ui`, and existing `plugins.<id>.sidebar`
+- tenant SSR is gated by `TENANT_WHITELIST` and `ALLOW_UNTRUSTED_SSR`
+
+For full per-request host/plugin/auth/api swapping, start from `plans/runtime-config-hot-swap.md`.
 
 ## Development Workflow
 

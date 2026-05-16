@@ -51,6 +51,7 @@ function NewProjectPage() {
   const createMutation = useMutation({
     mutationFn: (values: z.infer<typeof schema>) =>
       apiClient.projects.createProject({
+        kind: "project",
         title: values.title.trim(),
         slug: values.slug.trim(),
         description: values.description?.trim() || undefined,
