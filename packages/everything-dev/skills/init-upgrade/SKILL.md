@@ -27,6 +27,71 @@ bos init --overrides ui,api,host                          # Include host locally
 7. Write initial snapshot (`.bos/sync-snapshot.json`)
 8. `bun install` + `bos types gen`
 
+## Shared Host + Custom Tenant App
+
+Use this pattern when you want one deployed host runtime and separate tenant apps that inherit from it.
+
+### 1. Create the base host runtime
+
+Create the app that owns the shared host, auth, API, and base plugin list:
+
+```bash
+bos init --overrides ui,api,host
+```
+
+This base runtime is the app the host boots from.
+
+### 2. Create the tenant app from the base runtime
+
+Create a second app whose `bos.config.json` extends the base runtime:
+
+```json
+{
+  "extends": "bos://linktree.near/linktree.com",
+  "account": "alice.near",
+  "domain": "linktree.com"
+}
+```
+
+Then customize the tenant-owned sections, usually:
+- `account`
+- `repository`
+- `app.ui`
+- existing `plugins.<id>.ui`
+- existing `plugins.<id>.sidebar`
+
+### 3. Understand fixed-core tenant mode
+
+Today the shared host stays fixed to the base runtime for:
+- `app.host`
+- `app.api`
+- `app.auth`
+- server-side plugin loading
+
+Tenant apps are request-scoped overlays on top of that base host. In fixed-core mode, the supported tenant overrides are:
+- `app.ui`
+- existing `plugins.<id>.ui`
+- existing `plugins.<id>.sidebar`
+
+Tenant apps must extend the base runtime and do not introduce new server-side plugin IDs dynamically.
+
+### 4. Host deployment env for tenant mode
+
+The shared host uses these env vars to resolve tenant requests:
+
+```bash
+NETWORK_ID=mainnet
+ALLOW_OVERRIDE=ui,plugins.*
+TENANT_WHITELIST=alice.near,bob.near
+ALLOW_UNTRUSTED_SSR=false
+```
+
+Subdomains resolve by convention, for example:
+- `linktree.com` -> base runtime
+- `alice.linktree.com` -> `bos://alice.near/linktree.com`
+
+Use the `extends-config` skill when reasoning about how the tenant config merges with the base runtime.
+
 ### Init File Selection
 
 `buildInitPatterns(overrides, plugins)` chooses what init copies from the template source:
