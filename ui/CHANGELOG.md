@@ -1,5 +1,11 @@
 # ui
 
+## 1.5.3
+
+### Patch Changes
+
+- 0e72704: Add notFoundComponent and errorComponent to root route, use shared sessionQueryKey constant, and improve OG image alt text.
+
 ## 1.5.2
 
 ### Patch Changes

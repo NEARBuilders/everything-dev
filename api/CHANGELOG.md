@@ -1,5 +1,11 @@
 # api
 
+## 2.4.8
+
+### Patch Changes
+
+- 0e72704: Remove hardcoded `name` field requirement from deploy config updater. API deploys now correctly update `bos.config.json` without requiring a `name` property in the config.
+
 ## 2.4.7
 
 ### Patch Changes
