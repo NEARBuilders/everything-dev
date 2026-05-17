@@ -682,7 +682,7 @@ export const createStartServer = (onReady?: () => void) =>
     app.use("/*", sessionMiddleware);
 
     app.get("*", async (c: Context<HonoEnv>) => {
-      let resolvedRuntime;
+      let resolvedRuntime: Awaited<ReturnType<typeof resolveRequestRuntime>>;
       try {
         resolvedRuntime = await resolveRequestRuntime(config, c.req.raw, {
           verification: "blocking",

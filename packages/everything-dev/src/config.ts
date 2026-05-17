@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { RuntimeOverrideTargetSchema, type RuntimeOverrideTarget } from "./contract";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import {
   type BosEnv,
@@ -101,13 +100,6 @@ export interface ConfigResult {
     remote?: boolean;
   };
   warnings?: string[];
-}
-
-export interface RemoteConfigResult {
-  rawConfig: BosConfigInput;
-  config: BosConfig;
-  source: string;
-  extendsChain: string[];
 }
 
 export interface RemoteConfigResult {
