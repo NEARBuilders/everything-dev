@@ -1,5 +1,12 @@
 # everything-dev
 
+## 1.28.3
+
+### Patch Changes
+
+- 0badff3: Update `bos upgrade` to sync inherited catalog entries from the full root `bos.config.json` extends chain, preserve child-only catalog entries, and rewrite matching workspace dependencies to `catalog:`. This also writes fully derived composable/plugin config into the resolved BOS config artifact, adds the shared TanStack UI tooling packages to the root catalog, removes the explicit `@hot-labs/near-connect` pin so apps follow the transitive `better-near-auth` dependency instead, and makes config loading warn and fall back to production when development targets are missing while still erroring on unreachable `extends` targets without a usable local fallback.
+- eaad343: Refactor CI/release workflows: rename `release-sync.yml` template to `release.yml` and make it a reusable `workflow_call`, add `fail_on_critical_high` input to CI audit step, split parent release into `publish` + `deploy` jobs calling the template, and clean up obsolete `release-sync.yml` on upgrade. Improve config logging: collect `[Config]` warnings during `loadConfig` and return them in `ConfigResult.warnings` instead of emitting `console.warn` mid-spinner, suppress warnings around direct `buildRuntimeConfig` calls in the plugin runtime, and log `Resolving "app.auth" from bos://...` instead of the generic "No development target" when an `extends` ref is present.
+
 ## 1.28.2
 
 ### Patch Changes
