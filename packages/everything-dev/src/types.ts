@@ -110,7 +110,7 @@ export const RuntimePluginConfigSchema = z.object({
 export type RuntimePluginConfig = z.infer<typeof RuntimePluginConfigSchema>;
 
 export const UiConfigSchema = z.object({
-  name: z.string(),
+  name: z.string().optional(),
   development: z.string().optional(),
   production: z.string().optional(),
   integrity: z.string().optional(),

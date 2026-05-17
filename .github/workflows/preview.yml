@@ -3,6 +3,9 @@ name: Preview Deploy
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
 
 concurrency:
   group: preview-${{ github.event.pull_request.number }}
@@ -11,7 +14,7 @@ concurrency:
 jobs:
   comment-preview:
     name: Comment preview info for PR ${{ github.event.pull_request.number }}
-    if: github.event.action != 'closed'
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -22,8 +25,8 @@ jobs:
         run: |
           ACCOUNT=$(jq -r '.account' bos.config.json)
           DOMAIN=$(jq -r '.domain' bos.config.json)
-          echo "account=${ACCOUNT}" >> $GITHUB_OUTPUT
-          echo "domain=${DOMAIN}" >> $GITHUB_OUTPUT
+          echo "account=${ACCOUNT}" >> "$GITHUB_OUTPUT"
+          echo "domain=${DOMAIN}" >> "$GITHUB_OUTPUT"
 
       - name: Comment preview URL
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
@@ -46,13 +49,106 @@ jobs:
                 'Railway will build and deploy from this branch automatically.',
                 'The preview URL will appear in the Railway deployment comment above.',
                 '',
-                '> Preview uses production UI/API from CDN. Host and Docker changes are tested against this branch.',
+                '> Preview uses production UI/API from CDN until the optional preview deploy job runs after CI.',
               ].join('\n')
             });
 
+  deploy-preview-version-pr:
+    name: Deploy Preview for Version PR
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'changeset-release/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      BOS_INSTALL_NEAR_CLI: "true"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.2.20"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Build every-plugin
+        run: bun run --cwd packages/every-plugin build
+
+      - name: Run postinstall
+        run: bun run postinstall
+
+      - name: Deploy preview remotes without publishing config
+        env:
+          ZE_SECRET_TOKEN: ${{ secrets.ZEPHYR_AUTH_TOKEN }}
+          ZE_SERVER_TOKEN: ${{ secrets.ZEPHYR_SERVER_AUTH_TOKEN }}
+          ZE_USER_EMAIL: ${{ secrets.ZEPHYR_USER_EMAIL }}
+        run: bun run deploy
+
+      - name: Upload preview config artifact
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.0
+        with:
+          name: preview-bos-config-${{ github.event.workflow_run.head_sha }}
+          path: bos.config.json
+
+  deploy-preview-approved:
+    name: Deploy Preview for Approved PR
+    if: >
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch != 'changeset-release/main'
+    runs-on: ubuntu-latest
+    environment: preview
+    permissions:
+      contents: read
+    env:
+      BOS_INSTALL_NEAR_CLI: "true"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.2.20"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Build every-plugin
+        run: bun run --cwd packages/every-plugin build
+
+      - name: Run postinstall
+        run: bun run postinstall
+
+      - name: Deploy preview remotes without publishing config
+        env:
+          ZE_SECRET_TOKEN: ${{ secrets.ZEPHYR_AUTH_TOKEN }}
+          ZE_SERVER_TOKEN: ${{ secrets.ZEPHYR_SERVER_AUTH_TOKEN }}
+          ZE_USER_EMAIL: ${{ secrets.ZEPHYR_USER_EMAIL }}
+        run: bun run deploy
+
+      - name: Upload preview config artifact
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.0
+        with:
+          name: preview-bos-config-${{ github.event.workflow_run.head_sha }}
+          path: bos.config.json
+
   cleanup-preview:
     name: Cleanup PR ${{ github.event.pull_request.number }}
-    if: github.event.action == 'closed'
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
     steps:
       - name: Comment preview cleanup

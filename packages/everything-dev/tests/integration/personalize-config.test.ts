@@ -93,7 +93,7 @@ describe("personalizeConfig with real root config", () => {
     expect(config.shared).toEqual(ROOT_CONFIG.shared);
     expect(config.app?.host).toBeUndefined();
     expect(config.app?.auth).toBeUndefined();
-    expect(config.app?.ui?.name).toBe("ui");
+    expect(config.app?.ui?.name).toBeUndefined();
     expect(config.app?.ui?.development).toBe("local:ui");
     expect(config.app?.ui?.production).toBeUndefined();
     expect(config.app?.ui?.integrity).toBeUndefined();

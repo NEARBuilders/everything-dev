@@ -56,15 +56,15 @@ This repository uses four workflows: release, staging, preview, and CI. The rele
 
 ### Preview (`preview.yml`)
 
-**Trigger:** `pull_request` events (opened, synchronize, reopened, closed).
+**Trigger:** `pull_request` events for comments and cleanup, plus `workflow_run` after successful PR `CI` for optional preview deploys.
 
-**Purpose:** Comment config context on PRs. Railway's built-in PR environments handle the actual build and deploy.
+**Purpose:** Comment config context on PRs, let Railway handle branch preview environments, and optionally deploy preview remotes for trusted or approved internal PRs.
 
-**Security note:** Uses `pull_request` only (not `pull_request_target`) to prevent the "Pwn Request" cache-poisoning attack pattern. Fork PRs require maintainer approval before workflows run.
+**Security note:** Uses `pull_request` only (not `pull_request_target`) for PR comments. Preview deploys only run after successful `CI`, only for internal PRs, and non-version PRs are gated by the `preview` environment.
 
-**Behavior:** On PR open/update, reads `account` and `domain` from `bos.config.json` and comments them on the PR. Railway automatically creates an environment, builds from the PR branch using the Dockerfile, and assigns a `*.up.railway.app` URL. On PR close, comments that the preview is cleaned up.
+**Behavior:** On PR open/update, reads `account` and `domain` from `bos.config.json` and comments them on the PR. After `CI` succeeds for an internal PR, trusted version-package PRs automatically run `bos build --deploy`, while other internal PRs can run the same preview deploy behind the `preview` environment approval gate. Both upload the refreshed `bos.config.json` as an artifact without publishing it to FastKV.
 
-**Note:** Preview deployments currently serve production UI/API from CDN URLs (the host loads remotes from `bos.config.json` production fields). Host and Docker changes are tested against the PR branch. Full PR code testing for UI/API/plugins requires a future "preview" environment mode with Zephyr deploy per-PR.
+**Note:** Railway still owns preview URLs. The GitHub workflow prepares preview remotes and artifacts, but it does not query Railway for the final preview URL.
 
 ### CI (`ci.yml`)
 

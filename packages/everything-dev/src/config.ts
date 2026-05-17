@@ -732,7 +732,7 @@ export function buildRuntimeConfig(
     },
     shared: config.shared,
     ui: {
-      name: uiConfig.name,
+      name: resolvePluginRuntimeName(uiConfig.name, uiRuntime.localPath, "ui"),
       url: uiRuntime.url,
       entry: uiRuntime.url ? `${uiRuntime.url}/mf-manifest.json` : "/mf-manifest.json",
       localPath: uiRuntime.localPath,
