@@ -32,7 +32,7 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   ".changeset/README.md",
   ".github/renovate.json",
   ".github/workflows/ci.yml",
-  ".github/workflows/release-sync.yml",
+  ".github/workflows/release.yml",
   ".opencode/skills/everything-dev/SKILL.md",
   "ui/package.json",
   "ui/postcss.config.mjs",

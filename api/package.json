@@ -39,7 +39,7 @@
     "host": "workspace:*",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "catalog:",
-    "zephyr-rspack-plugin": "^1.1.0"
+    "zephyr-rspack-plugin": "catalog:"
   },
   "scripts": {
     "build": "bun run build:types && rspack build",

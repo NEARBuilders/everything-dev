@@ -153,7 +153,7 @@ exposes: {
 **Shared Dependencies (singleton):**
 - `react`, `react-dom`
 - `@tanstack/react-query`, `@tanstack/react-router`
-- `@hot-labs/near-connect`, `near-kit`
+- `near-kit`
 
 **Build Config:** `ui/rsbuild.config.ts`
 - Uses `pluginModuleFederation` for federation

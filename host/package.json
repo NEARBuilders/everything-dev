@@ -47,6 +47,6 @@
     "typescript": "catalog:",
     "vite-tsconfig-paths": "^6.0.4",
     "vitest": "catalog:",
-    "zephyr-rsbuild-plugin": "^1.0.1"
+    "zephyr-rsbuild-plugin": "catalog:"
   }
 }

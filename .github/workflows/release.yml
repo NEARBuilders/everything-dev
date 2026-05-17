@@ -1,36 +1,45 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
-      force_release:
-        description: "Run publish/deploy steps even without pending changesets"
+      deploy:
+        description: "Build/deploy all workspaces before publish"
+        required: false
+        default: true
+        type: boolean
+  workflow_call:
+    inputs:
+      deploy:
+        description: "Build/deploy all workspaces before publish"
         required: false
         type: boolean
-        default: false
+        default: true
+    secrets:
+      ZEPHYR_AUTH_TOKEN:
+        required: true
+      ZEPHYR_SERVER_AUTH_TOKEN:
+        required: false
+      ZEPHYR_USER_EMAIL:
+        required: true
+      NEAR_PRIVATE_KEY:
+        required: true
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
   contents: write
-  id-token: write
-  pull-requests: write
   packages: write
 
 jobs:
   release:
-    name: Release
+    name: Build, Deploy & Publish
     runs-on: ubuntu-latest
     env:
       BOS_INSTALL_NEAR_CLI: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -40,169 +49,38 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin
-        run: bun run --cwd packages/every-plugin build
-
       - name: Run postinstall
         run: bun run postinstall
 
-      - name: Typecheck every-plugin
-        run: bun run --cwd packages/every-plugin typecheck
-
-      - name: Test every-plugin
-        run: bun run --cwd packages/every-plugin test:all
-
-      - name: Typecheck everything-dev
-        run: bun run --cwd packages/everything-dev typecheck
-
-      - name: Test everything-dev
-        run: bun run --cwd packages/everything-dev test
-
-      - name: Create Release Pull Request or Publish
-        id: changesets
-        uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b # v1.8.0
-        with:
-          version: bun run version
-          publish: bun run release
-          title: "chore: version packages"
-          commit: "chore: version packages"
-          createGithubReleases: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Determine release mode
-        id: release_mode
-        env:
-          HAS_CHANGESETS: ${{ steps.changesets.outputs.hasChangesets }}
-          FORCE_RELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.force_release }}
-        run: |
-          if [ "$HAS_CHANGESETS" = "false" ] || [ "$FORCE_RELEASE" = "true" ]; then
-            echo "should_publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_publish=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # --- Everything below runs when changesets were consumed or a manual retry is forced ---
-
-      - name: Setup Node
-        if: steps.release_mode.outputs.should_publish == 'true'
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24"
-          npm-version: "11"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Build packages for staging
-        if: steps.release_mode.outputs.should_publish == 'true'
+      - name: Build and deploy
+        if: inputs.deploy != false
         env:
           ZE_SECRET_TOKEN: ${{ secrets.ZEPHYR_AUTH_TOKEN }}
           ZE_SERVER_TOKEN: ${{ secrets.ZEPHYR_SERVER_AUTH_TOKEN }}
           ZE_USER_EMAIL: ${{ secrets.ZEPHYR_USER_EMAIL }}
-        run: |
-          bun run --cwd packages/every-plugin build
-          bun run --cwd packages/everything-dev build
+        run: bun run deploy
 
-      - name: Stage release packages
-        if: steps.release_mode.outputs.should_publish == 'true'
-        run: bun run scripts/stage-release-packages.ts
-
-      - name: Publish every-plugin to npm
-        if: steps.release_mode.outputs.should_publish == 'true'
+      - name: Publish config to FastKV
         env:
-          NODE_AUTH_TOKEN: ""
-        run: |
-          VERSION=$(jq -r .version .release/every-plugin/package.json)
-          if npm view every-plugin@"$VERSION" version 2>/dev/null; then
-            echo "every-plugin@$VERSION already published, skipping"
-          else
-            npm publish --provenance --access public .release/every-plugin
-          fi
-
-      - name: Publish everything-dev to npm
-        if: steps.release_mode.outputs.should_publish == 'true'
-        env:
-          NODE_AUTH_TOKEN: ""
-        run: |
-          VERSION=$(jq -r .version .release/everything-dev/package.json)
-          if npm view everything-dev@"$VERSION" version 2>/dev/null; then
-            echo "everything-dev@$VERSION already published, skipping"
-          else
-            npm publish --provenance --access public .release/everything-dev
-          fi
-
-      - name: Create GitHub Releases
-        if: steps.release_mode.outputs.should_publish == 'true'
-        run: |
-          APP_KEYS=$(jq -r '.app | keys[]' bos.config.json)
-          PLUGIN_KEYS=$(jq -r '.plugins | keys[]' bos.config.json 2>/dev/null || true)
-          FRAMEWORK_PKGS="packages/every-plugin packages/everything-dev"
-          
-          ALL_KEYS=""
-          for key in $APP_KEYS $PLUGIN_KEYS; do
-            ALL_KEYS="$ALL_KEYS $key"
-          done
-          
-          for pkg_dir in $ALL_KEYS $FRAMEWORK_PKGS; do
-            PKG_JSON="${pkg_dir}/package.json"
-            
-            if [ ! -f "$PKG_JSON" ]; then
-              echo "Skipping $pkg_dir — no package.json"
-              continue
-            fi
-            
-            VERSION=$(jq -r '.version' "$PKG_JSON")
-            NAME=$(jq -r '.name' "$PKG_JSON")
-            TAG="${NAME}@${VERSION}"
-            
-            if ! gh release view "$TAG" &>/dev/null; then
-              echo "Creating release for $TAG"
-              
-              CHANGELOG="${pkg_dir}/CHANGELOG.md"
-              NOTES=""
-              if [ -f "$CHANGELOG" ]; then
-                NOTES=$(sed -n "/^## ${VERSION}/,/^## [0-9]/p" "$CHANGELOG" | sed '$d' | tail -n +2)
-              fi
-              
-              if [ -z "$NOTES" ]; then
-                NOTES="Release $TAG"
-              fi
-              
-              gh release create "$TAG" \
-                --title "$TAG" \
-                --notes "$NOTES" \
-                --target main
-            else
-              echo "Release $TAG already exists, skipping"
-            fi
-          done
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish runtime config
-        if: steps.release_mode.outputs.should_publish == 'true'
-        env:
-          ZE_SECRET_TOKEN: ${{ secrets.ZEPHYR_AUTH_TOKEN }}
-          ZE_USER_EMAIL: ${{ secrets.ZEPHYR_USER_EMAIL }}
           NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
-        run: bun packages/everything-dev/src/cli.ts publish --deploy
+        run: bos publish
 
       - name: Commit bos.config.json updates
-        if: steps.release_mode.outputs.should_publish == 'true'
         uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5.2.0
         with:
           commit_message: "chore: update deployment URLs [skip ci]"
           file_pattern: "**/bos.config.json"
 
       - name: Lowercase repository name
-        if: steps.release_mode.outputs.should_publish == 'true'
-        run: echo "REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+        if: hashFiles('Dockerfile') != ''
+        run: echo "REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
-        if: steps.release_mode.outputs.should_publish == 'true'
+        if: hashFiles('Dockerfile') != ''
         uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
 
       - name: Log in to GitHub Container Registry
-        if: steps.release_mode.outputs.should_publish == 'true'
+        if: hashFiles('Dockerfile') != ''
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
@@ -210,7 +88,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract Docker metadata
-        if: steps.release_mode.outputs.should_publish == 'true'
+        if: hashFiles('Dockerfile') != ''
         id: meta
         uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5.9.0
         with:
@@ -220,7 +98,7 @@ jobs:
             type=sha
 
       - name: Build and push Docker image
-        if: steps.release_mode.outputs.should_publish == 'true'
+        if: hashFiles('Dockerfile') != ''
         uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
         with:
           context: .
@@ -232,11 +110,13 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Deployment summary
-        if: steps.release_mode.outputs.should_publish == 'true'
         run: |
-          echo "## Release Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**npm:** every-plugin + everything-dev published" >> $GITHUB_STEP_SUMMARY
-          echo "**Zephyr:** UI, API, host, plugins deployed" >> $GITHUB_STEP_SUMMARY
-          echo "**Docker:** \`ghcr.io/${{ env.REPO }}:latest\` pushed" >> $GITHUB_STEP_SUMMARY
-          echo "**FastKV:** bos.config.json published" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Release Complete"
+            echo ""
+            echo "**Zephyr:** UI, API, plugins deployed"
+            echo "**FastKV:** bos.config.json published"
+            if [ -f Dockerfile ]; then
+              echo "**Docker:** \`ghcr.io/${{ env.REPO }}:latest\` pushed"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

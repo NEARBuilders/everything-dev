@@ -18,7 +18,7 @@ The app-level barrel is `ui/src/app.ts` and is the preferred import for route co
 
 - `react`, `react-dom`
 - `@tanstack/react-query`, `@tanstack/react-router`
-- `@hot-labs/near-connect`, `near-kit`
+- `near-kit`
 - `better-auth`, `better-near-auth`
 
 ## Development

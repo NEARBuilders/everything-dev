@@ -518,7 +518,7 @@ export const createStartServer = (onReady?: () => void) =>
       ? uniqueOrigins.filter((o) => o.startsWith("http:")).map((o) => o.replace(/^http:/, "ws:"))
       : [];
 
-    const CSP_STRICT = false;
+    const CSP_STRICT = process.env.CSP_STRICT === "false" ? false : !isDev;
 
     const cdnOrigins = ["https://cdn.jsdelivr.net", "https://unpkg.com"];
 

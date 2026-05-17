@@ -4,7 +4,7 @@ import process from "node:process";
 import * as p from "@clack/prompts";
 import { glob } from "glob";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../contract";
-import { isPlainObject as isPlainObjectFromMerge, resolveExtendsRef } from "../merge";
+import { resolveExtendsRef } from "../merge";
 import { saveBosConfig } from "../utils/save-config";
 import { readInstalledFrameworkVersion } from "./framework-version";
 import { fetchParentConfig, resolveSourceDir, runBunInstallForUpgrade, runTypesGen } from "./init";
@@ -12,27 +12,6 @@ import { syncTemplate } from "./sync";
 import { timePhase } from "./timing";
 
 const FRAMEWORK_PACKAGES = ["everything-dev", "every-plugin"];
-
-const CATALOG_TOOL_PACKAGES = [
-  "@rspack/core",
-  "@rspack/cli",
-  "@rsbuild/core",
-  "@rsbuild/plugin-react",
-  "@module-federation/enhanced",
-  "@module-federation/node",
-  "@module-federation/rsbuild-plugin",
-  "@module-federation/runtime-core",
-  "@module-federation/sdk",
-  "@module-federation/dts-plugin",
-] as const;
-const PINNED_CATALOG_TOOL_VERSIONS: Partial<
-  Record<(typeof CATALOG_TOOL_PACKAGES)[number], string>
-> = {
-  "@rspack/core": "1.7.11",
-  "@rspack/cli": "1.7.11",
-  "@rsbuild/core": "1.7.5",
-  "@rsbuild/plugin-react": "1.4.6",
-};
 const LEGACY_UI_IMPORT_REWRITES = [
   ['from "@/auth"', 'from "@/app"'],
   ["from '@/auth'", "from '@/app'"],
@@ -53,34 +32,235 @@ const OBSOLETE_FILES = [
   "ui/scripts/generate-metadata.ts",
   ".github/dependabot.yml",
   ".github/templates/dependabot.yml",
+  ".github/workflows/release-sync.yml",
   "packages/everything-dev/cli.js",
   ".templatekeep",
   ".templatesync-exclude",
 ];
 
-function extractVersion(value: string | undefined): string | null {
+interface ExtendedRootSource {
+  catalog: Record<string, string>;
+  repository?: string;
+  extendsChain: string[];
+}
+
+function extractSemver(value: string | undefined): string | null {
   if (!value) return null;
   const match = value.match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/);
   return match?.[0] ?? null;
 }
 
-async function readExtendedRootCatalog(projectDir: string): Promise<Record<string, string>> {
+function readJsonFile<T>(filePath: string): T {
+  return JSON.parse(readFileSync(filePath, "utf-8")) as T;
+}
+
+function readRootPackageJson(projectDir: string): Record<string, unknown> {
+  return readJsonFile<Record<string, unknown>>(join(projectDir, "package.json"));
+}
+
+function readRootCatalogEntry(projectDir: string, packageName: string): string | undefined {
+  const pkg = readRootPackageJson(projectDir) as {
+    workspaces?: { catalog?: Record<string, string> };
+  };
+  return pkg.workspaces?.catalog?.[packageName];
+}
+
+function readCurrentPackageSpecifier(projectDir: string, packageName: string): string | undefined {
+  const pkg = readRootPackageJson(projectDir);
+
+  for (const fieldName of ["dependencies", "devDependencies", "peerDependencies"] as const) {
+    const field = pkg[fieldName] as Record<string, string> | undefined;
+    const value = field?.[packageName];
+    if (!value) continue;
+
+    if (value === "catalog:") {
+      return (
+        readRootCatalogEntry(projectDir, packageName) ??
+        readInstalledVersion(projectDir, packageName)
+      );
+    }
+
+    if (value.startsWith("workspace:") || value.startsWith("file:")) {
+      return readInstalledVersion(projectDir, packageName);
+    }
+
+    return value;
+  }
+
+  return (
+    readRootCatalogEntry(projectDir, packageName) ?? readInstalledVersion(projectDir, packageName)
+  );
+}
+
+function setCatalogRefs(
+  field: Record<string, string> | undefined,
+  packageNames: ReadonlyArray<string>,
+): boolean {
+  if (!field) return false;
+
+  let modified = false;
+  for (const packageName of packageNames) {
+    if (setCatalogRef(field, packageName)) {
+      modified = true;
+    }
+  }
+
+  return modified;
+}
+
+function syncPackageObjectCatalogRefs(
+  pkg: Record<string, unknown>,
+  packageNames: ReadonlyArray<string>,
+): boolean {
+  let modified = false;
+
+  for (const fieldName of ["dependencies", "devDependencies", "peerDependencies"] as const) {
+    const field = pkg[fieldName] as Record<string, string> | undefined;
+    if (setCatalogRefs(field, packageNames)) {
+      modified = true;
+    }
+  }
+
+  return modified;
+}
+
+function packageObjectNeedsCatalogRefs(
+  pkg: Record<string, unknown>,
+  packageNames: ReadonlyArray<string>,
+): boolean {
+  for (const fieldName of ["dependencies", "devDependencies", "peerDependencies"] as const) {
+    const field = pkg[fieldName] as Record<string, string> | undefined;
+    if (!field) continue;
+
+    for (const packageName of packageNames) {
+      const value = field[packageName];
+      if (!value) continue;
+      if (value !== "catalog:" && !value.startsWith("file:")) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function packageFileNeedsCatalogRefs(
+  filePath: string,
+  packageNames: ReadonlyArray<string>,
+): boolean {
+  return packageObjectNeedsCatalogRefs(
+    readJsonFile<Record<string, unknown>>(filePath),
+    packageNames,
+  );
+}
+
+function updatePackageFileCatalogRefs(
+  filePath: string,
+  packageNames: ReadonlyArray<string>,
+): boolean {
+  const pkg = readJsonFile<Record<string, unknown>>(filePath);
+  const modified = syncPackageObjectCatalogRefs(pkg, packageNames);
+
+  if (modified) {
+    writeFileSync(filePath, `${JSON.stringify(pkg, null, 2)}\n`);
+  }
+
+  return modified;
+}
+
+function syncRootCatalogWithParent(
+  projectDir: string,
+  parentCatalog: Record<string, string>,
+): boolean {
+  const pkgPath = join(projectDir, "package.json");
+  const pkg = readJsonFile<Record<string, unknown>>(pkgPath);
+  let modified = syncPackageObjectCatalogRefs(pkg, Object.keys(parentCatalog));
+
+  if (!pkg.workspaces || typeof pkg.workspaces !== "object") {
+    pkg.workspaces = { packages: [], catalog: {} };
+    modified = true;
+  }
+
+  const workspaces = pkg.workspaces as { packages?: string[]; catalog?: Record<string, string> };
+  if (!workspaces.catalog || typeof workspaces.catalog !== "object") {
+    workspaces.catalog = {};
+    modified = true;
+  }
+
+  for (const [packageName, version] of Object.entries(parentCatalog)) {
+    if (workspaces.catalog[packageName] !== version) {
+      workspaces.catalog[packageName] = version;
+      modified = true;
+    }
+  }
+
+  if (modified) {
+    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  }
+
+  return modified;
+}
+
+async function readExtendedRootSource(projectDir: string): Promise<ExtendedRootSource> {
   const configPath = join(projectDir, "bos.config.json");
   if (!existsSync(configPath)) {
-    return {};
+    return { catalog: {}, extendsChain: [] };
   }
 
   const localConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
-  let extendsRef: string | undefined;
-  if (typeof localConfig.extends === "string") {
-    extendsRef = localConfig.extends;
-  } else if (isPlainObjectFromMerge(localConfig.extends)) {
-    extendsRef = resolveExtendsRef(localConfig.extends as Record<string, string>, "production");
+  let extendsRef = getExtendsRef(localConfig);
+  if (!extendsRef?.startsWith("bos://")) {
+    return {
+      catalog: {},
+      repository: typeof localConfig.repository === "string" ? localConfig.repository : undefined,
+      extendsChain: [],
+    };
   }
 
-  const parsed = extendsRef ? parseBosRef(extendsRef) : null;
+  const extendsChain: string[] = [];
+  const visited = new Set<string>();
+  let repository = typeof localConfig.repository === "string" ? localConfig.repository : undefined;
+  let rootRef = extendsRef;
+
+  while (extendsRef?.startsWith("bos://")) {
+    if (visited.has(extendsRef)) {
+      throw new Error(`Circular extends detected while resolving upgrade source: ${extendsRef}`);
+    }
+    visited.add(extendsRef);
+    extendsChain.push(extendsRef);
+
+    const parsed = parseBosRef(extendsRef);
+    if (!parsed) {
+      break;
+    }
+
+    rootRef = extendsRef;
+
+    let parentConfig: Record<string, unknown>;
+    try {
+      parentConfig = (await fetchParentConfig(parsed.account, parsed.gateway)) as Record<
+        string,
+        unknown
+      >;
+    } catch {
+      break;
+    }
+
+    if (typeof parentConfig.repository === "string") {
+      repository = parentConfig.repository;
+    }
+
+    const nextExtendsRef = getExtendsRef(parentConfig);
+    if (!nextExtendsRef?.startsWith("bos://")) {
+      break;
+    }
+
+    extendsRef = nextExtendsRef;
+  }
+
+  const parsed = parseBosRef(rootRef);
   if (!parsed) {
-    return {};
+    return { catalog: {}, repository, extendsChain };
   }
 
   const { sourceDir, cleanup } = await resolveSourceDir({
@@ -91,13 +271,17 @@ async function readExtendedRootCatalog(projectDir: string): Promise<Record<strin
   try {
     const sourcePkgPath = join(sourceDir, "package.json");
     if (!existsSync(sourcePkgPath)) {
-      return {};
+      return { catalog: {}, repository, extendsChain };
     }
 
     const sourcePkg = JSON.parse(readFileSync(sourcePkgPath, "utf-8")) as {
       workspaces?: { catalog?: Record<string, string> };
     };
-    return { ...(sourcePkg.workspaces?.catalog ?? {}) };
+    return {
+      catalog: { ...(sourcePkg.workspaces?.catalog ?? {}) },
+      repository,
+      extendsChain,
+    };
   } finally {
     await cleanup();
   }
@@ -530,87 +714,6 @@ function setCatalogRef(field: Record<string, string> | undefined, packageName: s
   return true;
 }
 
-function updateWorkspacePackageRefInFile(filePath: string, packageName: string): boolean {
-  const pkg = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
-  let modified = false;
-
-  for (const fieldName of ["dependencies", "devDependencies", "peerDependencies"] as const) {
-    const field = pkg[fieldName] as Record<string, string> | undefined;
-    if (setCatalogRef(field, packageName)) {
-      modified = true;
-    }
-  }
-
-  if (modified) {
-    writeFileSync(filePath, `${JSON.stringify(pkg, null, 2)}\n`);
-  }
-  return modified;
-}
-
-function updateRootPackageVersion(
-  projectDir: string,
-  packageName: string,
-  newVersion: string,
-): boolean {
-  const pkgPath = join(projectDir, "package.json");
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as Record<string, unknown>;
-  let modified = false;
-
-  for (const fieldName of ["dependencies", "devDependencies", "peerDependencies"] as const) {
-    const field = pkg[fieldName] as Record<string, string> | undefined;
-    if (setCatalogRef(field, packageName)) {
-      modified = true;
-    }
-  }
-
-  if (!pkg.workspaces || typeof pkg.workspaces !== "object") {
-    pkg.workspaces = { packages: [], catalog: {} };
-    modified = true;
-  }
-
-  const workspaces = pkg.workspaces as { packages?: string[]; catalog?: Record<string, string> };
-  if (!workspaces.catalog || typeof workspaces.catalog !== "object") {
-    workspaces.catalog = {};
-    modified = true;
-  }
-
-  const nextVersion = newVersion;
-  if (workspaces.catalog[packageName] !== nextVersion) {
-    workspaces.catalog[packageName] = nextVersion;
-    modified = true;
-  }
-
-  if (modified) {
-    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-  }
-
-  return modified;
-}
-
-function updateRootCatalogVersion(
-  projectDir: string,
-  packageName: string,
-  newVersion: string,
-): boolean {
-  const pkgPath = join(projectDir, "package.json");
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as Record<string, unknown>;
-
-  if (!pkg.workspaces || typeof pkg.workspaces !== "object") {
-    pkg.workspaces = { packages: [], catalog: {} };
-  }
-  const workspaces = pkg.workspaces as { packages?: string[]; catalog?: Record<string, string> };
-  if (!workspaces.catalog || typeof workspaces.catalog !== "object") {
-    workspaces.catalog = {};
-  }
-
-  const nextVersion = newVersion;
-  if (workspaces.catalog[packageName] === nextVersion) return false;
-
-  workspaces.catalog[packageName] = nextVersion;
-  writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-  return true;
-}
-
 async function findWorkspacePackageJsons(projectDir: string): Promise<string[]> {
   const rootPkgPath = join(projectDir, "package.json");
   if (!existsSync(rootPkgPath)) return [];
@@ -644,17 +747,20 @@ async function findWorkspacePackageJsons(projectDir: string): Promise<string[]> 
 function buildChangelogUrl(
   oldVersion: string | undefined,
   newVersion: string,
-  parentConfig: Record<string, unknown> | null,
+  repository: string | undefined,
 ): string | undefined {
-  if (!oldVersion || oldVersion === newVersion) return undefined;
-  const repoUrl = parentConfig?.repository as string | undefined;
+  const fromVersion = extractSemver(oldVersion);
+  const toVersion = extractSemver(newVersion);
+  if (!fromVersion || !toVersion || fromVersion === toVersion) return undefined;
+
+  const repoUrl = repository;
   if (!repoUrl) return undefined;
 
   const githubMatch = repoUrl.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
   if (!githubMatch) return undefined;
 
   const [, owner, repo] = githubMatch;
-  return `https://github.com/${owner}/${repo}/compare/v${oldVersion}...v${newVersion}`;
+  return `https://github.com/${owner}/${repo}/compare/v${fromVersion}...v${toVersion}`;
 }
 
 async function rewriteLegacyUiImports(projectDir: string): Promise<string[]> {
@@ -699,7 +805,20 @@ export async function upgradeTemplate(
     };
   }
 
-  const sourceRootCatalog = await readExtendedRootCatalog(projectDir);
+  const parentSource = await readExtendedRootSource(projectDir);
+  const sourceRootCatalog = parentSource.catalog;
+  const inheritedCatalogPackageNames = Object.keys(sourceRootCatalog);
+  const currentRootCatalog = readRootPackageJson(projectDir) as {
+    workspaces?: { catalog?: Record<string, string> };
+  };
+  const currentCatalogEntries = currentRootCatalog.workspaces?.catalog ?? {};
+  const workspacePkgPaths = await findWorkspacePackageJsons(projectDir);
+  const hasCatalogRefRewrites =
+    inheritedCatalogPackageNames.length > 0 &&
+    (packageObjectNeedsCatalogRefs(readRootPackageJson(projectDir), inheritedCatalogPackageNames) ||
+      workspacePkgPaths.some((pkgPath) =>
+        packageFileNeedsCatalogRefs(pkgPath, inheritedCatalogPackageNames),
+      ));
 
   const { packages, catalogVersionUpdates } = await timePhase(
     timings,
@@ -708,15 +827,10 @@ export async function upgradeTemplate(
       const nextPackages: UpgradeResult["packages"] = [];
 
       for (const name of FRAMEWORK_PACKAGES) {
-        const installed = readInstalledVersion(projectDir, name);
-        const latest = extractVersion(sourceRootCatalog[name]);
+        const current = readCurrentPackageSpecifier(projectDir, name);
+        const target = sourceRootCatalog[name] ?? current ?? "unknown";
 
-        if (!latest) {
-          nextPackages.push({ name, from: installed, to: installed ?? "unknown" });
-          continue;
-        }
-
-        nextPackages.push({ name, from: installed, to: latest });
+        nextPackages.push({ name, from: current, to: target });
       }
 
       const nextCatalogVersionUpdates: Array<{
@@ -724,15 +838,12 @@ export async function upgradeTemplate(
         from: string | undefined;
         to: string;
       }> = [];
-      for (const name of CATALOG_TOOL_PACKAGES) {
-        const installed = readInstalledVersion(projectDir, name);
-        if (!installed) continue;
-        const targetVersion =
-          PINNED_CATALOG_TOOL_VERSIONS[name] ??
-          extractVersion(sourceRootCatalog[name]) ??
-          installed;
-        if (installed === targetVersion) continue;
-        nextCatalogVersionUpdates.push({ name, from: installed, to: targetVersion });
+      for (const [name, targetVersion] of Object.entries(sourceRootCatalog)) {
+        if (FRAMEWORK_PACKAGES.includes(name)) continue;
+
+        const currentVersion = currentCatalogEntries[name];
+        if (currentVersion === targetVersion) continue;
+        nextCatalogVersionUpdates.push({ name, from: currentVersion, to: targetVersion });
       }
 
       return { packages: nextPackages, catalogVersionUpdates: nextCatalogVersionUpdates };
@@ -741,7 +852,7 @@ export async function upgradeTemplate(
 
   const hasFrameworkUpdates = packages.some((p) => p.from !== p.to && p.from !== undefined);
   const hasCatalogUpdates = catalogVersionUpdates.length > 0;
-  const hasUpdates = hasFrameworkUpdates || hasCatalogUpdates;
+  const hasUpdates = hasFrameworkUpdates || hasCatalogUpdates || hasCatalogRefRewrites;
 
   if (options.dryRun) {
     let changelogUrl: string | undefined;
@@ -751,16 +862,9 @@ export async function upgradeTemplate(
           loadParentPluginOptions(projectDir),
         );
     if (hasUpdates) {
-      const configPath = join(projectDir, "bos.config.json");
-      let parentConfig: Record<string, unknown> | null = null;
-      if (existsSync(configPath)) {
-        try {
-          parentConfig = JSON.parse(readFileSync(configPath, "utf-8"));
-        } catch {}
-      }
       const mainPkg = packages.find((p) => p.name === "everything-dev");
       if (mainPkg?.from && mainPkg.from !== mainPkg.to) {
-        changelogUrl = buildChangelogUrl(mainPkg.from, mainPkg.to, parentConfig);
+        changelogUrl = buildChangelogUrl(mainPkg.from, mainPkg.to, parentSource.repository);
       }
     }
 
@@ -777,25 +881,13 @@ export async function upgradeTemplate(
   }
 
   await timePhase(timings, "apply package updates", async () => {
-    for (const pkg of packages) {
-      if (pkg.from !== undefined && pkg.from !== pkg.to) {
-        updateRootPackageVersion(projectDir, pkg.name, pkg.to);
-      }
+    if (inheritedCatalogPackageNames.length > 0) {
+      syncRootCatalogWithParent(projectDir, sourceRootCatalog);
     }
 
-    for (const update of catalogVersionUpdates) {
-      updateRootCatalogVersion(projectDir, update.name, update.to);
-    }
-
-    const workspacePkgPaths = await findWorkspacePackageJsons(projectDir);
-    for (const pkgPath of workspacePkgPaths) {
-      for (const pkg of packages) {
-        if (pkg.from !== undefined && pkg.from !== pkg.to) {
-          updateWorkspacePackageRefInFile(pkgPath, pkg.name);
-        }
-      }
-      for (const update of catalogVersionUpdates) {
-        updateWorkspacePackageRefInFile(pkgPath, update.name);
+    if (inheritedCatalogPackageNames.length > 0) {
+      for (const pkgPath of workspacePkgPaths) {
+        updatePackageFileCatalogRefs(pkgPath, inheritedCatalogPackageNames);
       }
     }
   });
@@ -844,14 +936,7 @@ export async function upgradeTemplate(
   let changelogUrl: string | undefined;
   const mainPkg = packages.find((p) => p.name === "everything-dev");
   if (mainPkg?.from && mainPkg.from !== mainPkg.to) {
-    const configPath = join(projectDir, "bos.config.json");
-    let parentConfig: Record<string, unknown> | null = null;
-    if (existsSync(configPath)) {
-      try {
-        parentConfig = JSON.parse(readFileSync(configPath, "utf-8"));
-      } catch {}
-    }
-    changelogUrl = buildChangelogUrl(mainPkg.from, mainPkg.to, parentConfig);
+    changelogUrl = buildChangelogUrl(mainPkg.from, mainPkg.to, parentSource.repository);
   }
 
   return {

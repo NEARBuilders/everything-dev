@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   getResolvedConfigPath,
   loadConfig,
@@ -182,6 +182,10 @@ describe("readBosConfigForBuild", () => {
 });
 
 describe("loadConfig plugin runtime filtering", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("omits plugin entries that resolve to neither a local path nor a production URL", async () => {
     const testDir = mkdtempSync(join(tmpdir(), "bos-config-runtime-"));
 
@@ -223,6 +227,202 @@ describe("loadConfig plugin runtime filtering", () => {
 
       expect(loaded).not.toBeNull();
       expect(loaded?.runtime.plugins).toBeUndefined();
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns and uses production when a plugin has no development target", async () => {
+    const testDir = mkdtempSync(join(tmpdir(), "bos-config-runtime-"));
+
+    try {
+      writeFileSync(
+        join(testDir, "bos.config.json"),
+        `${JSON.stringify(
+          {
+            account: "test.near",
+            domain: "test.dev",
+            plugins: {
+              settings: {
+                production: "https://settings.example.com",
+              },
+            },
+            app: {
+              host: {
+                development: "http://localhost:3000",
+                production: "https://host.example.com",
+              },
+              ui: {
+                name: "ui",
+                development: "http://localhost:3003",
+                production: "https://ui.example.com",
+              },
+              api: {
+                name: "api",
+                development: "http://localhost:3001",
+                production: "https://api.example.com",
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+      );
+
+      const loaded = await loadConfig({ cwd: testDir });
+
+      expect(loaded?.runtime.plugins?.settings?.source).toBe("remote");
+      expect(loaded?.runtime.plugins?.settings?.url).toBe("https://settings.example.com");
+      expect(loaded?.warnings).toContain(
+        '[Config] No development target for "plugins.settings", using production',
+      );
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns and uses production when a local development target is missing", async () => {
+    const testDir = mkdtempSync(join(tmpdir(), "bos-config-runtime-"));
+
+    try {
+      writeFileSync(
+        join(testDir, "bos.config.json"),
+        `${JSON.stringify(
+          {
+            account: "test.near",
+            domain: "test.dev",
+            plugins: {
+              settings: {
+                development: "local:plugins/settings",
+                production: "https://settings.example.com",
+              },
+            },
+            app: {
+              host: {
+                development: "http://localhost:3000",
+                production: "https://host.example.com",
+              },
+              ui: {
+                name: "ui",
+                development: "http://localhost:3003",
+                production: "https://ui.example.com",
+              },
+              api: {
+                name: "api",
+                development: "http://localhost:3001",
+                production: "https://api.example.com",
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+      );
+
+      const loaded = await loadConfig({ cwd: testDir });
+
+      expect(loaded?.runtime.plugins?.settings?.source).toBe("remote");
+      expect(loaded?.runtime.plugins?.settings?.url).toBe("https://settings.example.com");
+      expect(loaded?.warnings).toContain(
+        '[Config] Could not load local target for "plugins.settings", using production',
+      );
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it("errors when extends is unreachable without a local fallback", async () => {
+    const testDir = mkdtempSync(join(tmpdir(), "bos-config-runtime-"));
+
+    try {
+      writeFileSync(
+        join(testDir, "bos.config.json"),
+        `${JSON.stringify(
+          {
+            account: "test.near",
+            domain: "test.dev",
+            plugins: {
+              settings: {
+                extends: "./missing-provider/bos.config.json",
+                production: "https://settings.example.com",
+              },
+            },
+            app: {
+              host: {
+                development: "http://localhost:3000",
+                production: "https://host.example.com",
+              },
+              ui: {
+                name: "ui",
+                development: "http://localhost:3003",
+                production: "https://ui.example.com",
+              },
+              api: {
+                name: "api",
+                development: "http://localhost:3001",
+                production: "https://api.example.com",
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+      );
+
+      await expect(loadConfig({ cwd: testDir })).rejects.toThrow(
+        "missing-provider/bos.config.json",
+      );
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses an existing local development path when extends is unreachable", async () => {
+    const testDir = mkdtempSync(join(tmpdir(), "bos-config-runtime-"));
+
+    try {
+      const localPluginDir = join(testDir, "plugins", "settings");
+      mkdirSync(localPluginDir, { recursive: true });
+      writeFileSync(
+        join(testDir, "bos.config.json"),
+        `${JSON.stringify(
+          {
+            account: "test.near",
+            domain: "test.dev",
+            plugins: {
+              settings: {
+                extends: "./missing-provider/bos.config.json",
+                development: "local:plugins/settings",
+                production: "https://settings.example.com",
+              },
+            },
+            app: {
+              host: {
+                development: "http://localhost:3000",
+                production: "https://host.example.com",
+              },
+              ui: {
+                name: "ui",
+                development: "http://localhost:3003",
+                production: "https://ui.example.com",
+              },
+              api: {
+                name: "api",
+                development: "http://localhost:3001",
+                production: "https://api.example.com",
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      writeFileSync(join(localPluginDir, "package.json"), '{"name":"settings"}\n');
+
+      const loaded = await loadConfig({ cwd: testDir });
+
+      expect(loaded?.runtime.plugins?.settings?.source).toBe("local");
+      expect(loaded?.runtime.plugins?.settings?.localPath).toBe(localPluginDir);
     } finally {
       rmSync(testDir, { recursive: true, force: true });
     }

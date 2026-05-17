@@ -7,6 +7,7 @@ import { loadManifestNormalizationSpec } from "../../src/internal/manifest-norma
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
 const ROOT_CONFIG = JSON.parse(readFileSync(join(REPO_ROOT, "bos.config.json"), "utf-8")) as {
+  app?: { api?: { name?: string } };
   plugins?: Record<string, { routes?: string[] }>;
   shared?: Record<string, unknown>;
 };
@@ -98,7 +99,7 @@ describe("personalizeConfig with real root config", () => {
     expect(config.app?.ui?.integrity).toBeUndefined();
     expect(config.app?.ui?.ssr).toBeUndefined();
     expect(config.app?.ui?.ssrIntegrity).toBeUndefined();
-    expect(config.app?.api?.name).toBe("api");
+    expect(config.app?.api?.name).toBe(ROOT_CONFIG.app?.api?.name);
     expect(config.app?.api?.development).toBe("local:api");
     expect(config.app?.api?.production).toBeUndefined();
     expect(config.app?.api?.integrity).toBeUndefined();

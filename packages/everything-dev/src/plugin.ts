@@ -27,11 +27,14 @@ import { syncTemplate } from "./cli/sync";
 import { upgradeTemplate } from "./cli/upgrade";
 import {
   buildRuntimePluginsForConfig,
+  drainConfigWarnings,
   findConfigPath,
   getHostDevelopmentPort,
   getProjectRoot,
   loadConfig,
   resolveLocalDevelopmentPath,
+  resumeWarnings,
+  suppressWarnings,
   writeResolvedConfig,
 } from "./config";
 import {
@@ -846,6 +849,7 @@ export default createPlugin({
       }
 
       const hostPort = input.port ?? getHostDevelopmentPort(deps.bosConfig.app.host.development);
+      suppressWarnings();
       const developmentRuntime = buildRuntimeConfig(deps.bosConfig, {
         uiSource,
         apiSource,
@@ -854,6 +858,8 @@ export default createPlugin({
         env: "development",
         plugins: deps.runtimeConfig?.plugins,
       });
+      drainConfigWarnings();
+      resumeWarnings();
       const runtimeConfig = await prepareDevelopmentRuntimeConfig(developmentRuntime, {
         hostPort,
         ssr,
@@ -942,6 +948,7 @@ export default createPlugin({
         deps.configDir,
         "production",
       );
+      suppressWarnings();
       const runtimeConfig = buildRuntimeConfig(config, {
         uiSource: "remote",
         apiSource: "remote",
@@ -950,6 +957,8 @@ export default createPlugin({
         env: "production",
         plugins: runtimePlugins,
       });
+      drainConfigWarnings();
+      resumeWarnings();
 
       pluginEvents.emit("progress", {
         phase: "generate artifacts",
@@ -1073,6 +1082,7 @@ export default createPlugin({
         };
       }
 
+      suppressWarnings();
       const runtimeConfig = buildRuntimeConfig(deps.bosConfig, {
         uiSource: deps.bosConfig.app.ui?.development ? "local" : "remote",
         apiSource: deps.bosConfig.app.api?.development ? "local" : "remote",
@@ -1081,6 +1091,8 @@ export default createPlugin({
         env: buildEnv,
         plugins: deps.runtimeConfig?.plugins,
       });
+      drainConfigWarnings();
+      resumeWarnings();
 
       await generateCodeArtifacts(deps.configDir, deps.bosConfig, {
         env: buildEnv,

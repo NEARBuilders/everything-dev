@@ -41,7 +41,7 @@ Two main reasons:
 1. I'm tired of constantly maintaining similiar logic and infrasturcture across multiple projects
 2. While agents are good at creating prototypes, vibe coding typically comes with security flaws. This framework provides a type-safe starting point, extended from production ready code, on an upgradable runtime, with an incredibly simple deployment flow (publish a JSON and restart a Docker image).
 
-When solutions are optimized to solve these two problems, a bi-product is more creativity and immense possibility, especially in the era of generative interfaces.
+When solutions are optimized to solve these two problems, a byproduct is more creativity in safety and immense possibility, especially in the era of generative interfaces.
 
 **Runtime apps that compose, verify, and evolve without rebuilding.**
 
