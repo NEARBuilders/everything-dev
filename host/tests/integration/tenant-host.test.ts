@@ -103,7 +103,10 @@ describe("tenant host integration", () => {
 
   beforeAll(async () => {
     assetServer = await startStaticServer({
-      "/__mf/plugin-ui/apps/chunk.js": { body: "console.log('tenant-plugin-ui')", contentType: "application/javascript" },
+      "/__mf/plugin-ui/apps/chunk.js": {
+        body: "console.log('tenant-plugin-ui')",
+        contentType: "application/javascript",
+      },
     });
 
     const port = await getAvailablePort();
@@ -117,7 +120,11 @@ describe("tenant host integration", () => {
       config: {
         ...config,
         host: { ...config.host, url: baseUrl, entry: `${baseUrl}/mf-manifest.json` },
-        ui: { ...config.ui, url: `${assetServer.baseUrl}/ui`, entry: `${assetServer.baseUrl}/ui/mf-manifest.json` },
+        ui: {
+          ...config.ui,
+          url: `${assetServer.baseUrl}/ui`,
+          entry: `${assetServer.baseUrl}/ui/mf-manifest.json`,
+        },
         api: { ...config.api, proxy: assetServer.baseUrl },
         plugins: {
           apps: {

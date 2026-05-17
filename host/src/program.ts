@@ -27,10 +27,7 @@ import {
   toAuthClientContext,
 } from "./services/auth";
 import { type ClientRuntimeConfig, ConfigService, type RuntimeConfig } from "./services/config";
-import {
-  loadRouterModule,
-  resetFederationInstance,
-} from "./services/federation.server";
+import { loadRouterModule, resetFederationInstance } from "./services/federation.server";
 import { startIntegrityMonitor } from "./services/integrity-monitor";
 import { createPluginsClient, type PluginResult, PluginsService } from "./services/plugins";
 import { createRouterMounts } from "./services/router";
@@ -542,7 +539,11 @@ export const createStartServer = (onReady?: () => void) =>
           ],
           connectSrc: ["'self'", "https:", ...uniqueOrigins, ...wsOrigins, ...cdnOrigins],
           fontSrc: ["'self'", "https:", ...uniqueOrigins],
-          manifestSrc: ["'self'", "https:", ...(uiConfig.url ? [new URL(uiConfig.url).origin] : [])],
+          manifestSrc: [
+            "'self'",
+            "https:",
+            ...(uiConfig.url ? [new URL(uiConfig.url).origin] : []),
+          ],
           frameSrc: ["'self'", "https:", ...uniqueOrigins],
           objectSrc: ["'none'"],
           baseUri: ["'self'"],
@@ -632,7 +633,9 @@ export const createStartServer = (onReady?: () => void) =>
     };
 
     const proxyUiAssetRequest = async (c: Context<HonoEnv>) => {
-      const runtime = await resolveRequestRuntime(config, c.req.raw);
+      const runtime = await resolveRequestRuntime(config, c.req.raw, {
+        verification: "stale-while-revalidate",
+      });
       return proxyRequest(c.req.raw, runtime.config.ui.url);
     };
 
@@ -661,7 +664,9 @@ export const createStartServer = (onReady?: () => void) =>
       const proxyPrefix = `/__mf/plugin-ui/${pluginKey}`;
       app.all(`${proxyPrefix}/*`, async (c: Context<HonoEnv>) => {
         try {
-          const runtime = await resolveRequestRuntime(config, c.req.raw);
+          const runtime = await resolveRequestRuntime(config, c.req.raw, {
+            verification: "stale-while-revalidate",
+          });
           const pluginUiUrl = runtime.config.plugins?.[pluginKey]?.ui?.url;
           if (!pluginUiUrl) {
             return c.text(`Plugin UI unavailable for ${pluginKey}`, 404);
@@ -679,7 +684,9 @@ export const createStartServer = (onReady?: () => void) =>
     app.get("*", async (c: Context<HonoEnv>) => {
       let resolvedRuntime;
       try {
-        resolvedRuntime = await resolveRequestRuntime(config, c.req.raw);
+        resolvedRuntime = await resolveRequestRuntime(config, c.req.raw, {
+          verification: "blocking",
+        });
       } catch (error) {
         const { message, status } = getTenantRuntimeErrorResponse(error);
         return c.text(message, { status: status as 404 | 500 | 502 });
@@ -687,13 +694,20 @@ export const createStartServer = (onReady?: () => void) =>
 
       const effectiveConfig = resolvedRuntime.config;
       const activeRuntime = await resolveActiveRuntime(effectiveConfig, c.req.raw);
-      const runtimeConfig = buildRuntimeClientConfig(effectiveConfig, c.req.raw, activeRuntime, plugins);
+      const runtimeConfig = buildRuntimeClientConfig(
+        effectiveConfig,
+        c.req.raw,
+        activeRuntime,
+        plugins,
+      );
 
       if (!effectiveConfig.ui.ssrUrl) {
         return renderClientShell(c, effectiveConfig, runtimeConfig);
       }
 
-      const routerModuleResult = await Effect.runPromise(loadRouterModule(effectiveConfig).pipe(Effect.either));
+      const routerModuleResult = await Effect.runPromise(
+        loadRouterModule(effectiveConfig).pipe(Effect.either),
+      );
 
       if (routerModuleResult._tag === "Left") {
         logger.error("[SSR] Failed to load Router module:", routerModuleResult.left);

@@ -3,4 +3,4 @@
 "host": patch
 ---
 
-Add fixed-core tenant UI composition for shared hosts so subdomains can resolve BOS configs per request while keeping the host, auth, and API runtime stable. This also adds typed runtime override targets and tenant validation helpers for UI and existing plugin UI/sidebar overrides.
+Add fixed-core tenant UI composition for shared hosts so subdomains can resolve BOS configs per request while keeping the host, auth, and API runtime stable. This also hardens tenant remote integrity verification with bounded streaming, background refresh for asset requests, and safer SSR cache invalidation for updated remotes.

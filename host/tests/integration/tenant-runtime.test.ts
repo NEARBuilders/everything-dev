@@ -9,7 +9,14 @@ vi.mock("everything-dev/config", async () => {
   return {
     parseRuntimeOverrideTargets: (value?: string | null) =>
       value
-        ? [...new Set(value.split(",").map((entry) => entry.trim()).filter(Boolean))]
+        ? [
+            ...new Set(
+              value
+                .split(",")
+                .map((entry) => entry.trim())
+                .filter(Boolean),
+            ),
+          ]
         : [],
     isRuntimeOverrideAllowed: (targets: string[], target: string) =>
       targets.includes(target) || (target.startsWith("plugins.") && targets.includes("plugins.*")),
@@ -25,6 +32,14 @@ vi.mock("everything-dev/integrity", () => ({
 const { clearTenantRuntimeCaches, resolveRequestRuntime } = await import(
   "../../src/services/tenant-runtime"
 );
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 function createBaseRuntimeConfig(): RuntimeConfig {
   return {
@@ -173,7 +188,10 @@ describe("resolveRequestRuntime", () => {
       },
     });
 
-    const result = await resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/"));
+    const result = await resolveRequestRuntime(
+      baseConfig,
+      new Request("https://alice.linktree.com/"),
+    );
 
     expect(result.tenantAccountId).toBe("alice.near");
     expect(result.config.account).toBe("alice.near");
@@ -218,7 +236,10 @@ describe("resolveRequestRuntime", () => {
       },
     });
 
-    const result = await resolveRequestRuntime(baseConfig, new Request("https://bob.linktree.com/"));
+    const result = await resolveRequestRuntime(
+      baseConfig,
+      new Request("https://bob.linktree.com/"),
+    );
 
     expect(result.ssrAllowed).toBe(false);
     expect(result.config.ui.ssrUrl).toBeUndefined();
@@ -300,7 +321,10 @@ describe("resolveRequestRuntime", () => {
       },
     });
 
-    const result = await resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/"));
+    const result = await resolveRequestRuntime(
+      baseConfig,
+      new Request("https://alice.linktree.com/"),
+    );
 
     expect(result.config.plugins?.apps.ui?.url).toBe("https://plugins.example.com/alice-apps-ui");
     expect(result.config.plugins?.apps.sidebar).toEqual([
@@ -311,5 +335,177 @@ describe("resolveRequestRuntime", () => {
       "https://plugins.example.com/alice-apps-ui",
       "sha384-apps-alice",
     );
+  });
+
+  it("revalidates expired tenant UI integrity in the background for stale asset requests", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const baseConfig = createBaseRuntimeConfig();
+
+      loadRemoteConfigMock.mockResolvedValue({
+        source: "bos://alice.near/linktree.com",
+        rawConfig: {
+          extends: "bos://linktree.near/linktree.com",
+        },
+        config: {
+          account: "alice.near",
+          app: {
+            host: { development: "local:host", production: "https://host.example.com" },
+            ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
+            api: { name: "api", production: "https://api.example.com" },
+          },
+        },
+        extendsChain: ["bos://alice.near/linktree.com", "bos://linktree.near/linktree.com"],
+      });
+
+      buildRuntimeConfigMock.mockReturnValue({
+        ...baseConfig,
+        account: "alice.near",
+        ui: {
+          ...baseConfig.ui,
+          url: "https://cdn.example.com/alice-ui",
+          entry: "https://cdn.example.com/alice-ui/mf-manifest.json",
+          integrity: "sha384-alice",
+          ssrUrl: "https://cdn.example.com/alice-ui-ssr",
+          ssrIntegrity: "sha384-alice-ssr",
+        },
+      });
+
+      await resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/"));
+
+      const refresh = createDeferred<void>();
+      verifySriForUrlMock.mockImplementationOnce(() => refresh.promise);
+      vi.advanceTimersByTime(5 * 60_000 + 1);
+
+      await expect(
+        resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/asset.js"), {
+          verification: "stale-while-revalidate",
+        }),
+      ).resolves.toMatchObject({ tenantAccountId: "alice.near" });
+      expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
+
+      await expect(
+        resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/asset-2.js"), {
+          verification: "stale-while-revalidate",
+        }),
+      ).resolves.toMatchObject({ tenantAccountId: "alice.near" });
+      expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
+
+      refresh.resolve();
+      await Promise.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for expired tenant UI integrity in blocking mode", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const baseConfig = createBaseRuntimeConfig();
+
+      loadRemoteConfigMock.mockResolvedValue({
+        source: "bos://alice.near/linktree.com",
+        rawConfig: {
+          extends: "bos://linktree.near/linktree.com",
+        },
+        config: {
+          account: "alice.near",
+          app: {
+            host: { development: "local:host", production: "https://host.example.com" },
+            ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
+            api: { name: "api", production: "https://api.example.com" },
+          },
+        },
+        extendsChain: ["bos://alice.near/linktree.com", "bos://linktree.near/linktree.com"],
+      });
+
+      buildRuntimeConfigMock.mockReturnValue({
+        ...baseConfig,
+        account: "alice.near",
+        ui: {
+          ...baseConfig.ui,
+          url: "https://cdn.example.com/alice-ui",
+          entry: "https://cdn.example.com/alice-ui/mf-manifest.json",
+          integrity: "sha384-alice",
+          ssrUrl: "https://cdn.example.com/alice-ui-ssr",
+          ssrIntegrity: "sha384-alice-ssr",
+        },
+      });
+
+      await resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/"));
+
+      const refresh = createDeferred<void>();
+      verifySriForUrlMock.mockImplementationOnce(() => refresh.promise);
+      vi.advanceTimersByTime(5 * 60_000 + 1);
+
+      let settled = false;
+      const pending = resolveRequestRuntime(
+        baseConfig,
+        new Request("https://alice.linktree.com/"),
+        {
+          verification: "blocking",
+        },
+      ).then(() => {
+        settled = true;
+      });
+
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      refresh.resolve();
+      await pending;
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("recomputes the tenant whitelist when the env value changes", async () => {
+    const baseConfig = createBaseRuntimeConfig();
+
+    loadRemoteConfigMock.mockResolvedValue({
+      source: "bos://bob.near/linktree.com",
+      rawConfig: {
+        extends: "bos://linktree.near/linktree.com",
+      },
+      config: {
+        account: "bob.near",
+        app: {
+          host: { development: "local:host", production: "https://host.example.com" },
+          ui: { name: "ui", production: "https://cdn.example.com/bob-ui" },
+          api: { name: "api", production: "https://api.example.com" },
+        },
+      },
+      extendsChain: ["bos://bob.near/linktree.com", "bos://linktree.near/linktree.com"],
+    });
+
+    buildRuntimeConfigMock.mockReturnValue({
+      ...baseConfig,
+      account: "bob.near",
+      ui: {
+        ...baseConfig.ui,
+        url: "https://cdn.example.com/bob-ui",
+        entry: "https://cdn.example.com/bob-ui/mf-manifest.json",
+        integrity: "sha384-bob",
+        ssrUrl: "https://cdn.example.com/bob-ui-ssr",
+        ssrIntegrity: "sha384-bob-ssr",
+      },
+    });
+
+    const blocked = await resolveRequestRuntime(
+      baseConfig,
+      new Request("https://bob.linktree.com/"),
+    );
+    expect(blocked.ssrAllowed).toBe(false);
+
+    process.env.TENANT_WHITELIST = "bob.near";
+
+    const allowed = await resolveRequestRuntime(
+      baseConfig,
+      new Request("https://bob.linktree.com/"),
+    );
+    expect(allowed.ssrAllowed).toBe(true);
   });
 });

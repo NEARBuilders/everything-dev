@@ -1,6 +1,6 @@
 import { createInstance } from "@module-federation/enhanced/runtime";
 import { Effect, Schedule } from "every-plugin/effect";
-import { computeSriHash } from "everything-dev/integrity";
+import { verifySriForUrl } from "everything-dev/integrity";
 import type { RouterModule } from "../types";
 import type { RuntimeConfig } from "./config";
 import { FederationError } from "./errors";
@@ -51,22 +51,9 @@ async function verifySsrEntryIntegrity(entryUrl: string, expectedIntegrity: stri
     return cached.value;
   }
 
-  const verification = (async () => {
-  const response = await fetch(entryUrl);
-  if (!response.ok) {
-    console.warn(`[SRI] Failed to fetch ${entryUrl} for verification: ${response.status}`);
-    return;
-  }
-
-  const buffer = Buffer.from(await response.arrayBuffer());
-  const computed = computeSriHash(buffer);
-
-  if (computed !== expectedIntegrity) {
-    throw new Error(
-      `[SRI] Integrity check failed for ${entryUrl}\n  Expected: ${expectedIntegrity}\n  Computed: ${computed}`,
-    );
-  }
-  })().catch((error) => {
+  const verification = verifySriForUrl(entryUrl, expectedIntegrity, {
+    resolveEntryUrl: false,
+  }).catch((error) => {
     verifiedSsrEntryCache.delete(cacheKey);
     throw error;
   });
@@ -118,7 +105,7 @@ export const loadRouterModule = (config: RuntimeConfig) =>
     }
 
     const ssrEntryUrl = getSsrEntryUrl(config);
-    const cacheKey = `${config.ui.name}::${ssrEntryUrl}`;
+    const cacheKey = `${config.ui.name}::${ssrEntryUrl}::${config.ui.ssrIntegrity ?? "no-integrity"}`;
     const now = Date.now();
     pruneExpiredCacheEntries(routerModuleCache, now);
     let cached = routerModuleCache.get(cacheKey);

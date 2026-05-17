@@ -16,6 +16,11 @@ const MAX_VERIFICATION_CACHE_SIZE = 512;
 type RuntimeOverrideTarget = ReturnType<typeof parseRuntimeOverrideTargets>[number];
 type BosEnv = "development" | "production" | "staging";
 type RuntimePlugin = NonNullable<RuntimeConfig["plugins"]>[string];
+type IntegrityVerificationMode = "blocking" | "stale-while-revalidate";
+
+interface ResolveRequestRuntimeOptions {
+  verification?: IntegrityVerificationMode;
+}
 
 interface CachedRemoteConfig {
   expiresAt: number;
@@ -25,6 +30,7 @@ interface CachedRemoteConfig {
 interface CachedVerification {
   expiresAt: number;
   value: Promise<void>;
+  refreshing?: Promise<void>;
 }
 
 export interface RequestRuntimeResolution {
@@ -47,8 +53,13 @@ export class TenantRuntimeError extends Error {
 const remoteConfigCache = new Map<string, CachedRemoteConfig>();
 const verifiedUiCache = new Map<string, CachedVerification>();
 const unsupportedOverrideWarnings = new Set<string>();
+let tenantWhitelistCache: { raw: string; value: Set<string> } | null = null;
+let allowedOverridesCache: { raw: string; value: RuntimeOverrideTarget[] } | null = null;
 
-function pruneExpiredCacheEntries<T extends { expiresAt: number }>(cache: Map<string, T>, now: number) {
+function pruneExpiredCacheEntries<T extends { expiresAt: number }>(
+  cache: Map<string, T>,
+  now: number,
+) {
   for (const [key, entry] of cache.entries()) {
     if (entry.expiresAt <= now) {
       cache.delete(key);
@@ -83,6 +94,8 @@ export function clearTenantRuntimeCaches() {
   remoteConfigCache.clear();
   verifiedUiCache.clear();
   unsupportedOverrideWarnings.clear();
+  tenantWhitelistCache = null;
+  allowedOverridesCache = null;
 }
 
 function normalizeDomain(domain: string | undefined, fallbackHostUrl: string): string {
@@ -93,7 +106,12 @@ function normalizeDomain(domain: string | undefined, fallbackHostUrl: string): s
   try {
     return new URL(fallbackHostUrl).hostname;
   } catch {
-    return fallbackHostUrl.replace(/^https?:\/\//, "").replace(/\/$/, "").split(":")[0] ?? "";
+    return (
+      fallbackHostUrl
+        .replace(/^https?:\/\//, "")
+        .replace(/\/$/, "")
+        .split(":")[0] ?? ""
+    );
   }
 }
 
@@ -111,16 +129,30 @@ function getTenantAccountSuffix(networkId: "mainnet" | "testnet") {
 }
 
 function getTenantWhitelist(): Set<string> {
-  return new Set(
-    (process.env.TENANT_WHITELIST ?? "")
+  const raw = process.env.TENANT_WHITELIST ?? "";
+  if (tenantWhitelistCache?.raw === raw) {
+    return tenantWhitelistCache.value;
+  }
+
+  const value = new Set(
+    raw
       .split(",")
       .map((entry) => entry.trim())
       .filter(Boolean),
   );
+  tenantWhitelistCache = { raw, value };
+  return value;
 }
 
 function getAllowedOverrides(): RuntimeOverrideTarget[] {
-  return parseRuntimeOverrideTargets(process.env.ALLOW_OVERRIDE);
+  const raw = process.env.ALLOW_OVERRIDE ?? "";
+  if (allowedOverridesCache?.raw === raw) {
+    return allowedOverridesCache.value;
+  }
+
+  const value = parseRuntimeOverrideTargets(raw);
+  allowedOverridesCache = { raw, value };
+  return value;
 }
 
 function warnUnsupportedOverrideTargets(targets: ReadonlyArray<RuntimeOverrideTarget>) {
@@ -161,7 +193,8 @@ function resolveTenantAccountId(hostname: string, gatewayId: string): string | n
   }
 
   const accountId = `${tenantLabel}${getTenantAccountSuffix(getTenantNetworkId())}`;
-  const NEAR_ACCOUNT_ID_REGEX = /^(?=.{2,64}$)([a-z0-9]+(?:[-_][a-z0-9]+)*)(\.([a-z0-9]+(?:[-_][a-z0-9]+)*))*$/;
+  const NEAR_ACCOUNT_ID_REGEX =
+    /^(?=.{2,64}$)([a-z0-9]+(?:[-_][a-z0-9]+)*)(\.([a-z0-9]+(?:[-_][a-z0-9]+)*))*$/;
   if (!NEAR_ACCOUNT_ID_REGEX.test(accountId)) {
     throw new TenantRuntimeError(`Invalid tenant account: ${accountId}`, 404);
   }
@@ -193,27 +226,108 @@ function getRemoteConfigCached(bosUrl: string, env: BosEnv) {
   return value;
 }
 
-async function verifyIntegrity(url: string, integrity: string, label: string) {
-  const now = Date.now();
-  pruneExpiredCacheEntries(verifiedUiCache, now);
+function createIntegrityFailure(label: string, error: unknown) {
+  return new TenantRuntimeError(`Integrity check failed for ${label}`, 502, { cause: error });
+}
 
+function createVerificationPromise(
+  cacheKey: string,
+  url: string,
+  integrity: string,
+  label: string,
+) {
+  const verification = verifySriForUrl(url, integrity).catch((error) => {
+    const cached = verifiedUiCache.get(cacheKey);
+    if (cached?.value === verification || cached?.refreshing === verification) {
+      verifiedUiCache.delete(cacheKey);
+    }
+    throw createIntegrityFailure(label, error);
+  });
+
+  return verification;
+}
+
+function scheduleVerificationRefresh(
+  cacheKey: string,
+  cached: CachedVerification,
+  url: string,
+  integrity: string,
+  label: string,
+) {
+  if (cached.refreshing) {
+    return cached.refreshing;
+  }
+
+  const refresh = createVerificationPromise(cacheKey, url, integrity, label)
+    .then(() => {
+      const entry = verifiedUiCache.get(cacheKey);
+      if (!entry || entry.refreshing !== refresh) {
+        return;
+      }
+
+      entry.value = Promise.resolve();
+      entry.expiresAt = Date.now() + VERIFICATION_TTL_MS;
+      entry.refreshing = undefined;
+    })
+    .catch((error) => {
+      logger.error(
+        `[Tenant Runtime] Integrity refresh failed for ${label}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    });
+
+  cached.refreshing = refresh;
+  return refresh;
+}
+
+async function verifyIntegrity(
+  url: string,
+  integrity: string,
+  label: string,
+  mode: IntegrityVerificationMode,
+) {
   const cacheKey = `${url}::${integrity}`;
+  const now = Date.now();
   const cached = verifiedUiCache.get(cacheKey);
+
   if (cached && cached.expiresAt > now) {
     return cached.value;
   }
 
-  const value = verifySriForUrl(url, integrity).catch((error) => {
-    verifiedUiCache.delete(cacheKey);
-    throw new TenantRuntimeError(`Integrity check failed for ${label}`, 502, { cause: error });
-  });
+  if (!cached) {
+    const value = createVerificationPromise(cacheKey, url, integrity, label);
+    verifiedUiCache.set(cacheKey, {
+      value,
+      expiresAt: now + VERIFICATION_TTL_MS,
+    });
+    enforceCacheLimit(verifiedUiCache, MAX_VERIFICATION_CACHE_SIZE);
+    await value;
 
-  verifiedUiCache.set(cacheKey, { value, expiresAt: now + VERIFICATION_TTL_MS });
-  enforceCacheLimit(verifiedUiCache, MAX_VERIFICATION_CACHE_SIZE);
-  return value;
+    const entry = verifiedUiCache.get(cacheKey);
+    if (entry) {
+      entry.value = Promise.resolve();
+      entry.expiresAt = Date.now() + VERIFICATION_TTL_MS;
+    }
+    return;
+  }
+
+  if (mode === "stale-while-revalidate") {
+    void scheduleVerificationRefresh(cacheKey, cached, url, integrity, label).catch(() => {});
+    return cached.value;
+  }
+
+  const refresh = scheduleVerificationRefresh(cacheKey, cached, url, integrity, label);
+  await refresh;
+
+  const entry = verifiedUiCache.get(cacheKey);
+  if (entry) {
+    entry.value = Promise.resolve();
+    entry.expiresAt = Date.now() + VERIFICATION_TTL_MS;
+    entry.refreshing = undefined;
+  }
 }
 
-async function verifyUiIntegrity(config: RuntimeConfig) {
+async function verifyUiIntegrity(config: RuntimeConfig, mode: IntegrityVerificationMode) {
   if (!config.ui.url || !config.ui.integrity) {
     throw new TenantRuntimeError(
       "Tenant UI overrides must define app.ui.production and app.ui.integrity",
@@ -221,10 +335,14 @@ async function verifyUiIntegrity(config: RuntimeConfig) {
     );
   }
 
-  await verifyIntegrity(config.ui.url, config.ui.integrity, `tenant UI ${config.ui.url}`);
+  await verifyIntegrity(config.ui.url, config.ui.integrity, `tenant UI ${config.ui.url}`, mode);
 }
 
-async function verifyPluginUiIntegrity(pluginKey: string, plugin: RuntimePlugin) {
+async function verifyPluginUiIntegrity(
+  pluginKey: string,
+  plugin: RuntimePlugin,
+  mode: IntegrityVerificationMode,
+) {
   if (!plugin.ui?.url) {
     throw new TenantRuntimeError(
       `Tenant plugin override for ${pluginKey} must define plugins.${pluginKey}.ui.production`,
@@ -243,6 +361,7 @@ async function verifyPluginUiIntegrity(pluginKey: string, plugin: RuntimePlugin)
     plugin.ui.url,
     plugin.ui.integrity,
     `tenant plugin UI ${pluginKey} ${plugin.ui.url}`,
+    mode,
   );
 }
 
@@ -322,7 +441,9 @@ function isSsrAllowed(accountId: string): boolean {
 export async function resolveRequestRuntime(
   baseConfig: RuntimeConfig,
   request: Request,
+  options?: ResolveRequestRuntimeOptions,
 ): Promise<RequestRuntimeResolution> {
+  const verificationMode = options?.verification ?? "blocking";
   const url = new URL(request.url);
   if (url.pathname.startsWith("/_runtime/")) {
     return {
@@ -373,7 +494,7 @@ export async function resolveRequestRuntime(
   );
 
   if (effectiveConfig.ui.url !== baseConfig.ui.url) {
-    await verifyUiIntegrity(effectiveConfig);
+    await verifyUiIntegrity(effectiveConfig, verificationMode);
   }
 
   for (const [pluginKey, plugin] of Object.entries(effectiveConfig.plugins ?? {})) {
@@ -383,7 +504,7 @@ export async function resolveRequestRuntime(
     }
 
     if (plugin.ui.url !== basePlugin.ui.url) {
-      await verifyPluginUiIntegrity(pluginKey, plugin);
+      await verifyPluginUiIntegrity(pluginKey, plugin, verificationMode);
     }
   }
 

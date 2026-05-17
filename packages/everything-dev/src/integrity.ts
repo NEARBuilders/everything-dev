@@ -1,21 +1,83 @@
 import { createHash } from "node:crypto";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 
+const DEFAULT_MAX_SRI_RESPONSE_BYTES = 20 * 1024 * 1024;
+
+interface SriUrlOptions {
+  resolveEntryUrl?: boolean;
+  maxBytes?: number;
+}
+
 export function computeSriHash(content: string | Buffer): string {
   return `sha384-${createHash("sha384").update(content).digest("base64")}`;
 }
 
-export async function computeSriHashForUrl(url: string): Promise<string | null> {
+function resolveSriTargetUrl(url: string, options?: SriUrlOptions): string {
+  return options?.resolveEntryUrl === false ? url : resolveEntryUrl(url);
+}
+
+function getMaxSriResponseBytes(options?: SriUrlOptions): number {
+  return options?.maxBytes ?? DEFAULT_MAX_SRI_RESPONSE_BYTES;
+}
+
+async function computeSriHashFromResponse(
+  response: Response,
+  url: string,
+  options?: SriUrlOptions,
+): Promise<string> {
+  const maxBytes = getMaxSriResponseBytes(options);
+  const contentLengthHeader = response.headers.get("content-length");
+
+  if (contentLengthHeader) {
+    const contentLength = Number(contentLengthHeader);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      throw new Error(
+        `[SRI] Response for ${url} exceeds max size of ${maxBytes} bytes (${contentLength})`,
+      );
+    }
+  }
+
+  if (!response.body) {
+    throw new Error(`[SRI] Missing response body for ${url}`);
+  }
+
+  const hash = createHash("sha384");
+  const reader = response.body.getReader();
+  let totalBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      throw new Error(
+        `[SRI] Response for ${url} exceeds max size of ${maxBytes} bytes (${totalBytes})`,
+      );
+    }
+
+    hash.update(value);
+  }
+
+  return `sha384-${hash.digest("base64")}`;
+}
+
+export async function computeSriHashForUrl(
+  url: string,
+  options?: SriUrlOptions,
+): Promise<string | null> {
   try {
-    const entryUrl = resolveEntryUrl(url);
+    const entryUrl = resolveSriTargetUrl(url, options);
 
     const response = await fetch(entryUrl);
     if (!response.ok) {
       console.warn(`[SRI] Failed to fetch ${entryUrl}: ${response.status} ${response.statusText}`);
       return null;
     }
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return computeSriHash(buffer);
+    return await computeSriHashFromResponse(response, entryUrl, options);
   } catch (error) {
     console.warn(
       `[SRI] Error computing integrity for ${url}:`,
@@ -32,8 +94,12 @@ export function resolveEntryUrl(url: string): string {
   return `${url.replace(/\/$/, "")}/remoteEntry.js`;
 }
 
-export async function verifySriForUrl(url: string, expectedIntegrity: string): Promise<void> {
-  const entryUrl = resolveEntryUrl(url);
+export async function verifySriForUrl(
+  url: string,
+  expectedIntegrity: string,
+  options?: SriUrlOptions,
+): Promise<void> {
+  const entryUrl = resolveSriTargetUrl(url, options);
 
   const response = await fetch(entryUrl);
   if (!response.ok) {
@@ -41,8 +107,7 @@ export async function verifySriForUrl(url: string, expectedIntegrity: string): P
     return;
   }
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  const computed = computeSriHash(buffer);
+  const computed = await computeSriHashFromResponse(response, entryUrl, options);
 
   if (computed !== expectedIntegrity) {
     throw new Error(
