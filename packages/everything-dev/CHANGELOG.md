@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.28.9
+
+### Patch Changes
+
+- cfbc7dd: Keep generated local infra files in sync across init, sync, dev, and start by using a single env/docker generation path from resolved `bos.config.json` secrets. Also preserve child project package names and default root scripts during upgrade while preventing catalog values from being downgraded by template sync.
+
 ## 1.28.8
 
 ### Patch Changes
