@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.28.6
+
+### Patch Changes
+
+- 63d0f05: Simplify generated child workflows down to `CI` and `Publish`, and split the parent repo's package release flow from runtime publish/deploy. Parent package staging now publishes all non-private `/packages/*` workspaces instead of hardcoding framework package names.
+
 ## 1.28.5
 
 ### Patch Changes
