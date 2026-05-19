@@ -5,7 +5,7 @@ import { ArrowLeft, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import { ProjectFormLayout, type ProjectFormValues } from "@/components/project-form";
-import { parseProjectListSearch } from "./search";
+import { parseProjectListSearch } from "./-search";
 
 function isCurrentUserOwner(
   ownerId: string | null | undefined,
@@ -13,9 +13,10 @@ function isCurrentUserOwner(
     | { id?: string | null; walletAddress?: string | null; role?: string | null }
     | null
     | undefined,
+  nearAccountId?: string | null,
 ) {
   if (!ownerId) return false;
-  return [user?.id, user?.walletAddress].some((candidate) => candidate === ownerId);
+  return [nearAccountId, user?.walletAddress, user?.id].some((candidate) => candidate === ownerId);
 }
 
 type SearchParams = ReturnType<typeof parseProjectListSearch> & {
@@ -47,6 +48,7 @@ function EditProjectPage() {
   const { tab } = search;
 
   const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
+  const nearAccountId = auth.near.getAccountId();
   const isAdmin = session?.user?.role === "admin";
 
   const projectQuery = useQuery({
@@ -57,11 +59,12 @@ function EditProjectPage() {
   const project = projectQuery.data?.data;
 
   const defaultOwnerId =
+    nearAccountId ??
     (session?.user as { walletAddress?: string | null } | null)?.walletAddress ??
     session?.user?.id ??
     "";
 
-  const canManage = isAdmin || isCurrentUserOwner(project?.ownerId, session?.user);
+  const canManage = isAdmin || isCurrentUserOwner(project?.ownerId, session?.user, nearAccountId);
 
   const setTab = (value: string) => {
     void navigate({

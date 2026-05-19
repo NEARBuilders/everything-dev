@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { sessionQueryOptions, useApiClient, useAuthClient, useOrpc } from "@/app";
 import { Markdown } from "@/components/ui/markdown";
 import { fetchRepositoryReadme } from "@/lib/repository-content";
-import { parseProjectListSearch, type ProjectKindFilter } from "./search";
+import { type ProjectKindFilter, parseProjectListSearch } from "./-search";
 
 type VoteDirection = "up" | "down" | null;
 
@@ -97,9 +97,10 @@ function isCurrentUserOwner(
     | { id?: string | null; walletAddress?: string | null; role?: string | null }
     | null
     | undefined,
+  nearAccountId?: string | null,
 ) {
   if (!ownerId) return false;
-  return [user?.id, user?.walletAddress].some((candidate) => candidate === ownerId);
+  return [nearAccountId, user?.walletAddress, user?.id].some((candidate) => candidate === ownerId);
 }
 
 function ProjectsList() {
@@ -121,12 +122,21 @@ function ProjectsList() {
   const { data: session } = sessionQuery;
   const user = session?.user;
   const userId = user?.id;
+  const nearAccountId = auth.near.getAccountId();
   const ownerFilterId =
-    (user as { walletAddress?: string | null } | undefined)?.walletAddress ?? user?.id;
+    nearAccountId ??
+    (user as { walletAddress?: string | null } | undefined)?.walletAddress ??
+    user?.id;
   const canParticipate = Boolean(user && !user.isAnonymous);
   const [copied, setCopied] = useState(false);
   const listQueryKey = useMemo(
-    () => ["projects", activeKind, isPersonalOnly ? (ownerFilterId ?? null) : null, isPrivateOnly] as const,
+    () =>
+      [
+        "projects",
+        activeKind,
+        isPersonalOnly ? (ownerFilterId ?? null) : null,
+        isPrivateOnly,
+      ] as const,
     [activeKind, isPersonalOnly, isPrivateOnly, ownerFilterId],
   );
 
@@ -246,7 +256,8 @@ function ProjectsList() {
   const selectedProject = selectedProjectQuery.data?.data;
 
   const isAdminUser = user?.role === "admin";
-  const canManageSelected = isAdminUser || isCurrentUserOwner(selectedProject?.ownerId, user);
+  const canManageSelected =
+    isAdminUser || isCurrentUserOwner(selectedProject?.ownerId, user, nearAccountId);
 
   const selectedReadmeQuery = useQuery({
     queryKey: ["projectPreviewReadme", selectedProject?.id, selectedProject?.repository],
@@ -757,8 +768,8 @@ function ListRow({
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5">
-            <KindBadge kind={project.kind} compact />
-            <span className="text-sm font-semibold text-foreground truncate flex-1 min-w-0">
+            <KindBadge kind={project.kind} size="sidebar" />
+            <span className="text-base font-semibold text-foreground truncate flex-1 min-w-0 leading-tight">
               {project.title}
             </span>
             {project.visibility === "private" && <PrivateIndicator size={11} />}
@@ -781,25 +792,30 @@ function ListRow({
         </div>
       </div>
 
-      <div className="flex flex-col items-center shrink-0" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="flex flex-col items-center shrink-0 gap-0.5"
+        onClick={(e) => e.stopPropagation()}
+      >
         <VoteButton
-          icon={<ChevronUp size={17} strokeWidth={2.25} />}
+          icon={<ChevronUp size={14} strokeWidth={2.25} />}
           onClick={onUpvote}
           label="Upvote"
           disabled={isUpvoting}
           active={voteDirection === "up"}
           activeColor="text-brand-accent"
+          size="compact"
         />
-        <span className="text-xs font-bold leading-none text-foreground">
+        <span className="min-w-[20px] text-center text-[11px] font-bold leading-none text-foreground">
           {project.upvoteCount}
         </span>
         <VoteButton
-          icon={<ChevronDown size={17} strokeWidth={2.25} />}
+          icon={<ChevronDown size={14} strokeWidth={2.25} />}
           onClick={onDownvote}
           label="Downvote"
           disabled={isDownvoting}
           active={voteDirection === "down"}
           activeColor="text-status-danger-fg"
+          size="compact"
         />
       </div>
     </div>
@@ -813,6 +829,7 @@ function VoteButton({
   disabled,
   active,
   activeColor,
+  size = "default",
 }: {
   icon: React.ReactNode;
   onClick: () => void;
@@ -820,6 +837,7 @@ function VoteButton({
   disabled?: boolean;
   active?: boolean;
   activeColor?: string;
+  size?: "default" | "compact";
 }) {
   return (
     <button
@@ -827,7 +845,7 @@ function VoteButton({
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className={`size-10 rounded-[10px] flex items-center justify-center transition-all duration-[120ms] border border-transparent [WebkitTapHighlightColor:transparent] ${disabled ? "text-disabled cursor-not-allowed bg-transparent" : active ? `${activeColor ?? "text-brand-accent"} bg-card shadow-sm` : "text-muted-foreground bg-transparent hover:bg-muted hover:text-foreground cursor-pointer"}`}
+      className={`${size === "compact" ? "size-7 rounded-[8px]" : "size-10 rounded-[10px]"} flex items-center justify-center transition-all duration-[120ms] border border-transparent [WebkitTapHighlightColor:transparent] ${disabled ? "text-disabled cursor-not-allowed bg-transparent" : active ? `${activeColor ?? "text-brand-accent"} bg-card shadow-sm` : "text-muted-foreground bg-transparent hover:bg-muted hover:text-foreground cursor-pointer"}`}
     >
       {icon}
     </button>
@@ -845,12 +863,21 @@ function PrivateIndicator({ size = 12 }: { size?: number }) {
   );
 }
 
-function KindBadge({ kind, compact }: { kind: ProjectKind; compact?: boolean }) {
+function KindBadge({
+  kind,
+  compact,
+  size,
+}: {
+  kind: ProjectKind;
+  compact?: boolean;
+  size?: "default" | "sidebar";
+}) {
+  const isCompact = compact ?? size === "sidebar";
   return (
     <span
-      className={`inline-flex items-center shrink-0 font-semibold rounded-[4px] border border-border text-foreground ${kind === "idea" ? "bg-muted" : "bg-secondary"} ${compact ? "gap-0.5 px-1.5 py-0 text-[10px]" : "gap-1 px-2 py-0.5 text-[11px]"}`}
+      className={`inline-flex items-center shrink-0 font-semibold rounded-[4px] border border-border text-foreground ${kind === "idea" ? "bg-muted" : "bg-secondary"} ${size === "sidebar" ? "gap-1 px-2 py-0.5 text-[11px]" : isCompact ? "gap-0.5 px-1.5 py-0 text-[10px]" : "gap-1 px-2 py-0.5 text-[11px]"}`}
     >
-      {kind === "idea" ? <FileText size={compact ? 9 : 10} /> : null}
+      {kind === "idea" ? <FileText size={size === "sidebar" ? 10 : isCompact ? 9 : 10} /> : null}
       {kind}
     </span>
   );

@@ -279,5 +279,3 @@ function StatusChip({ linked, label }: { linked: boolean; label?: string }) {
     </span>
   );
 }
-
-

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import { ProjectFormLayout, type ProjectFormValues } from "@/components/project-form";
-import { parseProjectListSearch } from "./search";
+import { parseProjectListSearch } from "./-search";
 
 const STORAGE_KEY_PROJECT = "projects:new:project";
 const STORAGE_KEY_IDEA = "projects:new:idea";
@@ -72,11 +72,13 @@ function NewProjectPage() {
   const auth = useAuthClient();
   const queryClient = useQueryClient();
   const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
+  const nearAccountId = auth.near.getAccountId();
   const isAdmin = session?.user?.role === "admin";
   const canCreate = Boolean(session?.user && !session.user.isAnonymous);
   const search = Route.useSearch();
   const { tab } = search;
   const defaultOwnerId =
+    nearAccountId ??
     (session?.user as { walletAddress?: string | null } | null)?.walletAddress ??
     session?.user?.id ??
     "";

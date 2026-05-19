@@ -33,7 +33,6 @@ export const Route = createFileRoute("/_layout/login")({
   component: LoginPage,
 });
 
-
 function LoginPage() {
   const navigate = useNavigate();
   const auth = useAuthClient();

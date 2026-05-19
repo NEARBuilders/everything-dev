@@ -5,33 +5,34 @@ import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useApiClient } from "@/app";
 import { Badge, Button } from "@/components";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const PAGE_SIZE = 48;
 const BASE_RUNTIME = "bos://dev.everything.near/everything.dev";
 
+const getStartCommand = (accountId: string, gatewayId: string) =>
+  `bunx everything-dev@latest start --account ${accountId} --domain ${gatewayId}`;
+
+const getExtendsCommand = (accountId: string, gatewayId: string) =>
+  `bunx everything-dev@latest init --extends bos://${accountId}/${gatewayId}`;
+
 type SearchParams = {
-  q?: string;
   preview?: string;
 };
 
 export const Route = createFileRoute("/_layout/apps/")({
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
-    q: typeof search.q === "string" && search.q.length > 0 ? search.q : undefined,
     preview:
       typeof search.preview === "string" && search.preview.length > 0 ? search.preview : undefined,
   }),
-  loaderDeps: ({ search }) => ({ q: search.q }),
-  loader: async ({ context, deps }) => {
+  loader: async ({ context }) => {
     const { queryClient, apiClient } = context;
     await Promise.allSettled([
       queryClient.prefetchInfiniteQuery({
-        queryKey: ["apps", deps.q],
+        queryKey: ["apps"],
         queryFn: ({ pageParam }) =>
           apiClient.apps.listRegistryApps({
-            q: deps.q,
             limit: PAGE_SIZE,
             cursor: pageParam as string | undefined,
           }),
@@ -73,7 +74,6 @@ function AppsIndex() {
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   const [addressInput, setAddressInput] = useState("");
-  const [filterInput, setFilterInput] = useState(search.q ?? "");
 
   const {
     data: pages,
@@ -82,9 +82,9 @@ function AppsIndex() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["apps", search.q],
+    queryKey: ["apps"],
     queryFn: ({ pageParam }) =>
-      apiClient.apps.listRegistryApps({ q: search.q, limit: PAGE_SIZE, cursor: pageParam }),
+      apiClient.apps.listRegistryApps({ limit: PAGE_SIZE, cursor: pageParam }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => (lastPage.meta.hasMore ? lastPage.meta.nextCursor : undefined),
   });
@@ -124,7 +124,8 @@ function AppsIndex() {
     [fetchNextPage, hasNextPage, isFetchingNextPage],
   );
 
-  const handleAddressNavigate = () => {
+  const handleAddressNavigate = (e?: React.FormEvent) => {
+    e?.preventDefault();
     const parsed = parseBosAddress(addressInput);
     if (!parsed) return;
     if (parsed.gatewayId) {
@@ -138,14 +139,6 @@ function AppsIndex() {
         params: { accountId: parsed.accountId },
       });
     }
-  };
-
-  const handleFilterSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    void navigate({
-      to: "/apps",
-      search: { q: filterInput.trim() || undefined, preview: undefined },
-    });
   };
 
   const handleSelect = (accountId: string, gatewayId: string) => {
@@ -165,18 +158,8 @@ function AppsIndex() {
   return (
     <TooltipProvider>
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-2.5 sm:px-6 sm:py-3">
-          <div className="flex items-center gap-2">
-            {canGoBack && (
-              <button
-                type="button"
-                onClick={() => router.history.back()}
-                aria-label="Go back"
-                className="flex items-center justify-center w-8 h-8 border-2 border-outset border-border-strong bg-card shadow-sm transition-all duration-200 ease-out hover:shadow-md hover:bg-muted rounded-[10px]"
-              >
-                <ArrowLeft size={14} className="text-foreground" />
-              </button>
-            )}
+        <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-2.5 sm:px-6 sm:py-3">
+          <div className="flex shrink-0 items-center gap-2">
             <h1 className="text-xl font-semibold text-foreground">Apps</h1>
             {totalApps !== undefined && (
               <Badge variant="secondary" className="font-mono">
@@ -185,64 +168,54 @@ function AppsIndex() {
             )}
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="flex items-center h-[34px] border-2 border-border bg-card rounded-[12px] overflow-hidden">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="flex items-center h-full px-2.5 border-r-2 border-border bg-muted text-muted-foreground font-mono select-none shrink-0 text-[11px] font-bold">
-                    bos://
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-xs">
-                  <p className="text-xs">
-                    Navigate to a published runtime by its canonical bos:// address. Format:{" "}
-                    <code>account/gateway</code>
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-              <input
-                type="text"
-                value={addressInput}
-                onChange={(e) => setAddressInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddressNavigate()}
-                placeholder="dev.everything.near/everything.dev"
-                className="bg-transparent text-foreground placeholder:text-muted-foreground outline-none font-mono px-2 text-xs w-[220px]"
-                aria-label="bos:// address"
-              />
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={handleAddressNavigate}
-                disabled={!addressInput.trim()}
-                className="shrink-0 mr-1"
-                aria-label="Navigate"
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {canGoBack && (
+              <button
+                type="button"
+                onClick={() => router.history.back()}
+                aria-label="Go back"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border-2 border-outset border-border-strong bg-card shadow-sm transition-all duration-200 ease-out hover:bg-muted hover:shadow-md"
               >
-                <ArrowRight size={13} />
-              </Button>
-            </div>
+                <ArrowLeft size={14} className="text-foreground" />
+              </button>
+            )}
 
-            <form onSubmit={handleFilterSearch} className="flex items-center gap-1.5">
-              <Input
-                value={filterInput}
-                onChange={(e) => setFilterInput(e.target.value)}
-                placeholder="filter"
-                className="font-mono h-[34px] text-xs w-28"
-                aria-label="Filter apps"
-              />
-              {search.q && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setFilterInput("");
-                    void navigate({ to: "/apps", search: { q: undefined, preview: undefined } });
-                  }}
-                  className="text-muted-foreground"
-                >
-                  clear
-                </Button>
-              )}
+            <form
+              onSubmit={handleAddressNavigate}
+              className="flex min-w-0 flex-1 items-center gap-2"
+            >
+              <div className="flex min-w-0 flex-1 items-center overflow-hidden rounded-[12px] border-2 border-outset border-border-strong bg-card shadow-sm transition-shadow duration-200 ease-out focus-within:shadow-md">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="flex h-full shrink-0 items-center border-r-2 border-border-strong bg-muted px-3 text-[11px] font-bold font-mono text-muted-foreground select-none">
+                      bos://
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    <p className="text-xs">
+                      Navigate to a published runtime by its canonical bos:// address. Format:{" "}
+                      <code>account/gateway</code>
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+                <input
+                  type="text"
+                  value={addressInput}
+                  onChange={(e) => setAddressInput(e.target.value)}
+                  placeholder="dev.everything.near/everything.dev"
+                  className="min-w-0 flex-1 bg-transparent px-3 py-2 text-xs font-mono text-foreground outline-none placeholder:text-muted-foreground"
+                  aria-label="bos:// address"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={!addressInput.trim()}
+                aria-label="Navigate"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border-2 border-outset border-border-strong bg-card text-foreground shadow-sm transition-all duration-200 ease-out hover:bg-muted hover:shadow-md disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ArrowRight size={14} />
+              </button>
             </form>
           </div>
         </div>
@@ -257,7 +230,6 @@ function AppsIndex() {
               onMobileTap={handleMobileTap}
               sentinelRef={sentinelRef}
               isFetchingNextPage={isFetchingNextPage}
-              q={search.q}
             />
           </div>
 
@@ -323,7 +295,6 @@ function AppList({
   onMobileTap,
   sentinelRef,
   isFetchingNextPage,
-  q,
 }: {
   apps: AppSummary[];
   isLoading: boolean;
@@ -332,7 +303,6 @@ function AppList({
   onMobileTap: (accountId: string, gatewayId: string) => void;
   sentinelRef: (node: HTMLDivElement | null) => void;
   isFetchingNextPage: boolean;
-  q?: string;
 }) {
   if (isLoading) {
     return (
@@ -348,9 +318,7 @@ function AppList({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
         <Globe size={22} className="text-border" />
-        <p className="text-sm text-muted-foreground">
-          {q ? `No apps matching "${q}"` : "No published apps found."}
-        </p>
+        <p className="text-sm text-muted-foreground">No published apps found.</p>
       </div>
     );
   }
@@ -437,6 +405,8 @@ function AppPreview({
   const isTenant = app.extends === BASE_RUNTIME;
   const bosUri = `bos://${app.accountId}/${app.gatewayId}`;
   const title = app.metadata?.title ?? `${app.accountId} / ${app.gatewayId}`;
+  const startCommand = getStartCommand(app.accountId, app.gatewayId);
+  const extendsCommand = getExtendsCommand(app.accountId, app.gatewayId);
 
   const handleCopyBosUri = async () => {
     await navigator.clipboard.writeText(bosUri);
@@ -554,29 +524,33 @@ function AppPreview({
 
             <section className="space-y-1.5">
               <SectionLabel>Start command</SectionLabel>
-              <StartCommand
-                command={detail?.startCommand ?? `bos start --account ${app.accountId}`}
-              />
-              <div className="flex gap-3">
-                {detail?.canonicalConfigUrl && (
-                  <a
-                    href={detail.canonicalConfigUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[11px] text-muted-foreground hover:text-foreground transition-colors duration-150 underline"
-                  >
-                    FastKV config
-                  </a>
-                )}
-                <Link
-                  to="/apps/$accountId"
-                  params={{ accountId: app.accountId }}
+              <StartCommand command={startCommand} />
+            </section>
+
+            <section className="space-y-1.5">
+              <SectionLabel>Extends command</SectionLabel>
+              <StartCommand command={extendsCommand} />
+            </section>
+
+            <div className="flex gap-3">
+              {detail?.canonicalConfigUrl && (
+                <a
+                  href={detail.canonicalConfigUrl}
+                  target="_blank"
+                  rel="noreferrer"
                   className="text-[11px] text-muted-foreground hover:text-foreground transition-colors duration-150 underline"
                 >
-                  all from {app.accountId}
-                </Link>
-              </div>
-            </section>
+                  FastKV config
+                </a>
+              )}
+              <Link
+                to="/apps/$accountId"
+                params={{ accountId: app.accountId }}
+                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors duration-150 underline"
+              >
+                all from {app.accountId}
+              </Link>
+            </div>
           </>
         )}
       </div>

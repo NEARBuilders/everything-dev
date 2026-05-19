@@ -14,6 +14,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 const BASE_RUNTIME = "bos://dev.everything.near/everything.dev";
 
+const getStartCommand = (accountId: string, gatewayId: string) =>
+  `bunx everything-dev@latest start --account ${accountId} --domain ${gatewayId}`;
+
+const getExtendsCommand = (accountId: string, gatewayId: string) =>
+  `bunx everything-dev@latest init --extends bos://${accountId}/${gatewayId}`;
+
 export const Route = createFileRoute("/_layout/apps/$accountId/$gatewayId")({
   loader: async ({ params, context }) => {
     const { queryClient, apiClient } = context;
@@ -91,7 +97,7 @@ function AppDetailPage() {
 
   if (!app) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-24 text-center sm:px-6">
         <p className="text-base font-semibold text-foreground">App not found.</p>
         <Button asChild variant="ghost" size="sm">
           <Link to="/apps" search={{}}>
@@ -105,6 +111,8 @@ function AppDetailPage() {
   const isTenant = app.extends === BASE_RUNTIME;
   const bosUri = `bos://${accountId}/${gatewayId}`;
   const displayTitle = app.metadata?.title ?? `${accountId} / ${gatewayId}`;
+  const startCommand = getStartCommand(accountId, gatewayId);
+  const extendsCommand = getExtendsCommand(accountId, gatewayId);
 
   const refreshQueries = async () => {
     await Promise.all([
@@ -254,7 +262,7 @@ function AppDetailPage() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-4">
+      <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
         <div className="flex items-center gap-2 flex-wrap justify-between">
           <div className="flex items-center gap-2">
             {canGoBack ? (
@@ -307,14 +315,14 @@ function AppDetailPage() {
               size="sm"
               className="h-8 gap-1.5"
               onClick={async () => {
-                await navigator.clipboard.writeText(app.startCommand);
+                await navigator.clipboard.writeText(startCommand);
                 setCopiedCmd(true);
-                toast.success("Copied bos start command");
+                toast.success("Copied start command");
                 setTimeout(() => setCopiedCmd(false), 2000);
               }}
             >
               {copiedCmd ? <Check size={11} /> : <Copy size={11} />}
-              <span className="hidden sm:inline">bos start</span>
+              <span className="hidden sm:inline">start command</span>
             </Button>
             <Button
               variant="ghost"
@@ -467,7 +475,12 @@ function AppDetailPage() {
 
             <section className="space-y-2">
               <SectionLabel>Start command</SectionLabel>
-              <StartCommand command={app.startCommand} />
+              <StartCommand command={startCommand} />
+            </section>
+
+            <section className="space-y-2">
+              <SectionLabel>Extends command</SectionLabel>
+              <StartCommand command={extendsCommand} />
             </section>
 
             {configApp && (

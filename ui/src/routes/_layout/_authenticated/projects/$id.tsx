@@ -21,7 +21,7 @@ import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import { Markdown } from "@/components/ui/markdown";
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { fetchRepositoryReadme } from "@/lib/repository-content";
-import { parseProjectListSearch } from "./search";
+import { parseProjectListSearch } from "./-search";
 
 export const Route = createFileRoute("/_layout/_authenticated/projects/$id")({
   validateSearch: parseProjectListSearch,
@@ -50,9 +50,10 @@ function isCurrentUserOwner(
     | { id?: string | null; walletAddress?: string | null; role?: string | null }
     | null
     | undefined,
+  nearAccountId?: string | null,
 ) {
   if (!ownerId) return false;
-  return [user?.id, user?.walletAddress].some((candidate) => candidate === ownerId);
+  return [nearAccountId, user?.walletAddress, user?.id].some((candidate) => candidate === ownerId);
 }
 
 function ProjectDetailPage() {
@@ -67,6 +68,7 @@ function ProjectDetailPage() {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
+  const nearAccountId = auth.near.getAccountId();
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
@@ -204,7 +206,7 @@ function ProjectDetailPage() {
   }
 
   const isAdmin = session?.user?.role === "admin";
-  const canManage = isAdmin || isCurrentUserOwner(project.ownerId, session?.user);
+  const canManage = isAdmin || isCurrentUserOwner(project.ownerId, session?.user, nearAccountId);
   const voteCount = upvoteCountQuery.data?.totalCount ?? 0;
   const voteDirection = userVoteQuery.data ?? null;
 

@@ -2,8 +2,8 @@ import { Link } from "@tanstack/react-router";
 import builtOn from "@/assets/built_on.png";
 import builtOnRev from "@/assets/built_on_rev.png";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { UserNav } from "@/components/user-nav";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { UserNav } from "@/components/user-nav";
 import type { SidebarItem } from "@/lib/plugin-sidebar.gen";
 
 interface StyleChromeProps {
@@ -100,7 +100,10 @@ export function StyleChrome({
           >
             {isNavigating && (
               <div className="absolute top-0 left-0 right-0 h-[2px] z-50 overflow-hidden">
-                <div className="h-full bg-foreground animate-progress-bar" style={{ width: "100%" }} />
+                <div
+                  className="h-full bg-foreground animate-progress-bar"
+                  style={{ width: "100%" }}
+                />
               </div>
             )}
 
@@ -162,7 +165,9 @@ export function StyleChrome({
             </div>
           </header>
 
-          <main className="flex-1 w-full min-h-0 overflow-hidden animate-fade-in-up">{children}</main>
+          <main className="flex-1 w-full min-h-0 overflow-hidden animate-fade-in-up">
+            {children}
+          </main>
 
           <footer className="shrink-0 flex justify-center py-6 pb-20 sm:pb-6">
             <a

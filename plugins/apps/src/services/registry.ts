@@ -326,7 +326,7 @@ function createRegistryMethods(config: RegistryConfig) {
       gatewayId,
       canonicalKey,
       canonicalConfigUrl: buildRegistryConfigUrl(accountId, gatewayId, registryConfig),
-      startCommand: `bos start --account ${accountId} --domain ${gatewayId}`,
+      startCommand: `bunx everything-dev@latest start --account ${accountId} --domain ${gatewayId}`,
       domain,
       openUrl: buildOpenUrl(domain),
       hostUrl,

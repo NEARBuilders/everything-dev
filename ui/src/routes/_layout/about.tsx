@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { BookOpen, ExternalLink, FileText, GitFork } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { BookOpen, ExternalLink, FileText, GitFork, Sparkles } from "lucide-react";
 import { getAccount, getActiveRuntime, getAppName, getRepository } from "@/app";
 import { Markdown } from "@/components/ui/markdown";
 import { useClientValue } from "@/hooks/use-client";
@@ -10,11 +10,14 @@ export const Route = createFileRoute("/_layout/about")({
     const repository = getRepository(context.runtimeConfig);
     const description =
       ((context.runtimeConfig as Record<string, unknown>)?.description as string | null) ?? null;
+    const rawSkillUrl = context.runtimeConfig?.hostUrl
+      ? new URL("/skill.md", context.runtimeConfig.hostUrl).toString()
+      : "/skill.md";
     let readme: string | null = null;
     if (repository) {
       readme = await fetchRepositoryReadme(repository).catch(() => null);
     }
-    return { repository, readme, description, runtimeConfig: context.runtimeConfig };
+    return { repository, readme, description, runtimeConfig: context.runtimeConfig, rawSkillUrl };
   },
   head: () => ({
     meta: [
@@ -44,7 +47,7 @@ function parseGithubRepo(url: string): { owner: string; repo: string } | null {
 }
 
 function About() {
-  const { repository, readme, description, runtimeConfig } = Route.useLoaderData();
+  const { repository, readme, description, runtimeConfig, rawSkillUrl } = Route.useLoaderData();
   const runtime = useClientValue(() => getActiveRuntime(runtimeConfig), undefined);
   const account = useClientValue(() => getAccount(runtimeConfig), "every.near");
   const appName = useClientValue(() => getAppName(runtimeConfig), "app");
@@ -79,17 +82,40 @@ function About() {
                 </div>
               </div>
 
-              {repository && (
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <Link
+                  to="/skill"
+                  preload="intent"
+                  className="h-9 rounded-[12px] px-4 text-sm font-bold inline-flex items-center gap-2 no-underline transition-colors duration-150 bg-foreground text-background hover:opacity-90"
+                >
+                  <Sparkles size={14} />
+                  Skill
+                </Link>
                 <a
-                  href={repository}
+                  href={rawSkillUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="h-9 rounded-[12px] px-4 text-sm font-bold inline-flex items-center gap-2 no-underline transition-colors duration-150 shrink-0 bg-secondary text-foreground hover:bg-border"
+                  className="h-9 rounded-[12px] px-4 text-sm font-bold inline-flex items-center gap-2 no-underline transition-colors duration-150 bg-secondary text-foreground hover:bg-border"
                 >
-                  {isGithubUrl(repository) ? <GithubIcon size={14} /> : <ExternalLink size={14} />}
-                  {isGithubUrl(repository) ? "GitHub" : "Repository"}
+                  <FileText size={14} />
+                  skill.md
                 </a>
-              )}
+                {repository && (
+                  <a
+                    href={repository}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="h-9 rounded-[12px] px-4 text-sm font-bold inline-flex items-center gap-2 no-underline transition-colors duration-150 bg-secondary text-foreground hover:bg-border"
+                  >
+                    {isGithubUrl(repository) ? (
+                      <GithubIcon size={14} />
+                    ) : (
+                      <ExternalLink size={14} />
+                    )}
+                    {isGithubUrl(repository) ? "GitHub" : "Repository"}
+                  </a>
+                )}
+              </div>
             </div>
 
             {description && (
@@ -111,6 +137,37 @@ function About() {
                 </a>
               </div>
             )}
+
+            <div className="rounded-[8px] border border-border bg-muted px-3.5 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  for agents and builders
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Open the skill page for the essential TanStack Intent, local dev, and publish
+                  instructions.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  to="/skill"
+                  preload="intent"
+                  className="h-9 rounded-[12px] px-4 text-sm font-bold inline-flex items-center gap-2 no-underline transition-colors duration-150 bg-card text-foreground border border-border hover:bg-background"
+                >
+                  <Sparkles size={14} />
+                  Open skill
+                </Link>
+                <a
+                  href={rawSkillUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="h-9 rounded-[12px] px-4 text-sm font-bold inline-flex items-center gap-2 no-underline transition-colors duration-150 bg-card text-foreground border border-border hover:bg-background"
+                >
+                  <FileText size={14} />
+                  Raw markdown
+                </a>
+              </div>
+            </div>
           </div>
 
           {readme ? (

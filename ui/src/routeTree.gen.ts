@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LayoutRouteImport } from './routes/_layout'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
+import { Route as LayoutSkillRouteImport } from './routes/_layout/skill'
 import { Route as LayoutLoginRouteImport } from './routes/_layout/login'
 import { Route as LayoutAboutRouteImport } from './routes/_layout/about'
 import { Route as LayoutAuthenticatedRouteImport } from './routes/_layout/_authenticated'
@@ -40,6 +41,11 @@ const LayoutRoute = LayoutRouteImport.update({
 const LayoutIndexRoute = LayoutIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => LayoutRoute,
+} as any)
+const LayoutSkillRoute = LayoutSkillRouteImport.update({
+  id: '/skill',
+  path: '/skill',
   getParentRoute: () => LayoutRoute,
 } as any)
 const LayoutLoginRoute = LayoutLoginRouteImport.update({
@@ -167,6 +173,7 @@ export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
   '/about': typeof LayoutAboutRoute
   '/login': typeof LayoutLoginRoute
+  '/skill': typeof LayoutSkillRoute
   '/home': typeof LayoutAuthenticatedHomeRoute
   '/settings': typeof LayoutAuthenticatedSettingsRouteWithChildren
   '/apps/': typeof LayoutAppsIndexRoute
@@ -190,6 +197,7 @@ export interface FileRoutesByTo {
   '/': typeof LayoutIndexRoute
   '/about': typeof LayoutAboutRoute
   '/login': typeof LayoutLoginRoute
+  '/skill': typeof LayoutSkillRoute
   '/home': typeof LayoutAuthenticatedHomeRoute
   '/apps': typeof LayoutAppsIndexRoute
   '/accept-invitation/$id': typeof LayoutAuthenticatedAcceptInvitationIdRoute
@@ -214,6 +222,7 @@ export interface FileRoutesById {
   '/_layout/_authenticated': typeof LayoutAuthenticatedRouteWithChildren
   '/_layout/about': typeof LayoutAboutRoute
   '/_layout/login': typeof LayoutLoginRoute
+  '/_layout/skill': typeof LayoutSkillRoute
   '/_layout/': typeof LayoutIndexRoute
   '/_layout/_authenticated/home': typeof LayoutAuthenticatedHomeRoute
   '/_layout/_authenticated/settings': typeof LayoutAuthenticatedSettingsRouteWithChildren
@@ -240,6 +249,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/login'
+    | '/skill'
     | '/home'
     | '/settings'
     | '/apps/'
@@ -263,6 +273,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/login'
+    | '/skill'
     | '/home'
     | '/apps'
     | '/accept-invitation/$id'
@@ -286,6 +297,7 @@ export interface FileRouteTypes {
     | '/_layout/_authenticated'
     | '/_layout/about'
     | '/_layout/login'
+    | '/_layout/skill'
     | '/_layout/'
     | '/_layout/_authenticated/home'
     | '/_layout/_authenticated/settings'
@@ -325,6 +337,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof LayoutIndexRouteImport
+      parentRoute: typeof LayoutRoute
+    }
+    '/_layout/skill': {
+      id: '/_layout/skill'
+      path: '/skill'
+      fullPath: '/skill'
+      preLoaderRoute: typeof LayoutSkillRouteImport
       parentRoute: typeof LayoutRoute
     }
     '/_layout/login': {
@@ -556,6 +575,7 @@ interface LayoutRouteChildren {
   LayoutAuthenticatedRoute: typeof LayoutAuthenticatedRouteWithChildren
   LayoutAboutRoute: typeof LayoutAboutRoute
   LayoutLoginRoute: typeof LayoutLoginRoute
+  LayoutSkillRoute: typeof LayoutSkillRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
   LayoutAppsIndexRoute: typeof LayoutAppsIndexRoute
   LayoutAppsAccountIdGatewayIdRoute: typeof LayoutAppsAccountIdGatewayIdRoute
@@ -566,6 +586,7 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAuthenticatedRoute: LayoutAuthenticatedRouteWithChildren,
   LayoutAboutRoute: LayoutAboutRoute,
   LayoutLoginRoute: LayoutLoginRoute,
+  LayoutSkillRoute: LayoutSkillRoute,
   LayoutIndexRoute: LayoutIndexRoute,
   LayoutAppsIndexRoute: LayoutAppsIndexRoute,
   LayoutAppsAccountIdGatewayIdRoute: LayoutAppsAccountIdGatewayIdRoute,
