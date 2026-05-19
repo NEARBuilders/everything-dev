@@ -38,6 +38,7 @@ function HomeViewerPage() {
 function FloatingSkillAssistant() {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const issueUrl = "https://github.com/NEARBuilders/everything-dev/issues/new";
 
   const handleCopy = async () => {
     const rawSkillUrl = new URL("/skill.md", window.location.origin).toString();
@@ -70,9 +71,9 @@ function FloatingSkillAssistant() {
                 </Link>
               </Button>
               <Button variant="outline" asChild className="justify-start">
-                <a href="/skill.md" target="_blank" rel="noopener noreferrer">
+                <a href={issueUrl} target="_blank" rel="noopener noreferrer">
                   <ExternalLink size={14} />
-                  raw skill.md
+                  Report issue
                 </a>
               </Button>
               <Button variant="outline" asChild className="justify-start">
