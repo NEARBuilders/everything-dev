@@ -47,24 +47,24 @@ function Home() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-card px-6 py-3">
-        <h1 className="text-foreground text-xl font-semibold">Workspace</h1>
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-2.5 sm:px-6 sm:py-3">
+        <h1 className="text-xl font-semibold text-foreground">Workspace</h1>
         <Link
           to="/settings"
           preload="intent"
-          className="h-9 rounded-[10px] bg-primary px-4 text-sm font-bold text-primary-foreground inline-flex items-center no-underline transition-colors duration-150 hover:bg-foreground"
+          className="h-9 rounded-[12px] bg-primary px-4 text-sm font-bold text-primary-foreground inline-flex items-center no-underline transition-colors duration-150 hover:opacity-90"
         >
           Settings
         </Link>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="mx-auto max-w-2xl space-y-6">
+        <div className="mx-auto max-w-3xl space-y-6">
           {!user ? (
             <div className="text-muted-foreground text-center py-12 text-sm">Loading…</div>
           ) : (
             <>
-              <div className="rounded-xl border border-border bg-card p-6">
+              <div className="rounded-[12px] border border-border bg-card p-6">
                 <div className="flex flex-wrap items-center gap-2 mb-4">
                   <Chip>workspace</Chip>
                   {profile.isAnonymous && <Chip>anonymous</Chip>}
@@ -78,7 +78,7 @@ function Home() {
                 </p>
               </div>
 
-              <div className="rounded-xl border border-border bg-card p-6">
+              <div className="rounded-[12px] border border-border bg-card p-6">
                 <div className="text-muted-foreground text-[11px] font-bold uppercase tracking-wider mb-4">
                   Identity Status
                 </div>
@@ -103,7 +103,7 @@ function Home() {
                 </div>
 
                 {profile.isAnonymous && (
-                  <div className="mt-4 rounded-lg bg-brand-accent-light border border-brand-accent-border text-foreground text-[13px] leading-relaxed px-4 py-3">
+                  <div className="mt-4 rounded-[8px] bg-brand-accent-light border border-brand-accent-border text-foreground text-[13px] leading-relaxed px-4 py-3">
                     Link an email or NEAR wallet before signing out to keep your data.
                   </div>
                 )}
@@ -118,7 +118,7 @@ function Home() {
 
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="grid grid-cols-[100px_1fr] gap-4 rounded-lg border border-border bg-muted px-3.5 py-2.5 items-center">
+    <div className="grid grid-cols-[100px_1fr] gap-4 rounded-[8px] border border-border bg-muted px-3.5 py-2.5 items-center">
       <span className="text-muted-foreground text-[11px] font-bold uppercase tracking-wider">
         {label}
       </span>
@@ -132,7 +132,7 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
 function Chip({ children, accent }: { children: React.ReactNode; accent?: boolean }) {
   return (
     <span
-      className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-[11px] font-semibold border ${accent ? "bg-brand-accent-light border-brand-accent-border" : "bg-secondary border-border"} text-foreground`}
+      className={`inline-flex items-center rounded-[6px] px-2.5 py-0.5 text-[11px] font-semibold border ${accent ? "bg-brand-accent-light border-brand-accent-border" : "bg-secondary border-border"} text-foreground`}
     >
       {children}
     </span>

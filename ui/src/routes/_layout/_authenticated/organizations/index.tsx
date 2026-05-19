@@ -3,7 +3,7 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { Building2, Mail, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { type Organization, type SessionData, sessionQueryOptions, useAuthClient } from "@/app";
-import { Badge, Button, Card, CardContent, Skeleton } from "@/components";
+import { Button } from "@/components";
 
 type AuthClientType = import("@/app").AuthClient;
 type UserInvitationsResponse = Awaited<
@@ -130,199 +130,190 @@ function OrganizationsList() {
   const orgs = organizations || [];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Organizations</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage workspaces, members, invitations, and organization API keys.
-          </p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/organizations/new">
-            <Plus className="h-4 w-4 mr-1.5" />
-            new organization
-          </Link>
-        </Button>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-2.5 sm:px-6 sm:py-3">
+        <h1 className="text-xl font-semibold text-foreground">Organizations</h1>
+        <Link
+          to="/organizations/new"
+          className="h-9 rounded-[12px] bg-primary px-4 text-sm font-bold text-primary-foreground inline-flex items-center gap-1.5 no-underline transition-colors duration-150 hover:opacity-90"
+        >
+          <Plus size={14} />
+          New
+        </Link>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <StatBox label="total" value={String(orgs.length)} />
-        <StatBox label="active" value={activeOrgId ? "yes" : "no"} />
-        <StatBox label="invites" value={String(pendingInvitations.length)} />
-      </div>
-
-      {pendingInvitations.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            Pending Invitations ({pendingInvitations.length})
-          </h2>
-          <div className="grid gap-3 md:grid-cols-2">
-            {pendingInvitations.map((invitation) => (
-              <Card key={invitation.id}>
-                <CardContent className="p-5 space-y-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 border-2 border-outset border-border flex items-center justify-center shrink-0">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
+      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+        <div className="space-y-6">
+          {pendingInvitations.length > 0 && (
+            <section className="space-y-3">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                Pending Invitations ({pendingInvitations.length})
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {pendingInvitations.map((invitation) => (
+                  <div
+                    key={invitation.id}
+                    className="rounded-[12px] border border-border bg-card p-6 space-y-4"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-12 h-12 rounded-[10px] border border-border bg-muted flex items-center justify-center shrink-0">
+                        <Mail className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="text-base font-semibold text-foreground break-all">
+                          {invitation.organizationName ?? invitation.organizationSlug}
+                        </div>
+                        <div className="text-sm text-muted-foreground font-mono">
+                          invited as {invitation.role ?? "member"}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          expires {new Date(invitation.expiresAt).toLocaleDateString()}
+                        </div>
+                      </div>
                     </div>
-                    <div className="space-y-1 min-w-0 flex-1">
-                      <div className="font-medium break-all">
-                        {invitation.organizationName ?? invitation.organizationSlug}
-                      </div>
-                      <div className="text-xs text-muted-foreground font-mono">
-                        invited as {invitation.role ?? "member"}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        expires {new Date(invitation.expiresAt).toLocaleDateString()}
-                      </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => acceptInvitationMutation.mutate(invitation)}
+                        disabled={
+                          acceptInvitationMutation.isPending || rejectInvitationMutation.isPending
+                        }
+                        size="sm"
+                      >
+                        {acceptInvitationMutation.isPending &&
+                        acceptInvitationMutation.variables?.id === invitation.id
+                          ? "accepting..."
+                          : "accept"}
+                      </Button>
+                      <Button
+                        onClick={() => rejectInvitationMutation.mutate(invitation.id)}
+                        disabled={
+                          acceptInvitationMutation.isPending || rejectInvitationMutation.isPending
+                        }
+                        variant="outline"
+                        size="sm"
+                      >
+                        {rejectInvitationMutation.isPending &&
+                        rejectInvitationMutation.variables === invitation.id
+                          ? "declining..."
+                          : "decline"}
+                      </Button>
                     </div>
                   </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {isLoading ? (
+            <div className="grid gap-6 md:grid-cols-2">
+              {[1, 2].map((n) => (
+                <div key={n} className="rounded-[12px] border border-border bg-card p-6 space-y-5">
+                  <div className="flex items-start gap-4">
+                    <div className="h-14 w-14 rounded-[10px] animate-pulse bg-muted shrink-0" />
+                    <div className="space-y-2 flex-1 pt-1">
+                      <div className="h-5 w-3/4 rounded-[4px] animate-pulse bg-muted" />
+                      <div className="h-4 w-1/2 rounded-[4px] animate-pulse bg-muted" />
+                    </div>
+                  </div>
+                  <div className="h-10 w-full rounded-[8px] animate-pulse bg-muted" />
                   <div className="flex gap-2">
-                    <Button
-                      onClick={() => acceptInvitationMutation.mutate(invitation)}
-                      disabled={
-                        acceptInvitationMutation.isPending || rejectInvitationMutation.isPending
-                      }
-                      size="sm"
-                    >
-                      {acceptInvitationMutation.isPending &&
-                      acceptInvitationMutation.variables?.id === invitation.id
-                        ? "accepting..."
-                        : "accept"}
-                    </Button>
-                    <Button
-                      onClick={() => rejectInvitationMutation.mutate(invitation.id)}
-                      disabled={
-                        acceptInvitationMutation.isPending || rejectInvitationMutation.isPending
-                      }
-                      variant="outline"
-                      size="sm"
-                    >
-                      {rejectInvitationMutation.isPending &&
-                      rejectInvitationMutation.variables === invitation.id
-                        ? "declining..."
-                        : "decline"}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {[1, 2, 3].map((n) => (
-            <Card key={`skeleton-${n}`}>
-              <CardContent className="p-5 space-y-4">
-                <div className="flex items-start gap-3">
-                  <Skeleton className="h-10 w-10 rounded-none" />
-                  <div className="space-y-2 flex-1">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-3 w-1/2" />
+                    <div className="h-10 w-24 rounded-[12px] animate-pulse bg-muted" />
+                    <div className="h-10 w-24 rounded-[12px] animate-pulse bg-muted" />
                   </div>
                 </div>
-                <Skeleton className="h-8 w-full" />
-                <div className="flex gap-2">
-                  <Skeleton className="h-8 w-20" />
-                  <Skeleton className="h-8 w-20" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : orgs.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center space-y-3">
-            <Building2 className="h-8 w-8 mx-auto text-muted-foreground" />
-            <p className="text-sm">No organizations yet.</p>
-            <Button asChild variant="outline" size="sm">
-              <Link to="/organizations/new">create your first org</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {orgs.map((org: Organization) => {
-            const isActive = org.id === activeOrgId;
-            const isPersonal = user
-              ? org.slug === user.id || org.metadata?.isPersonal === true
-              : false;
+              ))}
+            </div>
+          ) : orgs.length === 0 ? (
+            <div className="rounded-[12px] border border-border bg-card p-10 text-center space-y-4">
+              <Building2 className="h-10 w-10 mx-auto text-muted-foreground" />
+              <p className="text-base font-semibold text-foreground">No organizations yet.</p>
+              <Link
+                to="/organizations/new"
+                className="h-9 rounded-[12px] bg-primary px-4 text-sm font-bold text-primary-foreground inline-flex items-center no-underline transition-colors duration-150 hover:opacity-90"
+              >
+                create your first org
+              </Link>
+            </div>
+          ) : (
+            <div className="grid gap-6 md:grid-cols-2">
+              {orgs.map((org: Organization) => {
+                const isActive = org.id === activeOrgId;
+                const isPersonal = user
+                  ? org.slug === user.id || org.metadata?.isPersonal === true
+                  : false;
 
-            return (
-              <Card key={org.id} className="transition-shadow hover:shadow-md">
-                <CardContent className="p-5 space-y-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3 min-w-0">
+                return (
+                  <div
+                    key={org.id}
+                    className="rounded-[12px] border border-border bg-card p-6 space-y-5"
+                  >
+                    <div className="flex items-start gap-4">
                       {org.logo ? (
                         <img
                           src={org.logo}
                           alt=""
-                          className="w-10 h-10 border-2 border-outset border-[rgb(51,51,51)] dark:border-[rgb(100,100,100)] object-cover"
+                          className="w-14 h-14 rounded-[10px] border border-border object-cover shrink-0"
                         />
                       ) : (
-                        <div className="w-10 h-10 border-2 border-outset border-[rgb(51,51,51)] dark:border-[rgb(100,100,100)] flex items-center justify-center text-sm font-medium">
+                        <div className="w-14 h-14 rounded-[10px] border border-border bg-muted flex items-center justify-center text-xl font-bold text-foreground shrink-0">
                           {org.name.charAt(0).toUpperCase()}
                         </div>
                       )}
-                      <div className="min-w-0 space-y-1">
+                      <div className="min-w-0 space-y-1.5 flex-1 pt-0.5">
                         <div className="flex flex-wrap items-center gap-2">
-                          <div className="font-medium break-all">{org.name}</div>
-                          {isActive && <Badge variant="outline">active</Badge>}
-                          {isPersonal && <Badge variant="outline">personal</Badge>}
+                          <span className="text-base font-semibold text-foreground break-all leading-tight">
+                            {org.name}
+                          </span>
+                          {isActive && <Chip>active</Chip>}
+                          {isPersonal && <Chip>personal</Chip>}
                         </div>
-                        <div className="text-xs font-mono text-muted-foreground">@{org.slug}</div>
+                        <div className="text-sm font-mono text-muted-foreground">@{org.slug}</div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="border-2 border-outset border-[rgb(51,51,51)] dark:border-[rgb(100,100,100)] bg-muted/10 p-3 text-sm text-muted-foreground">
-                    {org.createdAt
-                      ? `created ${new Date(org.createdAt).toLocaleDateString()}`
-                      : "organization record"}
-                  </div>
+                    <div className="rounded-[8px] border border-border bg-muted px-3.5 py-2.5 text-sm text-muted-foreground">
+                      {org.createdAt
+                        ? `created ${new Date(org.createdAt).toLocaleDateString()}`
+                        : "organization record"}
+                    </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button asChild size="sm">
-                      <Link to="/organizations/$slug" params={{ slug: org.slug }}>
-                        open org
-                      </Link>
-                    </Button>
-                    {!isActive && (
-                      <Button
-                        onClick={() => switchOrgMutation.mutate(org.id)}
-                        disabled={switchOrgMutation.isPending}
-                        variant="outline"
-                        size="sm"
-                      >
-                        <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                        switch
+                    <div className="flex flex-wrap gap-2">
+                      <Button asChild>
+                        <Link to="/organizations/$slug" params={{ slug: org.slug }}>
+                          open org
+                        </Link>
                       </Button>
-                    )}
+                      {!isActive && (
+                        <Button
+                          onClick={() => switchOrgMutation.mutate(org.id)}
+                          disabled={switchOrgMutation.isPending}
+                          variant="outline"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          switch
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                );
+              })}
+            </div>
+          )}
 
-      <Card>
-        <CardContent className="p-5 text-sm text-muted-foreground leading-relaxed">
-          Each user gets a personal organization automatically. Additional organizations give teams
-          their own members, invitations, and API key scope.
-        </CardContent>
-      </Card>
+          <div className="rounded-[12px] border border-border bg-card p-5 text-sm text-muted-foreground leading-relaxed">
+            Each user gets a personal organization automatically. Additional organizations give teams
+            their own members, invitations, and API key scope.
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-function StatBox({ label, value }: { label: string; value: string }) {
+function Chip({ children }: { children: React.ReactNode }) {
   return (
-    <div className="border-2 border-outset border-[rgb(51,51,51)] dark:border-[rgb(100,100,100)] bg-muted/10 p-3 space-y-1">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="text-xl font-semibold tracking-tight">{value}</div>
-    </div>
+    <span className="inline-flex items-center rounded-[6px] px-2 py-0.5 text-[10px] font-semibold border bg-secondary border-border text-foreground">
+      {children}
+    </span>
   );
 }

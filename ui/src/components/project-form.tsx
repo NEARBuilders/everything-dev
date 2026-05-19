@@ -124,7 +124,6 @@ export function ProjectFormLayout({
       <div
         style={{ width: mode === "edit" ? undefined : undefined, flexShrink: 0 }}
         className="overflow-visible border-b border-border bg-card px-4 py-5 sm:px-6 sm:py-6 lg:overflow-y-auto lg:w-[340px] lg:border-b-0 lg:border-r xl:w-[360px]"
-
       >
         <div className="space-y-6 pb-[env(safe-area-inset-bottom,0px)] lg:pb-0">
           <form.Field name="kind">
@@ -447,16 +446,16 @@ export function ProjectFormLayout({
                             key={t}
                             value={t}
                             className={`${tab === t ? "border-b-2 border-brand-accent text-foreground" : "border-b-2 border-transparent text-muted-foreground"}`}
-                          style={{
-                            padding: "14px 20px",
-                            fontSize: 13,
-                            fontWeight: 600,
-                            borderRadius: 0,
-                            marginBottom: -1,
-                            transition: "all 0.12s",
-                            minHeight: 44,
-                            WebkitTapHighlightColor: "transparent",
-                          }}
+                            style={{
+                              padding: "14px 20px",
+                              fontSize: 13,
+                              fontWeight: 600,
+                              borderRadius: 0,
+                              marginBottom: -1,
+                              transition: "all 0.12s",
+                              minHeight: 44,
+                              WebkitTapHighlightColor: "transparent",
+                            }}
                           >
                             {t === "write" ? "Write" : "Preview"}
                           </TabsTrigger>
@@ -574,7 +573,7 @@ function ContentWriteTab({
               onClick={() => applyMarkdown(tool)}
               title={tool.label}
               className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:border-brand-accent hover:bg-brand-accent-light hover:text-foreground active:scale-95"
-          style={{ WebkitTapHighlightColor: "transparent" }}
+              style={{ WebkitTapHighlightColor: "transparent" }}
             >
               <Icon size={14} />
             </button>
@@ -694,7 +693,14 @@ const MARKDOWN_TOOLS: MarkdownTool[] = [
     apply: (value, selection, start, end) => {
       const inner = selection || "Heading";
       const replacement = `# ${inner}`;
-      return replaceSelection(value, start, end, replacement, start + 2, start + replacement.length);
+      return replaceSelection(
+        value,
+        start,
+        end,
+        replacement,
+        start + 2,
+        start + replacement.length,
+      );
     },
   },
   {
@@ -730,7 +736,14 @@ const MARKDOWN_TOOLS: MarkdownTool[] = [
         .split("\n")
         .map((line) => `> ${line}`)
         .join("\n");
-      return replaceSelection(value, start, end, replacement, start + 2, start + replacement.length);
+      return replaceSelection(
+        value,
+        start,
+        end,
+        replacement,
+        start + 2,
+        start + replacement.length,
+      );
     },
   },
   {
@@ -742,7 +755,14 @@ const MARKDOWN_TOOLS: MarkdownTool[] = [
         .split("\n")
         .map((line) => `- ${line}`)
         .join("\n");
-      return replaceSelection(value, start, end, replacement, start + 2, start + replacement.length);
+      return replaceSelection(
+        value,
+        start,
+        end,
+        replacement,
+        start + 2,
+        start + replacement.length,
+      );
     },
   },
   {
@@ -754,7 +774,14 @@ const MARKDOWN_TOOLS: MarkdownTool[] = [
         .split("\n")
         .map((line, index) => `${index + 1}. ${line}`)
         .join("\n");
-      return replaceSelection(value, start, end, replacement, start + 3, start + replacement.length);
+      return replaceSelection(
+        value,
+        start,
+        end,
+        replacement,
+        start + 3,
+        start + replacement.length,
+      );
     },
   },
   {
@@ -766,7 +793,14 @@ const MARKDOWN_TOOLS: MarkdownTool[] = [
         .split("\n")
         .map((line) => `- [ ] ${line}`)
         .join("\n");
-      return replaceSelection(value, start, end, replacement, start + 6, start + replacement.length);
+      return replaceSelection(
+        value,
+        start,
+        end,
+        replacement,
+        start + 6,
+        start + replacement.length,
+      );
     },
   },
 ];

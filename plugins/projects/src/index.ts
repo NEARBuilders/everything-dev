@@ -65,7 +65,9 @@ export default createPlugin({
     });
 
     const getAlternateOwnerId = (context: { userId?: string; walletAddress?: string }) =>
-      context.walletAddress && context.walletAddress !== context.userId ? context.userId : undefined;
+      context.walletAddress && context.walletAddress !== context.userId
+        ? context.userId
+        : undefined;
 
     return {
       listProjects: builder.listProjects.handler(async ({ input, context }) => {

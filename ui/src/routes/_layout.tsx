@@ -118,7 +118,7 @@ function Layout() {
             className={`shrink-0 bg-card/50 ${isAuthenticated ? "border-b border-border animate-fade-in" : ""}`}
           >
             {isNavigating && (
-                <div className="absolute top-0 left-0 right-0 h-[2px] z-50 overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-[2px] z-50 overflow-hidden">
                 <div
                   className="h-full bg-foreground animate-progress-bar"
                   style={{ width: "100%" }}
@@ -170,12 +170,8 @@ function Layout() {
             </div>
           </header>
 
-          <main className="flex-1 w-full min-h-0 overflow-auto scroll-smooth">
-            <div
-              className={`w-full mx-auto px-4 sm:px-6 py-6 sm:py-10 animate-fade-in-up ${isAuthenticated ? "max-w-5xl" : "max-w-4xl"}`}
-            >
-              <Outlet />
-            </div>
+          <main className="flex-1 w-full min-h-0 overflow-hidden animate-fade-in-up">
+            <Outlet />
           </main>
 
           <footer className="shrink-0 flex justify-center py-6 pb-20 sm:pb-6">

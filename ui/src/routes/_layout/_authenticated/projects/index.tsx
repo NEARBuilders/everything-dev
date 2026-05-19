@@ -288,8 +288,6 @@ function ProjectsList() {
     [fetchNextPage, hasNextPage, isFetchingNextPage],
   );
 
-  // On mobile, tapping a row goes straight to the detail page.
-  // On desktop (lg+), tapping updates ?preview= and shows the split panel.
   const handleMobileRowTap = (projectId: string) => {
     void navigate({ to: "/projects/$id", params: { id: projectId } });
   };
@@ -332,16 +330,7 @@ function ProjectsList() {
           key={opt.value}
           type="button"
           onClick={() => handleKindChange(opt.value)}
-          className={`border ${activeKind === opt.value ? "border-brand-accent bg-brand-accent-light text-foreground" : "border-border text-muted-foreground"}`}
-          style={{
-            height: 32,
-            padding: "0 10px",
-            borderRadius: 6,
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: "pointer",
-            transition: "all 0.15s",
-          }}
+          className={`h-8 px-2.5 rounded-[12px] text-sm font-semibold cursor-pointer transition-all duration-150 border ${activeKind === opt.value ? "border-brand-accent bg-brand-accent-light text-foreground" : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"}`}
         >
           {opt.label}
         </button>
@@ -353,40 +342,13 @@ function ProjectsList() {
     <Link
       to="/projects/new"
       search={{ tab: "write" }}
-      className="bg-primary text-primary-foreground hover:bg-foreground"
-      style={{
-        height: 36,
-        padding: "0 14px",
-        borderRadius: 10,
-        fontSize: 14,
-        fontWeight: 700,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        textDecoration: "none",
-        transition: "background 0.15s",
-        flexShrink: 0,
-      }}
+      className="h-9 px-3.5 rounded-[12px] text-sm font-bold inline-flex items-center gap-1.5 no-underline transition-colors duration-150 shrink-0 bg-primary text-primary-foreground hover:opacity-90"
     >
       <Plus size={14} />
       New
     </Link>
   ) : (
-    <span
-      className="bg-disabled text-primary-foreground"
-      style={{
-        height: 36,
-        padding: "0 14px",
-        borderRadius: 10,
-        fontSize: 14,
-        fontWeight: 700,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        cursor: "not-allowed",
-        flexShrink: 0,
-      }}
-    >
+    <span className="h-9 px-3.5 rounded-[12px] text-sm font-bold inline-flex items-center gap-1.5 cursor-not-allowed shrink-0 bg-disabled text-primary-foreground">
       <Plus size={14} />
       New
     </span>
@@ -397,24 +359,17 @@ function ProjectsList() {
       {isLoading ? (
         <div className="flex flex-col gap-2 p-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div
-              key={i}
-              className="animate-pulse bg-secondary"
-              style={{ height: 72, borderRadius: 10 }}
-            />
+            <div key={i} className="animate-pulse bg-secondary h-[72px] rounded-[12px]" />
           ))}
         </div>
       ) : rankedProjects.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-          <p className="text-muted-foreground" style={{ fontSize: 14 }}>
-            No entries yet.
-          </p>
+          <p className="text-sm text-muted-foreground">No entries yet.</p>
           {canParticipate && (
             <Link
               to="/projects/new"
               search={{ tab: "write" }}
-              className="text-brand-accent"
-              style={{ fontSize: 14, fontWeight: 700, textDecoration: "none" }}
+              className="text-sm font-bold no-underline text-brand-accent"
             >
               Create the first one
             </Link>
@@ -462,21 +417,13 @@ function ProjectsList() {
             className="flex justify-center py-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]"
           >
             {isFetchingNextPage && (
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-transparent" />
+              <div className="size-5 animate-spin rounded-full border-2 border-border border-t-transparent" />
             )}
             {hasNextPage && !isFetchingNextPage && (
               <button
                 type="button"
                 onClick={() => fetchNextPage()}
-                className="text-muted-foreground bg-transparent border-none"
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                }}
+                className="text-sm font-semibold text-muted-foreground bg-transparent border-none cursor-pointer flex items-center gap-1"
               >
                 <ChevronDown size={14} />
                 Load more
@@ -490,33 +437,22 @@ function ProjectsList() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* ── header ── */}
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-2.5 sm:px-6 sm:py-3">
         <div className="flex items-center gap-2 sm:gap-3">
-          <h1 className="text-foreground" style={{ fontSize: 18, fontWeight: 600 }}>
-            Projects
-          </h1>
+          <h1 className="text-xl font-semibold text-foreground">Projects</h1>
           {filterButtons}
         </div>
         {newButton}
       </div>
 
-      {/* ── mobile: full-width list only ── */}
       <div className="flex min-h-0 flex-1 flex-col lg:hidden">
         {projectList}
         {!canParticipate && (
-          <div
-            className="shrink-0 border-t border-border bg-card px-4 py-2 text-center text-muted-foreground"
-            style={{
-              fontSize: 13,
-              paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))",
-            }}
-          >
+          <div className="shrink-0 border-t border-border bg-card px-4 py-2 text-sm text-center text-muted-foreground pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]">
             Anonymous sessions can browse.{" "}
             <Link
               to="/settings"
-              className="text-brand-accent"
-              style={{ fontWeight: 600, textDecoration: "none" }}
+              className="font-semibold no-underline text-brand-accent"
             >
               Link an identity
             </Link>{" "}
@@ -525,30 +461,17 @@ function ProjectsList() {
         )}
       </div>
 
-      {/* ── desktop: split panel ── */}
       <div className="hidden min-h-0 flex-1 lg:flex">
-        <div
-          className="flex flex-col overflow-hidden border-r border-border"
-          style={{ width: 380, flexShrink: 0 }}
-        >
+        <div className="flex flex-col overflow-hidden border-r border-border w-[380px] shrink-0">
           {projectList}
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-muted">
           {!selectedProject || selectedProjectQuery.isLoading ? (
             <div className="flex flex-1 flex-col gap-3 p-8">
-              <div
-                className="animate-pulse bg-border"
-                style={{ height: 28, width: 200, borderRadius: 6 }}
-              />
-              <div
-                className="animate-pulse bg-border"
-                style={{ height: 16, width: "80%", borderRadius: 6 }}
-              />
-              <div
-                className="animate-pulse bg-border"
-                style={{ height: 16, width: "60%", borderRadius: 6 }}
-              />
+              <div className="animate-pulse bg-border h-7 w-[200px] rounded-md" />
+              <div className="animate-pulse bg-border h-4 w-4/5 rounded-md" />
+              <div className="animate-pulse bg-border h-4 w-3/5 rounded-md" />
             </div>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">
@@ -558,33 +481,18 @@ function ProjectsList() {
                     <KindBadge kind={selectedProject.kind} />
                     <StatusBadge status={selectedProject.status} />
                   </div>
-                  <h2
-                    className="mt-1 text-foreground"
-                    style={{ fontSize: 18, fontWeight: 600, lineHeight: "1.3" }}
-                  >
+                  <h2 className="mt-1 text-xl font-semibold leading-snug text-foreground">
                     {selectedProject.title}
                   </h2>
                   {selectedProject.description && (
-                    <p
-                      className="mt-0.5 line-clamp-2 text-muted-foreground"
-                      style={{ fontSize: 14 }}
-                    >
+                    <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
                       {selectedProject.description}
                     </p>
                   )}
                 </div>
 
                 <div className="flex shrink-0 items-center gap-2">
-                  <div
-                    className="bg-secondary"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      borderRadius: 10,
-                      padding: "4px 10px",
-                    }}
-                  >
+                  <div className="flex items-center gap-1 rounded-[12px] px-2.5 py-1 bg-secondary">
                     <VoteButton
                       icon={<TrendingUp size={14} />}
                       onClick={() => runVote("up", selectedProject.id)}
@@ -596,15 +504,7 @@ function ProjectsList() {
                       active={userVoteMap[selectedProject.id] === "up"}
                       activeColor="text-brand-accent"
                     />
-                    <span
-                      className="text-foreground"
-                      style={{
-                        minWidth: 24,
-                        textAlign: "center",
-                        fontSize: 14,
-                        fontWeight: 700,
-                      }}
-                    >
+                    <span className="text-foreground text-sm font-bold min-w-[24px] text-center">
                       {counts[selectedProject.id] ?? 0}
                     </span>
                     <VoteButton
@@ -626,18 +526,7 @@ function ProjectsList() {
                       target="_blank"
                       rel="noopener noreferrer"
                       title={selectedProject.repository}
-                      className="bg-secondary text-foreground hover:bg-border border-none"
-                      style={{
-                        height: 34,
-                        width: 34,
-                        borderRadius: 10,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        textDecoration: "none",
-                        transition: "background 0.12s",
-                        flexShrink: 0,
-                      }}
+                      className="size-[34px] rounded-[12px] inline-flex items-center justify-center no-underline transition-colors duration-[120ms] shrink-0 bg-secondary text-foreground hover:bg-border"
                     >
                       {isGithubUrl(selectedProject.repository) ? (
                         <GithubIcon size={14} />
@@ -651,18 +540,7 @@ function ProjectsList() {
                     type="button"
                     onClick={() => handleShare(selectedProject.id)}
                     title="Copy link"
-                    className={`bg-secondary ${copied ? "text-brand-accent" : "text-muted-foreground"} hover:bg-border border-none`}
-                    style={{
-                      height: 34,
-                      width: 34,
-                      borderRadius: 10,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: "pointer",
-                      transition: "all 0.12s",
-                      flexShrink: 0,
-                    }}
+                    className={`size-[34px] rounded-[12px] inline-flex items-center justify-center cursor-pointer transition-all duration-[120ms] shrink-0 border-none bg-secondary hover:bg-border ${copied ? "text-brand-accent" : "text-muted-foreground"}`}
                   >
                     {copied ? <Check size={14} /> : <Share2 size={14} />}
                   </button>
@@ -670,19 +548,7 @@ function ProjectsList() {
                   <Link
                     to="/projects/$id"
                     params={{ id: selectedProject.id }}
-                    className="bg-primary text-primary-foreground hover:bg-foreground"
-                    style={{
-                      height: 36,
-                      padding: "0 14px",
-                      borderRadius: 10,
-                      fontSize: 13,
-                      fontWeight: 700,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      textDecoration: "none",
-                      transition: "background 0.15s",
-                    }}
+                    className="h-9 px-3.5 rounded-[12px] text-sm font-bold inline-flex items-center gap-1.5 no-underline transition-colors duration-150 bg-primary text-primary-foreground hover:opacity-90"
                   >
                     Open
                     <ArrowUpRight size={13} />
@@ -693,19 +559,7 @@ function ProjectsList() {
                       to="/projects/$id/edit"
                       params={{ id: selectedProject.id }}
                       search={{ tab: "write" }}
-                      className="bg-secondary text-foreground hover:bg-border"
-                      style={{
-                        height: 36,
-                        padding: "0 14px",
-                        borderRadius: 10,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        textDecoration: "none",
-                        transition: "background 0.15s",
-                      }}
+                      className="h-9 px-3.5 rounded-[12px] text-sm font-bold inline-flex items-center gap-1.5 no-underline transition-colors duration-150 bg-secondary text-foreground hover:bg-border"
                     >
                       <Pencil size={13} />
                       Edit
@@ -716,13 +570,11 @@ function ProjectsList() {
 
               <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
                 {selectedProject.kind === "project" && selectedReadmeQuery.isLoading ? (
-                  <div className="text-muted-foreground" style={{ fontSize: 14 }}>
-                    Loading README…
-                  </div>
+                  <div className="text-sm text-muted-foreground">Loading README…</div>
                 ) : previewContent ? (
                   <Markdown content={previewContent} />
                 ) : (
-                  <div className="text-muted-foreground" style={{ fontSize: 14 }}>
+                  <div className="text-sm text-muted-foreground">
                     {selectedProject.kind === "project"
                       ? "No README available for this repository."
                       : "No content written yet."}
@@ -734,15 +586,11 @@ function ProjectsList() {
         </div>
 
         {!canParticipate && (
-          <div
-            className="absolute bottom-0 left-0 right-0 shrink-0 border-t border-border bg-card px-6 py-2 text-center text-muted-foreground"
-            style={{ fontSize: 13 }}
-          >
+          <div className="absolute bottom-0 left-0 right-0 shrink-0 border-t border-border bg-card px-6 py-2 text-sm text-center text-muted-foreground">
             Anonymous sessions can browse.{" "}
             <Link
               to="/settings"
-              className="text-brand-accent"
-              style={{ fontWeight: 600, textDecoration: "none" }}
+              className="font-semibold no-underline text-brand-accent"
             >
               Link an identity
             </Link>{" "}
@@ -779,89 +627,43 @@ function ListRow({
 }) {
   return (
     <div
-      className={`border-b border-border ${isSelected ? "lg:bg-brand-accent-light lg:border-l-[3px] lg:border-brand-accent" : "border-l-[3px] border-transparent"}`}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "13px 14px",
-        transition: "all 0.12s",
-      }}
+      className={`border-b border-border flex items-center gap-2.5 px-3.5 py-3 transition-all duration-[120ms] ${isSelected ? "lg:bg-brand-accent-light lg:border-l-[3px] lg:border-l-brand-accent" : "border-l-[3px] border-l-transparent"}`}
     >
-      {/* rank — desktop only */}
       <span
-        className={`hidden lg:block shrink-0 text-center ${isSelected ? "text-brand-accent" : "text-disabled"}`}
-        style={{ width: 24, fontSize: 12, fontWeight: 700 }}
+        className={`hidden lg:block w-6 text-xs font-bold text-center shrink-0 ${isSelected ? "text-brand-accent" : "text-disabled"}`}
       >
         {rank}
       </span>
 
-      {/* mobile: full row is the tap target */}
       <button
         type="button"
         onClick={onMobileTap}
-        className="flex flex-1 min-w-0 items-center gap-3 text-left lg:hidden"
-        style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+        className="flex flex-1 min-w-0 items-center gap-3 text-left bg-transparent border-none p-0 cursor-pointer lg:hidden"
       >
-        <span
-          className="text-disabled shrink-0"
-          style={{ width: 20, fontSize: 11, fontWeight: 700, textAlign: "center" }}
-        >
+        <span className="w-5 text-[11px] font-bold text-center text-disabled shrink-0">
           {rank}
         </span>
         <div className="flex-1 min-w-0">
-          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
+          <div className="flex items-center gap-1 mb-0.5">
             <KindBadge kind={project.kind} compact />
-            <span
-              className="text-foreground"
-              style={{
-                fontSize: 14,
-                fontWeight: 600,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
+            <span className="text-sm font-semibold text-foreground truncate">
               {project.title}
             </span>
           </div>
           {project.description && (
-            <p
-              className="text-muted-foreground"
-              style={{
-                fontSize: 12,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {project.description}
-            </p>
+            <p className="text-xs text-muted-foreground truncate">{project.description}</p>
           )}
         </div>
       </button>
 
-      {/* desktop: click anywhere in middle area selects */}
       <div
         onClick={onDesktopSelect}
-        className="hidden lg:flex flex-1 min-w-0 items-center gap-2"
-        style={{ cursor: "pointer" }}
+        className="hidden lg:flex flex-1 min-w-0 items-center gap-2 cursor-pointer"
       >
         <div className="flex-1 min-w-0">
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+          <div className="flex items-center gap-1.5 mb-0.5">
             <KindBadge kind={project.kind} compact />
-            <span
-              className="text-foreground"
-              style={{
-                fontSize: 14,
-                fontWeight: 600,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                flex: 1,
-                minWidth: 0,
-              }}
-            >
+            <span className="text-sm font-semibold text-foreground truncate flex-1 min-w-0">
               {project.title}
             </span>
             {project.repository && (
@@ -871,47 +673,20 @@ function ListRow({
                 rel="noopener noreferrer"
                 title={project.repository}
                 onClick={(e) => e.stopPropagation()}
-                className="text-disabled hover:text-foreground"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  flexShrink: 0,
-                  transition: "color 0.12s",
-                }}
+                className="text-disabled hover:text-foreground inline-flex items-center shrink-0 transition-colors duration-[120ms]"
               >
-                {isGithubUrl(project.repository) ? (
-                  <GithubIcon size={12} />
-                ) : (
-                  <Globe size={12} />
-                )}
+                {isGithubUrl(project.repository) ? <GithubIcon size={12} /> : <Globe size={12} />}
               </a>
             )}
           </div>
           {project.description && (
-            <p
-              className="text-muted-foreground"
-              style={{
-                fontSize: 12,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {project.description}
-            </p>
+            <p className="text-xs text-muted-foreground truncate">{project.description}</p>
           )}
         </div>
       </div>
 
-      {/* vote column — always visible, stops propagation */}
       <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 0,
-          flexShrink: 0,
-        }}
+        className="flex flex-col items-center shrink-0"
         onClick={(e) => e.stopPropagation()}
       >
         <VoteButton
@@ -921,7 +696,7 @@ function ListRow({
           active={voteDirection === "up"}
           activeColor="text-brand-accent"
         />
-        <span className="text-foreground" style={{ fontSize: 12, fontWeight: 700, lineHeight: 1 }}>
+        <span className="text-xs font-bold leading-none text-foreground">
           {project.upvoteCount}
         </span>
         <VoteButton
@@ -954,18 +729,7 @@ function VoteButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`${disabled ? "text-disabled" : active ? (activeColor ?? "text-brand-accent") : "text-muted-foreground hover:text-foreground"} border-none bg-transparent`}
-      style={{
-        width: 36,
-        height: 36,
-        borderRadius: 8,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        cursor: disabled ? "not-allowed" : "pointer",
-        transition: "all 0.12s",
-        WebkitTapHighlightColor: "transparent",
-      }}
+      className={`size-9 rounded-[8px] flex items-center justify-center transition-all duration-[120ms] border-none bg-transparent [WebkitTapHighlightColor:transparent] ${disabled ? "text-disabled cursor-not-allowed" : active ? (activeColor ?? "text-brand-accent") : "text-muted-foreground hover:text-foreground cursor-pointer"}`}
     >
       {icon}
     </button>
@@ -975,17 +739,7 @@ function VoteButton({
 function KindBadge({ kind, compact }: { kind: ProjectKind; compact?: boolean }) {
   return (
     <span
-      className={`border border-border text-foreground ${kind === "idea" ? "bg-muted" : "bg-secondary"}`}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 3,
-        padding: compact ? "1px 6px" : "3px 8px",
-        borderRadius: 4,
-        fontSize: compact ? 10 : 11,
-        fontWeight: 600,
-        flexShrink: 0,
-      }}
+      className={`inline-flex items-center shrink-0 font-semibold rounded-[4px] border border-border text-foreground ${kind === "idea" ? "bg-muted" : "bg-secondary"} ${compact ? "gap-0.5 px-1.5 py-0 text-[10px]" : "gap-1 px-2 py-0.5 text-[11px]"}`}
     >
       {kind === "idea" ? <FileText size={compact ? 9 : 10} /> : null}
       {kind}
@@ -1001,15 +755,7 @@ function StatusBadge({ status }: { status: "active" | "paused" | "archived" }) {
   };
   return (
     <span
-      className={`border ${classes[status]}`}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "3px 8px",
-        borderRadius: 4,
-        fontSize: 11,
-        fontWeight: 600,
-      }}
+      className={`inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-[4px] border ${classes[status]}`}
     >
       {status}
     </span>

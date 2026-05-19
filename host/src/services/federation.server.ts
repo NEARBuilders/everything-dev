@@ -41,6 +41,10 @@ export function resetFederationInstance() {
   verifiedSsrEntryCache.clear();
 }
 
+function shouldCacheRouterModule(config: RuntimeConfig) {
+  return config.ui.source !== "local" && Boolean(config.ui.ssrIntegrity);
+}
+
 async function verifySsrEntryIntegrity(entryUrl: string, expectedIntegrity: string): Promise<void> {
   const cacheKey = `${entryUrl}::${expectedIntegrity}`;
   const now = Date.now();
@@ -84,15 +88,22 @@ function getSsrEntryUrl(config: RuntimeConfig) {
     );
   }
 
-  return `${ssrUrl.replace(/\/$/, "")}/remoteEntry.server.js`;
+  const entryUrl = `${ssrUrl.replace(/\/$/, "")}/remoteEntry.server.js`;
+  if (!isLocalDev && config.ui.ssrIntegrity) {
+    return `${entryUrl}?v=${encodeURIComponent(config.ui.ssrIntegrity)}`;
+  }
+
+  return entryUrl;
 }
 
 const retrySchedule = Schedule.addDelay(Schedule.recurs(5), () => 500);
 
 export const loadRouterModule = (config: RuntimeConfig) =>
   Effect.gen(function* () {
+    const useCache = shouldCacheRouterModule(config);
+    const ssrEntryUrl = getSsrEntryUrl(config);
+
     if (config.ui.ssrIntegrity) {
-      const ssrEntryUrl = getSsrEntryUrl(config);
       yield* Effect.tryPromise({
         try: () => verifySsrEntryIntegrity(ssrEntryUrl, config.ui.ssrIntegrity!),
         catch: (e) =>
@@ -100,15 +111,16 @@ export const loadRouterModule = (config: RuntimeConfig) =>
             remoteName: config.ui.name,
             remoteUrl: config.ui.ssrUrl,
             cause: e instanceof Error ? e : new Error(String(e)),
-          }),
+        }),
       });
     }
 
-    const ssrEntryUrl = getSsrEntryUrl(config);
     const cacheKey = `${config.ui.name}::${ssrEntryUrl}::${config.ui.ssrIntegrity ?? "no-integrity"}`;
     const now = Date.now();
-    pruneExpiredCacheEntries(routerModuleCache, now);
-    let cached = routerModuleCache.get(cacheKey);
+    if (useCache) {
+      pruneExpiredCacheEntries(routerModuleCache, now);
+    }
+    let cached = useCache ? routerModuleCache.get(cacheKey) : undefined;
 
     if (!cached || cached.expiresAt <= now) {
       const value = Effect.runPromise(
@@ -148,12 +160,18 @@ export const loadRouterModule = (config: RuntimeConfig) =>
           retrySchedule,
         ),
       ).catch((error) => {
-        routerModuleCache.delete(cacheKey);
+        if (useCache) {
+          routerModuleCache.delete(cacheKey);
+        }
         throw error;
       });
-      cached = { value, expiresAt: now + ROUTER_MODULE_CACHE_TTL_MS };
-      routerModuleCache.set(cacheKey, cached);
-      enforceCacheLimit(routerModuleCache, MAX_ROUTER_MODULE_CACHE_SIZE);
+      if (useCache) {
+        cached = { value, expiresAt: now + ROUTER_MODULE_CACHE_TTL_MS };
+        routerModuleCache.set(cacheKey, cached);
+        enforceCacheLimit(routerModuleCache, MAX_ROUTER_MODULE_CACHE_SIZE);
+      } else {
+        cached = { value, expiresAt: now };
+      }
     }
 
     const loadedModule = yield* Effect.tryPromise({

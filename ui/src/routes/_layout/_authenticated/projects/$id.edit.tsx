@@ -8,7 +8,10 @@ import { ProjectFormLayout, type ProjectFormValues } from "@/components/project-
 
 function isCurrentUserOwner(
   ownerId: string | null | undefined,
-  user: { id?: string | null; walletAddress?: string | null; role?: string | null } | null | undefined,
+  user:
+    | { id?: string | null; walletAddress?: string | null; role?: string | null }
+    | null
+    | undefined,
 ) {
   if (!ownerId) return false;
   return [user?.id, user?.walletAddress].some((candidate) => candidate === ownerId);
@@ -216,19 +219,10 @@ function EditFormInner({
           <Link
             to="/projects/$id"
             params={{ id: projectId }}
-            className="text-muted-foreground hover:text-foreground"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 13,
-              fontWeight: 600,
-              textDecoration: "none",
-              transition: "color 0.12s",
-            }}
+            aria-label="Back to project"
+            className="flex items-center justify-center w-8 h-8 border-2 border-outset border-border-strong bg-card shadow-sm transition-all duration-200 ease-out hover:shadow-md hover:bg-muted rounded-[10px]"
           >
-            <ArrowLeft size={13} />
-            {project.slug}
+            <ArrowLeft size={13} className="text-foreground" />
           </Link>
           <span className="text-border">/</span>
           <span style={{ fontSize: 13, fontWeight: 600 }} className="text-foreground">

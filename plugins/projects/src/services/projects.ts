@@ -547,13 +547,7 @@ export const ProjectServiceLive = Layer.effect(
 
       linkAppToProject: (projectId, accountId, domain, userId, userRole, alternateUserId) =>
         Effect.gen(function* () {
-          const canEdit = yield* canEditProject(
-            db,
-            projectId,
-            userId,
-            userRole,
-            alternateUserId,
-          );
+          const canEdit = yield* canEditProject(db, projectId, userId, userRole, alternateUserId);
           if (!canEdit) {
             return yield* Effect.fail(
               new ORPCError("FORBIDDEN", {
@@ -613,13 +607,7 @@ export const ProjectServiceLive = Layer.effect(
 
       unlinkAppFromProject: (projectId, accountId, domain, userId, userRole, alternateUserId) =>
         Effect.gen(function* () {
-          const canEdit = yield* canEditProject(
-            db,
-            projectId,
-            userId,
-            userRole,
-            alternateUserId,
-          );
+          const canEdit = yield* canEditProject(db, projectId, userId, userRole, alternateUserId);
           if (!canEdit) {
             return yield* Effect.fail(
               new ORPCError("FORBIDDEN", {

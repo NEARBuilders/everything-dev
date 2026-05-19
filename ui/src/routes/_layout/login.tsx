@@ -3,7 +3,7 @@ import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/reac
 import { useState } from "react";
 import { toast } from "sonner";
 import { sessionQueryOptions, useAuthClient } from "@/app";
-import { Button } from "@/components/ui/button";
+import { UnderConstruction } from "@/components/under-construction";
 
 type SearchParams = {
   redirect?: string;
@@ -32,6 +32,14 @@ export const Route = createFileRoute("/_layout/login")({
   },
   component: LoginPage,
 });
+
+function NearIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+      <path d="M21.077 4.5l-5.2 7.573L10.923 4.5H4.5v23h5.827V12.118l5.55 7.898 5.55-7.898V27.5H27.5V4.5z" />
+    </svg>
+  );
+}
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -105,12 +113,25 @@ function LoginPage() {
   const isPending = nearPending || anonPending;
 
   return (
-    <div className="min-h-[70vh] w-full flex items-start justify-center px-6 pt-[37.5vh] animate-fade-in">
+    <div className="min-h-[70vh] w-full flex items-start justify-center px-6 pt-[30vh] animate-fade-in">
       <div className="w-full max-w-sm space-y-8">
-        <div className="space-y-6 animate-fade-in-up">
-          <Button variant="outline" onClick={handleNear} disabled={isPending} className="w-full">
+        <div className="flex justify-center">
+          <UnderConstruction
+            sourceFile="ui/src/routes/_layout/login.tsx"
+            className="w-32"
+          />
+        </div>
+
+        <div className="space-y-3 animate-fade-in-up">
+          <button
+            type="button"
+            onClick={handleNear}
+            disabled={isPending}
+            className="w-full h-10 px-4 inline-flex items-center justify-center gap-2 text-sm font-medium border-2 border-outset border-border-strong bg-card text-foreground shadow-sm hover:shadow-md hover:bg-muted active:border-inset active:shadow-none transition-all duration-200 ease-out disabled:pointer-events-none disabled:opacity-50 rounded-[12px]"
+          >
+            <NearIcon />
             {nearPending ? "connecting..." : "connect with NEAR"}
-          </Button>
+          </button>
 
           <div className="flex items-center gap-3">
             <div className="flex-1 h-px bg-border" />
@@ -118,12 +139,17 @@ function LoginPage() {
             <div className="flex-1 h-px bg-border" />
           </div>
 
-          <Button variant="ghost" onClick={handleAnonymous} disabled={isPending} className="w-full">
+          <button
+            type="button"
+            onClick={handleAnonymous}
+            disabled={isPending}
+            className="w-full h-10 px-4 inline-flex items-center justify-center gap-2 text-sm font-medium border-2 border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground hover:shadow-sm active:shadow-none transition-all duration-200 ease-out disabled:pointer-events-none disabled:opacity-50 rounded-[12px]"
+          >
             {anonPending ? "starting..." : "continue anonymously"}
-          </Button>
+          </button>
         </div>
 
-        <div className="pt-6 border-t border-border">
+        <div className="pt-2 border-t border-border">
           <p className="text-xs text-muted-foreground text-center leading-relaxed">
             Anonymous sessions don't persist after sign out
           </p>

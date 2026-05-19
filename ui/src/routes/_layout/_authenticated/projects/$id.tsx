@@ -17,14 +17,8 @@ import {
 import { type ReactNode, useCallback, useState } from "react";
 import { toast } from "sonner";
 import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
-import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Markdown } from "@/components/ui/markdown";
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { fetchRepositoryReadme } from "@/lib/repository-content";
 
 export const Route = createFileRoute("/_layout/_authenticated/projects/$id")({
@@ -151,12 +145,24 @@ function ProjectDetailPage() {
     return (
       <div className="flex h-full flex-col">
         <div className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-4 py-3">
-          <div style={{ height: 20, width: 120, borderRadius: 6 }} className="animate-pulse bg-secondary" />
+          <div
+            style={{ height: 20, width: 120, borderRadius: 6 }}
+            className="animate-pulse bg-secondary"
+          />
         </div>
         <div className="flex flex-1 flex-col gap-4 p-6">
-          <div style={{ height: 32, width: 240, borderRadius: 8 }} className="animate-pulse bg-secondary" />
-          <div style={{ height: 16, width: "70%", borderRadius: 6 }} className="animate-pulse bg-secondary" />
-          <div style={{ height: 16, width: "50%", borderRadius: 6 }} className="animate-pulse bg-secondary" />
+          <div
+            style={{ height: 32, width: 240, borderRadius: 8 }}
+            className="animate-pulse bg-secondary"
+          />
+          <div
+            style={{ height: 16, width: "70%", borderRadius: 6 }}
+            className="animate-pulse bg-secondary"
+          />
+          <div
+            style={{ height: 16, width: "50%", borderRadius: 6 }}
+            className="animate-pulse bg-secondary"
+          />
         </div>
       </div>
     );
@@ -209,19 +215,10 @@ function ProjectDetailPage() {
           <Link
             to="/projects"
             search={{ preview: project.id, kind: undefined }}
-            className="text-muted-foreground hover:text-foreground"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 13,
-              fontWeight: 600,
-              textDecoration: "none",
-              transition: "color 0.12s",
-            }}
+            aria-label="Back to projects"
+            className="flex items-center justify-center w-8 h-8 border-2 border-outset border-border-strong bg-card shadow-sm transition-all duration-200 ease-out hover:shadow-md hover:bg-muted rounded-[10px]"
           >
-            <ArrowLeft size={13} />
-            <span className="hidden sm:inline">Projects</span>
+            <ArrowLeft size={13} className="text-foreground" />
           </Link>
           <span className="hidden text-border sm:inline">/</span>
           <span
@@ -310,11 +307,7 @@ function ProjectDetailPage() {
           )}
 
           {/* share */}
-          <IconButton
-            onClick={handleShare}
-            active={copied}
-            activeColor="text-brand-accent"
-          >
+          <IconButton onClick={handleShare} active={copied} activeColor="text-brand-accent">
             {copied ? <Check size={14} /> : <Share2 size={14} />}
           </IconButton>
 
@@ -407,11 +400,7 @@ function ProjectDetailPage() {
                     maxWidth: "fit-content",
                   }}
                 >
-                  {isGithubUrl(project.repository) ? (
-                    <GithubIcon size={13} />
-                  ) : (
-                    <Globe size={13} />
-                  )}
+                  {isGithubUrl(project.repository) ? <GithubIcon size={13} /> : <Globe size={13} />}
                   <span
                     style={{
                       maxWidth: 220,
@@ -422,7 +411,11 @@ function ProjectDetailPage() {
                   >
                     {project.repository.replace(/^https?:\/\/(www\.)?/, "")}
                   </span>
-                  <ExternalLink size={11} className="text-muted-foreground" style={{ flexShrink: 0 }} />
+                  <ExternalLink
+                    size={11}
+                    className="text-muted-foreground"
+                    style={{ flexShrink: 0 }}
+                  />
                 </a>
               )}
             </div>
@@ -438,7 +431,12 @@ function ProjectDetailPage() {
             ) : (
               <div
                 className="border border-dashed border-border text-muted-foreground"
-                style={{ padding: "32px 24px", borderRadius: 12, textAlign: "center", fontSize: 14 }}
+                style={{
+                  padding: "32px 24px",
+                  borderRadius: 12,
+                  textAlign: "center",
+                  fontSize: 14,
+                }}
               >
                 {project.kind === "project"
                   ? "No README available for this repository."

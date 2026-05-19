@@ -17,12 +17,7 @@ import {
 import { Gas } from "near-kit";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-  type Organization,
-  type SessionData,
-  sessionQueryOptions,
-  useAuthClient,
-} from "@/app";
+import { type Organization, type SessionData, sessionQueryOptions, useAuthClient } from "@/app";
 import {
   Badge,
   Button,
@@ -98,8 +93,6 @@ function relayerExplorerUrl(accountId: string): string {
 function getGuestbookGreetingQueryKey(network: "mainnet" | "testnet") {
   return ["greeting", network] as const;
 }
-
-
 
 export function useNearAccountsData(enabled = true) {
   const auth = useAuthClient();
@@ -259,20 +252,20 @@ export function ProfileCard({
         </div>
 
         {nearAccountId && (
-<div className="flex items-center justify-between pt-1">
-              <code className="text-xs font-mono bg-muted px-2 py-1 rounded">{nearAccountId}</code>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" asChild className="h-7 px-2 text-xs">
-                  <a
-                    href={`https://near.social/${nearAccountId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    Social
-                  </a>
-                </Button>
+          <div className="flex items-center justify-between pt-1">
+            <code className="text-xs font-mono bg-muted px-2 py-1 rounded">{nearAccountId}</code>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" asChild className="h-7 px-2 text-xs">
+                <a
+                  href={`https://near.social/${nearAccountId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Social
+                </a>
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"

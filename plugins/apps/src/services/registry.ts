@@ -112,6 +112,14 @@ interface DiscoveredConfig {
 }
 
 const DISCOVERY_PREFIX = "apps/";
+const CACHE_TTL_MS = 60_000;
+
+interface DiscoveryCache {
+  data: DiscoveredConfig[];
+  expiresAt: number;
+}
+
+let discoveryCache: DiscoveryCache | null = null;
 
 export interface KvEntry {
   key: string;
@@ -189,11 +197,16 @@ export class RegistryService extends Context.Tag("registry/RegistryService")<
 
 function createRegistryMethods(config: RegistryConfig) {
   const discoverPublishedConfigs = async (): Promise<DiscoveredConfig[]> => {
+    if (discoveryCache && Date.now() < discoveryCache.expiresAt) {
+      return discoveryCache.data;
+    }
     const results = await Promise.all([
       discoverPublishedConfigsForNetwork("mainnet", config),
       discoverPublishedConfigsForNetwork("testnet", config),
     ]);
-    return results.flat().sort(compareDiscovered);
+    const data = results.flat().sort(compareDiscovered);
+    discoveryCache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
+    return data;
   };
 
   const discoverPublishedConfigsForNetwork = async (

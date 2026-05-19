@@ -80,12 +80,8 @@
           "name": "project_apps_project_id_projects_id_fk",
           "tableFrom": "project_apps",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }

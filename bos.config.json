@@ -42,7 +42,7 @@
       },
       "routes": [
         "ui/src/routes/_layout/apps/**",
-        "ui/src/routes/_layout/about.tsx"
+        "ui/src/routes/_layout/index.tsx"
       ],
       "sidebar": [
         {
@@ -53,7 +53,15 @@
       ]
     },
     "projects": {
-      "extends": "bos://work.efiz.near/projects.everything.dev#plugins.projects",
+      "development": "local:plugins/projects",
+      "production": "https://elliot-braem-3661-everything-dev-projects-plugin--73d0df048-ze.zephyrcloud.app",
+      "integrity": "sha384-UDBHTIrOG9wWJjYXghCMmsz5QD50LI4CNZddG0DyO+/rZez4/sR/U4lQnzN029Dd",
+      "secrets": [
+        "PROJECTS_DATABASE_URL"
+      ],
+      "routes": [
+        "ui/src/routes/_layout/_authenticated/projects/**"
+      ],
       "sidebar": [
         {
           "icon": "FolderKanban",

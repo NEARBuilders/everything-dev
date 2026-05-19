@@ -9,6 +9,7 @@
 body {
   @apply m-0;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-weight: 500;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
