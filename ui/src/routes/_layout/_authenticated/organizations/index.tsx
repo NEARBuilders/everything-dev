@@ -301,8 +301,8 @@ function OrganizationsList() {
           )}
 
           <div className="rounded-[12px] border border-border bg-card p-5 text-sm text-muted-foreground leading-relaxed">
-            Each user gets a personal organization automatically. Additional organizations give teams
-            their own members, invitations, and API key scope.
+            Each user gets a personal organization automatically. Additional organizations give
+            teams their own members, invitations, and API key scope.
           </div>
         </div>
       </div>

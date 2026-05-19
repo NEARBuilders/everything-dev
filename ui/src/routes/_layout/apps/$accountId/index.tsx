@@ -72,11 +72,7 @@ function AccountAppsPage() {
             </Link>
           )}
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-            <Link
-              to="/apps"
-              search={{}}
-              className="hover:text-foreground transition-colors"
-            >
+            <Link to="/apps" search={{}} className="hover:text-foreground transition-colors">
               apps
             </Link>
             <span>/</span>
@@ -187,7 +183,12 @@ function AccountAppsPage() {
                           onClick={(e) => e.stopPropagation()}
                           className="hidden sm:inline-flex"
                         >
-                          <Button variant="secondary" size="sm" className="h-7 px-2.5 text-xs gap-1" asChild>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-7 px-2.5 text-xs gap-1"
+                            asChild
+                          >
                             <span>
                               <ExternalLink size={10} />
                               open

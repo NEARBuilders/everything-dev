@@ -9,7 +9,7 @@ export const Route = createFileRoute("/_layout/about")({
   loader: async ({ context }) => {
     const repository = getRepository(context.runtimeConfig);
     const description =
-      (context.runtimeConfig as Record<string, unknown>)?.description as string | null ?? null;
+      ((context.runtimeConfig as Record<string, unknown>)?.description as string | null) ?? null;
     let readme: string | null = null;
     if (repository) {
       readme = await fetchRepositoryReadme(repository).catch(() => null);
@@ -56,7 +56,6 @@ function About() {
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto">
         <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-4 animate-fade-in">
-
           <div className="rounded-[12px] border border-border bg-card p-6 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
@@ -72,7 +71,9 @@ function About() {
                   {githubRepo && (
                     <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground font-mono">
                       <GitFork size={11} />
-                      <span>{githubRepo.owner}/{githubRepo.repo}</span>
+                      <span>
+                        {githubRepo.owner}/{githubRepo.repo}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -97,7 +98,9 @@ function About() {
 
             {repository && (
               <div className="rounded-[8px] border border-border bg-muted px-3.5 py-2.5 flex items-center gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 min-w-[64px]">repo</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 min-w-[64px]">
+                  repo
+                </span>
                 <a
                   href={repository}
                   target="_blank"

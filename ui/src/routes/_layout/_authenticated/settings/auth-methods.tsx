@@ -41,11 +41,7 @@ function AuthMethodsSettings() {
   );
 }
 
-function EmailMethod({
-  user,
-}: {
-  user: { email?: string; isAnonymous?: boolean | null };
-}) {
+function EmailMethod({ user }: { user: { email?: string; isAnonymous?: boolean | null } }) {
   return (
     <div className="rounded-[12px] border border-border bg-card p-6 space-y-4">
       <div className="flex items-start gap-4">
@@ -275,7 +271,9 @@ function StatusChip({ linked, label }: { linked: boolean; label?: string }) {
   return (
     <span
       className={`inline-flex items-center rounded-[6px] px-2 py-0.5 text-[10px] font-semibold border ${
-        linked ? "bg-secondary border-border text-foreground" : "bg-muted border-border text-muted-foreground"
+        linked
+          ? "bg-secondary border-border text-foreground"
+          : "bg-muted border-border text-muted-foreground"
       }`}
     >
       {label ?? (linked ? "linked" : "not linked")}

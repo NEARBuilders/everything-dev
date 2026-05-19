@@ -15,17 +15,9 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
+import { sessionQueryOptions, useApiClient, useAuthClient, useOrpc } from "@/app";
 import { Markdown } from "@/components/ui/markdown";
 import { fetchRepositoryReadme } from "@/lib/repository-content";
-
-interface VoteEvent {
-  type: "upvote" | "downvote";
-  thingId: string;
-  userId: string;
-  timestamp: string;
-  totalCount: number;
-}
 
 type VoteDirection = "up" | "down" | null;
 
@@ -111,6 +103,7 @@ function isCurrentUserOwner(
 
 function ProjectsList() {
   const apiClient = useApiClient();
+  const orpc = useOrpc();
   const auth = useAuthClient();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -123,6 +116,7 @@ function ProjectsList() {
 
   const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
   const user = session?.user;
+  const userId = user?.id;
   const canParticipate = Boolean(user && !user.isAnonymous);
   const [copied, setCopied] = useState(false);
 
@@ -155,9 +149,10 @@ function ProjectsList() {
   });
 
   const projects = useMemo(() => pages?.pages.flatMap((page) => page.data) ?? [], [pages]);
+  const projectIdList = useMemo(() => projects.map((p) => p.id), [projects]);
 
   const upvoteCounts = useQuery({
-    queryKey: ["upvoteCounts", projects.map((p) => p.id)],
+    queryKey: ["upvoteCounts", projectIdList],
     queryFn: async () => {
       const counts: Record<string, number> = {};
       await Promise.all(
@@ -184,7 +179,7 @@ function ProjectsList() {
   const projectIds = useMemo(() => rankedProjects.map((p) => p.id), [rankedProjects]);
 
   const userVoteStates = useQuery({
-    queryKey: ["userVoteStates", projects.map((p) => p.id)],
+    queryKey: ["userVoteStates", projectIdList],
     queryFn: async () => {
       const votes: Record<string, VoteDirection> = {};
       await Promise.all(
@@ -203,6 +198,28 @@ function ProjectsList() {
   });
 
   const userVoteMap = userVoteStates.data ?? {};
+
+  const { data: latestVote } = useQuery(
+    orpc.subscribeUpvotes.experimental_liveOptions({ retry: true }),
+  );
+
+  useEffect(() => {
+    if (!latestVote) return;
+    const { thingId, totalCount, type } = latestVote;
+    queryClient.setQueryData(
+      ["upvoteCounts", projectIds],
+      (old: Record<string, number> | undefined) => ({ ...old, [thingId]: totalCount }),
+    );
+    if (userId && latestVote.userId === userId) {
+      queryClient.setQueryData(
+        ["userVoteStates", projectIds],
+        (old: Record<string, VoteDirection> | undefined) => ({
+          ...old,
+          [thingId]: type === "downvote" ? "down" : "up",
+        }),
+      );
+    }
+  }, [latestVote, queryClient, projectIds, userId]);
 
   const selectedProjectId =
     rankedProjects.find((p) => p.id === search.preview)?.id ?? rankedProjects[0]?.id;
@@ -231,11 +248,11 @@ function ProjectsList() {
     mutationFn: (thingId: string) => apiClient.upvoteThing({ thingId }),
     onSuccess: (data) => {
       queryClient.setQueryData(
-        ["upvoteCounts", projects.map((p) => p.id)],
+        ["upvoteCounts", projectIds],
         (old: Record<string, number> | undefined) => ({ ...old, [data.thingId]: data.totalCount }),
       );
       queryClient.setQueryData(
-        ["userVoteStates", projects.map((p) => p.id)],
+        ["userVoteStates", projectIds],
         (old: Record<string, VoteDirection> | undefined) => ({ ...old, [data.thingId]: "up" }),
       );
     },
@@ -246,35 +263,16 @@ function ProjectsList() {
     mutationFn: (thingId: string) => apiClient.downvoteThing({ thingId }),
     onSuccess: (data) => {
       queryClient.setQueryData(
-        ["upvoteCounts", projects.map((p) => p.id)],
+        ["upvoteCounts", projectIds],
         (old: Record<string, number> | undefined) => ({ ...old, [data.thingId]: data.totalCount }),
       );
       queryClient.setQueryData(
-        ["userVoteStates", projects.map((p) => p.id)],
+        ["userVoteStates", projectIds],
         (old: Record<string, VoteDirection> | undefined) => ({ ...old, [data.thingId]: "down" }),
       );
     },
     onError: (err: Error) => toast.error(err.message || "Failed to downvote"),
   });
-
-  useEffect(() => {
-    const es = new EventSource("/api/upvotes/stream");
-    es.addEventListener("vote", (event) => {
-      try {
-        const detail = JSON.parse(event.data) as VoteEvent;
-        queryClient.setQueryData(
-          ["upvoteCounts", projects.map((p) => p.id)],
-          (old: Record<string, number> | undefined) => ({
-            ...old,
-            [detail.thingId]: detail.totalCount,
-          }),
-        );
-      } catch {
-        return;
-      }
-    });
-    return () => es.close();
-  }, [queryClient, projects]);
 
   const sentinelRef = useCallback(
     (node: HTMLDivElement | null) => {
@@ -450,10 +448,7 @@ function ProjectsList() {
         {!canParticipate && (
           <div className="shrink-0 border-t border-border bg-card px-4 py-2 text-sm text-center text-muted-foreground pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]">
             Anonymous sessions can browse.{" "}
-            <Link
-              to="/settings"
-              className="font-semibold no-underline text-brand-accent"
-            >
+            <Link to="/settings" className="font-semibold no-underline text-brand-accent">
               Link an identity
             </Link>{" "}
             to publish and vote.
@@ -588,10 +583,7 @@ function ProjectsList() {
         {!canParticipate && (
           <div className="absolute bottom-0 left-0 right-0 shrink-0 border-t border-border bg-card px-6 py-2 text-sm text-center text-muted-foreground">
             Anonymous sessions can browse.{" "}
-            <Link
-              to="/settings"
-              className="font-semibold no-underline text-brand-accent"
-            >
+            <Link to="/settings" className="font-semibold no-underline text-brand-accent">
               Link an identity
             </Link>{" "}
             to publish and vote.
@@ -640,15 +632,11 @@ function ListRow({
         onClick={onMobileTap}
         className="flex flex-1 min-w-0 items-center gap-3 text-left bg-transparent border-none p-0 cursor-pointer lg:hidden"
       >
-        <span className="w-5 text-[11px] font-bold text-center text-disabled shrink-0">
-          {rank}
-        </span>
+        <span className="w-5 text-[11px] font-bold text-center text-disabled shrink-0">{rank}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 mb-0.5">
             <KindBadge kind={project.kind} compact />
-            <span className="text-sm font-semibold text-foreground truncate">
-              {project.title}
-            </span>
+            <span className="text-sm font-semibold text-foreground truncate">{project.title}</span>
           </div>
           {project.description && (
             <p className="text-xs text-muted-foreground truncate">{project.description}</p>
@@ -685,10 +673,7 @@ function ListRow({
         </div>
       </div>
 
-      <div
-        className="flex flex-col items-center shrink-0"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex flex-col items-center shrink-0" onClick={(e) => e.stopPropagation()}>
         <VoteButton
           icon={<TrendingUp size={13} />}
           onClick={onUpvote}

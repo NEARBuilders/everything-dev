@@ -22,8 +22,8 @@ function ProfileSettings() {
       <IdentityCard user={user} />
       {user.isAnonymous && (
         <div className="rounded-[12px] border border-border bg-card p-4 text-sm text-muted-foreground leading-relaxed">
-          This session is temporary. Link an email or NEAR wallet before signing out if you want
-          the account to remain recoverable.
+          This session is temporary. Link an email or NEAR wallet before signing out if you want the
+          account to remain recoverable.
         </div>
       )}
     </div>

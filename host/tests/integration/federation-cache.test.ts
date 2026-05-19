@@ -120,7 +120,9 @@ describe("loadRouterModule cache", () => {
     };
     loadRemoteMock.mockResolvedValueOnce(routerOne).mockResolvedValueOnce(routerTwo);
 
-    const first = await Effect.runPromise(loadRouterModule(createRuntimeConfig({ source: "local" })));
+    const first = await Effect.runPromise(
+      loadRouterModule(createRuntimeConfig({ source: "local" })),
+    );
     const second = await Effect.runPromise(
       loadRouterModule(createRuntimeConfig({ source: "local" })),
     );

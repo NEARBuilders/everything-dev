@@ -99,7 +99,9 @@ export const contract = oc.router({
       }),
     ),
 
-  subscribeUpvotes: oc.route({ method: "GET", path: "/upvotes/stream" }).output(eventIterator(VoteEventSchema)),
+  subscribeUpvotes: oc
+    .route({ method: "GET", path: "/upvotes/stream" })
+    .output(eventIterator(VoteEventSchema)),
 });
 
 export type ContractType = typeof contract;

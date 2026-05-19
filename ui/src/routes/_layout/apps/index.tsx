@@ -21,9 +21,7 @@ export const Route = createFileRoute("/_layout/apps/")({
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     q: typeof search.q === "string" && search.q.length > 0 ? search.q : undefined,
     preview:
-      typeof search.preview === "string" && search.preview.length > 0
-        ? search.preview
-        : undefined,
+      typeof search.preview === "string" && search.preview.length > 0 ? search.preview : undefined,
   }),
   loaderDeps: ({ search }) => ({ q: search.q }),
   loader: async ({ context, deps }) => {
@@ -197,8 +195,8 @@ function AppsIndex() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-xs">
                   <p className="text-xs">
-                    Navigate to a published runtime by its canonical bos:// address.
-                    Format: <code>account/gateway</code>
+                    Navigate to a published runtime by its canonical bos:// address. Format:{" "}
+                    <code>account/gateway</code>
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -501,7 +499,9 @@ function AppPreview({
         </div>
 
         {app.metadata?.description && (
-          <p className="text-xs text-muted-foreground leading-relaxed">{app.metadata.description}</p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {app.metadata.description}
+          </p>
         )}
 
         {isTenant && (
@@ -530,9 +530,7 @@ function AppPreview({
               <RuntimeRow label="ui" value={app.uiUrl} />
               <RuntimeRow label="api" value={app.apiUrl} />
               {app.uiSsrUrl && <RuntimeRow label="ssr" value={app.uiSsrUrl} />}
-              {app.extends && (
-                <RuntimeRow label="extends" value={app.extends} isUrl={false} mono />
-              )}
+              {app.extends && <RuntimeRow label="extends" value={app.extends} isUrl={false} mono />}
             </section>
 
             {detail?.metadata && (
@@ -556,7 +554,9 @@ function AppPreview({
 
             <section className="space-y-1.5">
               <SectionLabel>Start command</SectionLabel>
-              <StartCommand command={detail?.startCommand ?? `bos start --account ${app.accountId}`} />
+              <StartCommand
+                command={detail?.startCommand ?? `bos start --account ${app.accountId}`}
+              />
               <div className="flex gap-3">
                 {detail?.canonicalConfigUrl && (
                   <a
@@ -603,7 +603,9 @@ function StartCommand({ command }: { command: string }) {
       <code className="font-mono text-sm font-semibold text-background break-all leading-snug">
         {command}
       </code>
-      <span className={`shrink-0 transition-colors duration-150 ${copied ? "text-brand-accent" : "text-background/50 group-hover:text-background/80"}`}>
+      <span
+        className={`shrink-0 transition-colors duration-150 ${copied ? "text-brand-accent" : "text-background/50 group-hover:text-background/80"}`}
+      >
         <Copy size={14} />
       </span>
     </button>

@@ -111,7 +111,7 @@ export const loadRouterModule = (config: RuntimeConfig) =>
             remoteName: config.ui.name,
             remoteUrl: config.ui.ssrUrl,
             cause: e instanceof Error ? e : new Error(String(e)),
-        }),
+          }),
       });
     }
 

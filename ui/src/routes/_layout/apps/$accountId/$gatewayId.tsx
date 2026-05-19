@@ -1,5 +1,6 @@
-import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { ArrowLeft, Check, Copy, ExternalLink, Info } from "lucide-react";
 import type { TransactionBuilder } from "near-kit";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
@@ -10,14 +11,6 @@ import { Label } from "@/components/ui/label";
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import {
-  ArrowLeft,
-  Check,
-  Copy,
-  ExternalLink,
-  Info,
-} from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
 
 const BASE_RUNTIME = "bos://dev.everything.near/everything.dev";
 
@@ -92,9 +85,7 @@ function AppDetailPage() {
   const [title, setTitle] = useState(app?.metadata?.title ?? "");
   const [description, setDescription] = useState(app?.metadata?.description ?? "");
   const [repoUrl, setRepoUrl] = useState(app?.metadata?.repoUrl ?? "");
-  const [homepageUrl, setHomepageUrl] = useState(
-    app?.metadata?.homepageUrl ?? app?.openUrl ?? "",
-  );
+  const [homepageUrl, setHomepageUrl] = useState(app?.metadata?.homepageUrl ?? app?.openUrl ?? "");
   const [imageUrl, setImageUrl] = useState(app?.metadata?.imageUrl ?? "");
   const [delegatePayload, setDelegatePayload] = useState<string | null>(null);
 
@@ -214,16 +205,15 @@ function AppDetailPage() {
     <div className="space-y-4 text-sm">
       <MetaSectionLabel>Details</MetaSectionLabel>
       <MetaRow label="Status">
-        <Badge
-          variant={app.status === "ready" ? "default" : "destructive"}
-          className="text-xs"
-        >
+        <Badge variant={app.status === "ready" ? "default" : "destructive"} className="text-xs">
           {app.status}
         </Badge>
       </MetaRow>
       {isTenant && (
         <MetaRow label="Type">
-          <Badge variant="outline" className="text-xs">tenant runtime</Badge>
+          <Badge variant="outline" className="text-xs">
+            tenant runtime
+          </Badge>
         </MetaRow>
       )}
       {app.extends && (
@@ -242,13 +232,13 @@ function AppDetailPage() {
         </MetaRow>
       )}
       {app.metadata?.updatedAt && (
-        <MetaRow label="Updated">
-          {new Date(app.metadata.updatedAt).toLocaleDateString()}
-        </MetaRow>
+        <MetaRow label="Updated">{new Date(app.metadata.updatedAt).toLocaleDateString()}</MetaRow>
       )}
       <MetaRow label="Relay">
         {statusQuery.data?.relayEnabled ? (
-          <Badge variant="secondary" className="text-xs">enabled</Badge>
+          <Badge variant="secondary" className="text-xs">
+            enabled
+          </Badge>
         ) : (
           <span className="text-muted-foreground text-xs">disabled</span>
         )}
@@ -347,19 +337,23 @@ function AppDetailPage() {
                     app.status === "ready" ? "bg-green-500" : "bg-destructive"
                   }`}
                 />
-                {isTenant && <Badge variant="outline" className="text-xs">tenant</Badge>}
+                {isTenant && (
+                  <Badge variant="outline" className="text-xs">
+                    tenant
+                  </Badge>
+                )}
                 {app.metadata?.claimedBy ? (
                   <Badge variant="secondary" className="text-xs">
                     claimed by {app.metadata.claimedBy}
                   </Badge>
                 ) : (
-                  <Badge variant="outline" className="text-xs text-muted-foreground">unclaimed</Badge>
+                  <Badge variant="outline" className="text-xs text-muted-foreground">
+                    unclaimed
+                  </Badge>
                 )}
               </div>
 
-              <h1 className="text-xl font-bold text-foreground break-all">
-                {displayTitle}
-              </h1>
+              <h1 className="text-xl font-bold text-foreground break-all">{displayTitle}</h1>
 
               <button
                 type="button"
@@ -375,7 +369,10 @@ function AppDetailPage() {
                 {copiedUri ? (
                   <Check size={11} className="shrink-0 text-green-500" />
                 ) : (
-                  <Copy size={11} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <Copy
+                    size={11}
+                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  />
                 )}
               </button>
 
@@ -497,12 +494,11 @@ function AppDetailPage() {
                       const prod = val.production as string | undefined;
                       if (!prod) return null;
                       return (
-                        <div
-                          key={key}
-                          className="flex items-start gap-2 px-3 py-2 text-xs"
-                        >
-                          <span className="font-mono text-muted-foreground shrink-0 uppercase font-semibold min-w-[36px]"
-                            style={{ fontSize: 10 }}>
+                        <div key={key} className="flex items-start gap-2 px-3 py-2 text-xs">
+                          <span
+                            className="font-mono text-muted-foreground shrink-0 uppercase font-semibold min-w-[36px]"
+                            style={{ fontSize: 10 }}
+                          >
                             {key}
                           </span>
                           <a
@@ -528,7 +524,10 @@ function AppDetailPage() {
                             const prod = pluginVal?.production as string | undefined;
                             return (
                               <div key={id} className="flex items-center gap-2 text-xs">
-                                <span className="font-mono text-muted-foreground shrink-0" style={{ fontSize: 10 }}>
+                                <span
+                                  className="font-mono text-muted-foreground shrink-0"
+                                  style={{ fontSize: 10 }}
+                                >
                                   {id}
                                 </span>
                                 {prod ? (
@@ -542,7 +541,10 @@ function AppDetailPage() {
                                     {prod}
                                   </a>
                                 ) : (
-                                  <span className="text-muted-foreground font-mono" style={{ fontSize: 10 }}>
+                                  <span
+                                    className="text-muted-foreground font-mono"
+                                    style={{ fontSize: 10 }}
+                                  >
                                     inherited
                                   </span>
                                 )}
@@ -599,9 +601,7 @@ function AppDetailPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Not linked to any projects yet.
-                  </p>
+                  <p className="text-sm text-muted-foreground">Not linked to any projects yet.</p>
                 )}
               </section>
             )}
@@ -691,9 +691,7 @@ function AppDetailPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => relayMutation.mutate()}
-                      disabled={
-                        !statusQuery.data?.relayEnabled || !delegatePayload || isAnyPending
-                      }
+                      disabled={!statusQuery.data?.relayEnabled || !delegatePayload || isAnyPending}
                     >
                       {relayMutation.isPending ? "Relaying..." : "Relay payload"}
                     </Button>
@@ -728,9 +726,9 @@ function AppDetailPage() {
                   )}
 
                   <p className="text-xs text-muted-foreground">
-                    Direct publish uses{" "}
-                    <code className="font-mono">waitUntil: NONE</code>. The wallet may report
-                    failure while FastKV still indexes the transaction successfully.
+                    Direct publish uses <code className="font-mono">waitUntil: NONE</code>. The
+                    wallet may report failure while FastKV still indexes the transaction
+                    successfully.
                   </p>
                 </div>
               )}
@@ -782,7 +780,9 @@ function StartCommand({ command }: { command: string }) {
       <code className="font-mono text-sm font-semibold text-background break-all leading-snug">
         {command}
       </code>
-      <span className={`shrink-0 transition-colors duration-150 ${copied ? "text-brand-accent" : "text-background/50 group-hover:text-background/80"}`}>
+      <span
+        className={`shrink-0 transition-colors duration-150 ${copied ? "text-brand-accent" : "text-background/50 group-hover:text-background/80"}`}
+      >
         <Copy size={14} />
       </span>
     </button>
@@ -864,7 +864,10 @@ function FormField({
 }) {
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={htmlFor} className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">
+      <Label
+        htmlFor={htmlFor}
+        className="text-xs uppercase tracking-wide text-muted-foreground font-semibold"
+      >
         {label}
       </Label>
       {children}

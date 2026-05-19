@@ -3,7 +3,7 @@ import { createPlugin } from "every-plugin";
 import { Effect } from "every-plugin/effect";
 import { MemoryPublisher } from "every-plugin/orpc";
 import { z } from "every-plugin/zod";
-import { contract, VoteEventSchema } from "./contract";
+import { contract, type VoteEventSchema } from "./contract";
 import { loadMigrations } from "./db/load-migrations";
 import { migrate } from "./db/migrator";
 import { upvotes } from "./db/schema";

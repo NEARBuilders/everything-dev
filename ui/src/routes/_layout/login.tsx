@@ -116,9 +116,7 @@ function LoginPage() {
     <div className="min-h-[70vh] w-full flex items-start justify-center px-6 pt-[30vh] animate-fade-in">
       <div className="w-full max-w-sm space-y-8">
         <div className="flex justify-center">
-          <UnderConstruction
-            sourceFile="ui/src/routes/_layout/login.tsx"
-          />
+          <UnderConstruction sourceFile="ui/src/routes/_layout/login.tsx" />
         </div>
 
         <div className="space-y-3 animate-fade-in-up">
