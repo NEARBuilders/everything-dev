@@ -1,14 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import {
-  type Organization,
-  type Passkey,
-  type SessionData,
-  sessionQueryOptions,
-  useAuthClient,
-} from "@/app";
-import { Badge, Button, Card, CardContent, UnderConstruction } from "@/components";
+import { type Passkey, type SessionData, sessionQueryOptions, useAuthClient } from "@/app";
 
 export const Route = createFileRoute("/_layout/_authenticated/home")({
   head: () => ({
@@ -23,14 +16,6 @@ export const Route = createFileRoute("/_layout/_authenticated/home")({
 function Home() {
   const auth = useAuthClient();
   const { data: session } = useQuery<SessionData | null>(sessionQueryOptions(auth, undefined));
-  const { data: organizations = [] } = useQuery({
-    queryKey: ["organizations"],
-    queryFn: async () => {
-      const { data } = await auth.organization.list();
-      return (data || []) as Organization[];
-    },
-    staleTime: 30 * 1000,
-  });
   const { data: passkeys = [] } = useQuery({
     queryKey: ["passkeys"],
     queryFn: async () => {
@@ -40,20 +25,10 @@ function Home() {
     staleTime: 60 * 1000,
   });
   const user = session?.user;
-
-  const activeOrgId = session?.session?.activeOrganizationId;
   const nearAccountId = auth.near.getAccountId();
 
-  const activeOrg = useMemo(
-    () =>
-      activeOrgId && organizations.length
-        ? (organizations.find((org) => org.id === activeOrgId) ?? null)
-        : null,
-    [organizations, activeOrgId],
-  );
-
   const profile = useMemo(() => {
-    if (!user) {
+    if (!user)
       return {
         isAnonymous: false,
         hasEmail: false,
@@ -61,8 +36,6 @@ function Home() {
         hasPasskeys: false,
         isAdmin: false,
       };
-    }
-
     return {
       isAnonymous: user.isAnonymous || false,
       hasEmail: Boolean(user.email),
@@ -72,129 +45,96 @@ function Home() {
     };
   }, [user, nearAccountId, passkeys.length]);
 
-  if (!user) {
-    return (
-      <Card>
-        <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Loading workspace...
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
-    <div className="space-y-8">
-      <section>
-        <Card>
-          <CardContent className="p-6 sm:p-8 space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">workspace</Badge>
-              {profile.isAnonymous && <Badge variant="outline">anonymous</Badge>}
-              {profile.isAdmin && <Badge variant="outline">admin</Badge>}
-            </div>
-            <div className="space-y-2">
-              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-                {user.name || user.email || user.id.slice(0, 8)}
-              </h1>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Manage identity and settings.
-              </p>
-              <UnderConstruction
-                label="home"
-                sourceFile="ui/src/routes/_layout/_authenticated/home.tsx"
-                className="w-full max-w-sm"
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button asChild>
-                <Link to="/settings">identity settings</Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border bg-card px-6 py-3">
+        <h1 className="text-foreground text-xl font-semibold">Workspace</h1>
+        <Link
+          to="/settings"
+          preload="intent"
+          className="h-9 rounded-[10px] bg-primary px-4 text-sm font-bold text-primary-foreground inline-flex items-center no-underline transition-colors duration-150 hover:bg-foreground"
+        >
+          Settings
+        </Link>
+      </div>
 
-      <section>
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">
-              identity status
-            </div>
-            <div className="grid gap-3">
-              <InfoRow
-                label="email"
-                value={profile.hasEmail ? (user.email ?? "linked") : "not linked"}
-              />
-              <InfoRow
-                label="near"
-                value={profile.hasNear ? (nearAccountId ?? "linked") : "not linked"}
-                mono
-              />
-              <InfoRow
-                label="passkeys"
-                value={profile.hasPasskeys ? `${passkeys.length} registered` : "not linked"}
-              />
-              <InfoRow
-                label="profile"
-                value={profile.isAnonymous ? "anonymous session" : "persistent account"}
-              />
-            </div>
-            {profile.isAnonymous && (
-              <div className="rounded-sm border border-border bg-muted/10 p-4 text-sm text-muted-foreground">
-                Link an email or NEAR wallet before signing out so your progress stays attached to a
-                durable identity.
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="mx-auto max-w-2xl space-y-6">
+          {!user ? (
+            <div className="text-muted-foreground text-center py-12 text-sm">Loading…</div>
+          ) : (
+            <>
+              <div className="rounded-xl border border-border bg-card p-6">
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  <Chip>workspace</Chip>
+                  {profile.isAnonymous && <Chip>anonymous</Chip>}
+                  {profile.isAdmin && <Chip accent>admin</Chip>}
+                </div>
+                <h2 className="text-foreground text-2xl font-semibold mb-1">
+                  {user.name || user.email || user.id.slice(0, 8)}
+                </h2>
+                <p className="text-muted-foreground text-sm leading-relaxed">
+                  Manage your identity and connected accounts.
+                </p>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </section>
 
-      {activeOrg && (
-        <section className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight">Active Organization</h2>
-            <p className="text-sm text-muted-foreground">
-              The current workspace target for organization-scoped actions.
-            </p>
-          </div>
-
-          <Card>
-            <CardContent className="p-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-4 min-w-0">
-                {activeOrg.logo ? (
-                  <img
-                    src={activeOrg.logo}
-                    alt=""
-                    className="w-12 h-12 border-2 border-outset border-[rgb(51,51,51)] dark:border-[rgb(100,100,100)] object-cover"
+              <div className="rounded-xl border border-border bg-card p-6">
+                <div className="text-muted-foreground text-[11px] font-bold uppercase tracking-wider mb-4">
+                  Identity Status
+                </div>
+                <div className="flex flex-col gap-2">
+                  <InfoRow
+                    label="email"
+                    value={profile.hasEmail ? (user.email ?? "linked") : "not linked"}
                   />
-                ) : (
-                  <div className="w-12 h-12 border-2 border-outset border-[rgb(51,51,51)] dark:border-[rgb(100,100,100)] flex items-center justify-center text-lg">
-                    {activeOrg.name.charAt(0).toUpperCase()}
+                  <InfoRow
+                    label="near"
+                    value={profile.hasNear ? (nearAccountId ?? "linked") : "not linked"}
+                    mono
+                  />
+                  <InfoRow
+                    label="passkeys"
+                    value={profile.hasPasskeys ? `${passkeys.length} registered` : "not linked"}
+                  />
+                  <InfoRow
+                    label="profile"
+                    value={profile.isAnonymous ? "anonymous session" : "persistent account"}
+                  />
+                </div>
+
+                {profile.isAnonymous && (
+                  <div className="mt-4 rounded-lg bg-brand-accent-light border border-brand-accent-border text-foreground text-[13px] leading-relaxed px-4 py-3">
+                    Link an email or NEAR wallet before signing out to keep your data.
                   </div>
                 )}
-                <div className="min-w-0 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="font-medium break-all">{activeOrg.name}</div>
-                    {(activeOrg.slug === user.id || activeOrg.metadata?.isPersonal === true) && (
-                      <Badge variant="outline">personal</Badge>
-                    )}
-                  </div>
-                  <div className="text-xs font-mono text-muted-foreground">@{activeOrg.slug}</div>
-                </div>
               </div>
-            </CardContent>
-          </Card>
-        </section>
-      )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded-sm border border-border bg-muted/10 p-3 grid gap-1 sm:grid-cols-[100px_1fr] sm:gap-4">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={mono ? "text-xs font-mono break-all" : "text-sm break-all"}>{value}</div>
+    <div className="grid grid-cols-[100px_1fr] gap-4 rounded-lg border border-border bg-muted px-3.5 py-2.5 items-center">
+      <span className="text-muted-foreground text-[11px] font-bold uppercase tracking-wider">
+        {label}
+      </span>
+      <span className={`text-foreground text-[13px] break-all ${mono ? "font-mono text-xs" : ""}`}>
+        {value}
+      </span>
     </div>
+  );
+}
+
+function Chip({ children, accent }: { children: React.ReactNode; accent?: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-[11px] font-semibold border ${accent ? "bg-brand-accent-light border-brand-accent-border" : "bg-secondary border-border"} text-foreground`}
+    >
+      {children}
+    </span>
   );
 }

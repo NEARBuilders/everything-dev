@@ -64,10 +64,15 @@ export default createPlugin({
       });
     });
 
+    const getAlternateOwnerId = (context: { userId?: string; walletAddress?: string }) =>
+      context.walletAddress && context.walletAddress !== context.userId ? context.userId : undefined;
+
     return {
       listProjects: builder.listProjects.handler(async ({ input, context }) => {
         const ownerId = context.walletAddress ?? context.userId;
-        const exit = await Effect.runPromiseExit(services.project.listProjects(input, ownerId));
+        const exit = await Effect.runPromiseExit(
+          services.project.listProjects(input, ownerId, getAlternateOwnerId(context)),
+        );
 
         if (Exit.isFailure(exit)) {
           const squashed = Cause.squash(exit.cause);
@@ -82,7 +87,9 @@ export default createPlugin({
 
       getProject: builder.getProject.handler(async ({ input, errors, context }) => {
         const ownerId = context.walletAddress ?? context.userId;
-        const exit = await Effect.runPromiseExit(services.project.getProject(input.id, ownerId));
+        const exit = await Effect.runPromiseExit(
+          services.project.getProject(input.id, ownerId, getAlternateOwnerId(context)),
+        );
 
         if (Exit.isFailure(exit)) {
           const squashed = Cause.squash(exit.cause);
@@ -104,7 +111,9 @@ export default createPlugin({
 
       createProject: builder.createProject.use(requireAuth).handler(async ({ input, context }) => {
         const ownerId = context.walletAddress ?? context.userId;
-        const exit = await Effect.runPromiseExit(services.project.createProject(input, ownerId));
+        const exit = await Effect.runPromiseExit(
+          services.project.createProject(input, ownerId, context.user.role),
+        );
 
         if (Exit.isFailure(exit)) {
           const squashed = Cause.squash(exit.cause);
@@ -125,6 +134,8 @@ export default createPlugin({
               input.id,
               input,
               context.walletAddress ?? context.userId,
+              context.user.role,
+              getAlternateOwnerId(context),
             ),
           );
 
@@ -151,7 +162,12 @@ export default createPlugin({
         .use(requireAuth)
         .handler(async ({ input, context, errors }) => {
           const exit = await Effect.runPromiseExit(
-            services.project.deleteProject(input.id, context.walletAddress ?? context.userId),
+            services.project.deleteProject(
+              input.id,
+              context.walletAddress ?? context.userId,
+              context.user.role,
+              getAlternateOwnerId(context),
+            ),
           );
 
           if (Exit.isFailure(exit)) {
@@ -196,6 +212,8 @@ export default createPlugin({
               input.accountId,
               input.domain,
               context.walletAddress ?? context.userId,
+              context.user.role,
+              getAlternateOwnerId(context),
             ),
           );
 
@@ -227,6 +245,8 @@ export default createPlugin({
               input.accountId,
               input.domain,
               context.walletAddress ?? context.userId,
+              context.user.role,
+              getAlternateOwnerId(context),
             ),
           );
 
@@ -249,9 +269,14 @@ export default createPlugin({
           return exit.value;
         }),
 
-      listProjectsForApp: builder.listProjectsForApp.handler(async ({ input }) => {
+      listProjectsForApp: builder.listProjectsForApp.handler(async ({ input, context }) => {
         const exit = await Effect.runPromiseExit(
-          services.project.listProjectsForApp(input.accountId, input.domain),
+          services.project.listProjectsForApp(
+            input.accountId,
+            input.domain,
+            context.walletAddress ?? context.userId,
+            getAlternateOwnerId(context),
+          ),
         );
 
         if (Exit.isFailure(exit)) {

@@ -52,7 +52,9 @@ function collectIconImports(items: SidebarItem[]): Map<string, Set<string>> {
 }
 
 export function generatePluginSidebarContent(runtimeConfig: RuntimeConfig): string {
-  const coreItems: SidebarItem[] = [{ icon: "Home", label: "home", to: "/", roleRequired: "anon" }];
+  const coreItems: SidebarItem[] = [
+    { icon: "Home", label: "home", to: "/home", roleRequired: "anon" },
+  ];
 
   if (runtimeConfig.auth?.sidebar) {
     for (const item of runtimeConfig.auth.sidebar) {

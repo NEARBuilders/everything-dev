@@ -1,324 +1,248 @@
-import { useForm } from "@tanstack/react-form";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Eye, FileText, Globe, Link as LinkIcon, Lock, Type } from "lucide-react";
+import { useForm, useStore } from "@tanstack/react-form";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft } from "lucide-react";
+import { customAlphabet } from "nanoid";
+import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { z } from "zod";
-import { useApiClient } from "@/app";
-import { Badge, Button, Card, CardContent, Input } from "@/components";
+import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
+import { ProjectFormLayout, type ProjectFormValues } from "@/components/project-form";
 
-const schema = z.object({
-  title: z.string().min(1, "Title is required").max(200, "Max 200 characters"),
-  slug: z
-    .string()
-    .min(1, "Slug is required")
-    .max(100, "Max 100 characters")
-    .regex(/^[a-z0-9-]+$/, "Only lowercase letters, numbers, and hyphens"),
-  description: z.string().max(1000, "Max 1000 characters").optional(),
-  repository: z.union([z.literal(""), z.string().url("Must be a valid URL").max(500)]).optional(),
-  visibility: z.enum(["private", "unlisted", "public"]),
-});
+const STORAGE_KEY_PROJECT = "projects:new:project";
+const STORAGE_KEY_IDEA = "projects:new:idea";
 
-function errorMessage(error: unknown): string | undefined {
-  if (!error) return undefined;
-  if (typeof error === "string") return error;
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
+const loadDraft = (kind: "project" | "idea"): ProjectFormValues | null => {
+  try {
+    const raw = localStorage.getItem(kind === "project" ? STORAGE_KEY_PROJECT : STORAGE_KEY_IDEA);
+    if (!raw) return null;
+    return JSON.parse(raw) as ProjectFormValues;
+  } catch {
+    return null;
   }
-  return String(error);
-}
+};
+
+const saveDraft = (values: ProjectFormValues) => {
+  try {
+    const key = values.kind === "project" ? STORAGE_KEY_PROJECT : STORAGE_KEY_IDEA;
+    localStorage.setItem(key, JSON.stringify(values));
+  } catch {}
+};
+
+const clearDraft = (kind: "project" | "idea") => {
+  try {
+    localStorage.removeItem(kind === "project" ? STORAGE_KEY_PROJECT : STORAGE_KEY_IDEA);
+  } catch {}
+};
+
+type SearchParams = {
+  tab: "write" | "preview";
+};
 
 export const Route = createFileRoute("/_layout/_authenticated/projects/new")({
+  validateSearch: (search: Record<string, unknown>): SearchParams => ({
+    tab: search.tab === "preview" ? "preview" : "write",
+  }),
   head: () => ({
     meta: [
-      { title: "New Project | app" },
-      { name: "description", content: "Create a new project." },
+      { title: "New | Projects" },
+      { name: "description", content: "Create a new project or idea." },
     ],
   }),
   component: NewProjectPage,
 });
 
+const slugId = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 6);
+const slugSuffixRef: { current: string } = { current: "" };
+
+const generateSlug = (v: string) => {
+  const base = v
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!base) return "";
+  if (!slugSuffixRef.current) slugSuffixRef.current = slugId();
+  return `${base}-${slugSuffixRef.current}`;
+};
+
 function NewProjectPage() {
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: Route.fullPath });
   const apiClient = useApiClient();
+  const auth = useAuthClient();
   const queryClient = useQueryClient();
+  const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
+  const isAdmin = session?.user?.role === "admin";
+  const canCreate = Boolean(session?.user && !session.user.isAnonymous);
+  const { tab } = Route.useSearch();
+  const defaultOwnerId =
+    (session?.user as { walletAddress?: string | null } | null)?.walletAddress ??
+    session?.user?.id ??
+    "";
+
+  const setTab = (value: string) => {
+    void navigate({
+      search: (prev) => ({ ...prev, tab: value as "write" | "preview" }),
+      replace: true,
+    });
+  };
+
+  const initialDraft = {
+    ...(loadDraft("project") ?? {
+      kind: "project" as const,
+      title: "",
+      description: "",
+      repository: "",
+      content: "",
+      visibility: "public" as const,
+      ownerId: "",
+      domain: "",
+    }),
+  } satisfies ProjectFormValues;
+
+  const form = useForm({
+    defaultValues: initialDraft as ProjectFormValues,
+    canSubmitWhenInvalid: true,
+    onSubmit: async ({ value }) => {
+      if (!canCreate) {
+        toast.error("Link an identity in settings before publishing.");
+        return;
+      }
+      await createMutation.mutateAsync(value);
+    },
+    onSubmitInvalid: () => {
+      toast.error("Please fix the highlighted fields before creating your project.");
+    },
+  });
 
   const createMutation = useMutation({
-    mutationFn: (values: z.infer<typeof schema>) =>
+    mutationFn: (values: ProjectFormValues) =>
       apiClient.projects.createProject({
-        kind: "project",
+        kind: values.kind,
         title: values.title.trim(),
-        slug: values.slug.trim(),
+        slug: generateSlug(values.title),
         description: values.description?.trim() || undefined,
         repository: values.repository?.trim() || undefined,
+        content: values.content?.trim() || undefined,
         visibility: values.visibility,
+        ownerId: values.ownerId?.trim() || undefined,
+        domain: values.domain?.trim() || undefined,
       }),
     onSuccess: (result) => {
-      toast.success("Project created");
+      clearDraft(result.kind === "idea" ? "idea" : "project");
+      toast.success(`${result.kind === "idea" ? "Idea" : "Project"} created`);
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate({ to: "/projects/$id", params: { id: result.id } });
     },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to create project");
-    },
+    onError: (err: Error) => toast.error(err.message || "Failed to create"),
   });
 
-  const form = useForm({
-    defaultValues: {
-      title: "",
-      slug: "",
-      description: "",
-      repository: "",
-      visibility: "private" as "private" | "unlisted" | "public",
-    } as z.infer<typeof schema>,
-    validators: {
-      onSubmit: schema,
-    },
-    onSubmit: async ({ value }) => {
-      createMutation.mutate(value);
-    },
-  });
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const generateSlug = (value: string) =>
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
+  const submitForm = useCallback(() => {
+    void form.handleSubmit();
+  }, [form]);
+
+  const persist = useCallback(() => {
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      saveDraft(form.store.state.values);
+    }, 300);
+  }, [form]);
+
+  useEffect(() => {
+    const subscription = form.store.subscribe(() => {
+      persist();
+    });
+    return () => {
+      subscription.unsubscribe();
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    };
+  }, [form, persist]);
+
+  const title = useStore(form.store, (s) => s.values.title);
+  const slugPreview = generateSlug(title) || undefined;
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-muted-foreground">
-          <a href="/home" className="hover:text-foreground transition-colors">
-            home
-          </a>
-          <span>/</span>
-          <span>projects</span>
-          <span>/</span>
-          <span>new</span>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-4 py-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link
+            to="/projects"
+            search={{ preview: undefined, kind: undefined }}
+            className="text-muted-foreground hover:text-foreground"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: "none",
+              transition: "color 0.12s",
+            }}
+          >
+            <ArrowLeft size={13} />
+            Projects
+          </Link>
+          <span className="text-border">/</span>
+          <span className="text-foreground" style={{ fontSize: 13, fontWeight: 600 }}>
+            New
+          </span>
         </div>
 
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <div className="space-y-2">
-              <Badge variant="outline">new project</Badge>
-              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Create Project</h1>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Projects organize your NEAR apps. Add a repository and README will render
-                automatically.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+        <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
+          {!canCreate && (
+            <span className="text-muted-foreground" style={{ fontSize: 12 }}>
+              Link an identity in settings to publish
+            </span>
+          )}
+          <form.Subscribe selector={(s) => ({ isSubmitting: s.isSubmitting, kind: s.values.kind })}>
+            {({ isSubmitting, kind }) => (
+              <button
+                type="button"
+                onClick={submitForm}
+                disabled={!canCreate || isSubmitting || createMutation.isPending}
+                className={`${canCreate && !isSubmitting && !createMutation.isPending ? "bg-primary text-primary-foreground hover:bg-foreground" : "bg-disabled text-primary-foreground"}`}
+                style={{
+                  height: 36,
+                  padding: "0 20px",
+                  borderRadius: 10,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  border: "none",
+                  cursor:
+                    !canCreate || isSubmitting || createMutation.isPending
+                      ? "not-allowed"
+                      : "pointer",
+                  transition: "background 0.12s",
+                }}
+              >
+                {createMutation.isPending
+                  ? "Creating…"
+                  : kind === "idea"
+                    ? "Create Idea"
+                    : "Create Project"}
+              </button>
+            )}
+          </form.Subscribe>
+        </div>
+      </div>
 
       <form
         onSubmit={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          void form.handleSubmit();
+          submitForm();
         }}
-        className="space-y-6"
+        className="flex flex-1 overflow-y-auto lg:min-h-0 lg:overflow-hidden"
       >
-        <Card>
-          <CardContent className="p-6 space-y-6">
-            {/* Title */}
-            <form.Field name="title">
-              {(field) => {
-                const error = errorMessage(field.state.meta.errors[0]);
-                return (
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="title"
-                      className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"
-                    >
-                      <Type className="h-3.5 w-3.5" />
-                      Title
-                    </label>
-                    <Input
-                      id="title"
-                      value={field.state.value}
-                      onChange={(e) => {
-                        field.handleChange(e.target.value);
-                        const slugField = form.getFieldValue("slug");
-                        if (
-                          !slugField ||
-                          slugField === generateSlug(field.state.value.slice(0, -1))
-                        ) {
-                          form.setFieldValue("slug", generateSlug(e.target.value));
-                        }
-                      }}
-                      placeholder="My Project"
-                      className={error ? "border-destructive" : ""}
-                    />
-                    {error && <p className="text-xs text-destructive">{error}</p>}
-                  </div>
-                );
-              }}
-            </form.Field>
-
-            {/* Slug */}
-            <form.Field name="slug">
-              {(field) => {
-                const error = errorMessage(field.state.meta.errors[0]);
-                return (
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="slug"
-                      className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"
-                    >
-                      <LinkIcon className="h-3.5 w-3.5" />
-                      Slug
-                    </label>
-                    <Input
-                      id="slug"
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(generateSlug(e.target.value))}
-                      placeholder="my-project"
-                      className={`font-mono ${error ? "border-destructive" : ""}`}
-                    />
-                    {error && <p className="text-xs text-destructive">{error}</p>}
-                    <p className="text-xs text-muted-foreground">
-                      Used in URLs. Lowercase letters, numbers, and hyphens only.
-                    </p>
-                  </div>
-                );
-              }}
-            </form.Field>
-
-            {/* Description */}
-            <form.Field name="description">
-              {(field) => {
-                const error = errorMessage(field.state.meta.errors[0]);
-                return (
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="description"
-                      className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"
-                    >
-                      <FileText className="h-3.5 w-3.5" />
-                      Description (optional)
-                    </label>
-                    <textarea
-                      id="description"
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      rows={3}
-                      className="flex min-h-[80px] w-full rounded-md border-2 border-inset border-[rgb(51,51,51)] bg-[rgb(255,255,255)] px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus:ring-2 focus:ring-ring dark:bg-[rgb(40,40,40)] dark:border-[rgb(100,100,100)]"
-                      placeholder="Describe your project..."
-                    />
-                    {error && <p className="text-xs text-destructive">{error}</p>}
-                  </div>
-                );
-              }}
-            </form.Field>
-
-            {/* Repository */}
-            <form.Field name="repository">
-              {(field) => {
-                const error = errorMessage(field.state.meta.errors[0]);
-                return (
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="repository"
-                      className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"
-                    >
-                      <LinkIcon className="h-3.5 w-3.5" />
-                      Repository URL (optional)
-                    </label>
-                    <Input
-                      id="repository"
-                      type="url"
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      placeholder="https://github.com/user/repo"
-                      className={`font-mono text-sm ${error ? "border-destructive" : ""}`}
-                    />
-                    {error && <p className="text-xs text-destructive">{error}</p>}
-                    <p className="text-xs text-muted-foreground">
-                      README will be fetched from the default branch.
-                    </p>
-                  </div>
-                );
-              }}
-            </form.Field>
-
-            {/* Visibility */}
-            <form.Field name="visibility">
-              {(field) => (
-                <div className="space-y-2">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Visibility
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {(
-                      [
-                        {
-                          value: "private" as const,
-                          label: "Private",
-                          desc: "Only you can view",
-                          icon: Lock,
-                        },
-                        {
-                          value: "unlisted" as const,
-                          label: "Unlisted",
-                          desc: "Anyone with link can view",
-                          icon: Eye,
-                        },
-                        {
-                          value: "public" as const,
-                          label: "Public",
-                          desc: "Anyone can view",
-                          icon: Globe,
-                        },
-                      ] as const
-                    ).map((option) => {
-                      const Icon = option.icon;
-                      const active = field.state.value === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => field.handleChange(option.value)}
-                          className={`rounded-sm border p-4 text-left transition-colors ${
-                            active
-                              ? "border-foreground bg-muted/20"
-                              : "border-border hover:border-muted-foreground"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Icon className="h-4 w-4" />
-                            <div className="font-medium">{option.label}</div>
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-1">{option.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </form.Field>
-
-            <div className="flex gap-3">
-              <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? "creating..." : "create project"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => navigate({ to: "/projects" })}
-                disabled={createMutation.isPending}
-              >
-                cancel
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <ProjectFormLayout
+          form={form}
+          mode="create"
+          isAdmin={isAdmin}
+          defaultOwnerId={defaultOwnerId}
+          tab={tab}
+          setTab={setTab}
+          slugPreview={slugPreview}
+        />
       </form>
     </div>
   );

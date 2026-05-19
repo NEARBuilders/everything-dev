@@ -1,3 +1,9 @@
+import type { Components } from "react-markdown";
+import ReactMarkdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import rehypeSlug from "rehype-slug";
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 
 interface MarkdownProps {
@@ -5,184 +11,177 @@ interface MarkdownProps {
   className?: string;
 }
 
-export function Markdown({ content, className }: MarkdownProps) {
-  const html = parseMarkdown(content);
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "p",
+    "a",
+    "strong",
+    "em",
+    "del",
+    "br",
+    "hr",
+    "ul",
+    "ol",
+    "li",
+    "blockquote",
+    "pre",
+    "code",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "img",
+    "input",
+    "span",
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    a: ["href"],
+    img: ["src", "alt"],
+    code: ["className"],
+    input: ["type", "checked", "disabled"],
+    span: ["className", "id"],
+    pre: ["className"],
+    td: ["align"],
+    th: ["align"],
+    "*": ["id"],
+  },
+};
 
+export function Markdown({ content, className }: MarkdownProps) {
   return (
     <article
       className={cn(
-        "prose prose-neutral dark:prose-invert max-w-none",
-        "prose-headings:font-semibold prose-headings:tracking-tight",
-        "prose-h1:text-3xl prose-h1:mb-6",
-        "prose-h2:text-2xl prose-h2:mt-8 prose-h2:mb-4 prose-h2:border-b prose-h2:border-border prose-h2:pb-2",
-        "prose-h3:text-xl prose-h3:mt-6 prose-h3:mb-3",
-        "prose-p:text-muted-foreground prose-p:leading-relaxed",
-        "prose-a:text-primary prose-a:no-underline hover:prose-a:underline",
-        "prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-code:before:content-none prose-code:after:content-none",
-        "prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-pre:rounded-lg",
-        "prose-blockquote:border-l-primary prose-blockquote:bg-muted/30 prose-blockquote:py-1 prose-blockquote:not-italic",
-        "prose-li:text-muted-foreground",
-        "prose-table:border prose-table:border-border",
-        "prose-th:bg-muted prose-th:border prose-th:border-border prose-th:px-4 prose-th:py-2",
-        "prose-td:border prose-td:border-border prose-td:px-4 prose-td:py-2",
-        "prose-hr:border-border",
+        "max-w-none",
+        /* headings */
+        "[&_h1]:mt-10 [&_h1]:mb-4 [&_h1]:text-[1.875rem] [&_h1]:font-semibold [&_h1]:tracking-tight [&_h1]:text-foreground first:[&>h1]:mt-0",
+        "[&_h2]:mt-8 [&_h2]:mb-3 [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:text-foreground [&_h2]:pb-2 [&_h2]:border-b [&_h2]:border-border",
+        "[&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_h3]:text-foreground",
+        "[&_h4]:mt-5 [&_h4]:mb-2 [&_h4]:text-base [&_h4]:font-semibold [&_h4]:text-foreground",
+        "[&_h5]:mt-4 [&_h5]:mb-1 [&_h5]:text-sm [&_h5]:font-semibold [&_h5]:text-foreground",
+        "[&_h6]:mt-4 [&_h6]:mb-1 [&_h6]:text-sm [&_h6]:font-semibold [&_h6]:text-muted-foreground",
+        /* body */
+        "[&_p]:mb-4 [&_p]:text-base [&_p]:leading-7 [&_p]:text-foreground",
+        /* links */
+        "[&_a]:text-brand-accent [&_a]:font-medium [&_a]:underline-offset-4 hover:[&_a]:underline",
+        /* lists */
+        "[&_ul]:mb-4 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:text-foreground",
+        "[&_ol]:mb-4 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:text-foreground",
+        "[&_li]:mb-1.5 [&_li]:leading-7",
+        "[&_li>ul]:mt-1.5 [&_li>ol]:mt-1.5 [&_li>ul]:mb-0 [&_li>ol]:mb-0",
+        /* task lists */
+        "[&_input[type=checkbox]]:mr-2 [&_input[type=checkbox]]:accent-brand-accent",
+        /* blockquote */
+        "[&_blockquote]:mb-4 [&_blockquote]:border-l-4 [&_blockquote]:border-brand-accent [&_blockquote]:pl-4 [&_blockquote]:py-1 [&_blockquote]:bg-muted [&_blockquote]:rounded-r-md [&_blockquote]:text-muted-foreground [&_blockquote]:not-italic",
+        /* hr */
+        "[&_hr]:my-8 [&_hr]:border-border",
+        /* images */
+        "[&_img]:max-w-full [&_img]:rounded-xl [&_img]:my-4",
+        /* strong / em */
+        "[&_strong]:font-semibold [&_strong]:text-foreground",
+        "[&_em]:italic",
+        /* strikethrough */
+        "[&_del]:line-through [&_del]:text-muted-foreground",
+        /* footnotes */
+        "[&_.footnotes]:mt-8 [&_.footnotes]:pt-4 [&_.footnotes]:border-t [&_.footnotes]:border-border [&_.footnotes]:text-sm [&_.footnotes]:text-muted-foreground",
         className,
       )}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSanitize(sanitizeSchema) as any, rehypeHighlight, rehypeSlug]}
+        components={markdownComponents}
+      >
+        {content}
+      </ReactMarkdown>
+    </article>
   );
 }
 
-function parseMarkdown(md: string): string {
-  let html = md;
+const markdownComponents: Components = {
+  code: ({ className, children, ...props }) => {
+    const isBlock = className?.startsWith("language-");
 
-  html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>");
-  html = html.replace(/^## (.*$)/gim, "<h2>$1</h2>");
-  html = html.replace(/^# (.*$)/gim, "<h1>$1</h1>");
-
-  html = html.replace(/\*\*\*(.*?)\*\*\*/gim, "<strong><em>$1</em></strong>");
-  html = html.replace(/\*\*(.*?)\*\*/gim, "<strong>$1</strong>");
-  html = html.replace(/\*(.*?)\*/gim, "<em>$1</em>");
-
-  html = html.replace(/`{3}(\w*)\n([\s\S]*?)\n`{3}/gim, (_, lang, code) => {
-    const escapedCode = escapeHtml(code);
-    return `<pre><code class="language-${lang || "text"}">${escapedCode}</code></pre>`;
-  });
-  html = html.replace(/`([^`]+)`/gim, (_, code) => {
-    return `<code>${escapeHtml(code)}</code>`;
-  });
-
-  html = html.replace(/^\|(.+)\|$/gim, (match) => {
-    return match;
-  });
-
-  const lines = html.split("\n");
-  const processedLines: string[] = [];
-  let inTable = false;
-  let tableRows: string[] = [];
-  let inList = false;
-  let listItems: string[] = [];
-  let listType: "ul" | "ol" = "ul";
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (line.match(/^\|(.+)\|$/)) {
-      if (!inTable) {
-        inTable = true;
-        tableRows = [];
-      }
-
-      if (line.match(/^\|[\s\-:|]+\|$/)) {
-        continue;
-      }
-      tableRows.push(line);
-    } else {
-      if (inTable) {
-        processedLines.push(buildTable(tableRows));
-        inTable = false;
-        tableRows = [];
-      }
-
-      const ulMatch = line.match(/^[\s]*[-*]\s+(.+)$/);
-      const olMatch = line.match(/^[\s]*\d+\.\s+(.+)$/);
-
-      if (ulMatch) {
-        if (!inList || listType !== "ul") {
-          if (inList) {
-            processedLines.push(buildList(listItems, listType));
-          }
-          inList = true;
-          listType = "ul";
-          listItems = [];
-        }
-        listItems.push(ulMatch[1]);
-      } else if (olMatch) {
-        if (!inList || listType !== "ol") {
-          if (inList) {
-            processedLines.push(buildList(listItems, listType));
-          }
-          inList = true;
-          listType = "ol";
-          listItems = [];
-        }
-        listItems.push(olMatch[1]);
-      } else {
-        if (inList) {
-          processedLines.push(buildList(listItems, listType));
-          inList = false;
-          listItems = [];
-        }
-
-        if (line.match(/^>\s*(.*)/)) {
-          const quoteContent = line.replace(/^>\s*/, "");
-          processedLines.push(`<blockquote><p>${quoteContent}</p></blockquote>`);
-        } else if (line.match(/^---+$/)) {
-          processedLines.push("<hr />");
-        } else if (line.trim() === "") {
-          processedLines.push("");
-        } else if (!line.match(/^<h[1-6]>/)) {
-          processedLines.push(`<p>${line}</p>`);
-        } else {
-          processedLines.push(line);
-        }
-      }
+    if (!isBlock) {
+      return (
+        <code
+          className="bg-secondary border border-border rounded px-1.5 py-0.5 text-foreground font-mono text-[0.85em]"
+          {...props}
+        >
+          {children}
+        </code>
+      );
     }
-  }
 
-  if (inTable) {
-    processedLines.push(buildTable(tableRows));
-  }
-  if (inList) {
-    processedLines.push(buildList(listItems, listType));
-  }
+    return (
+      <code
+        className={cn(className, "block min-w-full")}
+        style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 13 }}
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  },
 
-  html = processedLines.join("\n");
+  pre: ({ children }) => (
+    <pre className="bg-muted border border-border rounded-[10px] p-5 overflow-x-auto mb-5 leading-relaxed">
+      {children}
+    </pre>
+  ),
 
-  html = html.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/gim,
-    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
-  );
+  a: ({ href, children }) => (
+    <a href={href ?? "#"} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  ),
 
-  return html;
-}
+  img: ({ src, alt }) => (
+    <img
+      src={src}
+      alt={alt ?? ""}
+      style={{ maxWidth: "100%", borderRadius: 10, margin: "16px 0", display: "block" }}
+    />
+  ),
 
-function buildTable(rows: string[]): string {
-  if (rows.length === 0) return "";
+  table: ({ children }) => (
+    <div style={{ overflowX: "auto", marginBottom: 20 }}>
+      <table className="min-w-full border-collapse text-sm text-left">{children}</table>
+    </div>
+  ),
 
-  const headerRow = rows[0];
-  const dataRows = rows.slice(1);
+  thead: ({ children }) => <thead className="bg-muted border-b-2 border-border">{children}</thead>,
 
-  const headerCells = headerRow
-    .split("|")
-    .filter((c) => c.trim())
-    .map((c) => `<th>${c.trim()}</th>`)
-    .join("");
+  th: ({ children }) => (
+    <th className="px-4 py-2.5 font-bold text-[13px] text-foreground border-b border-border whitespace-nowrap">
+      {children}
+    </th>
+  ),
 
-  const bodyRows = dataRows
-    .map((row) => {
-      const cells = row
-        .split("|")
-        .filter((c) => c.trim())
-        .map((c) => `<td>${c.trim()}</td>`)
-        .join("");
-      return `<tr>${cells}</tr>`;
-    })
-    .join("");
+  td: ({ children }) => (
+    <td className="px-4 py-2.5 border-b border-border text-foreground text-sm align-top">
+      {children}
+    </td>
+  ),
 
-  return `<div class="overflow-x-auto"><table><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>`;
-}
+  tr: ({ children }) => (
+    <tr className="transition-colors duration-100 hover:bg-muted">{children}</tr>
+  ),
 
-function buildList(items: string[], type: "ul" | "ol"): string {
-  const listItems = items.map((item) => `<li>${item}</li>`).join("");
-  return `<${type}>${listItems}</${type}>`;
-}
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-4 border-brand-accent pl-4 pt-1 pb-1 mb-4 bg-muted rounded-r-lg text-muted-foreground">
+      {children}
+    </blockquote>
+  ),
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
+  hr: () => <hr className="border-none border-t border-border my-8" />,
+};

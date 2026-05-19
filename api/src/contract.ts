@@ -54,6 +54,17 @@ export const contract = oc.router({
       }),
     ),
 
+  getUserVote: oc
+    .route({ method: "GET", path: "/upvotes/{thingId}/me" })
+    .input(z.object({ thingId: z.string() }))
+    .output(
+      z.object({
+        thingId: z.string(),
+        hasUpvote: z.boolean(),
+      }),
+    )
+    .errors({ UNAUTHORIZED }),
+
   getUpvoteFeed: oc
     .route({ method: "GET", path: "/upvotes/feed" })
     .input(

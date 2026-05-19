@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { type Organization, type SessionData, sessionQueryOptions } from "@/app";
+import { type SessionData, sessionQueryOptions } from "@/app";
 
 interface AuthContext {
   isAuthenticated: boolean;
@@ -44,16 +44,6 @@ export const Route = createFileRoute("/_layout/_authenticated")({
       isAdmin: session.user.role === "admin",
       isBanned: session.user.banned || false,
     };
-
-    await queryClient.ensureQueryData({
-      queryKey: ["organizations"],
-      queryFn: async () => {
-        const { data } = await authClient.organization.list();
-        return (data || []) as Organization[];
-      },
-      staleTime: 30 * 1000,
-    });
-
     return {
       auth,
       session,
@@ -64,7 +54,7 @@ export const Route = createFileRoute("/_layout/_authenticated")({
 
 function AuthenticatedLayout() {
   return (
-    <div className="min-h-screen">
+    <div className="h-full flex flex-col">
       <Outlet />
     </div>
   );

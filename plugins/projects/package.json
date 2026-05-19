@@ -1,6 +1,6 @@
 {
   "name": "@everything-dev/projects-plugin",
-  "version": "1.3.4",
+  "version": "1.3.2",
   "description": "Projects, KV store, and organization management plugin",
   "type": "module",
   "exports": {
@@ -17,8 +17,8 @@
     "typescript": "catalog:"
   },
   "dependencies": {
-    "@orpc/contract": "^1.13.4",
-    "@orpc/server": "^1.13.4",
+    "@orpc/contract": "catalog:",
+    "@orpc/server": "catalog:",
     "drizzle-orm": "catalog:",
     "pg": "catalog:",
     "@electric-sql/pglite": "catalog:"
@@ -35,7 +35,6 @@
     "drizzle-kit": "catalog:",
     "everything-dev": "catalog:",
     "every-plugin": "catalog:",
-    "host": "workspace:*",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "catalog:",
     "zephyr-rspack-plugin": "catalog:"

@@ -1,38 +1,62 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ExternalLink, Link as LinkIcon, Pencil, Trash2 } from "lucide-react";
-import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
-import remarkGfm from "remark-gfm";
+import {
+  ArrowLeft,
+  Check,
+  ExternalLink,
+  FileCode2,
+  FileText,
+  Globe,
+  Info,
+  Pencil,
+  Share2,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
+import { type ReactNode, useCallback, useState } from "react";
 import { toast } from "sonner";
-import { type SessionData, useApiClient, useAuthClient } from "@/app";
-import { Badge, Button, Card, CardContent, Input } from "@/components";
-
-function rawReadmeUrl(repoUrl: string): string | null {
-  try {
-    const url = new URL(repoUrl);
-    const parts = url.pathname.split("/").filter(Boolean);
-    if (parts.length < 2) return null;
-    const [owner, repo] = parts;
-    return `https://raw.githubusercontent.com/${owner}/${repo}/main/README.md`;
-  } catch {
-    return null;
-  }
-}
+import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Markdown } from "@/components/ui/markdown";
+import { fetchRepositoryReadme } from "@/lib/repository-content";
 
 export const Route = createFileRoute("/_layout/_authenticated/projects/$id")({
-  head: ({ params }) => ({
-    meta: [
-      { title: `${params.id} | Project | app` },
-      { name: "description", content: "Project details and README." },
-    ],
+  head: () => ({
+    meta: [{ title: `Project | app` }, { name: "description", content: "Project details." }],
   }),
-  loader: async ({ params }) => {
-    return { projectId: params.id };
-  },
+  loader: async ({ params }) => ({ projectId: params.id }),
   component: ProjectDetailPage,
 });
+
+function isGithubUrl(url: string) {
+  return /github\.com/i.test(url);
+}
+
+function GithubIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 0C5.37 0 0 5.373 0 12c0 5.303 3.438 9.8 8.205 11.387.6.113.82-.258.82-.577v-2.165c-3.338.726-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.729.083-.729 1.205.085 1.84 1.237 1.84 1.237 1.07 1.834 2.807 1.304 3.492.997.108-.775.418-1.305.76-1.605-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.52 11.52 0 0 1 12 6.803c1.02.005 2.047.138 3.006.404 2.29-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.91 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.218.694.825.576C20.565 21.796 24 17.3 24 12c0-6.627-5.373-12-12-12z" />
+    </svg>
+  );
+}
+
+function isCurrentUserOwner(
+  ownerId: string | null | undefined,
+  user:
+    | { id?: string | null; walletAddress?: string | null; role?: string | null }
+    | null
+    | undefined,
+) {
+  if (!ownerId) return false;
+  return [user?.id, user?.walletAddress].some((candidate) => candidate === ownerId);
+}
 
 function ProjectDetailPage() {
   const { id: projectId } = Route.useParams();
@@ -41,373 +65,550 @@ function ProjectDetailPage() {
   const apiClient = useApiClient();
   const auth = useAuthClient();
 
-  const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editRepository, setEditRepository] = useState("");
-  const [editVisibility, setEditVisibility] = useState<"private" | "unlisted" | "public">(
-    "private",
-  );
-  const [editStatus, setEditStatus] = useState<"active" | "paused" | "archived">("active");
+  const [copied, setCopied] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
-  const { data: session } = useQuery<SessionData | null>({
-    queryKey: ["session"],
-    queryFn: async () => {
-      const { data } = await auth.getSession();
-      return data ?? null;
-    },
-    staleTime: 60 * 1000,
-  });
+  const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => apiClient.projects.getProject({ id: projectId }),
   });
 
+  const project = projectQuery.data?.data;
+  const canParticipate = Boolean(session?.user && !session.user.isAnonymous);
+
   const readmeQuery = useQuery({
-    queryKey: ["readme", projectQuery.data?.data?.repository],
+    queryKey: ["readme", project?.id, project?.repository],
     queryFn: async () => {
-      const repo = projectQuery.data?.data?.repository;
-      if (!repo) return null;
-      const url = rawReadmeUrl(repo);
-      if (!url) return null;
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      let text = await res.text();
-      text = text
-        .replace(/<!-- markdownlint-disable[^>]*-->/g, "")
-        .replace(/<div align="center">[\s\S]*?<\/div>/g, "")
-        .trim();
-      return text;
+      if (!project?.repository) return null;
+      return await fetchRepositoryReadme(project.repository);
     },
-    enabled: !!projectQuery.data?.data?.repository,
+    enabled: project?.kind === "project" && Boolean(project?.repository),
   });
 
-  const updateMutation = useMutation({
-    mutationFn: () =>
-      apiClient.projects.updateProject({
-        id: projectId,
-        title: editTitle.trim(),
-        description: editDescription.trim() || undefined,
-        repository: editRepository.trim() || undefined,
-        visibility: editVisibility,
-        status: editStatus,
-      }),
-    onSuccess: () => {
-      toast.success("Project updated");
-      setIsEditing(false);
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to update project");
-    },
+  const upvoteCountQuery = useQuery({
+    queryKey: ["upvoteCount", projectId],
+    queryFn: () => apiClient.getUpvoteCount({ thingId: projectId }),
+  });
+
+  const userVoteQuery = useQuery({
+    queryKey: ["userVoteState", projectId],
+    queryFn: () => apiClient.getUserVote({ thingId: projectId }),
+    select: (data): "up" | "down" | null => (data.hasUpvote ? "up" : null),
+    enabled: canParticipate,
   });
 
   const deleteMutation = useMutation({
     mutationFn: () => apiClient.projects.deleteProject({ id: projectId }),
     onSuccess: () => {
-      toast.success("Project deleted");
+      toast.success("Deleted");
       queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigate({ to: "/projects" });
+      navigate({ to: "/projects", search: { preview: undefined, kind: undefined } });
     },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to delete project");
-    },
+    onError: (err: Error) => toast.error(err.message || "Failed to delete"),
   });
 
-  const startEditing = () => {
-    const p = projectQuery.data?.data;
-    if (!p) return;
-    setEditTitle(p.title);
-    setEditDescription(p.description ?? "");
-    setEditRepository(p.repository ?? "");
-    setEditVisibility(p.visibility);
-    setEditStatus(p.status);
-    setIsEditing(true);
+  const upvoteMutation = useMutation({
+    mutationFn: () => apiClient.upvoteThing({ thingId: projectId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["upvoteCount", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["upvoteCounts"] });
+      queryClient.setQueryData(["userVoteState", projectId], "up" as "up" | "down" | null);
+    },
+    onError: (err: Error) => toast.error(err.message || "Failed to upvote"),
+  });
+
+  const downvoteMutation = useMutation({
+    mutationFn: () => apiClient.downvoteThing({ thingId: projectId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["upvoteCount", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["upvoteCounts"] });
+      queryClient.setQueryData(["userVoteState", projectId], "down" as "up" | "down" | null);
+    },
+    onError: (err: Error) => toast.error(err.message || "Failed to downvote"),
+  });
+
+  const runVote = (direction: "up" | "down") => {
+    if (!canParticipate) {
+      toast.error("Link an identity in settings before voting.");
+      return;
+    }
+    if (direction === "up") upvoteMutation.mutate();
+    else downvoteMutation.mutate();
   };
+
+  const handleShare = useCallback(() => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      toast.success("Link copied");
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, []);
 
   if (projectQuery.isLoading) {
     return (
-      <Card>
-        <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Loading project...
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (projectQuery.isError || !projectQuery.data?.data) {
-    return (
-      <Card>
-        <CardContent className="p-8 text-center space-y-3">
-          <p className="text-sm">Project not found or you don't have access.</p>
-          <Button asChild variant="outline" size="sm">
-            <a href="/projects">back to projects</a>
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const project = projectQuery.data.data;
-  const walletAddress = (session?.user as { walletAddress?: string | null } | null | undefined)
-    ?.walletAddress;
-  const isOwner = (walletAddress ?? session?.user?.id) === project.ownerId;
-
-  return (
-    <div className="space-y-8">
-      {/* Breadcrumb + actions */}
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-muted-foreground">
-            <Link to="/projects" className="hover:text-foreground transition-colors">
-              projects
-            </Link>
-            <span>/</span>
-            <span>{project.slug}</span>
-          </div>
-          {isOwner && !isEditing && (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={startEditing}>
-                <Pencil className="h-3.5 w-3.5 mr-1" />
-                edit
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-destructive hover:bg-destructive/10"
-                onClick={() => {
-                  if (confirm("Delete this project permanently?")) {
-                    deleteMutation.mutate();
-                  }
-                }}
-                disabled={deleteMutation.isPending}
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-1" />
-                delete
-              </Button>
-            </div>
-          )}
+      <div className="flex h-full flex-col">
+        <div className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-4 py-3">
+          <div style={{ height: 20, width: 120, borderRadius: 6 }} className="animate-pulse bg-secondary" />
         </div>
+        <div className="flex flex-1 flex-col gap-4 p-6">
+          <div style={{ height: 32, width: 240, borderRadius: 8 }} className="animate-pulse bg-secondary" />
+          <div style={{ height: 16, width: "70%", borderRadius: 6 }} className="animate-pulse bg-secondary" />
+          <div style={{ height: 16, width: "50%", borderRadius: 6 }} className="animate-pulse bg-secondary" />
+        </div>
+      </div>
+    );
+  }
 
-        {/* Header Card */}
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">project</Badge>
-              <Badge
-                variant={
-                  project.status === "active"
-                    ? "default"
-                    : project.status === "paused"
-                      ? "secondary"
-                      : "destructive"
-                }
-              >
-                {project.status}
-              </Badge>
-              <Badge
-                variant={
-                  project.visibility === "public"
-                    ? "default"
-                    : project.visibility === "unlisted"
-                      ? "secondary"
-                      : "outline"
-                }
-              >
-                {project.visibility}
-              </Badge>
-            </div>
+  if (projectQuery.isError || !project) {
+    return (
+      <div className="flex min-h-[calc(100dvh-48px)] flex-col items-center justify-center gap-4 p-6">
+        <p style={{ fontSize: 16, fontWeight: 600 }} className="text-foreground">
+          Project not found.
+        </p>
+        <Link
+          to="/projects"
+          search={{ preview: undefined, kind: undefined }}
+          className="text-brand-accent"
+          style={{ fontWeight: 700, fontSize: 14, textDecoration: "none" }}
+        >
+          ← Back to projects
+        </Link>
+      </div>
+    );
+  }
 
-            {isEditing ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label
-                    htmlFor="edit-title"
-                    className="text-xs uppercase tracking-wide text-muted-foreground"
-                  >
-                    Title
-                  </label>
-                  <Input
-                    id="edit-title"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label
-                    htmlFor="edit-description"
-                    className="text-xs uppercase tracking-wide text-muted-foreground"
-                  >
-                    Description
-                  </label>
-                  <textarea
-                    id="edit-description"
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    rows={3}
-                    className="flex min-h-[80px] w-full rounded-md border-2 border-inset border-[rgb(51,51,51)] bg-[rgb(255,255,255)] px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus:ring-2 focus:ring-ring dark:bg-[rgb(40,40,40)] dark:border-[rgb(100,100,100)]"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label
-                    htmlFor="edit-repository"
-                    className="text-xs uppercase tracking-wide text-muted-foreground"
-                  >
-                    Repository
-                  </label>
-                  <Input
-                    id="edit-repository"
-                    type="url"
-                    value={editRepository}
-                    onChange={(e) => setEditRepository(e.target.value)}
-                    placeholder="https://github.com/user/repo"
-                    className="font-mono text-sm"
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="edit-visibility"
-                      className="text-xs uppercase tracking-wide text-muted-foreground"
-                    >
-                      Visibility
-                    </label>
-                    <select
-                      id="edit-visibility"
-                      value={editVisibility}
-                      onChange={(e) =>
-                        setEditVisibility(e.target.value as "private" | "unlisted" | "public")
-                      }
-                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
-                    >
-                      <option value="private">Private</option>
-                      <option value="unlisted">Unlisted</option>
-                      <option value="public">Public</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="edit-status"
-                      className="text-xs uppercase tracking-wide text-muted-foreground"
-                    >
-                      Status
-                    </label>
-                    <select
-                      id="edit-status"
-                      value={editStatus}
-                      onChange={(e) =>
-                        setEditStatus(e.target.value as "active" | "paused" | "archived")
-                      }
-                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
-                    >
-                      <option value="active">Active</option>
-                      <option value="paused">Paused</option>
-                      <option value="archived">Archived</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <Button
-                    onClick={() => updateMutation.mutate()}
-                    disabled={updateMutation.isPending}
-                  >
-                    {updateMutation.isPending ? "saving..." : "save"}
-                  </Button>
-                  <Button variant="outline" onClick={() => setIsEditing(false)}>
-                    cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-                  {project.title}
-                </h1>
-                {project.description && (
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {project.description}
-                  </p>
-                )}
-                {project.repository && (
-                  <div className="pt-1">
-                    <a
-                      href={project.repository}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-                    >
-                      <LinkIcon className="h-4 w-4" />
-                      {project.repository.replace(/^https:\/\//, "")}
-                    </a>
-                  </div>
-                )}
-              </div>
-            )}
+  const isAdmin = session?.user?.role === "admin";
+  const canManage = isAdmin || isCurrentUserOwner(project.ownerId, session?.user);
+  const voteCount = upvoteCountQuery.data?.totalCount ?? 0;
+  const voteDirection = userVoteQuery.data ?? null;
 
-            <div className="grid gap-3 text-xs font-mono text-muted-foreground">
-              <div className="grid gap-1 sm:grid-cols-[140px_1fr] sm:gap-4">
-                <span className="uppercase tracking-wide flex items-center gap-1.5">
-                  <LinkIcon className="h-3 w-3" />
-                  slug
-                </span>
-                <span className="break-all">{project.slug}</span>
-              </div>
-              <div className="grid gap-1 sm:grid-cols-[140px_1fr] sm:gap-4">
-                <span className="uppercase tracking-wide flex items-center gap-1.5">
-                  <ExternalLink className="h-3 w-3" />
-                  owner
-                </span>
-                <span className="break-all">{project.ownerId}</span>
-              </div>
-              {project.organizationId && (
-                <div className="grid gap-1 sm:grid-cols-[140px_1fr] sm:gap-4">
-                  <span className="uppercase tracking-wide">organization</span>
-                  <a
-                    href={`/organizations/${project.organizationId}`}
-                    className="hover:text-foreground transition-colors"
-                  >
-                    {project.organizationId}
-                  </a>
-                </div>
-              )}
-              <div className="grid gap-1 sm:grid-cols-[140px_1fr] sm:gap-4">
-                <span className="uppercase tracking-wide">created</span>
-                <span>{new Date(project.createdAt).toLocaleString()}</span>
-              </div>
-              <div className="grid gap-1 sm:grid-cols-[140px_1fr] sm:gap-4">
-                <span className="uppercase tracking-wide">updated</span>
-                <span>{new Date(project.updatedAt).toLocaleString()}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+  const renderedContent =
+    project.kind === "idea" ? project.content : (readmeQuery.data ?? project.description ?? null);
 
-      {/* README */}
-      {project.repository && (
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold tracking-tight">README</h2>
-          <Card>
-            <CardContent className="p-6">
-              {readmeQuery.isLoading ? (
-                <div className="text-sm text-muted-foreground">Loading README...</div>
-              ) : readmeQuery.isError || !readmeQuery.data ? (
-                <div className="text-sm text-muted-foreground">
-                  Could not load README. Check the repository URL.
-                </div>
-              ) : (
-                <div className="prose prose-neutral dark:prose-invert max-w-full text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                    {readmeQuery.data || "Documentation content is currently unavailable."}
-                  </ReactMarkdown>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </section>
-      )}
+  const metaItems = (
+    <div className="space-y-4">
+      <MetaSectionLabel>Details</MetaSectionLabel>
+      <MetaItem label="Visibility" value={project.visibility} />
+      <MetaItem label="Owner" value={shortenId(project.ownerId)} mono />
+      <MetaItem label="Slug" value={project.slug} mono />
+      {project.domain && <MetaItem label="Domain" value={project.domain} mono />}
+      <MetaItem label="Created" value={formatDate(project.createdAt)} />
+      <MetaItem label="Updated" value={formatDate(project.updatedAt)} />
     </div>
   );
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* ── top bar ── */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-4 py-2.5 sm:px-6 sm:py-3">
+        {/* breadcrumb */}
+        <div className="flex items-center gap-2">
+          <Link
+            to="/projects"
+            search={{ preview: project.id, kind: undefined }}
+            className="text-muted-foreground hover:text-foreground"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: "none",
+              transition: "color 0.12s",
+            }}
+          >
+            <ArrowLeft size={13} />
+            <span className="hidden sm:inline">Projects</span>
+          </Link>
+          <span className="hidden text-border sm:inline">/</span>
+          <span
+            style={{ fontSize: 13, fontWeight: 600 }}
+            className="hidden max-w-[160px] truncate text-foreground sm:block"
+          >
+            {project.slug}
+          </span>
+        </div>
+
+        {/* actions */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* vote widget */}
+          <div
+            className="bg-secondary"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+              borderRadius: 10,
+              padding: "2px 6px",
+            }}
+          >
+            <IconButton
+              onClick={() => runVote("up")}
+              disabled={!canParticipate || upvoteMutation.isPending}
+              active={voteDirection === "up"}
+              activeColor="text-brand-accent"
+            >
+              <TrendingUp size={14} />
+            </IconButton>
+            <span
+              className="text-foreground"
+              style={{ minWidth: 20, textAlign: "center", fontSize: 13, fontWeight: 700 }}
+            >
+              {voteCount}
+            </span>
+            <IconButton
+              onClick={() => runVote("down")}
+              disabled={!canParticipate || downvoteMutation.isPending}
+              active={voteDirection === "down"}
+              activeColor="text-status-danger-fg"
+            >
+              <TrendingDown size={14} />
+            </IconButton>
+          </div>
+
+          {/* repo link — hidden on very small screens */}
+          {project.repository && (
+            <a
+              href={project.repository}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={project.repository}
+              className="hidden sm:inline-flex bg-secondary hover:bg-border text-foreground"
+              style={{
+                height: 34,
+                padding: "0 10px",
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: 600,
+                alignItems: "center",
+                gap: 5,
+                textDecoration: "none",
+                transition: "background 0.12s",
+                flexShrink: 0,
+                maxWidth: 140,
+                overflow: "hidden",
+              }}
+            >
+              {isGithubUrl(project.repository) ? <GithubIcon size={13} /> : <Globe size={13} />}
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {project.repository
+                  .replace(/^https?:\/\/(www\.)?/, "")
+                  .split("/")
+                  .slice(0, 2)
+                  .join("/")}
+              </span>
+            </a>
+          )}
+
+          {/* share */}
+          <IconButton
+            onClick={handleShare}
+            active={copied}
+            activeColor="text-brand-accent"
+          >
+            {copied ? <Check size={14} /> : <Share2 size={14} />}
+          </IconButton>
+
+          {/* details sheet trigger — mobile only */}
+          <button
+            type="button"
+            onClick={() => setDetailsOpen(true)}
+            className="sm:hidden inline-flex h-9 w-9 items-center justify-center rounded-xl bg-secondary text-muted-foreground hover:text-foreground"
+            title="Show details"
+          >
+            <Info size={15} />
+          </button>
+
+          {canManage && (
+            <>
+              <Link
+                to="/projects/$id/edit"
+                params={{ id: projectId }}
+                search={{ tab: "write" }}
+                className="bg-secondary text-foreground hover:bg-border"
+                style={{
+                  height: 34,
+                  padding: "0 10px",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  textDecoration: "none",
+                  transition: "background 0.12s",
+                }}
+              >
+                <Pencil size={13} />
+                <span className="hidden sm:inline">Edit</span>
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm("Delete this project permanently?")) deleteMutation.mutate();
+                }}
+                disabled={deleteMutation.isPending}
+                className="inline-flex h-[34px] items-center gap-1 rounded-[10px] px-2.5 text-[13px] font-bold bg-status-danger-bg text-status-danger-fg hover:bg-status-danger-border transition-colors sm:px-3"
+              >
+                <Trash2 size={13} />
+                <span className="hidden sm:inline">Delete</span>
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── body ── */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* main content */}
+        <div className="min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-8 sm:py-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]">
+          <div className="mx-auto max-w-3xl space-y-4">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <KindChip kind={project.kind} />
+                {project.status !== "active" && <StatusChip status={project.status as any} />}
+              </div>
+              <h1
+                style={{ fontSize: 26, fontWeight: 600, lineHeight: "1.2" }}
+                className="text-foreground sm:text-[30px]"
+              >
+                {project.title}
+              </h1>
+              {project.description && (
+                <p style={{ fontSize: 15, lineHeight: "1.5" }} className="text-muted-foreground">
+                  {project.description}
+                </p>
+              )}
+              {project.repository && (
+                <a
+                  href={project.repository}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="border border-border bg-secondary hover:bg-border text-foreground"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "5px 10px",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    textDecoration: "none",
+                    transition: "background 0.12s",
+                    maxWidth: "fit-content",
+                  }}
+                >
+                  {isGithubUrl(project.repository) ? (
+                    <GithubIcon size={13} />
+                  ) : (
+                    <Globe size={13} />
+                  )}
+                  <span
+                    style={{
+                      maxWidth: 220,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {project.repository.replace(/^https?:\/\/(www\.)?/, "")}
+                  </span>
+                  <ExternalLink size={11} className="text-muted-foreground" style={{ flexShrink: 0 }} />
+                </a>
+              )}
+            </div>
+
+            <div className="h-px bg-border" />
+
+            {project.kind === "project" && readmeQuery.isLoading ? (
+              <div style={{ fontSize: 14 }} className="text-muted-foreground">
+                Loading README…
+              </div>
+            ) : renderedContent ? (
+              <Markdown content={renderedContent} />
+            ) : (
+              <div
+                className="border border-dashed border-border text-muted-foreground"
+                style={{ padding: "32px 24px", borderRadius: 12, textAlign: "center", fontSize: 14 }}
+              >
+                {project.kind === "project"
+                  ? "No README available for this repository."
+                  : "This idea has no content yet."}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* desktop sidebar */}
+        <div className="hidden sm:block w-[220px] shrink-0 border-l border-border overflow-y-auto bg-muted px-5 py-6">
+          {metaItems}
+        </div>
+      </div>
+
+      {/* ── mobile details sheet ── */}
+      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <SheetContent side="bottom" hideCloseButton={false}>
+          <SheetHeader>
+            <SheetTitle>Details</SheetTitle>
+          </SheetHeader>
+          <div className="overflow-y-auto px-5 pb-2 pt-1">
+            <div className="space-y-4">
+              <MetaItem label="Visibility" value={project.visibility} />
+              <MetaItem label="Owner" value={shortenId(project.ownerId)} mono />
+              <MetaItem label="Slug" value={project.slug} mono />
+              {project.domain && <MetaItem label="Domain" value={project.domain} mono />}
+              <MetaItem label="Created" value={formatDate(project.createdAt)} />
+              <MetaItem label="Updated" value={formatDate(project.updatedAt)} />
+            </div>
+          </div>
+          <div
+            className="shrink-0 px-5 pt-3"
+            style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}
+          >
+            <SheetClose asChild>
+              <button
+                type="button"
+                className="w-full rounded-xl border-2 border-outset border-border-strong bg-secondary py-3 text-sm font-semibold text-foreground"
+              >
+                Close
+              </button>
+            </SheetClose>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+function IconButton({
+  onClick,
+  disabled,
+  children,
+  active,
+  activeColor,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+  active?: boolean;
+  activeColor?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center rounded-[8px] ${disabled ? "text-disabled" : active ? (activeColor ?? "text-brand-accent") : "text-muted-foreground hover:text-foreground"}`}
+      style={{
+        width: 36,
+        height: 36,
+        cursor: disabled ? "not-allowed" : "pointer",
+        transition: "color 0.12s",
+        WebkitTapHighlightColor: "transparent",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function KindChip({ kind }: { kind: "project" | "idea" }) {
+  return (
+    <span
+      className="border border-border bg-secondary text-foreground"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "3px 10px",
+        borderRadius: 6,
+        fontSize: 12,
+        fontWeight: 600,
+      }}
+    >
+      {kind === "idea" ? <FileText size={11} /> : <FileCode2 size={11} />}
+      {kind}
+    </span>
+  );
+}
+
+function StatusChip({ status }: { status: "active" | "paused" | "archived" }) {
+  return (
+    <span
+      className={`border ${
+        status === "active"
+          ? "border-brand-accent-border bg-brand-accent-light text-foreground"
+          : status === "paused"
+            ? "border-border bg-secondary text-foreground"
+            : "border-status-danger-border bg-status-danger-bg text-status-danger-fg"
+      }`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "3px 10px",
+        borderRadius: 6,
+        fontSize: 12,
+        fontWeight: 600,
+      }}
+    >
+      {status}
+    </span>
+  );
+}
+
+function MetaSectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="text-muted-foreground"
+      style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function MetaItem({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="space-y-0.5">
+      <div style={{ fontSize: 11, fontWeight: 600 }} className="text-muted-foreground">
+        {label}
+      </div>
+      <div
+        className="text-foreground"
+        style={{
+          fontSize: 13,
+          fontFamily: mono ? "ui-monospace, SFMono-Regular, monospace" : undefined,
+          wordBreak: "break-all",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function shortenId(id: string): string {
+  if (id.length <= 20) return id;
+  return `${id.slice(0, 8)}…${id.slice(-6)}`;
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
 }

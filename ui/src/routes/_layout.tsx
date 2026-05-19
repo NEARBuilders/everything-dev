@@ -1,5 +1,5 @@
-import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
-import { getRuntimeConfig, sessionQueryOptions } from "@/app";
+import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { getAccount, getActiveRuntime, getAppName, sessionQueryOptions } from "@/app";
 import builtOn from "@/assets/built_on.png";
 import builtOnRev from "@/assets/built_on_rev.png";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -40,21 +40,17 @@ function getUserRole(isAuthenticated: boolean, isAdmin: boolean): SidebarRole {
 }
 
 function Layout() {
-  const location = useLocation();
-  const pathname = location.pathname;
-  const appName = useClientValue(() => {
-    try {
-      const runtimeConfig = getRuntimeConfig();
-      return runtimeConfig.runtime?.title ?? runtimeConfig.account ?? "app";
-    } catch {
-      return "app";
-    }
-  }, "app");
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isNavigating = useRouterState({ select: (s) => s.status === "pending" });
+  const appName = useClientValue(() => getAppName(), "app");
+  const runtime = useClientValue(() => getActiveRuntime(), undefined);
+  const account = useClientValue(() => getAccount(), "every.near");
   const { session } = Route.useRouteContext();
   const isAuthenticated = !!session?.user;
-  const isAdmin = isAuthenticated && (session?.user as Record<string, unknown>)?.role === "admin";
-  const userRole = getUserRole(isAuthenticated, isAdmin);
+  const userRole = getUserRole(isAuthenticated, session?.user?.role === "admin");
   const visibleItems = filterSidebarByRole(pluginSidebarItems, userRole);
+
+  const gatewayId = runtime?.gatewayId;
 
   const isActive = (item: SidebarItem) => {
     return pathname === item.to || (item.to !== "/" && pathname.startsWith(`${item.to}/`));
@@ -62,16 +58,17 @@ function Layout() {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen w-full flex bg-background text-foreground">
+      <div className="h-screen w-full flex overflow-hidden bg-background text-foreground">
         {isAuthenticated && (
-          <aside className="hidden sm:flex sticky top-0 h-screen shrink-0 w-16 flex-col items-center border-r border-border bg-card animate-fade-in">
+          <aside className="hidden sm:flex h-full shrink-0 w-16 flex-col items-center border-r border-border bg-card animate-fade-in">
             <div className="flex-1 w-full overflow-y-auto flex flex-col items-center gap-1.5 py-4 min-h-0">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Link
                     to="/"
+                    preload="intent"
                     aria-label={`${appName} home`}
-                    className="mb-3 flex items-center justify-center w-10 h-10 border-2 border-outset border-[rgb(51,51,51)] dark:border-[rgb(100,100,100)] bg-card shadow-sm transition-shadow duration-200 hover:shadow-md"
+                    className="mb-3 flex items-center justify-center w-10 h-10 border-2 border-outset border-border-strong bg-card shadow-sm transition-shadow duration-200 hover:shadow-md"
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -90,12 +87,12 @@ function Layout() {
               {visibleItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item);
-                const className = `flex items-center justify-center w-10 h-10 border-2 border-outset border-[rgb(51,51,51)] dark:border-[rgb(100,100,100)] shadow-sm transition-all duration-200 ease-out hover:shadow-md ${active ? "bg-foreground text-background" : "bg-card text-foreground hover:bg-muted"}`;
+                const className = `flex items-center justify-center w-10 h-10 border-2 border-outset border-border-strong shadow-sm transition-all duration-200 ease-out hover:shadow-md ${active ? "bg-foreground text-background" : "bg-card text-foreground hover:bg-muted"}`;
 
                 return (
                   <Tooltip key={item.label}>
                     <TooltipTrigger asChild>
-                      <Link to={item.to} className={className}>
+                      <Link to={item.to} preload="intent" className={className}>
                         <Icon className="w-4 h-4" />
                       </Link>
                     </TooltipTrigger>
@@ -111,17 +108,31 @@ function Layout() {
           </aside>
         )}
 
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+          <div className="shrink-0 flex items-center justify-center py-1.5 px-3 bg-yellow-300 border-b border-yellow-400">
+            <span className="text-[11px] font-bold tracking-wide text-yellow-950 text-center">
+              Beta — database will be wiped periodically. Do not save data you want to keep.
+            </span>
+          </div>
           <header
             className={`shrink-0 bg-card/50 ${isAuthenticated ? "border-b border-border animate-fade-in" : ""}`}
           >
+            {isNavigating && (
+                <div className="absolute top-0 left-0 right-0 h-[2px] z-50 overflow-hidden">
+                <div
+                  className="h-full bg-foreground animate-progress-bar"
+                  style={{ width: "100%" }}
+                />
+              </div>
+            )}
             <div className="flex items-center justify-between px-4 sm:px-6 h-12">
               {isAuthenticated ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono min-w-0">
                   <Link
                     aria-label={`${appName} home`}
-                    className="sm:hidden flex items-center justify-center w-8 h-8 border-2 border-outset border-[rgb(51,51,51)] dark:border-[rgb(100,100,100)] bg-card shadow-sm transition-shadow duration-200 hover:shadow-md"
+                    className="sm:hidden flex items-center justify-center w-8 h-8 border-2 border-outset border-border-strong bg-card shadow-sm transition-shadow duration-200 hover:shadow-md"
                     to="/"
+                    preload="intent"
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -134,7 +145,13 @@ function Layout() {
                     </svg>
                   </Link>
                   <div className="hidden sm:flex items-center gap-2">
-                    <span>{appName}</span>
+                    {gatewayId && (
+                      <>
+                        <span>{gatewayId}</span>
+                        <span>/</span>
+                      </>
+                    )}
+                    <span>{runtime?.accountId ?? account}</span>
                     <span>/</span>
                     <span className="truncate">
                       {pathname === "/" ? "home" : pathname.slice(1).split("/").join(" / ")}
@@ -189,14 +206,17 @@ function Layout() {
 
           {isAuthenticated && (
             <nav className="fixed bottom-0 left-0 right-0 sm:hidden border-t border-border bg-card animate-fade-in z-40">
-              <div className="flex items-center justify-around px-2 py-2 safe-area-inset-bottom">
+              <div
+                className="flex items-center justify-around px-2 pt-2"
+                style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))" }}
+              >
                 {visibleItems.map((item) => {
                   const Icon = item.icon;
                   const active = isActive(item);
                   const className = `flex flex-col items-center justify-center gap-0.5 p-1.5 transition-colors duration-200 ${active ? "text-foreground" : "text-muted-foreground"}`;
 
                   return (
-                    <Link key={item.label} to={item.to} className={className}>
+                    <Link key={item.label} to={item.to} preload="intent" className={className}>
                       <Icon className="w-4 h-4" />
                       <span className="text-[10px]">{item.label}</span>
                     </Link>

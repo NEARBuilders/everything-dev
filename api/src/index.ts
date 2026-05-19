@@ -90,6 +90,14 @@ function createUpvoteService(db: any, eventTarget: EventTarget) {
       return { thingId, totalCount: result?.count ?? 0 };
     },
 
+    async getUserVote(thingId: string, userId: string) {
+      const [result] = await db
+        .select({ count: count() })
+        .from(upvotes)
+        .where(and(eq(upvotes.thingId, thingId), eq(upvotes.userId, userId)));
+      return { thingId, hasUpvote: (result?.count ?? 0) > 0 };
+    },
+
     async getUpvoteFeed(limit = 50, _cursor?: string) {
       const pageLimit = Math.min(limit, 100);
       const records = await db
@@ -193,6 +201,10 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
       getUpvoteCount: builder.getUpvoteCount.handler(async ({ input }) => {
         return await services.upvoteService.getUpvoteCount(input.thingId);
+      }),
+
+      getUserVote: builder.getUserVote.use(requireAuth).handler(async ({ input, context }) => {
+        return await services.upvoteService.getUserVote(input.thingId, context.userId!);
       }),
 
       getUpvoteFeed: builder.getUpvoteFeed.handler(async ({ input }) => {

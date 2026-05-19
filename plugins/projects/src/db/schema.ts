@@ -6,12 +6,15 @@ export const projects = pgTable(
     id: text("id").primaryKey(),
     ownerId: text("owner_id").notNull(),
     organizationId: text("organization_id"),
+    kind: text("kind").notNull().default("project"),
     slug: text("slug").notNull(),
     title: text("title").notNull(),
     description: text("description"),
+    content: text("content"),
     status: text("status").notNull().default("active"),
     visibility: text("visibility").notNull().default("public"),
     repository: text("repository"),
+    domain: text("domain"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true })
       .defaultNow()

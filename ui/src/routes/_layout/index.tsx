@@ -1,120 +1,54 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { buildRuntimeHref } from "@/app";
-import { Button } from "@/components";
-import { Route as RootRoute } from "../__root";
+import { createFileRoute } from "@tanstack/react-router";
+import { FileText } from "lucide-react";
+import { getAccount, getActiveRuntime, getRepository } from "@/app";
+import { Markdown } from "@/components/ui/markdown";
+import { useClientValue } from "@/hooks/use-client";
+import { fetchRepositoryReadme } from "@/lib/repository-content";
 
 export const Route = createFileRoute("/_layout/")({
+  loader: async ({ context }) => {
+    const repository = getRepository(context.runtimeConfig);
+    console.log("[landing] repository:", repository);
+    let readme: string | null = null;
+    if (repository) {
+      readme = await fetchRepositoryReadme(repository).catch((err) => {
+        console.error("[landing] fetchRepositoryReadme failed:", err);
+        return null;
+      });
+    } else {
+      console.warn("[landing] no repository URL in runtime config");
+    }
+    return { repository, readme, runtimeConfig: context.runtimeConfig };
+  },
   head: () => ({
-    meta: [
-      { title: "app | Runtime composition on NEAR" },
-      {
-        name: "description",
-        content:
-          "app is an open runtime for apps on NEAR, composed from published config and loaded at runtime.",
-      },
-    ],
+    meta: [{ title: "app" }],
   }),
   component: Landing,
 });
 
-const subtitles = [
-  <>
-    A common runtime for apps on{" "}
-    <a href="https://near.org" className="underline hover:text-foreground transition-colors">
-      NEAR
-    </a>
-  </>,
-  "upgradable and secure for a verifiable internet",
-  "in pursuit of the open web.",
-];
-
 function Landing() {
-  const { runtimeConfig } = RootRoute.useLoaderData();
-  const appName = runtimeConfig?.runtime?.title ?? runtimeConfig?.account ?? "every.near";
-  const [subtitleIndex, setSubtitleIndex] = useState(0);
-  const activeRuntime = runtimeConfig?.runtime;
-  const runtimeLabel = activeRuntime
-    ? `${activeRuntime.accountId} / ${activeRuntime.gatewayId}`
-    : runtimeConfig?.account
-      ? `${runtimeConfig.account} / ${getGatewayLabel(runtimeConfig.hostUrl)}`
-      : "runtime / host";
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setSubtitleIndex((i) => (i + 1) % subtitles.length);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
+  const { readme, runtimeConfig } = Route.useLoaderData();
+  const runtime = useClientValue(() => getActiveRuntime(runtimeConfig), undefined);
+  const account = useClientValue(() => getAccount(runtimeConfig), "every.near");
+
+  const gatewayId = runtime?.gatewayId;
+  const accountId = runtime?.accountId ?? account;
+  const breadcrumb = gatewayId ? `${gatewayId} / ${accountId}` : accountId;
 
   return (
-    <div className="flex min-h-[80vh] flex-col items-center justify-center pb-[8vh] animate-fade-in">
-      <div className="flex max-w-3xl flex-col items-center text-center">
-        <p className="text-xs uppercase tracking-[0.28em] text-muted-foreground font-mono">
-          {runtimeLabel}
-        </p>
+    <div className="w-full max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-10 animate-fade-in">
+      <p className="text-xs text-muted-foreground font-mono mb-6">{breadcrumb}</p>
 
-        <h1
-          className="mt-4 text-5xl font-semibold tracking-tight sm:text-7xl"
-          style={{
-            textShadow: "rgba(0,0,0,0.08) 1px 1px 1px, rgba(0,0,0,0.06) 3px 3px 3px",
-          }}
-        >
-          {appName}
-        </h1>
-
-        <div className="mt-2 flex min-h-[1.75rem] items-center justify-center sm:min-h-[2rem]">
-          <p
-            key={subtitleIndex}
-            className="text-lg text-foreground sm:text-xl animate-subtitle-cycle"
-          >
-            {subtitles[subtitleIndex]}
-          </p>
+      {readme ? (
+        <div className="rounded-2xl border border-border bg-card p-8 shadow-[rgba(0,0,0,0.06)_0px_20px_25px_-5px,rgba(0,0,0,0.03)_0px_8px_10px_-6px]">
+          <Markdown content={readme} />
         </div>
-
-        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-          Published config composes the host, UI, and API at runtime. The runtime is published from
-          NEAR, can share a stable host, and leaves room for new interfaces, plugins, and composed
-          applications to grow around the same core record.
-        </p>
-
-        <div className="mt-5 flex flex-wrap items-start justify-center gap-3">
-          <Button asChild>
-            <Link to="/apps" search={{}}>
-              browse apps
-            </Link>
-          </Button>
-          <div className="group relative flex flex-col items-center">
-            <Button asChild variant="outline">
-              <Link to="/about">about</Link>
-            </Button>
-            <a
-              href="/skill.md"
-              className="absolute top-full mt-1 text-[11px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity duration-200 hover:text-foreground whitespace-nowrap font-mono"
-            >
-              for your agent: skill.md
-            </a>
-          </div>
-          <Button asChild variant="outline">
-            <a href={buildRuntimeHref("/config", runtimeConfig)}>config</a>
-          </Button>
+      ) : (
+        <div className="flex flex-col items-center justify-center gap-3 px-8 py-16 text-muted-foreground">
+          <FileText size={32} className="text-border" />
+          <p className="text-sm text-muted-foreground">No README available.</p>
         </div>
-      </div>
-
-      <p className="pt-4 text-xs text-muted-foreground text-center max-w-md">
-        Software that stays portable, inspectable, and continuously built over time.
-      </p>
+      )}
     </div>
   );
-}
-
-function getGatewayLabel(hostUrl?: string) {
-  if (!hostUrl) {
-    return "gateway";
-  }
-
-  try {
-    return new URL(hostUrl).host;
-  } catch {
-    return hostUrl;
-  }
 }

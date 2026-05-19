@@ -53,7 +53,13 @@
       ]
     },
     "projects": {
-      "extends": "bos://work.efiz.near/projects.everything.dev#plugins.projects"
+      "extends": "bos://work.efiz.near/projects.everything.dev#plugins.projects",
+      "sidebar": [
+        {
+          "icon": "FolderKanban",
+          "label": "projects"
+        }
+      ]
     },
     "settings": {
       "development": "local:plugins/settings",

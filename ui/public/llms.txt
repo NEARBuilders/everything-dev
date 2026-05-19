@@ -15,17 +15,9 @@ Canonical runtime model:
 - metadata can be layered on top, but does not replace the runtime manifest
 
 Why it matters:
-- sites can share the same host while varying UI composition by tenant
+- sites can share the same host while varying UI and API composition
 - runtime can change through published config instead of rebuild-only deployment
 - software remains more portable, inspectable, and extensible over time
-
-Current tenant mode:
-- the host boots once from a base runtime
-- auth, API, and server-side plugin routers stay fixed from that base config
-- tenant subdomains can resolve request-scoped config like `alice.linktree.com -> bos://alice.near/linktree.com`
-- tenant config must extend the base BOS runtime
-- supported tenant overrides today are `app.ui`, existing `plugins.<id>.ui`, and existing `plugins.<id>.sidebar`
-- tenant SSR is gated by `TENANT_WHITELIST` and `ALLOW_UNTRUSTED_SSR`
 
 Useful public paths:
 - /

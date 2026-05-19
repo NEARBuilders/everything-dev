@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { ExternalLink } from "lucide-react";
-import { getRuntimeConfig } from "@/app";
+import { getRepository } from "@/app";
 import underConstructionImage from "@/assets/under-construction.gif";
 import {
   ClassicTooltipContent,
@@ -28,17 +28,7 @@ export function UnderConstruction({
   skipNavigation,
   pressed,
 }: UnderConstructionProps) {
-  const repository = (() => {
-    if (typeof window === "undefined") {
-      return DEFAULT_REPOSITORY;
-    }
-
-    try {
-      return getRuntimeConfig().repository ?? DEFAULT_REPOSITORY;
-    } catch {
-      return DEFAULT_REPOSITORY;
-    }
-  })();
+  const repository = getRepository() ?? DEFAULT_REPOSITORY;
   const githubUrl = sourceFile ? `${repository}/blob/main/${sourceFile}` : repository;
 
   const handleClick = () => {

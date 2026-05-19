@@ -1,6 +1,6 @@
 {
   "name": "api",
-  "version": "2.4.8",
+  "version": "2.4.6",
   "type": "module",
   "exports": {
     ".": {
@@ -36,7 +36,6 @@
     "@types/pg": "catalog:",
     "dotenv": "^17.2.3",
     "everything-dev": "catalog:",
-    "host": "workspace:*",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "catalog:",
     "zephyr-rspack-plugin": "catalog:"

@@ -1,8 +1,9 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { type Organization, sessionQueryOptions, useAuthClient } from "@/app";
-import { Button } from "@/components/ui/button";
+import type { Organization } from "@/app";
+import { sessionQueryOptions, useAuthClient } from "@/app";
+import { Button, OrgSwitcher } from "@/components";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +15,9 @@ import {
 
 export function UserNav() {
   const auth = useAuthClient();
-  const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { data: session } = useQuery(sessionQueryOptions(auth));
   const user = session?.user;
   const { data: organizations } = useQuery({
     queryKey: ["organizations"],
@@ -33,13 +36,16 @@ export function UserNav() {
 
   const signOutMutation = useMutation({
     mutationFn: async () => {
-      await auth.signOut();
+      const { error } = await auth.signOut();
+      if (error) {
+        throw new Error(error.message || "Failed to sign out");
+      }
       await auth.near.disconnect().catch(() => {});
     },
-    onSuccess: () => {
-      if (typeof window !== "undefined") {
-        window.location.assign("/");
-      }
+    onSuccess: async () => {
+      queryClient.setQueryData(["session"], null);
+      await queryClient.invalidateQueries({ queryKey: ["session"] });
+      navigate({ to: "/", replace: true });
     },
     onError: (error: Error) => {
       console.error("Sign out error:", error);
@@ -57,19 +63,19 @@ export function UserNav() {
     );
   }
 
+  const handleOrgSwitch = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["session"] });
+    await queryClient.invalidateQueries({ queryKey: ["organizations"] });
+  };
+
   return (
     <div className="flex items-center gap-2">
-      {activeOrg && (
-        <Button
-          asChild
-          variant="ghost"
-          size="sm"
-          className="hidden sm:flex max-w-[120px] text-xs text-muted-foreground"
-        >
-          <Link to="/home">
-            <span className="truncate">{activeOrg.name}</span>
-          </Link>
-        </Button>
+      {organizations && organizations.length > 0 && (
+        <OrgSwitcher
+          organizations={organizations}
+          activeOrgId={activeOrgId}
+          onSwitch={handleOrgSwitch}
+        />
       )}
 
       <DropdownMenu>
@@ -90,6 +96,16 @@ export function UserNav() {
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
             <Link to="/home">workspace</Link>
+          </DropdownMenuItem>
+          {activeOrg && (
+            <DropdownMenuItem asChild>
+              <Link to="/organizations/$slug" params={{ slug: activeOrg.slug }}>
+                {activeOrg.name}
+              </Link>
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem asChild>
+            <Link to="/settings">settings</Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
