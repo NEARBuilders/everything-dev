@@ -1,6 +1,14 @@
 import { BAD_REQUEST, NOT_FOUND, UNAUTHORIZED } from "every-plugin/errors";
-import { oc } from "every-plugin/orpc";
+import { eventIterator, oc } from "every-plugin/orpc";
 import { z } from "every-plugin/zod";
+
+export const VoteEventSchema = z.object({
+  type: z.enum(["upvote", "downvote"]),
+  thingId: z.string(),
+  userId: z.string(),
+  timestamp: z.string(),
+  totalCount: z.number().int().nonnegative(),
+});
 
 export const contract = oc.router({
   ping: oc.route({ method: "GET", path: "/ping" }).output(
@@ -91,7 +99,7 @@ export const contract = oc.router({
       }),
     ),
 
-  subscribeUpvotes: oc.route({ method: "GET", path: "/upvotes/stream" }).output(z.unknown()),
+  subscribeUpvotes: oc.route({ method: "GET", path: "/upvotes/stream" }).output(eventIterator(VoteEventSchema)),
 });
 
 export type ContractType = typeof contract;

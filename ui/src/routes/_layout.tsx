@@ -8,21 +8,13 @@ import { pluginSidebarItems, type SidebarItem, type SidebarRole } from "@/lib/pl
 import { ThemeToggle } from "../components/theme-toggle";
 import { UserNav } from "../components/user-nav";
 
-export const Route = createFileRoute("/_layout")({
-  beforeLoad: async ({ context }) => {
-    const { queryClient, authClient } = context;
-    const session = await queryClient.ensureQueryData(
-      sessionQueryOptions(authClient, context.session),
-    );
-
-    return {
-      assetsUrl: context.assetsUrl || "",
-      runtimeConfig: context.runtimeConfig,
-      session,
-    };
-  },
-  component: Layout,
-});
+function NearIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+      <path d="M21.077 4.5l-5.2 7.573L10.923 4.5H4.5v23h5.827V12.118l5.55 7.898 5.55-7.898V27.5H27.5V4.5z" />
+    </svg>
+  );
+}
 
 function filterSidebarByRole(items: SidebarItem[], userRole: SidebarRole): SidebarItem[] {
   return items.filter((item) => {
@@ -38,6 +30,22 @@ function getUserRole(isAuthenticated: boolean, isAdmin: boolean): SidebarRole {
   if (isAuthenticated) return "member";
   return "anon";
 }
+
+export const Route = createFileRoute("/_layout")({
+  beforeLoad: async ({ context }) => {
+    const { queryClient, authClient } = context;
+    const session = await queryClient.ensureQueryData(
+      sessionQueryOptions(authClient, context.session),
+    );
+
+    return {
+      assetsUrl: context.assetsUrl || "",
+      runtimeConfig: context.runtimeConfig,
+      session,
+    };
+  },
+  component: Layout,
+});
 
 function Layout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -159,8 +167,12 @@ function Layout() {
                   </div>
                 </div>
               ) : (
-                <Link to="/login" className="text-sm font-medium tracking-tight">
-                  {appName}
+                <Link
+                  to="/login"
+                  className="h-9 px-4 inline-flex items-center gap-2 text-sm font-medium border-2 border-outset border-border-strong bg-card text-foreground shadow-sm hover:shadow-md hover:bg-muted active:border-inset active:shadow-none transition-all duration-200 ease-out cursor-pointer"
+                >
+                  <NearIcon />
+                  connect
                 </Link>
               )}
 

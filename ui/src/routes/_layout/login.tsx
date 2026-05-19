@@ -118,7 +118,6 @@ function LoginPage() {
         <div className="flex justify-center">
           <UnderConstruction
             sourceFile="ui/src/routes/_layout/login.tsx"
-            className="w-32"
           />
         </div>
 
@@ -127,7 +126,7 @@ function LoginPage() {
             type="button"
             onClick={handleNear}
             disabled={isPending}
-            className="w-full h-10 px-4 inline-flex items-center justify-center gap-2 text-sm font-medium border-2 border-outset border-border-strong bg-card text-foreground shadow-sm hover:shadow-md hover:bg-muted active:border-inset active:shadow-none transition-all duration-200 ease-out disabled:pointer-events-none disabled:opacity-50 rounded-[12px]"
+            className="w-full h-10 px-4 inline-flex items-center justify-center gap-2 text-sm font-medium border-2 border-outset border-border-strong bg-card text-foreground shadow-sm hover:shadow-md hover:bg-muted active:border-inset active:shadow-none transition-all duration-200 ease-out disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
           >
             <NearIcon />
             {nearPending ? "connecting..." : "connect with NEAR"}
@@ -143,7 +142,7 @@ function LoginPage() {
             type="button"
             onClick={handleAnonymous}
             disabled={isPending}
-            className="w-full h-10 px-4 inline-flex items-center justify-center gap-2 text-sm font-medium border-2 border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground hover:shadow-sm active:shadow-none transition-all duration-200 ease-out disabled:pointer-events-none disabled:opacity-50 rounded-[12px]"
+            className="w-full h-10 px-4 inline-flex items-center justify-center gap-2 text-sm font-medium border-2 border-transparent bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground hover:shadow-sm active:shadow-none transition-all duration-200 ease-out disabled:pointer-events-none disabled:opacity-50 cursor-pointer"
           >
             {anonPending ? "starting..." : "continue anonymously"}
           </button>

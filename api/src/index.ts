@@ -1,27 +1,26 @@
 import { and, count, desc, eq } from "drizzle-orm";
 import { createPlugin } from "every-plugin";
 import { Effect } from "every-plugin/effect";
+import { MemoryPublisher } from "every-plugin/orpc";
 import { z } from "every-plugin/zod";
-import { contract } from "./contract";
+import { contract, VoteEventSchema } from "./contract";
 import { loadMigrations } from "./db/load-migrations";
 import { migrate } from "./db/migrator";
 import { upvotes } from "./db/schema";
 import { createAuthGuards } from "./lib/auth";
 import type { PluginsClient } from "./lib/plugins-types.gen";
 
-interface VoteEventDetail {
-  type: "upvote" | "downvote";
-  thingId: string;
-  userId: string;
-  timestamp: string;
-  totalCount: number;
-}
+type VoteEventDetail = z.infer<typeof VoteEventSchema>;
+
+type VoteEvents = {
+  vote: VoteEventDetail;
+};
 
 function generateId(): string {
   return `uv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 }
 
-function createUpvoteService(db: any, eventTarget: EventTarget) {
+function createUpvoteService(db: any, publisher: MemoryPublisher<VoteEvents>) {
   return {
     async upvoteThing(thingId: string, userId: string) {
       try {
@@ -41,17 +40,13 @@ function createUpvoteService(db: any, eventTarget: EventTarget) {
 
       const totalCount = result?.count ?? 0;
 
-      eventTarget.dispatchEvent(
-        new CustomEvent<VoteEventDetail>("vote", {
-          detail: {
-            type: "upvote",
-            thingId,
-            userId,
-            timestamp: new Date().toISOString(),
-            totalCount,
-          },
-        }),
-      );
+      await publisher.publish("vote", {
+        type: "upvote",
+        thingId,
+        userId,
+        timestamp: new Date().toISOString(),
+        totalCount,
+      });
 
       return { thingId, userId, totalCount };
     },
@@ -66,17 +61,13 @@ function createUpvoteService(db: any, eventTarget: EventTarget) {
 
       const totalCount = result?.count ?? 0;
 
-      eventTarget.dispatchEvent(
-        new CustomEvent<VoteEventDetail>("vote", {
-          detail: {
-            type: "downvote",
-            thingId,
-            userId,
-            timestamp: new Date().toISOString(),
-            totalCount,
-          },
-        }),
-      );
+      await publisher.publish("vote", {
+        type: "downvote",
+        thingId,
+        userId,
+        timestamp: new Date().toISOString(),
+        totalCount,
+      });
 
       return { thingId, totalCount };
     },
@@ -164,10 +155,12 @@ export default createPlugin.withPlugins<PluginsClient>()({
       console.log("[API] Auth client available:", Boolean(auth));
       console.log("[API] Plugins available:", Object.keys(restPlugins).join(", ") || "none");
 
-      const eventTarget = new EventTarget();
-      const upvoteService = createUpvoteService(driver.db, eventTarget);
+      const publisher = new MemoryPublisher<VoteEvents>({
+        resumeRetentionSeconds: 120,
+      });
+      const upvoteService = createUpvoteService(driver.db, publisher);
 
-      return { auth, plugins: restPlugins, db: driver.db, upvoteService, eventTarget, driver };
+      return { auth, plugins: restPlugins, db: driver.db, upvoteService, publisher, driver };
     }),
 
   shutdown: (services) =>
@@ -178,6 +171,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
   createRouter: (services, builder) => {
     const { requireAuth } = createAuthGuards(builder);
+    const { publisher } = services;
 
     return {
       ping: builder.ping.handler(async () => ({
@@ -211,38 +205,11 @@ export default createPlugin.withPlugins<PluginsClient>()({
         return await services.upvoteService.getUpvoteFeed(input.limit, input.cursor);
       }),
 
-      subscribeUpvotes: builder.subscribeUpvotes.handler(async () => {
-        const encoder = new TextEncoder();
-        const eventTarget = services.eventTarget;
-
-        let listener: ((e: Event) => void) | null = null;
-
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode("event: connected\ndata: {}\n\n"));
-
-            listener = (e: Event) => {
-              const detail = (e as CustomEvent<VoteEventDetail>).detail;
-              const payload = JSON.stringify(detail);
-              controller.enqueue(encoder.encode(`event: vote\ndata: ${payload}\n\n`));
-            };
-
-            eventTarget.addEventListener("vote", listener);
-          },
-          cancel() {
-            if (listener) {
-              eventTarget.removeEventListener("vote", listener);
-            }
-          },
-        });
-
-        return new Response(stream, {
-          headers: {
-            "content-type": "text/event-stream",
-            "cache-control": "no-cache",
-            connection: "keep-alive",
-          },
-        });
+      subscribeUpvotes: builder.subscribeUpvotes.handler(async function* ({ signal, lastEventId }) {
+        const iterator = publisher.subscribe("vote", { signal, lastEventId });
+        for await (const event of iterator) {
+          yield event;
+        }
       }),
     };
   },

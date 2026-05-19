@@ -49,6 +49,7 @@
       "@orpc/client": "1.14.3",
       "@orpc/zod": "1.14.3",
       "@orpc/openapi": "1.14.3",
+      "@orpc/tanstack-query": "1.14.3",
       "@module-federation/enhanced": "^2.4.0",
       "@module-federation/node": "^2.7.42",
       "@module-federation/rsbuild-plugin": "^2.4.0",
