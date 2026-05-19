@@ -762,9 +762,10 @@ function ListRow({
         </div>
       </button>
 
-      <div
+      <button
+        type="button"
         onClick={onDesktopSelect}
-        className="hidden lg:flex flex-1 min-w-0 items-center gap-2 cursor-pointer"
+        className="hidden lg:flex flex-1 min-w-0 items-center gap-2 cursor-pointer bg-transparent border-none p-0"
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5">
@@ -790,11 +791,20 @@ function ListRow({
             <p className="text-xs text-muted-foreground truncate">{project.description}</p>
           )}
         </div>
-      </div>
+      </button>
 
+      {/* biome-ignore lint/a11y/useSemanticElements: stopPropagation container with nested buttons */}
       <div
         className="flex flex-col items-center shrink-0 gap-0.5"
+        role="button"
+        tabIndex={0}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+        }}
       >
         <VoteButton
           icon={<ChevronUp size={14} strokeWidth={2.25} />}

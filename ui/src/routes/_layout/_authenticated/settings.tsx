@@ -28,7 +28,7 @@ function SettingsLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   const activeTab =
-    tabs.find((t) => pathname === t.to || pathname.startsWith(t.to + "/"))?.value ?? "profile";
+    tabs.find((t) => pathname === t.to || pathname.startsWith(`${t.to}/`))?.value ?? "profile";
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
