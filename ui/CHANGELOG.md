@@ -1,5 +1,30 @@
 # ui
 
+## 1.5.0
+
+### Minor Changes
+
+- b662086: Replace manual EventSource SSE with oRPC MemoryPublisher + eventIterator. Eliminates MaxListenersExceededWarning from Node EventTarget, stabilizes query keys to prevent refetch cascades, and adds typed streaming via VoteEventSchema contract.
+
+### Patch Changes
+
+- b662086: Move the homepage BOS viewer into an isolated iframe surface backed by a host-rendered `/_viewer` page.
+
+  - Update `ui/src/routes/_layout/index.tsx` to load the landing viewer through `/_viewer` while preserving `?path=` support.
+  - Add a dedicated host-rendered `/_viewer` endpoint with scoped CSP framing rules so the viewer can run in production without weakening the rest of the app.
+  - Bootstrap the NEAR BOS web component from the host page so the requested widget path is forwarded correctly into the viewer runtime.
+
+- b662086: Fix sidebar navigation to derive from plugin sidebar items and include projects
+
+  - Updated `ui/src/routes/_layout.tsx` to properly consume generated `pluginSidebarItems` instead of using hardcoded navigation.
+  - Fixed `packages/everything-dev/src/sidebar.ts` so the core `home` item points to `/home` (logo/dot still links to `/` for repository markdown render).
+  - Added `plugins.projects.sidebar` to `bos.config.json` so the projects plugin appears in generated navigation.
+  - Regenerated `ui/src/lib/plugin-sidebar.gen.ts` via `bos types gen` to include the `projects` sidebar item.
+  - Fixed unbalanced JSX structure in `_layout.tsx` and removed stale/unused imports.
+
+- b662086: Add a public skill surface for agents and builders, including a rendered `/skill` page, an updated raw `/skill.md` prompt, links from the about page, and a floating home-screen assistant that opens quick actions for the skill and related docs.
+- b662086: Refactor the shared app shell by extracting the existing `_layout` chrome into `ui/src/components/style-chrome.tsx` without changing the intended authenticated and unauthenticated UI behavior.
+
 ## 1.5.3
 
 ### Patch Changes
