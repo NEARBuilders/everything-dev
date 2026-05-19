@@ -3,7 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import type { Organization } from "@/app";
 import { sessionQueryOptions, useAuthClient } from "@/app";
-import { Button, OrgSwitcher } from "@/components";
+import { OrgSwitcher } from "@/components";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,9 +55,12 @@ export function UserNav() {
   if (!user) {
     return (
       <div className="flex items-center gap-2">
-        <Button asChild variant="outline" size="sm">
-          <Link to="/login">connect</Link>
-        </Button>
+        <Link
+          to="/login"
+          className="h-9 px-4 inline-flex items-center justify-center text-sm font-medium border-2 border-outset border-border-strong bg-card text-foreground shadow-sm hover:shadow-md hover:bg-muted active:border-inset active:shadow-none transition-all duration-200 ease-out cursor-pointer"
+        >
+          connect
+        </Link>
         <DotControl />
       </div>
     );
@@ -82,7 +85,7 @@ export function UserNav() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="w-6 h-6 rounded-full bg-foreground transition-all duration-200 ease-out hover:shadow-lg hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="w-6 h-6 rounded-full! bg-foreground transition-all duration-200 ease-out hover:shadow-lg hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             title="menu"
           />
         </DropdownMenuTrigger>
@@ -130,7 +133,7 @@ function DotControl() {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="w-6 h-6 rounded-full bg-foreground transition-all duration-200 ease-out hover:shadow-lg hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="w-6 h-6 rounded-full! bg-foreground transition-all duration-200 ease-out hover:shadow-lg hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           title="actions"
         />
       </DropdownMenuTrigger>

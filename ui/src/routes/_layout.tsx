@@ -159,8 +159,20 @@ function Layout() {
                   </div>
                 </div>
               ) : (
-                <Link to="/login" className="text-sm font-medium tracking-tight">
-                  {appName}
+                <Link
+                  to="/login"
+                  aria-label={`${appName} home`}
+                  className="flex items-center justify-center w-10 h-10 transition-opacity duration-200 hover:opacity-70"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="w-5 h-5 text-foreground"
+                    aria-label={`${appName} logo`}
+                  >
+                    <title>{appName}</title>
+                    <circle cx="12" cy="12" r="10" />
+                  </svg>
                 </Link>
               )}
 

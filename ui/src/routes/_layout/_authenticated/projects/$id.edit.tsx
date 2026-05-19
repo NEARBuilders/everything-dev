@@ -5,6 +5,7 @@ import { ArrowLeft, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import { ProjectFormLayout, type ProjectFormValues } from "@/components/project-form";
+import { parseProjectListSearch } from "./search";
 
 function isCurrentUserOwner(
   ownerId: string | null | undefined,
@@ -17,12 +18,13 @@ function isCurrentUserOwner(
   return [user?.id, user?.walletAddress].some((candidate) => candidate === ownerId);
 }
 
-type SearchParams = {
+type SearchParams = ReturnType<typeof parseProjectListSearch> & {
   tab: "write" | "preview";
 };
 
 export const Route = createFileRoute("/_layout/_authenticated/projects/$id/edit")({
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
+    ...parseProjectListSearch(search),
     tab: search.tab === "preview" ? "preview" : "write",
   }),
   head: () => ({
@@ -37,11 +39,12 @@ export const Route = createFileRoute("/_layout/_authenticated/projects/$id/edit"
 
 function EditProjectPage() {
   const { id: projectId } = Route.useParams();
-  const navigate = useNavigate();
+  const navigate = useNavigate({ from: Route.fullPath });
   const queryClient = useQueryClient();
   const apiClient = useApiClient();
   const auth = useAuthClient();
-  const { tab } = Route.useSearch();
+  const search = Route.useSearch();
+  const { tab } = search;
 
   const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
   const isAdmin = session?.user?.role === "admin";
@@ -62,7 +65,12 @@ function EditProjectPage() {
 
   const setTab = (value: string) => {
     void navigate({
-      search: { tab: value as "write" | "preview" } as any,
+      search: {
+        tab: value as "write" | "preview",
+        kind: search.kind,
+        personal: search.personal,
+        private: search.private,
+      },
       replace: true,
     });
   };
@@ -88,7 +96,15 @@ function EditProjectPage() {
       toast.success("Saved");
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
       queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigate({ to: "/projects/$id", params: { id: projectId } });
+      navigate({
+        to: "/projects/$id",
+        params: { id: projectId },
+        search: {
+          kind: search.kind,
+          personal: search.personal,
+          private: search.private,
+        },
+      });
     },
     onError: (err: Error) => toast.error(err.message || "Failed to save"),
   });
@@ -98,7 +114,15 @@ function EditProjectPage() {
     onSuccess: () => {
       toast.success("Deleted");
       queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigate({ to: "/projects", search: { preview: undefined, kind: undefined } });
+      navigate({
+        to: "/projects",
+        search: {
+          preview: undefined,
+          kind: search.kind,
+          personal: search.personal,
+          private: search.private,
+        },
+      });
     },
     onError: (err: Error) => toast.error(err.message || "Failed to delete"),
   });
@@ -130,7 +154,12 @@ function EditProjectPage() {
         </p>
         <Link
           to="/projects"
-          search={{ preview: undefined, kind: undefined }}
+          search={{
+            preview: undefined,
+            kind: search.kind,
+            personal: search.personal,
+            private: search.private,
+          }}
           className="text-brand-accent"
           style={{ fontWeight: 700, fontSize: 14, textDecoration: "none" }}
         >
@@ -149,6 +178,11 @@ function EditProjectPage() {
         <Link
           to="/projects/$id"
           params={{ id: projectId }}
+          search={{
+            kind: search.kind,
+            personal: search.personal,
+            private: search.private,
+          }}
           className="text-brand-accent"
           style={{ fontWeight: 700, fontSize: 14, textDecoration: "none" }}
         >
@@ -164,6 +198,7 @@ function EditProjectPage() {
       projectId={projectId}
       isAdmin={isAdmin}
       defaultOwnerId={defaultOwnerId}
+      search={search}
       tab={tab}
       setTab={setTab}
       updateMutation={updateMutation}
@@ -177,6 +212,7 @@ function EditFormInner({
   projectId,
   isAdmin,
   defaultOwnerId,
+  search,
   tab,
   setTab,
   updateMutation,
@@ -186,6 +222,7 @@ function EditFormInner({
   projectId: string;
   isAdmin: boolean;
   defaultOwnerId: string;
+  search: SearchParams;
   tab: "write" | "preview";
   setTab: (tab: "write" | "preview") => void;
   updateMutation: any;
@@ -219,6 +256,11 @@ function EditFormInner({
           <Link
             to="/projects/$id"
             params={{ id: projectId }}
+            search={{
+              kind: search.kind,
+              personal: search.personal,
+              private: search.private,
+            }}
             aria-label="Back to project"
             className="flex items-center justify-center w-8 h-8 border-2 border-outset border-border-strong bg-card shadow-sm transition-all duration-200 ease-out hover:shadow-md hover:bg-muted rounded-[10px]"
           >
@@ -257,6 +299,11 @@ function EditFormInner({
           <Link
             to="/projects/$id"
             params={{ id: projectId }}
+            search={{
+              kind: search.kind,
+              personal: search.personal,
+              private: search.private,
+            }}
             className="bg-secondary text-foreground hover:bg-border"
             style={{
               height: 34,

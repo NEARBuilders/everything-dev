@@ -5,23 +5,24 @@ import {
   ArrowUpRight,
   Check,
   ChevronDown,
+  ChevronUp,
   FileText,
   Globe,
+  Lock,
   Pencil,
   Plus,
   Share2,
-  TrendingDown,
-  TrendingUp,
+  User,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { sessionQueryOptions, useApiClient, useAuthClient, useOrpc } from "@/app";
 import { Markdown } from "@/components/ui/markdown";
 import { fetchRepositoryReadme } from "@/lib/repository-content";
+import { parseProjectListSearch, type ProjectKindFilter } from "./search";
 
 type VoteDirection = "up" | "down" | null;
 
-type ProjectKindFilter = "all" | "project" | "idea";
 type ProjectKind = "project" | "idea";
 
 interface RankedProject {
@@ -45,27 +46,27 @@ interface RankedProject {
 const PAGE_SIZE = 24;
 
 export const Route = createFileRoute("/_layout/_authenticated/projects/")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    preview: typeof search.preview === "string" ? search.preview : undefined,
-    kind:
-      search.kind === "project" || search.kind === "idea" || search.kind === "all"
-        ? search.kind
-        : undefined,
-  }),
+  validateSearch: parseProjectListSearch,
   head: () => ({
     meta: [
       { title: "Projects | app" },
       { name: "description", content: "Browse projects and ideas, ranked live by votes." },
     ],
   }),
-  loaderDeps: ({ search }) => ({ kind: search.kind }),
+  loaderDeps: ({ search }) => ({
+    kind: search.kind,
+    personal: search.personal,
+    private: search.private,
+  }),
   loader: ({ context, deps }) => {
     const { queryClient, apiClient } = context;
-    const { kind } = deps;
+    const { kind, personal } = deps;
     const activeKind = kind === "project" || kind === "idea" || kind === "all" ? kind : "all";
 
+    if (personal) return;
+
     void queryClient.prefetchInfiniteQuery({
-      queryKey: ["projects", activeKind],
+      queryKey: ["projects", activeKind, null, false],
       queryFn: ({ pageParam }) =>
         apiClient.projects.listProjects({
           limit: PAGE_SIZE,
@@ -113,12 +114,21 @@ function ProjectsList() {
     search.kind === "project" || search.kind === "idea" || search.kind === "all"
       ? search.kind
       : "all";
+  const isPersonalOnly = search.personal === true;
+  const isPrivateOnly = isPersonalOnly && search.private === true;
 
-  const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
+  const sessionQuery = useQuery(sessionQueryOptions(auth, undefined));
+  const { data: session } = sessionQuery;
   const user = session?.user;
   const userId = user?.id;
+  const ownerFilterId =
+    (user as { walletAddress?: string | null } | undefined)?.walletAddress ?? user?.id;
   const canParticipate = Boolean(user && !user.isAnonymous);
   const [copied, setCopied] = useState(false);
+  const listQueryKey = useMemo(
+    () => ["projects", activeKind, isPersonalOnly ? (ownerFilterId ?? null) : null, isPrivateOnly] as const,
+    [activeKind, isPersonalOnly, isPrivateOnly, ownerFilterId],
+  );
 
   const handleShare = useCallback((projectId: string) => {
     const url =
@@ -137,15 +147,18 @@ function ProjectsList() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["projects", activeKind],
+    queryKey: listQueryKey,
     queryFn: ({ pageParam }) =>
       apiClient.projects.listProjects({
         limit: PAGE_SIZE,
         cursor: pageParam,
         kind: activeKind === "all" ? undefined : activeKind,
+        ownerId: isPersonalOnly ? ownerFilterId : undefined,
+        visibility: isPrivateOnly ? "private" : undefined,
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => (lastPage.meta.hasMore ? lastPage.meta.nextCursor : undefined),
+    enabled: !isPersonalOnly || Boolean(ownerFilterId),
   });
 
   const projects = useMemo(() => pages?.pages.flatMap((page) => page.data) ?? [], [pages]);
@@ -287,18 +300,66 @@ function ProjectsList() {
   );
 
   const handleMobileRowTap = (projectId: string) => {
-    void navigate({ to: "/projects/$id", params: { id: projectId } });
+    void navigate({
+      to: "/projects/$id",
+      params: { id: projectId },
+      search: {
+        kind: search.kind,
+        personal: search.personal,
+        private: search.private,
+      },
+    });
   };
 
   const handleDesktopRowSelect = (projectId: string) => {
     void navigate({
       to: "/projects",
-      search: (prev) => ({ ...prev, preview: projectId, kind: search.kind }),
+      search: (prev) => ({
+        ...prev,
+        preview: projectId,
+        kind: search.kind,
+        personal: search.personal,
+        private: search.private,
+      }),
     });
   };
 
   const handleKindChange = (kind: ProjectKindFilter) => {
-    void navigate({ to: "/projects", search: () => ({ kind, preview: undefined }) });
+    void navigate({
+      to: "/projects",
+      search: () => ({
+        kind,
+        preview: undefined,
+        personal: search.personal,
+        private: search.private,
+      }),
+    });
+  };
+
+  const handlePersonalToggle = () => {
+    const nextPersonal = !isPersonalOnly;
+    void navigate({
+      to: "/projects",
+      search: () => ({
+        kind: search.kind,
+        preview: undefined,
+        personal: nextPersonal || undefined,
+        private: nextPersonal ? search.private : undefined,
+      }),
+    });
+  };
+
+  const handlePrivateToggle = () => {
+    if (!isPersonalOnly) return;
+    void navigate({
+      to: "/projects",
+      search: () => ({
+        kind: search.kind,
+        preview: undefined,
+        personal: true,
+        private: isPrivateOnly ? undefined : true,
+      }),
+    });
   };
 
   const runVote = (direction: "up" | "down", projectId: string) => {
@@ -316,7 +377,7 @@ function ProjectsList() {
       : (selectedReadmeQuery.data ?? selectedProject?.description ?? null);
 
   const filterButtons = (
-    <div className="flex items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1">
       {(
         [
           { value: "all", label: "All" },
@@ -333,13 +394,38 @@ function ProjectsList() {
           {opt.label}
         </button>
       ))}
+
+      <button
+        type="button"
+        onClick={handlePersonalToggle}
+        className={`h-8 px-2.5 rounded-[12px] text-sm font-semibold cursor-pointer transition-all duration-150 border inline-flex items-center gap-1.5 ${isPersonalOnly ? "border-brand-accent bg-brand-accent-light text-foreground" : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"}`}
+      >
+        <User size={13} />
+        Personal
+      </button>
+
+      {isPersonalOnly && (
+        <button
+          type="button"
+          onClick={handlePrivateToggle}
+          className={`h-8 px-2.5 rounded-[12px] text-sm font-semibold cursor-pointer transition-all duration-150 border inline-flex items-center gap-1.5 ${isPrivateOnly ? "border-brand-accent bg-brand-accent-light text-foreground" : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"}`}
+        >
+          <Lock size={13} />
+          Private
+        </button>
+      )}
     </div>
   );
 
   const newButton = canParticipate ? (
     <Link
       to="/projects/new"
-      search={{ tab: "write" }}
+      search={{
+        tab: "write",
+        kind: search.kind,
+        personal: search.personal,
+        private: search.private,
+      }}
       className="h-9 px-3.5 rounded-[12px] text-sm font-bold inline-flex items-center gap-1.5 no-underline transition-colors duration-150 shrink-0 bg-primary text-primary-foreground hover:opacity-90"
     >
       <Plus size={14} />
@@ -366,7 +452,12 @@ function ProjectsList() {
           {canParticipate && (
             <Link
               to="/projects/new"
-              search={{ tab: "write" }}
+              search={{
+                tab: "write",
+                kind: search.kind,
+                personal: search.personal,
+                private: search.private,
+              }}
               className="text-sm font-bold no-underline text-brand-accent"
             >
               Create the first one
@@ -436,7 +527,7 @@ function ProjectsList() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-4 py-2.5 sm:px-6 sm:py-3">
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <h1 className="text-xl font-semibold text-foreground">Projects</h1>
           {filterButtons}
         </div>
@@ -476,9 +567,12 @@ function ProjectsList() {
                     <KindBadge kind={selectedProject.kind} />
                     <StatusBadge status={selectedProject.status} />
                   </div>
-                  <h2 className="mt-1 text-xl font-semibold leading-snug text-foreground">
-                    {selectedProject.title}
-                  </h2>
+                  <div className="mt-1 flex items-center gap-2">
+                    <h2 className="text-xl font-semibold leading-snug text-foreground">
+                      {selectedProject.title}
+                    </h2>
+                    {selectedProject.visibility === "private" && <PrivateIndicator />}
+                  </div>
                   {selectedProject.description && (
                     <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
                       {selectedProject.description}
@@ -489,8 +583,9 @@ function ProjectsList() {
                 <div className="flex shrink-0 items-center gap-2">
                   <div className="flex items-center gap-1 rounded-[12px] px-2.5 py-1 bg-secondary">
                     <VoteButton
-                      icon={<TrendingUp size={14} />}
+                      icon={<ChevronUp size={18} strokeWidth={2.25} />}
                       onClick={() => runVote("up", selectedProject.id)}
+                      label="Upvote"
                       disabled={
                         !canParticipate ||
                         (upvoteMutation.isPending &&
@@ -503,8 +598,9 @@ function ProjectsList() {
                       {counts[selectedProject.id] ?? 0}
                     </span>
                     <VoteButton
-                      icon={<TrendingDown size={14} />}
+                      icon={<ChevronDown size={18} strokeWidth={2.25} />}
                       onClick={() => runVote("down", selectedProject.id)}
+                      label="Downvote"
                       disabled={
                         !canParticipate ||
                         (downvoteMutation.isPending &&
@@ -543,6 +639,11 @@ function ProjectsList() {
                   <Link
                     to="/projects/$id"
                     params={{ id: selectedProject.id }}
+                    search={{
+                      kind: search.kind,
+                      personal: search.personal,
+                      private: search.private,
+                    }}
                     className="h-9 px-3.5 rounded-[12px] text-sm font-bold inline-flex items-center gap-1.5 no-underline transition-colors duration-150 bg-primary text-primary-foreground hover:opacity-90"
                   >
                     Open
@@ -553,7 +654,12 @@ function ProjectsList() {
                     <Link
                       to="/projects/$id/edit"
                       params={{ id: selectedProject.id }}
-                      search={{ tab: "write" }}
+                      search={{
+                        tab: "write",
+                        kind: search.kind,
+                        personal: search.personal,
+                        private: search.private,
+                      }}
                       className="h-9 px-3.5 rounded-[12px] text-sm font-bold inline-flex items-center gap-1.5 no-underline transition-colors duration-150 bg-secondary text-foreground hover:bg-border"
                     >
                       <Pencil size={13} />
@@ -637,6 +743,7 @@ function ListRow({
           <div className="flex items-center gap-1 mb-0.5">
             <KindBadge kind={project.kind} compact />
             <span className="text-sm font-semibold text-foreground truncate">{project.title}</span>
+            {project.visibility === "private" && <PrivateIndicator size={11} />}
           </div>
           {project.description && (
             <p className="text-xs text-muted-foreground truncate">{project.description}</p>
@@ -654,6 +761,7 @@ function ListRow({
             <span className="text-sm font-semibold text-foreground truncate flex-1 min-w-0">
               {project.title}
             </span>
+            {project.visibility === "private" && <PrivateIndicator size={11} />}
             {project.repository && (
               <a
                 href={project.repository}
@@ -675,8 +783,9 @@ function ListRow({
 
       <div className="flex flex-col items-center shrink-0" onClick={(e) => e.stopPropagation()}>
         <VoteButton
-          icon={<TrendingUp size={13} />}
+          icon={<ChevronUp size={17} strokeWidth={2.25} />}
           onClick={onUpvote}
+          label="Upvote"
           disabled={isUpvoting}
           active={voteDirection === "up"}
           activeColor="text-brand-accent"
@@ -685,8 +794,9 @@ function ListRow({
           {project.upvoteCount}
         </span>
         <VoteButton
-          icon={<TrendingDown size={13} />}
+          icon={<ChevronDown size={17} strokeWidth={2.25} />}
           onClick={onDownvote}
+          label="Downvote"
           disabled={isDownvoting}
           active={voteDirection === "down"}
           activeColor="text-status-danger-fg"
@@ -699,12 +809,14 @@ function ListRow({
 function VoteButton({
   icon,
   onClick,
+  label,
   disabled,
   active,
   activeColor,
 }: {
   icon: React.ReactNode;
   onClick: () => void;
+  label: string;
   disabled?: boolean;
   active?: boolean;
   activeColor?: string;
@@ -714,10 +826,22 @@ function VoteButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`size-9 rounded-[8px] flex items-center justify-center transition-all duration-[120ms] border-none bg-transparent [WebkitTapHighlightColor:transparent] ${disabled ? "text-disabled cursor-not-allowed" : active ? (activeColor ?? "text-brand-accent") : "text-muted-foreground hover:text-foreground cursor-pointer"}`}
+      aria-label={label}
+      className={`size-10 rounded-[10px] flex items-center justify-center transition-all duration-[120ms] border border-transparent [WebkitTapHighlightColor:transparent] ${disabled ? "text-disabled cursor-not-allowed bg-transparent" : active ? `${activeColor ?? "text-brand-accent"} bg-card shadow-sm` : "text-muted-foreground bg-transparent hover:bg-muted hover:text-foreground cursor-pointer"}`}
     >
       {icon}
     </button>
+  );
+}
+
+function PrivateIndicator({ size = 12 }: { size?: number }) {
+  return (
+    <span
+      title="Private"
+      className="inline-flex shrink-0 items-center justify-center rounded-full bg-secondary p-1 text-muted-foreground"
+    >
+      <Lock size={size} />
+    </span>
   );
 }
 

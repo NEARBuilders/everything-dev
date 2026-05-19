@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import { ProjectFormLayout, type ProjectFormValues } from "@/components/project-form";
+import { parseProjectListSearch } from "./search";
 
 const STORAGE_KEY_PROJECT = "projects:new:project";
 const STORAGE_KEY_IDEA = "projects:new:idea";
@@ -34,12 +35,13 @@ const clearDraft = (kind: "project" | "idea") => {
   } catch {}
 };
 
-type SearchParams = {
+type SearchParams = ReturnType<typeof parseProjectListSearch> & {
   tab: "write" | "preview";
 };
 
 export const Route = createFileRoute("/_layout/_authenticated/projects/new")({
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
+    ...parseProjectListSearch(search),
     tab: search.tab === "preview" ? "preview" : "write",
   }),
   head: () => ({
@@ -72,7 +74,8 @@ function NewProjectPage() {
   const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
   const isAdmin = session?.user?.role === "admin";
   const canCreate = Boolean(session?.user && !session.user.isAnonymous);
-  const { tab } = Route.useSearch();
+  const search = Route.useSearch();
+  const { tab } = search;
   const defaultOwnerId =
     (session?.user as { walletAddress?: string | null } | null)?.walletAddress ??
     session?.user?.id ??
@@ -130,7 +133,15 @@ function NewProjectPage() {
       clearDraft(result.kind === "idea" ? "idea" : "project");
       toast.success(`${result.kind === "idea" ? "Idea" : "Project"} created`);
       queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigate({ to: "/projects/$id", params: { id: result.id } });
+      navigate({
+        to: "/projects/$id",
+        params: { id: result.id },
+        search: {
+          kind: search.kind,
+          personal: search.personal,
+          private: search.private,
+        },
+      });
     },
     onError: (err: Error) => toast.error(err.message || "Failed to create"),
   });
@@ -167,7 +178,12 @@ function NewProjectPage() {
         <div className="flex min-w-0 items-center gap-3">
           <Link
             to="/projects"
-            search={{ preview: undefined, kind: undefined }}
+            search={{
+              preview: undefined,
+              kind: search.kind,
+              personal: search.personal,
+              private: search.private,
+            }}
             aria-label="Back to projects"
             className="flex items-center justify-center w-8 h-8 border-2 border-outset border-border-strong bg-card shadow-sm transition-all duration-200 ease-out hover:shadow-md hover:bg-muted rounded-[10px]"
           >

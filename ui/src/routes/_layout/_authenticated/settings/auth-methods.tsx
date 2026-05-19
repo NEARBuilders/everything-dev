@@ -110,7 +110,6 @@ function NearMethod({ nearAccountId }: { nearAccountId: string | null }) {
                 disabled={linkNearMutation.isPending}
                 className="h-9 px-4 inline-flex items-center justify-center gap-2 text-sm font-medium border-2 border-outset border-border-strong bg-card text-foreground shadow-sm hover:shadow-md hover:bg-muted active:border-inset active:shadow-none transition-all duration-200 ease-out disabled:pointer-events-none disabled:opacity-50 rounded-[12px]"
               >
-                <NearIcon />
                 {linkNearMutation.isPending ? "connecting..." : "connect NEAR wallet"}
               </button>
             </div>
@@ -281,10 +280,4 @@ function StatusChip({ linked, label }: { linked: boolean; label?: string }) {
   );
 }
 
-function NearIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
-      <path d="M21.077 4.5l-5.2 7.573L10.923 4.5H4.5v23h5.827V12.118l5.55 7.898 5.55-7.898V27.5H27.5V4.5z" />
-    </svg>
-  );
-}
+

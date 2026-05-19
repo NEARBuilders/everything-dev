@@ -40,6 +40,12 @@ type RuntimeClientConfig = ClientRuntimeConfig & { runtime?: ActiveRuntimeState 
 
 type RuntimePlugin = NonNullable<RuntimeConfig["plugins"]>[string];
 
+const BOS_VIEWER_DEFAULT_PATH = "every.near/widget/index";
+const BOS_VIEWER_RUNTIME_SCRIPT_URL =
+  "https://cdn.jsdelivr.net/npm/near-bos-webcomponent@0.0.9/dist/runtime.25b143da327a5371509f.bundle.js";
+const BOS_VIEWER_MAIN_SCRIPT_URL =
+  "https://cdn.jsdelivr.net/npm/near-bos-webcomponent@0.0.9/dist/main.1b3f0d7d1017de355a7c.bundle.js";
+
 function normalizeUrl(url?: string | null) {
   if (!url) {
     return null;
@@ -50,6 +56,10 @@ function normalizeUrl(url?: string | null) {
   } catch {
     return url.replace(/\/$/, "");
   }
+}
+
+function isViewerFramePath(pathname: string) {
+  return pathname === "/_viewer" || /^\/_runtime\/[^/]+\/[^/]+\/_viewer\/?$/.test(pathname);
 }
 
 function getRuntimeOverride(pathname: string) {
@@ -523,9 +533,10 @@ export const createStartServer = (onReady?: () => void) =>
       ? [NONCE, "'strict-dynamic'", "'unsafe-eval'"]
       : ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:", ...uniqueOrigins, ...cdnOrigins];
 
-    app.use(
-      "*",
-      secureHeaders({
+    app.use("*", (c, next) => {
+      const frameAncestors = isViewerFramePath(c.req.path) ? ["'self'"] : ["'none'"];
+
+      return secureHeaders({
         crossOriginOpenerPolicy: "same-origin-allow-popups",
         contentSecurityPolicy: {
           defaultSrc: ["'self'"],
@@ -548,11 +559,11 @@ export const createStartServer = (onReady?: () => void) =>
           objectSrc: ["'none'"],
           baseUri: ["'self'"],
           formAction: ["'self'"],
-          frameAncestors: ["'none'"],
+          frameAncestors,
           workerSrc: ["'self'", "https:", ...uniqueOrigins],
         },
-      }),
-    );
+      })(c, next);
+    });
 
     app.get("/health", (c: Context<HonoEnv>) => c.text("OK"));
 
@@ -678,6 +689,67 @@ export const createStartServer = (onReady?: () => void) =>
         }
       });
     }
+
+    const renderBosViewer = (c: Context<HonoEnv>) => {
+      const nonce = CSP_STRICT ? c.get("secureHeadersNonce") : undefined;
+      const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
+      const widgetPath =
+        new URL(c.req.url).searchParams.get("path")?.trim() || BOS_VIEWER_DEFAULT_PATH;
+      const widgetPathJson = JSON.stringify(widgetPath);
+
+      c.header("X-Robots-Tag", "noindex, nofollow");
+
+      return c.html(
+        `<!DOCTYPE html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+              <meta name="robots" content="noindex, nofollow" />
+              <title>Viewer</title>
+              <style>
+                html, body, #viewer-root { height: 100%; margin: 0; }
+                body { background: #fff; overflow: hidden; }
+                near-social-viewer { display: block; width: 100%; height: 100%; }
+              </style>
+              <script${nonceAttr}>
+                (function() {
+                  var widgetPath = ${widgetPathJson};
+                  history.replaceState(null, "", "/" + widgetPath.replace(/^\/+/, ""));
+                })();
+              </script>
+              <script${nonceAttr} src="${BOS_VIEWER_RUNTIME_SCRIPT_URL}"></script>
+              <script${nonceAttr} src="${BOS_VIEWER_MAIN_SCRIPT_URL}"></script>
+            </head>
+            <body>
+              <div id="viewer-root"></div>
+              <script${nonceAttr}>
+                (function() {
+                  var widgetPath = ${widgetPathJson};
+                  var mount = function() {
+                    var root = document.getElementById("viewer-root");
+                    if (!root || root.querySelector("near-social-viewer")) return;
+                    var viewer = document.createElement("near-social-viewer");
+                    viewer.setAttribute("src", widgetPath);
+                    viewer.setAttribute("network", "mainnet");
+                    root.appendChild(viewer);
+                  };
+
+                  if (customElements.get("near-social-viewer")) {
+                    mount();
+                    return;
+                  }
+
+                  customElements.whenDefined("near-social-viewer").then(mount);
+                })();
+              </script>
+            </body>
+          </html>`,
+      );
+    };
+
+    app.get("/_viewer", renderBosViewer);
+    app.get("/_runtime/:accountId/:gatewayId/_viewer", renderBosViewer);
 
     app.use("/*", sessionMiddleware);
 

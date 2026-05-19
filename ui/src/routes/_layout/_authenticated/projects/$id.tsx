@@ -3,16 +3,17 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
   FileCode2,
   FileText,
   Globe,
   Info,
+  Lock,
   Pencil,
   Share2,
   Trash2,
-  TrendingDown,
-  TrendingUp,
 } from "lucide-react";
 import { type ReactNode, useCallback, useState } from "react";
 import { toast } from "sonner";
@@ -20,8 +21,10 @@ import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import { Markdown } from "@/components/ui/markdown";
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { fetchRepositoryReadme } from "@/lib/repository-content";
+import { parseProjectListSearch } from "./search";
 
 export const Route = createFileRoute("/_layout/_authenticated/projects/$id")({
+  validateSearch: parseProjectListSearch,
   head: () => ({
     meta: [{ title: `Project | app` }, { name: "description", content: "Project details." }],
   }),
@@ -58,6 +61,7 @@ function ProjectDetailPage() {
   const queryClient = useQueryClient();
   const apiClient = useApiClient();
   const auth = useAuthClient();
+  const search = Route.useSearch();
 
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -98,7 +102,15 @@ function ProjectDetailPage() {
     onSuccess: () => {
       toast.success("Deleted");
       queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigate({ to: "/projects", search: { preview: undefined, kind: undefined } });
+      navigate({
+        to: "/projects",
+        search: {
+          preview: undefined,
+          kind: search.kind,
+          personal: search.personal,
+          private: search.private,
+        },
+      });
     },
     onError: (err: Error) => toast.error(err.message || "Failed to delete"),
   });
@@ -176,7 +188,12 @@ function ProjectDetailPage() {
         </p>
         <Link
           to="/projects"
-          search={{ preview: undefined, kind: undefined }}
+          search={{
+            preview: undefined,
+            kind: search.kind,
+            personal: search.personal,
+            private: search.private,
+          }}
           className="text-brand-accent"
           style={{ fontWeight: 700, fontSize: 14, textDecoration: "none" }}
         >
@@ -214,7 +231,12 @@ function ProjectDetailPage() {
         <div className="flex items-center gap-2">
           <Link
             to="/projects"
-            search={{ preview: project.id, kind: undefined }}
+            search={{
+              preview: project.id,
+              kind: search.kind,
+              personal: search.personal,
+              private: search.private,
+            }}
             aria-label="Back to projects"
             className="flex items-center justify-center w-8 h-8 border-2 border-outset border-border-strong bg-card shadow-sm transition-all duration-200 ease-out hover:shadow-md hover:bg-muted rounded-[10px]"
           >
@@ -244,11 +266,12 @@ function ProjectDetailPage() {
           >
             <IconButton
               onClick={() => runVote("up")}
+              label="Upvote"
               disabled={!canParticipate || upvoteMutation.isPending}
               active={voteDirection === "up"}
               activeColor="text-brand-accent"
             >
-              <TrendingUp size={14} />
+              <ChevronUp size={18} strokeWidth={2.25} />
             </IconButton>
             <span
               className="text-foreground"
@@ -258,11 +281,12 @@ function ProjectDetailPage() {
             </span>
             <IconButton
               onClick={() => runVote("down")}
+              label="Downvote"
               disabled={!canParticipate || downvoteMutation.isPending}
               active={voteDirection === "down"}
               activeColor="text-status-danger-fg"
             >
-              <TrendingDown size={14} />
+              <ChevronDown size={18} strokeWidth={2.25} />
             </IconButton>
           </div>
 
@@ -307,7 +331,12 @@ function ProjectDetailPage() {
           )}
 
           {/* share */}
-          <IconButton onClick={handleShare} active={copied} activeColor="text-brand-accent">
+          <IconButton
+            onClick={handleShare}
+            label={copied ? "Link copied" : "Copy link"}
+            active={copied}
+            activeColor="text-brand-accent"
+          >
             {copied ? <Check size={14} /> : <Share2 size={14} />}
           </IconButton>
 
@@ -326,7 +355,12 @@ function ProjectDetailPage() {
               <Link
                 to="/projects/$id/edit"
                 params={{ id: projectId }}
-                search={{ tab: "write" }}
+                search={{
+                  tab: "write",
+                  kind: search.kind,
+                  personal: search.personal,
+                  private: search.private,
+                }}
                 className="bg-secondary text-foreground hover:bg-border"
                 style={{
                   height: 34,
@@ -370,12 +404,15 @@ function ProjectDetailPage() {
                 <KindChip kind={project.kind} />
                 {project.status !== "active" && <StatusChip status={project.status as any} />}
               </div>
-              <h1
-                style={{ fontSize: 26, fontWeight: 600, lineHeight: "1.2" }}
-                className="text-foreground sm:text-[30px]"
-              >
-                {project.title}
-              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1
+                  style={{ fontSize: 26, fontWeight: 600, lineHeight: "1.2" }}
+                  className="text-foreground sm:text-[30px]"
+                >
+                  {project.title}
+                </h1>
+                {project.visibility === "private" && <PrivateIndicator />}
+              </div>
               {project.description && (
                 <p style={{ fontSize: 15, lineHeight: "1.5" }} className="text-muted-foreground">
                   {project.description}
@@ -489,12 +526,14 @@ function ProjectDetailPage() {
 
 function IconButton({
   onClick,
+  label,
   disabled,
   children,
   active,
   activeColor,
 }: {
   onClick: () => void;
+  label: string;
   disabled?: boolean;
   children: ReactNode;
   active?: boolean;
@@ -505,17 +544,29 @@ function IconButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center justify-center rounded-[8px] ${disabled ? "text-disabled" : active ? (activeColor ?? "text-brand-accent") : "text-muted-foreground hover:text-foreground"}`}
+      aria-label={label}
+      className={`inline-flex items-center justify-center rounded-[10px] border border-transparent ${disabled ? "text-disabled bg-transparent" : active ? `${activeColor ?? "text-brand-accent"} bg-card shadow-sm` : "text-muted-foreground hover:text-foreground hover:bg-muted bg-transparent"}`}
       style={{
-        width: 36,
-        height: 36,
+        width: 40,
+        height: 40,
         cursor: disabled ? "not-allowed" : "pointer",
-        transition: "color 0.12s",
+        transition: "color 0.12s, background 0.12s",
         WebkitTapHighlightColor: "transparent",
       }}
     >
       {children}
     </button>
+  );
+}
+
+function PrivateIndicator() {
+  return (
+    <span
+      title="Private"
+      className="inline-flex shrink-0 items-center justify-center rounded-full bg-secondary p-1 text-muted-foreground"
+    >
+      <Lock size={12} />
+    </span>
   );
 }
 
