@@ -1,6 +1,6 @@
 {
   "name": "@everything-dev/apps-plugin",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "Apps plugin for discovering and publishing apps via NEAR FastKV",
   "type": "module",
   "exports": {

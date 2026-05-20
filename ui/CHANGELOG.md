@@ -1,5 +1,11 @@
 # ui
 
+## 1.5.1
+
+### Patch Changes
+
+- dd5a7d4: Fix production SSR by keeping the UI auth client local during server rendering and by resolving SSR-imported asset URLs from the UI remote instead of the host origin.
+
 ## 1.5.0
 
 ### Minor Changes

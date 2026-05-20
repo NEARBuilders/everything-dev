@@ -1,5 +1,16 @@
 # host
 
+## 1.8.0
+
+### Minor Changes
+
+- 1adfdee: Support account-relative tenant resolution on shared hosts so subdomains derive from the active runtime account instead of `label.near`, and allow nested tenant labels in the resolver and tests. Expose runtime lineage in the apps registry by deriving parent, root, depth, and extendsChain from `extends`, and add registry list filters for parent and root traversal.
+
+### Patch Changes
+
+- dd5a7d4: Fix production SSR by keeping the UI auth client local during server rendering and by resolving SSR-imported asset URLs from the UI remote instead of the host origin.
+- 4629b80: Write host deployment URLs back to the root bos.config.json so release publishes can commit updated runtime URLs.
+
 ## 1.7.3
 
 ### Patch Changes

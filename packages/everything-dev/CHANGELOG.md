@@ -1,5 +1,16 @@
 # everything-dev
 
+## 1.30.0
+
+### Minor Changes
+
+- 1adfdee: Support account-relative tenant resolution on shared hosts so subdomains derive from the active runtime account instead of `label.near`, and allow nested tenant labels in the resolver and tests. Expose runtime lineage in the apps registry by deriving parent, root, depth, and extendsChain from `extends`, and add registry list filters for parent and root traversal.
+
+### Patch Changes
+
+- 4518cdb: Fix UI-only `bos init` scaffolding so child apps keep the right workspaces, accept `--no-interactive`, and avoid generating API-only type artifacts when no local `api/` workspace exists. Clarify the public TanStack Intent skill docs for UI-only tenant children, including current scaffold caveats and cleanup guidance.
+- ea4b5f2: Fix `bos types:gen` to handle remote plugins that only have a `production` URL (no `development`). Plugin contract fetch failures no longer crash the entire type generation — failed plugins are reported and skipped, and the command shows per-plugin fetched/skipped/failed status instead of only API-level status.
+
 ## 1.29.0
 
 ### Minor Changes
