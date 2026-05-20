@@ -51,7 +51,6 @@ const OBSOLETE_FILES = [
   ".github/workflows/packages-release.yml",
   ".github/workflows/release.yml",
   ".github/workflows/release-sync.yml",
-  ".github/workflows/staging.yml",
   "packages/everything-dev/cli.js",
   ".templatekeep",
   ".templatesync-exclude",

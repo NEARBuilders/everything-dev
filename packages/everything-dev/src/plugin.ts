@@ -435,8 +435,11 @@ async function fetchPublishedConfig(
 ): Promise<BosConfig | null> {
   try {
     return await fetchBosConfigFromFastKv<BosConfig>(`bos://${accountId}/${gatewayId}`);
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("No config found")) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -929,6 +932,7 @@ export default createPlugin({
 
       pluginEvents.emit("progress", { phase: "config", status: "running" } satisfies ProgressEvent);
 
+      const bosEnv = input.env ?? (process.env.BOS_ENV === "staging" ? "staging" : "production");
       const account = input.account ?? process.env.BOS_ACCOUNT;
       const domain = input.domain ?? process.env.BOS_GATEWAY;
 
@@ -936,17 +940,25 @@ export default createPlugin({
       let remoteConfig: BosConfig | null = null;
 
       if (account && domain) {
-        remoteConfig = await fetchPublishedConfig(account, domain);
-        if (remoteConfig) {
-          config = remoteConfig;
-        } else {
-          console.warn(
-            `[Start] Failed to fetch remote config for ${account}/${domain}, falling back to local bos.config.json`,
-          );
+        try {
+          remoteConfig = await fetchPublishedConfig(account, domain);
+          if (remoteConfig) {
+            config = remoteConfig;
+          } else {
+            return {
+              status: "error" as const,
+              url: "",
+              error: `No config found at bos://${account}/${domain}. Verify the account and gateway are correct and the config has been published.\nExpected URL: ${buildRegistryConfigUrl(account, domain)}`,
+            };
+          }
+        } catch (error) {
+          return {
+            status: "error" as const,
+            url: "",
+            error: `Failed to fetch config for bos://${account}/${domain}: ${error instanceof Error ? error.message : "Unknown error"}\nExpected URL: ${buildRegistryConfigUrl(account, domain)}`,
+          };
         }
-      }
-
-      if (!config) {
+      } else {
         config = deps.bosConfig;
       }
 
@@ -954,8 +966,7 @@ export default createPlugin({
         return {
           status: "error" as const,
           url: "",
-          error:
-            "No configuration found. Set BOS_ACCOUNT and BOS_GATEWAY environment variables, or provide a local bos.config.json.",
+          error: "No configuration found. Provide --account and --gateway flags, or create a local bos.config.json.",
         };
       }
 
@@ -968,7 +979,7 @@ export default createPlugin({
       }
 
       const port = input.port ?? getHostDevelopmentPort(config.app.host.development);
-      const isStaging = input.env === "staging";
+      const isStaging = bosEnv === "staging";
       const runtimePlugins = await buildRuntimePluginsForConfig(
         config,
         deps.configDir,
@@ -985,6 +996,14 @@ export default createPlugin({
       });
       drainConfigWarnings();
       resumeWarnings();
+
+      if (isStaging && config.staging?.domain) {
+        runtimeConfig.domain = config.staging.domain;
+      }
+
+      if (isStaging) {
+        runtimeConfig.env = "staging";
+      }
 
       syncGeneratedInfra(deps.configDir, runtimeConfig);
       if (!existsSync(join(deps.configDir, ".env"))) {
@@ -1011,7 +1030,8 @@ export default createPlugin({
 
       // Default CORS_ORIGIN to the configured domain if not set
       if (!process.env.CORS_ORIGIN && config.domain) {
-        const defaultOrigin = `https://${config.domain}`;
+        const effectiveDomain = isStaging ? (config.staging?.domain ?? config.domain) : config.domain;
+        const defaultOrigin = `https://${effectiveDomain}`;
         productionEnv.CORS_ORIGIN = defaultOrigin;
         warnings.push(`CORS_ORIGIN defaulting to ${defaultOrigin}`);
       }
@@ -1020,6 +1040,9 @@ export default createPlugin({
       const requiredSecrets = new Set<string>();
       const missingSecrets: string[] = [];
 
+      if (runtimeConfig.host.secrets) {
+        for (const s of runtimeConfig.host.secrets) requiredSecrets.add(s);
+      }
       if (runtimeConfig.auth?.secrets) {
         for (const s of runtimeConfig.auth.secrets) requiredSecrets.add(s);
       }
@@ -1164,8 +1187,11 @@ export default createPlugin({
         };
       }
 
+      const isStagingPublish = input.env === "staging";
       const account = deps.bosConfig.account;
-      const gateway = deps.bosConfig.domain;
+      const gateway = isStagingPublish
+        ? (deps.bosConfig.staging?.domain ?? deps.bosConfig.domain)
+        : deps.bosConfig.domain;
       if (!gateway) {
         return {
           status: "error" as const,
@@ -1179,7 +1205,9 @@ export default createPlugin({
       const registryUrl = buildRegistryConfigUrlForNetwork(network, account, gateway);
       const targets = selectWorkspaceTargets(input.packages, deps.bosConfig);
 
-      let publishConfig = deps.bosConfig;
+      let publishConfig: BosConfig = isStagingPublish
+        ? { ...deps.bosConfig, domain: gateway }
+        : deps.bosConfig;
       let built: string[] | undefined;
       let skipped: string[] | undefined;
 
@@ -1212,7 +1240,9 @@ export default createPlugin({
         if (refreshed?.config) {
           deps.bosConfig = refreshed.config;
           deps.runtimeConfig = refreshed.runtime;
-          publishConfig = refreshed.config;
+          publishConfig = isStagingPublish
+            ? { ...refreshed.config, domain: gateway }
+            : refreshed.config;
         }
       }
 

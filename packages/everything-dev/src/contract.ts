@@ -121,6 +121,7 @@ export const PublishOptionsSchema = z.object({
   packages: z.string().default("all"),
   network: z.enum(["mainnet", "testnet"]).optional(),
   privateKey: z.string().optional(),
+  env: z.enum(["production", "staging"]).default("production"),
 });
 
 export const PublishResultSchema = z.object({

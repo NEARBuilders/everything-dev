@@ -74,6 +74,12 @@ export const cliCommandMeta = {
     commandPath: ["publish"],
     summary: "Publish the current workspace configuration",
     interactive: false,
+    fields: {
+      deploy: { description: "Build and deploy all workspaces before publish" },
+      dryRun: { description: "Preview what would be published without writing" },
+      env: { description: "Environment: production or staging" },
+      network: { description: "NEAR network: mainnet or testnet" },
+    },
   },
   keyPublish: {
     commandPath: ["key", "publish"],

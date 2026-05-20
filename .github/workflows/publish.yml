@@ -57,3 +57,12 @@ jobs:
         with:
           commit_message: "chore: update deployment URLs [skip ci]"
           file_pattern: "**/bos.config.json"
+
+      - name: Trigger Railway production redeploy
+        if: vars.RAILWAY_PRODUCTION_SERVICE_ID
+        run: |
+          curl -s -X POST \
+            "https://backboard.railway.com/graphql/v2" \
+            -H "Authorization: Bearer ${{ secrets.RAILWAY_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"query":"mutation { deploymentRedeploy(deploymentId: \"${{ vars.RAILWAY_PRODUCTION_SERVICE_ID }}\") { id } }"}'

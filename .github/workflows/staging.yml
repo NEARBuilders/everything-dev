@@ -1,28 +1,33 @@
-name: Publish Config
+name: Staging
 
 on:
   push:
     branches:
-      - main
-    paths:
-      - "bos.config.json"
+      - staging
   workflow_dispatch:
     inputs:
       deploy:
         description: "Build/deploy all workspaces before publish"
         required: false
-        default: false
+        default: true
         type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
+  id-token: write
+  packages: write
 
 jobs:
-  publish:
-    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]')
+  deploy-staging:
+    name: Deploy Staging
     runs-on: ubuntu-latest
     env:
       BOS_INSTALL_NEAR_CLI: "true"
+      BOS_ENV: staging
       NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
       ZE_SECRET_TOKEN: ${{ secrets.ZEPHYR_AUTH_TOKEN }}
       ZE_USER_EMAIL: ${{ secrets.ZEPHYR_USER_EMAIL }}
@@ -38,28 +43,31 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
+      - name: Build every-plugin
+        run: bun run --cwd packages/every-plugin build
+
       - name: Run postinstall
         run: bun run postinstall
 
-      - name: Publish app
+      - name: Publish staging config
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.deploy }}" = "true" ]; then
-            bun packages/everything-dev/src/cli.ts publish --deploy
+          if [ "${{ inputs.deploy }}" = "false" ]; then
+            bun packages/everything-dev/src/cli.ts publish --env staging
           else
-            bun packages/everything-dev/src/cli.ts publish
+            bun packages/everything-dev/src/cli.ts publish --env staging --deploy
           fi
 
       - name: Commit bos.config.json updates
         uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5.2.0
         with:
-          commit_message: "chore: update deployment URLs [skip ci]"
+          commit_message: "chore: update staging deployment URLs [skip ci]"
           file_pattern: "**/bos.config.json"
 
-      - name: Trigger Railway production redeploy
-        if: vars.RAILWAY_PRODUCTION_SERVICE_ID
+      - name: Trigger Railway staging redeploy
+        if: vars.RAILWAY_STAGING_SERVICE_ID
         run: |
           curl -s -X POST \
             "https://backboard.railway.com/graphql/v2" \
             -H "Authorization: Bearer ${{ secrets.RAILWAY_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d '{"query":"mutation { deploymentRedeploy(deploymentId: \"${{ vars.RAILWAY_PRODUCTION_SERVICE_ID }}\") { id } }"}'
+            -d '{"query":"mutation { deploymentRedeploy(deploymentId: \"${{ vars.RAILWAY_STAGING_SERVICE_ID }}\") { id } }"}'
