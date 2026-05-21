@@ -8,6 +8,11 @@
     "domain": "staging.dev.everything.dev"
   },
   "repository": "https://github.com/nearbuilders/everything-dev",
+  "ci": {
+    "railway": {
+      "service": "app"
+    }
+  },
   "app": {
     "host": {
       "development": "local:host",

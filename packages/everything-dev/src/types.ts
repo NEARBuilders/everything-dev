@@ -180,6 +180,7 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
     app: z.record(z.string(), BosConfigInputAppEntrySchema).optional(),
     shared: z.record(z.string(), z.record(z.string(), SharedConfigSchema)).optional(),
     plugins: z.record(z.string(), z.union([z.string(), BosConfigInputSchema])).optional(),
+    ci: CiConfigSchema.optional(),
   }),
 );
 
@@ -209,7 +210,18 @@ export interface BosConfigInput {
   app?: Record<string, BosConfigInputAppEntry>;
   shared?: Record<string, Record<string, SharedDepConfig>>;
   plugins?: Record<string, string | BosConfigInput>;
+  ci?: CiConfig;
 }
+
+export const RailwayCiSchema = z.object({
+  service: z.string(),
+});
+export type RailwayCi = z.infer<typeof RailwayCiSchema>;
+
+export const CiConfigSchema = z.object({
+  railway: RailwayCiSchema.optional(),
+});
+export type CiConfig = z.infer<typeof CiConfigSchema>;
 
 export const BosConfigSchema = z.object({
   account: z.string(),
@@ -220,6 +232,7 @@ export const BosConfigSchema = z.object({
   testnet: z.string().optional(),
   staging: BosStagingSchema.optional(),
   repository: z.string().optional(),
+  ci: CiConfigSchema.optional(),
   shared: z.record(z.string(), z.record(z.string(), SharedConfigSchema)).optional(),
   plugins: z.record(z.string(), z.union([z.string(), BosPluginRefSchema])).optional(),
   app: z.object({

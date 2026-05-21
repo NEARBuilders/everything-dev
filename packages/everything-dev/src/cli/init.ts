@@ -37,6 +37,7 @@ export const INIT_ROOT_PATTERNS = [
   "bunfig.toml",
   "Dockerfile",
   "railway.json",
+  "railway.toml",
   "AGENTS.md",
   ".changeset/config.json",
   ".changeset/README.md",

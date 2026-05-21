@@ -81,6 +81,17 @@ export const cliCommandMeta = {
       network: { description: "NEAR network: mainnet or testnet" },
     },
   },
+  deploy: {
+    commandPath: ["deploy"],
+    summary: "Publish config and trigger Railway redeploy",
+    interactive: false,
+    fields: {
+      env: { description: "Environment: production or staging" },
+      build: { description: "Build and deploy workspaces before publish (default: true)" },
+      dryRun: { description: "Preview what would be deployed without writing" },
+      service: { description: "Override Railway service name from config" },
+    },
+  },
   keyPublish: {
     commandPath: ["key", "publish"],
     summary: "Generate a publish access key",

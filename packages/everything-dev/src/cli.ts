@@ -761,6 +761,53 @@ async function main() {
         return;
       }
     }
+
+    if (descriptor.key === "deploy") {
+      const deployResult = result as any;
+      if (deployResult.status === "dry-run") {
+        console.log();
+        console.log(colors.cyan(`${icons.ok} Dry run complete`));
+        console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
+        console.log();
+        return;
+      }
+
+      if (deployResult.status === "deployed") {
+        console.log();
+        console.log(colors.green(`${icons.ok} Deployed successfully`));
+        console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
+        if (deployResult.txHash) {
+          console.log(`  ${colors.dim("Transaction:")} ${deployResult.txHash}`);
+        }
+        if (deployResult.built && deployResult.built.length > 0) {
+          console.log(`  ${colors.dim("Built:")} ${deployResult.built.join(", ")}`);
+        }
+        if (deployResult.skipped && deployResult.skipped.length > 0) {
+          console.log(`  ${colors.dim("Skipped:")} ${deployResult.skipped.join(", ")}`);
+        }
+        if (deployResult.redeployed) {
+          console.log(`  ${colors.dim("Railway:")} redeployed ${deployResult.service ?? "service"}`);
+        } else if (!process.env.RAILWAY_TOKEN) {
+          console.log(`  ${colors.yellow("Railway:")} skipped (RAILWAY_TOKEN not set)`);
+        }
+        console.log();
+        return;
+      }
+
+      if (deployResult.status === "published") {
+        console.log();
+        console.log(colors.yellow(`${icons.err} Config published, but Railway redeploy failed`));
+        console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
+        if (deployResult.txHash) {
+          console.log(`  ${colors.dim("Transaction:")} ${deployResult.txHash}`);
+        }
+        if (deployResult.error) {
+          console.log(`  ${colors.dim("Railway:")} ${deployResult.error}`);
+        }
+        console.log();
+        process.exit(1);
+      }
+    }
   } catch (error) {
     console.error(`[CLI] ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);

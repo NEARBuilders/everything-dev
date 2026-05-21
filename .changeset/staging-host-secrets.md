@@ -2,14 +2,16 @@
 "everything-dev": minor
 ---
 
-Add host secrets to config and staging environment support
+Add `bos deploy` command, host secrets, and staging environment support
 
-- Added `secrets` array to `app.host` in `bos.config.json` for tenant-related environment variables (`TENANT_WHITELIST`, `ALLOW_OVERRIDE`, `ALLOW_UNTRUSTED_SSR`, `CSP_STRICT`). These are now surfaced in `bos infra` generated `.env.example` and validated during `bos start`.
+- **New `bos deploy` command**: Publishes config to FastKV and triggers Railway redeploy in one step. Reads service name from `ci.railway.service` in `bos.config.json`. Uses `RAILWAY_TOKEN` (environment-scoped) instead of deployment IDs.
 
-- Added `BOS_ENV` environment variable support: setting `BOS_ENV=staging` in a Docker/Railway deployment enables staging mode without needing the `--env` CLI flag. This follows the same pattern as `BOS_ACCOUNT` and `BOS_GATEWAY`.
+- **New `ci` config section**: `bos.config.json` now accepts `ci.railway.service` for Railway integration. Child projects inherit this via extends.
 
-- Staging mode now overrides `runtimeConfig.domain` with `staging.domain` and sets `runtimeConfig.env = "staging"`, so the host correctly uses the staging gateway for tenant subdomain resolution and CORS origins.
+- **Staging environment support**: `BOS_ENV=staging` or `--env staging` enables staging mode. `staging.domain` overrides `domain`, FastKV publishes under the staging gateway key, and runtime sets `env = "staging"`.
 
-- Fixed secret validation in `bos start` to include `host.secrets` (previously only validated `auth`, `api`, and `plugin` secrets).
+- **Host secrets**: Added `secrets` array to `app.host` for tenant-related environment variables (`TENANT_WHITELIST`, `ALLOW_OVERRIDE`, `ALLOW_UNTRUSTED_SSR`, `CSP_STRICT`). Validated during `bos start` and surfaced in `bos infra`.
 
-- Updated `.env.example` and `host/.env.example` with the new host secrets.
+- **Workflow simplification**: Replaced `publish.yml` with `deploy.yml`. `release.yml` now only handles npm package releases. `staging.yml` uses `bos deploy --env staging`. All workflows use `railway redeploy` via CLI instead of raw GraphQL API calls.
+
+- **Removed**: `RAILWAY_PRODUCTION_SERVICE_ID` and `RAILWAY_STAGING_SERVICE_ID` variables — replaced by environment-scoped `RAILWAY_TOKEN` secrets.

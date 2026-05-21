@@ -49,6 +49,7 @@ const OBSOLETE_FILES = [
   ".github/templates/dependabot.yml",
   ".github/renovate.json",
   ".github/workflows/packages-release.yml",
+  ".github/workflows/publish.yml",
   ".github/workflows/release.yml",
   ".github/workflows/release-sync.yml",
   "packages/everything-dev/cli.js",
