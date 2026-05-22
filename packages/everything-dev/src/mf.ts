@@ -21,6 +21,9 @@ export function patchManifestFetchForSsrPublicPath(mf: FederationInstance): void
         json.metaData = json.metaData ?? {};
         json.metaData.ssrPublicPath =
           json.metaData.ssrPublicPath ?? url.replace(/\/mf-manifest\.json$/, "/");
+        if (json.metaData.publicPath === "auto" || json.metaData.publicPath === "") {
+          json.metaData.publicPath = "/";
+        }
         return new Response(JSON.stringify(json), {
           headers: { "content-type": "application/json" },
         });

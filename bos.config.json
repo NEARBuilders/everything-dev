@@ -1,11 +1,10 @@
 {
   "account": "dev.everything.near",
-  "domain": "dev.everything.dev",
+  "domain": "everything.dev",
   "title": "everything.dev",
   "description": "Open runtime for apps on NEAR, composed from published config and loaded through a shared host, UI, and API runtime.",
-  "testnet": "dev.allthethings.testnet",
   "staging": {
-    "domain": "staging.dev.everything.dev"
+    "domain": "dev.everything.dev"
   },
   "repository": "https://github.com/nearbuilders/everything-dev",
   "ci": {
@@ -28,9 +27,10 @@
     },
     "ui": {
       "development": "local:ui",
-      "production": "https://elliot-braem-3976-ui-everything-dev-nearbuilders-dd42b658b-ze.zephyrcloud.app",
-      "ssr": "https://elliot-braem-3977-ui-everything-dev-nearbuilders-a43563c52-ze.zephyrcloud.app",
-      "integrity": "sha384-CPc7Ruz83GD5ZSz//iDGelzs66TWP3nRroIa6vNejj3AyP9D7rbSYCY0B9QmKkOO"
+      "production": "https://elliot-braem-4009-ui-everything-dev-nearbuilders-08b0deb6b-ze.zephyrcloud.app",
+      "ssr": "https://elliot-braem-4010-ui-everything-dev-nearbuilders-41017c5ae-ze.zephyrcloud.app",
+      "integrity": "sha384-CPc7Ruz83GD5ZSz//iDGelzs66TWP3nRroIa6vNejj3AyP9D7rbSYCY0B9QmKkOO",
+      "ssrIntegrity": "sha384-Xl88t66al3NxqvJKtHAD+9V0X1Zf984ZqInTb+mnvwZK3HmUvJmlzNJmyu4l9g1v"
     },
     "api": {
       "development": "local:api",
