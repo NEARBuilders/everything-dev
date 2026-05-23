@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RouterModule, RuntimeConfig } from "@/types";
 import { createTestApiClient } from "../helpers/api-client";
+import { loadBundledRouterModule } from "../helpers/bundled-ssr-module";
 import {
   buildTestRenderOptions,
   buildTestRouteHeadContext,
   createMockAuthClient,
   loadTestRuntimeConfig,
 } from "../helpers/runtime-config";
-import { loadBundledRouterModule } from "../helpers/bundled-ssr-module";
 
 async function consumeStream(stream: ReadableStream): Promise<string> {
   const reader = stream.getReader();

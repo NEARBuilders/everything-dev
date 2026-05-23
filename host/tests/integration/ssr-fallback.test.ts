@@ -240,11 +240,7 @@ describe("SSR fallback paths", () => {
         createRouter: vi.fn(),
       };
 
-      loadRouterModuleMock.mockReturnValue(
-        Effect.gen(function* () {
-          return failingModule;
-        }),
-      );
+      loadRouterModuleMock.mockReturnValue(Effect.succeed(failingModule));
 
       const response = await fetch(`${baseUrl}/`);
       const html = await response.text();
@@ -295,11 +291,7 @@ describe("SSR fallback paths", () => {
         createRouter: vi.fn(),
       };
 
-      loadRouterModuleMock.mockReturnValueOnce(
-        Effect.gen(function* () {
-          return successModule;
-        }),
-      );
+      loadRouterModuleMock.mockReturnValueOnce(Effect.succeed(successModule));
 
       const secondResponse = await fetch(`${baseUrl}/`);
       expect(secondResponse.status).toBe(200);
@@ -318,9 +310,7 @@ describe("SSR fallback paths", () => {
       expect(federationError.remoteName).toBe("ui");
       expect(federationError.cause).toBeDefined();
 
-      const result = await Effect.runPromise(
-        Effect.fail(federationError).pipe(Effect.either),
-      );
+      const result = await Effect.runPromise(Effect.fail(federationError).pipe(Effect.either));
 
       expect(result._tag).toBe("Left");
       if (result._tag !== "Left") throw new Error("Expected Left");

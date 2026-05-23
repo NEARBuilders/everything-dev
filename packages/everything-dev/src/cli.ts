@@ -786,7 +786,9 @@ async function main() {
           console.log(`  ${colors.dim("Skipped:")} ${deployResult.skipped.join(", ")}`);
         }
         if (deployResult.redeployed) {
-          console.log(`  ${colors.dim("Railway:")} redeployed ${deployResult.service ?? "service"}`);
+          console.log(
+            `  ${colors.dim("Railway:")} redeployed ${deployResult.service ?? "service"}`,
+          );
         } else if (!process.env.RAILWAY_TOKEN) {
           console.log(`  ${colors.yellow("Railway:")} skipped (RAILWAY_TOKEN not set)`);
         }

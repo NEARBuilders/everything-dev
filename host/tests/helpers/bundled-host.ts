@@ -74,7 +74,9 @@ async function loadBundledHostModule(hostAssetsUrl: string): Promise<HostRemoteM
   const entryUrl = `${hostAssetsUrl}/mf-manifest.json`;
   (mf as any).registerRemotes([{ name: remoteName, entry: entryUrl, alias: "host" }]);
 
-  const hostModule = (await (mf as any).loadRemote(`${remoteName}/Server`)) as HostRemoteModule | null;
+  const hostModule = (await (mf as any).loadRemote(
+    `${remoteName}/Server`,
+  )) as HostRemoteModule | null;
   if (!hostModule?.runServer) {
     throw new Error("Bundled host module did not export runServer");
   }

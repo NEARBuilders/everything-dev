@@ -966,7 +966,8 @@ export default createPlugin({
         return {
           status: "error" as const,
           url: "",
-          error: "No configuration found. Provide --account and --gateway flags, or create a local bos.config.json.",
+          error:
+            "No configuration found. Provide --account and --gateway flags, or create a local bos.config.json.",
         };
       }
 
@@ -1030,7 +1031,9 @@ export default createPlugin({
 
       // Default CORS_ORIGIN to the configured domain if not set
       if (!process.env.CORS_ORIGIN && config.domain) {
-        const effectiveDomain = isStaging ? (config.staging?.domain ?? config.domain) : config.domain;
+        const effectiveDomain = isStaging
+          ? (config.staging?.domain ?? config.domain)
+          : config.domain;
         const defaultOrigin = `https://${effectiveDomain}`;
         productionEnv.CORS_ORIGIN = defaultOrigin;
         warnings.push(`CORS_ORIGIN defaulting to ${defaultOrigin}`);
@@ -1178,7 +1181,7 @@ export default createPlugin({
       };
     }),
 
-publish: builder.publish.handler(async ({ input }) => {
+    publish: builder.publish.handler(async ({ input }) => {
       if (!deps.bosConfig) {
         return {
           status: "error" as const,
@@ -1282,7 +1285,8 @@ publish: builder.publish.handler(async ({ input }) => {
             built: result.built,
             skipped: result.skipped,
             redeployed: false,
-            error: "Config published but Railway redeploy failed: ci.railway.service is not configured in bos.config.json",
+            error:
+              "Config published but Railway redeploy failed: ci.railway.service is not configured in bos.config.json",
           };
         }
 
@@ -1841,9 +1845,7 @@ async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFa
 
   const isStaging = env === "staging";
   const account = bosConfig.account;
-  const gateway = isStaging
-    ? (bosConfig.staging?.domain ?? bosConfig.domain)
-    : bosConfig.domain;
+  const gateway = isStaging ? (bosConfig.staging?.domain ?? bosConfig.domain) : bosConfig.domain;
   if (!gateway) {
     return {
       status: "error",
@@ -1856,9 +1858,7 @@ async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFa
   const registryUrl = buildRegistryConfigUrlForNetwork(network, account, gateway);
   const targets = selectWorkspaceTargets(input.packages, bosConfig);
 
-  let publishConfig: BosConfig = isStaging
-    ? { ...bosConfig, domain: gateway }
-    : bosConfig;
+  let publishConfig: BosConfig = isStaging ? { ...bosConfig, domain: gateway } : bosConfig;
   let built: string[] | undefined;
   let skipped: string[] | undefined;
 
@@ -1885,9 +1885,7 @@ async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFa
     const refreshed = await loadResolvedConfig({ cwd: configDir });
     if (refreshed?.config) {
       bosConfig = refreshed.config;
-      publishConfig = isStaging
-        ? { ...refreshed.config, domain: gateway }
-        : refreshed.config;
+      publishConfig = isStaging ? { ...refreshed.config, domain: gateway } : refreshed.config;
     }
   }
 

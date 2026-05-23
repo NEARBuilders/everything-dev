@@ -343,7 +343,11 @@ describe("resolveRequestRuntime", () => {
         account: "alice.linktree.near",
         app: {
           host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/alice-ui", ssr: "https://cdn.example.com/alice-ui-ssr" },
+          ui: {
+            name: "ui",
+            production: "https://cdn.example.com/alice-ui",
+            ssr: "https://cdn.example.com/alice-ui-ssr",
+          },
           api: { name: "api", production: "https://api.example.com" },
         },
       },
@@ -426,7 +430,12 @@ describe("resolveRequestRuntime", () => {
         account: "alice.linktree.near",
         app: {
           host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/alice-ui", ssr: "https://cdn.example.com/alice-ui-ssr", ssrIntegrity: "sha384-alice-ssr" },
+          ui: {
+            name: "ui",
+            production: "https://cdn.example.com/alice-ui",
+            ssr: "https://cdn.example.com/alice-ui-ssr",
+            ssrIntegrity: "sha384-alice-ssr",
+          },
           api: { name: "api", production: "https://api.example.com" },
         },
       },

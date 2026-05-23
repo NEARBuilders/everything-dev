@@ -22,10 +22,7 @@ const { loadRouterModule, resetFederationInstance } = await import(
 
 const { FederationError } = await import("../../src/services/errors");
 
-function createRemoteConfig(options?: {
-  ssrUrl?: string;
-  ssrIntegrity?: string;
-}): RuntimeConfig {
+function createRemoteConfig(options?: { ssrUrl?: string; ssrIntegrity?: string }): RuntimeConfig {
   return {
     env: "production",
     account: "linktree.near",
@@ -119,9 +116,7 @@ describe("loadRouterModule failure paths", () => {
     it("raises error when ssrUrl is not configured", async () => {
       const config = createRemoteConfig({ ssrUrl: undefined });
 
-      const result = await Effect.runPromise(
-        loadRouterModule(config).pipe(Effect.either),
-      );
+      const result = await Effect.runPromise(loadRouterModule(config).pipe(Effect.either));
 
       expect(result._tag).toBe("Left");
     });
@@ -167,15 +162,11 @@ describe("loadRouterModule failure paths", () => {
 
       loadRemoteMock.mockRejectedValue(new Error("Load failed"));
 
-      const result = await Effect.runPromise(
-        loadRouterModule(config).pipe(Effect.either),
-      );
+      const result = await Effect.runPromise(loadRouterModule(config).pipe(Effect.either));
       expect(result._tag).toBe("Left");
 
       loadRemoteMock.mockRejectedValue(new Error("Still failing"));
-      const secondResult = await Effect.runPromise(
-        loadRouterModule(config).pipe(Effect.either),
-      );
+      const secondResult = await Effect.runPromise(loadRouterModule(config).pipe(Effect.either));
       expect(secondResult._tag).toBe("Left");
 
       expect(createInstanceMock.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -186,9 +177,7 @@ describe("loadRouterModule failure paths", () => {
 
       loadRemoteMock.mockRejectedValue(new Error("Load failed"));
 
-      const firstResult = await Effect.runPromise(
-        loadRouterModule(config).pipe(Effect.either),
-      );
+      const firstResult = await Effect.runPromise(loadRouterModule(config).pipe(Effect.either));
       expect(firstResult._tag).toBe("Left");
 
       const routerModule = {

@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { startBundledHost, type BundledHostRuntime } from "../helpers/bundled-host";
+import { type BundledHostRuntime, startBundledHost } from "../helpers/bundled-host";
 
-function createRuntimeConfig(urls: {
-  baseUrl: string;
-  uiAssetsUrl: string;
-}) {
+function createRuntimeConfig(urls: { baseUrl: string; uiAssetsUrl: string }) {
   return {
     env: "production",
     account: "dev.everything.near",

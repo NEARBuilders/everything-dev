@@ -1,5 +1,5 @@
-import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { createServer } from "node:http";
 import path from "node:path";
 import { getAvailablePort } from "./ports";
 

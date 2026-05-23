@@ -5,7 +5,7 @@ import { createInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { patchManifestFetchForSsrPublicPath } from "everything-dev/mf";
 import type { RouterModule } from "../../src/types";
-import { startStaticDistServer, type StaticDistServer } from "./static-dist-server";
+import { type StaticDistServer, startStaticDistServer } from "./static-dist-server";
 import { loadHostTestEnv } from "./test-env";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "../../..");

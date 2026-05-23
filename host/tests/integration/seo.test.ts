@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { HeadData, RouterModule, RuntimeConfig } from "@/types";
-import { buildTestRouteHeadContext, loadTestRuntimeConfig } from "../helpers/runtime-config";
 import { loadBundledRouterModule } from "../helpers/bundled-ssr-module";
+import { buildTestRouteHeadContext, loadTestRuntimeConfig } from "../helpers/runtime-config";
 
 function escapeHtml(str: string): string {
   return str
