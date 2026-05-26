@@ -47,8 +47,10 @@ jobs:
       - name: Deploy
         run: bos deploy --env staging
 
-      - name: Commit bos.config.json updates
-        uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5.2.0
-        with:
-          commit_message: "chore: update staging deployment URLs [skip ci]"
-          file_pattern: "**/bos.config.json"
+      - name: Commit and push bos.config.json updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bos.config.json
+          git diff --cached --quiet || git commit -m "chore: update staging deployment URLs [skip ci]"
+          git push
