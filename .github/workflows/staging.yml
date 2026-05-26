@@ -48,6 +48,17 @@ jobs:
       - name: Deploy
         run: bun packages/everything-dev/src/cli.ts deploy --env staging
 
+      - name: Verify bos.config.json changes
+        run: |
+          echo "=== git status ==="
+          git status --short
+          echo "=== git diff bos.config.json ==="
+          git diff bos.config.json || echo "No diff found"
+          echo "=== bos.config.json app.ui.production ==="
+          python3 -c "import json; c=json.load(open('bos.config.json')); print(c.get('app',{}).get('ui',{}).get('production','MISSING'))"
+          echo "=== bos.config.json last modified ==="
+          ls -la bos.config.json
+
       - name: Commit bos.config.json updates
         uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5.2.0
         with:
