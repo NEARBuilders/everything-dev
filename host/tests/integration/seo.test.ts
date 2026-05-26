@@ -1,7 +1,6 @@
-import { Effect } from "every-plugin/effect";
-import { beforeAll, describe, expect, it } from "vitest";
-import { loadRouterModule } from "@/services/federation.server";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { HeadData, RouterModule, RuntimeConfig } from "@/types";
+import { loadBundledRouterModule } from "../helpers/bundled-ssr-module";
 import { buildTestRouteHeadContext, loadTestRuntimeConfig } from "../helpers/runtime-config";
 
 function escapeHtml(str: string): string {
@@ -61,10 +60,17 @@ function renderHeadToString(head: HeadData): string {
 describe("SEO Head Extraction", () => {
   let routerModule: RouterModule;
   let config: RuntimeConfig;
+  let cleanup: () => Promise<void>;
 
   beforeAll(async () => {
     config = await loadTestRuntimeConfig();
-    routerModule = await Effect.runPromise(loadRouterModule(config));
+    const bundled = await loadBundledRouterModule();
+    routerModule = bundled.routerModule;
+    cleanup = bundled.cleanup;
+  });
+
+  afterAll(async () => {
+    await cleanup();
   });
 
   describe("Module Federation", () => {

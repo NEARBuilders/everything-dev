@@ -121,6 +121,7 @@ export const PublishOptionsSchema = z.object({
   packages: z.string().default("all"),
   network: z.enum(["mainnet", "testnet"]).optional(),
   privateKey: z.string().optional(),
+  env: z.enum(["production", "staging"]).default("production"),
 });
 
 export const PublishResultSchema = z.object({
@@ -130,6 +131,27 @@ export const PublishResultSchema = z.object({
   error: z.string().optional(),
   built: z.array(z.string()).optional(),
   skipped: z.array(z.string()).optional(),
+});
+
+export const DeployOptionsSchema = z.object({
+  env: z.enum(["production", "staging"]).default("production"),
+  build: z.boolean().default(true),
+  dryRun: z.boolean().default(false),
+  packages: z.string().default("all"),
+  network: z.enum(["mainnet", "testnet"]).optional(),
+  privateKey: z.string().optional(),
+  service: z.string().optional(),
+});
+
+export const DeployResultSchema = z.object({
+  status: z.enum(["deployed", "published", "error", "dry-run"]),
+  registryUrl: z.string(),
+  txHash: z.string().optional(),
+  built: z.array(z.string()).optional(),
+  skipped: z.array(z.string()).optional(),
+  redeployed: z.boolean(),
+  service: z.string().optional(),
+  error: z.string().optional(),
 });
 
 export const KeyPublishOptionsSchema = z.object({
@@ -290,6 +312,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/publish" })
     .input(PublishOptionsSchema)
     .output(PublishResultSchema),
+  deploy: oc
+    .route({ method: "POST", path: "/deploy" })
+    .input(DeployOptionsSchema)
+    .output(DeployResultSchema),
   keyPublish: oc
     .route({ method: "POST", path: "/key/publish" })
     .input(KeyPublishOptionsSchema)
@@ -327,6 +353,8 @@ export type PluginListResult = z.infer<typeof PluginListResultSchema>;
 export type PluginPublishOptions = z.infer<typeof PluginPublishOptionsSchema>;
 export type PluginPublishResult = z.infer<typeof PluginPublishResultSchema>;
 export type PublishOptions = z.infer<typeof PublishOptionsSchema>;
+export type DeployOptions = z.infer<typeof DeployOptionsSchema>;
+export type DeployResult = z.infer<typeof DeployResultSchema>;
 export type KeyPublishOptions = z.infer<typeof KeyPublishOptionsSchema>;
 export type KeyPublishResult = z.infer<typeof KeyPublishResultSchema>;
 export type InitOptions = z.infer<typeof InitOptionsSchema>;

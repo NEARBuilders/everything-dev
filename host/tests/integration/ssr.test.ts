@@ -1,8 +1,7 @@
-import { Effect } from "every-plugin/effect";
-import { beforeAll, describe, expect, it } from "vitest";
-import { loadRouterModule } from "@/services/federation.server";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RouterModule, RuntimeConfig } from "@/types";
 import { createTestApiClient } from "../helpers/api-client";
+import { loadBundledRouterModule } from "../helpers/bundled-ssr-module";
 import {
   buildTestRenderOptions,
   buildTestRouteHeadContext,
@@ -29,10 +28,17 @@ const mockAuthClient = createMockAuthClient();
 describe("SSR Stream Lifecycle", () => {
   let routerModule: RouterModule;
   let config: RuntimeConfig;
+  let cleanup: () => Promise<void>;
 
   beforeAll(async () => {
     config = await loadTestRuntimeConfig();
-    routerModule = await Effect.runPromise(loadRouterModule(config));
+    const bundled = await loadBundledRouterModule();
+    routerModule = bundled.routerModule;
+    cleanup = bundled.cleanup;
+  });
+
+  afterAll(async () => {
+    await cleanup();
   });
 
   describe("Stream Completion", () => {
@@ -47,8 +53,6 @@ describe("SSR Stream Lifecycle", () => {
       expect(head.meta).toBeDefined();
       expect(elapsed).toBeLessThan(5000);
     });
-
-    // NOTE: Authenticated routes are configured with `ssr: false` in the demo UI.
   });
 
   describe("SSR Configuration", () => {
@@ -58,8 +62,6 @@ describe("SSR Stream Lifecycle", () => {
       const titleMeta = head.meta.find((m) => m && typeof m === "object" && "title" in m);
       expect(titleMeta).toBeDefined();
     });
-
-    // NOTE: Auth routes behavior depends on auth strategy.
   });
 
   describe("SSR Routes", () => {
@@ -105,7 +107,5 @@ describe("SSR Stream Lifecycle", () => {
       expect(html).toContain("<!DOCTYPE html>");
       expect(html).toContain("</html>");
     });
-
-    // NOTE: Product routes are not part of the current demo UI.
   });
 });

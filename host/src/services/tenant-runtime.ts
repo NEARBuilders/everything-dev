@@ -506,7 +506,10 @@ export async function resolveRequestRuntime(
     }
   }
 
-  const ssrAllowed = Boolean(effectiveConfig.ui.ssrUrl) && isSsrAllowed(tenantAccountId);
+  const ssrAllowed =
+    Boolean(effectiveConfig.ui.ssrUrl) &&
+    Boolean(effectiveConfig.ui.ssrIntegrity) &&
+    isSsrAllowed(tenantAccountId);
 
   return {
     config: ssrAllowed

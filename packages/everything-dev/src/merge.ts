@@ -10,6 +10,7 @@ export const BOS_CONFIG_ORDER = [
   "testnet",
   "staging",
   "repository",
+  "ci",
   "app",
   "plugins",
   "shared",

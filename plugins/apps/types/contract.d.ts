@@ -2,6 +2,9 @@ import { z } from "every-plugin/zod";
 export declare const contract: {
     listRegistryApps: import("@orpc/contract").ContractProcedure<z.ZodObject<{
         q: z.ZodOptional<z.ZodString>;
+        parent: z.ZodOptional<z.ZodString>;
+        root: z.ZodOptional<z.ZodString>;
+        ancestor: z.ZodOptional<z.ZodString>;
         limit: z.ZodOptional<z.ZodNumber>;
         cursor: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>, z.ZodObject<{
@@ -18,6 +21,9 @@ export declare const contract: {
             uiSsrUrl: z.ZodNullable<z.ZodString>;
             apiUrl: z.ZodNullable<z.ZodString>;
             extends: z.ZodNullable<z.ZodString>;
+            parent: z.ZodNullable<z.ZodString>;
+            root: z.ZodNullable<z.ZodString>;
+            depth: z.ZodNumber;
             status: z.ZodEnum<{
                 ready: "ready";
                 invalid: "invalid";
@@ -66,6 +72,9 @@ export declare const contract: {
             uiSsrUrl: z.ZodNullable<z.ZodString>;
             apiUrl: z.ZodNullable<z.ZodString>;
             extends: z.ZodNullable<z.ZodString>;
+            parent: z.ZodNullable<z.ZodString>;
+            root: z.ZodNullable<z.ZodString>;
+            depth: z.ZodNumber;
             status: z.ZodEnum<{
                 ready: "ready";
                 invalid: "invalid";
@@ -111,6 +120,9 @@ export declare const contract: {
             uiSsrUrl: z.ZodNullable<z.ZodString>;
             apiUrl: z.ZodNullable<z.ZodString>;
             extends: z.ZodNullable<z.ZodString>;
+            parent: z.ZodNullable<z.ZodString>;
+            root: z.ZodNullable<z.ZodString>;
+            depth: z.ZodNumber;
             status: z.ZodEnum<{
                 ready: "ready";
                 invalid: "invalid";
@@ -127,6 +139,7 @@ export declare const contract: {
             metadataKey: z.ZodString;
             metadataContractId: z.ZodString;
             metadataFastKvUrl: z.ZodString;
+            extendsChain: z.ZodArray<z.ZodString>;
             resolvedConfig: z.ZodRecord<z.ZodString, z.ZodUnknown>;
         }, z.core.$strip>;
     }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, import("@orpc/contract").MergedErrorMap<Record<never, never>, {
@@ -154,6 +167,9 @@ export declare const contract: {
             uiSsrUrl: z.ZodNullable<z.ZodString>;
             apiUrl: z.ZodNullable<z.ZodString>;
             extends: z.ZodNullable<z.ZodString>;
+            parent: z.ZodNullable<z.ZodString>;
+            root: z.ZodNullable<z.ZodString>;
+            depth: z.ZodNumber;
             status: z.ZodEnum<{
                 ready: "ready";
                 invalid: "invalid";
@@ -170,6 +186,7 @@ export declare const contract: {
             metadataKey: z.ZodString;
             metadataContractId: z.ZodString;
             metadataFastKvUrl: z.ZodString;
+            extendsChain: z.ZodArray<z.ZodString>;
             resolvedConfig: z.ZodRecord<z.ZodString, z.ZodUnknown>;
         }, z.core.$strip>;
     }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, import("@orpc/contract").MergedErrorMap<Record<never, never>, {

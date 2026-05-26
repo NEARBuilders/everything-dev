@@ -435,8 +435,11 @@ async function fetchPublishedConfig(
 ): Promise<BosConfig | null> {
   try {
     return await fetchBosConfigFromFastKv<BosConfig>(`bos://${accountId}/${gatewayId}`);
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("No config found")) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -929,6 +932,7 @@ export default createPlugin({
 
       pluginEvents.emit("progress", { phase: "config", status: "running" } satisfies ProgressEvent);
 
+      const bosEnv = input.env ?? (process.env.BOS_ENV === "staging" ? "staging" : "production");
       const account = input.account ?? process.env.BOS_ACCOUNT;
       const domain = input.domain ?? process.env.BOS_GATEWAY;
 
@@ -936,17 +940,25 @@ export default createPlugin({
       let remoteConfig: BosConfig | null = null;
 
       if (account && domain) {
-        remoteConfig = await fetchPublishedConfig(account, domain);
-        if (remoteConfig) {
-          config = remoteConfig;
-        } else {
-          console.warn(
-            `[Start] Failed to fetch remote config for ${account}/${domain}, falling back to local bos.config.json`,
-          );
+        try {
+          remoteConfig = await fetchPublishedConfig(account, domain);
+          if (remoteConfig) {
+            config = remoteConfig;
+          } else {
+            return {
+              status: "error" as const,
+              url: "",
+              error: `No config found at bos://${account}/${domain}. Verify the account and gateway are correct and the config has been published.\nExpected URL: ${buildRegistryConfigUrl(account, domain)}`,
+            };
+          }
+        } catch (error) {
+          return {
+            status: "error" as const,
+            url: "",
+            error: `Failed to fetch config for bos://${account}/${domain}: ${error instanceof Error ? error.message : "Unknown error"}\nExpected URL: ${buildRegistryConfigUrl(account, domain)}`,
+          };
         }
-      }
-
-      if (!config) {
+      } else {
         config = deps.bosConfig;
       }
 
@@ -955,7 +967,7 @@ export default createPlugin({
           status: "error" as const,
           url: "",
           error:
-            "No configuration found. Set BOS_ACCOUNT and BOS_GATEWAY environment variables, or provide a local bos.config.json.",
+            "No configuration found. Provide --account and --gateway flags, or create a local bos.config.json.",
         };
       }
 
@@ -968,7 +980,7 @@ export default createPlugin({
       }
 
       const port = input.port ?? getHostDevelopmentPort(config.app.host.development);
-      const isStaging = input.env === "staging";
+      const isStaging = bosEnv === "staging";
       const runtimePlugins = await buildRuntimePluginsForConfig(
         config,
         deps.configDir,
@@ -985,6 +997,14 @@ export default createPlugin({
       });
       drainConfigWarnings();
       resumeWarnings();
+
+      if (isStaging && config.staging?.domain) {
+        runtimeConfig.domain = config.staging.domain;
+      }
+
+      if (isStaging) {
+        runtimeConfig.env = "staging";
+      }
 
       syncGeneratedInfra(deps.configDir, runtimeConfig);
       if (!existsSync(join(deps.configDir, ".env"))) {
@@ -1011,7 +1031,10 @@ export default createPlugin({
 
       // Default CORS_ORIGIN to the configured domain if not set
       if (!process.env.CORS_ORIGIN && config.domain) {
-        const defaultOrigin = `https://${config.domain}`;
+        const effectiveDomain = isStaging
+          ? (config.staging?.domain ?? config.domain)
+          : config.domain;
+        const defaultOrigin = `https://${effectiveDomain}`;
         productionEnv.CORS_ORIGIN = defaultOrigin;
         warnings.push(`CORS_ORIGIN defaulting to ${defaultOrigin}`);
       }
@@ -1020,6 +1043,9 @@ export default createPlugin({
       const requiredSecrets = new Set<string>();
       const missingSecrets: string[] = [];
 
+      if (runtimeConfig.host.secrets) {
+        for (const s of runtimeConfig.host.secrets) requiredSecrets.add(s);
+      }
       if (runtimeConfig.auth?.secrets) {
         for (const s of runtimeConfig.auth.secrets) requiredSecrets.add(s);
       }
@@ -1164,119 +1190,138 @@ export default createPlugin({
         };
       }
 
-      const account = deps.bosConfig.account;
-      const gateway = deps.bosConfig.domain;
-      if (!gateway) {
-        return {
-          status: "error" as const,
-          registryUrl: "",
-          error: "bos.config.json must define domain to publish",
-        };
-      }
+      const result = await publishToFastKv({
+        bosConfig: deps.bosConfig,
+        runtimeConfig: deps.runtimeConfig,
+        configDir: deps.configDir,
+        env: input.env,
+        build: input.deploy,
+        dryRun: input.dryRun,
+        packages: input.packages,
+        network: input.network,
+        privateKey: input.privateKey,
+      });
 
-      const network = input.network ?? getNetworkIdForAccount(account);
-      const bosUrl = `bos://${account}/${gateway}`;
-      const registryUrl = buildRegistryConfigUrlForNetwork(network, account, gateway);
-      const targets = selectWorkspaceTargets(input.packages, deps.bosConfig);
-
-      let publishConfig = deps.bosConfig;
-      let built: string[] | undefined;
-      let skipped: string[] | undefined;
-
-      if (input.dryRun) {
-        return {
-          status: "dry-run" as const,
-          registryUrl,
-          built,
-          skipped,
-        };
-      }
-
-      if (input.deploy) {
-        await generateCodeArtifacts(deps.configDir, deps.bosConfig, {
-          env: "production",
-          runtimeConfig: deps.runtimeConfig ?? undefined,
-        });
-
-        const result = await buildWorkspaceTargets({
-          configDir: deps.configDir,
-          bosConfig: deps.bosConfig,
-          runtimeConfig: deps.runtimeConfig,
-          targets,
-          deploy: true,
-        });
-        built = result.built;
-        skipped = result.skipped;
-
+      if (result.publishConfig) {
         const refreshed = await loadResolvedConfig({ cwd: deps.configDir });
         if (refreshed?.config) {
           deps.bosConfig = refreshed.config;
           deps.runtimeConfig = refreshed.runtime;
-          publishConfig = refreshed.config;
         }
       }
 
-      const registryEntries: Record<string, string> = {
-        [`apps/${account}/${gateway}/bos.config.json`]: JSON.stringify(publishConfig),
+      return {
+        status: result.status,
+        registryUrl: result.registryUrl,
+        txHash: result.txHash,
+        error: result.error,
+        built: result.built,
+        skipped: result.skipped,
       };
+    }),
 
-      const payload = JSON.stringify(registryEntries);
-      const argsBase64 = Buffer.from(payload).toString("base64");
-      const privateKey =
-        input.privateKey || process.env.NEAR_PRIVATE_KEY || process.env.BOS_NEAR_PRIVATE_KEY;
-
-      try {
-        await Effect.runPromise(ensureNearCli);
-        let txHash: string | undefined;
-
-        try {
-          const tx = await Effect.runPromise(
-            executeTransaction({
-              account,
-              contract: getRegistryNamespaceForNetwork(network),
-              method: "__fastdata_kv",
-              argsBase64,
-              network,
-              privateKey,
-              gas: "300Tgas",
-              deposit: "0NEAR",
-            }),
-          );
-          txHash = tx.txHash;
-        } catch (error) {
-          txHash = extractTransactionHash(error);
-
-          if (!txHash) {
-            throw error;
-          }
-
-          try {
-            const verifiedConfig = await fetchBosConfigFromFastKv<BosConfig>(bosUrl);
-            if (JSON.stringify(verifiedConfig) !== JSON.stringify(publishConfig)) {
-              throw error;
-            }
-          } catch {
-            // Config may not exist yet on first publish or propagation delay;
-            // a valid txHash is sufficient proof the transaction was submitted.
-          }
-        }
-
-        return {
-          status: "published" as const,
-          registryUrl,
-          txHash,
-          built,
-          skipped,
-        };
-      } catch (error) {
+    deploy: builder.deploy.handler(async ({ input }) => {
+      if (!deps.bosConfig) {
         return {
           status: "error" as const,
-          registryUrl,
-          error: error instanceof Error ? error.message : "Unknown error",
-          built,
-          skipped,
+          registryUrl: "",
+          redeployed: false,
+          error: "No bos.config.json found",
         };
       }
+
+      const result = await publishToFastKv({
+        bosConfig: deps.bosConfig,
+        runtimeConfig: deps.runtimeConfig,
+        configDir: deps.configDir,
+        env: input.env,
+        build: input.build,
+        dryRun: input.dryRun,
+        packages: input.packages,
+        network: input.network,
+        privateKey: input.privateKey,
+      });
+
+      if (result.status === "error") {
+        return {
+          status: "error" as const,
+          registryUrl: result.registryUrl,
+          txHash: result.txHash,
+          built: result.built,
+          skipped: result.skipped,
+          redeployed: false,
+          error: result.error,
+        };
+      }
+
+      if (result.status === "dry-run") {
+        return {
+          status: "dry-run" as const,
+          registryUrl: result.registryUrl,
+          built: result.built,
+          skipped: result.skipped,
+          redeployed: false,
+        };
+      }
+
+      if (result.publishConfig) {
+        const refreshed = await loadResolvedConfig({ cwd: deps.configDir });
+        if (refreshed?.config) {
+          deps.bosConfig = refreshed.config;
+          deps.runtimeConfig = refreshed.runtime;
+        }
+      }
+
+      let redeployed = false;
+      let service: string | undefined;
+
+      if (process.env.RAILWAY_TOKEN) {
+        const railwayService = input.service ?? deps.bosConfig.ci?.railway?.service;
+        if (!railwayService) {
+          return {
+            status: "published" as const,
+            registryUrl: result.registryUrl,
+            txHash: result.txHash,
+            built: result.built,
+            skipped: result.skipped,
+            redeployed: false,
+            error:
+              "Config published but Railway redeploy failed: ci.railway.service is not configured in bos.config.json",
+          };
+        }
+
+        service = railwayService;
+        try {
+          await run("railway", ["redeploy", "--service", railwayService, "--yes"]);
+          redeployed = true;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const railError =
+            message.includes("not found") || message.includes("ENOENT")
+              ? "Railway CLI not found. Install it: npm i -g @railway/cli"
+              : `Railway redeploy failed: ${message}`;
+          return {
+            status: "published" as const,
+            registryUrl: result.registryUrl,
+            txHash: result.txHash,
+            built: result.built,
+            skipped: result.skipped,
+            redeployed: false,
+            service,
+            error: `Config published but ${railError}`,
+          };
+        }
+      }
+
+      return {
+        status: "deployed" as const,
+        registryUrl: result.registryUrl,
+        txHash: result.txHash,
+        built: result.built,
+        skipped: result.skipped,
+        redeployed,
+        service,
+      };
     }),
 
     keyPublish: builder.keyPublish.handler(async ({ input }) => {
@@ -1770,6 +1815,144 @@ export default createPlugin({
     }),
   }),
 });
+
+interface PublishToFastKvInput {
+  bosConfig: BosConfig;
+  runtimeConfig: RuntimeConfig | null;
+  configDir: string;
+  env: "production" | "staging";
+  build: boolean;
+  dryRun: boolean;
+  packages: string;
+  network?: "mainnet" | "testnet";
+  privateKey?: string;
+}
+
+interface PublishToFastKvResult {
+  status: "published" | "error" | "dry-run";
+  registryUrl: string;
+  txHash?: string;
+  built?: string[];
+  skipped?: string[];
+  error?: string;
+  publishConfig?: BosConfig;
+}
+
+async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFastKvResult> {
+  const { env, dryRun, configDir } = input;
+  let bosConfig = input.bosConfig;
+  const runtimeConfig = input.runtimeConfig;
+
+  const isStaging = env === "staging";
+  const account = bosConfig.account;
+  const gateway = isStaging ? (bosConfig.staging?.domain ?? bosConfig.domain) : bosConfig.domain;
+  if (!gateway) {
+    return {
+      status: "error",
+      registryUrl: "",
+      error: "bos.config.json must define domain to publish",
+    };
+  }
+
+  const network = input.network ?? getNetworkIdForAccount(account);
+  const registryUrl = buildRegistryConfigUrlForNetwork(network, account, gateway);
+  const targets = selectWorkspaceTargets(input.packages, bosConfig);
+
+  let publishConfig: BosConfig = isStaging ? { ...bosConfig, domain: gateway } : bosConfig;
+  let built: string[] | undefined;
+  let skipped: string[] | undefined;
+
+  if (dryRun) {
+    return { status: "dry-run", registryUrl, built, skipped };
+  }
+
+  if (input.build) {
+    await generateCodeArtifacts(configDir, bosConfig, {
+      env: "production",
+      runtimeConfig: runtimeConfig ?? undefined,
+    });
+
+    const result = await buildWorkspaceTargets({
+      configDir,
+      bosConfig,
+      runtimeConfig,
+      targets,
+      deploy: true,
+    });
+    built = result.built;
+    skipped = result.skipped;
+
+    const refreshed = await loadResolvedConfig({ cwd: configDir });
+    if (refreshed?.config) {
+      bosConfig = refreshed.config;
+      publishConfig = isStaging ? { ...refreshed.config, domain: gateway } : refreshed.config;
+    }
+  }
+
+  const registryEntries: Record<string, string> = {
+    [`apps/${account}/${gateway}/bos.config.json`]: JSON.stringify(publishConfig),
+  };
+
+  const payload = JSON.stringify(registryEntries);
+  const argsBase64 = Buffer.from(payload).toString("base64");
+  const privateKey =
+    input.privateKey || process.env.NEAR_PRIVATE_KEY || process.env.BOS_NEAR_PRIVATE_KEY;
+
+  try {
+    await Effect.runPromise(ensureNearCli);
+    let txHash: string | undefined;
+
+    try {
+      const tx = await Effect.runPromise(
+        executeTransaction({
+          account,
+          contract: getRegistryNamespaceForNetwork(network),
+          method: "__fastdata_kv",
+          argsBase64,
+          network,
+          privateKey,
+          gas: "300Tgas",
+          deposit: "0NEAR",
+        }),
+      );
+      txHash = tx.txHash;
+    } catch (error) {
+      txHash = extractTransactionHash(error);
+
+      if (!txHash) {
+        throw error;
+      }
+
+      try {
+        const bosUrl = `bos://${account}/${gateway}`;
+        const verifiedConfig = await fetchBosConfigFromFastKv<BosConfig>(bosUrl);
+        if (JSON.stringify(verifiedConfig) !== JSON.stringify(publishConfig)) {
+          throw error;
+        }
+      } catch {
+        // Config may not exist yet on first publish or propagation delay;
+        // a valid txHash is sufficient proof the transaction was submitted.
+      }
+    }
+
+    return {
+      status: "published",
+      registryUrl,
+      txHash,
+      built,
+      skipped,
+      publishConfig,
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      registryUrl,
+      error: error instanceof Error ? error.message : "Unknown error",
+      built,
+      skipped,
+    };
+  }
+}
 
 function extractTransactionHash(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);

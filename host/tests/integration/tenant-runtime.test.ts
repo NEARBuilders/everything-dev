@@ -331,6 +331,141 @@ describe("resolveRequestRuntime", () => {
     expect(result.config.ui.ssrIntegrity).toBeUndefined();
   });
 
+  it("disables SSR for whitelisted tenants when ssrIntegrity is missing", async () => {
+    const baseConfig = createBaseRuntimeConfig();
+
+    loadRemoteConfigMock.mockResolvedValue({
+      source: "bos://alice.linktree.near/linktree.com",
+      rawConfig: {
+        extends: "bos://linktree.near/linktree.com",
+      },
+      config: {
+        account: "alice.linktree.near",
+        app: {
+          host: { development: "local:host", production: "https://host.example.com" },
+          ui: {
+            name: "ui",
+            production: "https://cdn.example.com/alice-ui",
+            ssr: "https://cdn.example.com/alice-ui-ssr",
+          },
+          api: { name: "api", production: "https://api.example.com" },
+        },
+      },
+      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
+    });
+
+    buildRuntimeConfigMock.mockReturnValue({
+      ...baseConfig,
+      account: "alice.linktree.near",
+      ui: {
+        name: "ui",
+        url: "https://cdn.example.com/alice-ui",
+        entry: "https://cdn.example.com/alice-ui/mf-manifest.json",
+        source: "remote",
+        integrity: "sha384-alice",
+        ssrUrl: "https://cdn.example.com/alice-ui-ssr",
+      },
+    });
+
+    const result = await resolveRequestRuntime(
+      baseConfig,
+      new Request("https://alice.linktree.com/"),
+    );
+
+    expect(result.ssrAllowed).toBe(false);
+    expect(result.config.ui.ssrUrl).toBeUndefined();
+    expect(result.config.ui.ssrIntegrity).toBeUndefined();
+  });
+
+  it("disables SSR for whitelisted tenants when ssrUrl is missing", async () => {
+    const baseConfig = createBaseRuntimeConfig();
+
+    loadRemoteConfigMock.mockResolvedValue({
+      source: "bos://alice.linktree.near/linktree.com",
+      rawConfig: {
+        extends: "bos://linktree.near/linktree.com",
+      },
+      config: {
+        account: "alice.linktree.near",
+        app: {
+          host: { development: "local:host", production: "https://host.example.com" },
+          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
+          api: { name: "api", production: "https://api.example.com" },
+        },
+      },
+      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
+    });
+
+    buildRuntimeConfigMock.mockReturnValue({
+      ...baseConfig,
+      account: "alice.linktree.near",
+      ui: {
+        name: "ui",
+        url: "https://cdn.example.com/alice-ui",
+        entry: "https://cdn.example.com/alice-ui/mf-manifest.json",
+        source: "remote",
+        integrity: "sha384-alice",
+      },
+    });
+
+    const result = await resolveRequestRuntime(
+      baseConfig,
+      new Request("https://alice.linktree.com/"),
+    );
+
+    expect(result.ssrAllowed).toBe(false);
+    expect(result.config.ui.ssrUrl).toBeUndefined();
+    expect(result.config.ui.ssrIntegrity).toBeUndefined();
+  });
+
+  it("allows SSR for whitelisted tenants when both ssrUrl and ssrIntegrity are present", async () => {
+    const baseConfig = createBaseRuntimeConfig();
+
+    loadRemoteConfigMock.mockResolvedValue({
+      source: "bos://alice.linktree.near/linktree.com",
+      rawConfig: {
+        extends: "bos://linktree.near/linktree.com",
+      },
+      config: {
+        account: "alice.linktree.near",
+        app: {
+          host: { development: "local:host", production: "https://host.example.com" },
+          ui: {
+            name: "ui",
+            production: "https://cdn.example.com/alice-ui",
+            ssr: "https://cdn.example.com/alice-ui-ssr",
+            ssrIntegrity: "sha384-alice-ssr",
+          },
+          api: { name: "api", production: "https://api.example.com" },
+        },
+      },
+      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
+    });
+
+    buildRuntimeConfigMock.mockReturnValue({
+      ...baseConfig,
+      account: "alice.linktree.near",
+      ui: {
+        name: "ui",
+        url: "https://cdn.example.com/alice-ui",
+        entry: "https://cdn.example.com/alice-ui/mf-manifest.json",
+        source: "remote",
+        integrity: "sha384-alice",
+        ssrUrl: "https://cdn.example.com/alice-ui-ssr",
+        ssrIntegrity: "sha384-alice-ssr",
+      },
+    });
+
+    const result = await resolveRequestRuntime(
+      baseConfig,
+      new Request("https://alice.linktree.com/"),
+    );
+
+    expect(result.ssrAllowed).toBe(true);
+    expect(result.config.ui.ssrUrl).toBe("https://cdn.example.com/alice-ui-ssr");
+    expect(result.config.ui.ssrIntegrity).toBe("sha384-alice-ssr");
+  });
+
   it("applies existing plugin UI and sidebar overrides when plugins are allowed", async () => {
     const baseConfig = createBaseRuntimeConfig();
     process.env.ALLOW_OVERRIDE = "ui,plugins.*";
