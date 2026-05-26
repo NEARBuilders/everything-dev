@@ -21,7 +21,7 @@ jobs:
     env:
       BOS_INSTALL_NEAR_CLI: "true"
       NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
-      ZE_SERVER_TOKEN: ${{ secrets.ZEPHYR_AUTH_TOKEN }}
+      ZE_SECRET_TOKEN: ${{ secrets.ZEPHYR_AUTH_TOKEN }}
       ZE_USER_EMAIL: ${{ secrets.ZEPHYR_USER_EMAIL }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
     steps:
