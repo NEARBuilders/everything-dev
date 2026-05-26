@@ -8,7 +8,6 @@ This repository uses the following production-facing workflows:
 - `Docker` — Docker build and push after successful `CI` on `main`
 - `Release` — changeset versioning and npm publish for framework packages
 - `Publish` — app deploy (Zephyr CDN + FastKV config publish)
-- `Preview` — PR preview comments via Railway
 
 The key design: `CI` is the validation workflow. `Release`, `Publish`, and `Docker` run as standalone workflows after successful `CI` runs on `main` via `workflow_run`. Docker remains decoupled so long image builds do not delay release or publish.
 
@@ -73,16 +72,6 @@ The key design: `CI` is the validation workflow. `Release`, `Publish`, and `Dock
 - If only config changed (or manual dispatch): runs `bos publish` (FastKV publish only)
 
 **Secrets:** `NEAR_PRIVATE_KEY`, `ZEPHYR_AUTH_TOKEN`, and `ZEPHYR_USER_EMAIL` come directly from repository secrets. NEAR for FastKV publish, Zephyr for CDN deploy.
-
-### Preview (`preview.yml`)
-
-**Trigger:** `pull_request` close events for cleanup, plus `workflow_run` after successful PR CI.
-
-**Purpose:** Publish the Railway preview URL as a PR comment.
-
-**Security:** Uses `workflow_run` only after successful internal PR CI, so repository secrets are not exposed to forked PRs.
-
-**Configuration:** Set `RAILWAY_TOKEN` and `RAILWAY_PROJECT_ID` as GitHub Actions secrets. Optionally set `RAILWAY_SERVICE_NAME` as a repository variable.
 
 ## Docker Image Architecture
 
