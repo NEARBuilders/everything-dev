@@ -29,7 +29,7 @@ import { type ClientRuntimeConfig, ConfigService, type RuntimeConfig } from "./s
 import { loadRouterModule, resetFederationInstance } from "./services/federation.server";
 import { startIntegrityMonitor } from "./services/integrity-monitor";
 import { createPluginsClient, type PluginResult, PluginsService } from "./services/plugins";
-import { createRouterMounts } from "./services/router";
+
 import { getTenantRuntimeErrorResponse, resolveRequestRuntime } from "./services/tenant-runtime";
 import { logger } from "./utils/logger";
 
@@ -374,66 +374,54 @@ export function setupApiRoutes(
       : c.text("Not Found", 404);
   };
 
-  const mountRouter = (router: unknown, suffix: string, title: string) => {
-    const basePath = `/api${suffix}` as const;
-    const rpcPath = `/api/rpc${suffix}` as const;
-    const rpcHandler = new RPCHandler(router as any, {
-      plugins: [new BatchHandlerPlugin()],
-      interceptors: [
-        onError((error: unknown) => {
-          formatORPCError(error);
-          throw error;
-        }),
-      ],
-    });
+  const apiRouter = plugins.api?.router;
 
-    const apiHandler = new OpenAPIHandler(router as any, {
-      plugins: [
-        new OpenAPIReferencePlugin({
-          schemaConverters: [new ZodToJsonSchemaConverter()],
-          specGenerateOptions: {
-            info: {
-              title,
-              version: "1.0.0",
-            },
-            servers: [{ url: basePath }, { url: `${config.host?.url ?? ""}${basePath}` }],
-          },
-        }),
-      ],
-      interceptors: [
-        onError((error: unknown) => {
-          formatORPCError(error);
-          throw error;
-        }),
-      ],
-    });
+  if (!apiRouter) {
+    const unavailable = (c: Context<HonoEnv>) =>
+      c.json({ error: "Service Unavailable", message: "The API is currently unavailable." }, 503);
 
-    app.all(rpcPath, (c: Context<HonoEnv>) => handleOrpc(c, rpcHandler, rpcPath));
-    app.all(`${rpcPath}/*`, (c: Context<HonoEnv>) => handleOrpc(c, rpcHandler, rpcPath));
-    app.all(basePath, (c: Context<HonoEnv>) => handleOrpc(c, apiHandler, basePath));
-    app.all(`${basePath}/*`, (c: Context<HonoEnv>) => handleOrpc(c, apiHandler, basePath));
-  };
-
-  for (const mount of createRouterMounts(plugins)) {
-    if (!mount.available) {
-      const basePath = `/api${mount.suffix}` as const;
-      const rpcPath = `/api/rpc${mount.suffix}` as const;
-      const handler = (c: Context<HonoEnv>) =>
-        c.json(
-          {
-            error: "Service Unavailable",
-            message: `The ${mount.title} plugin is currently unavailable.`,
-          },
-          503,
-        );
-      app.all(rpcPath, handler);
-      app.all(`${rpcPath}/*`, handler);
-      app.all(basePath, handler);
-      app.all(`${basePath}/*`, handler);
-      continue;
-    }
-    mountRouter(mount.router, mount.suffix, mount.title);
+    app.all("/api/rpc", unavailable);
+    app.all("/api/rpc/*", unavailable);
+    app.all("/api", unavailable);
+    app.all("/api/*", unavailable);
+    return;
   }
+
+  const rpcHandler = new RPCHandler(apiRouter as any, {
+    plugins: [new BatchHandlerPlugin()],
+    interceptors: [
+      onError((error: unknown) => {
+        formatORPCError(error);
+        throw error;
+      }),
+    ],
+  });
+
+  const apiHandler = new OpenAPIHandler(apiRouter as any, {
+    plugins: [
+      new OpenAPIReferencePlugin({
+        schemaConverters: [new ZodToJsonSchemaConverter()],
+        specGenerateOptions: {
+          info: {
+            title: `${config.title ?? config.account} API`,
+            version: "1.0.0",
+          },
+          servers: [{ url: "/api" }, { url: `${config.host?.url ?? ""}/api` }],
+        },
+      }),
+    ],
+    interceptors: [
+      onError((error: unknown) => {
+        formatORPCError(error);
+        throw error;
+      }),
+    ],
+  });
+
+  app.all("/api/rpc", (c: Context<HonoEnv>) => handleOrpc(c, rpcHandler, "/api/rpc"));
+  app.all("/api/rpc/*", (c: Context<HonoEnv>) => handleOrpc(c, rpcHandler, "/api/rpc"));
+  app.all("/api", (c: Context<HonoEnv>) => handleOrpc(c, apiHandler, "/api"));
+  app.all("/api/*", (c: Context<HonoEnv>) => handleOrpc(c, apiHandler, "/api"));
 }
 
 export const createStartServer = (onReady?: () => void) =>
