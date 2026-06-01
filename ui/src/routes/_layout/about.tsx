@@ -9,14 +9,11 @@ export const Route = createFileRoute("/_layout/about")({
     const repository = getRepository(context.runtimeConfig);
     const description =
       ((context.runtimeConfig as Record<string, unknown>)?.description as string | null) ?? null;
-    const rawSkillUrl = context.runtimeConfig?.hostUrl
-      ? new URL("/skill.md", context.runtimeConfig.hostUrl).toString()
-      : "/skill.md";
     let readme: string | null = null;
     if (repository) {
       readme = await fetchRepositoryReadme(repository).catch(() => null);
     }
-    return { repository, readme, description, runtimeConfig: context.runtimeConfig, rawSkillUrl };
+    return { repository, readme, description, runtimeConfig: context.runtimeConfig };
   },
   head: () => ({
     meta: [
@@ -46,7 +43,7 @@ function parseGithubRepo(url: string): { owner: string; repo: string } | null {
 }
 
 function About() {
-  const { repository, readme, description, runtimeConfig, rawSkillUrl } = Route.useLoaderData();
+  const { repository, readme, description, runtimeConfig } = Route.useLoaderData();
   const runtime = getActiveRuntime(runtimeConfig);
   const account = getAccount(runtimeConfig);
   const appName = getAppName(runtimeConfig);
@@ -91,7 +88,7 @@ function About() {
                   Skill
                 </Link>
                 <a
-                  href={rawSkillUrl}
+                  href="/skill.md"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="h-9 rounded-[12px] px-4 text-sm font-bold inline-flex items-center gap-2 no-underline transition-colors duration-150 bg-secondary text-foreground hover:bg-border"
@@ -157,7 +154,7 @@ function About() {
                   Open skill
                 </Link>
                 <a
-                  href={rawSkillUrl}
+                  href="/skill.md"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="h-9 rounded-[12px] px-4 text-sm font-bold inline-flex items-center gap-2 no-underline transition-colors duration-150 bg-card text-foreground border border-border hover:bg-background"

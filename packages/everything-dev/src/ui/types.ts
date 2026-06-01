@@ -4,7 +4,6 @@ import type { ClientRuntimeConfig } from "../types";
 
 export interface RouterContext<TSession = unknown> {
   queryClient: QueryClient;
-  assetsUrl: string;
   runtimeConfig?: Partial<ClientRuntimeConfig>;
   session?: TSession;
   cspNonce?: string;
@@ -32,7 +31,6 @@ export interface HeadData {
 }
 
 export interface RenderOptions<TSession = unknown> {
-  assetsUrl: string;
   runtimeConfig: Partial<ClientRuntimeConfig>;
   basepath?: string;
   session?: TSession;

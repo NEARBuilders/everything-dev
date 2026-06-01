@@ -38,7 +38,7 @@ function LoginPage() {
   const auth = useAuthClient();
   const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
   const { redirect } = Route.useSearch();
-  const { runtimeConfig, assetsUrl } = Route.useRouteContext();
+  const { runtimeConfig } = Route.useRouteContext();
   const queryClient = useQueryClient();
 
   const [nearPending, setNearPending] = useState(false);
@@ -112,7 +112,6 @@ function LoginPage() {
           <UnderConstruction
             sourceFile="ui/src/routes/_layout/login.tsx"
             runtimeConfig={runtimeConfig}
-            assetsUrl={assetsUrl}
           />
         </div>
 

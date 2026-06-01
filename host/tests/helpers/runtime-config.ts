@@ -85,7 +85,6 @@ export function buildTestClientRuntimeConfig(config: RuntimeConfig): Partial<Cli
 
 export function buildTestRouteHeadContext(config: RuntimeConfig): Partial<RouterContext> {
   return {
-    assetsUrl: config.ui.url,
     runtimeConfig: buildTestClientRuntimeConfig(config),
   };
 }
@@ -96,7 +95,6 @@ export function buildTestRenderOptions(
   authClient?: AuthClient,
 ): RenderOptionsWithApi<ApiClient> {
   return {
-    assetsUrl: config.ui.url,
     runtimeConfig: buildTestClientRuntimeConfig(config),
     apiClient,
     session: null,

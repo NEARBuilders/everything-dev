@@ -112,24 +112,6 @@ async function resolveActiveRuntime(config: RuntimeConfig, request: Request) {
   } satisfies ActiveRuntimeState;
 }
 
-function isUiPublicAssetPath(pathname: string) {
-  if (pathname === "/") return false;
-  if (
-    pathname.startsWith("/api/") ||
-    pathname.startsWith("/__mf/") ||
-    pathname.startsWith("/_runtime/")
-  ) {
-    return false;
-  }
-
-  if (["/health", "/remoteEntry.js", "/mf-manifest.json", "/mf-stats.json"].includes(pathname)) {
-    return false;
-  }
-
-  const lastSegment = pathname.split("/").pop() ?? "";
-  return /\.[A-Za-z0-9]+$/.test(lastSegment);
-}
-
 function buildRuntimeClientConfig(
   config: RuntimeConfig,
   request: Request,
@@ -148,7 +130,7 @@ function buildRuntimeClientConfig(
     account: activeRuntime.accountId,
     networkId: config.account.endsWith(".testnet") ? "testnet" : "mainnet",
     hostUrl: requestUrl.origin,
-    assetsUrl: uiConfig.url,
+    assetsUrl: requestUrl.origin,
     apiBase: "/api",
     rpcBase: "/api/rpc",
     authAvailable: plugins.auth !== null,
@@ -581,7 +563,6 @@ export const createStartServer = (onReady?: () => void) =>
       error?: Error | null,
     ) => {
       const nonce = CSP_STRICT ? ctx.get("secureHeadersNonce") : undefined;
-      const clientUrl = runtimeSourceConfig.ui.url;
       const uiIntegrity = runtimeSourceConfig.ui.integrity;
       const themeInitScript = (getThemeInitScript() as { children?: string }).children ?? "";
       const hydrateScript =
@@ -591,13 +572,13 @@ export const createStartServer = (onReady?: () => void) =>
       const sriAttr = uiIntegrity ? ` integrity="${uiIntegrity}" crossorigin="anonymous"` : "";
       const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
 
-      const pluginUiScripts = Object.values(runtimeSourceConfig.plugins ?? {})
-        .filter((p: RuntimePlugin) => p.ui?.url && p.ui.source === "remote")
-        .map((p: RuntimePlugin) => {
+      const pluginUiScripts = Object.entries(runtimeSourceConfig.plugins ?? {})
+        .filter(([, p]: [string, RuntimePlugin]) => p.ui?.url && p.ui.source === "remote")
+        .map(([pluginKey, p]: [string, RuntimePlugin]) => {
           const uiSri = p.ui!.integrity
             ? ` integrity="${p.ui!.integrity}" crossorigin="anonymous"`
             : "";
-          return `<script${nonceAttr} src="${p.ui!.url}/remoteEntry.js"${uiSri}></script>`;
+          return `<script${nonceAttr} src="/__mf/plugin-ui/${pluginKey}/remoteEntry.js"${uiSri}></script>`;
         })
         .join("\n");
 
@@ -608,9 +589,9 @@ export const createStartServer = (onReady?: () => void) =>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
               <title>${runtimeConfig.runtime?.title ?? runtimeSourceConfig.title ?? runtimeSourceConfig.account}</title>
-              <link rel="icon" type="image/x-icon" href="${clientUrl}/favicon.ico" />
-              <link rel="icon" type="image/svg+xml" href="${clientUrl}/icon.svg" />
-              <link rel="manifest" href="${clientUrl}/manifest.json" />
+              <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+              <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+              <link rel="manifest" href="/manifest.json" />
               <style>
                 ${getBaseStyles()}
                 .shell { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
@@ -618,7 +599,7 @@ export const createStartServer = (onReady?: () => void) =>
                 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
                 .error { color: #fca5a5; }
               </style>
-              <script${nonceAttr} src="${clientUrl}/remoteEntry.js"${sriAttr}></script>
+              <script${nonceAttr} src="/remoteEntry.js"${sriAttr}></script>
               ${pluginUiScripts}
               <script${nonceAttr}>${themeInitScript}</script>
               <script${nonceAttr}>${hydrateScript}</script>
@@ -641,13 +622,11 @@ export const createStartServer = (onReady?: () => void) =>
       );
     };
 
-    const redirectUiAssetRequest = async (c: Context<HonoEnv>) => {
+    const proxyUiAssetRequest = async (c: Context<HonoEnv>) => {
       const runtime = await resolveRequestRuntime(config, c.req.raw, {
         verification: "stale-while-revalidate",
       });
-      const url = new URL(c.req.url);
-      const targetUrl = `${runtime.config.ui.url}${url.pathname}${url.search}`;
-      return c.redirect(targetUrl, 302);
+      return await proxyRequest(c.req.raw, runtime.config.ui.url);
     };
 
     const sessionMiddleware = createSessionMiddleware(plugins);
@@ -656,12 +635,19 @@ export const createStartServer = (onReady?: () => void) =>
     setupApiRoutes(app, config, plugins, sessionMiddleware, loadingState);
 
     app.on(["GET", "HEAD"], "*", async (c: Context<HonoEnv>, next) => {
-      if (!isUiPublicAssetPath(c.req.path)) {
+      const { pathname } = new URL(c.req.url);
+      if (
+        pathname === "/" ||
+        pathname.startsWith("/api/") ||
+        pathname.startsWith("/__mf/") ||
+        pathname.startsWith("/_runtime/") ||
+        pathname === "/health"
+      ) {
         return next();
       }
 
       try {
-        return await redirectUiAssetRequest(c);
+        return await proxyUiAssetRequest(c);
       } catch (error) {
         const { message, status } = getTenantRuntimeErrorResponse(error);
         return c.text(message, { status: status as 404 | 500 | 502 });
@@ -789,14 +775,12 @@ export const createStartServer = (onReady?: () => void) =>
       const ssrRouterModule = routerModuleResult.right;
 
       try {
-        const assetsUrl = effectiveConfig.ui.url;
         const nonce = CSP_STRICT ? c.get("secureHeadersNonce") : undefined;
         const pluginContext = buildPluginContext(c);
         const ssrApiClient = createPluginsClient(plugins, pluginContext);
 
         const render = () =>
           ssrRouterModule?.renderToStream(c.req.raw, {
-            assetsUrl,
             session: c.get("session") ? { session: c.get("session"), user: c.get("user") } : null,
             basepath: runtimeConfig.runtime?.runtimeBasePath,
             runtimeConfig,

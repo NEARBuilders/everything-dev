@@ -30,7 +30,6 @@ export const Route = createFileRoute("/_layout")({
     );
 
     return {
-      assetsUrl: context.assetsUrl || "",
       runtimeConfig: context.runtimeConfig,
       session,
     };
@@ -41,7 +40,7 @@ export const Route = createFileRoute("/_layout")({
 function Layout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isNavigating = useRouterState({ select: (s) => s.status === "pending" });
-  const { runtimeConfig, assetsUrl, session } = Route.useRouteContext();
+  const { runtimeConfig, session } = Route.useRouteContext();
   const appName = getAppName(runtimeConfig);
   const runtime = getActiveRuntime(runtimeConfig);
   const account = getAccount(runtimeConfig);
@@ -49,8 +48,6 @@ function Layout() {
   const userRole = getUserRole(isAuthenticated, session?.user?.role === "admin");
   const visibleItems = filterSidebarByRole(pluginSidebarItems, userRole);
   const gatewayId = runtime?.gatewayId;
-  const builtOnSrc = new URL(builtOn, assetsUrl).toString();
-  const builtOnRevSrc = new URL(builtOnRev, assetsUrl).toString();
 
   const isActive = (item: SidebarItem) => {
     return pathname === item.to || (item.to !== "/" && pathname.startsWith(`${item.to}/`));
@@ -197,12 +194,12 @@ function Layout() {
               className="relative h-6 w-[100px]"
             >
               <img
-                src={builtOnSrc}
+                src={builtOn}
                 alt="Built on NEAR"
                 className="absolute inset-0 h-full w-full object-contain dark:hidden"
               />
               <img
-                src={builtOnRevSrc}
+                src={builtOnRev}
                 alt="Built on NEAR"
                 className="absolute inset-0 hidden h-full w-full object-contain dark:block"
               />

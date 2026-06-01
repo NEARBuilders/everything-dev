@@ -41,7 +41,7 @@ function FloatingSkillAssistant() {
   const issueUrl = "https://github.com/NEARBuilders/everything-dev/issues/new";
 
   const handleCopy = async () => {
-    const rawSkillUrl = new URL("/skill.md", window.location.origin).toString();
+    const rawSkillUrl = "/skill.md";
     await navigator.clipboard.writeText(rawSkillUrl);
     setCopied(true);
     toast.success("Skill URL copied");

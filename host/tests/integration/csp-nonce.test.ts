@@ -47,7 +47,6 @@ describe("CSP Nonce Regression Tests", () => {
       const request = new Request("http://localhost/");
 
       const renderOptions: RenderOptionsWithApi<ApiClient> = {
-        assetsUrl: config.ui.url,
         runtimeConfig: buildTestClientRuntimeConfig(config),
         apiClient: mockApiClient,
         session: null,
@@ -76,7 +75,6 @@ describe("CSP Nonce Regression Tests", () => {
       const request = new Request("http://localhost/");
 
       const renderOptions: RenderOptionsWithApi<ApiClient> = {
-        assetsUrl: config.ui.url,
         runtimeConfig: buildTestClientRuntimeConfig(config),
         apiClient: mockApiClient,
         session: null,
@@ -106,7 +104,6 @@ describe("CSP Nonce Regression Tests", () => {
       const request = new Request("http://localhost/");
 
       const renderOptions: RenderOptionsWithApi<ApiClient> = {
-        assetsUrl: config.ui.url,
         runtimeConfig: buildTestClientRuntimeConfig(config),
         apiClient: mockApiClient,
         session: null,
@@ -135,7 +132,6 @@ describe("CSP Nonce Regression Tests", () => {
   describe("RenderOptions type includes cspNonce without cast", () => {
     it("accepts cspNonce as a typed property on RenderOptionsWithApi", () => {
       const options: RenderOptionsWithApi<ApiClient> = {
-        assetsUrl: "http://localhost",
         runtimeConfig: {
           account: "test.near",
           env: "development",
@@ -155,7 +151,6 @@ describe("CSP Nonce Regression Tests", () => {
 
     it("accepts RenderOptionsWithApi without cspNonce (optional)", () => {
       const options: RenderOptionsWithApi<ApiClient> = {
-        assetsUrl: "http://localhost",
         runtimeConfig: {
           account: "test.near",
           env: "development",

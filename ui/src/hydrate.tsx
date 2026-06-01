@@ -37,7 +37,6 @@ export async function hydrate() {
     const { router } = createRouter({
       context: {
         queryClient: client,
-        assetsUrl: runtimeConfig.assetsUrl,
         runtimeConfig,
         apiClient: createApiClient({
           hostUrl: runtimeConfig.hostUrl,

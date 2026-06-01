@@ -11,10 +11,8 @@ const INTENT_REGISTRY_URL = "https://tanstack.com/intent/registry/everything-dev
 export const Route = createFileRoute("/_layout/skill")({
   loader: async ({ context }) => {
     const runtimeConfig = context.runtimeConfig;
-    const assetsUrl = runtimeConfig?.assetsUrl;
-    const rawSkillUrl = assetsUrl ? new URL("/skill.md", assetsUrl).toString() : "/skill.md";
 
-    const skill = await fetch(rawSkillUrl)
+    const skill = await fetch("/skill.md")
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`Failed to load skill: ${response.status}`);
@@ -26,7 +24,6 @@ export const Route = createFileRoute("/_layout/skill")({
 
     return {
       runtimeConfig,
-      rawSkillUrl,
       skill,
       intentRegistryUrl: INTENT_REGISTRY_URL,
     };
@@ -44,7 +41,7 @@ export const Route = createFileRoute("/_layout/skill")({
 });
 
 function SkillPage() {
-  const { rawSkillUrl, skill, runtimeConfig, intentRegistryUrl } = Route.useLoaderData();
+  const { skill, runtimeConfig, intentRegistryUrl } = Route.useLoaderData();
   const runtime = getActiveRuntime(runtimeConfig);
   const account = getAccount(runtimeConfig);
   const appName = getAppName(runtimeConfig);
@@ -93,7 +90,7 @@ function SkillPage() {
                   {copied ? "Copied" : "Copy prompt"}
                 </Button>
                 <Button variant="outline" asChild>
-                  <a href={rawSkillUrl} target="_blank" rel="noopener noreferrer">
+                  <a href="/skill.md" target="_blank" rel="noopener noreferrer">
                     <ExternalLink size={14} />
                     raw skill.md
                   </a>

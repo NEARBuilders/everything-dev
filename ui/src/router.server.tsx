@@ -64,7 +64,6 @@ const createRouter = (opts: CreateRouterOptions) => {
     basepath: opts.basepath,
     context: {
       queryClient,
-      assetsUrl: opts.context.assetsUrl,
       runtimeConfig: opts.context.runtimeConfig,
       apiClient: opts.context.apiClient,
       authClient: opts.context.authClient ?? createAuthClient(opts.context.runtimeConfig),
@@ -110,7 +109,6 @@ const getRouteHead = async (pathname: string, context?: Partial<RouterContext>) 
     history,
     context: {
       queryClient,
-      assetsUrl: context?.assetsUrl ?? "",
       runtimeConfig,
       apiClient:
         context?.apiClient ??
@@ -148,7 +146,6 @@ const renderToStream = async (request: Request, renderOptions: RenderOptions) =>
         basepath: renderOptions.basepath,
         context: {
           queryClient: localQueryClient,
-          assetsUrl: renderOptions.assetsUrl,
           runtimeConfig: renderOptions.runtimeConfig,
           apiClient: renderOptions.apiClient,
           authClient: createAuthClient(renderOptions.runtimeConfig, request.headers),
