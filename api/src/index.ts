@@ -7,7 +7,7 @@ import { contract, type VoteEventSchema } from "./contract";
 import { loadMigrations } from "./db/load-migrations";
 import { migrate } from "./db/migrator";
 import { upvotes } from "./db/schema";
-import { createAuthGuards } from "./lib/auth";
+import { createAuthMiddleware } from "./lib/auth";
 import type { PluginsClient } from "./lib/plugins-types.gen";
 
 type VoteEventDetail = z.infer<typeof VoteEventSchema>;
@@ -170,7 +170,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
     }),
 
   createRouter: (services, builder) => {
-    const { requireAuth } = createAuthGuards(builder);
+    const { requireAuth } = createAuthMiddleware(builder);
     const { publisher } = services;
 
     return {

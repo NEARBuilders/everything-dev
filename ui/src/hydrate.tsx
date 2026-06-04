@@ -1,4 +1,5 @@
 import { createApiClient, createAuthClient, getRuntimeConfig } from "./app";
+import "./styles.css";
 
 declare global {
   interface Window {

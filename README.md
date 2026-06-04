@@ -102,7 +102,7 @@ bos clean                   # Clean build artifacts
 Always run these commands before committing:
 
 ```bash
-bun test        # Run all tests
+bun run test    # Run all tests
 bun typecheck   # Type check all packages
 bun lint        # Run linting (see lint setup below)
 ```

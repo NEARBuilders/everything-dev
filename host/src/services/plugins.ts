@@ -421,20 +421,35 @@ export class PluginsService extends Context.Tag("host/PluginsService")<
 }
 
 export function createPluginsClient(result: PluginResult, context?: unknown): unknown {
-  const client: Record<string, unknown> = {};
+  const apiClient = result.api?.createClient(context);
 
-  if (result.api?.createClient) {
-    Object.assign(client, result.api.createClient(context) as Record<string, unknown>);
-  }
+  // Do NOT Object.assign the result — apiClient is a Proxy and assign would copy
+  // only static own-properties, silently dropping Proxy-resolved RPC methods.
 
+  const pluginClients: Record<string, unknown> = {};
   for (const [key, plugin] of Object.entries(result.plugins)) {
     if (key === "api") continue;
-    client[key] = plugin.createClient(context);
+    pluginClients[key] = plugin.createClient(context);
   }
 
   if (result.authClient) {
-    client.auth = result.authClient(context);
+    pluginClients.auth = result.authClient(context);
   }
 
-  return client;
+  if (!apiClient) {
+    return pluginClients;
+  }
+
+  return new Proxy(apiClient, {
+    get(target, key) {
+      if (typeof key === "string" && key in pluginClients) {
+        return pluginClients[key];
+      }
+      return Reflect.get(target, key);
+    },
+    has(target, key) {
+      if (key in pluginClients) return true;
+      return Reflect.has(target, key);
+    },
+  });
 }

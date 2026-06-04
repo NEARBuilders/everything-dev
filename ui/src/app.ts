@@ -114,5 +114,4 @@ export interface RenderOptions extends Omit<BaseRenderOptions<SessionData>, "run
   runtimeConfig: BaseRenderOptions<SessionData>["runtimeConfig"];
   apiClient: ApiClient;
   authClient?: AuthClientType;
-  cspNonce?: string;
 }

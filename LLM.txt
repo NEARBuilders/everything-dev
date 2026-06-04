@@ -758,9 +758,8 @@ import type { Data } from 'ui/types';
 
 **Unit Tests:**
 ```bash
-bun test          # All workspaces
-bun test:api      # API only
-bun test:ui       # UI only
+bun run test      # All workspaces
+bun run test:api  # API only
 ```
 
 **Integration Tests:**
@@ -769,7 +768,7 @@ See `api/tests/` for plugin testing patterns.
 **Running Tests:**
 ```bash
 # All tests
-bun test
+bun run test
 
 # API integration tests only
 bun run test:integration

@@ -18,6 +18,7 @@ import { onError } from "every-plugin/orpc";
 import { getBaseStyles, getHydrateScript, getThemeInitScript } from "everything-dev/ui/head";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
+import { proxy } from "hono/proxy";
 import { NONCE, secureHeaders } from "hono/secure-headers";
 import {
   buildPluginContext,
@@ -297,6 +298,29 @@ export async function proxyRequest(
   });
 }
 
+function buildStaticAssetProxyHeaders(req: Request) {
+  const headers = new Headers();
+
+  for (const name of ["accept", "accept-language", "if-none-match", "if-modified-since"]) {
+    const value = req.headers.get(name);
+    if (value) {
+      headers.set(name, value);
+    }
+  }
+
+  return headers;
+}
+
+async function proxyStaticAssetRequest(req: Request, targetBase: string): Promise<Response> {
+  const url = new URL(req.url);
+  const targetUrl = `${targetBase}${url.pathname}${url.search}`;
+
+  return proxy(targetUrl, {
+    raw: req,
+    headers: buildStaticAssetProxyHeaders(req),
+  });
+}
+
 export function setupApiRoutes(
   app: Hono<HonoEnv>,
   config: RuntimeConfig,
@@ -505,6 +529,8 @@ export const createStartServer = (onReady?: () => void) =>
     app.use("*", (c, next) => {
       const frameAncestors = isViewerFramePath(c.req.path) ? ["'self'"] : ["'none'"];
 
+      const viewerPath = isViewerFramePath(c.req.path);
+
       return secureHeaders({
         crossOriginOpenerPolicy: "same-origin-allow-popups",
         contentSecurityPolicy: {
@@ -518,7 +544,9 @@ export const createStartServer = (onReady?: () => void) =>
             ...(uiConfig.url ? [new URL(uiConfig.url).origin] : []),
           ],
           connectSrc: ["'self'", "https:", ...uniqueOrigins, ...wsOrigins, ...cdnOrigins],
-          fontSrc: ["'self'", "https:", ...uniqueOrigins],
+          fontSrc: viewerPath
+            ? ["'self'", "data:", "https:", ...uniqueOrigins]
+            : ["'self'", "https:", ...uniqueOrigins],
           manifestSrc: [
             "'self'",
             "https:",
@@ -580,6 +608,7 @@ export const createStartServer = (onReady?: () => void) =>
               <link rel="icon" type="image/x-icon" href="/favicon.ico" />
               <link rel="icon" type="image/svg+xml" href="/icon.svg" />
               <link rel="manifest" href="/manifest.json" />
+              <link rel="stylesheet" href="/static/css/style.css" />
               <style>
                 ${getBaseStyles()}
                 .shell { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
@@ -614,7 +643,7 @@ export const createStartServer = (onReady?: () => void) =>
       const runtime = await resolveRequestRuntime(config, c.req.raw, {
         verification: "stale-while-revalidate",
       });
-      return await proxyRequest(c.req.raw, runtime.config.ui.url);
+      return await proxyStaticAssetRequest(c.req.raw, runtime.config.ui.url);
     };
 
     const sessionMiddleware = createSessionMiddleware(plugins);
@@ -624,6 +653,7 @@ export const createStartServer = (onReady?: () => void) =>
 
     app.on(["GET", "HEAD"], "*", async (c: Context<HonoEnv>, next) => {
       const { pathname } = new URL(c.req.url);
+
       if (
         pathname === "/" ||
         pathname.startsWith("/api/") ||
@@ -631,6 +661,11 @@ export const createStartServer = (onReady?: () => void) =>
         pathname.startsWith("/_runtime/") ||
         pathname === "/health"
       ) {
+        return next();
+      }
+
+      const lastSegment = pathname.split("/").pop() ?? "";
+      if (!/\.[A-Za-z0-9]+$/.test(lastSegment)) {
         return next();
       }
 
@@ -656,7 +691,7 @@ export const createStartServer = (onReady?: () => void) =>
           if (!pluginUiUrl) {
             return c.text(`Plugin UI unavailable for ${pluginKey}`, 404);
           }
-          return await proxyRequest(c.req.raw, pluginUiUrl);
+          return await proxyStaticAssetRequest(c.req.raw, pluginUiUrl);
         } catch (error) {
           const { message, status } = getTenantRuntimeErrorResponse(error);
           return c.text(message, { status: status as 404 | 500 | 502 });
@@ -689,7 +724,7 @@ export const createStartServer = (onReady?: () => void) =>
               <script${nonceAttr}>
                 (function() {
                   var widgetPath = ${widgetPathJson};
-                  history.replaceState(null, "", "/" + widgetPath.replace(/^/+/, ""));
+                  history.replaceState(null, "", "/" + widgetPath.replace(/^\/+/, ""));
                 })();
               </script>
               <script${nonceAttr} src="${BOS_VIEWER_RUNTIME_SCRIPT_URL}"></script>

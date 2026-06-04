@@ -19,12 +19,20 @@ interface AuthClient {
   getContext(): Promise<AuthRequestContext>;
 }
 
+export interface ApiKeyContext {
+  id: string;
+  name: string | null;
+  permissions: Record<string, string[]> | null;
+}
+
 export interface AuthVariables {
   user: AuthUser | null;
   session: AuthSessionData | null;
   reqHeaders: Headers;
   getRawBody: () => Promise<string>;
   walletAddress: string | null;
+  apiKey: ApiKeyContext | null;
+  organizationId: string | null;
 }
 
 export type HonoEnv = { Variables: AuthVariables };
@@ -75,6 +83,8 @@ export function createSessionMiddleware(plugins: PluginResult) {
       c.set("user", null);
       c.set("session", null);
       c.set("walletAddress", null);
+      c.set("apiKey", null);
+      c.set("organizationId", null);
       await next();
       return;
     }
@@ -87,9 +97,11 @@ export function createSessionMiddleware(plugins: PluginResult) {
         authClient.getSession(),
         authClient.getContext(),
       ]);
-      c.set("user", sessionResult?.user ?? null);
+      c.set("user", sessionResult?.user ?? contextResult.user ?? null);
       c.set("session", sessionResult?.session ?? null);
       c.set("walletAddress", contextResult.near.primaryAccountId ?? null);
+      c.set("apiKey", contextResult.apiKey ?? null);
+      c.set("organizationId", contextResult.organization?.activeOrganizationId ?? null);
     } catch (error) {
       console.warn(
         `[Auth] Session resolution failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -97,6 +109,8 @@ export function createSessionMiddleware(plugins: PluginResult) {
       c.set("user", null);
       c.set("session", null);
       c.set("walletAddress", null);
+      c.set("apiKey", null);
+      c.set("organizationId", null);
     }
 
     await next();
@@ -107,12 +121,15 @@ export function buildPluginContext(c: Context<HonoEnv>) {
   const user = c.get("user");
   const session = c.get("session");
   const walletAddress = c.get("walletAddress");
+  const apiKey = c.get("apiKey");
+  const organizationId = c.get("organizationId");
 
   return {
     userId: user?.id,
     user: user ?? undefined,
     walletAddress: walletAddress ?? undefined,
-    organizationId: session?.activeOrganizationId ?? undefined,
+    organizationId: organizationId ?? session?.activeOrganizationId ?? undefined,
+    apiKey: apiKey ?? undefined,
     reqHeaders: c.get("reqHeaders"),
     getRawBody: c.get("getRawBody"),
   };
