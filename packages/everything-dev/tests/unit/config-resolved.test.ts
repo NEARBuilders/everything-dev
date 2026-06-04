@@ -428,6 +428,104 @@ describe("loadConfig plugin runtime filtering", () => {
       rmSync(testDir, { recursive: true, force: true });
     }
   });
+
+  it("preserves nested variable values in auth and plugin runtime config", async () => {
+    const testDir = mkdtempSync(join(tmpdir(), "bos-config-nested-variables-"));
+
+    try {
+      writeFileSync(
+        join(testDir, "bos.config.json"),
+        `${JSON.stringify(
+          {
+            account: "test.near",
+            domain: "test.dev",
+            app: {
+              host: {
+                development: "http://localhost:3000",
+                production: "https://host.example.com",
+              },
+              ui: {
+                name: "ui",
+                development: "http://localhost:3003",
+                production: "https://ui.example.com",
+              },
+              api: {
+                name: "api",
+                development: "http://localhost:3001",
+                production: "https://api.example.com",
+              },
+              auth: {
+                name: "auth",
+                production: "https://auth.example.com",
+                variables: {
+                  baseUrl: "https://auth.everything.near",
+                  trustedOrigins: ["https://everything.dev", "https://*.everything.dev"],
+                  passkey: {
+                    rpID: "everything.dev",
+                    rpName: "Better NEAR Auth",
+                  },
+                  siwn: {
+                    recipients: {
+                      mainnet: "auth.everything.near",
+                      testnet: "dev.allthethings.testnet",
+                    },
+                    relayer: {
+                      enabled: true,
+                      retries: 3,
+                    },
+                  },
+                },
+              },
+            },
+            plugins: {
+              settings: {
+                production: "https://settings.example.com",
+                variables: {
+                  sections: ["profile", "security"],
+                  featureFlags: {
+                    passkeys: true,
+                    maxSessions: 5,
+                  },
+                },
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+      );
+
+      const loaded = await loadResolvedConfig({ cwd: testDir, env: "production" });
+
+      expect(loaded?.runtime.auth?.variables).toEqual({
+        baseUrl: "https://auth.everything.near",
+        trustedOrigins: ["https://everything.dev", "https://*.everything.dev"],
+        passkey: {
+          rpID: "everything.dev",
+          rpName: "Better NEAR Auth",
+        },
+        siwn: {
+          recipients: {
+            mainnet: "auth.everything.near",
+            testnet: "dev.allthethings.testnet",
+          },
+          relayer: {
+            enabled: true,
+            retries: 3,
+          },
+        },
+      });
+      expect(loaded?.runtime.plugins?.settings?.variables).toEqual({
+        sections: ["profile", "security"],
+        featureFlags: {
+          passkeys: true,
+          maxSessions: 5,
+        },
+      });
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("local vs resolved config loading", () => {

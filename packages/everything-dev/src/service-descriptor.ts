@@ -1,5 +1,5 @@
 import { Context, Layer } from "effect";
-import type { RuntimeConfig, SourceMode } from "./types";
+import type { JsonObject, RuntimeConfig, SourceMode } from "./types";
 
 export interface ServiceDescriptor {
   key: string;
@@ -14,7 +14,7 @@ export interface ServiceDescriptor {
   defaultPort: number;
   integrity?: string;
   proxy?: string;
-  variables?: Record<string, string>;
+  variables?: JsonObject;
   secrets?: string[];
   ssr?: boolean;
   command?: string;

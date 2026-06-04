@@ -16,6 +16,8 @@ import type {
   BosConfigInput,
   BosPluginRef,
   ExtendsConfig,
+  JsonObject,
+  JsonValue,
   PluginEntryValue,
   RuntimeConfig,
   RuntimePluginConfig,
@@ -994,7 +996,7 @@ function buildRuntimePluginConfig(
     localPath: runtimeTarget.localPath,
     port: runtimeTarget.port,
     proxy: typeof source.proxy === "string" ? source.proxy : undefined,
-    variables: normalizeStringRecord(source.variables),
+    variables: normalizeJsonRecord(source.variables),
     secrets: normalizeStringArray(source.secrets),
     integrity: runtimeTarget.source === "remote" ? source.integrity : undefined,
     ui: uiRuntime
@@ -1042,12 +1044,43 @@ export function resolvePluginRuntimeName(
   return fallback;
 }
 
-function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
+function normalizeJsonValue(value: unknown): JsonValue | undefined {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeJsonValue(item))
+      .filter((item): item is JsonValue => item !== undefined);
+  }
+
+  if (isPlainObject(value)) {
+    const out: JsonObject = {};
+    for (const [key, raw] of Object.entries(value)) {
+      const normalized = normalizeJsonValue(raw);
+      if (normalized !== undefined) {
+        out[key] = normalized;
+      }
+    }
+    return out;
+  }
+
+  return undefined;
+}
+
+function normalizeJsonRecord(value: unknown): JsonObject | undefined {
   if (!isPlainObject(value)) return undefined;
-  const out: Record<string, string> = {};
+  const out: JsonObject = {};
   for (const [key, raw] of Object.entries(value)) {
-    if (typeof raw === "string") {
-      out[key] = raw;
+    const normalized = normalizeJsonValue(raw);
+    if (normalized !== undefined) {
+      out[key] = normalized;
     }
   }
   return Object.keys(out).length > 0 ? out : undefined;

@@ -724,7 +724,7 @@ export const createStartServer = (onReady?: () => void) =>
               <script${nonceAttr}>
                 (function() {
                   var widgetPath = ${widgetPathJson};
-                  history.replaceState(null, "", "/" + widgetPath.replace(/^\/+/, ""));
+                  history.replaceState(null, "", "/" + widgetPath.replace(/^/+/, ""));
                 })();
               </script>
               <script${nonceAttr} src="${BOS_VIEWER_RUNTIME_SCRIPT_URL}"></script>

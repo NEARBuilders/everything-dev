@@ -1,5 +1,23 @@
 import * as z from "zod";
 
+export type JsonPrimitive = string | number | boolean | null;
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+
+export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(JsonValueSchema),
+    z.record(z.string(), JsonValueSchema),
+  ]),
+);
+export const JsonObjectSchema = z.record(z.string(), JsonValueSchema);
+
 export const ExtendsSchema = z.union([
   z.string(),
   z.object({
@@ -53,7 +71,7 @@ export const ComposableAppEntrySchema = z.object({
   production: z.string().optional(),
   integrity: z.string().optional(),
   proxy: z.string().optional(),
-  variables: z.record(z.string(), z.string()).optional(),
+  variables: JsonObjectSchema.optional(),
   secrets: z.array(z.string()).optional(),
   sidebar: z.array(SidebarItemSchema).optional(),
   routes: z.array(z.string()).optional(),
@@ -100,7 +118,7 @@ export const RuntimePluginConfigSchema = z.object({
   localPath: z.string().optional(),
   port: z.number().optional(),
   proxy: z.string().optional(),
-  variables: z.record(z.string(), z.string()).optional(),
+  variables: JsonObjectSchema.optional(),
   secrets: z.array(z.string()).optional(),
   integrity: z.string().optional(),
   ui: PluginRuntimeUiSchema.optional(),
@@ -173,7 +191,7 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
     name: z.string().optional(),
     version: z.string().optional(),
     proxy: z.string().optional(),
-    variables: z.record(z.string(), z.string()).optional(),
+    variables: JsonObjectSchema.optional(),
     secrets: z.array(z.string()).optional(),
     routes: z.array(z.string()).optional(),
     sidebar: z.array(SidebarItemSchema).optional(),
@@ -203,7 +221,7 @@ export interface BosConfigInput {
   name?: string;
   version?: string;
   proxy?: string;
-  variables?: Record<string, string>;
+  variables?: JsonObject;
   secrets?: string[];
   routes?: string[];
   sidebar?: SidebarItem[];
@@ -274,14 +292,14 @@ export const RuntimeConfigSchema = z.object({
     localPath: z.string().optional(),
     port: z.number().optional(),
     proxy: z.string().optional(),
-    variables: z.record(z.string(), z.string()).optional(),
+    variables: JsonObjectSchema.optional(),
     secrets: z.array(z.string()).optional(),
   }),
   auth: FederationEntrySchema.extend({
     localPath: z.string().optional(),
     port: z.number().optional(),
     proxy: z.string().optional(),
-    variables: z.record(z.string(), z.string()).optional(),
+    variables: JsonObjectSchema.optional(),
     secrets: z.array(z.string()).optional(),
     sidebar: z.array(SidebarItemSchema).optional(),
   }).optional(),

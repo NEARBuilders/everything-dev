@@ -1,7 +1,7 @@
 import { createBrowserHistory, createRouter as createTanStackRouter } from "@tanstack/react-router";
+import type { CreateRouterOptions } from "./app";
 import { createAuthClient } from "./app";
 import { routeTree } from "./routeTree.gen";
-import type { CreateRouterOptions } from "./app";
 
 export type {
   ClientRuntimeConfig,

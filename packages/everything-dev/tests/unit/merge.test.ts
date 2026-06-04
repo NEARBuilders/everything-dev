@@ -246,14 +246,29 @@ describe("mergeBosConfigWithExtends", () => {
     const parent = {
       plugins: {
         myplugin: {
-          variables: { namespace: "parent.near", region: "us-east" },
+          variables: {
+            namespace: "parent.near",
+            region: "us-east",
+            siwn: {
+              recipients: {
+                mainnet: "parent.near",
+              },
+            },
+          },
         },
       },
     };
     const child = {
       plugins: {
         myplugin: {
-          variables: { namespace: "child.near" },
+          variables: {
+            namespace: "child.near",
+            trustedOrigins: ["https://everything.dev", "https://*.everything.dev"],
+            passkey: {
+              rpID: "everything.dev",
+              enabled: true,
+            },
+          },
         },
       },
     };
@@ -262,7 +277,14 @@ describe("mergeBosConfigWithExtends", () => {
       string,
       unknown
     >;
-    expect(myplugin.variables).toEqual({ namespace: "child.near" });
+    expect(myplugin.variables).toEqual({
+      namespace: "child.near",
+      trustedOrigins: ["https://everything.dev", "https://*.everything.dev"],
+      passkey: {
+        rpID: "everything.dev",
+        enabled: true,
+      },
+    });
   });
 
   it("applies canonical ordering", () => {
