@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.33.2
+
+### Patch Changes
+
+- 37f4ded: Use the UI asset origin for executable UI assets so remoteEntry and CSS load from the immutable UI deploy while public assets stay root-relative.
+
 ## 1.33.1
 
 ### Patch Changes
