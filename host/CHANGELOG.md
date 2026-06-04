@@ -1,5 +1,11 @@
 # host
 
+## 1.10.0
+
+### Minor Changes
+
+- 2ccdb28: Ensure the deploy workflow checks out the triggering commit before publishing deployment URL updates.
+
 ## 1.9.3
 
 ### Patch Changes
