@@ -1,5 +1,16 @@
 # host
 
+## 1.11.0
+
+### Minor Changes
+
+- 36b6cd7: Fix deployment workflows to publish updated `bos.config.json` with the `bos publish --deploy` path.
+
+### Patch Changes
+
+- 36b6cd7: Tighten CSP nonce handling across SSR, hydration, and fallback shells, and fix the BOS viewer bootstrap path.
+- 36b6cd7: Restore public plugin RPC routing for the browser API contract and keep SSR/client hydration aligned under strict CSP.
+
 ## 1.10.0
 
 ### Minor Changes

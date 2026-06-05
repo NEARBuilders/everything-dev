@@ -1,5 +1,12 @@
 # ui
 
+## 1.6.4
+
+### Patch Changes
+
+- 36b6cd7: Tighten CSP nonce handling across SSR, hydration, and fallback shells, and fix the BOS viewer bootstrap path.
+- 36b6cd7: Restore public plugin RPC routing for the browser API contract and keep SSR/client hydration aligned under strict CSP.
+
 ## 1.6.3
 
 ### Patch Changes
