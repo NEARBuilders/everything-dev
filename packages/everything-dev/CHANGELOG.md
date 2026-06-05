@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.33.4
+
+### Patch Changes
+
+- cd4a448: Fix publish/deploy to wait for FastKV confirmation and stream NEAR transaction output live.
+
 ## 1.33.3
 
 ### Patch Changes
