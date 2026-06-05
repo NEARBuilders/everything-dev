@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.33.7
+
+### Patch Changes
+
+- b09b597: Fix NEAR CLI handling for publish and deploy flows in CI, including explicit workflow installation, clearer manual install guidance, and better publish logging.
+
 ## 1.33.6
 
 ### Patch Changes
