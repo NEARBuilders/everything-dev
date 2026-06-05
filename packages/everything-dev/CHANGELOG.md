@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.33.6
+
+### Patch Changes
+
+- e2f79ca: Fix NEAR publish signing-mode handling, remove duplicate fallback warnings, and keep publish output link-safe while preserving transaction submission and confirmation behavior.
+
 ## 1.33.5
 
 ### Patch Changes
