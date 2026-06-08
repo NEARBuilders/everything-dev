@@ -148,6 +148,7 @@ function buildRuntimeClientConfig(
           url: config.api.url,
           entry: config.api.entry,
           integrity: config.api.integrity,
+          ...(config.api.variables ? { variables: config.api.variables } : {}),
         }
       : undefined,
     auth: config.auth
@@ -157,6 +158,7 @@ function buildRuntimeClientConfig(
           entry: config.auth.entry,
           integrity: config.auth.integrity,
           sidebar: config.auth.sidebar,
+          ...(config.auth.variables ? { variables: config.auth.variables } : {}),
         }
       : undefined,
     plugins: Object.fromEntries(
@@ -168,6 +170,7 @@ function buildRuntimeClientConfig(
             url: plugin.url,
             entry: plugin.entry,
             integrity: plugin.integrity,
+            ...(plugin.variables ? { variables: plugin.variables } : {}),
             ...(plugin.ui
               ? {
                   ui: {

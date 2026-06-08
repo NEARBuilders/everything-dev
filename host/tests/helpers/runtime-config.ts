@@ -43,12 +43,21 @@ export function buildTestClientRuntimeConfig(config: RuntimeConfig): Partial<Cli
   const plugins: NonNullable<Partial<ClientRuntimeConfig>["plugins"]> = {};
 
   for (const [key, plugin] of Object.entries(config.plugins ?? {}) as Array<
-    [string, { name: string; url: string; entry: string }]
+    [
+      string,
+      {
+        name: string;
+        url: string;
+        entry: string;
+        variables?: Record<string, import("everything-dev/types").JsonValue>;
+      },
+    ]
   >) {
     plugins[key] = {
       name: plugin.name,
       url: plugin.url,
       entry: plugin.entry,
+      ...(plugin.variables ? { variables: plugin.variables } : {}),
     };
   }
 
@@ -78,7 +87,17 @@ export function buildTestClientRuntimeConfig(config: RuntimeConfig): Partial<Cli
       name: config.api.name,
       url: config.api.url,
       entry: config.api.entry,
+      ...(config.api.variables ? { variables: config.api.variables } : {}),
     },
+    auth: config.auth
+      ? {
+          name: config.auth.name,
+          url: config.auth.url,
+          entry: config.auth.entry,
+          ...(config.auth.sidebar ? { sidebar: config.auth.sidebar } : {}),
+          ...(config.auth.variables ? { variables: config.auth.variables } : {}),
+        }
+      : undefined,
     plugins: Object.keys(plugins).length > 0 ? plugins : undefined,
   };
 }

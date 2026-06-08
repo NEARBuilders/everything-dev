@@ -332,6 +332,7 @@ export const ClientRuntimeConfigSchema = z.object({
       url: z.string(),
       entry: z.string(),
       integrity: z.string().optional(),
+      variables: JsonObjectSchema.optional(),
     })
     .optional(),
   auth: z
@@ -340,6 +341,7 @@ export const ClientRuntimeConfigSchema = z.object({
       url: z.string(),
       entry: z.string(),
       integrity: z.string().optional(),
+      variables: JsonObjectSchema.optional(),
       sidebar: z.array(SidebarItemSchema).optional(),
     })
     .optional(),
@@ -351,6 +353,7 @@ export const ClientRuntimeConfigSchema = z.object({
         url: z.string(),
         entry: z.string(),
         integrity: z.string().optional(),
+        variables: JsonObjectSchema.optional(),
         ui: z
           .object({
             name: z.string(),
