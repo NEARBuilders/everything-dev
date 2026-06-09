@@ -216,7 +216,11 @@ describe("shared sync resolved config", () => {
             domain: "test.dev",
             app: {
               host: { development: "http://localhost:3000", production: "https://host.test.dev" },
-              ui: { name: "ui", development: "http://localhost:3003", production: "https://ui.test.dev" },
+              ui: {
+                name: "ui",
+                development: "http://localhost:3003",
+                production: "https://ui.test.dev",
+              },
               api: {
                 name: "api",
                 development: "http://localhost:3001",

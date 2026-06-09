@@ -1,5 +1,5 @@
-import { createRequire } from "node:module";
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import pkg from "../../package.json";
 
@@ -97,17 +97,16 @@ export type AppSharedDeps = Record<string, AppSharedDepConfig>;
 
 export function buildMergedSharedDeps(
   appShared?: AppSharedDeps,
-): Record<
-  string,
-  { version: string; shareScope: string; shareConfig: SharedConfig }
-> {
-  const merged: Record<
-    string,
-    { version: string; shareScope: string; shareConfig: SharedConfig }
-  > = {};
+): Record<string, { version: string; shareScope: string; shareConfig: SharedConfig }> {
+  const merged: Record<string, { version: string; shareScope: string; shareConfig: SharedConfig }> =
+    {};
 
   for (const [name, config] of Object.entries(MF_CORE_SHARED_DEPS)) {
-    merged[name] = { version: config.version, shareScope: config.shareScope, shareConfig: config.shareConfig };
+    merged[name] = {
+      version: config.version,
+      shareScope: config.shareScope,
+      shareConfig: config.shareConfig,
+    };
   }
 
   if (appShared) {

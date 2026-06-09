@@ -57,7 +57,9 @@ describe("mf-config sync", () => {
     );
 
     for (const [name, dep] of Object.entries(pluginSharedDependencies)) {
-      expect(MF_CORE_SHARED_DEPS[name as keyof typeof MF_CORE_SHARED_DEPS].version).toBe(dep.version);
+      expect(MF_CORE_SHARED_DEPS[name as keyof typeof MF_CORE_SHARED_DEPS].version).toBe(
+        dep.version,
+      );
     }
   });
 });

@@ -56,10 +56,7 @@ describe("mergeBosConfigWithExtends", () => {
       },
     };
     const merged = mergeBosConfigWithExtends(parent, child);
-    const api = (merged.app as Record<string, unknown>).api as Record<
-      string,
-      unknown
-    >;
+    const api = (merged.app as Record<string, unknown>).api as Record<string, unknown>;
     const shared = api.shared as Record<string, Record<string, unknown>>;
     expect(shared.effect.version).toBe("3.21.0");
     expect(shared.effect.singleton).toBe(true);
@@ -90,10 +87,7 @@ describe("mergeBosConfigWithExtends", () => {
       },
     };
     const merged = mergeBosConfigWithExtends(parent, child);
-    const api = (merged.app as Record<string, unknown>).api as Record<
-      string,
-      unknown
-    >;
+    const api = (merged.app as Record<string, unknown>).api as Record<string, unknown>;
     const shared = api.shared as Record<string, Record<string, unknown>>;
     expect(shared.effect.version).toBe("3.21.0");
     expect(shared.zod.version).toBe("4.2.0");
@@ -120,10 +114,7 @@ describe("mergeBosConfigWithExtends", () => {
       },
     };
     const merged = mergeBosConfigWithExtends(parent, child);
-    const api = (merged.app as Record<string, unknown>).api as Record<
-      string,
-      unknown
-    >;
+    const api = (merged.app as Record<string, unknown>).api as Record<string, unknown>;
     const shared = api.shared as Record<string, Record<string, unknown>>;
     expect(shared.effect.version).toBe("3.20.0");
     expect(shared["better-auth"].version).toBe("1.6.9");

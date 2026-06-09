@@ -129,14 +129,16 @@ export const RuntimePluginConfigSchema = z.object({
 });
 export type RuntimePluginConfig = z.infer<typeof RuntimePluginConfigSchema>;
 
-export const UiConfigSchema = z.object({
-  name: z.string().optional(),
-  development: z.string().optional(),
-  production: z.string().optional(),
-  integrity: z.string().optional(),
-  ssr: z.string().optional(),
-  ssrIntegrity: z.string().optional(),
-}).strict();
+export const UiConfigSchema = z
+  .object({
+    name: z.string().optional(),
+    development: z.string().optional(),
+    production: z.string().optional(),
+    integrity: z.string().optional(),
+    ssr: z.string().optional(),
+    ssrIntegrity: z.string().optional(),
+  })
+  .strict();
 export type UiConfig = z.infer<typeof UiConfigSchema>;
 
 export const HostConfigSchema = z.object({

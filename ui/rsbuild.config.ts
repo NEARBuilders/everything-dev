@@ -36,7 +36,8 @@ function getInstalledVersion(pkgName: string, fallback: string): string {
     for (let i = 0; i < 5; i += 1) {
       const packageJsonPath = path.join(currentDir, "package.json");
       if (fs.existsSync(packageJsonPath)) {
-        return (JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as { version: string }).version;
+        return (JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as { version: string })
+          .version;
       }
       currentDir = path.dirname(currentDir);
     }
@@ -71,11 +72,17 @@ const uiSharedDeps = {
     ...SHARE_DEFAULTS,
   },
   "@tanstack/react-query": {
-    version: getInstalledVersion("@tanstack/react-query", pkg.dependencies["@tanstack/react-query"]),
+    version: getInstalledVersion(
+      "@tanstack/react-query",
+      pkg.dependencies["@tanstack/react-query"],
+    ),
     ...SHARE_DEFAULTS,
   },
   "@tanstack/react-router": {
-    version: getInstalledVersion("@tanstack/react-router", pkg.dependencies["@tanstack/react-router"]),
+    version: getInstalledVersion(
+      "@tanstack/react-router",
+      pkg.dependencies["@tanstack/react-router"],
+    ),
     ...SHARE_DEFAULTS,
   },
 };

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isPlainObject, type BosEnv, type ResolvedConfigMeta, rebuildOrderedConfig } from "./merge";
-import { SharedDepMapSchema, type SharedDepConfig } from "./types";
+import { type BosEnv, isPlainObject, type ResolvedConfigMeta, rebuildOrderedConfig } from "./merge";
+import { type SharedDepConfig, SharedDepMapSchema } from "./types";
 
 interface PackageJson {
   workspaces?: {
@@ -66,7 +66,9 @@ function caretRange(version: string): string {
   return `^${version}`;
 }
 
-function stableDepsObject(deps: Record<string, ResolvedSharedDep>): Record<string, ResolvedSharedDep> {
+function stableDepsObject(
+  deps: Record<string, ResolvedSharedDep>,
+): Record<string, ResolvedSharedDep> {
   const keys = Object.keys(deps).sort((a, b) => a.localeCompare(b));
   const out: Record<string, ResolvedSharedDep> = {};
   for (const key of keys) {
@@ -143,7 +145,7 @@ function collectSharedDepRefs(bosConfig: SharedDepsConfig): Record<string, Share
 
   if (appUi && "shared" in appUi) {
     throw new Error(
-      'app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.',
+      "app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.",
     );
   }
 
@@ -225,13 +227,19 @@ export async function syncResolvedSharedDeps(opts: {
     const first = refs[0];
     if (!first) continue;
 
-    const exactFromConfig = extractSemverExact(first.config.version) ?? extractSemverExact(first.config.requiredVersion);
+    const exactFromConfig =
+      extractSemverExact(first.config.version) ?? extractSemverExact(first.config.requiredVersion);
     const exactFromCatalog = extractSemverExact(catalog[name]);
-    const version = mode === "catalog->bos" ? exactFromCatalog ?? exactFromConfig : exactFromConfig ?? exactFromCatalog;
+    const version =
+      mode === "catalog->bos"
+        ? (exactFromCatalog ?? exactFromConfig)
+        : (exactFromConfig ?? exactFromCatalog);
 
     if (!version) {
       const sources = refs.map((ref) => ref.source).join(", ");
-      throw new Error(`Could not resolve exact version for shared dependency "${name}" from ${sources}`);
+      throw new Error(
+        `Could not resolve exact version for shared dependency "${name}" from ${sources}`,
+      );
     }
 
     if (mode === "catalog->bos" && exactFromCatalog === null && exactFromConfig) {

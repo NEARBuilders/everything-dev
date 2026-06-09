@@ -33,7 +33,7 @@ import {
   getLinkedProviders,
   getNearAccountId,
   getProviderConfig,
-} from "@/lib/auth-utils";
+} from "@/lib/auth";
 import { NearProfile } from "./near-profile";
 import RelayFeed from "./relay-feed";
 

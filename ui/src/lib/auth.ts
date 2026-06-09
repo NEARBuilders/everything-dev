@@ -13,8 +13,41 @@ import { createAuthClient as createBetterAuthClient } from "better-auth/react";
 import type { RelayedTransactionT } from "better-near-auth";
 import { siwnClient } from "better-near-auth/client";
 import type { ClientRuntimeConfig } from "everything-dev/types";
-import { getCspNonce, getRuntimeConfig } from "everything-dev/ui/runtime";
+import { getRuntimeConfig } from "everything-dev/ui/runtime";
 import type { Auth } from "./auth-types.gen";
+
+type ProviderConfig = {
+  name: string;
+  icon: string;
+};
+
+type RuntimeAuthVariables = {
+  siwn: {
+    recipient?: string;
+    recipients?: {
+      mainnet?: string;
+      testnet?: string;
+    };
+  };
+};
+
+type CreateAuthClientOptions = {
+  runtimeConfig?: Partial<ClientRuntimeConfig>;
+  headers?: HeadersInit;
+  cspNonce?: string;
+};
+
+type SiwnClientConfig = Parameters<typeof siwnClient>[0] & {
+  cspNonce?: string;
+};
+
+function hasAuthVariables(auth: ClientRuntimeConfig["auth"] | undefined): auth is NonNullable<
+  ClientRuntimeConfig["auth"]
+> & {
+  variables: RuntimeAuthVariables;
+} {
+  return !!auth && typeof auth === "object" && typeof auth.variables === "object";
+}
 
 function readRuntimeConfig(config?: Partial<ClientRuntimeConfig>) {
   if (config) return config;
@@ -26,15 +59,100 @@ function readRuntimeConfig(config?: Partial<ClientRuntimeConfig>) {
   }
 }
 
-function getAccountId(config?: Partial<ClientRuntimeConfig>) {
-  return readRuntimeConfig(config)?.account ?? "every.near";
+function getAuthVariables(config?: Partial<ClientRuntimeConfig>): RuntimeAuthVariables {
+  const runtimeConfig = readRuntimeConfig(config);
+  if (!runtimeConfig || !hasAuthVariables(runtimeConfig.auth)) {
+    throw new Error("Missing auth runtime configuration");
+  }
+  return runtimeConfig.auth.variables;
 }
 
-function getNetworkId(config?: Partial<ClientRuntimeConfig>): "mainnet" | "testnet" {
-  return (
-    readRuntimeConfig(config)?.networkId ??
-    (getAccountId(config).endsWith(".testnet") ? "testnet" : "mainnet")
-  );
+function getProviderId(account: {
+  providerId?: unknown;
+  accountId?: unknown;
+  network?: unknown;
+}): string {
+  if (typeof account.providerId === "string" && account.providerId.length > 0) {
+    return account.providerId;
+  }
+
+  if (
+    typeof account.accountId === "string" &&
+    (account.network === "mainnet" || account.network === "testnet")
+  ) {
+    return "siwn";
+  }
+
+  return "unknown";
+}
+
+export function getAccountProviderId(account: {
+  providerId?: unknown;
+  accountId?: unknown;
+  network?: unknown;
+}): string {
+  return getProviderId(account);
+}
+
+export function getNearAccountId(
+  linkedAccounts: Array<{ providerId?: unknown; accountId?: unknown; network?: unknown }>,
+): string | null {
+  if (!Array.isArray(linkedAccounts)) {
+    return null;
+  }
+
+  const nearAccount = linkedAccounts.find((account) => getProviderId(account) === "siwn");
+  if (typeof nearAccount?.accountId !== "string") {
+    return null;
+  }
+
+  return nearAccount.accountId.split(":")[0] || null;
+}
+
+export function getLinkedProviders(
+  linkedAccounts: Array<{ providerId?: unknown; accountId?: unknown; network?: unknown }>,
+): string[] {
+  if (!Array.isArray(linkedAccounts)) {
+    return [];
+  }
+
+  return [...new Set(linkedAccounts.map((account) => getProviderId(account)))];
+}
+
+export function getProviderConfig(providerId: string): ProviderConfig {
+  switch (providerId) {
+    case "siwn":
+      return { name: "NEAR", icon: "🔗" };
+    case "google":
+      return { name: "Google", icon: "🔵" };
+    case "github":
+      return { name: "GitHub", icon: "⚫" };
+    case "email_password":
+      return { name: "Email", icon: "📧" };
+    case "anonymous":
+      return { name: "Anonymous", icon: "👻" };
+    default:
+      return { name: providerId, icon: "❓" };
+  }
+}
+
+function getSiwnClientConfig(options: CreateAuthClientOptions): SiwnClientConfig {
+  const runtimeConfig = readRuntimeConfig(options.runtimeConfig);
+  const variables = getAuthVariables(options.runtimeConfig);
+  const siwn = variables.siwn;
+
+  const mainnetRecipient = siwn.recipients?.mainnet ?? siwn.recipient;
+  if (!mainnetRecipient) {
+    throw new Error("Missing auth SIWN recipient");
+  }
+
+  const networkId =
+    runtimeConfig?.networkId ?? (mainnetRecipient.endsWith(".testnet") ? "testnet" : "mainnet");
+  const testnetRecipient = siwn.recipients?.testnet;
+  const recipient =
+    networkId === "testnet" && testnetRecipient ? testnetRecipient : mainnetRecipient;
+
+  return { recipient, networkId, cspNonce: options.cspNonce };
 }
 
 function getHostUrl(config?: Partial<ClientRuntimeConfig>) {
@@ -44,22 +162,14 @@ function getHostUrl(config?: Partial<ClientRuntimeConfig>) {
   return "";
 }
 
-export function createAuthClient(
-  config?: Partial<ClientRuntimeConfig>,
-  headers?: HeadersInit,
-  cspNonce?: string,
-) {
-  const nearAuthConfig = {
-    recipient: getAccountId(config),
-    networkId: getNetworkId(config),
-    cspNonce: cspNonce ?? getCspNonce(),
-  };
+export function createAuthClient(options: CreateAuthClientOptions = {}) {
+  const nearAuthConfig = getSiwnClientConfig(options);
 
   return createBetterAuthClient({
-    baseURL: getHostUrl(config),
+    baseURL: getHostUrl(options.runtimeConfig),
     fetchOptions: {
       credentials: "include",
-      ...(headers ? { headers } : {}),
+      ...(options.headers ? { headers: options.headers } : {}),
     },
     plugins: [
       inferAdditionalFields<Auth>(),
@@ -107,9 +217,9 @@ export function sessionQueryOptions(authClient: AuthClient, initialSession?: Ses
 export function useRelayHistory(session: SessionData | null | undefined, authClient: AuthClient) {
   return useQuery({
     queryKey: ["relay-history"],
-    queryFn: async () => {
+    queryFn: async (): Promise<RelayedTransactionT[]> => {
       const res = await authClient.near.relayHistory();
-      return (res?.data?.transactions ?? []) as RelayedTransactionT[];
+      return res?.data?.transactions ?? [];
     },
     enabled: !!session,
     refetchInterval: 2000,

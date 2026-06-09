@@ -9,6 +9,7 @@ import {
   migrateChildRootPackageJson,
   upgradeTemplate,
 } from "../../src/cli/upgrade";
+import * as sharedDepsModule from "../../src/shared-deps";
 
 describe("upgrade bos config migration", () => {
   const tempDirs: string[] = [];
@@ -385,6 +386,97 @@ describe("upgrade bos config migration", () => {
     );
     expect(pkg.overrides).toBeUndefined();
     expect(pkg.workspaces?.packages).toEqual(["ui"]);
+  });
+
+  it("rewrites auth-utils imports and removes the deprecated helper file during upgrade", async () => {
+    const projectDir = makeProjectDir();
+    mkdirSync(join(projectDir, "ui", "src", "components"), { recursive: true });
+    mkdirSync(join(projectDir, "ui", "src", "lib"), { recursive: true });
+
+    writeFileSync(
+      join(projectDir, "bos.config.json"),
+      `${JSON.stringify(
+        {
+          extends: "bos://dev.everything.near/everything.dev",
+          account: "test.near",
+          domain: "test.dev",
+          app: {
+            ui: { development: "local:ui" },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    writeFileSync(
+      join(projectDir, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "monorepo",
+          private: true,
+          workspaces: {
+            packages: ["ui"],
+          },
+          dependencies: {
+            "everything-dev": "catalog:",
+            "every-plugin": "catalog:",
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    writeFileSync(
+      join(projectDir, "ui", "package.json"),
+      `${JSON.stringify({ name: "ui" }, null, 2)}\n`,
+    );
+
+    writeFileSync(
+      join(projectDir, "ui", "src", "components", "demo-sections.tsx"),
+      'import { getAccountProviderId, getProviderConfig } from "@/lib/auth-utils";\n',
+    );
+    writeFileSync(join(projectDir, "ui", "src", "lib", "auth-utils.ts"), "export {}\n");
+
+    vi.spyOn(initModule, "fetchParentConfig").mockResolvedValue({
+      repository: "https://github.com/NEARBuilders/everything-dev",
+    } as never);
+    vi.spyOn(initModule, "resolveCatalogChainSource").mockResolvedValue({
+      catalog: {},
+      repository: "https://github.com/NEARBuilders/everything-dev",
+      extendsChain: [],
+    } as never);
+    vi.spyOn(syncModule, "syncTemplate").mockResolvedValue({
+      status: "synced",
+      updated: [],
+      skipped: [],
+      added: [],
+    } as never);
+    vi.spyOn(sharedDepsModule, "syncResolvedSharedDeps").mockResolvedValue({
+      mode: "bos->catalog",
+      hostMode: "local",
+      bosConfigChanged: false,
+      catalogChanged: false,
+      generatedChanged: false,
+      resolved: { deps: {}, fingerprintSha256: "" },
+    } as never);
+
+    const result = await upgradeTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      noSync: false,
+    });
+
+    expect(result.status).toBe("upgraded");
+    expect(existsSync(join(projectDir, "ui", "src", "lib", "auth-utils.ts"))).toBe(false);
+
+    const demoSections = readFileSync(
+      join(projectDir, "ui", "src", "components", "demo-sections.tsx"),
+      "utf-8",
+    );
+    expect(demoSections).toContain('from "@/lib/auth"');
+    expect(demoSections).not.toContain("auth-utils");
   });
 
   it("adds @better-auth/core catalog refs to root and workspace packages during package migration", async () => {

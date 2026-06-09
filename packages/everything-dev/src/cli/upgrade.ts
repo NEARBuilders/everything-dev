@@ -30,6 +30,8 @@ const AUTH_CORE_TRIGGER_PACKAGES = [
 const LEGACY_UI_IMPORT_REWRITES = [
   ['from "@/auth"', 'from "@/app"'],
   ["from '@/auth'", "from '@/app'"],
+  ['from "@/lib/auth-utils"', 'from "@/lib/auth"'],
+  ["from '@/lib/auth-utils'", "from '@/lib/auth'"],
   ['from "@/lib/use-api-client"', 'from "@/app"'],
   ["from '@/lib/use-api-client'", "from '@/app'"],
   ['from "@/lib/api-client"', 'from "@/app"'],
@@ -40,6 +42,7 @@ const OBSOLETE_FILES = [
   "ui/src/auth-types.gen.ts",
   "ui/src/lib/api-client.ts",
   "ui/src/lib/use-api-client.ts",
+  "ui/src/lib/auth-utils.ts",
   "ui/src/api-contract.ts",
   "ui/src/api-contract.gen.ts",
   "ui/src/lib/auth-client.ts",

@@ -161,10 +161,7 @@ describe("extends chain", () => {
       },
     };
     const merged = mergeBosConfigWithExtends(parent as any, child as any);
-    const api = (merged.app as Record<string, unknown>).api as Record<
-      string,
-      unknown
-    >;
+    const api = (merged.app as Record<string, unknown>).api as Record<string, unknown>;
     const shared = api.shared as Record<string, Record<string, unknown>>;
     expect(shared.effect.version).toBe("3.21.0");
     expect(shared.effect.singleton).toBe(true);

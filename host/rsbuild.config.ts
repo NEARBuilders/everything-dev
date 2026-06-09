@@ -68,7 +68,8 @@ function isSameSharedConfig(a: Record<string, unknown>, b: Record<string, unknow
 }
 
 function collectPluginShared(): Record<string, Record<string, unknown>> {
-  const plugins = bosConfig.plugins && typeof bosConfig.plugins === "object" ? bosConfig.plugins : {};
+  const plugins =
+    bosConfig.plugins && typeof bosConfig.plugins === "object" ? bosConfig.plugins : {};
   const shared: Record<string, Record<string, unknown>> = {};
 
   for (const plugin of Object.values(plugins as Record<string, unknown>)) {
@@ -112,7 +113,8 @@ function getInstalledVersion(pkg: string, fallback: string): string {
     for (let i = 0; i < 5; i += 1) {
       const packageJsonPath = path.join(currentDir, "package.json");
       if (fs.existsSync(packageJsonPath)) {
-        return (JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as { version: string }).version;
+        return (JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as { version: string })
+          .version;
       }
       currentDir = path.dirname(currentDir);
     }

@@ -312,7 +312,7 @@ function getEntryAssociatedUi(entry: Partial<BosPluginRef>): Record<string, unkn
   const ui = app.ui as Record<string, unknown>;
   if ("shared" in ui) {
     throw new Error(
-      'app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.',
+      "app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.",
     );
   }
 
@@ -534,7 +534,7 @@ function getAssociatedUi(
   const ui = config.app.ui as Record<string, unknown>;
   if ("shared" in ui) {
     throw new Error(
-      'app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.',
+      "app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.",
     );
   }
 

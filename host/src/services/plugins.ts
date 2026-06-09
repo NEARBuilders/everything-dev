@@ -137,7 +137,9 @@ function collectPluginSharedDeps(config: RuntimeConfig): Record<string, SharedCo
  * Pre-registers app-specific shared dependencies in the Module Federation runtime.
  * This runs in the host scope before every-plugin initializes its own core-only MF instance.
  */
-async function registerAppSharedDeps(appShared: Record<string, SharedConfig> | undefined): Promise<void> {
+async function registerAppSharedDeps(
+  appShared: Record<string, SharedConfig> | undefined,
+): Promise<void> {
   if (!appShared || Object.keys(appShared).length === 0) return;
 
   const sharedEntries: Record<
@@ -319,11 +321,7 @@ export const initializePlugins = Effect.gen(function* () {
 
       // Pre-register app-specific shared deps in host scope before every-plugin initializes
       await registerAppSharedDeps(
-        mergeSharedMaps(
-          config.api.shared,
-          config.auth?.shared,
-          collectPluginSharedDeps(config),
-        ),
+        mergeSharedMaps(config.api.shared, config.auth?.shared, collectPluginSharedDeps(config)),
       );
 
       const runtime = createPluginRuntime({

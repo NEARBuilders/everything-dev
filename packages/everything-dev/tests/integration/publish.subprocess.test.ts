@@ -88,7 +88,7 @@ describe("bos publish subprocess", () => {
     mkdirSync(fakeBinDir, { recursive: true });
 
     const nearInvocationFile = join(tempDir, "near-invoked.txt");
-writeFileSync(
+    writeFileSync(
       join(fakeBinDir, "near"),
       `#!/bin/sh
 if [ "$1" = "--version" ]; then
