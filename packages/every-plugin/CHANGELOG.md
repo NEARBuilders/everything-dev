@@ -1,5 +1,12 @@
 # every-plugin
 
+## 2.7.0
+
+### Minor Changes
+
+- 4bffb87: Remove unused `orpc/client` export. Consumers should import directly from `@orpc/client` and `@orpc/tanstack-query` instead.
+- 4bffb87: Rework shared dependency syncing to use resolved config surfaces (`app.api.shared`, `app.auth.shared`, and `plugins.*.shared`) and make host/plugin MF sharing stricter and more explicit. UI module federation sharing is now static, shared-dep conflicts fail loudly, and unresolved exact versions are rejected instead of skipped.
+
 ## 2.6.0
 
 ### Minor Changes

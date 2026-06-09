@@ -1,5 +1,17 @@
 # everything-dev
 
+## 1.35.0
+
+### Minor Changes
+
+- 4bffb87: Auth types template now uses contract-based `InferOutput` instead of hardcoded `better-auth` fallback types, and adds `apiKey` and `organization.activeOrganizationId` overlay fields to `AuthRequestContext` to reflect what the host middleware injects at runtime.
+- 4bffb87: Expose `variables` on `api`, `auth`, and `plugins` in `ClientRuntimeConfig`. Previously `variables` was only available in the server-side `RuntimeConfig` and was stripped when building the client config passed to the UI. This meant external consumers calling `getAuthVariables()` would always throw because `runtimeConfig.auth.variables` was `undefined`. Now all three sections (`api`, `auth`, `plugins[id]`) include their `variables` in the client config, allowing UI code to read client-safe config like auth base URLs, SIWN recipients, passkey RP IDs, and plugin-specific settings. `secrets` remains server-only.
+- 4bffb87: Rework shared dependency syncing to use resolved config surfaces (`app.api.shared`, `app.auth.shared`, and `plugins.*.shared`) and make host/plugin MF sharing stricter and more explicit. UI module federation sharing is now static, shared-dep conflicts fail loudly, and unresolved exact versions are rejected instead of skipped.
+
+### Patch Changes
+
+- 4bffb87: Update the UI auth client to a single options object that carries `runtimeConfig`, `headers`, and `cspNonce`, remove the deprecated `auth-utils` helper module during upgrades, and drop the direct `@hot-labs/near-connect` dependency from the UI package.
+
 ## 1.34.0
 
 ### Minor Changes
