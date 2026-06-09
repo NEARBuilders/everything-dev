@@ -672,7 +672,7 @@ export async function personalizeConfig(
     }
 
     if (opts.mode === "sync" && opts.existingConfig) {
-      const managedRootKeys = new Set(["extends", "account", "domain", "app", "plugins", "shared"]);
+      const managedRootKeys = new Set(["extends", "account", "domain", "app", "plugins"]);
       const preservedRootKeys = new Set([
         ...managedRootKeys,
         ...Object.keys(opts.existingConfig),

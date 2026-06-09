@@ -43,6 +43,7 @@ export const SharedConfigSchema = z.object({
 export type SharedConfig = z.infer<typeof SharedConfigSchema>;
 export type SharedDepConfig = SharedConfig;
 export const SharedDepConfigSchema = SharedConfigSchema;
+export const SharedDepMapSchema = z.record(z.string(), SharedConfigSchema);
 
 export const FederationEntrySchema = z.object({
   name: z.string(),
@@ -75,6 +76,7 @@ export const ComposableAppEntrySchema = z.object({
   secrets: z.array(z.string()).optional(),
   sidebar: z.array(SidebarItemSchema).optional(),
   routes: z.array(z.string()).optional(),
+  shared: SharedDepMapSchema.optional(),
 });
 export type ComposableAppEntry = z.infer<typeof ComposableAppEntrySchema>;
 
@@ -92,7 +94,6 @@ export type PluginUiConfig = z.infer<typeof PluginUiConfigSchema>;
 export const BosPluginRefSchema = ComposableAppEntrySchema.extend({
   version: z.string().optional(),
   app: z.record(z.string(), z.unknown()).optional(),
-  shared: z.record(z.string(), z.record(z.string(), SharedConfigSchema)).optional(),
   plugins: z.record(z.string(), z.unknown()).optional(),
 });
 export type BosPluginRef = z.infer<typeof BosPluginRefSchema>;
@@ -121,6 +122,7 @@ export const RuntimePluginConfigSchema = z.object({
   variables: JsonObjectSchema.optional(),
   secrets: z.array(z.string()).optional(),
   integrity: z.string().optional(),
+  shared: SharedDepMapSchema.optional(),
   ui: PluginRuntimeUiSchema.optional(),
   sidebar: z.array(SidebarItemSchema).optional(),
   routes: z.array(z.string()).optional(),
@@ -134,7 +136,7 @@ export const UiConfigSchema = z.object({
   integrity: z.string().optional(),
   ssr: z.string().optional(),
   ssrIntegrity: z.string().optional(),
-});
+}).strict();
 export type UiConfig = z.infer<typeof UiConfigSchema>;
 
 export const HostConfigSchema = z.object({
@@ -196,7 +198,6 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
     routes: z.array(z.string()).optional(),
     sidebar: z.array(SidebarItemSchema).optional(),
     app: z.record(z.string(), BosConfigInputAppEntrySchema).optional(),
-    shared: z.record(z.string(), z.record(z.string(), SharedConfigSchema)).optional(),
     plugins: z.record(z.string(), z.union([z.string(), BosConfigInputSchema])).optional(),
     ci: CiConfigSchema.optional(),
   }),
@@ -226,7 +227,6 @@ export interface BosConfigInput {
   routes?: string[];
   sidebar?: SidebarItem[];
   app?: Record<string, BosConfigInputAppEntry>;
-  shared?: Record<string, Record<string, SharedDepConfig>>;
   plugins?: Record<string, string | BosConfigInput>;
   ci?: CiConfig;
 }
@@ -251,7 +251,6 @@ export const BosConfigSchema = z.object({
   staging: BosStagingSchema.optional(),
   repository: z.string().optional(),
   ci: CiConfigSchema.optional(),
-  shared: z.record(z.string(), z.record(z.string(), SharedConfigSchema)).optional(),
   plugins: z.record(z.string(), z.union([z.string(), BosPluginRefSchema])).optional(),
   app: z.object({
     host: HostConfigSchema,
@@ -276,12 +275,6 @@ export const RuntimeConfigSchema = z.object({
     secrets: z.array(z.string()).optional(),
     remoteUrl: z.string().optional(),
   }),
-  shared: z
-    .object({
-      ui: z.record(z.string(), SharedConfigSchema).optional(),
-      plugins: z.record(z.string(), SharedConfigSchema).optional(),
-    })
-    .optional(),
   ui: FederationEntrySchema.extend({
     localPath: z.string().optional(),
     port: z.number().optional(),
@@ -294,6 +287,7 @@ export const RuntimeConfigSchema = z.object({
     proxy: z.string().optional(),
     variables: JsonObjectSchema.optional(),
     secrets: z.array(z.string()).optional(),
+    shared: SharedDepMapSchema.optional(),
   }),
   auth: FederationEntrySchema.extend({
     localPath: z.string().optional(),
@@ -302,6 +296,7 @@ export const RuntimeConfigSchema = z.object({
     variables: JsonObjectSchema.optional(),
     secrets: z.array(z.string()).optional(),
     sidebar: z.array(SidebarItemSchema).optional(),
+    shared: SharedDepMapSchema.optional(),
   }).optional(),
   plugins: z.record(z.string(), RuntimePluginConfigSchema).optional(),
 });

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,7 @@ export interface SharedDependencyConfig {
   singleton: boolean;
   strictVersion: boolean;
   eager: boolean;
+  shareScope: string;
 }
 
 export type SharedDependencies = Record<string, SharedDependencyConfig>;
@@ -29,6 +30,7 @@ const DEFAULT_SHARE_CONFIG: Omit<SharedDependencyConfig, "version"> = {
   singleton: true,
   strictVersion: false,
   eager: false,
+  shareScope: "default",
 };
 
 function extractExactVersion(input: string): string {
@@ -38,7 +40,16 @@ function extractExactVersion(input: string): string {
 
 function getInstalledPackageVersion(packageName: string, fallbackVersion: string): string {
   try {
-    return require(`${packageName}/package.json`).version as string;
+    let currentDir = dirname(require.resolve(packageName));
+    for (let i = 0; i < 5; i += 1) {
+      const packageJsonPath = join(currentDir, "package.json");
+      if (existsSync(packageJsonPath)) {
+        return (JSON.parse(readFileSync(packageJsonPath, "utf-8")) as { version: string }).version;
+      }
+      currentDir = dirname(currentDir);
+    }
+
+    throw new Error(`Could not resolve installed version for ${packageName}`);
   } catch {
     return extractExactVersion(fallbackVersion);
   }
@@ -56,6 +67,10 @@ export const pluginSharedDependencies = {
   },
   "@orpc/contract": {
     version: getInstalledPackageVersion("@orpc/contract", pkg.peerDependencies["@orpc/contract"]),
+    ...DEFAULT_SHARE_CONFIG,
+  },
+  "@orpc/client": {
+    version: getInstalledPackageVersion("@orpc/client", pkg.peerDependencies["@orpc/client"]),
     ...DEFAULT_SHARE_CONFIG,
   },
   "@orpc/server": {

@@ -197,7 +197,7 @@ describe("tenant host integration", () => {
 
     expect(response.status).toBe(200);
     expect(html).toContain(`${assetServer.baseUrl}/alice-ui/remoteEntry.js`);
-    expect(html).toContain(`${assetServer.baseUrl}/remoteEntry.js`);
+    expect(html).toContain(`/__mf/plugin-ui/apps/remoteEntry.js`);
   });
 
   it("proxies tenant plugin UI asset requests", async () => {

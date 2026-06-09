@@ -150,14 +150,14 @@
   "peerDependencies": {
     "@rspack/core": "catalog:",
     "typescript": "^5.9.3",
-    "effect": "^3.21.0",
-    "zod": "^4.3.6",
-    "@orpc/contract": "^1.13.4",
-    "@orpc/server": "^1.13.4",
-    "@orpc/client": "^1.13.4",
-    "@orpc/openapi": "^1.13.4",
-    "@orpc/zod": "^1.13.4",
-    "@orpc/react-query": "^1.13.4"
+    "effect": "catalog:",
+    "zod": "catalog:",
+    "@orpc/contract": "catalog:",
+    "@orpc/server": "catalog:",
+    "@orpc/client": "catalog:",
+    "@orpc/openapi": "catalog:",
+    "@orpc/zod": "catalog:",
+    "@orpc/react-query": "catalog:"
   },
   "devDependencies": {
     "@effect/language-service": "^0.85.1",

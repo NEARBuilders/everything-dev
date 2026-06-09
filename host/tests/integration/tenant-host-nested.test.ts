@@ -265,6 +265,6 @@ describe("tenant host nested integration", () => {
       "production",
     );
     expect(html).toContain(`${assetServer.baseUrl}/chicago-ui/remoteEntry.js`);
-    expect(html).toContain(`${assetServer.baseUrl}/remoteEntry.js`);
+    expect(html).toContain(`/__mf/plugin-ui/apps/remoteEntry.js`);
   });
 });

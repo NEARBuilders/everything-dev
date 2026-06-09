@@ -13,6 +13,7 @@ const coreModuleLoaders: Record<CoreSharedDepName, () => Promise<unknown>> = {
   effect: () => import("effect"),
   zod: () => import("zod"),
   "@orpc/contract": () => import("@orpc/contract"),
+  "@orpc/client": () => import("@orpc/client"),
   "@orpc/server": () => import("@orpc/server"),
 };
 
@@ -20,6 +21,7 @@ function buildSharedConfig(): Record<
   string,
   {
     version: string;
+    shareScope: string;
     get: () => Promise<() => unknown>;
     shareConfig: (typeof MF_CORE_SHARED_DEPS)[CoreSharedDepName]["shareConfig"];
   }
@@ -41,6 +43,7 @@ function buildSharedConfig(): Record<
         name,
         {
           version: config.version,
+          shareScope: config.shareScope,
           get: () => load().then((mod) => () => mod),
           shareConfig: config.shareConfig,
         },

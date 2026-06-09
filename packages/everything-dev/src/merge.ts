@@ -13,7 +13,6 @@ export const BOS_CONFIG_ORDER = [
   "ci",
   "app",
   "plugins",
-  "shared",
 ] as const;
 
 export type BosConfigFieldName = (typeof BOS_CONFIG_ORDER)[number];

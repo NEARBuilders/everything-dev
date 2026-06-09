@@ -58,6 +58,9 @@ Then customize the child-owned sections, usually:
 - `domain`
 - `repository`
 - `app.ui`
+- `app.api.shared`
+- `app.auth.shared`
+- `plugins.<id>.shared`
 - existing `plugins.<id>.ui`
 - existing `plugins.<id>.sidebar`
 
@@ -150,7 +153,7 @@ Framework-owned files (from `FRAMEWORK_OWNED_SYNC_FILES`) are always updated whe
 
 From parent template → local:
 - `app.*.production` — Zephyr URLs
-- `shared` — dependency versions
+- `app.api.shared`, `app.auth.shared`, `plugins.*.shared` — dependency versions
 - Framework-owned files (rsbuild configs, routers, etc.)
 
 What stays local:
@@ -201,6 +204,6 @@ On `--deploy`:
 ## Canonical Ordering
 
 All writes to `bos.config.json` enforce `BOS_CONFIG_ORDER`:
-`extends` → `account` → `domain` → `testnet` → `staging` → `repository` → `app` → `plugins` → `shared`
+`extends` → `account` → `domain` → `testnet` → `staging` → `repository` → `app` → `plugins`
 
 Unknown keys go after known keys.

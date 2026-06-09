@@ -76,26 +76,81 @@ function normalizeDomain(domain: string | undefined, env: string): string | unde
   return `https://${domain}`;
 }
 
+function mergeSharedMaps(
+  ...maps: Array<Record<string, SharedConfig> | undefined>
+): Record<string, SharedConfig> {
+  const merged: Record<string, SharedConfig> = {};
+  for (const map of maps) {
+    if (!map) continue;
+    for (const [name, config] of Object.entries(map)) {
+      const existing = merged[name];
+      if (existing && !isSameSharedConfig(existing, config)) {
+        throw new Error(`Conflicting shared dependency "${name}" in runtime config`);
+      }
+      merged[name] = config;
+    }
+  }
+  return merged;
+}
+
+function normalizeSharedConfig(config: SharedConfig): Record<string, unknown> {
+  return {
+    version: config.version,
+    requiredVersion: config.requiredVersion ?? false,
+    singleton: config.singleton ?? false,
+    strictVersion: config.strictVersion ?? false,
+    eager: config.eager ?? false,
+    shareScope: config.shareScope ?? "default",
+  };
+}
+
+function isSameSharedConfig(a: SharedConfig, b: SharedConfig): boolean {
+  const left = normalizeSharedConfig(a);
+  const right = normalizeSharedConfig(b);
+  return (
+    left.version === right.version &&
+    left.requiredVersion === right.requiredVersion &&
+    left.singleton === right.singleton &&
+    left.strictVersion === right.strictVersion &&
+    left.eager === right.eager &&
+    left.shareScope === right.shareScope
+  );
+}
+
+function collectPluginSharedDeps(config: RuntimeConfig): Record<string, SharedConfig> {
+  const shared: Record<string, SharedConfig> = {};
+  for (const plugin of Object.values(config.plugins ?? {})) {
+    if (plugin.shared && Object.keys(plugin.shared).length > 0) {
+      for (const [name, sharedConfig] of Object.entries(plugin.shared)) {
+        const existing = shared[name];
+        if (existing && !isSameSharedConfig(existing, sharedConfig)) {
+          throw new Error(`Conflicting shared dependency "${name}" across plugins at runtime`);
+        }
+        shared[name] = sharedConfig;
+      }
+    }
+  }
+  return shared;
+}
+
 /**
  * Pre-registers app-specific shared dependencies in the Module Federation runtime.
- * This runs in the host scope where packages like drizzle-orm and better-auth are
- * resolvable, before every-plugin initializes its own core-only MF instance.
+ * This runs in the host scope before every-plugin initializes its own core-only MF instance.
  */
-async function registerAppSharedDeps(
-  appShared: Record<string, SharedConfig> | undefined,
-): Promise<void> {
+async function registerAppSharedDeps(appShared: Record<string, SharedConfig> | undefined): Promise<void> {
   if (!appShared || Object.keys(appShared).length === 0) return;
 
   const sharedEntries: Record<
     string,
     {
       version: string;
+      shareScope: string;
       get: () => Promise<() => unknown>;
       shareConfig: {
-        singleton: true;
-        requiredVersion: false;
-        strictVersion: false;
-        eager: false;
+        singleton: boolean;
+        requiredVersion: string | false;
+        strictVersion: boolean;
+        eager: boolean;
       };
     }
   > = {};
@@ -106,12 +161,13 @@ async function registerAppSharedDeps(
       const mod = await import(name);
       sharedEntries[name] = {
         version: config.version,
+        shareScope: config.shareScope ?? "default",
         get: () => Promise.resolve(() => mod),
         shareConfig: {
-          singleton: true,
-          requiredVersion: false,
-          strictVersion: false,
-          eager: false,
+          singleton: config.singleton ?? false,
+          requiredVersion: config.requiredVersion ?? false,
+          strictVersion: config.strictVersion ?? false,
+          eager: config.eager ?? false,
         },
       };
     } catch (error) {
@@ -262,7 +318,13 @@ export const initializePlugins = Effect.gen(function* () {
       );
 
       // Pre-register app-specific shared deps in host scope before every-plugin initializes
-      await registerAppSharedDeps(config.shared?.plugins);
+      await registerAppSharedDeps(
+        mergeSharedMaps(
+          config.api.shared,
+          config.auth?.shared,
+          collectPluginSharedDeps(config),
+        ),
+      );
 
       const runtime = createPluginRuntime({
         registry: Object.fromEntries(

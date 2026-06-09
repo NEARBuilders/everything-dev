@@ -108,7 +108,7 @@ All runtime config lives in `bos.config.json`. Key sections:
 - `staging.domain` — Staging domain
 - `app.host`, `app.ui`, `app.api`, `app.auth` — Module configs with development/production URLs
 - `plugins.{key}` — Plugin configs with variables, secrets, routes
-- `shared.ui`, `shared.api` — Module Federation shared dependency versions
+- `app.api.shared`, `app.auth.shared`, `plugins.{key}.shared` — Module Federation shared dependency versions
 
 ### extends
 

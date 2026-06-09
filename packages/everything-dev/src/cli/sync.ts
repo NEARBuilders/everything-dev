@@ -9,6 +9,7 @@ import {
   mergeBosConfigWithTemplate,
   resolveExtendsRef,
 } from "../merge";
+import { syncResolvedSharedDeps } from "../shared-deps";
 import { writeGeneratedInfra } from "./infra";
 import { personalizeConfig, resolveSourceDir, runBunInstall, runTypesGen } from "./init";
 import { writeSnapshot } from "./snapshot";
@@ -479,6 +480,11 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       workspaceOpts: { sourceDir },
       mode: "sync",
       existingConfig: localConfig,
+    });
+
+    await syncResolvedSharedDeps({
+      configDir: projectDir,
+      hostMode: "local",
     });
 
     const syncedConfig = await loadResolvedConfig({ cwd: projectDir });

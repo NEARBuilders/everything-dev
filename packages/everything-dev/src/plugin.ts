@@ -75,7 +75,7 @@ import {
   buildServiceDescriptorMap,
   type ServiceDescriptor,
 } from "./service-descriptor";
-import { syncAndGenerateSharedUi } from "./shared";
+import { syncResolvedSharedDeps } from "./shared-deps";
 import { writePluginSidebarGen } from "./sidebar";
 import type { BosConfig, BosConfigInput, BosPluginRef, RuntimeConfig, SourceMode } from "./types";
 import { run } from "./utils/run";
@@ -537,7 +537,7 @@ async function buildWorkspaceTargets(opts: {
     return { built: [], skipped };
   }
 
-  const sharedSync = await syncAndGenerateSharedUi({
+  const sharedSync = await syncResolvedSharedDeps({
     configDir: opts.configDir,
     hostMode: "local",
     bosConfig: opts.bosConfig ?? undefined,
@@ -864,7 +864,7 @@ export default createPlugin({
       const ssr = input.ssr ?? false;
       const proxy = input.proxy ?? false;
 
-      const sharedSync = await syncAndGenerateSharedUi({
+      const sharedSync = await syncResolvedSharedDeps({
         configDir: deps.configDir,
         hostMode: hostSource,
         bosConfig: deps.bosConfig ?? undefined,
@@ -1601,6 +1601,13 @@ export default createPlugin({
               }),
             );
           }
+
+          await timePhase(timings, "sync shared deps", () =>
+            syncResolvedSharedDeps({
+              configDir: targetDir,
+              hostMode: "local",
+            }),
+          );
 
           const lockfilePath = join(targetDir, "bun.lock");
           const allowedWorkspaces = computeAllowedWorkspaces(overrides, plugins);

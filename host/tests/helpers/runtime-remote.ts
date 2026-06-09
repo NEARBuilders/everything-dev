@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BosConfig } from "everything-dev/types";
+import { getNetworkIdForAccount } from "../../../packages/everything-dev/src/network";
 import { runServer } from "../../src/program";
 import type { RuntimeConfig } from "../../src/services/config";
 import { startJsonProxyTarget } from "./json-proxy-target";
@@ -122,6 +123,7 @@ function buildRuntimeConfig(
   return {
     env: "development",
     account: config.account,
+    networkId: getNetworkIdForAccount(config.account),
     title: config.account,
     repository: config.repository,
     host: {
@@ -130,7 +132,6 @@ function buildRuntimeConfig(
       entry: `${hostUrl}/mf-manifest.json`,
       source: "remote" as const,
     },
-    shared: config.shared,
     ui: {
       name: config.app?.ui?.name ?? "ui",
       url: normalizeUrl(uiUrl),
@@ -146,6 +147,7 @@ function buildRuntimeConfig(
       proxy: scenario.proxy && proxyTargetUrl ? normalizeUrl(proxyTargetUrl) : undefined,
       variables: config.app?.api?.variables,
       secrets: config.app?.api?.secrets,
+      shared: config.app?.api?.shared,
     },
   } as RuntimeConfig;
 }

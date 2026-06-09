@@ -305,7 +305,18 @@ function getEntryAssociatedUi(entry: Partial<BosPluginRef>): Record<string, unkn
   }
 
   const app = entry.app as Record<string, unknown>;
-  return isPlainObject(app.ui) ? (app.ui as Record<string, unknown>) : undefined;
+  if (!isPlainObject(app.ui)) {
+    return undefined;
+  }
+
+  const ui = app.ui as Record<string, unknown>;
+  if ("shared" in ui) {
+    throw new Error(
+      'app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.',
+    );
+  }
+
+  return ui;
 }
 
 function mergeAssociatedUi(
@@ -516,7 +527,18 @@ function getAssociatedUi(
   config: BosConfigInput,
   _targetPath: string,
 ): Record<string, unknown> | undefined {
-  return isPlainObject(config.app?.ui) ? (config.app.ui as Record<string, unknown>) : undefined;
+  if (!isPlainObject(config.app?.ui)) {
+    return undefined;
+  }
+
+  const ui = config.app.ui as Record<string, unknown>;
+  if ("shared" in ui) {
+    throw new Error(
+      'app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.',
+    );
+  }
+
+  return ui;
 }
 
 function mergeComposableEntries(
@@ -757,7 +779,6 @@ export function buildRuntimeConfig(
       source: hostRuntime.source,
       remoteUrl: hostIsRemote ? hostRuntime.url : undefined,
     },
-    shared: config.shared,
     ui: {
       name: resolvePluginRuntimeName(uiConfig.name, uiRuntime.localPath, "ui"),
       url: uiRuntime.url,
@@ -780,6 +801,7 @@ export function buildRuntimeConfig(
       variables: apiConfig.variables,
       secrets: apiConfig.secrets,
       integrity: apiIsRemote ? apiConfig.integrity : undefined,
+      shared: apiConfig.shared,
     },
     auth: (() => {
       if (!authConfig || !authRuntime) return undefined;
@@ -794,6 +816,7 @@ export function buildRuntimeConfig(
         variables: authConfig.variables,
         secrets: authConfig.secrets,
         integrity: authRuntime.source === "remote" ? authConfig.integrity : undefined,
+        shared: authConfig.shared,
         sidebar: authConfig.sidebar?.map((item) => ({
           ...item,
           to: item.to ?? "/auth",
@@ -998,6 +1021,7 @@ function buildRuntimePluginConfig(
     proxy: typeof source.proxy === "string" ? source.proxy : undefined,
     variables: normalizeJsonRecord(source.variables),
     secrets: normalizeStringArray(source.secrets),
+    shared: source.shared,
     integrity: runtimeTarget.source === "remote" ? source.integrity : undefined,
     ui: uiRuntime
       ? {

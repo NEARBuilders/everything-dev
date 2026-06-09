@@ -118,10 +118,7 @@ jobs:
 
       - name: Test everything-dev release
         if: steps.release_mode.outputs.should_publish == 'true'
-        run: |
-          if [ -f .release/everything-dev/package.json ]; then
-            bun run --cwd packages/everything-dev test -- tests/unit/near-cli.test.ts tests/unit/publish-confirmation.test.ts
-          fi
+        run: bun run --cwd packages/everything-dev test
 
       - name: Publish packages to npm
         if: steps.release_mode.outputs.should_publish == 'true'

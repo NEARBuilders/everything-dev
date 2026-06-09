@@ -6,7 +6,7 @@ import { glob } from "glob";
 import { loadResolvedConfig } from "../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../contract";
 import { resolveExtendsRef } from "../merge";
-import { syncAndGenerateSharedUi } from "../shared";
+import { syncResolvedSharedDeps } from "../shared-deps";
 import { saveBosConfig } from "../utils/save-config";
 import { readInstalledFrameworkVersion } from "./framework-version";
 import {
@@ -1087,13 +1087,13 @@ export async function upgradeTemplate(
     }
   }
 
-  const sharedSync = await timePhase(timings, "sync shared ui", async () => {
+  const sharedSync = await timePhase(timings, "sync shared deps", async () => {
     const configResult = await loadResolvedConfig({ cwd: projectDir });
     if (!configResult) {
       throw new Error("No bos.config.json found in current directory");
     }
 
-    return syncAndGenerateSharedUi({
+    return syncResolvedSharedDeps({
       configDir: projectDir,
       hostMode: "local",
       bosConfig: configResult.config,

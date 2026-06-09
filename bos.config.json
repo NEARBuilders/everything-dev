@@ -15,7 +15,7 @@
   "app": {
     "host": {
       "development": "local:host",
-      "production": "https://elliot-braem-4568-host-everything-dev-nearbuilder-eb049746f-ze.zephyrcloud.app",
+      "production": "https://elliot-braem-4595-host-everything-dev-nearbuilder-0690a953c-ze.zephyrcloud.app",
       "secrets": [
         "CORS_ORIGIN",
         "TENANT_WHITELIST",
@@ -23,19 +23,18 @@
         "ALLOW_UNTRUSTED_SSR",
         "CSP_STRICT"
       ],
-      "integrity": "sha384-TkLPL4VPcGgGDY4WAnGYQGqGod+qlSh9wTmYh4YpBK5LLnBQ+NO/wHKBKJZnRBWa"
+      "integrity": "sha384-TemIwY9f6dm8ongA9MlzVI1NiFZuma5OwdzdBr/pOALAH4BYfi5JpPKFT1tAl7ib"
     },
     "ui": {
       "development": "local:ui",
-      "production": "https://elliot-braem-4562-ui-everything-dev-nearbuilders-3f9222e18-ze.zephyrcloud.app",
-      "ssr": "https://elliot-braem-4563-ui-everything-dev-nearbuilders-15df52e67-ze.zephyrcloud.app",
-      "integrity": "sha384-XclusGqIiFlNCV9im2KFGKc0t5aDicE8if7NGHofgOw+202gFsj8aFKkhnl8bhe6",
-      "ssrIntegrity": "sha384-YV5UxAtlNRjAarbYra0pb4iNSj3BA312HrDc4dIG82X0MXbzLJA0e4pQNKr5K5IO"
+      "production": "https://elliot-braem-4587-ui-everything-dev-nearbuilders-01507e438-ze.zephyrcloud.app",
+      "ssr": "https://elliot-braem-4588-ui-everything-dev-nearbuilders-850222d91-ze.zephyrcloud.app",
+      "integrity": "sha384-0GCTPyeL1iik1t+WqGC2qdu3ln5ofcm0BYO0uqtv1Ank/dKtyHFHwFGU8HJJghWr",
+      "ssrIntegrity": "sha384-7z1neHtjccItrq4D3xfp0tdFWs9Vi06S/+ZuPPKQxM3UL2/LjvQqzXFCVutWoyJd"
     },
     "api": {
       "development": "local:api",
-      "production": "https://elliot-braem-4564-api-everything-dev-nearbuilders-703861f41-ze.zephyrcloud.app",
-      "integrity": "sha384-1QVKgOG2z5Ouz3Ui3Bj4KeGgZfCBJgxWmwv89Yle85EJ3NcD2Q9iYSC/jrKsX/Y7",
+      "production": "https://elliot-braem-4589-api-everything-dev-nearbuilders-d4bbdb509-ze.zephyrcloud.app",
       "secrets": [
         "API_DATABASE_URL"
       ]
@@ -45,6 +44,36 @@
       "development": "local:plugins/auth",
       "production": "https://elliot-braem-4250-everything-dev-auth-plugin-bett-01cc31550-ze.zephyrcloud.app",
       "integrity": "sha384-HGCj8X8OaADQo1cBP6gyaTEdaGpEqO7EWWlpdp/3Xx4LyM/uVHmLfXTTgdl3NZ9S",
+      "shared": {
+        "better-auth": {
+          "version": "1.6.9",
+          "requiredVersion": "^1.6.9",
+          "singleton": true,
+          "strictVersion": false,
+          "shareScope": "default"
+        },
+        "better-near-auth": {
+          "version": "1.5.0",
+          "requiredVersion": "^1.5.0",
+          "singleton": true,
+          "strictVersion": false,
+          "shareScope": "default"
+        },
+        "@better-auth/api-key": {
+          "version": "1.6.9",
+          "requiredVersion": "^1.6.9",
+          "singleton": true,
+          "strictVersion": false,
+          "shareScope": "default"
+        },
+        "@better-auth/passkey": {
+          "version": "1.6.9",
+          "requiredVersion": "^1.6.9",
+          "singleton": true,
+          "strictVersion": false,
+          "shareScope": "default"
+        }
+      },
       "variables": {
         "baseUrl": "https://auth.everything.near",
         "trustedOrigins": [
@@ -92,8 +121,8 @@
   "plugins": {
     "apps": {
       "development": "local:plugins/apps",
-      "production": "https://elliot-braem-4565-everything-dev-apps-plugin-ever-193edf8d1-ze.zephyrcloud.app",
-      "integrity": "sha384-HxmWBkKKPYgtN3s0/2qAlXMThQbp0Al/KcaS1OxabGtGevjMzOIZARm+YnHTIUPd",
+      "production": "https://elliot-braem-4590-everything-dev-apps-plugin-ever-fb0bc2555-ze.zephyrcloud.app",
+      "integrity": "sha384-o/N/2d+XEk10zWIkbi1xvUmTro9g/I/4JCYHvT93JDN3vwL0Z1YANQKyBWYk9NfQ",
       "variables": {
         "registryNamespace": "dev.everything.near"
       },
@@ -111,8 +140,7 @@
     },
     "projects": {
       "development": "local:plugins/projects",
-      "production": "https://elliot-braem-4566-everything-dev-projects-plugin--7ec2a83c4-ze.zephyrcloud.app",
-      "integrity": "sha384-HbSmv7VBbuGtpfpRQHvx40VSoPIJw81bMIwnd+6jX3U9PpyAMhlhS2eRHQKXxU0y",
+      "production": "https://elliot-braem-4591-everything-dev-projects-plugin--92e380fb1-ze.zephyrcloud.app",
       "secrets": [
         "PROJECTS_DATABASE_URL"
       ],
@@ -128,8 +156,8 @@
     },
     "settings": {
       "development": "local:plugins/settings",
-      "production": "https://elliot-braem-4567-every-plugin-settings-everythin-cd8c87097-ze.zephyrcloud.app",
-      "integrity": "sha384-VQHIcTRu11j/TD6w0mAkbKKcxgqUuofVzlXD2xgsksXo4lRLCAPPrQAuLKCxej1q",
+      "production": "https://elliot-braem-4592-every-plugin-settings-everythin-a2877a946-ze.zephyrcloud.app",
+      "integrity": "sha384-A7c2pmDJltsQMNOWKsQh1ZlDL6S6wBI/VTS2fLus1ryGcBTNNFcd0k2RfI9yeFQU",
       "routes": [
         "ui/src/routes/_layout/_authenticated/settings.tsx"
       ],
@@ -140,59 +168,5 @@
         }
       ]
     }
-  },
-  "shared": {
-    "ui": {
-      "effect": {
-        "version": "3.21.2",
-        "requiredVersion": "^3.21.2",
-        "singleton": true,
-        "strictVersion": false,
-        "shareScope": "default"
-      },
-      "zod": {
-        "version": "4.3.6",
-        "requiredVersion": "^4.3.6",
-        "singleton": true,
-        "strictVersion": false,
-        "shareScope": "default"
-      },
-      "@orpc/contract": {
-        "version": "1.14.3",
-        "requiredVersion": "^1.14.3",
-        "singleton": true,
-        "strictVersion": false,
-        "shareScope": "default"
-      },
-      "better-auth": {
-        "version": "1.6.9",
-        "requiredVersion": "^1.6.9",
-        "singleton": true,
-        "strictVersion": false,
-        "shareScope": "default"
-      },
-      "better-near-auth": {
-        "version": "1.5.0",
-        "requiredVersion": "^1.5.0",
-        "singleton": true,
-        "strictVersion": false,
-        "shareScope": "default"
-      },
-      "@better-auth/api-key": {
-        "version": "1.6.9",
-        "requiredVersion": "^1.6.9",
-        "singleton": true,
-        "strictVersion": false,
-        "shareScope": "default"
-      },
-      "@better-auth/passkey": {
-        "version": "1.6.9",
-        "requiredVersion": "^1.6.9",
-        "singleton": true,
-        "strictVersion": false,
-        "shareScope": "default"
-      }
-    },
-    "plugins": {}
   }
 }

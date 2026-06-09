@@ -35,83 +35,98 @@ describe("mergeBosConfigWithExtends", () => {
     expect(merged.domain).toBe("parent.dev");
   });
 
-  it("deep merges shared.ui deps", () => {
+  it("deep merges app.api.shared deps", () => {
     const parent = {
-      shared: {
-        ui: {
-          effect: { version: "3.20.0", singleton: true, strictVersion: false },
-          zod: { version: "4.2.0", singleton: true },
+      app: {
+        api: {
+          shared: {
+            effect: { version: "3.20.0", singleton: true, strictVersion: false },
+            zod: { version: "4.2.0", singleton: true },
+          },
         },
       },
     };
     const child = {
-      shared: {
-        ui: {
-          effect: { version: "3.21.0" },
+      app: {
+        api: {
+          shared: {
+            effect: { version: "3.21.0" },
+          },
         },
       },
     };
     const merged = mergeBosConfigWithExtends(parent, child);
-    const ui = (merged.shared as Record<string, unknown>).ui as Record<
+    const api = (merged.app as Record<string, unknown>).api as Record<
       string,
-      Record<string, unknown>
+      unknown
     >;
-    expect(ui.effect.version).toBe("3.21.0");
-    expect(ui.effect.singleton).toBe(true);
-    expect(ui.effect.strictVersion).toBe(false);
-    expect(ui.zod.version).toBe("4.2.0");
-    expect(ui.zod.singleton).toBe(true);
+    const shared = api.shared as Record<string, Record<string, unknown>>;
+    expect(shared.effect.version).toBe("3.21.0");
+    expect(shared.effect.singleton).toBe(true);
+    expect(shared.effect.strictVersion).toBe(false);
+    expect(shared.zod.version).toBe("4.2.0");
+    expect(shared.zod.singleton).toBe(true);
   });
 
   it("preserves parent deps not in child", () => {
     const parent = {
-      shared: {
-        ui: {
-          effect: { version: "3.20.0", singleton: true },
-          zod: { version: "4.2.0", singleton: true },
-          react: { version: "19.0.0", singleton: true },
+      app: {
+        api: {
+          shared: {
+            effect: { version: "3.20.0", singleton: true },
+            zod: { version: "4.2.0", singleton: true },
+            react: { version: "19.0.0", singleton: true },
+          },
         },
       },
     };
     const child = {
-      shared: {
-        ui: {
-          effect: { version: "3.21.0" },
+      app: {
+        api: {
+          shared: {
+            effect: { version: "3.21.0" },
+          },
         },
       },
     };
     const merged = mergeBosConfigWithExtends(parent, child);
-    const ui = (merged.shared as Record<string, unknown>).ui as Record<
+    const api = (merged.app as Record<string, unknown>).api as Record<
       string,
-      Record<string, unknown>
+      unknown
     >;
-    expect(ui.effect.version).toBe("3.21.0");
-    expect(ui.zod.version).toBe("4.2.0");
-    expect(ui.react.version).toBe("19.0.0");
+    const shared = api.shared as Record<string, Record<string, unknown>>;
+    expect(shared.effect.version).toBe("3.21.0");
+    expect(shared.zod.version).toBe("4.2.0");
+    expect(shared.react.version).toBe("19.0.0");
   });
 
   it("child can add new deps not in parent", () => {
     const parent = {
-      shared: {
-        ui: {
-          effect: { version: "3.20.0" },
+      app: {
+        api: {
+          shared: {
+            effect: { version: "3.20.0" },
+          },
         },
       },
     };
     const child = {
-      shared: {
-        ui: {
-          "better-auth": { version: "1.6.9", singleton: true },
+      app: {
+        api: {
+          shared: {
+            "better-auth": { version: "1.6.9", singleton: true },
+          },
         },
       },
     };
     const merged = mergeBosConfigWithExtends(parent, child);
-    const ui = (merged.shared as Record<string, unknown>).ui as Record<
+    const api = (merged.app as Record<string, unknown>).api as Record<
       string,
-      Record<string, unknown>
+      unknown
     >;
-    expect(ui.effect.version).toBe("3.20.0");
-    expect(ui["better-auth"].version).toBe("1.6.9");
+    const shared = api.shared as Record<string, Record<string, unknown>>;
+    expect(shared.effect.version).toBe("3.20.0");
+    expect(shared["better-auth"].version).toBe("1.6.9");
   });
 
   it("uses only child plugin config when child declares same key", () => {
@@ -289,7 +304,6 @@ describe("mergeBosConfigWithExtends", () => {
 
   it("applies canonical ordering", () => {
     const parent = {
-      shared: {},
       plugins: {},
       app: {},
       repository: "https://github.com/parent",
@@ -302,7 +316,7 @@ describe("mergeBosConfigWithExtends", () => {
     expect(keys.indexOf("account")).toBeLessThan(keys.indexOf("repository"));
     expect(keys.indexOf("repository")).toBeLessThan(keys.indexOf("app"));
     expect(keys.includes("plugins")).toBe(false);
-    expect(keys.indexOf("app")).toBeLessThan(keys.indexOf("shared"));
+    expect(keys.includes("shared")).toBe(false);
   });
 });
 
@@ -399,9 +413,8 @@ describe("resolveExtendsRef", () => {
 });
 
 describe("rebuildOrderedConfig", () => {
-  it("places extends first, then scalars, then app/plugins/shared", () => {
+  it("places extends first, then scalars, then app/plugins", () => {
     const config = {
-      shared: {},
       plugins: {},
       domain: "test.dev",
       app: {},
@@ -413,7 +426,8 @@ describe("rebuildOrderedConfig", () => {
     expect(keys[0]).toBe("extends");
     expect(keys[1]).toBe("account");
     expect(keys[2]).toBe("domain");
-    expect(keys[keys.length - 1]).toBe("shared");
+    expect(keys[keys.length - 2]).toBe("app");
+    expect(keys[keys.length - 1]).toBe("plugins");
   });
 
   it("handles missing sections", () => {
@@ -436,11 +450,10 @@ describe("BOS_CONFIG_ORDER", () => {
     expect(BOS_CONFIG_ORDER[0]).toBe("extends");
   });
 
-  it("has app, plugins, shared at end in order", () => {
+  it("has app and plugins at end in order", () => {
     const len = BOS_CONFIG_ORDER.length;
-    expect(BOS_CONFIG_ORDER[len - 3]).toBe("app");
-    expect(BOS_CONFIG_ORDER[len - 2]).toBe("plugins");
-    expect(BOS_CONFIG_ORDER[len - 1]).toBe("shared");
+    expect(BOS_CONFIG_ORDER[len - 2]).toBe("app");
+    expect(BOS_CONFIG_ORDER[len - 1]).toBe("plugins");
   });
 
   it("includes all expected fields", () => {
@@ -452,6 +465,5 @@ describe("BOS_CONFIG_ORDER", () => {
     expect(BOS_CONFIG_ORDER).toContain("repository");
     expect(BOS_CONFIG_ORDER).toContain("app");
     expect(BOS_CONFIG_ORDER).toContain("plugins");
-    expect(BOS_CONFIG_ORDER).toContain("shared");
   });
 });

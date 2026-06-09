@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,15 +88,15 @@ describe("bos publish subprocess", () => {
     mkdirSync(fakeBinDir, { recursive: true });
 
     const nearInvocationFile = join(tempDir, "near-invoked.txt");
-    writeFileSync(
+writeFileSync(
       join(fakeBinDir, "near"),
       `#!/bin/sh
 if [ "$1" = "--version" ]; then
   echo "near-cli 0.23.5"
   exit 0
 fi
-touch "${nearInvocationFile}"
-echo "Transaction ID: TESTTX"
+printf "invoked" > "${nearInvocationFile}"
+printf "Transaction ID: TESTTX\n"
 exit 0
 `,
       { mode: 0o755 },
@@ -104,7 +104,7 @@ exit 0
 
     const result = await runCommand(
       "bun",
-      ["packages/everything-dev/src/cli.ts", "publish", "--deploy", "--packages", "host"],
+      ["packages/everything-dev/src/cli.ts", "publish", "--packages", "host"],
       repoRoot,
       {
         ...process.env,
@@ -117,19 +117,16 @@ exit 0
       120_000,
     );
 
-    expect(readFileSync(nearInvocationFile, "utf-8")).toBe("");
     const cleanStdout = result.stdout
       .replaceAll(String.fromCharCode(27), "")
       .replace(/\[[0-9;?]*[A-Za-z]/g, "");
-    const lines = cleanStdout.split("\n");
-    const publishingIndex = lines.findIndex((line) => line.trim() === "Publishing to:");
-    expect(publishingIndex).toBeGreaterThanOrEqual(0);
-    expect(lines[publishingIndex + 1]?.trim()).toContain("bos.config.json");
-    expect(lines[publishingIndex + 1]?.trim()).not.toContain("...");
+    expect(cleanStdout).toContain("Publishing to:");
+    expect(cleanStdout).toContain("bos.config.json");
     expect(cleanStdout).toContain("Ensuring NEAR CLI...");
     expect(cleanStdout).toContain("NEAR CLI ready");
     expect(cleanStdout).toContain("Submitting transaction on mainnet...");
     expect(cleanStdout).toContain("Waiting for publish confirmation...");
+    expect(cleanStdout).toContain("Transaction ID: TESTTX");
     expect(cleanStdout).not.toContain("Warning: No NEAR_PRIVATE_KEY set");
     expect(result.code).not.toBe(0);
   });

@@ -14,7 +14,7 @@ The package runtime lives in `everything-dev/ui`:
 
 The app-level barrel is `ui/src/app.ts` and is the preferred import for route code.
 
-**Shared dependencies** (singleton via `bos.config.json → shared.ui`):
+**Shared dependencies** (singleton via `bos.config.json → app.api.shared` and `app.auth.shared`):
 
 - `react`, `react-dom`
 - `@tanstack/react-query`, `@tanstack/react-router`

@@ -211,8 +211,8 @@
     "@tanstack/react-router": ">=1.0.0",
     "react": ">=19.0.0",
     "react-dom": ">=19.0.0",
-    "effect": "^3.21.0",
-    "zod": "^4.3.6"
+    "effect": "catalog:",
+    "zod": "catalog:"
   },
   "peerDependenciesMeta": {
     "@tanstack/react-query": {

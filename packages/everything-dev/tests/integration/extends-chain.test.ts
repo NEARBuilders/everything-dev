@@ -140,30 +140,35 @@ describe("extends chain", () => {
     expect(plugins.projects).toBe(false);
   });
 
-  it("deep merges shared.ui — child version overrides, parent singleton preserved", () => {
+  it("deep merges app.api.shared — child version overrides, parent singleton preserved", () => {
     const parent = {
-      shared: {
-        ui: {
-          effect: { version: "3.20.0", singleton: true },
-          zod: { version: "4.2.0", singleton: true },
+      app: {
+        api: {
+          shared: {
+            effect: { version: "3.20.0", singleton: true },
+            zod: { version: "4.2.0", singleton: true },
+          },
         },
       },
     };
     const child = {
-      shared: {
-        ui: {
-          effect: { version: "3.21.0" },
+      app: {
+        api: {
+          shared: {
+            effect: { version: "3.21.0" },
+          },
         },
       },
     };
     const merged = mergeBosConfigWithExtends(parent as any, child as any);
-    const ui = (merged.shared as Record<string, unknown>).ui as Record<
+    const api = (merged.app as Record<string, unknown>).api as Record<
       string,
-      Record<string, unknown>
+      unknown
     >;
-    expect(ui.effect.version).toBe("3.21.0");
-    expect(ui.effect.singleton).toBe(true);
-    expect(ui.zod.version).toBe("4.2.0");
+    const shared = api.shared as Record<string, Record<string, unknown>>;
+    expect(shared.effect.version).toBe("3.21.0");
+    expect(shared.effect.singleton).toBe(true);
+    expect(shared.zod.version).toBe("4.2.0");
   });
 
   it("secrets arrays are unioned across extends", () => {
