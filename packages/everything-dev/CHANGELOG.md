@@ -1,5 +1,16 @@
 # everything-dev
 
+## 1.34.0
+
+### Minor Changes
+
+- d51b221: Expose `variables` on `api`, `auth`, and `plugins` in `ClientRuntimeConfig`. Previously `variables` was only available in the server-side `RuntimeConfig` and was stripped when building the client config passed to the UI. This meant external consumers calling `getAuthVariables()` would always throw because `runtimeConfig.auth.variables` was `undefined`. Now all three sections (`api`, `auth`, `plugins[id]`) include their `variables` in the client config, allowing UI code to read client-safe config like auth base URLs, SIWN recipients, passkey RP IDs, and plugin-specific settings. `secrets` remains server-only.
+- d51b221: Rework shared dependency syncing to use resolved config surfaces (`app.api.shared`, `app.auth.shared`, and `plugins.*.shared`) and make host/plugin MF sharing stricter and more explicit. UI module federation sharing is now static, shared-dep conflicts fail loudly, and unresolved exact versions are rejected instead of skipped.
+
+### Patch Changes
+
+- d51b221: Update the UI auth client to a single options object that carries `runtimeConfig`, `headers`, and `cspNonce`, remove the deprecated `auth-utils` helper module during upgrades, and drop the direct `@hot-labs/near-connect` dependency from the UI package.
+
 ## 1.33.7
 
 ### Patch Changes
