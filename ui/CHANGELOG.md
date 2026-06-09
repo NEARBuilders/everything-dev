@@ -1,5 +1,11 @@
 # ui
 
+## 1.6.5
+
+### Patch Changes
+
+- d51b221: Update the UI auth client to a single options object that carries `runtimeConfig`, `headers`, and `cspNonce`, remove the deprecated `auth-utils` helper module during upgrades, and drop the direct `@hot-labs/near-connect` dependency from the UI package.
+
 ## 1.6.4
 
 ### Patch Changes
