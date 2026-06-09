@@ -9,7 +9,6 @@ export default defineConfig({
     "src/zod.ts",
     "src/zod-core.ts",
     "src/orpc.ts",
-    "src/orpc-client.ts",
     "src/orpc-openapi.ts",
     "src/errors.ts",
     "src/runtime/index.ts",

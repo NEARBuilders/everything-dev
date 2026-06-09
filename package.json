@@ -34,7 +34,7 @@
       "every-plugin": "^2.5.11",
       "everything-dev": "^1.33.7",
       "typescript": "^5.9.3",
-      "vitest": "^4.0.17",
+      "vitest": "^4.1.8",
       "@libsql/client": "0.17.0",
       "pg": "^8.12.0",
       "@types/pg": "^8.11.6",
@@ -109,7 +109,7 @@
     "dotenv": "^17.3.1",
     "tsx": "^4.21.0",
     "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.8"
   },
   "peerDependencies": {
     "typescript": "^5"

@@ -10,7 +10,6 @@
       "every-plugin/effect": ["./src/effect.ts"],
       "every-plugin/zod": ["./src/zod.ts"],
       "every-plugin/orpc": ["./src/orpc.ts"],
-      "every-plugin/orpc/client": ["./src/orpc-client.ts"],
       "every-plugin/orpc/openapi": ["./src/orpc-openapi.ts"],
       "every-plugin/normalize": ["./src/runtime/services/normalize.ts"],
       "every-plugin/testing": ["./src/testing/index.ts"],

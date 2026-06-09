@@ -81,15 +81,6 @@
       "import": "./dist/orpc.mjs",
       "require": "./dist/orpc.cjs"
     },
-    "./orpc/client": {
-      "development": {
-        "types": "./src/orpc-client.ts",
-        "import": "./src/orpc-client.ts"
-      },
-      "types": "./dist/orpc-client.d.mts",
-      "import": "./dist/orpc-client.mjs",
-      "require": "./dist/orpc-client.cjs"
-    },
     "./orpc/openapi": {
       "development": {
         "types": "./src/orpc-openapi.ts",
@@ -157,7 +148,7 @@
     "@orpc/client": "catalog:",
     "@orpc/openapi": "catalog:",
     "@orpc/zod": "catalog:",
-    "@orpc/react-query": "catalog:"
+    "@orpc/tanstack-query": "catalog:"
   },
   "devDependencies": {
     "@effect/language-service": "^0.85.1",
@@ -173,7 +164,7 @@
     "sirv": "^3.0.2",
     "tsdown": "^0.21.7",
     "vite-tsconfig-paths": "^6.0.5",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.8"
   },
   "dependencies": {
     "@module-federation/enhanced": "catalog:",
@@ -182,7 +173,7 @@
     "@orpc/contract": "^1.13.4",
     "@orpc/experimental-publisher": "^1.13.4",
     "@orpc/server": "^1.13.4",
-    "@orpc/tanstack-query": "^1.13.4"
+    "@orpc/tanstack-query": "catalog:"
   },
   "keywords": [
     "plugin",
