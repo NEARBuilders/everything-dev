@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { execa } from "execa";
 import { glob } from "glob";
@@ -841,7 +841,6 @@ export async function personalizeConfig(
     }
   }
 
-  const authTypesContent = generateAuthTypesTemplate();
   const authTypesPaths: string[] = [];
   if (has("ui")) {
     authTypesPaths.push(join(destination, "ui", "src", "lib", "auth-types.gen.ts"));
@@ -855,7 +854,44 @@ export async function personalizeConfig(
   for (const authTypesGenPath of authTypesPaths) {
     if (!existsSync(authTypesGenPath)) {
       mkdirSync(dirname(authTypesGenPath), { recursive: true });
-      writeFileSync(authTypesGenPath, authTypesContent);
+      writeFileSync(authTypesGenPath, generateAuthTypesContent(authTypesGenPath, destination));
+    }
+  }
+
+  if (authTypesPaths.length > 0) {
+    const authDir = join(destination, ".bos", "generated", "auth");
+    if (!existsSync(authDir)) {
+      mkdirSync(authDir, { recursive: true });
+    }
+    const authExportStubPath = join(authDir, "auth-export.d.ts");
+    if (!existsSync(authExportStubPath)) {
+      writeFileSync(
+        authExportStubPath,
+        `export type Auth = any;
+export type AuthOrganizationContext = any;
+export type AuthOrganization = any;
+export type AuthOrganizationSummary = any;
+export type AuthOrganizationMember = any;
+export type AuthApiKey = any;
+export type AuthInvitation = any;
+export type GetActiveMemberInput = any;
+export type GetOrganizationInput = any;
+export type ListMembersInput = any;
+export type ListInvitationsInput = any;
+export type ListApiKeysInput = any;
+export type AuthServices = any;
+export type createAuthInstance = any;
+`,
+      );
+    }
+    const contractStubPath = join(authDir, "contract.d.ts");
+    if (!existsSync(contractStubPath)) {
+      writeFileSync(
+        contractStubPath,
+        `export type ContractType = any;
+export type InferOutput<_TRoute extends string> = any;
+`,
+      );
     }
   }
 
@@ -876,55 +912,65 @@ export async function personalizeConfig(
   }
 }
 
-function generateAuthTypesTemplate(): string {
-  return `import type { Auth } from "better-auth";
-export type { Auth } from "better-auth";
-export type AuthSessionUser = NonNullable<Auth["$Infer"]["Session"]["user"]> & {
+function generateAuthTypesContent(targetPath: string, configDir: string): string {
+  const authExportRel = toRelativeImportPath(
+    join(configDir, ".bos", "generated", "auth", "auth-export.d.ts"),
+    targetPath,
+  );
+  const contractRel = toRelativeImportPath(
+    join(configDir, ".bos", "generated", "auth", "contract.d.ts"),
+    targetPath,
+  );
+
+  return `export type {
+  Auth,
+  AuthOrganizationContext,
+  AuthOrganization,
+  AuthOrganizationSummary,
+  AuthOrganizationMember,
+  AuthApiKey,
+  AuthInvitation,
+  GetActiveMemberInput,
+  GetOrganizationInput,
+  ListMembersInput,
+  ListInvitationsInput,
+  ListApiKeysInput,
+  AuthServices,
+  createAuthInstance,
+} from "${authExportRel}";
+import type { InferOutput, ContractType as AuthContract } from "${contractRel}";
+import type { Auth as BaseAuth } from "${authExportRel}";
+
+type RawAuthSession = InferOutput<"getSession">;
+type RawAuthRequestContext = InferOutput<"getContext">;
+type RawAuthActiveMember = InferOutput<"getActiveMember">;
+
+export type AuthSessionUser = NonNullable<RawAuthSession["user"]> & {
   role?: string | null;
   isAnonymous?: boolean | null;
   walletAddress?: string | null;
   banned?: boolean | null;
 };
-export type AuthSessionData = NonNullable<Auth["$Infer"]["Session"]["session"]> & {
+export type AuthSessionData = NonNullable<RawAuthSession["session"]> & {
   activeOrganizationId?: string | null;
 };
 export type AuthSession = {
   user: AuthSessionUser | null;
   session: AuthSessionData | null;
 };
-export interface AuthOrganizationContext {
-  activeOrganizationId: string | null;
-  organization: { id: string; name: string; slug: string; logo?: string | null; metadata?: Record<string, unknown> } | null;
-  member: { id: string; role: string } | null;
-  isPersonal: boolean;
-  hasOrganization: boolean;
-}
-export interface AuthRequestContext {
-  user: AuthSessionUser | null;
-  userId: string | null;
-  isAuthenticated: boolean;
-  authMethod: "session" | "apiKey" | "anonymous" | "none";
-  near: {
-    primaryAccountId: string | null;
-    linkedAccounts: Array<{ accountId: string; network: string; publicKey: string; isPrimary: boolean }>;
-    hasNearAccount: boolean;
-  };
-  organization: AuthOrganizationContext;
-  organizations?: Array<{ id: string; role: string; name?: string; slug?: string }>;
-}
-export type AuthActiveMember = { id: string | null; role: string | null; organizationId: string | null };
-export type AuthOrganization = NonNullable<AuthOrganizationContext["organization"]>;
-export type AuthOrganizationMember = NonNullable<AuthOrganizationContext["member"]>;
-export type AuthOrganizationSummary = NonNullable<AuthRequestContext["organizations"]>[number];
-export type AuthBaseSession = Auth["$Infer"]["Session"];
-export type createAuthInstance = never;
-export interface AuthServices {
-  auth: Auth;
-  db: unknown;
-  driver: { close(): Promise<void> };
-  handler: (req: Request) => Promise<Response>;
-}
+export type AuthRequestContext = RawAuthRequestContext & {
+  organization?: { activeOrganizationId?: string | null } | null;
+  apiKey?: { id: string; permissions?: Record<string, string[]> | null } | null;
+};
+export type AuthActiveMember = RawAuthActiveMember;
+export type AuthBaseSession = BaseAuth["$Infer"]["Session"];
+export type AuthContractType = AuthContract;
 `;
+}
+
+function toRelativeImportPath(fromPath: string, toPath: string): string {
+  const rel = relative(dirname(toPath), fromPath);
+  return rel.startsWith(".") ? rel : `./${rel}`;
 }
 
 export async function runBunInstall(

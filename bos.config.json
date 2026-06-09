@@ -42,9 +42,14 @@
     "auth": {
       "name": "everything-dev_auth-plugin",
       "development": "local:plugins/auth",
-      "production": "https://elliot-braem-4596-everything-dev-auth-plugin-bett-5c7464d90-ze.zephyrcloud.app",
+      "production": "https://elliot-braem-4615-everything-dev-auth-plugin-bett-544a63d21-ze.zephyrcloud.app",
       "integrity": "sha384-hdiTtgW15RyAVkpNdgNxQxKP3xOkMs2jJ27O53l1zEi++nghcPFn8QZQb9avuLMe",
       "variables": {
+        "socialProviders": {
+          "github": {
+            "clientId": ""
+          }
+        },
         "passkey": {
           "rpID": "everything.dev",
           "rpName": "Better NEAR Auth"
@@ -53,6 +58,9 @@
           "recipients": {
             "mainnet": "auth.everything.near",
             "testnet": "dev.allthethings.testnet"
+          },
+          "relayer": {
+            "accountId": ""
           }
         }
       },
@@ -77,7 +85,7 @@
           "shareScope": "default"
         },
         "better-near-auth": {
-          "version": "1.5.0",
+          "version": "1.6.1",
           "requiredVersion": "^1.5.0",
           "singleton": true,
           "strictVersion": false,

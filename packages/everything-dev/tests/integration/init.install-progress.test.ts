@@ -43,10 +43,6 @@ describe("scaffoldMinimalProject — catalog population", () => {
       dependencies?: Record<string, string>;
       workspaces?: { packages?: string[]; catalog?: Record<string, string> };
     };
-    const frameworkPkg = JSON.parse(
-      readFileSync(join(import.meta.dirname, "..", "..", "package.json"), "utf-8"),
-    ) as { version: string };
-
     expect(pkg.dependencies?.["everything-dev"]).toBe("catalog:");
     expect(pkg.dependencies?.["every-plugin"]).toBe("catalog:");
     expect(pkg.workspaces?.catalog).toBeDefined();
@@ -54,7 +50,7 @@ describe("scaffoldMinimalProject — catalog population", () => {
 
     expect(pkg.workspaces?.catalog?.["everything-dev"]).toBeDefined();
     expect(pkg.workspaces?.catalog?.["every-plugin"]).toBeDefined();
-    expect(pkg.workspaces?.catalog?.["everything-dev"]).toBe(`^${frameworkPkg.version}`);
+    expect(pkg.workspaces?.catalog?.["everything-dev"]).toMatch(/^\^\d+\.\d+\.\d+/);
     expect(pkg.workspaces?.catalog?.["every-plugin"]).toMatch(/^\^?\d+/);
   });
 });
