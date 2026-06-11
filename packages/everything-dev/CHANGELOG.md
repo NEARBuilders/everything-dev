@@ -1,5 +1,30 @@
 # everything-dev
 
+## 1.35.5
+
+### Patch Changes
+
+- caf22b7: Stop overwriting CONTRIBUTING.md during `bos sync`/`bos upgrade`
+
+  Remove `CONTRIBUTING.md` from `FRAMEWORK_OWNED_SYNC_FILES` so user-customized
+  contributing guides survive sync and upgrade operations. It is still scaffolded
+  for new projects via `bos init`.
+
+  Also add a `DO NOT MODIFY` warning to `ui/src/app.ts` with guidance that imports
+  within the file must use relative paths (`./lib/...`), never `@/app`.
+
+- caf22b7: Make AGENTS.md child-appropriate after `bos init`/`bos sync`/`bos upgrade`
+
+  Child projects now receive a personalized AGENTS.md that keeps the parent's
+  TanStack intent skill mappings but replaces parent-specific instructions with
+  content relevant to the child project (quick start, architecture, dev workflow,
+  plugin architecture, testing, troubleshooting).
+
+  AGENTS.md is handled as a special file in the sync flow — it is no longer in
+  `FRAMEWORK_OWNED_SYNC_FILES`. Instead, the sync generates the expected child
+  content from the parent's current skill mappings and compares against the local
+  child version, so it only updates when parent skills change.
+
 ## 1.35.4
 
 ### Patch Changes
