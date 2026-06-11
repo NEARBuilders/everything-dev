@@ -1,5 +1,21 @@
 # everything-dev
 
+## 1.35.4
+
+### Patch Changes
+
+- 4318a1d: Publish raw bos.config.json to FastKV instead of the fully-resolved config
+
+  Previously the publish flow resolved the extends chain and baked all inherited
+  fields (like `app.host`) into the published config. This prevented parent host
+  updates from flowing through to child configs at runtime, since the server-side
+  `resolvePublishedRuntime` would see the child's baked-in value and skip the
+  parent's current value.
+
+  Now the raw config (what the child explicitly defines) is published with its
+  `extends` field preserved, and the server resolves inherited fields dynamically
+  at read time.
+
 ## 1.35.3
 
 ### Patch Changes
