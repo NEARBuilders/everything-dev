@@ -1,5 +1,11 @@
 # host
 
+## 1.11.1
+
+### Patch Changes
+
+- 94ad10d: Host now injects `trustedOrigins` from `CORS_ORIGIN` env var into the auth plugin's base variables, aligning Better Auth's CSRF/origin checks with the host's CORS policy. Explicit `auth.variables.trustedOrigins` in `bos.config.json` still takes precedence.
+
 ## 1.11.0
 
 ### Minor Changes
