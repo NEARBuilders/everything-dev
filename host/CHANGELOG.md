@@ -1,5 +1,11 @@
 # host
 
+## 1.11.2
+
+### Patch Changes
+
+- 4761f96: Narrow static asset extension regex to prevent false positives on non-asset routes containing dots
+
 ## 1.11.1
 
 ### Patch Changes
