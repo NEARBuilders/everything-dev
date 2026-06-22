@@ -14,6 +14,12 @@ export const cliCommandMeta = {
     summary: "Start a development session",
     interactive: true,
     longRunning: true,
+    fields: {
+      remotePlugins: {
+        description:
+          "Comma-separated plugin IDs to force remote (e.g. --remote-plugins auth,registry)",
+      },
+    },
   },
   start: {
     commandPath: ["start"],

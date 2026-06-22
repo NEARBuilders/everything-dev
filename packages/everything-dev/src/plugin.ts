@@ -944,7 +944,10 @@ export default createPlugin({
 
       pluginEvents.emit("progress", { phase: "config", status: "done" } satisfies ProgressEvent);
 
-      const refreshed = await loadResolvedConfig({ cwd: deps.configDir });
+      const refreshed = await loadResolvedConfig({
+        cwd: deps.configDir,
+        remotePlugins: input.remotePlugins,
+      });
       deps.bosConfig = refreshed?.config ?? deps.bosConfig;
       deps.runtimeConfig = refreshed?.runtime ?? deps.runtimeConfig;
 

@@ -157,6 +157,7 @@ export async function loadResolvedConfig(options?: {
   cwd?: string;
   path?: string;
   env?: BosEnv;
+  remotePlugins?: string[];
 }): Promise<ConfigResult | null> {
   const configPath = options?.path ?? findConfigPath(options?.cwd);
   if (!configPath) {
@@ -187,7 +188,12 @@ export async function loadResolvedConfig(options?: {
     cachedConfig = config;
     projectRoot = baseDir;
 
-    const pluginRuntime = await resolveRuntimePlugins(config.plugins ?? {}, baseDir, runtimeEnv);
+    const pluginRuntime = await resolveRuntimePlugins(
+      config.plugins ?? {},
+      baseDir,
+      runtimeEnv,
+      options?.remotePlugins,
+    );
     const runtime = buildRuntimeConfig(config, baseDir, runtimeEnv, {
       plugins: pluginRuntime,
     });
@@ -888,6 +894,7 @@ async function resolveRuntimePlugins(
   plugins: Record<string, PluginOverrideValue>,
   baseDir: string,
   env: BosEnv,
+  remotePlugins?: string[],
 ): Promise<Record<string, RuntimePluginConfig>> {
   const out: Record<string, RuntimePluginConfig> = {};
 
@@ -902,7 +909,8 @@ async function resolveRuntimePlugins(
       `plugins.${pluginId}`,
     );
 
-    const pluginRuntime = buildRuntimePluginConfig(pluginId, env, resolvedReference);
+    const forceSource = remotePlugins?.includes(pluginId) ? "remote" : undefined;
+    const pluginRuntime = buildRuntimePluginConfig(pluginId, env, resolvedReference, forceSource);
 
     if (!pluginRuntime.localPath && !pluginRuntime.url) {
       continue;
@@ -955,6 +963,7 @@ function buildRuntimePluginConfig(
   pluginId: string,
   env: BosEnv,
   resolved: ResolvedComposableReference,
+  forceSource?: "local" | "remote",
 ): RuntimePluginConfig {
   const source = resolved.entry;
   const development = typeof source.development === "string" ? source.development : undefined;
@@ -974,7 +983,7 @@ function buildRuntimePluginConfig(
           development,
           production,
           resolved.providerBaseDir,
-          undefined,
+          forceSource,
           `plugins.${pluginId}`,
           pluginExtendsRef,
         )
@@ -992,7 +1001,7 @@ function buildRuntimePluginConfig(
             uiDevelopment,
             uiProduction,
             resolved.providerBaseDir,
-            undefined,
+            forceSource,
             `plugins.${pluginId}.ui`,
           )
         : resolveRuntimeTarget(uiProduction, resolved.providerBaseDir, "remote")
