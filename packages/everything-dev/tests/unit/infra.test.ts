@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,7 +10,7 @@ import {
 } from "../../src/cli/infra";
 import type { RuntimeConfig } from "../../src/types";
 
-function buildRuntimeConfig(): RuntimeConfig {
+function buildRuntimeConfig(overrides?: Partial<RuntimeConfig>): RuntimeConfig {
   return {
     env: "development",
     account: "dev.everything.near",
@@ -34,10 +34,11 @@ function buildRuntimeConfig(): RuntimeConfig {
         name: "projects",
         url: "http://localhost:3010",
         entry: "/mf-manifest.json",
-        source: "local",
+        source: "local" as const,
         secrets: ["PROJECTS_DATABASE_URL", "PAYMENT_API_URL"],
       },
     },
+    ...overrides,
   } as RuntimeConfig;
 }
 
@@ -98,6 +99,241 @@ describe("generated infra", () => {
     expect(dockerCompose).toContain("name: dev_everything_near_postgres_auth_data");
     expect(dockerCompose).toContain("name: dev_everything_near_postgres_projects_data");
     expect(dockerCompose).not.toContain("payment");
+  });
+
+  it("generates Redis docker compose and env for _REDIS_URL secrets", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-redis-"));
+    tempDirs.push(dir);
+
+    const secrets = writeGeneratedInfra(
+      dir,
+      buildRuntimeConfig({
+        plugins: {
+          cache: {
+            name: "cache",
+            url: "http://localhost:3020",
+            entry: "/mf-manifest.json",
+            source: "local" as const,
+            secrets: ["CACHE_REDIS_URL"],
+          },
+        },
+      }),
+    );
+    const envExample = readFileSync(join(dir, ".env.example"), "utf-8");
+    const dockerCompose = readFileSync(join(dir, "docker-compose.yml"), "utf-8");
+
+    expect(secrets).toContain("CACHE_REDIS_URL");
+
+    expect(envExample).toContain("# plugins.cache");
+    expect(envExample).toContain("CACHE_REDIS_URL=redis://localhost:6379");
+
+    expect(dockerCompose).toContain("x-redis-common: &redis-common");
+    expect(dockerCompose).toContain("image: redis:7-alpine");
+    expect(dockerCompose).toContain("command: redis-server --appendonly yes");
+    expect(dockerCompose).toContain('test: ["CMD", "redis-cli", "ping"]');
+    expect(dockerCompose).toContain("redis-cache:");
+    expect(dockerCompose).toContain("container_name: dev.everything.near-redis-cache");
+    expect(dockerCompose).toContain('"6379:6379"');
+    expect(dockerCompose).toContain("dev_everything_near_redis_cache_data:/data");
+    expect(dockerCompose).toContain("name: dev_everything_near_redis_cache_data");
+  });
+
+  it("generates Redis alongside Postgres in the same compose", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-mixed-"));
+    tempDirs.push(dir);
+
+    writeGeneratedInfra(
+      dir,
+      buildRuntimeConfig({
+        plugins: {
+          cache: {
+            name: "cache",
+            url: "http://localhost:3020",
+            entry: "/mf-manifest.json",
+            source: "local" as const,
+            secrets: ["CACHE_REDIS_URL"],
+          },
+        },
+      }),
+    );
+    const dockerCompose = readFileSync(join(dir, "docker-compose.yml"), "utf-8");
+
+    expect(dockerCompose).toContain("x-pg-common:");
+    expect(dockerCompose).toContain("x-redis-common:");
+    expect(dockerCompose).toContain("postgres-api:");
+    expect(dockerCompose).toContain("redis-cache:");
+  });
+
+  it("persists ports in infra-state.json and keeps existing ports stable", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-state-"));
+    tempDirs.push(dir);
+
+    syncGeneratedInfra(
+      dir,
+      buildRuntimeConfig({
+        plugins: {
+          projects: {
+            name: "projects",
+            url: "http://localhost:3010",
+            entry: "/mf-manifest.json",
+            source: "local" as const,
+            secrets: ["PROJECTS_DATABASE_URL"],
+          },
+        },
+      }),
+    );
+
+    const statePath = join(dir, ".bos", "infra-state.json");
+    expect(existsSync(statePath)).toBe(true);
+
+    const firstState = JSON.parse(readFileSync(statePath, "utf-8"));
+    expect(firstState.postgresPorts.projects).toBe(5434);
+
+    const firstEnv = readFileSync(join(dir, ".env.example"), "utf-8");
+    expect(firstEnv).toContain(
+      "PROJECTS_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5434/projects_db",
+    );
+
+    syncGeneratedInfra(
+      dir,
+      buildRuntimeConfig({
+        plugins: {
+          projects: {
+            name: "projects",
+            url: "http://localhost:3010",
+            entry: "/mf-manifest.json",
+            source: "local" as const,
+            secrets: ["PROJECTS_DATABASE_URL"],
+          },
+          registry: {
+            name: "registry",
+            url: "http://localhost:3021",
+            entry: "/mf-manifest.json",
+            source: "local" as const,
+            secrets: ["REGISTRY_DATABASE_URL"],
+          },
+        },
+      }),
+    );
+
+    const secondState = JSON.parse(readFileSync(statePath, "utf-8"));
+    expect(secondState.postgresPorts.projects).toBe(5434);
+    expect(secondState.postgresPorts.registry).toBe(5435);
+
+    const secondEnv = readFileSync(join(dir, ".env.example"), "utf-8");
+    expect(secondEnv).toContain(
+      "PROJECTS_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5434/projects_db",
+    );
+    expect(secondEnv).toContain(
+      "REGISTRY_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5435/registry_db",
+    );
+
+    const dockerCompose = readFileSync(join(dir, "docker-compose.yml"), "utf-8");
+    expect(dockerCompose).toContain('"5434:5432"');
+    expect(dockerCompose).toContain('"5435:5432"');
+  });
+
+  it("preserves insertion order from config (not alphabetical)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-order-"));
+    tempDirs.push(dir);
+
+    mkdirSync(join(dir, ".bos"), { recursive: true });
+
+    writeGeneratedInfra(
+      dir,
+      buildRuntimeConfig({
+        plugins: {
+          zebra: {
+            name: "zebra",
+            url: "http://localhost:3030",
+            entry: "/mf-manifest.json",
+            source: "local" as const,
+            secrets: ["ZEBRA_DATABASE_URL"],
+          },
+          alpha: {
+            name: "alpha",
+            url: "http://localhost:3040",
+            entry: "/mf-manifest.json",
+            source: "local" as const,
+            secrets: ["ALPHA_DATABASE_URL"],
+          },
+          beta: {
+            name: "beta",
+            url: "http://localhost:3050",
+            entry: "/mf-manifest.json",
+            source: "local" as const,
+            secrets: ["BETA_DATABASE_URL"],
+          },
+        },
+      }),
+    );
+
+    const state = JSON.parse(readFileSync(join(dir, ".bos", "infra-state.json"), "utf-8"));
+
+    expect(state.postgresPorts.zebra).toBe(5434);
+    expect(state.postgresPorts.alpha).toBe(5435);
+    expect(state.postgresPorts.beta).toBe(5436);
+  });
+
+  it("detects stale .env values when ports change", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-stale-"));
+    tempDirs.push(dir);
+
+    syncGeneratedInfra(
+      dir,
+      buildRuntimeConfig({
+        plugins: {
+          projects: {
+            name: "projects",
+            url: "http://localhost:3010",
+            entry: "/mf-manifest.json",
+            source: "local" as const,
+            secrets: ["PROJECTS_DATABASE_URL"],
+          },
+        },
+      }),
+    );
+
+    writeFileSync(
+      join(dir, ".env"),
+      "PROJECTS_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:9999/projects_db\n",
+    );
+
+    const result = syncGeneratedInfra(
+      dir,
+      buildRuntimeConfig({
+        plugins: {
+          projects: {
+            name: "projects",
+            url: "http://localhost:3010",
+            entry: "/mf-manifest.json",
+            source: "local" as const,
+            secrets: ["PROJECTS_DATABASE_URL"],
+          },
+        },
+      }),
+    );
+
+    expect(result.staleEnvWarnings.length).toBe(1);
+    expect(result.staleEnvWarnings[0]).toContain("PROJECTS_DATABASE_URL");
+    expect(result.staleEnvWarnings[0]).toContain("9999");
+    expect(result.staleEnvWarnings[0]).toContain("5434");
+  });
+
+  it("reports no stale warnings when .env matches or does not exist", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-fresh-"));
+    tempDirs.push(dir);
+
+    const result = syncGeneratedInfra(dir, buildRuntimeConfig());
+    expect(result.staleEnvWarnings.length).toBe(0);
+
+    writeFileSync(
+      join(dir, ".env"),
+      "API_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5432/api_db\n",
+    );
+
+    const second = syncGeneratedInfra(dir, buildRuntimeConfig());
+    expect(second.staleEnvWarnings.length).toBe(0);
   });
 
   it("creates .env with generated auth secret and preserves other defaults", () => {
