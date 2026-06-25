@@ -68,6 +68,8 @@ describe("UI public assets proxied through host (Cloudflare Error 1000 regressio
     process.env.PORT = String(hostPort);
     process.env.CSP_STRICT = "false";
 
+    process.argv.push("--proxy");
+
     const config = buildUiRemoteConfig(uiServer.baseUrl, apiProxy.baseUrl, baseUrl);
     hostHandle = runServer({ config });
     await hostHandle.ready;
@@ -78,6 +80,11 @@ describe("UI public assets proxied through host (Cloudflare Error 1000 regressio
     await uiServer?.stop();
     await apiProxy?.stop();
     process.env = { ...envSnapshot };
+
+    const proxyIdx = process.argv.indexOf("--proxy");
+    if (proxyIdx !== -1) {
+      process.argv.splice(proxyIdx, 1);
+    }
   });
 
   describe("UI assets are proxied through the host with 200", () => {

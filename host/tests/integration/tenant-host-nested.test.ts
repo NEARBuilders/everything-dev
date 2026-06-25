@@ -145,6 +145,7 @@ describe("tenant host nested integration", () => {
     process.env.ALLOW_OVERRIDE = "ui,plugins.*";
     process.env.TENANT_WHITELIST = "chicago.alice.linktree.near";
     process.env.ALLOW_UNTRUSTED_SSR = "false";
+    process.argv.push("--proxy");
 
     const config = createBaseConfig();
     handle = runServer({
@@ -182,6 +183,11 @@ describe("tenant host nested integration", () => {
     process.env.ALLOW_OVERRIDE = previousAllowOverride;
     process.env.TENANT_WHITELIST = previousTenantWhitelist;
     process.env.ALLOW_UNTRUSTED_SSR = previousAllowUntrustedSsr;
+
+    const proxyIdx = process.argv.indexOf("--proxy");
+    if (proxyIdx !== -1) {
+      process.argv.splice(proxyIdx, 1);
+    }
   });
 
   beforeEach(() => {

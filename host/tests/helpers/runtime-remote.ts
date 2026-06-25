@@ -172,6 +172,10 @@ export async function startRuntimeRemoteHost(
   process.env.HOST = "127.0.0.1";
   process.env.PORT = String(port);
 
+  if (scenario.proxy) {
+    process.argv.push("--proxy");
+  }
+
   const handle = runServer({ config: runtimeConfig });
 
   try {
@@ -182,6 +186,14 @@ export async function startRuntimeRemoteHost(
     process.env.NODE_ENV = previousNodeEnv;
     process.env.HOST = previousHost;
     process.env.PORT = previousPort;
+
+    if (scenario.proxy) {
+      const proxyIdx = process.argv.indexOf("--proxy");
+      if (proxyIdx !== -1) {
+        process.argv.splice(proxyIdx, 1);
+      }
+    }
+
     throw error;
   }
 
@@ -194,6 +206,11 @@ export async function startRuntimeRemoteHost(
       process.env.NODE_ENV = previousNodeEnv;
       process.env.HOST = previousHost;
       process.env.PORT = previousPort;
+
+      const proxyIdx = process.argv.indexOf("--proxy");
+      if (proxyIdx !== -1) {
+        process.argv.splice(proxyIdx, 1);
+      }
     },
   };
 }

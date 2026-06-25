@@ -107,6 +107,7 @@ describe("SSR fallback paths", () => {
     process.env.HOST = "127.0.0.1";
     process.env.PORT = String(port);
     process.env.CSP_STRICT = "false";
+    process.argv.push("--proxy");
 
     const config = createBaseConfig(`${assetServer.baseUrl}/ui-ssr`);
     handle = runServer({
@@ -130,6 +131,11 @@ describe("SSR fallback paths", () => {
     await handle?.shutdown();
     await assetServer?.stop();
     process.env = { ...envSnapshot };
+
+    const proxyIdx = process.argv.indexOf("--proxy");
+    if (proxyIdx !== -1) {
+      process.argv.splice(proxyIdx, 1);
+    }
   });
 
   beforeEach(() => {

@@ -365,7 +365,7 @@ export function setupApiRoutes(
     };
   };
 
-  const isProxyMode = !!apiConfig.proxy;
+  const isProxyMode = process.argv.includes("--proxy");
 
   const publicRpcRouters = new Map<string, RPCHandler<any>>();
 
@@ -431,9 +431,21 @@ export function setupApiRoutes(
     const context = buildPluginContext(c);
 
     const result = await handler.handle(c.req.raw, { prefix, context });
-    return result.response
-      ? c.newResponse(result.response.body, result.response)
-      : c.text("Not Found", 404);
+    if (!result.response) {
+      return c.text("Not Found", 404);
+    }
+
+    const contentType = result.response.headers.get("content-type") ?? "";
+    if (contentType.includes("text/html")) {
+      const nonce = c.get("secureHeadersNonce") as string | undefined;
+      if (nonce) {
+        const body = await result.response.text();
+        const injected = body.replace(/<script/gi, `<script nonce="${nonce}"`);
+        return c.html(injected, result.response.status as any);
+      }
+    }
+
+    return c.newResponse(result.response.body, result.response);
   };
 
   const apiRouter = plugins.api?.router;
@@ -712,6 +724,7 @@ export const createStartServer = (onReady?: () => void) =>
 
       if (
         pathname === "/" ||
+        pathname === "/api" ||
         pathname.startsWith("/api/") ||
         pathname.startsWith("/__mf/") ||
         pathname.startsWith("/_runtime/") ||
@@ -829,6 +842,10 @@ export const createStartServer = (onReady?: () => void) =>
     app.use("/*", sessionMiddleware);
 
     app.get("*", async (c: Context<HonoEnv>) => {
+      if (c.req.path === "/api" || c.req.path.startsWith("/api/")) {
+        return c.notFound();
+      }
+
       let resolvedRuntime: Awaited<ReturnType<typeof resolveRequestRuntime>>;
       try {
         resolvedRuntime = await resolveRequestRuntime(config, c.req.raw, {

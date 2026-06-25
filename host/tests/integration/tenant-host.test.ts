@@ -114,6 +114,7 @@ describe("tenant host integration", () => {
     process.env.NODE_ENV = "production";
     process.env.HOST = "127.0.0.1";
     process.env.PORT = String(port);
+    process.argv.push("--proxy");
 
     const config = createBaseConfig();
     handle = runServer({
@@ -148,6 +149,11 @@ describe("tenant host integration", () => {
     process.env.NODE_ENV = previousNodeEnv;
     process.env.HOST = previousHost;
     process.env.PORT = previousPort;
+
+    const proxyIdx = process.argv.indexOf("--proxy");
+    if (proxyIdx !== -1) {
+      process.argv.splice(proxyIdx, 1);
+    }
   });
 
   beforeEach(() => {
