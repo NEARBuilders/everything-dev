@@ -1,6 +1,6 @@
 {
   "name": "@every-plugin/settings",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Settings plugin for every-plugin framework",
   "type": "module",
   "exports": {
