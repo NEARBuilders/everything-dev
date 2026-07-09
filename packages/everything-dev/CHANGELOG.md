@@ -1,5 +1,18 @@
 # everything-dev
 
+## 1.42.0
+
+### Minor Changes
+
+- 047a2d1: Add `bos db:studio [plugin]` command for local and remote plugin databases. Opens Drizzle Studio for any plugin with a `_DATABASE_URL` secret. For local plugins (like `api` with `development: "local:api"`), runs drizzle-kit from the workspace. For remote plugins (like `auth` via `extends: "bos://..."`), introspects schema from the live database via `drizzle-kit pull`, then opens Studio. Default plugin is `api` for backward compatibility.
+
+### Patch Changes
+
+- 7cb0733: Remove `settings` and `projects` plugins, UI routes, and related component. Replace plugin IDs in tests with `example`.
+- bb8410e: Fix integrity monitor false positives for extended remotes. When a composable entry (auth, plugin) uses `extends`, its integrity hash is resolved from the parent config at startup. If the parent is redeployed, the running host's monitor checked against the stale hash. Now stores `extendsRef` on RuntimeConfig entries so the monitor can re-fetch the parent config from FastKV to get the latest integrity before verifying. Also runs the first integrity check immediately instead of waiting for the first interval tick.
+- 3733ef7: Rename `api/src/lib/plugins.ts` to `api/src/lib/context.ts`. Extract `ContextSchema` as a shared Zod schema with derived `Context` type, replacing the inline schema in `createPlugin`. Add old path to `OBSOLETE_FILES` in upgrade.
+- 4772e1f: Simplify API to a thin orchestration layer: replaces the upvotes table with a `things` registry (`thingId`, `pluginId`, `createdAt`, `updatedAt`), adds Effect service layers (Registry, Votes), and introduces plugin dispatch via `getThingProvider()` so the API delegates to plugins by `pluginId`. Adds `createThing`, `getThing`, `deleteThing` (admin-only), `subscribeThings` endpoints with SSE filtering by `pluginId`/`type`/`action`. Adds `deleteThing` to `_template` plugin contract/service/handler. Extracts `ApiContextSchema`, `pluginContext`, `runEffect` into `lib/context.ts`. Renames service files `thing-registry`→`registry`, `thing-votes`→`votes` with matching symbol renames. Removes obsolete `lib/plugins.ts`. Adds frontend thing registry routes under `/things/` (index, create, detail with vote controls, admin delete, live SSE stream). Improves DB Layer with idempotent migrator. Updates api-and-auth and plugin-development skill docs.
+
 ## 1.41.0
 
 ### Minor Changes
