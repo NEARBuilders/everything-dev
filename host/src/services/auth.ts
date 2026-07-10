@@ -78,3 +78,5 @@ export function buildPluginContext(c: Context<AuthMiddlewareEnv>): AuthPluginCon
     getRawBody: c.get("getRawBody"),
   };
 }
+
+export type { HonoEnv };
