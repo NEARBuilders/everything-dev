@@ -958,10 +958,7 @@ export type AuthSession = {
   user: AuthSessionUser | null;
   session: AuthSessionData | null;
 };
-export type AuthRequestContext = RawAuthRequestContext & {
-  organization?: { activeOrganizationId?: string | null } | null;
-  apiKey?: { id: string; permissions?: Record<string, string[]> | null } | null;
-};
+export type AuthRequestContext = RawAuthRequestContext;
 export type AuthActiveMember = RawAuthActiveMember;
 export type AuthBaseSession = BaseAuth["$Infer"]["Session"];
 export type AuthContractType = AuthContract;
