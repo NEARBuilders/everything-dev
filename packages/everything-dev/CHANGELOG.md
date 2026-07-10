@@ -1,5 +1,78 @@
 # everything-dev
 
+## 1.42.1
+
+### Patch Changes
+
+- 71bf090: feat(everything-dev): mark framework-owned files with header warnings
+
+  - Added `api/src/lib/context.ts` to `FRAMEWORK_OWNED_SYNC_FILES` so it gets
+    synced by `bos sync` / `bos upgrade`
+  - Added "BE CAREFUL MODIFYING THIS FILE" header comments to 12 framework-owned
+    source and build config files, directing users to upstream changes at
+    https://github.com/nearbuilders/everything-dev
+
+- 9e08c18: feat(everything-dev): sync shared auth/context lib files to every plugin
+
+  - Refactored `api/src/lib/auth.ts` to remove dead `PluginsClient`-dependent
+    exports (`AuthPluginClientFactory`, `AuthPluginClient`, `AuthCapableServices`,
+    `getAuthClient`), making the file fully shareable across all workspaces
+  - Added per-plugin sync in `sync.ts`: `api/src/lib/auth.ts` and
+    `api/src/lib/context.ts` are now synced to each local plugin's `src/lib/`
+    directory during `bos sync` / `bos upgrade`
+  - Added per-plugin `auth-types.gen.ts` generation in `api-contract.ts` for
+    each plugin's `src/lib/` directory
+  - Updated `plugins/_template` and `plugins/apps` to import auth/context
+    from their local `./lib/auth` and `./lib/context`
+  - Fixed merge conflict markers in `host/src/lib/auth.ts` and
+    `host/src/services/auth.ts`
+
+- e1f7ff7: fix(everything-dev): restore full AuthRequestContext type from auth plugin contract
+
+  The generated AuthRequestContext type was overriding the full organization
+  envelope (member, org metadata, isPersonal, hasOrganization) from the auth
+  plugin's getContext() with a narrower { activeOrganizationId } stub. This
+  caused type drift between the runtime context and the type system.
+
+  - Remove handwritten organization/apiKey overlay from AuthRequestContext in
+    api-contract.ts generator and cli/init.ts scaffold template
+  - AuthRequestContext now aliases RawAuthRequestContext directly, preserving
+    the full contract shape
+
+  fix(api): add requireOrgRole middleware for organization-level role checks
+
+  Reads context.organization.member.role from the host-injected context.
+  No extra round-trips, no type casts, no caching.
+
+  fix(api): remove dead requireUser middleware and AuthenticatedContext type
+
+  requireUser was functionally identical to requireAuth (same condition,
+  different error message) and never imported anywhere. AuthenticatedContext
+  was defined but never used by any route handler.
+
+  fix(api): correct misleading requireAuth hint
+
+  requireAuth said "Sign in or provide an API key" but never checked for
+  API keys. Now says "Sign in to continue". Only requireAuthOrApiKey
+  accepts either auth method.
+
+  feat(api): requireAuthOrApiKey now accepts optional permission checks
+
+  requireAuthOrApiKey() — no args, same behavior as before (session or any
+  API key). requireAuthOrApiKey({ resource: ["action"] }) — session passes
+  through without permission checks, API key requests are scoped to the
+  specified permissions. Call site updated to requireAuthOrApiKey().
+
+  fix(host): remove redundant AuthServices interface
+
+  interface AuthServices extends GeneratedAuthServices { auth: ... } re-declared
+  auth with the same inherited type. Replaced with type AuthServices = GeneratedAuthServices.
+
+  fix(\_template): remove requireAuth from scaffold plugin
+
+  The template's requireAuth only checked context.userId (not context.user)
+  and its userId re-set was a no-op. getById is now public.
+
 ## 1.42.0
 
 ### Minor Changes
