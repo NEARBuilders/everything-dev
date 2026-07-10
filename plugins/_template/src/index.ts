@@ -98,15 +98,8 @@ export default createPlugin.withPlugins<PluginsClient>()({
   createRouter: (context, builder) => {
     const { service, publisher } = context;
 
-    const requireAuth = builder.middleware(async ({ context, next }) => {
-      if (!context.userId) {
-        throw new ORPCError("UNAUTHORIZED", { message: "User ID required" });
-      }
-      return next({ context: { ...context, userId: context.userId } });
-    });
-
     return {
-      getById: builder.getById.use(requireAuth).handler(async ({ input, context }) => {
+      getById: builder.getById.handler(async ({ input, context }) => {
         try {
           const item = await Effect.runPromise(service.getById(input.id));
           return { item, userId: context.userId };

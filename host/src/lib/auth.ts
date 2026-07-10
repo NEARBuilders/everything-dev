@@ -16,9 +16,7 @@ export type {
 };
 export type AuthUser = AuthSessionUser;
 
-interface AuthServices extends GeneratedAuthServices {
-  auth: GeneratedAuthServices["auth"];
-}
+type AuthServices = GeneratedAuthServices;
 
 export interface AuthClient {
   getSession(): Promise<AuthSession | null>;

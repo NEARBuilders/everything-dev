@@ -75,7 +75,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
       })),
 
       createThing: builder.createThing
-        .use(requireAuthOrApiKey)
+        .use(requireAuthOrApiKey())
         .handler(async ({ input, context }) => {
           const provider = getThingProvider(input.pluginId);
           if (!provider) {

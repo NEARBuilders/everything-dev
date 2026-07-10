@@ -6,11 +6,6 @@ export type AuthContext = AuthPluginContext;
 export type RequestAuthUser = NonNullable<AuthContext["user"]>;
 export type ApiKeyContext = NonNullable<AuthContext["apiKey"]>;
 
-export interface AuthenticatedContext extends AuthContext {
-  userId: string;
-  user: RequestAuthUser;
-}
-
 export type AuthPluginClientFactory = PluginsClient["auth"];
 export type AuthPluginClient = ReturnType<AuthPluginClientFactory>;
 
@@ -34,36 +29,41 @@ export function createAuthMiddleware(builder: any) {
       if (!context.user || !context.userId) {
         throw new ORPCError("UNAUTHORIZED", {
           message: "Authentication required",
-          data: { hint: "Sign in or provide an API key" },
+          data: { hint: "Sign in to continue" },
         });
       }
       return next({ context });
     },
   );
 
-  const requireAuthOrApiKey = builder.middleware(
-    async ({ context, next }: { context: AuthContext; next: any }) => {
-      if (!context.user && !context.userId && !context.apiKey) {
+  const requireAuthOrApiKey = (requiredPermissions?: Record<string, string[]>) =>
+    builder.middleware(async ({ context, next }: { context: AuthContext; next: any }) => {
+      const hasSession = !!(context.user && context.userId);
+      const hasApiKey = !!context.apiKey;
+
+      if (!hasSession && !hasApiKey) {
         throw new ORPCError("UNAUTHORIZED", {
           message: "Authentication required",
           data: { hint: "Sign in or provide an API key" },
         });
       }
-      return next({ context });
-    },
-  );
 
-  const requireUser = builder.middleware(
-    async ({ context, next }: { context: AuthContext; next: any }) => {
-      if (!context.user || !context.userId) {
-        throw new ORPCError("UNAUTHORIZED", {
-          message: "User authentication required",
-          data: { hint: "Sign in or provide a user-scoped API key" },
-        });
+      if (hasApiKey && requiredPermissions) {
+        const keyPerms = context.apiKey!.permissions ?? {};
+        for (const [resource, actions] of Object.entries(requiredPermissions)) {
+          const allowed = keyPerms[resource] ?? [];
+          const missing = actions.filter((a: string) => !allowed.includes(a));
+          if (missing.length > 0) {
+            throw new ORPCError("FORBIDDEN", {
+              message: `API key lacks permission: ${resource}:${missing.join(",")}`,
+              data: { requiredPermissions, keyPermissions: keyPerms },
+            });
+          }
+        }
       }
+
       return next({ context });
-    },
-  );
+    });
 
   const requireRole = <TRoles extends readonly string[]>(...roles: TRoles) =>
     builder.middleware(async ({ context, next }: { context: AuthContext; next: any }) => {
@@ -154,7 +154,6 @@ export function createAuthMiddleware(builder: any) {
   return {
     requireAuth,
     requireAuthOrApiKey,
-    requireUser,
     requireRole,
     requireAdmin,
     requireOrganization,
