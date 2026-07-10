@@ -1,5 +1,20 @@
 # everything-dev
 
+## 1.42.2
+
+### Patch Changes
+
+- be9ca5b: fix(db-studio): load .env before resolving plugin database info
+
+  Added `loadProjectEnv()` call in the `dbStudio` handler before
+  `resolvePluginDbInfo()` to ensure `.env` is loaded into `process.env`
+  before the database URL check. Previously the `.env` load happened in
+  the CLI layer after the handler had already returned, causing a
+  spurious "missing AUTH_DATABASE_URL" error when the variable was
+  actually present in `.env`.
+
+- bbe77d3: Update `bos init` prompt default extends ref from `bos://dev.everything.near/everything.dev` to `bos://dev.everything.near/dev.everything.dev`
+
 ## 1.42.1
 
 ### Patch Changes
