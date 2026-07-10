@@ -1,6 +1,6 @@
 import { ORPCError } from "every-plugin/orpc";
 import type { Thing, ThingEvent } from "../contract";
-import { type Context, pluginContext } from "../lib/context";
+import type { Context } from "../lib/context";
 import type { PluginsClient } from "../lib/plugins-types.gen";
 
 export type ThingProviderResult = {
@@ -41,7 +41,7 @@ export function getThingProvider(pluginId: string): ThingProvider | null {
 
 function buildPluginThingProvider(pluginId: string): ThingProvider {
   const getClient = (pluginClients: Omit<PluginsClient, "auth">, context: Context) =>
-    (pluginClients as Record<string, any>)[pluginId]!(pluginContext(context));
+    (pluginClients as Record<string, any>)[pluginId]!(context);
   return {
     create: async (pluginClients, input, context) =>
       await getClient(pluginClients, context).createThing(input),

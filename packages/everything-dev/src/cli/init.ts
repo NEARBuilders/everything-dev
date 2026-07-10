@@ -945,20 +945,17 @@ type RawAuthSession = InferOutput<"getSession">;
 type RawAuthRequestContext = InferOutput<"getContext">;
 type RawAuthActiveMember = InferOutput<"getActiveMember">;
 
-export type AuthSessionUser = NonNullable<RawAuthSession["user"]> & {
-  role?: string | null;
-  isAnonymous?: boolean | null;
-  walletAddress?: string | null;
-  banned?: boolean | null;
-};
-export type AuthSessionData = NonNullable<RawAuthSession["session"]> & {
-  activeOrganizationId?: string | null;
-};
+export type AuthSessionUser = NonNullable<RawAuthSession["user"]>;
+export type AuthSessionData = NonNullable<RawAuthSession["session"]>;
 export type AuthSession = {
   user: AuthSessionUser | null;
   session: AuthSessionData | null;
 };
 export type AuthRequestContext = RawAuthRequestContext;
+export type AuthPluginContext = Partial<AuthRequestContext> & {
+  reqHeaders?: Headers;
+  getRawBody?: () => Promise<string>;
+};
 export type AuthActiveMember = RawAuthActiveMember;
 export type AuthBaseSession = BaseAuth["$Infer"]["Session"];
 export type AuthContractType = AuthContract;

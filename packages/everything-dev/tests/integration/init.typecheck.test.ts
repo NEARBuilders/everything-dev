@@ -141,7 +141,7 @@ describe("bos init — typecheck", () => {
 
     await personalizeConfig(testDir, {
       extendsAccount: "dev.everything.near",
-      extendsGateway: "everything.dev",
+      extendsGateway: "dev.everything.dev",
       account: "test.near",
       domain: "test.dev",
       workspaceOpts: { sourceDir: REPO_ROOT },

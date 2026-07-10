@@ -1,47 +1,7 @@
 import type { Context, Next } from "hono";
-import type {
-  AuthRequestContext,
-  AuthSession,
-  AuthSessionData,
-  AuthSessionUser,
-  AuthServices as GeneratedAuthServices,
-} from "@/lib/auth-types.gen";
+import type { AuthClient, AuthPluginContext, AuthServices, HonoEnv } from "../lib/auth";
+import { toAuthClientContext } from "../lib/auth";
 import type { HostPluginEntry, PluginResult } from "./plugins";
-
-export type AuthUser = AuthSessionUser;
-
-interface AuthServices extends GeneratedAuthServices {
-  auth: GeneratedAuthServices["auth"];
-}
-
-interface AuthClient {
-  getSession(): Promise<AuthSession | null>;
-  getContext(): Promise<AuthRequestContext>;
-}
-
-export interface ApiKeyContext {
-  id: string;
-  name: string | null;
-  permissions: Record<string, string[]> | null;
-}
-
-export interface AuthVariables {
-  user: AuthUser | null;
-  session: AuthSessionData | null;
-  reqHeaders: Headers;
-  getRawBody: () => Promise<string>;
-  walletAddress: string | null;
-  apiKey: ApiKeyContext | null;
-  organizationId: string | null;
-  near: AuthRequestContext["near"];
-  organization: AuthRequestContext["organization"] | null;
-}
-
-export type HonoEnv = { Variables: AuthVariables };
-
-export function toAuthClientContext(headers: Headers): Record<string, string> {
-  return Object.fromEntries(headers.entries());
-}
 
 function resolveAuthEntry(plugins: PluginResult): HostPluginEntry | null {
   return plugins.auth ?? plugins.plugins.auth ?? null;
@@ -82,11 +42,9 @@ export function createSessionMiddleware(plugins: PluginResult) {
     });
 
     if (!authClientFactory) {
+      c.set("authContext", null);
       c.set("user", null);
       c.set("session", null);
-      c.set("walletAddress", null);
-      c.set("apiKey", null);
-      c.set("organizationId", null);
       await next();
       return;
     }
@@ -99,51 +57,29 @@ export function createSessionMiddleware(plugins: PluginResult) {
         authClient.getSession(),
         authClient.getContext(),
       ]);
+      c.set("authContext", contextResult);
       c.set("user", sessionResult?.user ?? contextResult.user ?? null);
       c.set("session", sessionResult?.session ?? null);
-      c.set("walletAddress", contextResult.near.primaryAccountId ?? null);
-      c.set("apiKey", contextResult.apiKey ?? null);
-      c.set("organizationId", contextResult.organization?.activeOrganizationId ?? null);
-      c.set(
-        "near",
-        contextResult.near ?? { primaryAccountId: null, linkedAccounts: [], hasNearAccount: false },
-      );
-      c.set("organization", contextResult.organization ?? null);
     } catch (error) {
       console.warn(
         `[Auth] Session resolution failed: ${error instanceof Error ? error.message : String(error)}`,
       );
+      c.set("authContext", null);
       c.set("user", null);
       c.set("session", null);
-      c.set("walletAddress", null);
-      c.set("apiKey", null);
-      c.set("organizationId", null);
-      c.set("near", { primaryAccountId: null, linkedAccounts: [], hasNearAccount: false });
-      c.set("organization", null);
     }
 
     await next();
   };
 }
 
-export function buildPluginContext(c: Context<HonoEnv>) {
-  const user = c.get("user");
-  const session = c.get("session");
-  const walletAddress = c.get("walletAddress");
-  const apiKey = c.get("apiKey");
-  const organizationId = c.get("organizationId");
-  const near = c.get("near");
-  const organization = c.get("organization");
-
+export function buildPluginContext(c: Context<HonoEnv>): AuthPluginContext {
+  const authContext = c.get("authContext");
   return {
-    userId: user?.id,
-    user: user ?? undefined,
-    walletAddress: walletAddress ?? undefined,
-    organizationId: organizationId ?? session?.activeOrganizationId ?? undefined,
-    apiKey: apiKey ?? undefined,
+    ...(authContext ?? {}),
     reqHeaders: c.get("reqHeaders"),
     getRawBody: c.get("getRawBody"),
-    near: near ?? undefined,
-    organization: organization ?? undefined,
   };
 }
+
+export type { HonoEnv };

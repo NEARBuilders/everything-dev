@@ -8,7 +8,7 @@ import { RegistryService } from "./services/registry";
 
 interface AuthContext {
   userId: string;
-  nearAccountId?: string;
+  near?: { primaryAccountId?: string | null } | null;
   reqHeaders?: Headers;
 }
 
@@ -25,7 +25,7 @@ export default createPlugin({
 
   context: z.object({
     userId: z.string().optional(),
-    nearAccountId: z.string().optional(),
+    near: z.object({ primaryAccountId: z.string().nullable().optional() }).nullable().optional(),
     reqHeaders: z.custom<Headers>().optional(),
     getRawBody: z.custom<() => Promise<string>>().optional(),
   }),
@@ -53,7 +53,7 @@ export default createPlugin({
 
   createRouter: (services, builder) => {
     const requireNearAccount = builder.middleware(async ({ context, next }) => {
-      if (!context.nearAccountId) {
+      if (!context.near?.primaryAccountId) {
         throw new ORPCError("UNAUTHORIZED", {
           message: "NEAR wallet required",
           data: {
@@ -65,7 +65,7 @@ export default createPlugin({
 
       return next({
         context: {
-          nearAccountId: context.nearAccountId,
+          nearAccountId: context.near?.primaryAccountId,
           reqHeaders: context.reqHeaders,
         } as AuthContext,
       });
@@ -129,7 +129,7 @@ export default createPlugin({
           try {
             const senderId = services.registryService.getRegistryRelaySender(input.payload);
 
-            if (context.nearAccountId && senderId !== context.nearAccountId) {
+            if (context.near?.primaryAccountId && senderId !== context.near?.primaryAccountId) {
               throw errors.FORBIDDEN({
                 message: "Signed delegate payload does not match your linked NEAR account",
                 data: { action: "relay" },
@@ -176,7 +176,7 @@ export default createPlugin({
           try {
             const senderId = services.registryService.getRegistryRelaySender(input.payload);
 
-            if (context.nearAccountId && senderId !== context.nearAccountId) {
+            if (context.near?.primaryAccountId && senderId !== context.near?.primaryAccountId) {
               throw errors.FORBIDDEN({
                 message: "Signed delegate payload does not match your linked NEAR account",
                 data: { action: "relay" },
