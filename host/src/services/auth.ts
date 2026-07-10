@@ -1,28 +1,25 @@
-import type { Context, Next } from "hono";
-import type { AuthClient, AuthPluginContext, AuthServices, HonoEnv } from "../lib/auth";
-import { toAuthClientContext } from "../lib/auth";
-import type { HostPluginEntry, PluginResult } from "./plugins";
+import type { Context, Hono, Next } from "hono";
+import type { AuthClient, AuthPluginContext, AuthServices, AuthVariables } from "../lib/auth";
+import type { PluginResult } from "./plugins";
 
-function resolveAuthEntry(plugins: PluginResult): HostPluginEntry | null {
-  return plugins.auth ?? plugins.plugins.auth ?? null;
-}
+type AuthMiddlewareEnv = { Variables: AuthVariables };
 
 function getAuthServices(plugins: PluginResult): AuthServices | null {
-  const entry = resolveAuthEntry(plugins);
+  const entry = plugins.auth;
   if (!entry?.initialized?.context) return null;
   return entry.initialized.context as AuthServices;
 }
 
-export function registerAuthHandler(app: { on: (...args: any[]) => any }, plugins: PluginResult) {
+export function registerAuthHandler(app: Hono<AuthMiddlewareEnv>, plugins: PluginResult) {
   const services = getAuthServices(plugins);
   if (!services) return;
-  app.on(["POST", "GET"], "/api/auth/*", (c: Context<HonoEnv>) => services.handler(c.req.raw));
+  app.on(["POST", "GET"], "/api/auth/*", (c) => services.handler(c.req.raw));
 }
 
 export function createSessionMiddleware(plugins: PluginResult) {
   const authClientFactory = plugins.authClient;
 
-  return async (c: Context<HonoEnv>, next: Next) => {
+  return async (c: Context<AuthMiddlewareEnv>, next: Next) => {
     if (c.req.path.startsWith("/api/auth/")) {
       return next();
     }
@@ -51,7 +48,7 @@ export function createSessionMiddleware(plugins: PluginResult) {
 
     try {
       const authClient = authClientFactory({
-        reqHeaders: toAuthClientContext(c.get("reqHeaders")),
+        reqHeaders: Object.fromEntries(c.get("reqHeaders").entries()),
       }) as AuthClient;
       const [sessionResult, contextResult] = await Promise.all([
         authClient.getSession(),
@@ -73,7 +70,7 @@ export function createSessionMiddleware(plugins: PluginResult) {
   };
 }
 
-export function buildPluginContext(c: Context<HonoEnv>): AuthPluginContext {
+export function buildPluginContext(c: Context<AuthMiddlewareEnv>): AuthPluginContext {
   const authContext = c.get("authContext");
   return {
     ...(authContext ?? {}),
@@ -81,5 +78,3 @@ export function buildPluginContext(c: Context<HonoEnv>): AuthPluginContext {
     getRawBody: c.get("getRawBody"),
   };
 }
-
-export type { HonoEnv };

@@ -1,8 +1,11 @@
 import { type Context, Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import type { AuthVariables } from "../../src/lib/auth";
 import { proxyRequest, setupApiRoutes } from "../../src/program";
-import { type HonoEnv, registerAuthHandler } from "../../src/services/auth";
+import { registerAuthHandler } from "../../src/services/auth";
 import type { PluginResult } from "../../src/services/plugins";
+
+type HonoEnv = { Variables: AuthVariables };
 
 const createMockResponse = (body: string, status = 200, headers: Record<string, string> = {}) => {
   return new Response(body, {

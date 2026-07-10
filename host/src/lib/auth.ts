@@ -4,7 +4,6 @@ import type {
   AuthSession,
   AuthSessionData,
   AuthSessionUser,
-  AuthServices as GeneratedAuthServices,
 } from "@/lib/auth-types.gen";
 
 export type {
@@ -16,7 +15,7 @@ export type {
 };
 export type AuthUser = AuthSessionUser;
 
-type AuthServices = GeneratedAuthServices;
+export type { AuthServices } from "@/lib/auth-types.gen";
 
 export interface AuthClient {
   getSession(): Promise<AuthSession | null>;
@@ -30,11 +29,3 @@ export interface AuthVariables {
   reqHeaders: Headers;
   getRawBody: () => Promise<string>;
 }
-
-export type HonoEnv = { Variables: AuthVariables };
-
-export function toAuthClientContext(headers: Headers): Record<string, string> {
-  return Object.fromEntries(headers.entries());
-}
-
-export type { AuthServices };

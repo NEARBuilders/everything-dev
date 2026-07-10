@@ -20,13 +20,11 @@ import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { proxy } from "hono/proxy";
 import { NONCE, secureHeaders } from "hono/secure-headers";
-import {
-  buildPluginContext,
-  createSessionMiddleware,
-  type HonoEnv,
-  registerAuthHandler,
-} from "./services/auth";
+import type { AuthVariables } from "./lib/auth";
+import { buildPluginContext, createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { type ClientRuntimeConfig, ConfigService, type RuntimeConfig } from "./services/config";
+
+type HonoEnv = { Variables: AuthVariables };
 import { loadRouterModule, resetFederationInstance } from "./services/federation.server";
 import { startIntegrityMonitor } from "./services/integrity-monitor";
 import { createPluginsClient, type PluginResult, PluginsService } from "./services/plugins";
