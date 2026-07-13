@@ -1,5 +1,28 @@
 # host
 
+## 1.13.0
+
+### Minor Changes
+
+- e41dc82: Add DDoS protection middleware to host server
+
+  Adds three layers of DDoS defense to the Hono host server, applied at the edge before any expensive work:
+
+  - **Rate limiter** (`hono-rate-limiter`): 300 requests per 15-min window per IP, skips health checks and static assets. Uses `x-forwarded-for` behind proxy, falls back to socket IP. Configurable via `RATE_LIMIT_WINDOW_MS` and `RATE_LIMIT_MAX`.
+
+  - **Body limit** (`hono/body-limit`): 10 MB max on API POST/PUT/PATCH payloads. Configurable via `BODY_LIMIT_MAX`.
+
+  - **API timeout** (`hono/timeout`): 30s timeout on API routes only (not SSR streaming). Configurable via `API_TIMEOUT_MS`.
+
+  Also fixes three SSR test failures by adding auth runtime configuration to test helpers used by `runtime-remote.test.ts` and `ssr-bundled-runtime.test.ts`.
+
+- 1368467: Remove auto-generated plugin-sidebar system in favor of manual sidebar items in `_layout.tsx`
+
+  Deleted the entire `sidebar.ts` code generator, `SidebarItem`/`SidebarRole` types, all
+  `sidebar` fields from config/resolution schemas, the `plugin-sidebar.gen.ts` generated file,
+  and all sidebar migration/passthrough logic in the CLI, host runtime, and tenant runtime.
+  Sidebar items are now defined inline in `ui/src/routes/_layout.tsx`.
+
 ## 1.12.2
 
 ### Patch Changes

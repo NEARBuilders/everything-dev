@@ -1,5 +1,25 @@
 # ui
 
+## 1.8.0
+
+### Minor Changes
+
+- 86eaf89: Replace theme toggle colored circle with Sun/Moon icons from lucide-react
+- 1368467: Remove auto-generated plugin-sidebar system in favor of manual sidebar items in `_layout.tsx`
+
+  Deleted the entire `sidebar.ts` code generator, `SidebarItem`/`SidebarRole` types, all
+  `sidebar` fields from config/resolution schemas, the `plugin-sidebar.gen.ts` generated file,
+  and all sidebar migration/passthrough logic in the CLI, host runtime, and tenant runtime.
+  Sidebar items are now defined inline in `ui/src/routes/_layout.tsx`.
+
+### Patch Changes
+
+- 86eaf89: Fix CSS chunk filename collision by overriding `CssExtractRspackPlugin.chunkFilename` to `static/css/async/[name].[contenthash].css`
+
+  Async CSS chunks (e.g., from lazy-loaded `@uiw/react-md-editor`) were all emitting
+  to the same path `static/css/async/style.css`. The plugin override gives each async
+  chunk a unique, content-hashed filename while keeping the entry CSS at `style.css`.
+
 ## 1.7.0
 
 ### Minor Changes
