@@ -1,5 +1,49 @@
 # everything-dev
 
+## 1.44.0
+
+### Minor Changes
+
+- c1d9cc7: Add shared Effect-based HTTP client, fix missing timeouts and silent error swallowing
+
+  Created `http-client.ts` — a shared fetch utility using `Effect.tryPromise`, `Data.TaggedError`, `Effect.retry`, and `Schedule.exponential` for consistent timeout, retry, and error handling across all CLI network calls.
+
+  Fixes three P0 issues (no timeout — could hang indefinitely):
+
+  - `cli/init.ts` GitHub tarball download: no timeout → added 60s via `fetchResponse`
+  - `integrity.ts` SRI hash compute/verify: no timeout → added 30s via `fetchResponse`
+  - `mf.ts` Module Federation lifecycle hooks: no timeout → added 15s via inline `AbortController`
+
+  Refactored all fetch call sites to use the shared utility via `Effect.runPromise`:
+
+  - `fastkv.ts` — `fetchJson` and `fetchRemotePluginManifest` replaced with `fetchJsonOrNull`
+  - `api-contract.ts` — `fetchWithTimeout` replaced with `fetchResponse`; error messages now include URL
+  - `config.ts` — `resolveRemotePluginRuntimeName` replaced with `fetchJsonOrNull`, fixing timer leak
+  - `cli/status.ts` — `fetchLatestNpmVersion` replaced with `fetchJsonOrNull`
+
+  Error handling improvements:
+
+  - `plugin.ts:1542` — empty `catch {}` now logs a warning on parent config fetch failure
+  - `config.ts:213` — re-thrown error now uses `{ cause: error }` to preserve stack trace
+  - `api-contract.ts:92,140,182` — fetch error messages now include the URL being fetched
+
+### Patch Changes
+
+- e2407fc: Fix docker-compose port switching with many plugins
+
+  - `resolvePort` now uses `basePort` as a floor to prevent port regression
+  - Stale port entries from removed plugins are pruned on each run
+  - Database and Redis secrets are sorted by slug for deterministic assignment
+  - `.bos/infra-state.json` is no longer gitignored, so port assignments persist across clones
+
+- ffce414: Add retry with backoff to FastKV config fetches
+
+  `fetchJson` in `fastkv.ts` had a 10s timeout but no retry logic. A single transient network failure (DNS hiccup, TLS reset, packet loss) would propagate as a fatal error, killing `bos dev` and `bos sync` entirely. This was especially impactful for users in regions with intermittent connectivity to `kv.main.fastnear.com`.
+
+  - Retry up to 3 times on network errors and 5xx responses (1s → 2s → 4s backoff)
+  - Do not retry on 4xx (legitimate "not found" returns null as before)
+  - Log a warning when all attempts are exhausted
+
 ## 1.43.0
 
 ### Minor Changes
