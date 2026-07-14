@@ -77,7 +77,7 @@ describe("near-cli", () => {
     );
   });
 
-  it("uses inherited stdio in interactive mode", async () => {
+  it("pipes stdout and stderr in interactive mode", async () => {
     const { proc, resolve } = createDeferredProc(false);
     execaMock.mockReturnValueOnce(proc);
 
@@ -101,8 +101,8 @@ describe("near-cli", () => {
       expect.arrayContaining(["sign-with-keychain", "send"]),
       expect.objectContaining({
         stdin: "inherit",
-        stdout: "inherit",
-        stderr: "inherit",
+        stdout: "pipe",
+        stderr: "pipe",
         reject: false,
         timeout: 300000,
       }),
@@ -133,6 +133,7 @@ describe("near-cli", () => {
           argsBase64: "e30=",
           network: "mainnet",
           privateKey: "ed25519:test",
+          verbose: true,
         },
         { _tag: "privateKey", privateKey: "ed25519:test" },
       ),
