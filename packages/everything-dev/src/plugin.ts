@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
@@ -51,6 +51,7 @@ import {
   type OverrideSection,
   type PhaseTiming,
   type PluginListResult,
+  type WorkspaceDeployResult,
 } from "./contract";
 import {
   buildRegistryConfigUrl,
@@ -62,7 +63,13 @@ import {
   type PluginManifest,
   parseBosUrl,
 } from "./fastkv";
-import { computeSriHashForUrl } from "./integrity";
+import {
+  applyDeployResults,
+  cleanDeployResultDir,
+  computeSriHashForUrl,
+  readAllDeployResults,
+  readDeployResults,
+} from "./integrity";
 import { type BosEnv, mergeBosConfigWithExtends, resolveExtendsRef } from "./merge";
 import {
   addFunctionCallAccessKey,
@@ -90,7 +97,7 @@ import type {
 import { BosConfigSchema } from "./types";
 import { run } from "./utils/run";
 import { saveBosConfig } from "./utils/save-config";
-import { colors } from "./utils/theme";
+import { colors, icons } from "./utils/theme";
 
 export interface DevSessionData {
   orchestrator: AppOrchestrator;
@@ -409,7 +416,7 @@ export async function waitForPublishedConfig(opts: {
   );
 }
 
-async function buildEveryPluginQuietly(cwd: string) {
+async function buildEveryPluginQuietly(cwd: string, force = false) {
   const packageDir = `${cwd}/packages/every-plugin`;
   const packageExists = await fileExists(`${packageDir}/package.json`);
   if (!packageExists) {
@@ -419,7 +426,7 @@ async function buildEveryPluginQuietly(cwd: string) {
   const distPath = `${cwd}/packages/every-plugin/dist/build/rspack/plugin.mjs`;
   const distExists = await fileExists(distPath);
 
-  if (distExists) {
+  if (distExists && !force) {
     return;
   }
 
@@ -429,7 +436,6 @@ async function buildEveryPluginQuietly(cwd: string) {
   })) as { stdout: string; stderr: string; exitCode: number };
 
   if (result.exitCode === 0) {
-    console.log("[build:ssr] build succeeded");
     return;
   }
 
@@ -446,7 +452,7 @@ async function buildEveryPluginQuietly(cwd: string) {
   );
 }
 
-async function buildEverythingDevQuietly(cwd: string) {
+async function buildEverythingDevQuietly(cwd: string, force = false) {
   const packageDir = `${cwd}/packages/everything-dev`;
   const packageExists = await fileExists(`${packageDir}/package.json`);
   if (!packageExists) {
@@ -456,7 +462,7 @@ async function buildEverythingDevQuietly(cwd: string) {
   const distPath = `${cwd}/packages/everything-dev/dist/index.mjs`;
   const distExists = await fileExists(distPath);
 
-  if (distExists) {
+  if (distExists && !force) {
     return;
   }
 
@@ -466,7 +472,6 @@ async function buildEverythingDevQuietly(cwd: string) {
   })) as { stdout: string; stderr: string; exitCode: number };
 
   if (result.exitCode === 0) {
-    console.log("[everything-dev] build succeeded");
     return;
   }
 
@@ -546,13 +551,193 @@ function selectWorkspaceTargets(packages: string, bosConfig: BosConfig | null): 
     .filter((pkg) => allPackages.includes(pkg));
 }
 
+function padRight(str: string, len: number): string {
+  return str.length >= len ? str : str + " ".repeat(len - str.length);
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+interface BuildAttemptResult {
+  success: boolean;
+  url?: string;
+  error?: string;
+  exitCode: number;
+  output: string;
+}
+
+async function runBuildAttempt(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  env: Record<string, string>,
+  verbose: boolean,
+  wsKey: string,
+  resultBaseDir?: string,
+): Promise<BuildAttemptResult> {
+  if (verbose) {
+    try {
+      await run(cmd, args, { cwd, env, capture: false });
+      if (resultBaseDir) {
+        const results = readDeployResults(join(resultBaseDir, wsKey));
+        if (results.length > 0) {
+          return { success: true, url: results[0]?.url, exitCode: 0, output: "" };
+        }
+      }
+      return { success: true, exitCode: 0, output: "" };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        exitCode: 1,
+        output: "",
+      };
+    }
+  }
+
+  const result = await run(cmd, args, { cwd, env, capture: true });
+  const stdout = result?.stdout ?? "";
+  const stderr = result?.stderr ?? "";
+  const exitCode = result?.exitCode ?? 0;
+  const output = `${stdout}\n${stderr}`;
+
+  if (exitCode !== 0) {
+    const lastLines = output.trim().split("\n").slice(-5).join("\n");
+    return {
+      success: false,
+      error: `Build failed (exit code ${exitCode})\n${lastLines}`,
+      exitCode,
+      output,
+    };
+  }
+
+  const zeMatch = output.match(/ZE\d+/);
+  if (zeMatch) {
+    return {
+      success: false,
+      error: `Zephyr upload failed (${zeMatch[0]})`,
+      exitCode: 0,
+      output,
+    };
+  }
+
+  if (resultBaseDir) {
+    const results = readDeployResults(join(resultBaseDir, wsKey));
+    if (results.length > 0) {
+      return { success: true, url: results[0]?.url, exitCode: 0, output };
+    }
+  }
+
+  const deployMatch = output.match(/🚀.*Deployed:\s*(https?:\S+)/);
+  if (deployMatch) {
+    return { success: true, url: deployMatch[1], exitCode: 0, output };
+  }
+
+  if (env.DEPLOY === "true") {
+    return {
+      success: false,
+      error: "No deploy URL found (Zephyr may have failed)",
+      exitCode: 0,
+      output,
+    };
+  }
+  return { success: true, exitCode: 0, output };
+}
+
+async function buildOneWorkspace(
+  ws: WorkspaceTarget,
+  env: Record<string, string>,
+  opts: { deploy: boolean; verbose?: boolean },
+  resultBaseDir?: string,
+): Promise<WorkspaceDeployResult> {
+  const pkgJson = await readJsonFile<{
+    scripts?: Record<string, string>;
+  }>(`${ws.path}/package.json`);
+  const shouldDeployScript = opts.deploy && pkgJson.scripts?.deploy;
+  const buildConfig = shouldDeployScript
+    ? { cmd: "bun", args: ["run", "deploy"] }
+    : (buildCommands[ws.key] ?? { cmd: "bun", args: ["run", "build"] });
+
+  const wsEnv = { ...env };
+  if (resultBaseDir) {
+    wsEnv.BOS_DEPLOY_RESULT_DIR = join(resultBaseDir, ws.key);
+  }
+
+  const startTime = Date.now();
+  let attempt = await runBuildAttempt(
+    buildConfig.cmd,
+    buildConfig.args,
+    ws.path,
+    wsEnv,
+    opts.verbose ?? false,
+    ws.key,
+    resultBaseDir,
+  );
+
+  let retried = false;
+
+  if (!attempt.success && attempt.exitCode === 0 && opts.deploy) {
+    if (!opts.verbose) {
+      console.log(`  ${colors.yellow("↻")} ${padRight(ws.key, 28)} retrying...`);
+    }
+    if (resultBaseDir) {
+      const wsResultDir = join(resultBaseDir, ws.key);
+      if (existsSync(wsResultDir)) {
+        rmSync(wsResultDir, { recursive: true, force: true });
+      }
+    }
+    retried = true;
+    attempt = await runBuildAttempt(
+      buildConfig.cmd,
+      buildConfig.args,
+      ws.path,
+      wsEnv,
+      opts.verbose ?? false,
+      ws.key,
+      resultBaseDir,
+    );
+  }
+
+  const durationMs = Date.now() - startTime;
+  const result: WorkspaceDeployResult = {
+    key: ws.key,
+    kind: ws.kind,
+    success: attempt.success,
+    url: attempt.url,
+    error: attempt.error,
+    durationMs,
+    retried: retried ? true : undefined,
+  };
+
+  if (!opts.verbose) {
+    const name = padRight(ws.key, 28);
+    if (result.success) {
+      const duration = formatDuration(durationMs);
+      const retryTag = retried ? " (retried)" : "";
+      console.log(`  ${colors.green(icons.ok)} ${name} ${colors.dim(duration + retryTag)}`);
+    } else {
+      const errorLine = (result.error ?? "Failed").split("\n")[0];
+      console.log(`  ${colors.error(icons.err)} ${name} ${errorLine}`);
+    }
+  }
+
+  return result;
+}
+
 async function buildWorkspaceTargets(opts: {
   configDir: string;
   bosConfig: BosConfig | null;
   runtimeConfig: RuntimeConfig | null;
   targets: string[];
   deploy: boolean;
-}): Promise<{ built: string[]; skipped: string[] }> {
+  verbose?: boolean;
+}): Promise<{
+  built: string[];
+  skipped: string[];
+  deployResults?: WorkspaceDeployResult[];
+}> {
   const existing: WorkspaceTarget[] = [];
   const skipped: string[] = [];
 
@@ -589,9 +774,10 @@ async function buildWorkspaceTargets(opts: {
 
   const shouldBuildPlugin = existing.some((entry) => entry.key === "api");
 
-  const buildTasks: Promise<void>[] = [buildEverythingDevQuietly(opts.configDir)];
+  const forceRebuild = opts.deploy;
+  const buildTasks: Promise<void>[] = [buildEverythingDevQuietly(opts.configDir, forceRebuild)];
   if (shouldBuildPlugin) {
-    buildTasks.push(buildEveryPluginQuietly(opts.configDir));
+    buildTasks.push(buildEveryPluginQuietly(opts.configDir, forceRebuild));
   }
   await Promise.all(buildTasks);
 
@@ -605,6 +791,17 @@ async function buildWorkspaceTargets(opts: {
     delete env.DEPLOY;
   }
 
+  const resultBaseDir = opts.deploy ? join(opts.configDir, ".bos", "deploy-results") : undefined;
+  if (resultBaseDir) {
+    cleanDeployResultDir(resultBaseDir);
+  }
+
+  const bosConfigPath = join(opts.configDir, "bos.config.json");
+  let configSnapshot: string | undefined;
+  if (opts.deploy && existsSync(bosConfigPath)) {
+    configSnapshot = readFileSync(bosConfigPath, "utf-8");
+  }
+
   const orderedExisting = opts.deploy
     ? [
         ...existing.filter((entry) => entry.kind === "app" && entry.key !== "host"),
@@ -612,25 +809,90 @@ async function buildWorkspaceTargets(opts: {
         ...existing.filter((entry) => entry.kind === "app" && entry.key === "host"),
       ]
     : existing;
+
+  const parallelGroup = opts.deploy
+    ? orderedExisting.filter((e) => e.key !== "host")
+    : orderedExisting;
+  const sequentialGroup = opts.deploy ? orderedExisting.filter((e) => e.key === "host") : [];
+
   const built: string[] = [];
+  const deployResults: WorkspaceDeployResult[] = [];
 
-  for (const resolved of orderedExisting) {
-    const pkgJson = await readJsonFile<{
-      scripts?: Record<string, string>;
-    }>(`${resolved.path}/package.json`);
-    const shouldDeployScript = opts.deploy && pkgJson.scripts?.deploy;
-    const buildConfig = shouldDeployScript
-      ? { cmd: "bun", args: ["run", "deploy"] }
-      : (buildCommands[resolved.key] ?? { cmd: "bun", args: ["run", "build"] });
+  if (opts.deploy && parallelGroup.length > 0) {
+    const total = parallelGroup.length + sequentialGroup.length;
+    console.log();
+    console.log(`  Building ${total} workspace${total > 1 ? "s" : ""}...`);
+    console.log();
 
-    await run(buildConfig.cmd, buildConfig.args, {
-      cwd: resolved.path,
-      env,
-    });
-    built.push(resolved.key);
+    const results = await Promise.allSettled(
+      parallelGroup.map((ws) => buildOneWorkspace(ws, env, opts, resultBaseDir)),
+    );
+
+    for (let i = 0; i < parallelGroup.length; i++) {
+      const ws = parallelGroup[i];
+      const result = results[i];
+      if (result.status === "fulfilled") {
+        if (result.value.success) {
+          built.push(ws.key);
+        }
+        deployResults.push(result.value);
+      } else {
+        deployResults.push({
+          key: ws.key,
+          kind: ws.kind,
+          success: false,
+          error: result.reason?.message ?? "Unknown error",
+        });
+      }
+    }
+
+    if (resultBaseDir && configSnapshot) {
+      const allResults = readAllDeployResults(resultBaseDir);
+      if (allResults.length > 0) {
+        const config = JSON.parse(configSnapshot) as Record<string, unknown>;
+        const merged = applyDeployResults(config, allResults);
+        writeFileSync(bosConfigPath, `${JSON.stringify(merged, null, 2)}\n`);
+      }
+    }
+
+    for (const ws of sequentialGroup) {
+      const result = await buildOneWorkspace(ws, env, opts, resultBaseDir);
+      if (result.success) {
+        built.push(ws.key);
+      }
+      deployResults.push(result);
+    }
+
+    if (resultBaseDir && existsSync(bosConfigPath)) {
+      const allResults = readAllDeployResults(resultBaseDir);
+      const currentConfig = JSON.parse(readFileSync(bosConfigPath, "utf-8")) as Record<
+        string,
+        unknown
+      >;
+      const hostResults = allResults.filter((r) => r.urlField.startsWith("app.host"));
+      if (hostResults.length > 0) {
+        const merged = applyDeployResults(currentConfig, hostResults);
+        writeFileSync(bosConfigPath, `${JSON.stringify(merged, null, 2)}\n`);
+      }
+    }
+
+    console.log();
+  } else {
+    for (const resolved of orderedExisting) {
+      const buildConfig = buildCommands[resolved.key] ?? {
+        cmd: "bun",
+        args: ["run", "build"],
+      };
+
+      await run(buildConfig.cmd, buildConfig.args, {
+        cwd: resolved.path,
+        env,
+      });
+      built.push(resolved.key);
+    }
   }
 
-  return { built, skipped };
+  return { built, skipped, deployResults: opts.deploy ? deployResults : undefined };
 }
 
 export default createPlugin({
@@ -1307,6 +1569,7 @@ export default createPlugin({
         env: input.env,
         build: input.deploy,
         dryRun: input.dryRun,
+        verbose: input.verbose,
         packages: input.packages,
         network: input.network,
         privateKey: input.privateKey,
@@ -1327,6 +1590,7 @@ export default createPlugin({
         error: result.error,
         built: result.built,
         skipped: result.skipped,
+        deployResults: result.deployResults,
       };
     }),
 
@@ -1347,6 +1611,7 @@ export default createPlugin({
         env: input.env,
         build: input.build,
         dryRun: input.dryRun,
+        verbose: input.verbose,
         packages: input.packages,
         network: input.network,
         privateKey: input.privateKey,
@@ -1361,6 +1626,7 @@ export default createPlugin({
           skipped: result.skipped,
           redeployed: false,
           error: result.error,
+          deployResults: result.deployResults,
         };
       }
 
@@ -1401,6 +1667,7 @@ export default createPlugin({
             built: result.built,
             skipped: result.skipped,
             redeployed: false,
+            deployResults: result.deployResults,
             error:
               "Config published but Railway redeploy failed: ci.railway.service is not configured in bos.config.json",
           };
@@ -1439,6 +1706,7 @@ export default createPlugin({
             skipped: result.skipped,
             redeployed: false,
             service,
+            deployResults: result.deployResults,
             error: `Config published but ${railError}`,
           };
         }
@@ -1455,6 +1723,7 @@ export default createPlugin({
         skipped: result.skipped,
         redeployed,
         service,
+        deployResults: result.deployResults,
       };
     }),
 
@@ -2035,6 +2304,7 @@ interface PublishToFastKvInput {
   env: "production" | "staging";
   build: boolean;
   dryRun: boolean;
+  verbose: boolean;
   packages: string;
   network?: "mainnet" | "testnet";
   privateKey?: string;
@@ -2048,6 +2318,7 @@ interface PublishToFastKvResult {
   skipped?: string[];
   error?: string;
   publishConfig?: BosConfigInput;
+  deployResults?: WorkspaceDeployResult[];
 }
 
 async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFastKvResult> {
@@ -2072,12 +2343,30 @@ async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFa
 
   let built: string[] | undefined;
   let skipped: string[] | undefined;
+  let deployResults: WorkspaceDeployResult[] | undefined;
 
   if (dryRun) {
     return { status: "dry-run", registryUrl, built, skipped };
   }
 
+  const privateKey =
+    input.privateKey || process.env.NEAR_PRIVATE_KEY || process.env.BOS_NEAR_PRIVATE_KEY;
+  let signingMode: ReturnType<typeof resolveNearSigningMode>;
+  try {
+    signingMode = resolveNearSigningMode(privateKey);
+  } catch (error) {
+    return {
+      status: "error" as const,
+      registryUrl,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+
   if (input.build) {
+    console.log("  Ensuring NEAR CLI...");
+    await Effect.runPromise(ensureNearCli);
+    console.log("  NEAR CLI ready");
+
     await generateCodeArtifacts(configDir, bosConfig, {
       env: "production",
       runtimeConfig: runtimeConfig ?? undefined,
@@ -2089,9 +2378,42 @@ async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFa
       runtimeConfig,
       targets,
       deploy: true,
+      verbose: input.verbose,
     });
     built = result.built;
     skipped = result.skipped;
+    deployResults = result.deployResults;
+
+    if (deployResults) {
+      const failures = deployResults.filter((r) => !r.success);
+      if (failures.length > 0) {
+        const total = deployResults.length;
+        console.log();
+        console.log(
+          colors.error(
+            `  ${icons.err} Deploy failed — ${failures.length} of ${total} workspace${total > 1 ? "s" : ""} failed`,
+          ),
+        );
+        console.log();
+        for (const f of failures) {
+          const errorLine = (f.error ?? "Failed").split("\n")[0];
+          console.log(`    ${colors.error(icons.err)} ${padRight(f.key, 28)} ${errorLine}`);
+        }
+        console.log();
+        if (!input.verbose) {
+          console.log(colors.dim("  Run with --verbose for full build output."));
+          console.log();
+        }
+        return {
+          status: "error" as const,
+          registryUrl,
+          built,
+          skipped,
+          deployResults,
+          error: `${failures.length} of ${total} workspaces failed to deploy`,
+        };
+      }
+    }
 
     const refreshed = await loadResolvedConfig({ cwd: configDir });
     if (!refreshed?.config) {
@@ -2100,6 +2422,7 @@ async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFa
         registryUrl,
         built,
         skipped,
+        deployResults,
         error: "Failed to reload bos.config.json after build",
       };
     }
@@ -2117,27 +2440,12 @@ async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFa
 
   const payload = JSON.stringify(registryEntries);
   const argsBase64 = Buffer.from(payload).toString("base64");
-  const privateKey =
-    input.privateKey || process.env.NEAR_PRIVATE_KEY || process.env.BOS_NEAR_PRIVATE_KEY;
-  let signingMode: ReturnType<typeof resolveNearSigningMode>;
-  try {
-    signingMode = resolveNearSigningMode(privateKey);
-  } catch (error) {
-    return {
-      status: "error" as const,
-      registryUrl,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
 
   console.log();
   console.log("  Publishing to:");
   console.log(`    ${colors.cyan(registryUrl)}`);
 
   try {
-    console.log("  Ensuring NEAR CLI...");
-    await Effect.runPromise(ensureNearCli);
-    console.log("  NEAR CLI ready");
     let txHash: string | undefined;
 
     console.log(`  Submitting transaction on ${network}...`);
@@ -2183,17 +2491,37 @@ async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFa
       txHash,
       built,
       skipped,
+      deployResults,
       publishConfig: publishPayload,
     };
   } catch (error) {
     return {
       status: "error",
       registryUrl,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: formatNearError(error),
       built,
       skipped,
+      deployResults,
     };
   }
+}
+
+function formatNearError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message.includes("CompilationError") && message.includes("CodeDoesNotExist")) {
+    return `Registry contract not found on the specified account. Verify that the NEAR account and network in bos.config.json are correct.\n  Original: ${message}`;
+  }
+
+  if (message.includes("exceeded gas") || message.includes("GasLimitExceeded")) {
+    return `Transaction exceeded gas limit.\n  Original: ${message}`;
+  }
+
+  if (message.includes("timeout") || message.includes("Timeout")) {
+    return `Transaction timed out. Check NEAR network status.\n  Original: ${message}`;
+  }
+
+  return message;
 }
 
 function extractTransactionHash(error: unknown) {

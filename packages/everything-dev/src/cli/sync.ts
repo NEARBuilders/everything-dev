@@ -64,6 +64,7 @@ function computeHash(content: string | Uint8Array): string {
 export function isFrameworkOwnedSyncFile(filePath: string): boolean {
   if (FRAMEWORK_OWNED_SYNC_FILES.has(filePath)) return true;
   if (/^plugins\/[^/]+\/src\/lib\/(auth|context)\.ts$/.test(filePath)) return true;
+  if (/^plugins\/[^/]+\/rspack\.config\.js$/.test(filePath)) return true;
   return false;
 }
 
@@ -450,6 +451,14 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
         if (!existsSync(join(sourceDir, sourceFile))) continue;
         destToSource.set(`plugins/${pluginKey}/src/lib/${libFile}`, sourceFile);
       }
+    }
+
+    // Sync rspack.config.js from the template into each plugin
+    for (const pluginKey of childPlugins) {
+      if (!existsSync(join(projectDir, "plugins", pluginKey))) continue;
+      const sourceFile = "plugins/_template/rspack.config.js";
+      if (!existsSync(join(sourceDir, sourceFile))) continue;
+      destToSource.set(`plugins/${pluginKey}/rspack.config.js`, sourceFile);
     }
 
     const updated: string[] = [];

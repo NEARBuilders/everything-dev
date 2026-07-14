@@ -68,6 +68,21 @@ const preparedRegistryMetadataWriteSchema = z.object({
   attachedDeposit: z.string(),
 });
 
+const registryConfigWriteInputSchema = z.object({
+  accountId: z.string(),
+  gatewayId: z.string(),
+  config: z.record(z.string(), z.unknown()),
+});
+
+const preparedRegistryConfigWriteSchema = z.object({
+  contractId: z.string(),
+  methodName: z.literal("__fastdata_kv"),
+  key: z.string(),
+  args: z.record(z.string(), z.string()),
+  gas: z.string(),
+  attachedDeposit: z.string(),
+});
+
 const registryRelayResultSchema = z.object({
   transactionHash: z.string().nullable(),
   relayerAccountId: z.string(),
@@ -159,6 +174,12 @@ export const contract = oc.router({
     .route({ method: "POST", path: "/v1/registry/apps/{accountId}/{gatewayId}/metadata/prepare" })
     .input(registryMetadataDraftInputSchema)
     .output(z.object({ data: preparedRegistryMetadataWriteSchema }))
+    .errors({ BAD_REQUEST }),
+
+  prepareRegistryConfigWrite: oc
+    .route({ method: "POST", path: "/v1/registry/apps/{accountId}/{gatewayId}/config/prepare" })
+    .input(registryConfigWriteInputSchema)
+    .output(z.object({ data: preparedRegistryConfigWriteSchema }))
     .errors({ BAD_REQUEST }),
 
   relayRegistryMetadataWrite: oc

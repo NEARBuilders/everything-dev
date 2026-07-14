@@ -246,6 +246,32 @@ export declare const contract: {
             }, z.core.$strip>;
         };
     }>>, Record<never, never>>;
+    prepareRegistryConfigWrite: import("@orpc/contract").ContractProcedure<z.ZodObject<{
+        accountId: z.ZodString;
+        gatewayId: z.ZodString;
+        config: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+    }, z.core.$strip>, z.ZodObject<{
+        data: z.ZodObject<{
+            contractId: z.ZodString;
+            methodName: z.ZodLiteral<"__fastdata_kv">;
+            key: z.ZodString;
+            args: z.ZodRecord<z.ZodString, z.ZodString>;
+            gas: z.ZodString;
+            attachedDeposit: z.ZodString;
+        }, z.core.$strip>;
+    }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, import("@orpc/contract").MergedErrorMap<Record<never, never>, {
+        BAD_REQUEST: {
+            readonly status: 400;
+            readonly data: z.ZodObject<{
+                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    field: z.ZodString;
+                    message: z.ZodString;
+                    code: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>>>;
+            }, z.core.$strip>;
+        };
+    }>>, Record<never, never>>;
     relayRegistryMetadataWrite: import("@orpc/contract").ContractProcedure<z.ZodObject<{
         payload: z.ZodString;
     }, z.core.$strip>, z.ZodObject<{

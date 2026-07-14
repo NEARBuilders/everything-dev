@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import { fetchResponse } from "./http-client";
 
@@ -201,4 +203,167 @@ export async function verifyConfigAgainstChain(
   }
 
   return { verified: mismatches.length === 0, mismatches };
+}
+
+export interface DeployResultEntry {
+  label: string;
+  url: string;
+  integrity?: string;
+  urlField: string;
+  integrityField?: string;
+}
+
+function setNestedPath(obj: Record<string, unknown>, dottedPath: string, value: unknown): void {
+  const keys = dottedPath.split(".");
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i += 1) {
+    const key = keys[i]!;
+    if (current[key] === undefined || current[key] === null || typeof current[key] !== "object") {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]!] = value;
+}
+
+function deleteNestedPath(obj: Record<string, unknown>, dottedPath: string): void {
+  const keys = dottedPath.split(".");
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i += 1) {
+    const key = keys[i]!;
+    if (current[key] === undefined || typeof current[key] !== "object") return;
+    current = current[key] as Record<string, unknown>;
+  }
+  delete current[keys[keys.length - 1]!];
+}
+
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^A-Za-z0-9_-]/g, "-");
+}
+
+export function writeDeployResult(opts: {
+  url: string;
+  integrity?: string | null;
+  bosConfigPath: string;
+  urlField: string;
+  integrityField?: string;
+  label: string;
+}): void {
+  const resultDir = process.env.BOS_DEPLOY_RESULT_DIR;
+
+  if (resultDir) {
+    mkdirSync(resultDir, { recursive: true });
+    const entry: DeployResultEntry = {
+      label: opts.label,
+      url: opts.url,
+      integrity: opts.integrity ?? undefined,
+      urlField: opts.urlField,
+      integrityField: opts.integrityField,
+    };
+    const resultFile = join(resultDir, `${sanitizeFilename(opts.label)}.json`);
+    writeFileSync(resultFile, JSON.stringify(entry, null, 2));
+    console.log(`   ✅ Deploy result: ${opts.urlField}`);
+    return;
+  }
+
+  try {
+    const config = JSON.parse(readFileSync(opts.bosConfigPath, "utf8")) as Record<string, unknown>;
+    setNestedPath(config, opts.urlField, opts.url);
+    if (opts.integrityField) {
+      if (opts.integrity) {
+        setNestedPath(config, opts.integrityField, opts.integrity);
+      } else {
+        deleteNestedPath(config, opts.integrityField);
+      }
+    }
+    writeFileSync(opts.bosConfigPath, `${JSON.stringify(config, null, 2)}\n`);
+    console.log(`   ✅ Updated bos.config.json: ${opts.urlField}`);
+    if (opts.integrityField && opts.integrity) {
+      console.log(`   ✅ Updated bos.config.json: ${opts.integrityField}`);
+    }
+  } catch (err) {
+    console.error("   ❌ Failed to update bos.config.json:", (err as Error).message);
+  }
+}
+
+export function readDeployResults(resultDir: string): DeployResultEntry[] {
+  if (!existsSync(resultDir)) return [];
+  const results: DeployResultEntry[] = [];
+  for (const file of readdirSync(resultDir)) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const content = JSON.parse(readFileSync(join(resultDir, file), "utf8")) as DeployResultEntry;
+      results.push(content);
+    } catch {
+      // skip malformed files
+    }
+  }
+  return results;
+}
+
+export function readAllDeployResults(baseDir: string): DeployResultEntry[] {
+  if (!existsSync(baseDir)) return [];
+  const results: DeployResultEntry[] = [];
+  for (const subdir of readdirSync(baseDir)) {
+    const subdirPath = join(baseDir, subdir);
+    try {
+      const stat = readdirSync(subdirPath);
+      for (const file of stat) {
+        if (!file.endsWith(".json")) continue;
+        try {
+          const content = JSON.parse(
+            readFileSync(join(subdirPath, file), "utf8"),
+          ) as DeployResultEntry;
+          results.push(content);
+        } catch {
+          // skip malformed files
+        }
+      }
+    } catch {
+      // not a directory, skip
+    }
+  }
+  return results;
+}
+
+export function applyDeployResults(
+  config: Record<string, unknown>,
+  results: DeployResultEntry[],
+): Record<string, unknown> {
+  const merged = structuredClone(config);
+  for (const result of results) {
+    setNestedPath(merged, result.urlField, result.url);
+    if (result.integrityField) {
+      if (result.integrity) {
+        setNestedPath(merged, result.integrityField, result.integrity);
+      } else {
+        deleteNestedPath(merged, result.integrityField);
+      }
+    }
+  }
+  return merged;
+}
+
+export function cleanDeployResultDir(baseDir: string): void {
+  if (existsSync(baseDir)) {
+    rmSync(baseDir, { recursive: true, force: true });
+  }
+  mkdirSync(baseDir, { recursive: true });
+}
+
+export function findPluginKey(bosConfigPath: string, pluginDir: string): string | null {
+  const config = JSON.parse(readFileSync(bosConfigPath, "utf8")) as Record<string, unknown>;
+  const plugins = config.plugins as Record<string, Record<string, unknown>> | undefined;
+  if (!plugins) return null;
+  const configRoot = join(bosConfigPath, "..");
+  const normalizedPluginDir = pluginDir.replace(/\\/g, "/").replace(/\/+$/, "");
+  for (const [key, plugin] of Object.entries(plugins)) {
+    const dev = plugin?.development;
+    if (typeof dev !== "string" || !dev.startsWith("local:")) continue;
+    const resolved = join(configRoot, dev.slice("local:".length))
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "");
+    if (resolved === normalizedPluginDir) return key;
+  }
+  return null;
 }

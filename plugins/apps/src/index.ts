@@ -114,6 +114,12 @@ export default createPlugin({
         },
       ),
 
+      prepareRegistryConfigWrite: builder.prepareRegistryConfigWrite.handler(
+        async ({ input }) => {
+          return { data: services.registryService.prepareRegistryConfigWrite(input) };
+        },
+      ),
+
       relayRegistryMetadataWrite: builder.relayRegistryMetadataWrite
         .use(requireNearAccount)
         .handler(async ({ input, context, errors }) => {

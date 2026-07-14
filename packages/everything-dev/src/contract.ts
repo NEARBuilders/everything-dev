@@ -122,9 +122,20 @@ export const PluginPublishResultSchema = z.object({
   error: z.string().optional(),
 });
 
+export const WorkspaceDeployResultSchema = z.object({
+  key: z.string(),
+  kind: z.enum(["app", "plugin"]),
+  success: z.boolean(),
+  url: z.string().optional(),
+  error: z.string().optional(),
+  durationMs: z.number().optional(),
+  retried: z.boolean().optional(),
+});
+
 export const PublishOptionsSchema = z.object({
   deploy: z.boolean().default(false),
   dryRun: z.boolean().default(false),
+  verbose: z.boolean().default(false),
   packages: z.string().default("all"),
   network: z.enum(["mainnet", "testnet"]).optional(),
   privateKey: z.string().optional(),
@@ -138,12 +149,14 @@ export const PublishResultSchema = z.object({
   error: z.string().optional(),
   built: z.array(z.string()).optional(),
   skipped: z.array(z.string()).optional(),
+  deployResults: z.array(WorkspaceDeployResultSchema).optional(),
 });
 
 export const DeployOptionsSchema = z.object({
   env: z.enum(["production", "staging"]).default("production"),
   build: z.boolean().default(true),
   dryRun: z.boolean().default(false),
+  verbose: z.boolean().default(false),
   packages: z.string().default("all"),
   network: z.enum(["mainnet", "testnet"]).optional(),
   privateKey: z.string().optional(),
@@ -159,6 +172,7 @@ export const DeployResultSchema = z.object({
   redeployed: z.boolean(),
   service: z.string().optional(),
   error: z.string().optional(),
+  deployResults: z.array(WorkspaceDeployResultSchema).optional(),
 });
 
 export const KeyPublishOptionsSchema = z.object({
@@ -376,6 +390,7 @@ export type PluginPublishResult = z.infer<typeof PluginPublishResultSchema>;
 export type PublishOptions = z.infer<typeof PublishOptionsSchema>;
 export type DeployOptions = z.infer<typeof DeployOptionsSchema>;
 export type DeployResult = z.infer<typeof DeployResultSchema>;
+export type WorkspaceDeployResult = z.infer<typeof WorkspaceDeployResultSchema>;
 export type KeyPublishOptions = z.infer<typeof KeyPublishOptionsSchema>;
 export type KeyPublishResult = z.infer<typeof KeyPublishResultSchema>;
 export type InitOptions = z.infer<typeof InitOptionsSchema>;

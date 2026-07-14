@@ -4,7 +4,7 @@ import path from "node:path";
 import { ModuleFederationPlugin } from "@module-federation/enhanced/rspack";
 import { defineConfig } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
-import { computeSriHashForUrl } from "everything-dev/integrity";
+import { computeSriHashForUrl, writeDeployResult } from "everything-dev/integrity";
 import { withZephyr } from "zephyr-rsbuild-plugin";
 
 const require = createRequire(import.meta.url);
@@ -161,25 +161,6 @@ const shared = mergeSharedMaps(
   pluginShared,
 );
 
-function updateBosConfig(url: string, integrity?: string) {
-  try {
-    const config = JSON.parse(fs.readFileSync(rootBosConfigPath, "utf8"));
-    config.app.host.production = url;
-    if (integrity) {
-      config.app.host.integrity = integrity;
-    } else {
-      delete config.app.host.integrity;
-    }
-    fs.writeFileSync(rootBosConfigPath, `${JSON.stringify(config, null, 2)}\n`);
-    console.log(`   ✅ Updated bos.config.json: app.host.production`);
-    if (integrity) {
-      console.log(`   ✅ Updated bos.config.json: app.host.integrity`);
-    }
-  } catch (err) {
-    console.error("   ❌ Failed to update bos.config.json:", (err as Error).message);
-  }
-}
-
 const plugins = [pluginReact()];
 
 if (shouldDeploy) {
@@ -189,7 +170,14 @@ if (shouldDeploy) {
         onDeployComplete: async (info: { url: string }) => {
           console.log("🚀 Host Deployed:", info.url);
           const integrity = await computeSriHashForUrl(info.url);
-          updateBosConfig(info.url, integrity ?? undefined);
+          writeDeployResult({
+            url: info.url,
+            integrity: integrity ?? undefined,
+            bosConfigPath: rootBosConfigPath,
+            urlField: "app.host.production",
+            integrityField: "app.host.integrity",
+            label: "host",
+          });
         },
       },
     }),

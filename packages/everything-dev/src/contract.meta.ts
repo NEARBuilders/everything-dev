@@ -83,6 +83,7 @@ export const cliCommandMeta = {
     fields: {
       deploy: { description: "Build and deploy all workspaces before publish" },
       dryRun: { description: "Preview what would be published without writing" },
+      verbose: { description: "Show full build output instead of clean summary" },
       env: { description: "Environment: production or staging" },
       network: { description: "NEAR network: mainnet or testnet" },
     },
@@ -95,6 +96,7 @@ export const cliCommandMeta = {
       env: { description: "Environment: production or staging" },
       build: { description: "Build and deploy workspaces before publish (default: true)" },
       dryRun: { description: "Preview what would be deployed without writing" },
+      verbose: { description: "Show full build output instead of clean summary" },
       service: { description: "Override Railway service name from config" },
     },
   },

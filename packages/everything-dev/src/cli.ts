@@ -785,6 +785,26 @@ async function main() {
         return;
       }
 
+      if (result.status === "error") {
+        console.log();
+        console.log(colors.error(`${icons.err} Publish failed`));
+        if (result.error) {
+          console.log(`  ${colors.dim("Error:")} ${result.error}`);
+        }
+        if (result.deployResults && result.deployResults.length > 0) {
+          const failures = result.deployResults.filter((r: any) => !r.success);
+          if (failures.length > 0) {
+            console.log();
+            for (const f of failures) {
+              const errorLine = (f.error ?? "Failed").split("\n")[0];
+              console.log(`  ${colors.error(icons.err)} ${f.key}: ${errorLine}`);
+            }
+          }
+        }
+        console.log();
+        process.exit(1);
+      }
+
       if (result.status === "published") {
         console.log();
         console.log(colors.green(`${icons.ok} Published successfully`));
@@ -811,6 +831,26 @@ async function main() {
         console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
         console.log();
         return;
+      }
+
+      if (deployResult.status === "error") {
+        console.log();
+        console.log(colors.error(`${icons.err} Deploy failed`));
+        if (deployResult.error) {
+          console.log(`  ${colors.dim("Error:")} ${deployResult.error}`);
+        }
+        if (deployResult.deployResults && deployResult.deployResults.length > 0) {
+          const failures = deployResult.deployResults.filter((r: any) => !r.success);
+          if (failures.length > 0) {
+            console.log();
+            for (const f of failures) {
+              const errorLine = (f.error ?? "Failed").split("\n")[0];
+              console.log(`  ${colors.error(icons.err)} ${f.key}: ${errorLine}`);
+            }
+          }
+        }
+        console.log();
+        process.exit(1);
       }
 
       if (deployResult.status === "deployed") {

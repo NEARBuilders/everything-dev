@@ -246,3 +246,33 @@ describe("resolvePublishedRuntime", () => {
     ]);
   });
 });
+
+describe("prepareRegistryConfigWrite", () => {
+  const registryConfig = { namespace: "dev.everything.near" };
+
+  it("returns a prepared FastKV call matching the bos publish key and args", () => {
+    const service = createRegistryMethods(registryConfig);
+    const config = {
+      account: "pingpayio.near",
+      domain: "pingpay.io",
+      app: {
+        host: { production: "https://host.example.com" },
+        ui: { production: "https://cdn.example.com/ui" },
+        api: { production: "https://api.example.com" },
+      },
+    };
+
+    const result = service.prepareRegistryConfigWrite({
+      accountId: "pingpayio.near",
+      gatewayId: "pingpay.io",
+      config,
+    });
+
+    expect(result.contractId).toBe("dev.everything.near");
+    expect(result.methodName).toBe("__fastdata_kv");
+    expect(result.key).toBe("apps/pingpayio.near/pingpay.io/bos.config.json");
+    expect(result.args[result.key]).toBe(JSON.stringify(config));
+    expect(result.gas).toBe("300 Tgas");
+    expect(result.attachedDeposit).toBe("0 yocto");
+  });
+});

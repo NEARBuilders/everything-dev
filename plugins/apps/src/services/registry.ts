@@ -120,6 +120,21 @@ export interface PreparedRegistryMetadataWrite {
   attachedDeposit: string;
 }
 
+export interface RegistryConfigWriteInput {
+  accountId: string;
+  gatewayId: string;
+  config: Record<string, unknown>;
+}
+
+export interface PreparedRegistryConfigWrite {
+  contractId: string;
+  methodName: "__fastdata_kv";
+  key: string;
+  args: Record<string, string>;
+  gas: string;
+  attachedDeposit: string;
+}
+
 export interface RegistryRelayResult {
   transactionHash: string | null;
   relayerAccountId: string;
@@ -194,6 +209,9 @@ export class RegistryService extends Context.Tag("registry/RegistryService")<
     prepareRegistryMetadataWrite: (
       input: RegistryMetadataDraftInput,
     ) => PreparedRegistryMetadataWrite;
+    prepareRegistryConfigWrite: (
+      input: RegistryConfigWriteInput,
+    ) => PreparedRegistryConfigWrite;
     relayRegistryMetadataWrite: (
       signedDelegateActionPayload: string,
     ) => Promise<RegistryRelayResult>;
@@ -501,6 +519,21 @@ export function createRegistryMethods(config: RegistryConfig) {
           [key]: JSON.stringify(manifest),
         },
         gas: "10 Tgas",
+        attachedDeposit: "0 yocto",
+      };
+    },
+
+    prepareRegistryConfigWrite: (input: RegistryConfigWriteInput) => {
+      const key = getRegistryConfigKey(input.accountId, input.gatewayId);
+
+      return {
+        contractId: getRegistryNamespaceForAccount(input.accountId, config),
+        methodName: "__fastdata_kv" as const,
+        key,
+        args: {
+          [key]: JSON.stringify(input.config),
+        },
+        gas: "300 Tgas",
         attachedDeposit: "0 yocto",
       };
     },

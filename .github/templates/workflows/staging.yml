@@ -5,6 +5,11 @@ on:
     branches:
       - staging
   workflow_dispatch:
+    inputs:
+      verbose:
+        description: 'Show full build output instead of clean summary'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -52,7 +57,7 @@ jobs:
         run: near --version
 
       - name: Publish with deploy
-        run: bun run bos publish --deploy --env staging
+        run: bun run bos publish --deploy --env staging${{ inputs.verbose == true && ' --verbose' || '' }}
 
       - name: Install Railway CLI
         run: npm i -g @railway/cli
