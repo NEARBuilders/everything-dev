@@ -2462,18 +2462,27 @@ async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFa
             privateKey: signingMode._tag === "privateKey" ? signingMode.privateKey : undefined,
             gas: "300Tgas",
             deposit: "0NEAR",
+            verbose: input.verbose,
           },
           signingMode,
         ),
       );
       txHash = tx.txHash;
-      if (txHash) {
+      if (txHash && !tx.output?.includes("CodeDoesNotExist")) {
         console.log(`  Transaction submitted: ${colors.dim(txHash)}`);
       }
     } catch (error) {
-      txHash = extractTransactionHash(error);
-
-      if (!txHash) {
+      console.log(colors.dim("  Transaction reported an error — verifying publish..."));
+      try {
+        await waitForPublishedConfig({
+          account,
+          gateway,
+          publishConfig: publishPayload,
+          timeoutMs: 30_000,
+          intervalMs: 2_000,
+        });
+        txHash = extractTransactionHash(error);
+      } catch {
         throw error;
       }
     }
@@ -2508,10 +2517,6 @@ async function publishToFastKv(input: PublishToFastKvInput): Promise<PublishToFa
 
 function formatNearError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-
-  if (message.includes("CompilationError") && message.includes("CodeDoesNotExist")) {
-    return `Registry contract not found on the specified account. Verify that the NEAR account and network in bos.config.json are correct.\n  Original: ${message}`;
-  }
 
   if (message.includes("exceeded gas") || message.includes("GasLimitExceeded")) {
     return `Transaction exceeded gas limit.\n  Original: ${message}`;

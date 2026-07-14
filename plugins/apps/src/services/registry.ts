@@ -209,9 +209,7 @@ export class RegistryService extends Context.Tag("registry/RegistryService")<
     prepareRegistryMetadataWrite: (
       input: RegistryMetadataDraftInput,
     ) => PreparedRegistryMetadataWrite;
-    prepareRegistryConfigWrite: (
-      input: RegistryConfigWriteInput,
-    ) => PreparedRegistryConfigWrite;
+    prepareRegistryConfigWrite: (input: RegistryConfigWriteInput) => PreparedRegistryConfigWrite;
     relayRegistryMetadataWrite: (
       signedDelegateActionPayload: string,
     ) => Promise<RegistryRelayResult>;

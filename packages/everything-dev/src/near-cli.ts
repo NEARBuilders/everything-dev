@@ -12,6 +12,7 @@ export interface NearTransactionConfig {
   privateKey?: string;
   gas?: string;
   deposit?: string;
+  verbose?: boolean;
 }
 
 export interface NearTransactionResult {
@@ -208,34 +209,45 @@ export const executeTransaction = (
     const output = yield* Effect.tryPromise({
       try: async () => {
         const isPrivateKeyMode = resolvedSigningMode._tag === "privateKey";
+        const verbose = config.verbose ?? false;
+
         const proc = execa("near", args, {
           stdin: isPrivateKeyMode ? "ignore" : "inherit",
-          stdout: isPrivateKeyMode ? "pipe" : "inherit",
-          stderr: isPrivateKeyMode ? "pipe" : "inherit",
+          stdout: "pipe",
+          stderr: "pipe",
           reject: false,
           timeout: 5 * 60 * 1000,
         });
 
-        if (isPrivateKeyMode) {
-          proc.stdout?.on("data", (chunk: Buffer) => {
-            process.stdout.write(chunk);
-          });
+        const stdoutChunks: Buffer[] = [];
+        const stderrChunks: Buffer[] = [];
 
-          proc.stderr?.on("data", (chunk: Buffer) => {
+        proc.stdout?.on("data", (chunk: Buffer) => {
+          stdoutChunks.push(chunk);
+          if (verbose) {
+            process.stdout.write(chunk);
+          }
+        });
+
+        proc.stderr?.on("data", (chunk: Buffer) => {
+          stderrChunks.push(chunk);
+          if (verbose) {
             process.stderr.write(chunk);
-          });
-        }
+          }
+        });
 
         const result = await proc;
-        const combined = combineNearOutput(result.stdout, result.stderr);
+        const stdoutStr = Buffer.concat(stdoutChunks).toString("utf-8");
+        const stderrStr = Buffer.concat(stderrChunks).toString("utf-8");
+        const combined = combineNearOutput(stdoutStr, stderrStr);
         const txHash = extractTransactionHash(combined);
         const hasCodeDoesNotExist = /CodeDoesNotExist/i.test(combined);
-        const hasTransactionFailed = /Transaction failed/i.test(combined);
-        const softSuccess = Boolean(txHash) && hasCodeDoesNotExist && hasTransactionFailed;
 
-        if (result.exitCode === 0 || softSuccess) {
-          if (softSuccess) {
-            console.log(`  ${txHash} — FastDATA CodeDoesNotExist (expected)`);
+        if (result.exitCode === 0 || hasCodeDoesNotExist) {
+          if (hasCodeDoesNotExist) {
+            console.log(
+              `  ${colors.green("✓")} Transaction confirmed${txHash ? ` ${colors.dim(txHash)}` : ""}`,
+            );
           }
           return {
             success: true,
