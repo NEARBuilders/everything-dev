@@ -1,5 +1,13 @@
 # everything-dev
 
+## 1.46.1
+
+### Patch Changes
+
+- d65d5ed: Don't treat non-zero rspack exit codes as deploy failures when Zephyr deployed successfully (`[BOS_DEPLOY]` lines are present).
+- 28b644b: Warn when `[BOS_DEPLOY]` lines are present but rspack exited with errors. Add `DrizzleORMMigrations` plugin and `pg`/`@electric-sql/pglite` externals to plugin rspack configs by default.
+- 80b489d: Fix CI build failure caused by tsdown shebang plugin race condition in dual-format unbundle mode.
+
 ## 1.46.0
 
 ### Minor Changes
