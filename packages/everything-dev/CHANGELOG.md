@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.46.1
+
+### Patch Changes
+
+- d65d5ed: Don't treat non-zero rspack exit codes as deploy failures when Zephyr deployed successfully (`[BOS_DEPLOY]` lines are present).
+
 ## 1.46.0
 
 ### Minor Changes
