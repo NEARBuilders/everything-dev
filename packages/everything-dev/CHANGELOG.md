@@ -1,5 +1,32 @@
 # everything-dev
 
+## 1.47.0
+
+### Minor Changes
+
+- c8e9fa8: feat: align db migrations with drizzle-kit, combine migrator files
+
+  - Combine load-migrations.ts + migrator.ts into migrate.ts
+  - Move migration table to drizzle.\_\_drizzle_migrations (drizzle schema) to match drizzle-kit
+  - Auto-migrate legacy drizzle_migrations table to new location on startup (with dedupe guard)
+  - Use migration.when for created_at (aligns with drizzle's folderMillis)
+  - Add DatabaseError tagged error for typed error handling
+  - Fix PGlite driver to use direct PGlite instance instead of (db as any).$client
+  - Fix SSL verification (rejectUnauthorized defaults to true, opt-out via env)
+  - Add pool limits (max, connectionTimeoutMillis, idleTimeoutMillis)
+  - Use Effect.tryPromise + Effect.logInfo instead of Effect.promise + console.log
+  - Per-statement error context with migrationTag and statementIndex
+  - Sort migrations by idx, hash compat check (12-char + 64-char)
+  - Sync db files to plugins only when src/db/ directory exists
+  - Add old db files to OBSOLETE_FILES + plugin-level cleanup in upgrade
+
+- 389a15c: feat: restore release workflow, sync api/src/db/ to plugins
+
+  - Remove `.github/workflows/release.yml` from obsolete files in upgrade — it's a managed sync file now
+  - Add `.github/workflows/release.yml` to framework-owned sync files
+  - Sync `api/src/db/{index,layer,migrator,load-migrations}.ts` into each plugin's `src/db/` on sync
+  - Update `isFrameworkOwnedSyncFile` to recognize plugin-level db files
+
 ## 1.46.2
 
 ### Patch Changes

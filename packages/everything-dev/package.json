@@ -1,6 +1,6 @@
 {
   "name": "everything-dev",
-  "version": "1.46.2",
+  "version": "1.47.0",
   "type": "module",
   "publishConfig": {
     "access": "public"
