@@ -1,5 +1,78 @@
 # everything-dev
 
+## 1.48.0
+
+### Minor Changes
+
+- d3d5be1: Extract DB convention helpers into shared `everything-dev/db` package export.
+
+  - `packages/everything-dev/src/db.ts` — new subpath export containing pure DB convention helpers:
+
+    - `MigrationStorage` type, `getMigrationSlug()`, `getMigrationStorage()`
+    - `getLegacyCandidates()`, `migrateSql()`, `extractExpectedTables()`
+    - `pluginMigrationSlug()` for CLI plugin key normalization
+    - `getDatabaseUrlSecretName()` for deterministic `*_DATABASE_URL` naming per workspace slug
+
+  - `packages/everything-dev/package.json` — adds `./db` subpath export.
+
+  - `api/src/db/migration-storage.ts` — removed; `api/drizzle.config.ts`, `api/src/db/migrate.ts`, `api/src/db/layer.ts` now import directly from `everything-dev/db`.
+
+  - `api/tests/unit/migration-storage.test.ts` — removed (redundant with package-level tests).
+
+  - `packages/everything-dev/tsdown.config.ts` — added `src/db.ts` entry point.
+
+  - `packages/everything-dev/src/cli/db-studio.ts` — replaces inline `migrationSlug` with `pluginMigrationSlug` from the shared helper.
+
+  - `packages/everything-dev/src/cli/db-doctor.ts` — replaces inline `extractTables` with `extractExpectedTables` from the shared helper.
+
+  - `packages/everything-dev/src/cli/sync.ts` — adds `api/drizzle.config.ts` to framework-owned sync files; syncs it into DB-enabled plugin workspaces; adds plugin `drizzle.config.ts` to owned-file detection.
+
+  - `packages/everything-dev/tests/unit/db.test.ts` — 8 tests covering slug derivation, table naming, table extraction, secret naming, and plugin key normalization.
+
+  This reduces sync churn by centralizing the fragile name-convention logic in the published package instead of scattering it across synced local files.
+
+- d3d5be1: Implement isolated migration journals per plugin workspace and add database diagnostics tools.
+
+  - `api/src/db/migration-storage.ts` — new shared helper that derives a stable slug from the workspace `package.json` name and provides isolated journal table naming (`drizzle.__drizzle_migrations_<slug>`).
+
+  - `api/src/db/migrate.ts` — runtime migrator now accepts an optional `MigrationStorage` config. When provided, uses the isolated journal table. Includes legacy hash import from the old shared `drizzle.__drizzle_migrations` and `public.drizzle_migrations` tables (filtered to local migration hashes only). Exports `detectDrift()` that checks whether expected tables from migration SQL exist in the `public` schema and classifies the result.
+
+  - `api/src/db/layer.ts` — resolves migration storage on startup, logs the journal table in use, and fails with a clear drift error when the journal says "applied" but tables are missing.
+
+  - `api/drizzle.config.ts` — adds `migrations.schema` and `migrations.table` to keep Drizzle CLI aligned with the runtime journal table.
+
+  - `packages/everything-dev/src/cli/db-doctor.ts` — new CLI command (`bos db doctor <plugin>`) that inspects a plugin's isolated migration journal, local migration files, and expected tables, then reports health diagnosis.
+
+  - `packages/everything-dev/src/cli/db-repair.ts` — new CLI command (`bos db repair <plugin>`) that resets the isolated journal table and reapplies migrations via `drizzle-kit migrate`. Refuses automatic repair for partial drift or unhealthy states.
+
+  - `packages/everything-dev/src/contract.ts`, `contract.meta.ts`, `plugin.ts`, `cli.ts` — wiring for the two new commands.
+
+  - `packages/everything-dev/src/cli/db-studio.ts` — generated remote drizzle configs now include the matching `migrations` block.
+
+  - `packages/everything-dev/src/cli/sync.ts` — adds `api/src/db/migration-storage.ts` to framework-owned sync files. Plugins with `src/db/` directories automatically receive the new helper.
+
+  - `packages/everything-dev/src/cli/init.ts` — child projects get `db:doctor` and `db:repair` root scripts.
+
+  - `api/tests/unit/migration-storage.test.ts` — covers slug derivation, table naming, legacy candidates, and expected table extraction from SQL.
+
+  Migration drift detection: when `api/src/db/layer.ts` detects the journal has applied hashes but expected tables are missing, startup fails with a specific error pointing to `bos db doctor` and `bos db repair`.
+
+### Patch Changes
+
+- ea699cd: Improve database error visibility and migration diagnostics:
+
+  - `api/src/lib/context.ts` — `flattenError` helper walks nested Error.cause chains so Drizzle/pg errors include the real underlying reason instead of just the SQL wrapper message. Mirrored to `plugins/_template/src/lib/context.ts` and `plugins/apps/src/lib/context.ts`.
+
+  - `api/src/db/migrate.ts` — `loadMigrations()` now logs migration source (virtual/disk) and count; `migrate()` returns the number of applied migrations.
+
+  - `api/src/db/layer.ts` — logs precise migration status (applied/total/source) and warns when zero migrations are found.
+
+  - `api/src/db/index.ts` — adds pool-level error listener for surfacing unexpected pg errors; makes `close()` idempotent.
+
+  - `host/src/program.ts` — actually emits the `formatORPCError` output instead of discarding it.
+
+  - `api/tests/unit/context.test.ts` and `api/tests/unit/db.test.ts` — cover cause-chain flattening and database error unwrapping.
+
 ## 1.47.3
 
 ### Patch Changes
