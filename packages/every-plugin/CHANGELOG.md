@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.9.1
+
+### Patch Changes
+
+- eab27e7: Fix race condition in dev-server middleware: null request handlers before calling runtime.shutdown() to prevent in-flight requests from hitting dead database pools during hot reload
+
 ## 2.9.0
 
 ### Minor Changes
