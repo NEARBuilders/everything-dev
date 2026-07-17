@@ -1,5 +1,13 @@
 # everything-dev
 
+## 1.47.1
+
+### Patch Changes
+
+- ff101b0: Gate strict `bun audit` failure behind `AUDIT_STRICT` GitHub secret instead of a `workflow_dispatch` input. The audit step now fails CI on critical/high vulnerabilities when `AUDIT_STRICT=true` is set in repo secrets (works on all run types: push, PR, manual dispatch). Without the secret, it warns only — preserving the previous default behavior. Also fix a latent `set -e` bug: GitHub Actions' default shell aborts on non-zero exit codes, so `bun audit` returning 1 (vulnerabilities found) killed the script before the `AUDIT_STRICT` gate could run. Changed to `set +e -o pipefail` so the script captures the exit code and branches explicitly. Updated AGENTS.md, LLM.txt, and SECURITY.md to reflect Renovate (not Dependabot/dependency-review-action) as the active dependency vulnerability scanner, and removed stale references to `.npmrc` and axios `package.json` overrides that no longer exist.
+- 17291c3: Upgrade Bun from 1.2.20 to 1.3.14 across all GitHub workflows, workflow templates, the root `package.json` `packageManager` field, and the Dockerfile base image. This also resolves the `bun audit` hang (oven-sh/bun#20800) that affected 1.2.20, making the CI audit timeout workaround no longer strictly necessary. Also fix Docker workflow cache exhaustion (`failed to reserve cache`) by switching from GitHub Actions cache (`type=gha`) to registry cache (`type=registry`) stored in GHCR, which has no size limit.
+- 17291c3: Fix `bun audit` hang in CI template and parent workflows. Bun 1.2.20 has a known cycle-detection bug (oven-sh/bun#20800) causing `bun audit` to hang indefinitely. Wrapped the audit step with `timeout 120` and `timeout-minutes: 5` so it fails fast instead of blocking CI. Also added `timeout-minutes: 20` to the `Publish with deploy` step in deploy/staging workflows as a backstop against Zephyr interactive auth hangs when all tokens are missing.
+
 ## 1.47.0
 
 ### Minor Changes
