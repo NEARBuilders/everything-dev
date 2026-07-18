@@ -41,9 +41,18 @@ interface SecretGroup {
   secrets: string[];
 }
 
+interface DevPortState {
+  host?: number;
+  api?: number;
+  ui?: number;
+  auth?: number;
+  pluginPortStart?: number;
+}
+
 interface PortState {
   postgresPorts: Record<string, number>;
   redisPorts: Record<string, number>;
+  devPorts?: DevPortState;
 }
 
 interface GeneratedInfraSpec {
@@ -72,7 +81,7 @@ function uniqueSecrets(values: Array<string | undefined>): string[] {
   return secrets;
 }
 
-function loadPortState(configDir?: string): PortState {
+export function loadPortState(configDir?: string): PortState {
   if (!configDir) return { postgresPorts: {}, redisPorts: {} };
   const statePath = join(configDir, ".bos", "infra-state.json");
   if (!existsSync(statePath)) return { postgresPorts: {}, redisPorts: {} };
@@ -81,17 +90,20 @@ function loadPortState(configDir?: string): PortState {
     return {
       postgresPorts: raw.postgresPorts ?? {},
       redisPorts: raw.redisPorts ?? {},
+      devPorts: raw.devPorts,
     };
   } catch {
     return { postgresPorts: {}, redisPorts: {} };
   }
 }
 
-function savePortState(configDir: string, state: PortState): void {
+export function savePortState(configDir: string, state: PortState): void {
   const statePath = join(configDir, ".bos", "infra-state.json");
   mkdirSync(dirname(statePath), { recursive: true });
   writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
 }
+
+export type { DevPortState };
 
 function resolvePort(slug: string, portMap: Record<string, number>, basePort: number): number {
   if (portMap[slug] !== undefined) return portMap[slug];
@@ -318,17 +330,30 @@ function extractPortFromUrl(url: string): string | null {
   return match?.[1] ?? null;
 }
 
+function resolveDevHostPort(runtimeConfig: RuntimeConfig): number {
+  if (typeof runtimeConfig.host?.port === "number") return runtimeConfig.host.port;
+  const fromUrl = runtimeConfig.host?.url ? extractPortFromUrl(runtimeConfig.host.url) : null;
+  if (fromUrl) {
+    const parsed = Number.parseInt(fromUrl, 10);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 3000;
+}
+
 function defaultSecretValue(
   secret: string,
   databases: Map<string, DatabaseSecretConfig>,
   redisConfigs: Map<string, RedisSecretConfig>,
-  options: { forExample: boolean },
+  options: { forExample: boolean; devHostPort?: number },
 ): string {
   if (secret === "BETTER_AUTH_SECRET") {
     return options.forExample ? "" : randomBytes(32).toString("base64url");
   }
 
   if (secret === "CORS_ORIGIN") {
+    if (typeof options.devHostPort === "number") {
+      return `http://localhost:${options.devHostPort}`;
+    }
     return "http://localhost:3000";
   }
 
@@ -339,7 +364,7 @@ function renderEnvFile(
   groups: SecretGroup[],
   databases: DatabaseSecretConfig[],
   redisConfigs: RedisSecretConfig[],
-  options: { forExample: boolean },
+  options: { forExample: boolean; devHostPort?: number },
 ): string {
   const databaseMap = new Map(databases.map((entry) => [entry.secret, entry]));
   const redisMap = new Map(redisConfigs.map((entry) => [entry.secret, entry]));
@@ -467,9 +492,11 @@ export function syncGeneratedInfra(
 ): SyncGeneratedInfraResult {
   const { spec, portState } = buildGeneratedInfraSpec(runtimeConfig, configDir);
   const secrets = spec.groups.flatMap((group) => group.secrets);
-  const newEnvContent = renderEnvFile(spec.groups, spec.databases, spec.redis, {
-    forExample: true,
-  });
+  const envOptions: { forExample: true; devHostPort?: number } = { forExample: true };
+  if (runtimeConfig.env === "development") {
+    envOptions.devHostPort = resolveDevHostPort(runtimeConfig);
+  }
+  const newEnvContent = renderEnvFile(spec.groups, spec.databases, spec.redis, envOptions);
   const newDockerContent = renderDockerCompose(spec.databases, spec.redis, runtimeConfig.account);
 
   const envExamplePath = join(configDir, ".env.example");

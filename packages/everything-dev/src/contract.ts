@@ -16,6 +16,10 @@ export const DevOptionsSchema = z.object({
   proxy: z.boolean().default(false),
   ssr: z.boolean().default(false),
   port: z.number().optional(),
+  apiPort: z.number().optional(),
+  uiPort: z.number().optional(),
+  authPort: z.number().optional(),
+  pluginPortStart: z.number().optional(),
   interactive: z.boolean().optional(),
 });
 
@@ -348,6 +352,50 @@ export const DbRepairResultSchema = z.object({
   error: z.string().optional(),
 });
 
+export const ProcessRoleSchema = z.enum(["standalone", "workspace-parent", "workspace-child"]);
+
+export const PidEntrySchema = z.object({
+  pid: z.number(),
+  configDir: z.string(),
+  parentPid: z.number().optional(),
+  role: ProcessRoleSchema,
+  ports: z
+    .object({
+      host: z.number().optional(),
+      api: z.number().optional(),
+      ui: z.number().optional(),
+      auth: z.number().optional(),
+    })
+    .default({}),
+  budget: z
+    .object({
+      min: z.number(),
+      max: z.number(),
+    })
+    .optional(),
+  startedAt: z.number(),
+  description: z.string(),
+});
+
+export const PsResultSchema = z.object({
+  status: z.enum(["ok", "error"]),
+  entries: z.array(PidEntrySchema),
+  error: z.string().optional(),
+});
+
+export const KillOptionsSchema = z.object({
+  configDir: z.string().optional(),
+  signal: z.enum(["SIGTERM", "SIGKILL"]).default("SIGTERM"),
+  all: z.boolean().default(false),
+});
+
+export const KillResultSchema = z.object({
+  status: z.enum(["killed", "error"]),
+  killed: z.array(z.object({ pid: z.number(), configDir: z.string() })),
+  skipped: z.array(z.object({ pid: z.number(), reason: z.string() })),
+  error: z.string().optional(),
+});
+
 export const bosContract = oc.router({
   dev: oc.route({ method: "POST", path: "/dev" }).input(DevOptionsSchema).output(DevResultSchema),
   start: oc
@@ -416,6 +464,11 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/db/repair" })
     .input(DbRepairOptionsSchema)
     .output(DbRepairResultSchema),
+  ps: oc.route({ method: "GET", path: "/ps" }).output(PsResultSchema),
+  kill: oc
+    .route({ method: "POST", path: "/kill" })
+    .input(KillOptionsSchema)
+    .output(KillResultSchema),
 });
 
 export type DevOptions = z.infer<typeof DevOptionsSchema>;
@@ -456,3 +509,8 @@ export type DbDoctorResult = z.infer<typeof DbDoctorResultSchema>;
 export type DbRepairOptions = z.infer<typeof DbRepairOptionsSchema>;
 export type DbRepairResult = z.infer<typeof DbRepairResultSchema>;
 export type RuntimeOverrideTarget = z.infer<typeof RuntimeOverrideTargetSchema>;
+export type ProcessRole = z.infer<typeof ProcessRoleSchema>;
+export type PidEntry = z.infer<typeof PidEntrySchema>;
+export type PsResult = z.infer<typeof PsResultSchema>;
+export type KillOptions = z.infer<typeof KillOptionsSchema>;
+export type KillResult = z.infer<typeof KillResultSchema>;

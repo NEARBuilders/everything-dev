@@ -1,0 +1,11 @@
+---
+"everything-dev": patch
+---
+
+Fix three bugs in the dev port and process-registry feature surfaced by real-world testing with `overmind` running two `bos dev` sessions in a multi-workspace project.
+
+- **Bug A — remote services wrote port 443/80 into `.bos/infra-state.json`.** `savePortState` in `plugin.ts` now gates each port slot on `runtimeConfig.<service>.source === "local"`, writing `undefined` for remote services. The `pluginPortStart` slot is gated on whether any local plugin exists. Test: `infra.test.ts` round-trips `undefined` devPorts slots for remote `api`/`auth`/`pluginPortStart`.
+- **Bug B — stale PID registry entries from prior test/dev runs survived `bos ps`.** `pruneDead` in `process-registry.ts` now filters entries with `pid <= 1` (init/kernel guards) and entries whose `configDir` no longer exists (`existsSync` check). A `BO_PID_REGISTRY_PATH` env var override is honored by `getRegistryPath`, letting tests isolate the registry without mutating `HOME`. Tests: `process-registry.test.ts` covers the pid≤1 guard, missing-configDir guard, env-var override, and stale fixture cleanup. The test harness now uses `BO_PID_REGISTRY_PATH` instead of `process.env.HOME` mutation, and existing fixture tests use real temp configDirs so they survive the new `existsSync` guard.
+- **Bug C — `prepareDevelopmentRuntimeConfig` clobbered remote `host.url`/`host.port` with `http://localhost:<picked>`.** The function now checks `runtimeConfig.host.source === "local"` before rewriting the host's url/port/entry. The picked host port is still reserved in `usedPorts` for budget accounting. Tests: `app.test.ts` (new) verifies remote host url/port are preserved, remote api service is left unassigned, and that local services still receive picked localhost ports. Also covers `portBudget` clamping and within-budget success.
+
+No breaking changes. All 172 unit tests pass; `bun run --cwd packages/everything-dev typecheck` is clean. Pre-existing lint findings in `ui/router.ts` and `host/src/program.ts` are unrelated (confirmed via `git stash`).

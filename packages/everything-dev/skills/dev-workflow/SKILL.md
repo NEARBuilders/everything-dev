@@ -2,7 +2,7 @@
 name: dev-workflow
 description: Development workflow for everything-dev projects using bos dev, bos start, and the Module Federation runtime. Use when starting dev servers, debugging hot reload, or understanding the service-descriptor architecture.
 metadata:
-  sources: "packages/everything-dev/src/service-descriptor.ts,packages/everything-dev/src/orchestrator.ts,packages/everything-dev/src/dev-logs.ts,packages/everything-dev/src/dev-session.ts"
+  sources: "packages/everything-dev/src/service-descriptor.ts,packages/everything-dev/src/orchestrator.ts,packages/everything-dev/src/dev-logs.ts,packages/everything-dev/src/dev-session.ts,packages/everything-dev/src/process-registry.ts,packages/everything-dev/src/app.ts"
 ---
 
 # everything-dev Development Workflow
@@ -17,12 +17,29 @@ bos dev
 bos dev --api remote     # UI only
 bos dev --ui remote      # API only
 bos dev                  # Full local (rarely needed)
+
+# Pin individual service ports (unset flags are picked automatically and persisted)
+bos dev --port 3100 --api-port 3101 --ui-port 3103 --auth-port 3102 --plugin-port-start 3110
 ```
+
+### Port persistence
+
+`bos dev` writes the resolved host/api/ui/auth/plugin-port-start values to `.bos/infra-state.json`
+under a `devPorts` key. Subsequent runs reuse the same ports unless you pass an explicit flag
+(or delete the file). This keeps CORS, browser bookmarks, and wallet-allowlisted origins stable
+across restarts.
+
+### Port budgets (forward-compat for `--workspaces`)
+
+`prepareDevelopmentRuntimeConfig` accepts an optional `portBudget: { min, max }`. When set,
+`pickAvailablePort` skips candidates outside the budget and throws `RangeError` if no free port
+is found inside it. The standalone `bos dev` path does not pass a budget today; a future
+`bos dev --workspaces` orchestrator will slice disjoint budgets per child project.
 
 ## Port Assignments
 
-| Service | Port | URL |
-|---------|------|-----|
+| Service | Default | URL |
+|---------|---------|-----|
 | host | 3000 | http://localhost:3000 |
 | api | 3001 | http://localhost:3001 |
 | auth | 3002 | http://localhost:3002 |
@@ -118,13 +135,16 @@ lsof -i :3003             # Check what is using port 3003
 
 Kill the conflicting process and retry, or stop the existing `bos dev` session first.
 
-### Stale PID file
+### Stale PID registry
 
-If `bos kill` doesn't run cleanly (e.g., terminal was closed), stale PIDs in `.bos/pids.json` can block restart:
+If `bos kill` doesn't run cleanly (e.g., terminal was closed), stale entries can linger in the
+global registry at `~/.cache/everything-dev/pids.json`. `bos ps` and `bos kill` always prune
+ESRCH (dead) PIDs on read, so stale entries don't block restart — but you can wipe the file
+manually if you want a clean slate:
 
 ```bash
-rm .bos/pids.json         # Clear stale PID tracking
-bos dev                   # Start fresh
+rm ~/.cache/everything-dev/pids.json   # Clear global registry
+bos dev                                # Start fresh
 ```
 
 ### API not responding
@@ -157,9 +177,18 @@ bos start --account foo.near --domain bar.com # Load specific config
 ## Process Management
 
 ```bash
-bos ps              # Show PID, name, port, started time
-bos kill            # Graceful SIGTERM → SIGKILL
-bos kill --force    # Immediate SIGKILL
+bos ps                       # List tracked development processes (cwd's entries, with role/ports)
+bos kill                     # SIGTERM processes owned by cwd
+bos kill --all               # SIGTERM across all config directories
+bos kill --signal SIGKILL    # Force kill (cwd)
+bos kill --config-dir /path  # Target a specific project
 ```
 
-Process tracking uses `.bos/pids.json`.
+The registry lives at `~/.cache/everything-dev/pids.json`, keyed by `pid`. Each entry stores
+`configDir`, `role` (`standalone` today; `workspace-parent`/`workspace-child` reserved for the
+planned `bos dev --workspaces` orchestrator), `ports`, optional `budget`, `startedAt`, and
+`description`. `bos dev` registers on startup and unregisters on graceful shutdown; the
+`BOS_WORKSPACE_CHILD=1` env var suppresses standalone registration so a future parent
+orchestrator owns registry entries.
+
+Process tracking uses `~/.cache/everything-dev/pids.json` (global, atomic writes).

@@ -107,6 +107,7 @@
     "@changesets/cli": "^2.29.8",
     "@types/bun": "latest",
     "dotenv": "^17.3.1",
+    "@types/pg": "catalog:",
     "tsx": "^4.21.0",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "catalog:"
@@ -124,6 +125,7 @@
     "better-auth": "catalog:",
     "better-near-auth": "catalog:",
     "drizzle-orm": "catalog:",
+    "pg": "catalog:",
     "@electric-sql/pglite": "catalog:",
     "effect": "catalog:",
     "zod": "catalog:",

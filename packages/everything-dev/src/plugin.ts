@@ -3,7 +3,13 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { Effect } from "effect";
-import { buildRuntimeConfig, detectLocalPackages, prepareDevelopmentRuntimeConfig } from "./app";
+import {
+  buildRuntimeConfig,
+  type DevPortOptions,
+  detectLocalPackages,
+  PortAllocatorLive,
+  prepareDevelopmentRuntimeConfig,
+} from "./app";
 import {
   buildEveryPluginQuietly,
   buildEverythingDevQuietly,
@@ -15,7 +21,9 @@ import {
 } from "./build";
 import {
   ensureEnvFile,
+  loadPortState,
   loadProjectEnv,
+  savePortState,
   syncGeneratedInfra,
   writeGeneratedInfra,
 } from "./cli/infra";
@@ -71,6 +79,7 @@ import { computeSriHashForUrl, parseDeployLines } from "./integrity";
 import { type BosEnv, mergeBosConfigWithExtends, resolveExtendsRef } from "./merge";
 import { addFunctionCallAccessKey, ensureNearCli } from "./near-cli";
 import { getNetworkIdForAccount } from "./network";
+import { pruneDeadEffect, readRegistry, unregisterPid } from "./process-registry";
 import { extractPublishedUrl, publishToFastKv } from "./publish";
 import { createPlugin, z } from "./sdk";
 import {
@@ -645,7 +654,11 @@ export default createPlugin({
         };
       }
 
-      const hostPort = input.port ?? getHostDevelopmentPort(deps.bosConfig.app.host.development);
+      const persistedPorts = loadPortState(deps.configDir).devPorts;
+      const hostPreferredPort =
+        input.port ??
+        persistedPorts?.host ??
+        getHostDevelopmentPort(deps.bosConfig.app.host.development);
       suppressWarnings();
       const developmentRuntime = buildRuntimeConfig(deps.bosConfig, {
         uiSource,
@@ -657,12 +670,28 @@ export default createPlugin({
       });
       drainConfigWarnings();
       resumeWarnings();
-      const runtimeConfig = await timePhase(devTimings, "ports", () =>
-        prepareDevelopmentRuntimeConfig(developmentRuntime, {
-          hostPort,
-          ssr,
-        }),
+      const portOptions: DevPortOptions = {
+        hostPort: hostPreferredPort,
+        apiPort: input.apiPort ?? persistedPorts?.api,
+        uiPort: input.uiPort ?? persistedPorts?.ui,
+        authPort: input.authPort ?? persistedPorts?.auth,
+        pluginPortStart: input.pluginPortStart ?? persistedPorts?.pluginPortStart,
+        ssr,
+      };
+      const { runtimeConfig, devPorts } = await timePhase(devTimings, "ports", () =>
+        Effect.runPromise(
+          prepareDevelopmentRuntimeConfig(developmentRuntime, portOptions).pipe(
+            Effect.provide(PortAllocatorLive),
+          ),
+        ),
       );
+
+      const priorState = loadPortState(deps.configDir);
+      savePortState(deps.configDir, {
+        postgresPorts: priorState.postgresPorts,
+        redisPorts: priorState.redisPorts,
+        devPorts,
+      });
 
       syncGeneratedInfra(deps.configDir, runtimeConfig);
       ensureEnvFile(deps.configDir);
@@ -1827,6 +1856,71 @@ export default createPlugin({
           status: "error" as const,
           packages: [],
           envFile: "missing" as const,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }),
+
+    ps: builder.ps.handler(async () => {
+      try {
+        const entries = await Effect.runPromise(pruneDeadEffect(readRegistry()));
+        return {
+          status: "ok" as const,
+          entries,
+        };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          entries: [],
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }),
+
+    kill: builder.kill.handler(async ({ input }) => {
+      try {
+        const entries = await Effect.runPromise(pruneDeadEffect(readRegistry()));
+        const configPath = findConfigPath();
+        const targetConfigDir = input.all
+          ? undefined
+          : (input.configDir ?? (configPath ? resolve(dirname(configPath)) : undefined));
+
+        const targets = targetConfigDir
+          ? entries.filter((entry) => entry.configDir === targetConfigDir)
+          : entries;
+
+        const killed: Array<{ pid: number; configDir: string }> = [];
+        const skipped: Array<{ pid: number; reason: string }> = [];
+
+        for (const entry of targets) {
+          try {
+            process.kill(entry.pid, input.signal === "SIGKILL" ? "SIGKILL" : "SIGTERM");
+            killed.push({ pid: entry.pid, configDir: entry.configDir });
+            unregisterPid(entry.pid);
+          } catch (err) {
+            const code = (err as NodeJS.ErrnoException).code;
+            if (code === "ESRCH") {
+              skipped.push({ pid: entry.pid, reason: "process already exited" });
+              unregisterPid(entry.pid);
+            } else {
+              skipped.push({
+                pid: entry.pid,
+                reason: (err as Error).message ?? "kill failed",
+              });
+            }
+          }
+        }
+
+        return {
+          status: "killed" as const,
+          killed,
+          skipped,
+        };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          killed: [],
+          skipped: [],
           error: error instanceof Error ? error.message : "Unknown error",
         };
       }

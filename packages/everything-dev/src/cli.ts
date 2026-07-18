@@ -1,4 +1,4 @@
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import * as p from "@clack/prompts";
 import { findCommandDescriptor } from "./cli/catalog";
 import { printHelp } from "./cli/help";
@@ -13,7 +13,10 @@ import type {
   DevResult,
   InitOptions,
   InitResult,
+  KillOptions,
+  KillResult,
   OverrideSection,
+  PsResult,
   StartOptions,
   StartResult,
 } from "./contract";
@@ -744,6 +747,95 @@ async function main() {
             `  Run ${colors.cyan("bos upgrade")} to update packages and sync template files.`,
           ),
         );
+      }
+      console.log();
+      return;
+    }
+
+    if (descriptor.key === "ps") {
+      const psResult = result as PsResult;
+      console.log();
+      if (psResult.status === "error") {
+        console.error(`[CLI] ${psResult.error || "Unknown error"}`);
+        process.exit(1);
+      }
+      const entries = psResult.entries ?? [];
+      if (entries.length === 0) {
+        console.log(colors.dim("  No tracked development processes running."));
+        console.log();
+        console.log(
+          colors.dim(`  Start one with ${colors.cyan("bos dev")} and it will appear here.`),
+        );
+        console.log();
+        return;
+      }
+      console.log(colors.cyan(frames.top(60)));
+      console.log(`  ${icons.app} ${gradients.cyber("PROCESSES")}`);
+      console.log(colors.cyan(frames.bottom(60)));
+      console.log();
+      for (const entry of entries) {
+        const ageMs = Date.now() - entry.startedAt;
+        const ageStr =
+          ageMs < 60_000
+            ? `${Math.floor(ageMs / 1000)}s`
+            : ageMs < 3_600_000
+              ? `${Math.floor(ageMs / 60_000)}m`
+              : `${Math.floor(ageMs / 3_600_000)}h`;
+        const roleTag =
+          entry.role === "workspace-parent"
+            ? colors.magenta("parent")
+            : entry.role === "workspace-child"
+              ? colors.blue("child")
+              : colors.dim("dev");
+        console.log(`  ${colors.green(`pid ${entry.pid}`)}  ${roleTag}  ${colors.dim(ageStr)}`);
+        console.log(`    ${colors.dim("dir:")}    ${entry.configDir}`);
+        if (entry.parentPid !== undefined) {
+          console.log(`    ${colors.dim("parent:")} ${entry.parentPid}`);
+        }
+        const portPairs = Object.entries(entry.ports ?? {})
+          .filter(([, p]) => typeof p === "number")
+          .map(([k, v]) => `${k}=${v}`);
+        if (portPairs.length > 0) {
+          console.log(`    ${colors.dim("ports:")}  ${portPairs.join("  ")}`);
+        }
+        if (entry.budget) {
+          console.log(`    ${colors.dim("budget:")} [${entry.budget.min}, ${entry.budget.max}]`);
+        }
+        console.log(`    ${colors.dim("desc:")}   ${entry.description}`);
+        console.log();
+      }
+      return;
+    }
+
+    if (descriptor.key === "kill") {
+      const killResult = result as KillResult;
+      console.log();
+      if (killResult.status === "error") {
+        console.error(`[CLI] ${killResult.error || "Unknown error"}`);
+        process.exit(1);
+      }
+      if (killResult.killed.length > 0) {
+        console.log(colors.green(`${icons.ok} Sent ${killResult.killed.length} kill signal(s)`));
+        for (const k of killResult.killed) {
+          console.log(`  ${colors.dim("pid")} ${k.pid}  ${colors.dim(k.configDir)}`);
+        }
+      }
+      if (killResult.skipped.length > 0) {
+        console.log(colors.yellow(`${icons.err} ${killResult.skipped.length} skipped`));
+        for (const s of killResult.skipped) {
+          console.log(`  ${colors.dim("pid")} ${s.pid}  ${colors.dim(s.reason)}`);
+        }
+      }
+      if (killResult.killed.length === 0 && killResult.skipped.length === 0) {
+        const opts = input as KillOptions;
+        if (opts.all) {
+          console.log(colors.dim("  No tracked processes to kill."));
+        } else {
+          const configPath = findConfigPath();
+          const dir = opts.configDir ?? (configPath ? resolve(dirname(configPath)) : process.cwd());
+          console.log(colors.dim(`  No tracked processes for ${dir}`));
+          console.log(colors.dim(`  Use ${colors.cyan("--all")} to kill across all directories.`));
+        }
       }
       console.log();
       return;

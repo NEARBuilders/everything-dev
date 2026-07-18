@@ -199,4 +199,19 @@ export const cliCommandMeta = {
     summary: "Show project health, versions, and update availability",
     interactive: false,
   },
+  ps: {
+    commandPath: ["ps"],
+    summary: "List tracked development processes",
+    interactive: false,
+  },
+  kill: {
+    commandPath: ["kill"],
+    summary: "Stop tracked development processes",
+    interactive: false,
+    fields: {
+      configDir: { description: "Kill processes owned by a config directory (defaults to cwd)" },
+      signal: { description: "Signal: SIGTERM (default) or SIGKILL" },
+      all: { description: "Kill processes across all config directories" },
+    },
+  },
 } as const satisfies Record<string, CliCommandMeta>;

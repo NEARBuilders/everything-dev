@@ -92,7 +92,14 @@ This document provides operational guidance for AI agents working in the parent 
 cp .env.example .env   # First time only
 bun install
 bun run dev
+
+# Pin individual service ports (unset flags are auto-picked and persisted in .bos/infra-state.json)
+bos dev --port 3100 --api-port 3101 --ui-port 3103 --auth-port 3102 --plugin-port-start 3110
 ```
+
+Dev ports are persisted to `.bos/infra-state.json` under `devPorts` and reused across restarts.
+`CORS_ORIGIN` in `.env.example` is derived from the actual resolved host port in development.
+A global PID registry at `~/.cache/everything-dev/pids.json` tracks running `bos dev` sessions.
 
 **Sync and Publish:**
 ```bash
@@ -104,7 +111,10 @@ bos publish --deploy  # Build/deploy all workspaces, then publish
 
 **Check Status:**
 ```bash
-bos ps        # List running processes
+bos ps        # List tracked development processes (PID, role, ports, age)
+bos kill      # SIGTERM processes owned by the cwd
+bos kill --all              # SIGTERM across all config directories
+bos kill --signal SIGKILL    # Force kill
 bos status    # Project health check
 bos info      # Show configuration
 ```

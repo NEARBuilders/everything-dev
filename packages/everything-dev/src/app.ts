@@ -1,11 +1,14 @@
 import { existsSync } from "node:fs";
-import { createConnection } from "node:net";
+import { createServer } from "node:net";
 import { join } from "node:path";
+import { Context, Data, Effect, Layer } from "effect";
+import type { DevPortState } from "./cli/infra";
 import {
   buildRuntimeConfig as configBuildRuntimeConfig,
   getProjectRoot,
   resolveLocalDevelopmentPath,
 } from "./config";
+import { claimedPorts } from "./process-registry";
 import type { AppOrchestrator } from "./service-descriptor";
 import type { BosConfig, RuntimeConfig, RuntimePluginConfig } from "./types";
 
@@ -16,6 +19,28 @@ const DEFAULT_API_PORT = 3001;
 const DEFAULT_AUTH_PORT = 3002;
 const DEFAULT_UI_PORT = 3003;
 const DEFAULT_PLUGIN_PORT_START = 3010;
+
+const PROBE_TIMEOUT_MS = 250;
+const MAX_PORT_SCAN_STEPS = 1000;
+const PARALLEL_PROBE_WINDOW = 8;
+
+export type PortBudget = { min: number; max: number };
+
+export class PortAllocationError extends Data.TaggedError("PortAllocationError")<{
+  preferred: number;
+  budget?: PortBudget;
+  cause?: unknown;
+}> {}
+
+export class PortAllocator extends Context.Tag("PortAllocator")<
+  PortAllocator,
+  {
+    pickAvailable: (
+      preferred: number,
+      budget?: PortBudget,
+    ) => Effect.Effect<number, PortAllocationError>;
+  }
+>() {}
 
 export function detectLocalPackages(
   bosConfig?: BosConfig,
@@ -88,35 +113,110 @@ export function buildRuntimeConfig(
   });
 }
 
-function probeTcpOpen(port: number, timeoutMs = 250): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = createConnection({ host: "127.0.0.1", port });
+function probePortBindable(port: number): Effect.Effect<boolean> {
+  return Effect.async<boolean>((resume) => {
+    const server = createServer();
+
+    server.once("listening", () => {
+      server.close(() => {
+        resume(Effect.succeed(true));
+      });
+    });
+
+    server.once("error", () => {
+      server.removeAllListeners();
+      // EADDRINUSE, EACCES, or any other bind error → not available
+      resume(Effect.succeed(false));
+    });
+
+    server.listen(port, "127.0.0.1");
+
     const timer = setTimeout(() => {
-      socket.destroy();
-      resolve(false);
-    }, timeoutMs);
+      server.removeAllListeners();
+      try {
+        server.close();
+      } catch {
+        // ignore
+      }
+      resume(Effect.succeed(false));
+    }, PROBE_TIMEOUT_MS);
 
-    socket.once("connect", () => {
-      clearTimeout(timer);
-      socket.destroy();
-      resolve(true);
-    });
-
-    socket.once("error", () => {
-      clearTimeout(timer);
-      resolve(false);
-    });
+    server.once("listening", () => clearTimeout(timer));
+    server.once("error", () => clearTimeout(timer));
   });
 }
 
-async function pickAvailablePort(preferred: number, usedPorts: Set<number>): Promise<number> {
-  let port = preferred;
-  while (usedPorts.has(port) || (await probeTcpOpen(port))) {
-    port += 1;
-  }
-  usedPorts.add(port);
-  return port;
+function pickAvailablePort(
+  preferred: number,
+  usedPorts: Set<number>,
+  budget?: PortBudget,
+): Effect.Effect<number, PortAllocationError> {
+  return Effect.gen(function* () {
+    const within = (candidate: number): boolean =>
+      !budget || (candidate >= budget.min && candidate <= budget.max);
+
+    let port = preferred;
+    if (!within(port)) {
+      port = budget ? budget.min : port;
+    }
+
+    const ceiling = budget ? budget.max + 1 : Number.MAX_SAFE_INTEGER;
+    let steps = 0;
+
+    const fail = () =>
+      Effect.fail(
+        new PortAllocationError({
+          preferred,
+          budget,
+          cause: budget
+            ? `No free port in budget [${budget.min}, ${budget.max}] starting from ${preferred}`
+            : `No free port found starting from ${preferred} within ${MAX_PORT_SCAN_STEPS} steps`,
+        }),
+      );
+
+    while (true) {
+      if (port >= ceiling || steps > MAX_PORT_SCAN_STEPS) {
+        yield* fail();
+      }
+
+      const candidates: number[] = [];
+      for (let i = 0; i < PARALLEL_PROBE_WINDOW && port + i < ceiling; i++) {
+        const candidate = port + i;
+        if (!usedPorts.has(candidate)) {
+          candidates.push(candidate);
+        }
+      }
+
+      if (candidates.length === 0) {
+        port += PARALLEL_PROBE_WINDOW;
+        steps += PARALLEL_PROBE_WINDOW;
+        continue;
+      }
+
+      const results = yield* Effect.forEach(
+        candidates,
+        (c) => probePortBindable(c).pipe(Effect.map((free) => ({ port: c, free }))),
+        { concurrency: "unbounded" },
+      );
+
+      const firstFree = results.find((r) => r.free);
+      if (firstFree) {
+        usedPorts.add(firstFree.port);
+        return firstFree.port;
+      }
+
+      port += PARALLEL_PROBE_WINDOW;
+      steps += PARALLEL_PROBE_WINDOW;
+    }
+  });
 }
+
+export const PortAllocatorLive: Layer.Layer<PortAllocator> = Layer.sync(PortAllocator, () => {
+  const usedPorts = claimedPorts();
+  return {
+    pickAvailable: (preferred, budget) => pickAvailablePort(preferred, usedPorts, budget),
+  };
+});
 
 function withLocalRuntimeUrl<
   T extends { url: string; entry: string; port?: number; localPath?: string },
@@ -130,64 +230,121 @@ function withLocalRuntimeUrl<
   };
 }
 
-export async function prepareDevelopmentRuntimeConfig(
+export interface DevPortOptions {
+  hostPort?: number;
+  apiPort?: number;
+  uiPort?: number;
+  authPort?: number;
+  pluginPortStart?: number;
+  ssr?: boolean;
+  portBudget?: PortBudget;
+}
+
+export interface PreparedDevRuntime {
+  runtimeConfig: RuntimeConfig;
+  devPorts: DevPortState;
+}
+
+export function prepareDevelopmentRuntimeConfig(
   runtimeConfig: RuntimeConfig,
-  options?: { hostPort?: number; ssr?: boolean },
-): Promise<RuntimeConfig> {
-  const usedPorts = new Set<number>();
-  const hostPort = await pickAvailablePort(options?.hostPort ?? DEFAULT_HOST_PORT, usedPorts);
+  options?: DevPortOptions,
+): Effect.Effect<PreparedDevRuntime, PortAllocationError, PortAllocator> {
+  return Effect.gen(function* () {
+    const allocator = yield* PortAllocator;
+    const budget = options?.portBudget;
 
-  const next: RuntimeConfig = {
-    ...runtimeConfig,
-    host: { ...runtimeConfig.host, url: `http://localhost:${hostPort}`, port: hostPort },
-    ui: { ...runtimeConfig.ui },
-    api: { ...runtimeConfig.api },
-    auth: runtimeConfig.auth ? { ...runtimeConfig.auth } : undefined,
-    plugins: runtimeConfig.plugins ? { ...runtimeConfig.plugins } : undefined,
-  };
+    const pickedHostPort = yield* allocator.pickAvailable(
+      options?.hostPort ?? DEFAULT_HOST_PORT,
+      budget,
+    );
 
-  if (next.api.source === "local" && next.api.localPath) {
-    const apiPort = await pickAvailablePort(next.api.port ?? DEFAULT_API_PORT, usedPorts);
-    next.api = withLocalRuntimeUrl(next.api, apiPort);
-  }
+    const hostIsLocal = runtimeConfig.host.source === "local";
+    const next: RuntimeConfig = {
+      ...runtimeConfig,
+      host: hostIsLocal
+        ? {
+            ...runtimeConfig.host,
+            url: `http://localhost:${pickedHostPort}`,
+            port: pickedHostPort,
+          }
+        : { ...runtimeConfig.host },
+      ui: { ...runtimeConfig.ui },
+      api: { ...runtimeConfig.api },
+      auth: runtimeConfig.auth ? { ...runtimeConfig.auth } : undefined,
+      plugins: runtimeConfig.plugins ? { ...runtimeConfig.plugins } : undefined,
+    };
 
-  if (next.auth?.source === "local" && next.auth.localPath) {
-    const authPort = await pickAvailablePort(next.auth.port ?? DEFAULT_AUTH_PORT, usedPorts);
-    next.auth = withLocalRuntimeUrl(next.auth, authPort);
-  }
+    const devPorts: DevPortState = {
+      host: hostIsLocal ? pickedHostPort : undefined,
+      api: undefined,
+      ui: undefined,
+      auth: undefined,
+      pluginPortStart: undefined,
+    };
 
-  if (next.ui.source === "local" && next.ui.localPath) {
-    const uiPort = await pickAvailablePort(next.ui.port ?? DEFAULT_UI_PORT, usedPorts);
-    next.ui = withLocalRuntimeUrl(next.ui, uiPort);
-    if (options?.ssr) {
-      const ssrPort = await pickAvailablePort(uiPort + 1, usedPorts);
-      next.ui.ssrUrl = `http://localhost:${ssrPort}`;
-    } else {
-      next.ui.ssrUrl = undefined;
+    if (next.api.source === "local" && next.api.localPath) {
+      const apiPort = yield* allocator.pickAvailable(
+        options?.apiPort ?? next.api.port ?? DEFAULT_API_PORT,
+        budget,
+      );
+      next.api = withLocalRuntimeUrl(next.api, apiPort);
+      devPorts.api = apiPort;
     }
-  }
 
-  if (next.plugins) {
-    const entries = Object.entries(next.plugins).sort(([a], [b]) => a.localeCompare(b));
-    let pluginBasePort = DEFAULT_PLUGIN_PORT_START;
+    if (next.auth?.source === "local" && next.auth.localPath) {
+      const authPort = yield* allocator.pickAvailable(
+        options?.authPort ?? next.auth.port ?? DEFAULT_AUTH_PORT,
+        budget,
+      );
+      next.auth = withLocalRuntimeUrl(next.auth, authPort);
+      devPorts.auth = authPort;
+    }
 
-    for (const [pluginId, plugin] of entries) {
-      if (plugin.source === "local" && plugin.localPath) {
-        const pluginPort = await pickAvailablePort(plugin.port ?? pluginBasePort, usedPorts);
-        next.plugins[pluginId] = withLocalRuntimeUrl(plugin, pluginPort);
-        pluginBasePort = pluginPort + 1;
+    if (next.ui.source === "local" && next.ui.localPath) {
+      const uiPort = yield* allocator.pickAvailable(
+        options?.uiPort ?? next.ui.port ?? DEFAULT_UI_PORT,
+        budget,
+      );
+      next.ui = withLocalRuntimeUrl(next.ui, uiPort);
+      devPorts.ui = uiPort;
+      if (options?.ssr) {
+        const ssrPort = yield* allocator.pickAvailable(uiPort + 1, budget);
+        next.ui.ssrUrl = `http://localhost:${ssrPort}`;
+      } else {
+        next.ui.ssrUrl = undefined;
+      }
+    }
+
+    if (next.plugins) {
+      const entries = Object.entries(next.plugins).sort(([a], [b]) => a.localeCompare(b));
+      let pluginBasePort = options?.pluginPortStart ?? DEFAULT_PLUGIN_PORT_START;
+      let firstLocalPluginPort: number | undefined;
+
+      for (const [pluginId, plugin] of entries) {
+        if (plugin.source === "local" && plugin.localPath) {
+          const pluginPort = yield* allocator.pickAvailable(plugin.port ?? pluginBasePort, budget);
+          next.plugins[pluginId] = withLocalRuntimeUrl(plugin, pluginPort);
+          if (firstLocalPluginPort === undefined) firstLocalPluginPort = pluginPort;
+          pluginBasePort = pluginPort + 1;
+        }
+
+        if (plugin.ui?.source === "local" && plugin.ui.localPath) {
+          const pluginUiPort = yield* allocator.pickAvailable(
+            plugin.ui.port ?? pluginBasePort,
+            budget,
+          );
+          next.plugins[pluginId] = {
+            ...next.plugins[pluginId]!,
+            ui: withLocalRuntimeUrl(plugin.ui, pluginUiPort),
+          };
+          if (firstLocalPluginPort === undefined) firstLocalPluginPort = pluginUiPort;
+          pluginBasePort = pluginUiPort + 1;
+        }
       }
 
-      if (plugin.ui?.source === "local" && plugin.ui.localPath) {
-        const uiPort = await pickAvailablePort(plugin.ui.port ?? pluginBasePort, usedPorts);
-        next.plugins[pluginId] = {
-          ...next.plugins[pluginId]!,
-          ui: withLocalRuntimeUrl(plugin.ui, uiPort),
-        };
-        pluginBasePort = uiPort + 1;
-      }
+      devPorts.pluginPortStart = firstLocalPluginPort;
     }
-  }
 
-  return next;
+    return { runtimeConfig: next, devPorts };
+  });
 }

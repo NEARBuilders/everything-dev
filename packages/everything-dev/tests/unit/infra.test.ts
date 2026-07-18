@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ensureEnvFile,
+  loadPortState,
   loadProjectEnv,
+  savePortState,
   syncGeneratedInfra,
   writeGeneratedInfra,
 } from "../../src/cli/infra";
@@ -410,5 +412,110 @@ describe("generated infra", () => {
       if (originalSecret === undefined) delete process.env.BETTER_AUTH_SECRET;
       else process.env.BETTER_AUTH_SECRET = originalSecret;
     }
+  });
+
+  it("derives CORS_ORIGIN from runtimeConfig.host.port in development", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-cors-port-"));
+    tempDirs.push(dir);
+
+    writeGeneratedInfra(
+      dir,
+      buildRuntimeConfig({
+        host: {
+          name: "host",
+          url: "http://localhost:3210",
+          entry: "/mf-manifest.json",
+          port: 3210,
+        },
+      }),
+    );
+    const envExample = readFileSync(join(dir, ".env.example"), "utf-8");
+    expect(envExample).toContain("CORS_ORIGIN=http://localhost:3210");
+  });
+
+  it("leaves CORS_ORIGIN at the URL-derived port when host.port is unset", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-cors-url-"));
+    tempDirs.push(dir);
+
+    writeGeneratedInfra(
+      dir,
+      buildRuntimeConfig({
+        host: { name: "host", url: "http://localhost:3055", entry: "/mf-manifest.json" },
+      }),
+    );
+    const envExample = readFileSync(join(dir, ".env.example"), "utf-8");
+    expect(envExample).toContain("CORS_ORIGIN=http://localhost:3055");
+  });
+
+  it("skips dev CORS_ORIGIN override in production env", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-cors-prod-"));
+    tempDirs.push(dir);
+
+    writeGeneratedInfra(
+      dir,
+      buildRuntimeConfig({
+        env: "production",
+        host: {
+          name: "host",
+          url: "http://localhost:3210",
+          entry: "/mf-manifest.json",
+          port: 3210,
+        },
+      }),
+    );
+    const envExample = readFileSync(join(dir, ".env.example"), "utf-8");
+    expect(envExample).toContain("CORS_ORIGIN=http://localhost:3000");
+  });
+
+  it("persists and reloads devPorts via loadPortState/savePortState", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-devports-"));
+    tempDirs.push(dir);
+
+    savePortState(dir, {
+      postgresPorts: {},
+      redisPorts: {},
+      devPorts: { host: 3100, api: 3101, ui: 3103, pluginPortStart: 3110 },
+    });
+    const loaded = loadPortState(dir);
+    expect(loaded.devPorts?.host).toBe(3100);
+    expect(loaded.devPorts?.api).toBe(3101);
+    expect(loaded.devPorts?.pluginPortStart).toBe(3110);
+  });
+
+  it("devPorts round-trips undefined slots for remote services (Bug A)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-devports-remote-"));
+    tempDirs.push(dir);
+
+    savePortState(dir, {
+      postgresPorts: {},
+      redisPorts: {},
+      devPorts: {
+        host: 3100,
+        api: undefined,
+        ui: 3103,
+        auth: undefined,
+        pluginPortStart: undefined,
+      },
+    });
+    const loaded = loadPortState(dir);
+    expect(loaded.devPorts?.host).toBe(3100);
+    expect(loaded.devPorts?.api).toBeUndefined();
+    expect(loaded.devPorts?.ui).toBe(3103);
+    expect(loaded.devPorts?.auth).toBeUndefined();
+    expect(loaded.devPorts?.pluginPortStart).toBeUndefined();
+  });
+
+  it("loadPortState tolerates missing devPorts on existing state files", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-devports-legacy-"));
+    tempDirs.push(dir);
+
+    mkdirSync(join(dir, ".bos"), { recursive: true });
+    writeFileSync(
+      join(dir, ".bos", "infra-state.json"),
+      JSON.stringify({ postgresPorts: { api: 5432 }, redisPorts: {} }),
+    );
+    const loaded = loadPortState(dir);
+    expect(loaded.devPorts).toBeUndefined();
+    expect(loaded.postgresPorts.api).toBe(5432);
   });
 });

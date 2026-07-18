@@ -19,12 +19,14 @@
         "effect": "catalog:",
         "every-plugin": "catalog:",
         "everything-dev": "catalog:",
+        "pg": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
         "@biomejs/biome": "2.4.14",
         "@changesets/cli": "^2.29.8",
         "@types/bun": "latest",
+        "@types/pg": "catalog:",
         "dotenv": "^17.3.1",
         "tsx": "^4.21.0",
         "vite-tsconfig-paths": "^6.1.1",
@@ -108,7 +110,7 @@
     },
     "packages/every-plugin": {
       "name": "every-plugin",
-      "version": "2.9.0",
+      "version": "2.9.1",
       "dependencies": {
         "@module-federation/enhanced": "catalog:",
         "@module-federation/node": "catalog:",
@@ -149,7 +151,7 @@
     },
     "packages/everything-dev": {
       "name": "everything-dev",
-      "version": "1.47.0",
+      "version": "1.48.0",
       "bin": {
         "everything-dev": "./dist/cli.mjs",
         "bos": "./dist/cli.mjs",
@@ -381,8 +383,8 @@
     "drizzle-kit": "^0.31.8",
     "drizzle-orm": "^0.45.1",
     "effect": "3.21.2",
-    "every-plugin": "^2.9.0",
-    "everything-dev": "^1.47.0",
+    "every-plugin": "^2.9.1",
+    "everything-dev": "^1.48.0",
     "near-kit": "^0.14.0",
     "pg": "^8.12.0",
     "react": "19.2.4",
