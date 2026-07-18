@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { StatusResult } from "../contract";
 import { fetchBosConfigFromFastKv } from "../fastkv";
 import { fetchJsonOrNull } from "../http-client";
-import { readInstalledFrameworkVersion } from "./framework-version";
+import { readInstalledFrameworkVersion, resolveFrameworkPackage } from "./framework-version";
 import { readSnapshot } from "./snapshot";
 
 const FRAMEWORK_PACKAGES = ["everything-dev", "every-plugin"];
@@ -70,9 +70,15 @@ export async function getStatus(projectDir: string): Promise<StatusResult> {
 
   const packages = await Promise.all(
     packageNames.map(async (name) => {
-      const installed = readInstalledVersion(projectDir, name);
+      const resolved = resolveFrameworkPackage(projectDir, name);
       const latest = await fetchLatestNpmVersion(name);
-      return { name, installed, latest: latest ?? undefined };
+      return {
+        name,
+        installed: resolved.installedVersion,
+        latest: latest ?? undefined,
+        isLinked: resolved.isLinked,
+        specifier: resolved.specifier,
+      };
     }),
   );
 

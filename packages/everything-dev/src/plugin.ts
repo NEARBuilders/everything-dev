@@ -3,13 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { Effect } from "effect";
-import {
-  buildRuntimeConfig,
-  type DevPortOptions,
-  detectLocalPackages,
-  PortAllocatorLive,
-  prepareDevelopmentRuntimeConfig,
-} from "./app";
+import { buildRuntimeConfig, detectLocalPackages, PortAllocatorLive } from "./app";
 import {
   buildEveryPluginQuietly,
   buildEverythingDevQuietly,
@@ -21,9 +15,8 @@ import {
 } from "./build";
 import {
   ensureEnvFile,
-  loadPortState,
   loadProjectEnv,
-  savePortState,
+  materializeInfraPlan,
   syncGeneratedInfra,
   writeGeneratedInfra,
 } from "./cli/infra";
@@ -75,6 +68,9 @@ import {
   type PluginManifest,
   parseBosUrl,
 } from "./fastkv";
+import { planInfra } from "./infra/planner";
+import { preflightLocalInfra } from "./infra/preflight";
+import type { InfraPlan } from "./infra/types";
 import { computeSriHashForUrl, parseDeployLines } from "./integrity";
 import { type BosEnv, mergeBosConfigWithExtends, resolveExtendsRef } from "./merge";
 import { addFunctionCallAccessKey, ensureNearCli } from "./near-cli";
@@ -86,6 +82,7 @@ import {
   type AppOrchestrator,
   buildDescription,
   buildServiceDescriptorMap,
+  buildServiceDescriptorMapFromPlan,
   type ServiceDescriptor,
 } from "./service-descriptor";
 import { syncResolvedSharedDeps } from "./shared-deps";
@@ -654,11 +651,6 @@ export default createPlugin({
         };
       }
 
-      const persistedPorts = loadPortState(deps.configDir).devPorts;
-      const hostPreferredPort =
-        input.port ??
-        persistedPorts?.host ??
-        getHostDevelopmentPort(deps.bosConfig.app.host.development);
       suppressWarnings();
       const developmentRuntime = buildRuntimeConfig(deps.bosConfig, {
         uiSource,
@@ -670,80 +662,99 @@ export default createPlugin({
       });
       drainConfigWarnings();
       resumeWarnings();
-      const portOptions: DevPortOptions = {
-        hostPort: hostPreferredPort,
-        apiPort: input.apiPort ?? persistedPorts?.api,
-        uiPort: input.uiPort ?? persistedPorts?.ui,
-        authPort: input.authPort ?? persistedPorts?.auth,
-        pluginPortStart: input.pluginPortStart ?? persistedPorts?.pluginPortStart,
-        ssr,
-      };
-      const { runtimeConfig, devPorts } = await timePhase(devTimings, "ports", () =>
+
+      const plan: InfraPlan = await timePhase(devTimings, "ports", () =>
         Effect.runPromise(
-          prepareDevelopmentRuntimeConfig(developmentRuntime, portOptions).pipe(
-            Effect.provide(PortAllocatorLive),
-          ),
+          planInfra({
+            configDir: deps.configDir,
+            bosConfig: developmentRuntime,
+            cli: {
+              port: input.port,
+              apiPort: input.apiPort,
+              authPort: input.authPort,
+              uiPort: input.uiPort,
+              pluginPortStart: input.pluginPortStart,
+              ssr,
+              proxy,
+              hostSource,
+              uiSource,
+              apiSource,
+              authSource,
+              interactive: input.interactive,
+            },
+          }).pipe(Effect.provide(PortAllocatorLive)),
         ),
       );
 
-      const priorState = loadPortState(deps.configDir);
-      savePortState(deps.configDir, {
-        postgresPorts: priorState.postgresPorts,
-        redisPorts: priorState.redisPorts,
-        devPorts,
-      });
+      const mergedEnv: Record<string, string> = { ...plan.envGenerated };
+      for (const [k, v] of Object.entries(process.env)) {
+        if (v != null && !(k in plan.envGenerated)) {
+          mergedEnv[k] = v;
+        }
+      }
+      const preflightFailures = await Effect.runPromise(
+        preflightLocalInfra(plan.envGenerated, mergedEnv),
+      );
+      if (preflightFailures.length > 0) {
+        const messages = preflightFailures.map((f) => f.error).join("; ");
+        return {
+          status: "error" as const,
+          description: `Infra preflight failed: ${messages}`,
+          processes: [],
+          timings: devTimings,
+        };
+      }
 
-      syncGeneratedInfra(deps.configDir, runtimeConfig);
+      const services = buildServiceDescriptorMapFromPlan(plan, { ssr, proxy });
+      materializeInfraPlan(
+        deps.configDir,
+        plan.envGenerated,
+        plan.composeModel.databases.map((d) => ({
+          serviceName: `postgres-${d.slug.replace(/_/g, "-")}`,
+          containerName: d.containerName,
+          port: d.port,
+          volumeName: d.volumeName,
+          databaseName: d.dbName,
+        })),
+        plan.composeModel.redis.map((r) => ({
+          serviceName: `redis-${r.slug.replace(/_/g, "-")}`,
+          containerName: r.containerName,
+          port: r.port,
+          volumeName: r.volumeName,
+        })),
+        plan.runtimeConfig.account,
+        plan.resolvedPorts.host,
+      );
       ensureEnvFile(deps.configDir);
       loadProjectEnv(deps.configDir);
+
+      const packages = [...plan.serviceDescriptors.keys()];
+      if (process.env.DEBUG === "true" || process.env.DEBUG === "1") {
+        console.error("[DEBUG dev] services keys:", packages.join(", "));
+      }
+      const apiSvc = services.get("api");
+      if (apiSvc?.proxy) {
+        const proxyUrl = resolveProxyUrl(deps.bosConfig);
+        if (proxyUrl) plan.orchestrator.env.API_PROXY = proxyUrl;
+      }
+
+      pendingSession = {
+        orchestrator: plan.orchestrator,
+        services,
+        runtimeConfig: plan.runtimeConfig,
+      };
 
       await timePhase(devTimings, "generate artifacts", () =>
         generateCodeArtifacts(deps.configDir, deps.bosConfig!, {
           env: "development",
           extendsChain: devExtendsChain,
-          runtimeConfig,
+          runtimeConfig: plan.runtimeConfig,
         }),
       );
 
-      const services = buildServiceDescriptorMap(runtimeConfig, { ssr, proxy });
-      const packages = [...services.keys()];
-      if (process.env.DEBUG === "true" || process.env.DEBUG === "1") {
-        console.error("[DEBUG dev] services keys:", packages.join(", "));
-        console.error(
-          "[DEBUG dev] services sources:",
-          packages.map((k) => `${k}=${services.get(k)?.source ?? "?"}`).join(", "),
-        );
-        console.error(
-          "[DEBUG dev] runtimeConfig.plugins keys:",
-          Object.keys(runtimeConfig.plugins ?? {}).join(", "),
-        );
-        console.error(
-          "[DEBUG dev] runtimeConfig.plugins sources:",
-          Object.entries(runtimeConfig.plugins ?? {})
-            .map(([k, v]) => `${k}=${v.source}`)
-            .join(", "),
-        );
-      }
-      const displayEnv: Record<string, string> = {};
-      const apiDescriptor = services.get("api");
-      if (apiDescriptor?.proxy) {
-        const proxyUrl = resolveProxyUrl(deps.bosConfig);
-        if (proxyUrl) displayEnv.API_PROXY = proxyUrl;
-      }
-
-      const orchestrator: AppOrchestrator = {
-        packages,
-        env: displayEnv,
-        description: buildDescription(services),
-        port: runtimeConfig.host.port,
-        interactive: input.interactive,
-      };
-
-      pendingSession = { orchestrator, services, runtimeConfig };
-
       return {
         status: "started" as const,
-        description: orchestrator.description,
+        description: buildDescription(services) || plan.description,
         processes: packages,
         timings: devTimings,
       };
@@ -890,11 +901,28 @@ export default createPlugin({
         warnings.push(`Missing ${missingSecrets.length} secret(s): ${missingSecrets.join(", ")}`);
       }
 
-      const services = buildServiceDescriptorMap(runtimeConfig);
-
       const stagingEnvVars: Record<string, string> = isStaging
         ? { BOS_GATEWAY: config.staging?.domain ?? config.domain ?? "" }
         : {};
+
+      const plan: InfraPlan = await Effect.runPromise(
+        planInfra({
+          configDir: deps.configDir,
+          bosConfig: runtimeConfig,
+          cli: {
+            port: input.port,
+            ssr: false,
+            proxy: false,
+            hostSource: "remote",
+            uiSource: "remote",
+            apiSource: "remote",
+            authSource: "remote",
+            interactive: input.interactive,
+          },
+        }).pipe(Effect.provide(PortAllocatorLive)),
+      );
+
+      const services = buildServiceDescriptorMap(runtimeConfig);
 
       const configSource = remoteConfig
         ? `bos://${account}/${domain}`
@@ -923,9 +951,10 @@ export default createPlugin({
           NODE_ENV: "production",
           ...productionEnv,
           ...stagingEnvVars,
+          ...plan.launch.env,
         },
         description: `${isStaging ? "Staging" : "Production"} Mode (${config.account})`,
-        port,
+        port: plan.resolvedPorts.host ?? port,
         interactive: input.interactive,
         noLogs: true,
       };
@@ -937,7 +966,7 @@ export default createPlugin({
 
       return {
         status: "running" as const,
-        url: `http://localhost:${port}`,
+        url: plan.launch.hostUrl ?? `http://localhost:${plan.resolvedPorts.host ?? port}`,
       };
     }),
 

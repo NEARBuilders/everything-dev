@@ -104,7 +104,7 @@ function readCurrentPackageSpecifier(projectDir: string, packageName: string): s
       );
     }
 
-    if (value.startsWith("workspace:") || value.startsWith("file:")) {
+    if (value.startsWith("workspace:") || value.startsWith("file:") || value.startsWith("link:")) {
       return readInstalledVersion(projectDir, packageName);
     }
 
@@ -196,7 +196,7 @@ function packageObjectNeedsCatalogRefs(
     for (const packageName of packageNames) {
       const value = field[packageName];
       if (!value) continue;
-      if (value !== "catalog:" && !value.startsWith("file:")) {
+      if (value !== "catalog:" && !value.startsWith("file:") && !value.startsWith("link:")) {
         return true;
       }
     }

@@ -249,6 +249,16 @@ export const ServiceDescriptorMapLive = (map: Map<string, ServiceDescriptor>) =>
 export const DevRuntimeConfigLive = (config: RuntimeConfig) =>
   Layer.succeed(DevRuntimeConfig, config);
 
+export function buildServiceDescriptorMapFromPlan(
+  plan: {
+    runtimeConfig: RuntimeConfig;
+    resolvedPorts: { host?: number; api?: number; auth?: number; ui?: number; uiSsr?: number };
+  },
+  options?: { ssr?: boolean; proxy?: boolean },
+): Map<string, ServiceDescriptor> {
+  return buildServiceDescriptorMap(plan.runtimeConfig, options);
+}
+
 export function buildDescription(map: Map<string, ServiceDescriptor>): string {
   const descriptors = [...map.values()].filter(
     (d) => d.key !== "ui-ssr" && !d.key.startsWith("plugin:"),

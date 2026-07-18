@@ -1,5 +1,6 @@
 import { dirname, resolve } from "node:path";
 import * as p from "@clack/prompts";
+import { resolveFrameworkPackage } from "./cli/framework-version";
 import { findCommandDescriptor } from "./cli/catalog";
 import { printHelp } from "./cli/help";
 import { loadProjectEnv } from "./cli/infra";
@@ -119,13 +120,25 @@ async function warnIfOutdated(client: any, command: string): Promise<void> {
 
     const frameworkPackages = ["everything-dev", "every-plugin"];
 
+    const linked = status.packages.filter(
+      (p: { isLinked?: boolean }) => p.isLinked,
+    );
     const outdated = status.packages.filter(
-      (p: { name: string; installed?: string; latest?: string }) =>
+      (p: { name: string; installed?: string; latest?: string; isLinked?: boolean }) =>
+        !p.isLinked &&
         p.installed &&
         p.latest &&
         normalizeVersion(p.installed) !== normalizeVersion(p.latest) &&
         frameworkPackages.includes(p.name),
     );
+
+    if (linked.length > 0) {
+      for (const pkg of linked) {
+        console.log(
+          colors.dim(`    ${pkg.name} is linked locally (v${pkg.installed})`),
+        );
+      }
+    }
 
     if (outdated.length === 0) return;
 
@@ -166,7 +179,14 @@ async function main() {
   const { descriptor, consumed } = commandMatch;
   const commandArgs = invocationArgs.slice(consumed);
 
-  printBanner();
+  const projectDir = configPath ? dirname(configPath) : undefined;
+  const edResolved = projectDir
+    ? resolveFrameworkPackage(projectDir, "everything-dev")
+    : undefined;
+  const displayVersion = edResolved?.installedVersion
+    ? `${edResolved.installedVersion}${edResolved.isLinked ? " (linked)" : ""}`
+    : undefined;
+  printBanner("everything-dev", displayVersion);
 
   const runtime = createPluginRuntime({
     registry: {

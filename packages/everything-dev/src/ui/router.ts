@@ -88,7 +88,11 @@ export async function collectHeadData(router: AnyRouter): Promise<HeadData> {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function serializeMeta(meta: HeadMeta): string {
@@ -125,8 +129,9 @@ function serializeScript(script: HeadScript, cspNonce?: string): string {
     const attrs: string[] = [];
     if (script.type) attrs.push(`type="${escapeHtml(script.type)}"`);
     if (cspNonce) attrs.push(`nonce="${cspNonce}"`);
-    const content = typeof script.children === "string" ? script.children : JSON.stringify(script.children);
-    return `<script${attrs.length ? " " + attrs.join(" ") : ""}>${content}</script>`;
+    const content =
+      typeof script.children === "string" ? script.children : JSON.stringify(script.children);
+    return `<script${attrs.length ? ` ${attrs.join(" ")}` : ""}>${content}</script>`;
   }
   return "";
 }
@@ -136,8 +141,17 @@ export function serializeHeadData(
   cspNonce?: string,
 ): { metaHtml: string; linkHtml: string; scriptHtml: string } {
   return {
-    metaHtml: headData.meta.filter(Boolean).map((m) => serializeMeta(m)).join("\n"),
-    linkHtml: headData.links.filter(Boolean).map((l) => serializeLink(l)).join("\n"),
-    scriptHtml: headData.scripts.filter(Boolean).map((s) => serializeScript(s, cspNonce)).join("\n"),
+    metaHtml: headData.meta
+      .filter(Boolean)
+      .map((m) => serializeMeta(m))
+      .join("\n"),
+    linkHtml: headData.links
+      .filter(Boolean)
+      .map((l) => serializeLink(l))
+      .join("\n"),
+    scriptHtml: headData.scripts
+      .filter(Boolean)
+      .map((s) => serializeScript(s, cspNonce))
+      .join("\n"),
   };
 }

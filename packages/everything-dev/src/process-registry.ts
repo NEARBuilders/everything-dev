@@ -11,12 +11,7 @@ export interface PidEntry {
   configDir: string;
   parentPid?: number;
   role: ProcessRole;
-  ports: {
-    host?: number;
-    api?: number;
-    ui?: number;
-    auth?: number;
-  };
+  ports: Record<string, number>;
   budget?: { min: number; max: number };
   startedAt: number;
   description: string;
@@ -134,7 +129,7 @@ export function claimedPorts(): Set<number> {
   const live = pruneDead(readRegistry());
   const out = new Set<number>();
   for (const entry of live) {
-    for (const port of [entry.ports.host, entry.ports.api, entry.ports.ui, entry.ports.auth]) {
+    for (const port of Object.values(entry.ports)) {
       if (typeof port === "number") out.add(port);
     }
   }

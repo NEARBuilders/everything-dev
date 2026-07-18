@@ -279,6 +279,8 @@ export const StatusResultSchema = z.object({
       name: z.string(),
       installed: z.string().optional(),
       latest: z.string().optional(),
+      isLinked: z.boolean().optional(),
+      specifier: z.string().optional(),
     }),
   ),
   lastSync: z.string().optional(),

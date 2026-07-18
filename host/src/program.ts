@@ -26,10 +26,10 @@ import { proxy } from "hono/proxy";
 import { NONCE, secureHeaders } from "hono/secure-headers";
 import { timeout } from "hono/timeout";
 import { rateLimiter } from "hono-rate-limiter";
-import type { HeadData, RouterModule } from "./types";
 import type { AuthVariables } from "./lib/auth";
 import { buildPluginContext, createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { type ClientRuntimeConfig, ConfigService, type RuntimeConfig } from "./services/config";
+import type { HeadData, RouterModule } from "./types";
 
 type HonoEnv = { Variables: AuthVariables };
 
@@ -748,7 +748,8 @@ export const createStartServer = (onReady?: () => void) =>
         );
       }
 
-      const title = runtimeConfig.runtime?.title ?? runtimeSourceConfig.title ?? runtimeSourceConfig.account;
+      const title =
+        runtimeConfig.runtime?.title ?? runtimeSourceConfig.title ?? runtimeSourceConfig.account;
       const hydrateScript =
         (
           getHydrateScript(
@@ -1067,6 +1068,14 @@ export interface ServerHandle {
 }
 
 export const runServer = (input: ServerInput): ServerHandle => {
+  if (input.port != null) {
+    process.env.PORT = String(input.port);
+  }
+  if (input.env) {
+    for (const [key, value] of Object.entries(input.env)) {
+      process.env[key] = value;
+    }
+  }
   const ConfigLive = Layer.succeed(ConfigService, input.config);
   const ServerLive = Layer.provideMerge(PluginsService.Live, ConfigLive);
 

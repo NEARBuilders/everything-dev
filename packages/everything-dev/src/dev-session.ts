@@ -113,15 +113,30 @@ export const runDevSession = (
 
     const isWorkspaceChild = process.env.BOS_WORKSPACE_CHILD === "1";
     if (!isWorkspaceChild) {
+      const regPorts: Record<string, number> = {};
+      const addPort = (key: string, value: number | undefined | null) => {
+        if (value != null) regPorts[key] = value;
+      };
+      addPort("host", runtimeConfig.host.port);
+      addPort("api", runtimeConfig.api.port);
+      addPort("ui", runtimeConfig.ui.port);
+      addPort("auth", runtimeConfig.auth?.port);
+      addPort(
+        "uiSsr",
+        runtimeConfig.ui.ssrUrl
+          ? Number.parseInt(new URL(runtimeConfig.ui.ssrUrl).port, 10)
+          : undefined,
+      );
+      if (runtimeConfig.plugins) {
+        for (const [id, plugin] of Object.entries(runtimeConfig.plugins)) {
+          addPort(`plugin:${id}`, plugin.port);
+          addPort(`plugin-ui:${id}`, plugin.ui?.port);
+        }
+      }
       registerStandalone({
         pid: process.pid,
         configDir,
-        ports: {
-          host: runtimeConfig.host.port,
-          api: runtimeConfig.api.port,
-          ui: runtimeConfig.ui.port,
-          auth: runtimeConfig.auth?.port,
-        },
+        ports: regPorts,
         startedAt: Date.now(),
         description: orchestrator.description,
       });
