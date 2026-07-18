@@ -347,8 +347,14 @@ export const initializePlugins = Effect.gen(function* () {
           config: config.auth,
         };
         try {
+          const devHostUrl =
+            config.host?.url
+              ?.replace(/\/remoteEntry\.js$/, "")
+              .replace(/\/mf-manifest\.json$/, "") ??
+            `http://localhost:${config.host?.port ?? 3000}`;
+          const devBaseUrl = config.env === "development" ? devHostUrl : undefined;
           const normalizedDomain = normalizeDomain(
-            config.env === "development" ? "localhost:3000" : config.domain,
+            config.env === "development" ? (devBaseUrl ?? "http://localhost:3000") : config.domain,
             config.env,
           );
           const authBaseVariables: Record<string, unknown> = {
@@ -372,7 +378,14 @@ export const initializePlugins = Effect.gen(function* () {
           authClient = authPlugin.createClient;
           logger.info(`[Plugins] Auth plugin loaded: ${authPlugin.name}`);
         } catch (error) {
+          const dbUrl = process.env.AUTH_DATABASE_URL || "unset";
           logger.error(`[Plugins] Failed to load auth plugin: ${formatError(error)}`);
+          logger.error(`[Plugins] Auth DB URL: ${dbUrl.replace(/:[^:@]+@/, ":****@")}`);
+          if (dbUrl === "unset") {
+            logger.error(
+              `[Plugins] Set AUTH_DATABASE_URL in your .env file or ensure local postgres is running for auth plugin initialization`,
+            );
+          }
         }
       }
 
@@ -397,6 +410,8 @@ export const initializePlugins = Effect.gen(function* () {
           pluginsClient[key] = result.value.createClient;
         } else {
           const msg = formatError(result.reason);
+          const entryUrl = entry?.config?.url ?? "unknown";
+          logger.error(`[Plugins] Plugin "${key}" (${entryUrl}) failed: ${msg}`);
           errors.push(msg);
           pluginsClient[key] = () => {
             throw new Error(`Plugin "${key}" failed to load: ${msg}`);
@@ -419,7 +434,14 @@ export const initializePlugins = Effect.gen(function* () {
           loadedPlugins.api = baseApi;
           loadedPluginKeys.unshift("api");
         } catch (error) {
-          errors.push(formatError(error));
+          const dbUrl = process.env.API_DATABASE_URL || "unset";
+          const msg = `${formatError(error)} [DB: ${dbUrl === "unset" ? "unset" : dbUrl.replace(/:[^:@]+@/, ":****@")}]`;
+          errors.push(msg);
+          if (dbUrl === "unset") {
+            logger.warn(
+              `[Plugins] API plugin failed — set API_DATABASE_URL in .env or start local postgres`,
+            );
+          }
         }
       }
 

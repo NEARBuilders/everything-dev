@@ -119,19 +119,22 @@ export function preflightLocalInfra(
           const ok = yield* checkPgConnection(target.url);
           if (ok) return null;
           const tcpOk = yield* checkTcpReachable(target.host, target.port);
+          const pluginContext = target.secret.endsWith("_DATABASE_URL")
+            ? ` The plugin for ${target.secret} runs inside the local host process, so this DB must be reachable. Run \`docker compose up -d --wait\` to start local Postgres/Redis.`
+            : "";
           if (tcpOk) {
             return {
               secret: target.secret,
               host: target.host,
               port: target.port,
-              error: `${target.secret} at ${target.host}:${target.port} is reachable but Postgres connection failed`,
+              error: `${target.secret} at ${target.host}:${target.port} is reachable but Postgres connection failed. Check credentials and database name.${pluginContext}`,
             } satisfies PreflightFailure;
           }
           return {
             secret: target.secret,
             host: target.host,
             port: target.port,
-            error: `${target.secret} points to ${target.host}:${target.port} but nothing is listening`,
+            error: `${target.secret} points to ${target.host}:${target.port} but nothing is listening.${pluginContext}`,
           } satisfies PreflightFailure;
         }
 

@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 import * as p from "@clack/prompts";
-import { resolveFrameworkPackage } from "./cli/framework-version";
 import { findCommandDescriptor } from "./cli/catalog";
+import { resolveFrameworkPackage } from "./cli/framework-version";
 import { printHelp } from "./cli/help";
 import { loadProjectEnv } from "./cli/infra";
 import { fetchParentConfig, runDockerComposeUp } from "./cli/init";
@@ -120,9 +120,7 @@ async function warnIfOutdated(client: any, command: string): Promise<void> {
 
     const frameworkPackages = ["everything-dev", "every-plugin"];
 
-    const linked = status.packages.filter(
-      (p: { isLinked?: boolean }) => p.isLinked,
-    );
+    const linked = status.packages.filter((p: { isLinked?: boolean }) => p.isLinked);
     const outdated = status.packages.filter(
       (p: { name: string; installed?: string; latest?: string; isLinked?: boolean }) =>
         !p.isLinked &&
@@ -134,9 +132,7 @@ async function warnIfOutdated(client: any, command: string): Promise<void> {
 
     if (linked.length > 0) {
       for (const pkg of linked) {
-        console.log(
-          colors.dim(`    ${pkg.name} is linked locally (v${pkg.installed})`),
-        );
+        console.log(colors.dim(`    ${pkg.name} is linked locally (v${pkg.installed})`));
       }
     }
 
@@ -180,9 +176,7 @@ async function main() {
   const commandArgs = invocationArgs.slice(consumed);
 
   const projectDir = configPath ? dirname(configPath) : undefined;
-  const edResolved = projectDir
-    ? resolveFrameworkPackage(projectDir, "everything-dev")
-    : undefined;
+  const edResolved = projectDir ? resolveFrameworkPackage(projectDir, "everything-dev") : undefined;
   const displayVersion = edResolved?.installedVersion
     ? `${edResolved.installedVersion}${edResolved.isLinked ? " (linked)" : ""}`
     : undefined;

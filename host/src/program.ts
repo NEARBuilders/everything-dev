@@ -1060,6 +1060,8 @@ export const createStartServer = (onReady?: () => void) =>
 
 export interface ServerInput {
   config: RuntimeConfig;
+  port?: number;
+  env?: Record<string, string>;
 }
 
 export interface ServerHandle {

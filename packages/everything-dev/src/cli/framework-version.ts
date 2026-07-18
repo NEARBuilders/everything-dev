@@ -35,10 +35,7 @@ export function readNodeModulesVersion(
   return pkg.version;
 }
 
-function readSpecifier(
-  pkg: Record<string, unknown>,
-  packageName: string,
-): string | undefined {
+function readSpecifier(pkg: Record<string, unknown>, packageName: string): string | undefined {
   const deps = (pkg.dependencies ?? {}) as Record<string, string>;
   const devDeps = (pkg.devDependencies ?? {}) as Record<string, string>;
   const peerDeps = (pkg.peerDependencies ?? {}) as Record<string, string>;
