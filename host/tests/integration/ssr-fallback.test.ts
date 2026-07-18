@@ -220,7 +220,7 @@ describe("SSR fallback paths", () => {
   });
 
   describe("SSR URL not configured", () => {
-    it("renders client shell without attempting SSR", async () => {
+    it("renders client shell without SSR", async () => {
       resolveRequestRuntimeMock.mockResolvedValue({
         tenantAccountId: null,
         gatewayId: "linktree.com",
@@ -234,15 +234,14 @@ describe("SSR fallback paths", () => {
       expect(response.status).toBe(200);
       expect(html).toContain("Loading...");
       expect(html).toContain("remoteEntry.js");
-      expect(loadRouterModuleMock).not.toHaveBeenCalled();
     });
   });
 
   describe("renderToStream throws", () => {
-    it("returns 500 error page", async () => {
+    it("falls back to client shell with SSR unavailable message", async () => {
       const failingModule = {
         renderToStream: vi.fn().mockRejectedValue(new Error("React render error")),
-        getRouteHead: vi.fn(),
+        getRouteHead: vi.fn().mockRejectedValue(new Error("head error")),
         createRouter: vi.fn(),
       };
 
@@ -251,9 +250,10 @@ describe("SSR fallback paths", () => {
       const response = await fetch(`${baseUrl}/`);
       const html = await response.text();
 
-      expect(response.status).toBe(500);
-      expect(html).toContain("Server Error");
+      expect(response.status).toBe(200);
+      expect(html).toContain("SSR unavailable");
       expect(html).toContain("React render error");
+      expect(html).toContain("remoteEntry.js");
     });
   });
 

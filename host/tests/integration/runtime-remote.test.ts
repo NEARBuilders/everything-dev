@@ -56,7 +56,9 @@ for (const scenario of scenarios) {
       ]);
 
       expect(skillResponse.status).toBe(200);
+      expect(skillResponse.headers.get("content-type") ?? "").not.toContain("text/html");
       expect(llmsResponse.status).toBe(200);
+      expect(llmsResponse.headers.get("content-type") ?? "").not.toContain("text/html");
 
       await Promise.all([readText(skillResponse), readText(llmsResponse)]);
     });

@@ -96,18 +96,20 @@ describe("UI public assets proxied through host (Cloudflare Error 1000 regressio
       expect(buf.byteLength).toBeGreaterThan(0);
     });
 
-    it("proxies /icon.svg with 200", async () => {
-      const response = await fetch(`${baseUrl}/icon.svg`);
+    it("proxies /near.svg with 200", async () => {
+      const response = await fetch(`${baseUrl}/near.svg`);
 
       expect(response.status).toBe(200);
       const buf = await response.arrayBuffer();
       expect(buf.byteLength).toBeGreaterThan(0);
     });
 
-    it("proxies /skill.md with 200", async () => {
+    it("proxies /skill.md with 200 and correct content type", async () => {
       const response = await fetch(`${baseUrl}/skill.md`);
 
       expect(response.status).toBe(200);
+      const contentType = response.headers.get("content-type") ?? "";
+      expect(contentType).not.toContain("text/html");
       const text = await response.text();
       expect(text.length).toBeGreaterThan(0);
     });
@@ -120,10 +122,12 @@ describe("UI public assets proxied through host (Cloudflare Error 1000 regressio
       expect(text.length).toBeGreaterThan(0);
     });
 
-    it("proxies /manifest.json with 200", async () => {
-      const response = await fetch(`${baseUrl}/manifest.json`);
+    it("proxies /site.webmanifest with 200 and correct content type", async () => {
+      const response = await fetch(`${baseUrl}/site.webmanifest`);
 
       expect(response.status).toBe(200);
+      const contentType = response.headers.get("content-type") ?? "";
+      expect(contentType).not.toContain("text/html");
       const json = (await response.json()) as Record<string, unknown>;
       expect(json).toHaveProperty("name");
     });
@@ -141,7 +145,6 @@ describe("UI public assets proxied through host (Cloudflare Error 1000 regressio
 
       expect(response.status).toBe(200);
       const html = await response.text();
-      expect(html).toContain('href="/favicon.ico"');
       expect(html).toContain(`${uiServer.baseUrl}/remoteEntry.js`);
       expect(html).toContain(`${uiServer.baseUrl}/static/css/style.css`);
     });

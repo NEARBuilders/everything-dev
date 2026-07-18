@@ -25,4 +25,4 @@ Useful public paths:
 - /apps
 - /README.md
 - /skill.md
-- /manifest.json
+- /site.webmanifest

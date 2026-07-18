@@ -33,7 +33,7 @@ The bootstrap root is published from `dev.everything.near/everything.dev` and co
 - `/README.md` - human-readable overview
 - `/skill.md` - agent-oriented usage notes
 - `/llms.txt` - concise machine-ingestible summary
-- `/manifest.json` - install and browser metadata
+- `/site.webmanifest` - install and browser metadata
 
 ## Related ideas
 
