@@ -27,7 +27,18 @@ export default createPlugin.withPlugins<PluginsClient>()({
   variables: z.object({}),
 
   secrets: z.object({
-    API_DATABASE_URL: z.string().default("pglite:.bos/api/:memory:"),
+    API_DATABASE_URL: z.string().refine(
+      (val) => {
+        if (process.env.NODE_ENV === "production" && val.startsWith("pglite:")) {
+          return false;
+        }
+        return true;
+      },
+      {
+        message:
+          "API_DATABASE_URL must be a production database URL in production (pglite: is not supported)",
+      },
+    ),
   }),
 
   context: ContextSchema,

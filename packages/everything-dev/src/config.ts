@@ -482,7 +482,11 @@ export function readBosConfigForBuild(configDir: string): Record<string, unknown
         const { _resolved, ...configData } = raw;
         return configData as Record<string, unknown>;
       }
-    } catch {}
+    } catch (e) {
+      console.warn(
+        `[Config] Failed to parse _resolved.json, falling back to bos.config.json: ${e}`,
+      );
+    }
   }
   const bosConfigPath = join(configDir, "bos.config.json");
   return JSON.parse(readFileSync(bosConfigPath, "utf-8")) as Record<string, unknown>;
@@ -1070,7 +1074,9 @@ export function resolvePluginRuntimeName(
     if (typeof packageJson.name === "string" && packageJson.name.length > 0) {
       return packageJson.name;
     }
-  } catch {}
+  } catch (e) {
+    console.warn(`[Config] Could not read package.json at ${localPath}: ${e}`);
+  }
 
   return fallback;
 }

@@ -18,7 +18,7 @@ import { formatORPCError } from "every-plugin/errors";
 import { onError } from "every-plugin/orpc";
 import { getBaseStyles, getHydrateScript, getThemeInitScript } from "everything-dev/ui/head";
 import { serializeHeadData } from "everything-dev/ui/router";
-import { type Context, Hono } from "hono";
+import { type Context, Hono, type Next } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
@@ -568,6 +568,57 @@ export const createStartServer = (onReady?: () => void) =>
       ...(uiConfig.url ? [uiConfig.url] : []),
     ];
 
+    const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+    const createCsrfMiddleware = (origins: string[]) => {
+      return async (c: Context, next: Next) => {
+        if (SAFE_METHODS.has(c.req.method)) {
+          return next();
+        }
+
+        const origin = c.req.header("origin");
+        const referer = c.req.header("referer");
+
+        const isAllowedOrigin = (o: string): boolean => {
+          try {
+            const parsed = new URL(o);
+            return origins.some((allowed) => {
+              if (!allowed) return false;
+              try {
+                const allowedUrl = new URL(allowed);
+                return (
+                  parsed.protocol === allowedUrl.protocol &&
+                  parsed.hostname === allowedUrl.hostname &&
+                  parsed.port === allowedUrl.port
+                );
+              } catch {
+                return allowed === o;
+              }
+            });
+          } catch {
+            return false;
+          }
+        };
+
+        if (origin && isAllowedOrigin(origin)) {
+          return next();
+        }
+
+        if (referer) {
+          try {
+            const refererOrigin = new URL(referer).origin;
+            if (isAllowedOrigin(refererOrigin)) {
+              return next();
+            }
+          } catch {
+            // invalid referer URL — fall through to rejection
+          }
+        }
+
+        return c.json({ error: "CSRF validation failed: request origin is not allowed" }, 403);
+      };
+    };
+
     app.use(
       "/*",
       cors({
@@ -581,6 +632,8 @@ export const createStartServer = (onReady?: () => void) =>
         credentials: true,
       }),
     );
+
+    app.use("/*", createCsrfMiddleware(allowedOrigins));
 
     const staticAssetPattern =
       /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|md|webmanifest|woff2?|ttf|eot|webp|avif|map|txt|xml)$/i;

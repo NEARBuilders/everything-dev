@@ -9,7 +9,15 @@ export default defineConfig({
   out: "./src/db/migrations",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env[databaseSecret] || `pglite:.bos/${storage.slug}/:memory:`,
+    url:
+      process.env[databaseSecret] ??
+      (process.env.NODE_ENV === "production"
+        ? (() => {
+            throw new Error(
+              `Missing ${databaseSecret} — required in production for drizzle-kit operations`,
+            );
+          })()
+        : `pglite:.bos/${storage.slug}/:memory:`),
   },
   migrations: {
     schema: storage.schema,

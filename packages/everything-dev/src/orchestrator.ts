@@ -206,7 +206,11 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
           ) {
             return manifestUrl;
           }
-        } catch {}
+        } catch (e) {
+          console.warn(
+            `[Orchestrator] Failed to fetch or parse manifest from ${manifestUrl}, falling back to remoteEntryUrl: ${e}`,
+          );
+        }
         return remoteEntryUrl;
       },
       catch: () => remoteEntryUrl,
