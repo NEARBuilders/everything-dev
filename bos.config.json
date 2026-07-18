@@ -64,8 +64,7 @@
         "registryNamespace": "dev.everything.near"
       },
       "routes": [
-        "ui/src/routes/_layout/apps/**",
-        "ui/src/routes/_layout/index.tsx"
+        "ui/src/routes/_layout/apps/**"
       ],
       "integrity": "sha384-o0qElnjFE5/SA9ZQoX1Nt/m8Mo1iPu9NjDnJ8312spmjgeyqCNzvgNOUQ240etqU"
     },

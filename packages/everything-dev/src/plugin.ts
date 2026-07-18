@@ -21,6 +21,7 @@ import {
 } from "./cli/infra";
 import {
   buildInitPatterns,
+  buildPluginRouteExclusions,
   copyFilteredFiles,
   detectGitRemoteUrl,
   fetchParentConfig,
@@ -1337,11 +1338,15 @@ export default createPlugin({
             );
           } else {
             const patterns = buildInitPatterns(overrides, plugins, pluginDirMap);
+            const routeExclusions = overrides.includes("ui")
+              ? buildPluginRouteExclusions(parentConfig, plugins)
+              : [];
 
             filesCopied = await timePhase(timings, "copy files", () =>
               copyFilteredFiles(sourceDir, targetDir, patterns, {
                 overrides,
                 plugins,
+                ignore: routeExclusions,
               }),
             );
 
@@ -1366,6 +1371,7 @@ export default createPlugin({
               writeInitSnapshot(targetDir, extendsAccount, extendsGateway, sourceDir, patterns, {
                 overrides,
                 plugins,
+                ignore: routeExclusions,
               }),
             );
 

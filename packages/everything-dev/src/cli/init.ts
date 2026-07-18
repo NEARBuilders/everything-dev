@@ -243,6 +243,37 @@ export function buildInitPatterns(
   return patterns;
 }
 
+export function buildPluginRouteExclusions(
+  parentConfig: { plugins?: Record<string, unknown> } | null | undefined,
+  selectedPlugins: string[],
+): string[] {
+  if (!parentConfig?.plugins) return [];
+
+  const selected = new Set(selectedPlugins);
+  const claimedBySelected = new Set<string>();
+  const claimedByUnselected: string[] = [];
+
+  for (const [pluginKey, entry] of Object.entries(parentConfig.plugins)) {
+    const routes = extractPluginRoutes(entry);
+    if (!routes) continue;
+
+    if (selected.has(pluginKey)) {
+      for (const route of routes) claimedBySelected.add(route);
+    } else {
+      for (const route of routes) claimedByUnselected.push(route);
+    }
+  }
+
+  return claimedByUnselected.filter((route) => !claimedBySelected.has(route));
+}
+
+function extractPluginRoutes(entry: unknown): string[] | undefined {
+  if (typeof entry !== "object" || entry === null) return undefined;
+  const routes = (entry as { routes?: unknown }).routes;
+  if (!Array.isArray(routes)) return undefined;
+  return routes.filter((r): r is string => typeof r === "string");
+}
+
 export function sourcePathToDestinationPath(filePath: string): string {
   return filePath.startsWith(".github/templates/")
     ? filePath.replace(/^\.github\/templates\//, ".github/")
@@ -402,14 +433,18 @@ export async function copyFilteredFiles(
   sourceDir: string,
   destination: string,
   patterns: string[],
-  _options: {
+  options: {
     overrides: OverrideSection[];
     plugins?: string[];
+    ignore?: string[];
   },
 ): Promise<number> {
   if (patterns.length === 0) {
     return 0;
   }
+
+  const baseIgnore = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.bos/**"];
+  const ignore = options.ignore ? [...baseIgnore, ...options.ignore] : baseIgnore;
 
   const allFiles = new Set<string>();
   for (const pattern of patterns) {
@@ -418,7 +453,7 @@ export async function copyFilteredFiles(
       nodir: true,
       dot: true,
       absolute: false,
-      ignore: ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.bos/**"],
+      ignore,
     });
     for (const match of matches) {
       allFiles.add(match);
@@ -1235,11 +1270,15 @@ export async function writeInitSnapshot(
   extendsGateway: string,
   sourceDir: string,
   patterns: string[],
-  _options: {
+  options: {
     overrides: OverrideSection[];
     plugins?: string[];
+    ignore?: string[];
   },
 ): Promise<void> {
+  const baseIgnore = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.bos/**"];
+  const ignore = options.ignore ? [...baseIgnore, ...options.ignore] : baseIgnore;
+
   const allFiles = new Set<string>();
   for (const pattern of patterns) {
     const matches = await glob(pattern, {
@@ -1247,7 +1286,7 @@ export async function writeInitSnapshot(
       nodir: true,
       dot: true,
       absolute: false,
-      ignore: ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.bos/**"],
+      ignore,
     });
     for (const match of matches) {
       allFiles.add(match);

@@ -70,11 +70,8 @@ export function extractExpectedTables(migrations: { sql: string[] }[]): string[]
   for (const migration of migrations) {
     for (const stmt of migration.sql) {
       for (const match of stmt.matchAll(re)) {
-        const schemaName = match[1];
         const tableName = match[2];
-        if (schemaName) {
-          tables.add(tableName);
-        } else if (tableName) {
+        if (tableName) {
           tables.add(tableName);
         }
       }

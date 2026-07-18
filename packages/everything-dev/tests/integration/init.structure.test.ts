@@ -2,7 +2,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildInitPatterns, copyFilteredFiles, personalizeConfig } from "../../src/cli/init";
+import {
+  buildInitPatterns,
+  buildPluginRouteExclusions,
+  copyFilteredFiles,
+  personalizeConfig,
+} from "../../src/cli/init";
 import { loadManifestNormalizationSpec } from "../../src/internal/manifest-normalizer";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
@@ -85,9 +90,14 @@ describe("bos init — structure", () => {
     const noPluginsDir = mkdtempSync(join(tmpdir(), "bos-init-no-plugins-"));
     try {
       const patterns = buildInitPatterns(["ui", "api", "plugins"], []);
+      const parentConfig = JSON.parse(
+        readFileSync(join(REPO_ROOT, "bos.config.json"), "utf-8"),
+      ) as Record<string, unknown>;
+      const routeExclusions = buildPluginRouteExclusions(parentConfig, []);
       await copyFilteredFiles(REPO_ROOT, noPluginsDir, patterns, {
         overrides: ["ui", "api", "plugins"],
         plugins: [],
+        ignore: routeExclusions,
       });
       await personalizeConfig(noPluginsDir, {
         extendsAccount: "dev.everything.near",
@@ -100,6 +110,9 @@ describe("bos init — structure", () => {
       });
 
       expect(existsSync(join(noPluginsDir, "plugins"))).toBe(false);
+
+      expect(existsSync(join(noPluginsDir, "ui/src/routes/_layout/apps"))).toBe(false);
+      expect(existsSync(join(noPluginsDir, "ui/src/routes/_layout/index.tsx"))).toBe(true);
 
       const config = JSON.parse(readFileSync(join(noPluginsDir, "bos.config.json"), "utf-8"));
       expect(config.plugins).toEqual({});
