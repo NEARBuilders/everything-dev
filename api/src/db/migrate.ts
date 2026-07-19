@@ -6,9 +6,9 @@ import { sql } from "drizzle-orm";
 import { Effect } from "every-plugin/effect";
 import {
   extractExpectedTables,
-  getLegacyCandidates,
-  getMigrationStorage,
   type MigrationStorage,
+  SHARED_MIGRATION_STORAGE,
+  toSqlArray,
 } from "everything-dev/db";
 import { type Database, DatabaseError } from "./index";
 
@@ -26,12 +26,63 @@ export interface LoadedMigrations {
 }
 
 export interface DriftReport {
-  status: "healthy" | "empty" | "legacy-importable" | "drift-safe-repair" | "drift-manual";
+  status: "healthy" | "empty" | "untracked-existing-schema" | "drift-safe-repair" | "drift-manual";
   expectedTables: string[];
   missingTables: string[];
   appliedHashes: number;
   localHashes: number;
   storage: MigrationStorage;
+}
+
+/**
+ * Check which of the given expected tables already exist in the public schema,
+ * using a proper PostgreSQL array literal to avoid Drizzle's broken array binding.
+ */
+function getExistingTables(
+  db: Database,
+  tables: string[],
+): Effect.Effect<Set<string>, DatabaseError> {
+  if (tables.length === 0) return Effect.succeed(new Set<string>());
+  return Effect.tryPromise({
+    try: () =>
+      db.execute(sql`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = ANY(${sql.raw(toSqlArray(tables))})
+      `),
+    catch: (cause) =>
+      new DatabaseError({ stage: "migration", migrationTag: "preflight-table-check", cause }),
+  }).pipe(
+    Effect.map((result: any) => {
+      const existing = new Set(
+        normalizeRows<{ table_name: string }>(result).map((r) => r.table_name),
+      );
+      return existing;
+    }),
+    Effect.catchAll(() => Effect.succeed(new Set<string>())),
+  );
+}
+
+/** Read applied hashes from the migration journal, returning an empty set on failure. */
+function readAppliedHashes(
+  db: Database,
+  ref: ReturnType<typeof sql.raw>,
+): Effect.Effect<Set<string>, never> {
+  return Effect.tryPromise({
+    try: () => db.execute(sql`SELECT hash FROM ${ref}`),
+    catch: () =>
+      new DatabaseError({
+        stage: "migration",
+        migrationTag: "read-applied",
+        cause: new Error("Failed to read applied hashes"),
+      }),
+  }).pipe(
+    Effect.map((result: any) => {
+      const hashes = normalizeRows<{ hash: string }>(result).map((r) => r.hash);
+      return new Set(hashes);
+    }),
+    Effect.catchAll(() => Effect.succeed(new Set<string>())),
+  );
 }
 
 export function loadMigrations(): Effect.Effect<LoadedMigrations, DatabaseError> {
@@ -119,31 +170,58 @@ function journalRef(s: MigrationStorage): ReturnType<typeof sql> {
 export function migrate(
   db: Database,
   migrations: Migration[],
-  storage?: MigrationStorage,
+  _storage?: MigrationStorage,
 ): Effect.Effect<number, DatabaseError> {
   return Effect.gen(function* () {
     const sorted = [...migrations].sort((a, b) => a.idx - b.idx);
-    const journal = storage ?? getMigrationStorage(import.meta.dirname);
+    const journal = _storage ?? SHARED_MIGRATION_STORAGE;
 
     yield* ensureMigrationTable(db, journal);
 
-    if (storage) {
-      yield* importLegacyHashes(db, sorted, journal);
-    }
-
     const ref = journalRef(journal);
-    const rawResult = yield* Effect.tryPromise({
-      try: () => db.execute(sql`SELECT hash FROM ${ref}`),
-      catch: (cause) =>
-        new DatabaseError({ stage: "migration", migrationTag: "read-applied", cause }),
-    });
-    const appliedHashes = new Set(normalizeRows<{ hash: string }>(rawResult).map((r) => r.hash));
+    const appliedHashes = yield* readAppliedHashes(db, ref);
 
     let applied = 0;
     for (const migration of sorted) {
       const isApplied =
         appliedHashes.has(migration.hash) || appliedHashes.has(migration.hash.slice(0, 12));
       if (isApplied) continue;
+
+      // Preflight: if this migration's expected tables already exist, record it
+      // as applied rather than crashing on a duplicate DDL error.
+      const expectedTables = extractExpectedTables([migration]);
+      if (expectedTables.length > 0) {
+        const existing = yield* getExistingTables(db, expectedTables);
+        const missingTables = expectedTables.filter((t) => !existing.has(t));
+        if (missingTables.length === 0) {
+          yield* Effect.logWarning(
+            `[Database] All tables for migration ${migration.tag} already exist — ` +
+              `recording as applied without replaying DDL`,
+          );
+          yield* Effect.tryPromise({
+            try: () =>
+              db.execute(
+                sql`INSERT INTO ${ref} (hash, created_at) VALUES (${migration.hash}, ${migration.when})`,
+              ),
+            catch: (cause) =>
+              new DatabaseError({
+                stage: "migration",
+                migrationTag: migration.tag,
+                cause,
+              }),
+          });
+          appliedHashes.add(migration.hash);
+          applied++;
+          continue;
+        }
+        if (missingTables.length < expectedTables.length) {
+          yield* Effect.logWarning(
+            `[Database] Partial table overlap for migration ${migration.tag}: ` +
+              `${expectedTables.length - missingTables.length} table(s) exist but not all. ` +
+              `Applying migration — existing tables: ${expectedTables.filter((t) => existing.has(t)).join(", ")}`,
+          );
+        }
+      }
 
       yield* Effect.logInfo(`[Database] Applying migration: ${migration.tag}`);
 
@@ -205,100 +283,18 @@ function ensureMigrationTable(
   });
 }
 
-function importLegacyHashes(
-  db: Database,
-  localMigrations: Migration[],
-  storage: MigrationStorage,
-): Effect.Effect<void, DatabaseError> {
-  return Effect.gen(function* () {
-    const ref = journalRef(storage);
-
-    const existingRaw = yield* Effect.tryPromise({
-      try: () => db.execute(sql`SELECT count(*)::int AS cnt FROM ${ref}`),
-      catch: () =>
-        new DatabaseError({
-          stage: "migration",
-          migrationTag: "init-table",
-          cause: new Error("Failed to check existing count"),
-        }),
-    }).pipe(Effect.catchAll(() => Effect.succeed({ rows: [{ cnt: 0 }] })));
-
-    if ((normalizeRows<{ cnt: number }>(existingRaw)[0]?.cnt ?? 0) > 0) return;
-
-    const localHashes = [...new Set(localMigrations.map((m) => m.hash))];
-    if (localHashes.length === 0) return;
-
-    for (const candidate of getLegacyCandidates()) {
-      const candidateRef = sql.raw(`"${candidate.schema}"."${candidate.table}"`);
-
-      const legacyResult = yield* Effect.tryPromise({
-        try: () =>
-          db.execute(sql`
-            SELECT hash, created_at FROM ${candidateRef}
-            WHERE hash = ANY(${localHashes})
-          `),
-        catch: () =>
-          new DatabaseError({
-            stage: "migration",
-            migrationTag: "legacy-import",
-            cause: new Error("Legacy import query failed"),
-          }),
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-      if (!legacyResult) continue;
-      const rows = normalizeRows<{ hash: string; created_at: number }>(legacyResult);
-      if (rows.length === 0) continue;
-
-      const imported = rows.filter((r) => r.hash && r.created_at);
-      if (imported.length === 0) continue;
-
-      yield* Effect.logInfo(
-        `[Database] Importing ${imported.length} legacy migration hash(es) from ${candidate.schema}.${candidate.table}`,
-      );
-
-      for (const row of imported) {
-        yield* Effect.tryPromise({
-          try: () =>
-            db.execute(sql`
-              INSERT INTO ${ref} (hash, created_at)
-              SELECT ${row.hash}::text, ${row.created_at}::bigint
-              WHERE NOT EXISTS (
-                SELECT 1 FROM ${ref} WHERE hash = ${row.hash}
-              )
-            `),
-          catch: () =>
-            new DatabaseError({
-              stage: "migration",
-              migrationTag: "legacy-import",
-              cause: new Error("Legacy row import failed"),
-            }),
-        }).pipe(Effect.ignore);
-      }
-    }
-  });
-}
-
 export function detectDrift(
   db: Database,
   migrations: Migration[],
-  storage?: MigrationStorage,
+  _storage?: MigrationStorage,
 ): Effect.Effect<DriftReport, DatabaseError> {
   return Effect.gen(function* () {
-    const journal = storage ?? getMigrationStorage(import.meta.dirname);
+    const journal = _storage ?? SHARED_MIGRATION_STORAGE;
     const expectedTables = extractExpectedTables(migrations);
     const ref = journalRef(journal);
 
-    const rawResult = yield* Effect.tryPromise({
-      try: () => db.execute(sql`SELECT hash FROM ${ref}`),
-      catch: () =>
-        new DatabaseError({
-          stage: "migration",
-          migrationTag: "drift-check",
-          cause: new Error("Failed to read applied hashes"),
-        }),
-    }).pipe(Effect.catchAll(() => Effect.succeed({ rows: [] })));
-    const appliedHashes = normalizeRows<{ hash: string }>(rawResult);
-    const appliedCount = appliedHashes.length;
+    const appliedHashes = yield* readAppliedHashes(db, ref);
+    const appliedCount = appliedHashes.size;
 
     if (expectedTables.length === 0) {
       return {
@@ -311,38 +307,20 @@ export function detectDrift(
       };
     }
 
-    if (appliedCount === 0) {
-      const hasLegacy = yield* checkLegacyHasMatchingHashes(db, migrations);
+    const existing = yield* getExistingTables(db, expectedTables);
+    const missingTables = expectedTables.filter((t) => !existing.has(t));
+
+    if (appliedCount === 0 && missingTables.length === 0) {
+      // Journal is empty but all expected public tables already exist.
       return {
-        status: hasLegacy ? "legacy-importable" : "healthy",
+        status: "untracked-existing-schema",
         expectedTables,
-        missingTables: expectedTables,
+        missingTables: [],
         appliedHashes: 0,
         localHashes: migrations.length,
         storage: journal,
       };
     }
-
-    const tableResult = yield* Effect.tryPromise({
-      try: () =>
-        db.execute(sql`
-          SELECT table_name FROM information_schema.tables
-          WHERE table_schema = 'public'
-            AND table_name = ANY(${expectedTables})
-        `),
-      catch: () =>
-        new DatabaseError({
-          stage: "migration",
-          migrationTag: "drift-check-tables",
-          cause: new Error("Failed to check expected tables"),
-        }),
-    }).pipe(Effect.catchAll(() => Effect.succeed({ rows: [] })));
-
-    const existingTables = new Set(
-      normalizeRows<{ table_name: string }>(tableResult).map((r) => r.table_name),
-    );
-
-    const missingTables = expectedTables.filter((t) => !existingTables.has(t));
 
     if (missingTables.length === 0) {
       return {
@@ -374,38 +352,5 @@ export function detectDrift(
       localHashes: migrations.length,
       storage: journal,
     };
-  });
-}
-
-function checkLegacyHasMatchingHashes(
-  db: Database,
-  migrations: Migration[],
-): Effect.Effect<boolean, never> {
-  return Effect.gen(function* () {
-    const localHashes = [...new Set(migrations.map((m) => m.hash))];
-    if (localHashes.length === 0) return false;
-
-    for (const candidate of getLegacyCandidates()) {
-      const ref = sql.raw(`"${candidate.schema}"."${candidate.table}"`);
-      const result = yield* Effect.tryPromise({
-        try: () =>
-          db.execute(sql`
-            SELECT count(*)::int AS cnt FROM ${ref}
-            WHERE hash = ANY(${localHashes})
-          `),
-        catch: () =>
-          new DatabaseError({
-            stage: "migration",
-            migrationTag: "legacy-check",
-            cause: new Error("Legacy hash check failed"),
-          }),
-      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-      if (!result) continue;
-      const cnt = normalizeRows<{ cnt: number }>(result)[0]?.cnt ?? 0;
-      if (cnt > 0) return true;
-    }
-
-    return false;
   });
 }

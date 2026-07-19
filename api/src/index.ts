@@ -56,10 +56,12 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
       const { auth, ...restPlugins } = plugins;
       yield* Effect.logInfo("[API] Services Initialized");
-      yield* Effect.logInfo(`[API] Auth client available: ${Boolean(auth)}`);
-      yield* Effect.logInfo(
-        `[API] Plugins available: ${Object.keys(restPlugins).join(", ") || "none"}`,
-      );
+      if (Object.keys(plugins).length > 0) {
+        yield* Effect.logInfo(`[API] Auth client available: ${Boolean(auth)}`);
+        yield* Effect.logInfo(
+          `[API] Plugins available: ${Object.keys(restPlugins).join(", ") || "none"}`,
+        );
+      }
 
       return {
         auth,

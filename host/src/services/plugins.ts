@@ -1,13 +1,33 @@
 import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { createPluginRuntime } from "every-plugin";
-import { Context, Effect, Layer } from "every-plugin/effect";
+import { Context, Data, Effect, Layer } from "every-plugin/effect";
 import { IntegrityRegistry, verifyConfigAgainstChain } from "everything-dev/integrity";
 import { installIntegrityFetchHook } from "everything-dev/mf";
 import type { RuntimeConfig, SharedConfig } from "everything-dev/types";
 import { logger } from "../utils/logger";
 import { ConfigService } from "./config";
 import { PluginError } from "./errors";
+
+class PluginBootstrapError extends Data.TaggedError("PluginBootstrapError")<{
+  pluginKey: string;
+  pluginUrl?: string;
+  stage: "load" | "init" | "db-preflight" | "db-migration";
+  dbSecret?: string;
+  dbUrlMasked?: string;
+  execution: "local-host-process";
+  cause: unknown;
+}> {}
+
+function dbUrlSummary(url: string | undefined): string {
+  if (!url || url === "unset") return "unset";
+  try {
+    const u = new URL(url);
+    return `${u.hostname}:${u.port || 5432}/${u.pathname.split("/").filter(Boolean).pop() || "?"}`;
+  } catch {
+    return url.replace(/:[^:@]+@/, ":****@");
+  }
+}
 
 export interface InitializedPluginResult {
   context: unknown;
@@ -346,6 +366,8 @@ export const initializePlugins = Effect.gen(function* () {
           runtimeId: config.auth.name,
           config: config.auth,
         };
+        logger.info(`[Plugins] Loading remote auth plugin code into local host process`);
+        logger.info(`[Plugins] Using local env secrets for auth plugin initialization`);
         try {
           const devHostUrl =
             config.host?.url
@@ -379,8 +401,18 @@ export const initializePlugins = Effect.gen(function* () {
           logger.info(`[Plugins] Auth plugin loaded: ${authPlugin.name}`);
         } catch (error) {
           const dbUrl = process.env.AUTH_DATABASE_URL || "unset";
-          logger.error(`[Plugins] Failed to load auth plugin: ${formatError(error)}`);
-          logger.error(`[Plugins] Auth DB URL: ${dbUrl.replace(/:[^:@]+@/, ":****@")}`);
+          const maskedUrl = dbUrl === "unset" ? "unset" : dbUrl.replace(/:[^:@]+@/, ":****@");
+          const boostrapErr = new PluginBootstrapError({
+            pluginKey: "auth",
+            pluginUrl: authEntry.config.url,
+            stage: dbUrl === "unset" ? "init" : "db-migration",
+            dbSecret: "AUTH_DATABASE_URL",
+            dbUrlMasked: maskedUrl,
+            execution: "local-host-process",
+            cause: error,
+          });
+          logger.error(`[Plugins] Failed to load auth plugin: ${boostrapErr.message}`);
+          logger.error(`[Plugins] Auth DB URL: ${maskedUrl} (${dbUrlSummary(dbUrl)})`);
           if (dbUrl === "unset") {
             logger.error(
               `[Plugins] Set AUTH_DATABASE_URL in your .env file or ensure local postgres is running for auth plugin initialization`,
@@ -392,38 +424,45 @@ export const initializePlugins = Effect.gen(function* () {
       // Phase 1: Load all non-API plugins
       const pluginEntries = registryEntries.filter((e) => e.key !== "api");
 
-      const pluginResults = await Promise.allSettled(
-        pluginEntries.map((entry) => loadPluginEntry(runtime, entry, integrityRegistry)),
-      );
-
       const loadedPlugins: Record<string, HostPluginEntry> = {};
       const loadedPluginKeys: string[] = [];
       const pluginsClient: Record<string, unknown> = {};
       const errors: string[] = [];
 
-      pluginResults.forEach((result, index) => {
-        const entry = pluginEntries[index];
-        const key = entry?.key ?? "unknown";
-        if (result.status === "fulfilled") {
-          loadedPlugins[key] = result.value;
+      for (const entry of pluginEntries) {
+        const key = entry.key;
+        logger.info(`[Plugins] Loading remote ${key} plugin code into local host process`);
+        logger.info(`[Plugins] Using local env secrets for ${key} initialization`);
+        try {
+          const result = await loadPluginEntry(runtime, entry, integrityRegistry);
+          loadedPlugins[key] = result;
           loadedPluginKeys.push(key);
-          pluginsClient[key] = result.value.createClient;
-        } else {
-          const msg = formatError(result.reason);
-          const entryUrl = entry?.config?.url ?? "unknown";
-          logger.error(`[Plugins] Plugin "${key}" (${entryUrl}) failed: ${msg}`);
+          pluginsClient[key] = result.createClient;
+        } catch (error) {
+          const msg = formatError(error);
+          const entryUrl = entry.config?.url ?? "unknown";
+          const boostrapErr = new PluginBootstrapError({
+            pluginKey: key,
+            pluginUrl: entryUrl,
+            stage: "init",
+            execution: "local-host-process",
+            cause: error,
+          });
+          logger.error(`[Plugins] Plugin "${key}" (${entryUrl}) failed: ${boostrapErr.message}`);
           errors.push(msg);
           pluginsClient[key] = () => {
             throw new Error(`Plugin "${key}" failed to load: ${msg}`);
           };
         }
-      });
+      }
 
       // Phase 2: Load the API plugin with pluginsClient + authClient
       let baseApi: HostPluginEntry | null = null;
       const apiEntry = registryEntries.find((e) => e.key === "api");
 
       if (apiEntry) {
+        logger.info(`[Plugins] Loading remote api plugin code into local host process`);
+        logger.info(`[Plugins] Using local env secrets for api initialization`);
         try {
           const apiPluginsClient: Record<string, unknown> = { ...pluginsClient };
           if (authClient) {
@@ -435,11 +474,22 @@ export const initializePlugins = Effect.gen(function* () {
           loadedPluginKeys.unshift("api");
         } catch (error) {
           const dbUrl = process.env.API_DATABASE_URL || "unset";
-          const msg = `${formatError(error)} [DB: ${dbUrl === "unset" ? "unset" : dbUrl.replace(/:[^:@]+@/, ":****@")}]`;
-          errors.push(msg);
+          const maskedDb = dbUrl === "unset" ? "unset" : dbUrl.replace(/:[^:@]+@/, ":****@");
+          const boostrapErr = new PluginBootstrapError({
+            pluginKey: "api",
+            pluginUrl: apiEntry.config.url,
+            stage: dbUrl === "unset" ? "init" : "db-migration",
+            dbSecret: "API_DATABASE_URL",
+            dbUrlMasked: maskedDb,
+            execution: "local-host-process",
+            cause: error,
+          });
+          logger.error(`[Plugins] Failed to load api plugin: ${boostrapErr.message}`);
+          logger.error(`[Plugins] API DB URL: ${maskedDb} (${dbUrlSummary(dbUrl)})`);
+          errors.push(boostrapErr.message);
           if (dbUrl === "unset") {
-            logger.warn(
-              `[Plugins] API plugin failed — set API_DATABASE_URL in .env or start local postgres`,
+            logger.error(
+              `[Plugins] Set API_DATABASE_URL in your .env file or ensure local postgres is running for api plugin initialization`,
             );
           }
         }

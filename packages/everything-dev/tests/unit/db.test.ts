@@ -9,6 +9,8 @@ import {
   getMigrationSlug,
   getMigrationStorage,
   pluginMigrationSlug,
+  SHARED_MIGRATION_STORAGE,
+  toSqlArray,
 } from "../../src/db";
 
 describe("getMigrationSlug", () => {
@@ -53,11 +55,35 @@ describe("getMigrationStorage", () => {
   });
 });
 
+describe("SHARED_MIGRATION_STORAGE", () => {
+  it("points to the canonical shared journal", () => {
+    expect(SHARED_MIGRATION_STORAGE.schema).toBe("drizzle");
+    expect(SHARED_MIGRATION_STORAGE.table).toBe("__drizzle_migrations");
+    expect(SHARED_MIGRATION_STORAGE.slug).toBe("__drizzle_migrations");
+  });
+});
+
 describe("getLegacyCandidates", () => {
-  it("returns legacy global and public tables", () => {
+  it("returns only the shared drizzle journal", () => {
     const candidates = getLegacyCandidates();
-    expect(candidates).toContainEqual({ schema: "drizzle", table: "__drizzle_migrations" });
-    expect(candidates).toContainEqual({ schema: "public", table: "drizzle_migrations" });
+    expect(candidates).toEqual([{ schema: "drizzle", table: "__drizzle_migrations" }]);
+  });
+});
+
+describe("toSqlArray", () => {
+  it("formats a string array as PostgreSQL text array literal", () => {
+    const result = toSqlArray(["abc", "def"]);
+    expect(result).toBe('\'{"abc","def"}\'::text[]');
+  });
+
+  it("escapes double quotes in values", () => {
+    const result = toSqlArray(['has"h']);
+    expect(result).toBe('\'{"has\\"h"}\'::text[]');
+  });
+
+  it("returns empty array literal for empty input", () => {
+    const result = toSqlArray([]);
+    expect(result).toBe("'{}'::text[]");
   });
 });
 

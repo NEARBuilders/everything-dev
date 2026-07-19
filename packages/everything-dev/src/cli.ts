@@ -505,8 +505,8 @@ async function main() {
             return "○";
           case "unapplied":
             return "○";
-          case "legacy-importable":
-            return "→";
+          case "untracked-existing-schema":
+            return "○";
           case "drift-safe-repair":
             return "⚠";
           case "drift-manual":
@@ -520,9 +520,6 @@ async function main() {
       console.log(`  ${colors.dim(`Journal:`)} ${result.journalSchema}.${result.journalTable}`);
       console.log(`  ${colors.dim(`Local migrations:`)} ${result.localMigrationCount}`);
       console.log(`  ${colors.dim(`Applied hashes:`)} ${result.appliedHashCount}`);
-      if (result.legacyCount > 0) {
-        console.log(`  ${colors.dim(`Legacy rows (matching):`)} ${result.legacyCount}`);
-      }
       if (result.expectedTables.length > 0) {
         console.log(`  ${colors.dim(`Expected tables:`)} ${result.expectedTables.join(", ")}`);
       }

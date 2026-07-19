@@ -1,8 +1,8 @@
 import { defineConfig } from "drizzle-kit";
-import { getDatabaseUrlSecretName, getMigrationStorage } from "everything-dev/db";
+import { getDatabaseUrlSecretName, SHARED_MIGRATION_STORAGE } from "everything-dev/db";
 
-const storage = getMigrationStorage(import.meta.dirname);
-const databaseSecret = getDatabaseUrlSecretName(storage.slug);
+const slug = "api";
+const databaseSecret = getDatabaseUrlSecretName(slug);
 
 export default defineConfig({
   schema: "./src/db/schema.ts",
@@ -17,11 +17,11 @@ export default defineConfig({
               `Missing ${databaseSecret} — required in production for drizzle-kit operations`,
             );
           })()
-        : `pglite:.bos/${storage.slug}/:memory:`),
+        : `pglite:.bos/${slug}/:memory:`),
   },
   migrations: {
-    schema: storage.schema,
-    table: storage.table,
+    schema: SHARED_MIGRATION_STORAGE.schema,
+    table: SHARED_MIGRATION_STORAGE.table,
   },
   verbose: true,
   strict: true,

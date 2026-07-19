@@ -37,6 +37,17 @@ export function getMigrationSlug(dir?: string): string {
   return normalizeSlug(dir ?? "unknown");
 }
 
+/**
+ * The canonical shared migration journal used by all DB-enabled plugins in
+ * Phase 1.  Every plugin reads and writes the same `drizzle.__drizzle_migrations`
+ * table.  Per-plugin journal isolation is deferred to Phase 2.
+ */
+export const SHARED_MIGRATION_STORAGE: MigrationStorage = {
+  schema: "drizzle",
+  table: "__drizzle_migrations",
+  slug: "__drizzle_migrations",
+};
+
 export function getMigrationStorage(dir?: string): MigrationStorage {
   return {
     schema: "drizzle",
@@ -46,10 +57,24 @@ export function getMigrationStorage(dir?: string): MigrationStorage {
 }
 
 export function getLegacyCandidates(): { schema: string; table: string }[] {
-  return [
-    { schema: "drizzle", table: "__drizzle_migrations" },
-    { schema: "public", table: "drizzle_migrations" },
-  ];
+  return [{ schema: "drizzle", table: "__drizzle_migrations" }];
+}
+
+/**
+ * Format a JavaScript string array as a PostgreSQL text array literal for use
+ * with Drizzle's `sql` tag. Example return:
+ *   `'{"h1","h2"}'::text[]`
+ *
+ * Usage: sql`WHERE col = ANY(${toSqlArray(values)})`
+ *
+ * Drizzle's default parameter binding does not handle array types correctly
+ * with the pg driver (it emits `ANY(($1))` with a single string, which
+ * Postgres rejects as a malformed array literal).
+ */
+export function toSqlArray(arr: string[]): string {
+  if (arr.length === 0) return `'{}'::text[]`;
+  const escaped = arr.map((v) => v.replace(/\\/g, "\\\\").replace(/"/g, '\\"'));
+  return `'{${escaped.map((v) => `"${v}"`).join(",")}}'::text[]`;
 }
 
 export function migrateSql(storage: MigrationStorage): MigrationStorage & { qualified: string } {

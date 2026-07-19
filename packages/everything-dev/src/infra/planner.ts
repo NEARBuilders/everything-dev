@@ -12,6 +12,7 @@ import {
   type RedisSecretConfig,
   savePortState,
 } from "../cli/infra";
+import { buildDescription } from "../service-descriptor";
 import type { RuntimeConfig } from "../types";
 import type {
   ClaimRecord,
@@ -473,7 +474,8 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
     const envGenerated = buildEnvGenerated(resolvedPorts, dbs, redisPlans);
 
     const packages = serviceDescriptors.map((d) => d.key);
-    const description = packages.length > 0 ? packages.join(" + ") : "Dev Session";
+    const descriptionMap = new Map(serviceDescriptors.map((d) => [d.key, d]));
+    const description = buildDescription(descriptionMap);
 
     const orchestrator = {
       packages,

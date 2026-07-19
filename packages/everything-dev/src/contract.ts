@@ -334,7 +334,6 @@ export const DbDoctorResultSchema = z.object({
   appliedHashCount: z.number(),
   expectedTables: z.array(z.string()),
   missingTables: z.array(z.string()),
-  legacyCount: z.number(),
   workspaceDir: z.string().optional(),
   dbSecret: z.string().optional(),
   dbUrl: z.string().optional(),

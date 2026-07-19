@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "every-plugin/effect";
-import { getMigrationStorage } from "everything-dev/db";
+import { SHARED_MIGRATION_STORAGE } from "everything-dev/db";
 import { createDatabaseDriver, type Database, DatabaseError } from "./index";
 import { detectDrift, loadMigrations, migrate } from "./migrate";
 
@@ -21,7 +21,7 @@ export const DatabaseLive = (url: string) =>
           }).pipe(Effect.ignore),
       );
 
-      const storage = getMigrationStorage(import.meta.dirname);
+      const storage = SHARED_MIGRATION_STORAGE;
       const { migrations, source } = yield* loadMigrations();
 
       if (migrations.length === 0) {

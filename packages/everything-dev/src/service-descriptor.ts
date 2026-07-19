@@ -259,7 +259,13 @@ export function buildServiceDescriptorMapFromPlan(
   return buildServiceDescriptorMap(plan.runtimeConfig, options);
 }
 
-export function buildDescription(map: Map<string, ServiceDescriptor>): string {
+interface ServiceDescriptorInfo {
+  key: string;
+  source: string;
+  proxy?: string;
+}
+
+export function buildDescription(map: Map<string, ServiceDescriptorInfo>): string {
   const descriptors = [...map.values()].filter(
     (d) => d.key !== "ui-ssr" && !d.key.startsWith("plugin:"),
   );

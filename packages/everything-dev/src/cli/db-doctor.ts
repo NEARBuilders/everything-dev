@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { extractExpectedTables, pluginMigrationSlug } from "../db";
+import { extractExpectedTables, SHARED_MIGRATION_STORAGE } from "../db";
 import type { PluginDbInfo } from "./db-studio";
 
 export interface DoctorReport {
@@ -18,7 +18,6 @@ export interface DoctorReport {
   missingTables: string[];
   migrationHashes: string[];
   diagnosis: string;
-  legacyCount: number;
   error?: string;
 }
 
@@ -56,9 +55,9 @@ function readLocalMigrations(workspaceDir: string): LocalMigration[] {
 export async function diagnosePlugin(info: PluginDbInfo): Promise<DoctorReport> {
   const { Pool } = await import("pg");
 
-  const slug = pluginMigrationSlug(info.key);
-  const journalTable = `__drizzle_migrations_${slug}`;
-  const journalSchema = "drizzle";
+  const slug = "shared";
+  const journalTable = SHARED_MIGRATION_STORAGE.table;
+  const journalSchema = SHARED_MIGRATION_STORAGE.schema;
   const journalRef = `"${journalSchema}"."${journalTable}"`;
 
   const localMigrations = info.workspaceDir ? readLocalMigrations(info.workspaceDir) : [];
@@ -105,13 +104,14 @@ export async function diagnosePlugin(info: PluginDbInfo): Promise<DoctorReport> 
       missingTables = expectedTables.filter((t) => !existing.has(t));
     }
 
-    const legacyCount = await countLegacyHashes(pool, localHashes);
-
     let diagnosis: string;
     if (localMigrations.length === 0) {
       diagnosis = "no-local-migrations";
+    } else if (appliedHashCount === 0 && missingTables.length === 0 && localHashes.length > 0) {
+      // Journal is empty but all expected public tables exist.
+      diagnosis = "untracked-existing-schema";
     } else if (appliedHashCount === 0 && localHashes.length > 0) {
-      diagnosis = legacyCount > 0 ? "legacy-importable" : "unapplied";
+      diagnosis = "unapplied";
     } else if (missingTables.length === 0) {
       diagnosis = "healthy";
     } else if (missingTables.length === expectedTables.length) {
@@ -136,7 +136,6 @@ export async function diagnosePlugin(info: PluginDbInfo): Promise<DoctorReport> 
       missingTables,
       migrationHashes,
       diagnosis,
-      legacyCount,
     };
   } catch (error) {
     return {
@@ -153,31 +152,9 @@ export async function diagnosePlugin(info: PluginDbInfo): Promise<DoctorReport> 
       missingTables: [],
       migrationHashes: [],
       diagnosis: "error",
-      legacyCount: 0,
       error: error instanceof Error ? error.message : String(error),
     };
   } finally {
     await pool.end().catch(() => {});
   }
-}
-
-async function countLegacyHashes(pool: any, localHashes: string[]): Promise<number> {
-  if (localHashes.length === 0) return 0;
-  const candidates = [
-    { schema: "drizzle", table: "__drizzle_migrations" },
-    { schema: "public", table: "drizzle_migrations" },
-  ];
-  let total = 0;
-  for (const c of candidates) {
-    try {
-      const result = await pool.query(
-        `SELECT count(*)::int AS cnt FROM "${c.schema}"."${c.table}" WHERE hash = ANY($1)`,
-        [localHashes],
-      );
-      total += result.rows[0]?.cnt ?? 0;
-    } catch {
-      // table might not exist
-    }
-  }
-  return total;
 }

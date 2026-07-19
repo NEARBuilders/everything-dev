@@ -1769,7 +1769,6 @@ export default createPlugin({
             appliedHashCount: 0,
             expectedTables: [],
             missingTables: [],
-            legacyCount: 0,
             error: "No bos.config.json",
           };
         }
@@ -1789,7 +1788,6 @@ export default createPlugin({
             appliedHashCount: 0,
             expectedTables: [],
             missingTables: [],
-            legacyCount: 0,
             error: "Failed to load config",
           };
         }
@@ -1816,7 +1814,6 @@ export default createPlugin({
           appliedHashCount: 0,
           expectedTables: [],
           missingTables: [],
-          legacyCount: 0,
           error: error instanceof Error ? error.message : "Unknown error",
         };
       }

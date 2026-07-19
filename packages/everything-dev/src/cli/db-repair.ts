@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { SHARED_MIGRATION_STORAGE } from "../db";
 import { type DoctorReport, diagnosePlugin } from "./db-doctor";
 import type { PluginDbInfo } from "./db-studio";
 
@@ -33,7 +34,7 @@ export async function repairPlugin(
     };
   }
 
-  if (diagnosis.diagnosis !== "drift-safe-repair" && diagnosis.diagnosis !== "legacy-importable") {
+  if (diagnosis.diagnosis !== "drift-safe-repair") {
     if (diagnosis.diagnosis === "healthy") {
       return { status: "refused", diagnosis, message: "Database is healthy — no repair needed." };
     }
@@ -60,6 +61,16 @@ export async function repairPlugin(
         message: "Migrations have not been applied yet. Start the dev server to apply them.",
       };
     }
+    if (diagnosis.diagnosis === "untracked-existing-schema") {
+      return {
+        status: "refused",
+        diagnosis,
+        message:
+          "Tables exist but no matching migration history was found. " +
+          "Run `drizzle-kit pull --init` in the plugin workspace to adopt the existing schema, " +
+          "then run migrations from that baseline.",
+      };
+    }
     return {
       status: "refused",
       diagnosis,
@@ -67,8 +78,9 @@ export async function repairPlugin(
     };
   }
 
+  // drift-safe-repair: drop the shared journal and replay
   const { Pool } = await import("pg");
-  const journalRef = `"${diagnosis.journalSchema}"."${diagnosis.journalTable}"`;
+  const journalRef = `"${SHARED_MIGRATION_STORAGE.schema}"."${SHARED_MIGRATION_STORAGE.table}"`;
   const pool = new Pool({
     connectionString: info.databaseUrl,
     ssl:
@@ -81,39 +93,39 @@ export async function repairPlugin(
 
   try {
     await pool.query(`DROP TABLE IF EXISTS ${journalRef}`);
+
+    if (info.workspaceDir) {
+      const configPath = join(info.workspaceDir, "drizzle.config.ts");
+      if (existsSync(configPath)) {
+        try {
+          await spawnDrizzleMigrate(info.workspaceDir, configPath);
+          return {
+            status: "repaired",
+            diagnosis,
+            message:
+              `Migration history reset for ${diagnosis.plugin}. ` +
+              `Migrations reapplied via drizzle-kit. Restart the dev server to confirm.`,
+          };
+        } catch (error) {
+          return {
+            status: "repaired",
+            diagnosis,
+            message:
+              `Migration history reset for ${diagnosis.plugin}. ` +
+              `Automatic reapply failed: ${error instanceof Error ? error.message : String(error)}. ` +
+              `Run \`bun run --cwd ${info.workspaceDir} db:migrate\` manually.`,
+          };
+        }
+      }
+    }
   } catch (error) {
     return {
       status: "error",
       diagnosis,
-      message: `Failed to reset journal: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Repair failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   } finally {
     await pool.end().catch(() => {});
-  }
-
-  if (info.workspaceDir) {
-    const configPath = join(info.workspaceDir, "drizzle.config.ts");
-    if (existsSync(configPath)) {
-      try {
-        await spawnDrizzleMigrate(info.workspaceDir, configPath);
-        return {
-          status: "repaired",
-          diagnosis,
-          message:
-            `Migration history reset for ${diagnosis.plugin}. ` +
-            `Migrations reapplied via drizzle-kit. Restart the dev server to confirm.`,
-        };
-      } catch (error) {
-        return {
-          status: "repaired",
-          diagnosis,
-          message:
-            `Migration history reset for ${diagnosis.plugin}. ` +
-            `Automatic reapply failed: ${error instanceof Error ? error.message : String(error)}. ` +
-            `Run \`bun run --cwd ${info.workspaceDir} db:migrate\` manually.`,
-        };
-      }
-    }
   }
 
   return {
