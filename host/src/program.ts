@@ -28,7 +28,12 @@ import { timeout } from "hono/timeout";
 import { rateLimiter } from "hono-rate-limiter";
 import type { AuthVariables } from "./lib/auth";
 import { buildPluginContext, createSessionMiddleware, registerAuthHandler } from "./services/auth";
-import { type ClientRuntimeConfig, ConfigService, type RuntimeConfig } from "./services/config";
+import {
+  type ClientRuntimeConfig,
+  ConfigService,
+  type RuntimeConfig,
+  readCorsOrigins,
+} from "./services/config";
 import type { HeadData, RouterModule } from "./types";
 
 type HonoEnv = { Variables: AuthVariables };
@@ -534,8 +539,9 @@ export const createStartServer = (onReady?: () => void) =>
   Effect.gen(function* () {
     const port = Number(process.env.PORT) || 3000;
     const isDev = process.env.NODE_ENV !== "production";
+    const corsOrigins = yield* readCorsOrigins();
 
-    if (!process.env.CORS_ORIGIN && !isDev) {
+    if (corsOrigins.length === 0 && !isDev) {
       logger.warn(
         "[Security] CORS_ORIGIN is not set in production. Auth endpoints will reject cross-origin requests.",
       );
@@ -563,10 +569,10 @@ export const createStartServer = (onReady?: () => void) =>
       return c.json({ error: details.message, cause: details.cause }, 500);
     });
 
-    const allowedOrigins = process.env.CORS_ORIGIN?.split(",").map((o: string) => o.trim()) ?? [
-      config.host?.url ?? "",
-      ...(uiConfig.url ? [uiConfig.url] : []),
-    ];
+    const allowedOrigins =
+      corsOrigins.length > 0
+        ? corsOrigins
+        : [config.host?.url ?? "", ...(uiConfig.url ? [uiConfig.url] : [])];
 
     const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 

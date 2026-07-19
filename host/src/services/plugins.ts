@@ -6,7 +6,7 @@ import { IntegrityRegistry, verifyConfigAgainstChain } from "everything-dev/inte
 import { installIntegrityFetchHook } from "everything-dev/mf";
 import type { RuntimeConfig, SharedConfig } from "everything-dev/types";
 import { logger } from "../utils/logger";
-import { ConfigService } from "./config";
+import { ConfigService, readCorsOrigins } from "./config";
 import { PluginError } from "./errors";
 
 class PluginBootstrapError extends Data.TaggedError("PluginBootstrapError")<{
@@ -272,7 +272,10 @@ function readDbSecret(key: string): Effect.Effect<Secret.Secret> {
   );
 }
 
-function buildAuthBaseVariables(config: RuntimeConfig): Record<string, unknown> {
+function buildAuthBaseVariables(
+  config: RuntimeConfig,
+  corsOrigins: string[],
+): Record<string, unknown> {
   const rawHostUrl =
     config.env === "development"
       ? (config.host?.url ?? `http://localhost:${config.host?.port ?? 3000}`)
@@ -283,9 +286,8 @@ function buildAuthBaseVariables(config: RuntimeConfig): Record<string, unknown> 
     domain: hostUrl,
     hostUrl,
   };
-  const corsOrigin = process.env.CORS_ORIGIN?.split(",").map((o) => o.trim());
-  if (corsOrigin) {
-    base.trustedOrigins = corsOrigin;
+  if (corsOrigins.length > 0) {
+    base.trustedOrigins = corsOrigins;
   }
   return base;
 }
@@ -470,7 +472,7 @@ export const initializePlugins = Effect.gen(function* () {
       runtimeId: config.auth.name,
       config: config.auth,
     };
-    const authBaseVariables = buildAuthBaseVariables(config);
+    const authBaseVariables = buildAuthBaseVariables(config, yield* readCorsOrigins());
     const authResult = yield* loadPluginEntryEffect(
       runtime,
       authEntry,
