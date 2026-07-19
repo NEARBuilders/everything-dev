@@ -273,20 +273,15 @@ function readDbSecret(key: string): Effect.Effect<Secret.Secret> {
 }
 
 function buildAuthBaseVariables(config: RuntimeConfig): Record<string, unknown> {
-  const devHostUrl =
-    config.host?.url
-      ?.replace(/\/remoteEntry\.js$/, "")
-      .replace(/\/mf-manifest\.json$/, "") ??
-    `http://localhost:${config.host?.port ?? 3000}`;
-  const devBaseUrl = config.env === "development" ? devHostUrl : undefined;
-  const normalizedDomain = normalizeDomain(
-    config.env === "development" ? (devBaseUrl ?? "http://localhost:3000") : config.domain,
-    config.env,
-  );
+  const rawHostUrl =
+    config.env === "development"
+      ? (config.host?.url ?? `http://localhost:${config.host?.port ?? 3000}`)
+      : config.domain;
+  const hostUrl = normalizeDomain(rawHostUrl, config.env);
   const base: Record<string, unknown> = {
     account: config.account,
-    domain: normalizedDomain,
-    hostUrl: normalizedDomain,
+    domain: hostUrl,
+    hostUrl,
   };
   const corsOrigin = process.env.CORS_ORIGIN?.split(",").map((o) => o.trim());
   if (corsOrigin) {
@@ -344,11 +339,10 @@ function loadPluginEntryEffect(
     if (pluginsClient) args.push(pluginsClient);
 
     const result = yield* Effect.tryPromise({
-      try: () => runtime.usePlugin(entry.runtimeId, ...args),
+      try: (): Promise<HostPluginEntry> => runtime.usePlugin(entry.runtimeId, ...args),
       catch: (error) => {
         if (rawDbUrl !== null && secretKey) {
-          const maskedUrl =
-            rawDbUrl === "unset" ? "unset" : rawDbUrl.replace(/:[^:@]+@/, ":****@");
+          const maskedUrl = rawDbUrl === "unset" ? "unset" : rawDbUrl.replace(/:[^:@]+@/, ":****@");
           return new PluginBootstrapError({
             pluginKey: entry.key,
             pluginUrl: entry.config.url,
