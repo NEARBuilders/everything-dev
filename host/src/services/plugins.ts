@@ -1,7 +1,7 @@
 import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { createPluginRuntime } from "every-plugin";
-import { Context, Data, Effect, Layer } from "every-plugin/effect";
+import { Config, ConfigProvider, Context, Data, Effect, Layer, Secret } from "every-plugin/effect";
 import { IntegrityRegistry, verifyConfigAgainstChain } from "everything-dev/integrity";
 import { installIntegrityFetchHook } from "everything-dev/mf";
 import type { RuntimeConfig, SharedConfig } from "everything-dev/types";
@@ -17,7 +17,12 @@ class PluginBootstrapError extends Data.TaggedError("PluginBootstrapError")<{
   dbUrlMasked?: string;
   execution: "local-host-process";
   cause: unknown;
-}> {}
+}> {
+  get message() {
+    const raw = this.cause instanceof Error ? this.cause.message : String(this.cause ?? "");
+    return `Plugin ${this.pluginKey}${this.pluginUrl ? ` at ${this.pluginUrl}` : ""} failed: ${raw}`;
+  }
+}
 
 function dbUrlSummary(url: string | undefined): string {
   if (!url || url === "unset") return "unset";
@@ -260,24 +265,112 @@ function collectSecrets(config: { secrets?: string[] }): Record<string, string> 
   return secretsFromEnv(config.secrets ?? []);
 }
 
-async function loadPluginEntry(
+function readDbSecret(key: string): Effect.Effect<Secret.Secret> {
+  return Config.secret(key).pipe(
+    Effect.catchAll(() => Effect.succeed(Secret.fromString("unset"))),
+    Effect.withConfigProvider(ConfigProvider.fromEnv()),
+  );
+}
+
+function buildAuthBaseVariables(config: RuntimeConfig): Record<string, unknown> {
+  const devHostUrl =
+    config.host?.url
+      ?.replace(/\/remoteEntry\.js$/, "")
+      .replace(/\/mf-manifest\.json$/, "") ??
+    `http://localhost:${config.host?.port ?? 3000}`;
+  const devBaseUrl = config.env === "development" ? devHostUrl : undefined;
+  const normalizedDomain = normalizeDomain(
+    config.env === "development" ? (devBaseUrl ?? "http://localhost:3000") : config.domain,
+    config.env,
+  );
+  const base: Record<string, unknown> = {
+    account: config.account,
+    domain: normalizedDomain,
+    hostUrl: normalizedDomain,
+  };
+  const corsOrigin = process.env.CORS_ORIGIN?.split(",").map((o) => o.trim());
+  if (corsOrigin) {
+    base.trustedOrigins = corsOrigin;
+  }
+  return base;
+}
+
+function logBootstrapError(err: PluginBootstrapError): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    if (err.dbSecret) {
+      yield* Effect.logError(`[Plugins] Failed to load ${err.pluginKey} plugin: ${err.message}`);
+      if (err.dbUrlMasked) {
+        const dbLabel = err.pluginKey === "auth" ? "Auth" : "API";
+        yield* Effect.logError(
+          `[Plugins] ${dbLabel} DB URL: ${err.dbUrlMasked} (${dbUrlSummary(err.dbUrlMasked)})`,
+        );
+      }
+      if (err.stage === "init") {
+        yield* Effect.logError(
+          `[Plugins] Set ${err.dbSecret} in your .env file or ensure local postgres is running for ${err.pluginKey} plugin initialization`,
+        );
+      }
+    } else {
+      yield* Effect.logError(
+        `[Plugins] Plugin "${err.pluginKey}" (${err.pluginUrl ?? "unknown"}) failed: ${err.message}`,
+      );
+    }
+  });
+}
+
+function loadPluginEntryEffect(
   runtime: any,
   entry: RuntimePluginEntry,
   integrityRegistry: IntegrityRegistry,
   pluginsClient?: Record<string, unknown>,
   baseVariables?: Record<string, unknown>,
-): Promise<HostPluginEntry> {
-  if (entry.config.integrity) {
-    integrityRegistry.registerEntry(entry.config.url, entry.config.integrity);
-  }
+): Effect.Effect<HostPluginEntry, PluginBootstrapError> {
+  return Effect.gen(function* () {
+    if (entry.config.integrity) {
+      integrityRegistry.registerEntry(entry.config.url, entry.config.integrity);
+    }
 
-  const variables: Record<string, unknown> = { ...baseVariables, ...entry.config.variables };
-  const args: [unknown, unknown?] = [{ variables, secrets: collectSecrets(entry.config) }];
-  if (pluginsClient) args.push(pluginsClient);
+    const isAuthOrApi = entry.key === "auth" || entry.key === "api";
+    const secretKey = isAuthOrApi
+      ? entry.key === "auth"
+        ? "AUTH_DATABASE_URL"
+        : "API_DATABASE_URL"
+      : null;
+    const dbSecret = secretKey ? yield* readDbSecret(secretKey) : null;
+    const rawDbUrl = dbSecret ? Secret.value(dbSecret) : null;
 
-  const result = await runtime.usePlugin(entry.runtimeId, ...args);
+    const variables: Record<string, unknown> = { ...baseVariables, ...entry.config.variables };
+    const args: [unknown, unknown?] = [{ variables, secrets: collectSecrets(entry.config) }];
+    if (pluginsClient) args.push(pluginsClient);
 
-  return { key: entry.key, name: entry.config.name, ...result };
+    const result = yield* Effect.tryPromise({
+      try: () => runtime.usePlugin(entry.runtimeId, ...args),
+      catch: (error) => {
+        if (rawDbUrl !== null && secretKey) {
+          const maskedUrl =
+            rawDbUrl === "unset" ? "unset" : rawDbUrl.replace(/:[^:@]+@/, ":****@");
+          return new PluginBootstrapError({
+            pluginKey: entry.key,
+            pluginUrl: entry.config.url,
+            stage: rawDbUrl === "unset" ? "init" : "db-migration",
+            dbSecret: secretKey,
+            dbUrlMasked: maskedUrl,
+            execution: "local-host-process",
+            cause: error,
+          });
+        }
+        return new PluginBootstrapError({
+          pluginKey: entry.key,
+          pluginUrl: entry.config?.url ?? "unknown",
+          stage: "init",
+          execution: "local-host-process",
+          cause: error,
+        });
+      },
+    });
+
+    return { key: entry.key, name: entry.config.name, ...result };
+  });
 }
 
 export const initializePlugins = Effect.gen(function* () {
@@ -323,7 +416,7 @@ export const initializePlugins = Effect.gen(function* () {
       .catch(() => {});
   }
 
-  const result = yield* Effect.tryPromise({
+  const { runtime, integrityRegistry } = yield* Effect.tryPromise({
     try: async () => {
       const allEntries: RuntimePluginEntry[] = [];
 
@@ -340,7 +433,6 @@ export const initializePlugins = Effect.gen(function* () {
         `[Plugins] Registry entries: ${allEntriesWithUrls.map((e) => `${e.key}=${e.config.url}`).join(", ") || "none"}`,
       );
 
-      // Pre-register app-specific shared deps in host scope before every-plugin initializes
       await registerAppSharedDeps(
         mergeSharedMaps(config.api.shared, config.auth?.shared, collectPluginSharedDeps(config)),
       );
@@ -357,158 +449,7 @@ export const initializePlugins = Effect.gen(function* () {
         installIntegrityFetchHook(mfInstance, integrityRegistry);
       }
 
-      // Phase 0: Load auth plugin (app-level infrastructure)
-      let authPlugin: HostPluginEntry | null = null;
-      let authClient: ((ctx?: unknown) => unknown) | null = null;
-      if (config.auth?.url) {
-        const authEntry: RuntimePluginEntry = {
-          key: "auth",
-          runtimeId: config.auth.name,
-          config: config.auth,
-        };
-        logger.info(`[Plugins] Loading remote auth plugin code into local host process`);
-        logger.info(`[Plugins] Using local env secrets for auth plugin initialization`);
-        try {
-          const devHostUrl =
-            config.host?.url
-              ?.replace(/\/remoteEntry\.js$/, "")
-              .replace(/\/mf-manifest\.json$/, "") ??
-            `http://localhost:${config.host?.port ?? 3000}`;
-          const devBaseUrl = config.env === "development" ? devHostUrl : undefined;
-          const normalizedDomain = normalizeDomain(
-            config.env === "development" ? (devBaseUrl ?? "http://localhost:3000") : config.domain,
-            config.env,
-          );
-          const authBaseVariables: Record<string, unknown> = {
-            account: config.account,
-            domain: normalizedDomain,
-            hostUrl: normalizedDomain,
-          };
-
-          const corsOrigin = process.env.CORS_ORIGIN?.split(",").map((o) => o.trim());
-          if (corsOrigin) {
-            authBaseVariables.trustedOrigins = corsOrigin;
-          }
-
-          authPlugin = await loadPluginEntry(
-            runtime,
-            authEntry,
-            integrityRegistry,
-            undefined,
-            authBaseVariables,
-          );
-          authClient = authPlugin.createClient;
-          logger.info(`[Plugins] Auth plugin loaded: ${authPlugin.name}`);
-        } catch (error) {
-          const dbUrl = process.env.AUTH_DATABASE_URL || "unset";
-          const maskedUrl = dbUrl === "unset" ? "unset" : dbUrl.replace(/:[^:@]+@/, ":****@");
-          const boostrapErr = new PluginBootstrapError({
-            pluginKey: "auth",
-            pluginUrl: authEntry.config.url,
-            stage: dbUrl === "unset" ? "init" : "db-migration",
-            dbSecret: "AUTH_DATABASE_URL",
-            dbUrlMasked: maskedUrl,
-            execution: "local-host-process",
-            cause: error,
-          });
-          logger.error(`[Plugins] Failed to load auth plugin: ${boostrapErr.message}`);
-          logger.error(`[Plugins] Auth DB URL: ${maskedUrl} (${dbUrlSummary(dbUrl)})`);
-          if (dbUrl === "unset") {
-            logger.error(
-              `[Plugins] Set AUTH_DATABASE_URL in your .env file or ensure local postgres is running for auth plugin initialization`,
-            );
-          }
-        }
-      }
-
-      // Phase 1: Load all non-API plugins
-      const pluginEntries = registryEntries.filter((e) => e.key !== "api");
-
-      const loadedPlugins: Record<string, HostPluginEntry> = {};
-      const loadedPluginKeys: string[] = [];
-      const pluginsClient: Record<string, unknown> = {};
-      const errors: string[] = [];
-
-      for (const entry of pluginEntries) {
-        const key = entry.key;
-        logger.info(`[Plugins] Loading remote ${key} plugin code into local host process`);
-        logger.info(`[Plugins] Using local env secrets for ${key} initialization`);
-        try {
-          const result = await loadPluginEntry(runtime, entry, integrityRegistry);
-          loadedPlugins[key] = result;
-          loadedPluginKeys.push(key);
-          pluginsClient[key] = result.createClient;
-        } catch (error) {
-          const msg = formatError(error);
-          const entryUrl = entry.config?.url ?? "unknown";
-          const boostrapErr = new PluginBootstrapError({
-            pluginKey: key,
-            pluginUrl: entryUrl,
-            stage: "init",
-            execution: "local-host-process",
-            cause: error,
-          });
-          logger.error(`[Plugins] Plugin "${key}" (${entryUrl}) failed: ${boostrapErr.message}`);
-          errors.push(msg);
-          pluginsClient[key] = () => {
-            throw new Error(`Plugin "${key}" failed to load: ${msg}`);
-          };
-        }
-      }
-
-      // Phase 2: Load the API plugin with pluginsClient + authClient
-      let baseApi: HostPluginEntry | null = null;
-      const apiEntry = registryEntries.find((e) => e.key === "api");
-
-      if (apiEntry) {
-        logger.info(`[Plugins] Loading remote api plugin code into local host process`);
-        logger.info(`[Plugins] Using local env secrets for api initialization`);
-        try {
-          const apiPluginsClient: Record<string, unknown> = { ...pluginsClient };
-          if (authClient) {
-            apiPluginsClient.auth = authClient;
-          }
-
-          baseApi = await loadPluginEntry(runtime, apiEntry, integrityRegistry, apiPluginsClient);
-          loadedPlugins.api = baseApi;
-          loadedPluginKeys.unshift("api");
-        } catch (error) {
-          const dbUrl = process.env.API_DATABASE_URL || "unset";
-          const maskedDb = dbUrl === "unset" ? "unset" : dbUrl.replace(/:[^:@]+@/, ":****@");
-          const boostrapErr = new PluginBootstrapError({
-            pluginKey: "api",
-            pluginUrl: apiEntry.config.url,
-            stage: dbUrl === "unset" ? "init" : "db-migration",
-            dbSecret: "API_DATABASE_URL",
-            dbUrlMasked: maskedDb,
-            execution: "local-host-process",
-            cause: error,
-          });
-          logger.error(`[Plugins] Failed to load api plugin: ${boostrapErr.message}`);
-          logger.error(`[Plugins] API DB URL: ${maskedDb} (${dbUrlSummary(dbUrl)})`);
-          errors.push(boostrapErr.message);
-          if (dbUrl === "unset") {
-            logger.error(
-              `[Plugins] Set API_DATABASE_URL in your .env file or ensure local postgres is running for api plugin initialization`,
-            );
-          }
-        }
-      }
-
-      return {
-        runtime,
-        auth: authPlugin,
-        api: baseApi,
-        plugins: loadedPlugins,
-        authClient,
-        status: {
-          available: Boolean(baseApi),
-          pluginName: config.api.name,
-          error: errors.length > 0 ? errors.join("; ") : null,
-          errorDetails: errors.length > 0 ? errors.join("\n") : null,
-          loadedPlugins: loadedPluginKeys,
-        },
-      } satisfies PluginResult;
+      return { runtime, integrityRegistry };
     },
     catch: (error) =>
       new PluginError({
@@ -518,7 +459,114 @@ export const initializePlugins = Effect.gen(function* () {
       }),
   });
 
-  return result;
+  const errors: string[] = [];
+  const loadedPlugins: Record<string, HostPluginEntry> = {};
+  const loadedPluginKeys: string[] = [];
+  const pluginsClient: Record<string, unknown> = {};
+  let authPlugin: HostPluginEntry | null = null;
+  let authClient: ((ctx?: unknown) => unknown) | null = null;
+  let baseApi: HostPluginEntry | null = null;
+
+  if (config.auth?.url) {
+    yield* Effect.logInfo(`[Plugins] Loading remote auth plugin code into local host process`);
+    yield* Effect.logInfo(`[Plugins] Using local env secrets for auth plugin initialization`);
+    const authEntry: RuntimePluginEntry = {
+      key: "auth",
+      runtimeId: config.auth.name,
+      config: config.auth,
+    };
+    const authBaseVariables = buildAuthBaseVariables(config);
+    const authResult = yield* loadPluginEntryEffect(
+      runtime,
+      authEntry,
+      integrityRegistry,
+      undefined,
+      authBaseVariables,
+    ).pipe(
+      Effect.catchTag("PluginBootstrapError", (err: PluginBootstrapError) =>
+        Effect.gen(function* () {
+          yield* logBootstrapError(err);
+          return null;
+        }),
+      ),
+    );
+    if (authResult) {
+      authPlugin = authResult;
+      authClient = authResult.createClient;
+      yield* Effect.logInfo(`[Plugins] Auth plugin loaded: ${authResult.name}`);
+    }
+  }
+
+  const pluginEntries = registryEntries.filter((e) => e.key !== "api");
+
+  for (const entry of pluginEntries) {
+    yield* Effect.logInfo(
+      `[Plugins] Loading remote ${entry.key} plugin code into local host process`,
+    );
+    yield* Effect.logInfo(`[Plugins] Using local env secrets for ${entry.key} initialization`);
+    const result = yield* loadPluginEntryEffect(runtime, entry, integrityRegistry).pipe(
+      Effect.catchTag("PluginBootstrapError", (err: PluginBootstrapError) =>
+        Effect.gen(function* () {
+          yield* logBootstrapError(err);
+          errors.push(err.message);
+          pluginsClient[entry.key] = () => {
+            throw new Error(err.message);
+          };
+          return null;
+        }),
+      ),
+    );
+    if (result) {
+      loadedPlugins[entry.key] = result;
+      loadedPluginKeys.push(entry.key);
+      pluginsClient[entry.key] = result.createClient;
+    }
+  }
+
+  const apiEntry = registryEntries.find((e) => e.key === "api");
+
+  if (apiEntry) {
+    yield* Effect.logInfo(`[Plugins] Loading remote api plugin code into local host process`);
+    yield* Effect.logInfo(`[Plugins] Using local env secrets for api initialization`);
+    const apiPluginsClient: Record<string, unknown> = { ...pluginsClient };
+    if (authClient) {
+      apiPluginsClient.auth = authClient;
+    }
+    const apiResult = yield* loadPluginEntryEffect(
+      runtime,
+      apiEntry,
+      integrityRegistry,
+      apiPluginsClient,
+    ).pipe(
+      Effect.catchTag("PluginBootstrapError", (err: PluginBootstrapError) =>
+        Effect.gen(function* () {
+          yield* logBootstrapError(err);
+          errors.push(err.message);
+          return null;
+        }),
+      ),
+    );
+    if (apiResult) {
+      baseApi = apiResult;
+      loadedPlugins.api = apiResult;
+      loadedPluginKeys.unshift("api");
+    }
+  }
+
+  return {
+    runtime,
+    auth: authPlugin,
+    api: baseApi,
+    plugins: loadedPlugins,
+    authClient,
+    status: {
+      available: Boolean(baseApi),
+      pluginName: config.api.name,
+      error: errors.length > 0 ? errors.join("; ") : null,
+      errorDetails: errors.length > 0 ? errors.join("\n") : null,
+      loadedPlugins: loadedPluginKeys,
+    },
+  } satisfies PluginResult;
 }).pipe(
   Effect.catchAll((error) =>
     Effect.gen(function* () {
