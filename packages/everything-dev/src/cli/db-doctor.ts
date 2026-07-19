@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { extractExpectedTables, SHARED_MIGRATION_STORAGE } from "../db";
+import { extractExpectedTables, getMigrationStorage, pluginMigrationSlug } from "../db";
 import type { PluginDbInfo } from "./db-studio";
 
 export interface DoctorReport {
@@ -55,9 +55,10 @@ function readLocalMigrations(workspaceDir: string): LocalMigration[] {
 export async function diagnosePlugin(info: PluginDbInfo): Promise<DoctorReport> {
   const { Pool } = await import("pg");
 
-  const slug = "shared";
-  const journalTable = SHARED_MIGRATION_STORAGE.table;
-  const journalSchema = SHARED_MIGRATION_STORAGE.schema;
+  const slug = pluginMigrationSlug(info.key);
+  const storage = getMigrationStorage(slug);
+  const journalTable = storage.table;
+  const journalSchema = storage.schema;
   const journalRef = `"${journalSchema}"."${journalTable}"`;
 
   const localMigrations = info.workspaceDir ? readLocalMigrations(info.workspaceDir) : [];

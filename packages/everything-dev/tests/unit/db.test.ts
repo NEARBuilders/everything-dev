@@ -5,11 +5,9 @@ import { describe, expect, it } from "vitest";
 import {
   extractExpectedTables,
   getDatabaseUrlSecretName,
-  getLegacyCandidates,
   getMigrationSlug,
   getMigrationStorage,
   pluginMigrationSlug,
-  SHARED_MIGRATION_STORAGE,
   toSqlArray,
 } from "../../src/db";
 
@@ -23,50 +21,65 @@ describe("getMigrationSlug", () => {
       process.env.npm_package_name = prev;
     }
   });
-});
 
-describe("getMigrationStorage", () => {
-  it("returns correct storage config", () => {
-    const prev = process.env.npm_package_name;
-    process.env.npm_package_name = "api";
-    try {
-      const storage = getMigrationStorage();
-      expect(storage.schema).toBe("drizzle");
-      expect(storage.table).toBe("__drizzle_migrations_api");
-      expect(storage.slug).toBe("api");
-    } finally {
-      process.env.npm_package_name = prev;
-    }
-  });
-
-  it("derives from a workspace directory", () => {
+  it("derives from a workspace directory's package.json", () => {
     const dir = mkdtempSync(join(tmpdir(), "everything-dev-db-"));
     try {
       writeFileSync(
         join(dir, "package.json"),
         `${JSON.stringify({ name: "@everything-dev/foo-plugin" })}\n`,
       );
-      const storage = getMigrationStorage(dir);
-      expect(storage.slug).toBe("foo");
-      expect(storage.table).toBe("__drizzle_migrations_foo");
+      expect(getMigrationSlug(dir)).toBe("foo");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 });
 
-describe("SHARED_MIGRATION_STORAGE", () => {
-  it("points to the canonical shared journal", () => {
-    expect(SHARED_MIGRATION_STORAGE.schema).toBe("drizzle");
-    expect(SHARED_MIGRATION_STORAGE.table).toBe("__drizzle_migrations");
-    expect(SHARED_MIGRATION_STORAGE.slug).toBe("__drizzle_migrations");
+describe("getMigrationStorage", () => {
+  it("returns the shared journal coords with the caller's slug (phase 1)", () => {
+    const storage = getMigrationStorage("api");
+    expect(storage.schema).toBe("drizzle");
+    expect(storage.table).toBe("__drizzle_migrations");
+    expect(storage.slug).toBe("api");
+  });
+
+  it("defaults slug to getMigrationSlug() when none provided", () => {
+    const prev = process.env.npm_package_name;
+    process.env.npm_package_name = "api";
+    try {
+      const storage = getMigrationStorage();
+      expect(storage.slug).toBe("api");
+      expect(storage.table).toBe("__drizzle_migrations");
+    } finally {
+      process.env.npm_package_name = prev;
+    }
+  });
+
+  it("normalizes a raw plugin key without pre-normalization", () => {
+    const storage = getMigrationStorage("@everything-dev/foo-plugin");
+    expect(storage.slug).toBe("foo");
+    expect(storage.table).toBe("__drizzle_migrations");
   });
 });
 
-describe("getLegacyCandidates", () => {
-  it("returns only the shared drizzle journal", () => {
-    const candidates = getLegacyCandidates();
-    expect(candidates).toEqual([{ schema: "drizzle", table: "__drizzle_migrations" }]);
+describe("getMigrationStorage (isolated)", () => {
+  it("returns the per-plugin journal table when isolated: true", () => {
+    const storage = getMigrationStorage("api", { isolated: true });
+    expect(storage.schema).toBe("drizzle");
+    expect(storage.table).toBe("__drizzle_migrations_api");
+    expect(storage.slug).toBe("api");
+  });
+
+  it("normalizes a raw plugin key and applies it to the isolated table name", () => {
+    const storage = getMigrationStorage("@everything-dev/foo-plugin", { isolated: true });
+    expect(storage.slug).toBe("foo");
+    expect(storage.table).toBe("__drizzle_migrations_foo");
+  });
+
+  it("isolated: false explicitly selects the shared journal", () => {
+    const storage = getMigrationStorage("api", { isolated: false });
+    expect(storage.table).toBe("__drizzle_migrations");
   });
 });
 

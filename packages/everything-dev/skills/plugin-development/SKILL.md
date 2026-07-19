@@ -418,7 +418,10 @@ export function DatabaseLive(url: string) {
 1. Create `drizzle.config.ts` in your plugin directory
 2. Run `drizzle-kit generate` to produce SQL migration files
 3. Store migrations in `src/db/migrations/`
-4. Use the custom `migrate()` function during `initialize`:
+4. Use the custom `migrate()` function during `initialize`. Pass an explicit
+   `storage` resolved from the workspace so the journal slug is reliable
+   under rspack/Module Federation bundling (the no-arg fallback reads
+   `npm_package_name`, which is unreliable in bundled remotes):
 
 ```ts
 initialize: (config) =>
@@ -427,8 +430,12 @@ initialize: (config) =>
     // Or load and apply migrations directly:
     const { loadMigrations } = yield* Effect.promise(() => import("./db/load-migrations"));
     const { migrate } = yield* Effect.promise(() => import("./db/migrator"));
+    const { getMigrationSlug, getMigrationStorage } = yield* Effect.promise(
+      () => import("everything-dev/db"),
+    );
+    const storage = getMigrationStorage(getMigrationSlug(import.meta.dirname));
     const migrations = yield* loadMigrations();
-    yield* migrate(driver.db, migrations);
+    yield* migrate(driver.db, migrations, storage);
 
     return { db: driver.db, ... };
   }),

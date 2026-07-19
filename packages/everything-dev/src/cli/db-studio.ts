@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import * as p from "@clack/prompts";
+import { getMigrationStorage, pluginMigrationSlug } from "../db";
 import type { RuntimeConfig } from "../types";
 
 export interface PluginDbInfo {
@@ -102,15 +103,14 @@ export async function runStudioLocal(info: PluginDbInfo): Promise<void> {
   });
 }
 
-import { pluginMigrationSlug } from "../db";
-
 export async function runStudioRemote(info: PluginDbInfo): Promise<void> {
   const dbDir = resolve(info.projectDir, ".bos", "db", info.key);
 
   mkdirSync(dbDir, { recursive: true });
 
-  const slug = pluginMigrationSlug(info.key);
-  const journalTable = `__drizzle_migrations_${slug}`;
+  const storage = getMigrationStorage(pluginMigrationSlug(info.key));
+  const journalSchema = storage.schema;
+  const journalTable = storage.table;
 
   const configPath = join(dbDir, "drizzle.config.ts");
   const configContent = `import { defineConfig } from "drizzle-kit";
@@ -123,7 +123,7 @@ export default defineConfig({
     url: "${info.databaseUrl}",
   },
   migrations: {
-    schema: "drizzle",
+    schema: "${journalSchema}",
     table: "${journalTable}",
   },
   verbose: true,

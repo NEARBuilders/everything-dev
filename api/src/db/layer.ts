@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "every-plugin/effect";
-import { SHARED_MIGRATION_STORAGE } from "everything-dev/db";
+import { getMigrationSlug, getMigrationStorage } from "everything-dev/db";
 import { createDatabaseDriver, type Database, DatabaseError } from "./index";
 import { detectDrift, loadMigrations, migrate } from "./migrate";
 
@@ -21,7 +21,7 @@ export const DatabaseLive = (url: string) =>
           }).pipe(Effect.ignore),
       );
 
-      const storage = SHARED_MIGRATION_STORAGE;
+      const storage = getMigrationStorage(getMigrationSlug(import.meta.dirname));
       const { migrations, source } = yield* loadMigrations();
 
       if (migrations.length === 0) {
@@ -48,7 +48,7 @@ export const DatabaseLive = (url: string) =>
               migrationTag: "drift-safe-repair",
               cause: new Error(
                 `Migration journal has ${drift.appliedHashes} applied hashes but all ${drift.expectedTables.length} expected table(s) are missing. ` +
-                  `Run \`bos db repair ${storage.slug}\` to reset the isolated migration history and reapply migrations. ` +
+                  `Run \`bos db repair ${storage.slug}\` to reset the migration history and reapply migrations. ` +
                   `Missing tables: ${drift.missingTables.join(", ")}`,
               ),
             });

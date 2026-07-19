@@ -35,7 +35,7 @@
 
   - `api/src/db/migration-storage.ts` — new shared helper that derives a stable slug from the workspace `package.json` name and provides isolated journal table naming (`drizzle.__drizzle_migrations_<slug>`).
 
-  - `api/src/db/migrate.ts` — runtime migrator now accepts an optional `MigrationStorage` config. When provided, uses the isolated journal table. Includes legacy hash import from the old shared `drizzle.__drizzle_migrations` and `public.drizzle_migrations` tables (filtered to local migration hashes only). Exports `detectDrift()` that checks whether expected tables from migration SQL exist in the `public` schema and classifies the result.
+  - `api/src/db/migrate.ts` — runtime migrator now accepts an optional `MigrationStorage` config. When provided, uses the isolated journal table. A preflight table-existence check auto-records migrations as applied when their target tables already exist in the `public` schema, handling legacy journal locations (`public.drizzle_migrations`) and missing journals without hash import. Exports `detectDrift()` that checks whether expected tables from migration SQL exist in the `public` schema and classifies the result.
 
   - `api/src/db/layer.ts` — resolves migration storage on startup, logs the journal table in use, and fails with a clear drift error when the journal says "applied" but tables are missing.
 

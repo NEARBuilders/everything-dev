@@ -6,8 +6,8 @@ import { sql } from "drizzle-orm";
 import { Effect } from "every-plugin/effect";
 import {
   extractExpectedTables,
+  getMigrationStorage,
   type MigrationStorage,
-  SHARED_MIGRATION_STORAGE,
   toSqlArray,
 } from "everything-dev/db";
 import { type Database, DatabaseError } from "./index";
@@ -167,14 +167,23 @@ function journalRef(s: MigrationStorage): ReturnType<typeof sql> {
   return sql.raw(`"${s.schema}"."${s.table}"`);
 }
 
+/**
+ * Apply pending migrations to the database journal.
+ *
+ * Pass an explicit `storage` resolved from the caller's workspace
+ * (e.g. `getMigrationStorage(getMigrationSlug(import.meta.dirname))`) for
+ * reliable slug derivation. The default fallback relies on
+ * `process.env.npm_package_name`, which is unreliable under bundlers and
+ * Module Federation remotes.
+ */
 export function migrate(
   db: Database,
   migrations: Migration[],
-  _storage?: MigrationStorage,
+  storage?: MigrationStorage,
 ): Effect.Effect<number, DatabaseError> {
   return Effect.gen(function* () {
     const sorted = [...migrations].sort((a, b) => a.idx - b.idx);
-    const journal = _storage ?? SHARED_MIGRATION_STORAGE;
+    const journal = storage ?? getMigrationStorage();
 
     yield* ensureMigrationTable(db, journal);
 
@@ -263,7 +272,7 @@ function ensureMigrationTable(
   const ref = journalRef(storage);
   return Effect.gen(function* () {
     yield* Effect.tryPromise({
-      try: () => db.execute(sql`CREATE SCHEMA IF NOT EXISTS "drizzle"`),
+      try: () => db.execute(sql`CREATE SCHEMA IF NOT EXISTS ${sql.raw(`"${storage.schema}"`)}`),
       catch: (cause) =>
         new DatabaseError({ stage: "migration", migrationTag: "init-schema", cause }),
     });
@@ -283,13 +292,19 @@ function ensureMigrationTable(
   });
 }
 
+/**
+ * Detect drift between the local migration set and the database journal.
+ *
+ * Pass an explicit `storage` resolved from the caller's workspace for
+ * reliable slug derivation; see {@link migrate} for details.
+ */
 export function detectDrift(
   db: Database,
   migrations: Migration[],
-  _storage?: MigrationStorage,
+  storage?: MigrationStorage,
 ): Effect.Effect<DriftReport, DatabaseError> {
   return Effect.gen(function* () {
-    const journal = _storage ?? SHARED_MIGRATION_STORAGE;
+    const journal = storage ?? getMigrationStorage();
     const expectedTables = extractExpectedTables(migrations);
     const ref = journalRef(journal);
 

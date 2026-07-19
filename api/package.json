@@ -2,6 +2,9 @@
   "name": "api",
   "version": "2.7.3",
   "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
   "exports": {
     ".": {
       "types": "./src/index.ts",

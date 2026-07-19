@@ -1,8 +1,9 @@
 import { defineConfig } from "drizzle-kit";
-import { getDatabaseUrlSecretName, SHARED_MIGRATION_STORAGE } from "everything-dev/db";
+import { getDatabaseUrlSecretName, getMigrationSlug, getMigrationStorage } from "everything-dev/db";
 
-const slug = "api";
+const slug = getMigrationSlug(import.meta.dirname);
 const databaseSecret = getDatabaseUrlSecretName(slug);
+const storage = getMigrationStorage(slug);
 
 export default defineConfig({
   schema: "./src/db/schema.ts",
@@ -20,8 +21,8 @@ export default defineConfig({
         : `pglite:.bos/${slug}/:memory:`),
   },
   migrations: {
-    schema: SHARED_MIGRATION_STORAGE.schema,
-    table: SHARED_MIGRATION_STORAGE.table,
+    schema: storage.schema,
+    table: storage.table,
   },
   verbose: true,
   strict: true,

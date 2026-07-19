@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { SHARED_MIGRATION_STORAGE } from "../db";
 import { type DoctorReport, diagnosePlugin } from "./db-doctor";
 import type { PluginDbInfo } from "./db-studio";
 
@@ -30,7 +29,7 @@ export async function repairPlugin(
       status: "refused",
       diagnosis,
       message:
-        "Recreate mode is not supported without per-plugin schemas. Use --mode history-reset instead.",
+        "Recreate mode is not supported without per-plugin database schemas. Use --mode history-reset instead.",
     };
   }
 
@@ -78,9 +77,9 @@ export async function repairPlugin(
     };
   }
 
-  // drift-safe-repair: drop the shared journal and replay
+  // drift-safe-repair: drop the journal and replay
   const { Pool } = await import("pg");
-  const journalRef = `"${SHARED_MIGRATION_STORAGE.schema}"."${SHARED_MIGRATION_STORAGE.table}"`;
+  const journalRef = `"${diagnosis.journalSchema}"."${diagnosis.journalTable}"`;
   const pool = new Pool({
     connectionString: info.databaseUrl,
     ssl:
