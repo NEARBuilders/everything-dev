@@ -339,7 +339,8 @@ function loadPluginEntryEffect(
     if (pluginsClient) args.push(pluginsClient);
 
     const result = yield* Effect.tryPromise({
-      try: (): Promise<HostPluginEntry> => runtime.usePlugin(entry.runtimeId, ...args),
+      try: (): Promise<Omit<HostPluginEntry, "key" | "name">> =>
+        runtime.usePlugin(entry.runtimeId, ...args),
       catch: (error) => {
         if (rawDbUrl !== null && secretKey) {
           const maskedUrl = rawDbUrl === "unset" ? "unset" : rawDbUrl.replace(/:[^:@]+@/, ":****@");
