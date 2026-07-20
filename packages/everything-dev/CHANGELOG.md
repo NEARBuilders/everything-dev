@@ -1,5 +1,164 @@
 # everything-dev
 
+## 1.50.0
+
+### Minor Changes
+
+- 58272ad: ## Infra planner, preflight, and unified allocation
+
+  - `infra/types.ts` (new): `CliPorts`, `ResolvedPorts`, `RuntimeLaunchSpec`, `InfraPlan`, `InfraError`, `ServiceDescriptorPlan`, `ComposeModelPlan`, `DatabasePlan`, `RedisPlan`, `ClaimRecord`, `InfraInput` — typed contract for the entire dev/start infra planning pipeline.
+  - `infra/planner.ts` (new): `planInfra(input)` — one scoped Effect that computes service ports, DB/Redis ports, service descriptors, env values, compose model, and launch spec from a single `InfraInput`. Deterministic `workspaceKey` hashing for stable per-workspace port blocks. Replaces disparate allocation in `app.ts`, `cli/infra.ts`, and `plugin.ts` with one authoritative pipeline.
+  - `infra/preflight.ts` (new): `preflightLocalInfra(env, overrides?)` — TCP and real Postgres (`SELECT 1`) reachability checks for local `*_DATABASE_URL` and `*_REDIS_URL` entries. Fails fast with descriptive errors before any process starts. Uses merged effective env (plan + process.env).
+  - `app.ts`: `prepareDevelopmentRuntimeConfig` now returns `Effect<PreparedDevRuntime, PortAllocationError, PortAllocator>` and `PortAllocatorLive` seeds `usedPorts` from `claimedPorts()`. Bind-based TCP probing and parallel candidate scanning added.
+  - `plugin.ts`: dev handler routes through `planInfra(...)` via `Effect.runPromise(...pipe(Effect.provide(PortAllocatorLive)))`. Uses `buildServiceDescriptorMapFromPlan` for descriptor authority. Materializes generated infra from plan via `materializeInfraPlan(...)`. No more duplicated `syncGeneratedInfra` from runtime config.
+  - `process-registry.ts`: `PidEntry.ports` widened from fixed `{host,api,ui,auth}` to `Record<string, number>`. `claimedPorts()` iterates `Object.values()`. Removes cast-based port smuggling.
+  - `dev-session.ts`: registry registration includes `uiSsr`, plugin, and plugin-ui ports.
+  - `cli/infra.ts`: pure helpers `buildDatabaseConfigs`, `buildRedisConfigs`, `buildOriginMap`, `getSecretGroups`, `renderEnvFile`, `renderDockerCompose` now exported. Added `renderEnvFileFromPlan`, `renderDockerComposeFromPlan`, and `materializeInfraPlan(...)` for plan-driven file generation.
+  - `service-descriptor.ts`: added `buildServiceDescriptorMapFromPlan(plan, options?)` as the single authority path.
+  - `orchestrator.ts`: `ServerInput` extended with `port` and `env`. `spawnRemoteHost` passes explicit planned port and env into `runServer(...)`, fixing the `:443`/`:5100` drift.
+  - `host/src/program.ts`: `runServer(...)` applies `input.port` and `input.env` entries to `process.env` before starting the server.
+
+  ## Remote host bind semantics (Patch A)
+
+  - `infra/planner.ts`: host now always receives local bind `port`/`url` from `resolvedPorts.host`, even when `host.source === "remote"`. `remoteUrl` is preserved for remote host. All other services only get localhost rewrite when source is local — remote api/auth/ui/plugin URLs stay untouched.
+  - This fixes the bug where remote host was binding `5000`/`5100` instead of the user's `--port` value.
+
+  ## UI/SSR port honoring (Patch B)
+
+  - `ui/package.json`: `dev:ssr` script no longer hardcodes `PORT=3004`.
+  - `ui/rsbuild.config.ts`: server port reads `process.env.PORT` first, falling back to `3003`/`3004`. This means the planner-chosen UI/SSR ports are now honored by rsbuild.
+
+  ## DB preflight strengthening (Patch C)
+
+  - `infra/preflight.ts`: preflight now uses merged effective env (`plan.envGenerated` overlaid with `process.env`). Real Postgres connection (`SELECT 1`) for local `*_DATABASE_URL` targets, not just TCP. TCP-only for `*_REDIS_URL`. Differentiates "not listening" from "reachable but pg rejects".
+
+  ## Descriptor authority cleanup (Patch D)
+
+  - `service-descriptor.ts`: `buildServiceDescriptorMapFromPlan(plan, options?)` added. `plugin.ts` now uses it instead of raw `buildServiceDescriptorMap(plan.runtimeConfig, ...)`. One descriptor authority path.
+
+  ## Link: handling for version display, status, and upgrade
+
+  - `cli/framework-version.ts`: added `resolveFrameworkPackage(...)` returning `specifier`, `installedVersion`, `isLinked`, `isWorkspaceLike`. Handles `link:` specifiers by reading actual installed version from `node_modules`.
+  - `cli.ts`: banner resolves effective linked version and displays `v1.49.0 (linked)`.
+  - `cli/status.ts`: status returns `isLinked` and `specifier` per package.
+  - `contract.ts`: Zod schema for status extended with `isLinked` and `specifier`.
+  - `cli.ts:warnIfOutdated`: skips linked packages, shows "is linked locally" note instead of bogus upgrade nag.
+  - `cli/upgrade.ts`: `readCurrentPackageSpecifier` handles `link:`, `packageObjectNeedsCatalogRefs` exempts `link:`, `setCatalogRef` preserves `link:`.
+  - `internal/manifest-normalizer.ts`: preserves `link:` in catalog package normalization during child manifest building.
+
+  ## Root package manifest
+
+  - `package.json`: added `"pg": "catalog:"` to root `dependencies` and `"@types/pg": "catalog:"` to root `devDependencies` for explicit hoisting of Postgres client dep.
+
+  ***
+
+  No breaking changes to published `exports` map. All new types and functions are internal to the package. `link:` handling is additive — existing `workspace:`/`file:`/`catalog:` behavior is preserved.
+
+- f7745f4: Increase default publish key allowance from `0.25NEAR` to `1NEAR` to cover the NEP-642 10x gas purchase price increase. Enforce a minimum of `0.3NEAR` on `--allowance`.
+
+  Rename `bos key publish` → `bos key generate` — "publish" was misleading since nothing is published.
+
+  `bos key generate` now lists existing publish keys, generates the new key first, then prompts to remove the old ones (no more manual `near account delete-keys` step).
+
+  Better error message when the publish key has insufficient allowance — tells the user to run `bos key generate`.
+
+- 58272ad: Route all migration storage access through `getMigrationStorage` and retire `SHARED_MIGRATION_STORAGE`.
+
+  Each DB-enabled workspace (api, each plugin) has its own database via `*_DATABASE_URL`. This change standardizes the migration journal name within each database — it is not cross-plugin sharing. Phase 1 uses the drizzle-kit default journal name (`drizzle.__drizzle_migrations`) within each workspace's DB; phase 2 will slug-namespace the journal name (`__drizzle_migrations_<slug>`) within each DB.
+
+  - `packages/everything-dev/src/db.ts` — `getMigrationStorage(slug?, options?)` is now the single entry point for migration journal coordinates. A `PER_PLUGIN_ISOLATION` boolean gates default-vs-per-plugin journal table naming; phase 1 keeps the default `drizzle.__drizzle_migrations` table, phase 2 flips to `__drizzle_migrations_<slug>` with no caller changes. An `{ isolated?: boolean }` option overrides the default for testing and legacy-migration imports. `SHARED_MIGRATION_STORAGE` is removed; default coords inlined behind the gate as `DEFAULT_MIGRATION_JOURNAL`. The `slug` argument is normalized inside the function (idempotent for already-normalized slugs), so callers can pass raw plugin keys like `@everything-dev/foo-plugin` directly. The returned `slug` is always the caller's plugin slug (not `__drizzle_migrations`), so error messages and reports identify the actual plugin. `getLegacyCandidates()` and `migrateSql()` are removed as dead code — the preflight table-existence check in `migrate()` is the better way to handle legacy journal locations (`public.drizzle_migrations`) and missing journals: it auto-records migrations as applied when their target tables already exist, idempotently, at runtime.
+  - `api/src/db/layer.ts` — resolves storage via `getMigrationStorage(getMigrationSlug(import.meta.dirname))`. Drift errors now reference the real plugin slug (e.g. `bos db doctor api`) instead of `__drizzle_migrations`, and the drift-safe-repair message no longer says "isolated" (phase 1 uses the default journal).
+  - `api/drizzle.config.ts` — derives `slug` via `getMigrationSlug(import.meta.dirname)` instead of the hardcoded `"api"`, then uses `getMigrationStorage(slug)` for the `migrations` block. The derived value still matches `"api"` in this repo, but synced child plugins now pick up their own package name automatically. **Behavior change for synced child projects**: the `slug` is no longer literal — child projects with a non-`api` package name will see their derived slug in the database secret name and pglite fallback path.
+  - `api/src/db/migrate.ts` — `migrate()` and `detectDrift()` accept a `storage` parameter (renamed from `_storage`) and default to `getMigrationStorage()` when none is passed. JSDoc on both directs plugin authors to pass an explicit `getMigrationStorage(getMigrationSlug(import.meta.dirname))` for reliable slug derivation under rspack/Module Federation bundling. `ensureMigrationTable()` now parameterizes the schema name via `storage.schema` instead of hardcoding `"drizzle"`.
+  - `packages/everything-dev/src/cli/db-doctor.ts` — derives journal coordinates from `getMigrationStorage(pluginMigrationSlug(info.key))`; the report's `slug` field now shows the actual plugin.
+  - `packages/everything-dev/src/cli/db-repair.ts` — reuses the diagnosis's `journalSchema`/`journalTable` (single source of truth) instead of re-importing the shared constant. `recreate` mode refusal message clarified to mention "per-plugin database schemas" (a future phase concern distinct from per-plugin journals).
+  - `packages/everything-dev/src/cli/db-studio.ts` — `runStudioRemote` now generates its Drizzle Studio config with `getMigrationStorage(pluginMigrationSlug(info.key))` instead of hardcoding the per-plugin `__drizzle_migrations_<slug>` form. Previously Studio introspected a journal table that didn't exist in phase 1. Mid-file `import { pluginMigrationSlug }` hoisted to the top import block.
+  - `packages/everything-dev/src/cli/sync.ts` — removes stale `migration-storage` alternative from the framework-owned sync regex; the file was removed in a prior change.
+  - `packages/everything-dev/skills/plugin-development/SKILL.md` — the `migrate()` snippet now shows passing an explicit `storage` resolved from `import.meta.dirname`, with a note that the no-arg fallback relies on `npm_package_name` and is unreliable under bundlers.
+  - `packages/everything-dev/tests/unit/db.test.ts` — covers the phase-1 default form, default slug resolution, raw-key normalization, and a new `getMigrationStorage (isolated)` suite that exercises `{ isolated: true }` and `{ isolated: false }` to lock in the phase-2 flip. Removes the `getLegacyCandidates` test (function removed).
+  - `package.json`, `api/package.json`, `packages/everything-dev/package.json` — add `engines.node: ">=20.11"` to enforce the `import.meta.dirname` floor (already used in 19 sites across the repo).
+
+  Legacy migration upgrade path: child repos that previously ran `drizzle-kit migrate` against `public.drizzle_migrations` (or have no journal at all) are handled automatically at runtime. `migrate()` creates `drizzle.__drizzle_migrations` if missing, then for each migration checks whether its target tables already exist in the `public` schema — if they do, it records the migration as applied in the new journal without replaying DDL. This is idempotent and handles both legacy journal locations and missing journals without hash import.
+
+  Phase 2 (per-plugin journal isolation) becomes a one-line flip of `PER_PLUGIN_ISOLATION` in `packages/everything-dev/src/db.ts` plus a package republish — no caller changes required. The `{ isolated: true }` option is already exercised by tests, so the flip is verified-by-proxy.
+
+- 58272ad: Introduce `PortAllocator` Effect service, bind-based port probing, parallel candidate scanning, and async registry pruning.
+
+  ## PortAllocator service + tagged errors (A+B)
+
+  - `app.ts`: `PortAllocator` `Context.Tag` with `pickAvailable(preferred, budget?)` returning `Effect<number, PortAllocationError>`. `PortAllocationError` is a `Data.TaggedError` with `preferred`, `budget?`, and `cause?` fields, replacing the bare `RangeError` throws from the prior implementation.
+  - `prepareDevelopmentRuntimeConfig` is now an `Effect.gen` that yields `PortAllocator` for each port pick. Returns `PreparedDevRuntime` = `{ runtimeConfig, devPorts }` — the caller no longer re-derives `devPorts` from the runtime config (eliminates duplicated `hasLocalPlugin`/`firstLocalPluginPort` logic in `plugin.ts`).
+  - `PortAllocatorLive` layer co-located in `app.ts`, seeds `usedPorts` from `claimedPorts()` (flattened from the global PID registry) so concurrent `bos dev` sessions skip ports already claimed by live sessions. Fixes the multi-instance port collision observed with `overmind`.
+  - `plugin.ts` dev handler wraps the call in `Effect.runPromise(...pipe(Effect.provide(PortAllocatorLive)))` and uses the returned `devPorts` directly in `savePortState`.
+  - `process-registry.ts`: replaces `claimPorts()` (array of port-maps) with `claimedPorts(): Set<number>` (flattened set for direct `usedPorts` seeding).
+  - Tests: `app.test.ts` rewritten with a hermetic `PortAllocatorTest` layer — no real TCP probing. Covers Bug C (remote host preserved), Bug A (remote services → undefined devPorts), budget clamping/success, `claimPorts` seeding, and `PortAllocationError` on budget exhaustion (verified via `Effect.runPromiseExit` + `Cause.pretty`).
+
+  ## Bind-based port probing (smell #2)
+
+  - Replaced connect-based `probeTcpOpen` (which only detected "is something already listening") with bind-based `probePortBindable` using `net.createServer().listen(port, "127.0.0.1")`. This catches `EADDRINUSE` for bound-but-not-listening sockets and `EACCES` for privileged ports — cases connect-based probing missed. The server is closed in the `listening` callback before the Effect resolves, narrowing the TOCTOU window between probe and child bind.
+
+  ## Parallel candidate probing (smell #4)
+
+  - `pickAvailablePort` now probes `PARALLEL_PROBE_WINDOW` (8) candidate ports in parallel via `Effect.forEach` with `concurrency: "unbounded"`, taking the first free one. Eliminates the sequential 250ms-per-busy-port walk that could add 1+ seconds to startup on busy hosts.
+
+  ## Async pruneDead (smell #8)
+
+  - `process-registry.ts`: added `pruneDeadEffect(entries): Effect<PidEntry[]>` that uses `fs.promises.access` (async) instead of `existsSync` (sync) for `configDir` checks, with `Effect.forEach` concurrency unbounded. Sync `pruneDead` retained for low-frequency callers (`registerStandalone`, `unregisterPid`, `claimedPorts`).
+  - `plugin.ts`: `ps` and `kill` handlers now use `pruneDeadEffect` via `Effect.runPromise`, avoiding blocking the main thread on sync filesystem syscalls when the registry grows.
+  - Test: `process-registry.test.ts` verifies `pruneDeadEffect` filters pid<=1, dead pids, and missing configDirs concurrently.
+
+  ## Constants hoisted (smell #5)
+
+  - `PROBE_TIMEOUT_MS`, `MAX_PORT_SCAN_STEPS`, `PARALLEL_PROBE_WINDOW` are named module-level constants instead of inline magic numbers.
+
+  No breaking changes to the published `exports` map. `prepareDevelopmentRuntimeConfig` is internal (not exported via `package.json` `exports`), so the signature change from `Promise<RuntimeConfig>` to `Effect<PreparedDevRuntime, PortAllocationError, PortAllocator>` is safe.
+
+- 58272ad: Add per-service dev port flags, persist dev port choices, derive CORS_ORIGIN from the actual host port, and add `bos ps`/`bos kill` process management.
+
+  - `packages/everything-dev/src/contract.ts`: extend `DevOptionsSchema` with `apiPort`, `uiPort`, `authPort`, and `pluginPortStart` flags. Add `ps` (GET /ps) and `kill` (POST /kill, options `configDir`/`signal`/`all`) routes with `PsResultSchema`/`KillOptionsSchema`/`KillResultSchema`.
+  - `packages/everything-dev/src/app.ts`: `prepareDevelopmentRuntimeConfig` now accepts `apiPort`/`uiPort`/`authPort`/`pluginPortStart`/`portBudget` options, threading each as the preferred value into `pickAvailablePort`. `portBudget` (`{min,max}`) rejects out-of-budget candidates with a `RangeError`, hardening the surface for a future `bos dev --workspaces` orchestrator.
+  - `packages/everything-dev/src/plugin.ts`: the dev handler reads persisted dev ports from `.bos/infra-state.json`, prefers explicit input flags, falls back to persisted values, and finally to the bos-config host dev URL. After resolving ports it persists `runtimeConfig.{host,api,ui,auth}.port` plus the first local plugin port under a new `devPorts` key, so subsequent dev sessions pick the same ports without re-probing.
+  - `packages/everything-dev/src/cli/infra.ts`: extend `PortState` with `devPorts?: { host?, api?, ui?, auth?, pluginPortStart? }`. `loadPortState`/`savePortState` are now exported for use by `plugin.ts`. `.env.example`'s `CORS_ORIGIN` now derives from `runtimeConfig.host.port` (falling back to `extractPortFromUrl(runtimeConfig.host.url)` then 3000) when `runtimeConfig.env === "development"`. Production/staging no longer override `CORS_ORIGIN` here — domain defaulting still happens in the start handler.
+  - `packages/everything-dev/src/process-registry.ts` (new): global PID registry at `~/.cache/everything-dev/pids.json`, keyed by `pid`. Entry shape: `{ pid, configDir, parentPid?, role, ports, budget?, startedAt, description }`. Exports `readRegistry`/`writeRegistry`/`pruneDead`/`isPidAlive`/`registerStandalone`/`registerEntry`/`unregisterPid`/`removeRegistryFile`/`claimPorts`. Atomic write (tmp + rename); reads prune ESRCH PIDs. The entry shape is forward-compatible with a future `bos dev --workspaces` orchestrator (`parentPid`/`role`/`budget` are unused but reserved; only `role:"standalone"` is written today).
+  - `packages/everything-dev/src/dev-session.ts`: `runDevSession` registers a standalone PID entry on startup unless `BOS_WORKSPACE_CHILD=1` is set, and unregisters in the scope finalizer. `DevRuntimeConfig` is now read at session start so host/api/ui/auth ports land in the registry.
+  - `packages/everything-dev/src/cli.ts`: add print branches for `bos ps` (table with pid, role, age, dir, ports, budget, description) and `bos kill` (killed/skipped counts, plus guidance when no targets match).
+  - `packages/everything-dev/src/contract.meta.ts`: register `ps` and `kill` command paths and field metadata so `--help` and `parseCommandInput` pick them up automatically.
+  - Tests: `tests/unit/infra.test.ts` covers CORS_ORIGIN derivation from `host.port`, URL fallback, production no-override, and dev-ports persistence/legacy-file tolerance. `tests/unit/parse.test.ts` covers `--api-port`/`--ui-port`/`--auth-port`/`--plugin-port-start`/`--port` parsing on `dev`, plus `--config-dir`/`--signal`/`--all` on `kill`. `tests/unit/process-registry.test.ts` covers atomic write, de-dup, pruneDead, unregisterPid, corruption tolerance.
+
+  Breaking changes: none. All new options are optional with sensible defaults; existing callers of `prepareDevelopmentRuntimeConfig` continue to work unchanged.
+
+- 58272ad: Fix metadata files being blocked by narrowed static asset regex; standardize public file structure; renderClientShell delegates head data to UI's getRouteHead.
+
+  - `host/src/program.ts`: Added `md` and `webmanifest` to `staticAssetPattern` (fixes regression from DDoS narrowing that blocked `.md` and `.webmanifest` from being proxied as static assets). DRY'd inline regex copy to use the named constant.
+  - `host/src/program.ts`: Refactored `renderClientShell` to accept `HeadData` from the MF-loaded UI router module via `getRouteHead`. Host no longer hardcodes metadata (favicon, manifest, OG tags) — the UI's `__root.tsx` `head()` is the single source of truth. Minimal fallback shell (charset, viewport, title, boot scripts) when module is unavailable.
+  - `packages/everything-dev/src/ui/router.ts`: Added `serializeHeadData` helper to convert structured `HeadData` (meta/links/scripts) to HTML strings for the raw shell.
+  - `ui/public/`: Standardized on 15-file public structure. Renamed icon.svg→near.svg, icon_rev.svg→near_rev.svg, android-chrome-192x192.png→web-app-manifest-192x192.png, android-chrome-512x512.png→web-app-manifest-512x512.png. Generated favicon-96x96.png, logo.png. Removed legacy files (favicon-16x16.png, favicon-32x32.png, logo192.png, logo512.png, logo_rev.svg, logo.svg, manifest.json). Replaced manifest.json with site.webmanifest as single PWA manifest.
+  - `ui/src/routes/__root.tsx`: Updated icon and manifest references to match new filenames.
+  - `ui/public/site.webmanifest`: Merged richer icon set and fields from old manifest.json.
+
+### Patch Changes
+
+- 58272ad: Fix three bugs in the dev port and process-registry feature surfaced by real-world testing with `overmind` running two `bos dev` sessions in a multi-workspace project.
+
+  - **Bug A — remote services wrote port 443/80 into `.bos/infra-state.json`.** `savePortState` in `plugin.ts` now gates each port slot on `runtimeConfig.<service>.source === "local"`, writing `undefined` for remote services. The `pluginPortStart` slot is gated on whether any local plugin exists. Test: `infra.test.ts` round-trips `undefined` devPorts slots for remote `api`/`auth`/`pluginPortStart`.
+  - **Bug B — stale PID registry entries from prior test/dev runs survived `bos ps`.** `pruneDead` in `process-registry.ts` now filters entries with `pid <= 1` (init/kernel guards) and entries whose `configDir` no longer exists (`existsSync` check). A `BO_PID_REGISTRY_PATH` env var override is honored by `getRegistryPath`, letting tests isolate the registry without mutating `HOME`. Tests: `process-registry.test.ts` covers the pid≤1 guard, missing-configDir guard, env-var override, and stale fixture cleanup. The test harness now uses `BO_PID_REGISTRY_PATH` instead of `process.env.HOME` mutation, and existing fixture tests use real temp configDirs so they survive the new `existsSync` guard.
+  - **Bug C — `prepareDevelopmentRuntimeConfig` clobbered remote `host.url`/`host.port` with `http://localhost:<picked>`.** The function now checks `runtimeConfig.host.source === "local"` before rewriting the host's url/port/entry. The picked host port is still reserved in `usedPorts` for budget accounting. Tests: `app.test.ts` (new) verifies remote host url/port are preserved, remote api service is left unassigned, and that local services still receive picked localhost ports. Also covers `portBudget` clamping and within-budget success.
+
+  No breaking changes. All 172 unit tests pass; `bun run --cwd packages/everything-dev typecheck` is clean. Pre-existing lint findings in `ui/router.ts` and `host/src/program.ts` are unrelated (confirmed via `git stash`).
+
+- 58272ad: Fix db.ts type error and conditionally copy plugin-owned UI routes during bos init.
+
+  - `packages/everything-dev/src/db.ts`: fix TS2345 on `tables.add(tableName)` where `tableName` was `string | undefined` from `String.matchAll()`. Collapsed redundant `if (schemaName)/else if (tableName)` branches into a single `if (tableName)` guard.
+  - `packages/everything-dev/src/cli/init.ts`: add `buildPluginRouteExclusions(parentConfig, selectedPlugins)` which returns UI route globs claimed by non-selected plugins. `copyFilteredFiles` and `writeInitSnapshot` now accept an optional `ignore` parameter merged into the glob ignore list.
+  - `packages/everything-dev/src/plugin.ts`: the init command now computes route exclusions from the parent config and excludes plugin-owned routes (e.g. `ui/src/routes/_layout/apps/**`) when the corresponding plugin is not selected. This prevents scaffolded routes from referencing unconfigured plugin API namespaces (e.g. `apiClient.apps` without the `apps` plugin).
+  - `bos.config.json`: remove `ui/src/routes/_layout/index.tsx` from `plugins.apps.routes` — the home route is a core route, not apps-specific.
+
+- 58272ad: Security and correctness fixes from codebase audit:
+
+  - **Require `API_DATABASE_URL` in production** — Removed the `:memory:` PGlite default from the API plugin schema. Uses a Zod `refine()` that rejects `pglite:` URLs when `NODE_ENV=production`, preventing silent data loss on restart. Updated `drizzle.config.ts` fallback to throw in production.
+  - **Add warnings to empty catch blocks** — Added `console.warn` to 5 empty `catch {}` blocks across `config.ts` (\_resolved.json parse, package.json name resolution), `orchestrator.ts` (manifest fetch failure), and `cli/upgrade.ts` (plugin config parse and file deletion), turning silent fallbacks into actionable diagnostics.
+  - **Add CSRF protection middleware** — Added `createCsrfMiddleware` to the host server that validates `Origin`/`Referer` headers against the allowed origins list for state-changing methods (POST/PUT/DELETE/PATCH), preventing cross-origin request forgery on cookie-authenticated endpoints.
+
 ## 1.49.0
 
 ### Minor Changes

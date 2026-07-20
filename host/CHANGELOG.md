@@ -1,5 +1,36 @@
 # host
 
+## 1.13.2
+
+### Patch Changes
+
+- 58272ad: Refactor plugin bootstrap to Effect-native error channel and route `CORS_ORIGIN` through Effect's `Config` primitive.
+
+  - `host/src/services/plugins.ts`: `initializePlugins` splits the single `Effect.tryPromise` into a narrow host-infra `tryPromise` (→ `PluginError`) plus per-phase `Effect.gen` steps for auth / non-api plugins / api. Each phase catches `PluginBootstrapError` via `Effect.catchTag` and routes through one shared `logBootstrapError` helper, collapsing three duplicated catch blocks. DB URL secrets now read via `Config.secret` + `Secret` (raw value only touched via `Secret.value` at the masking point); missing env maps to `Secret("unset")` through `catchAll`. `PluginBootstrapError` gains a `message` getter matching the `errors.ts` pattern. Logging inside Effect-managed regions moved to `yield* Effect.logInfo/logError`.
+  - `host/src/services/plugins.ts`: `buildAuthBaseVariables` simplified — removes dead `/remoteEntry.js`/`/mf-manifest.json` regex stripping (those URLs live on `config.host.entry`, never `config.host.url`) and the redundant `localhost:3000` double-fallback. Dev uses `config.host?.url ?? localhost:PORT`, prod uses `config.domain` (the public ingress, not the Zephyr URL which lives in the separate `config.host.remoteUrl` field).
+  - `host/src/services/config.ts`: added `readCorsOrigins()` using `Config.array(Config.string(), "CORS_ORIGIN")` with `ConfigProvider.fromEnv`, filtering empty entries, `catchAll` fallback to `[]`.
+  - `host/src/services/program.ts`: single `yield* readCorsOrigins()` at the top of `createStartServer` replaces both the warning-presence check and the `allowedOrigins` parse. One env read instead of two.
+  - `host/src/services/plugins.ts`: `buildAuthBaseVariables` now takes `corsOrigins: string[]`; auth phase reads via `yield* readCorsOrigins()`. Removes the inline `process.env.CORS_ORIGIN?.split(",")` read.
+
+  Behavior changes for `CORS_ORIGIN` edge cases (both more correct): `CORS_ORIGIN=''` now resolves to `[]` (was `[""]`), so the production warning fires for empty string and `allowedOrigins` falls through to host/ui fallback. `CORS_ORIGIN='a,,b'` now resolves to `["a","b"]` (was `["a","","b"]`).
+
+  No public API changes. `PluginResult` shape unchanged. `bun typecheck` clean, biome lint clean, 124/124 host tests pass.
+
+- 58272ad: Fix metadata files being blocked by narrowed static asset regex; standardize public file structure; renderClientShell delegates head data to UI's getRouteHead.
+
+  - `host/src/program.ts`: Added `md` and `webmanifest` to `staticAssetPattern` (fixes regression from DDoS narrowing that blocked `.md` and `.webmanifest` from being proxied as static assets). DRY'd inline regex copy to use the named constant.
+  - `host/src/program.ts`: Refactored `renderClientShell` to accept `HeadData` from the MF-loaded UI router module via `getRouteHead`. Host no longer hardcodes metadata (favicon, manifest, OG tags) — the UI's `__root.tsx` `head()` is the single source of truth. Minimal fallback shell (charset, viewport, title, boot scripts) when module is unavailable.
+  - `packages/everything-dev/src/ui/router.ts`: Added `serializeHeadData` helper to convert structured `HeadData` (meta/links/scripts) to HTML strings for the raw shell.
+  - `ui/public/`: Standardized on 15-file public structure. Renamed icon.svg→near.svg, icon_rev.svg→near_rev.svg, android-chrome-192x192.png→web-app-manifest-192x192.png, android-chrome-512x512.png→web-app-manifest-512x512.png. Generated favicon-96x96.png, logo.png. Removed legacy files (favicon-16x16.png, favicon-32x32.png, logo192.png, logo512.png, logo_rev.svg, logo.svg, manifest.json). Replaced manifest.json with site.webmanifest as single PWA manifest.
+  - `ui/src/routes/__root.tsx`: Updated icon and manifest references to match new filenames.
+  - `ui/public/site.webmanifest`: Merged richer icon set and fields from old manifest.json.
+
+- 58272ad: Security and correctness fixes from codebase audit:
+
+  - **Require `API_DATABASE_URL` in production** — Removed the `:memory:` PGlite default from the API plugin schema. Uses a Zod `refine()` that rejects `pglite:` URLs when `NODE_ENV=production`, preventing silent data loss on restart. Updated `drizzle.config.ts` fallback to throw in production.
+  - **Add warnings to empty catch blocks** — Added `console.warn` to 5 empty `catch {}` blocks across `config.ts` (\_resolved.json parse, package.json name resolution), `orchestrator.ts` (manifest fetch failure), and `cli/upgrade.ts` (plugin config parse and file deletion), turning silent fallbacks into actionable diagnostics.
+  - **Add CSRF protection middleware** — Added `createCsrfMiddleware` to the host server that validates `Origin`/`Referer` headers against the allowed origins list for state-changing methods (POST/PUT/DELETE/PATCH), preventing cross-origin request forgery on cookie-authenticated endpoints.
+
 ## 1.13.1
 
 ### Patch Changes
