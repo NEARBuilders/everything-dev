@@ -104,7 +104,7 @@ for (const scenario of scenarios) {
 
         const root = document.querySelector("#root");
         const remoteEntry = document.querySelector('script[src*="remoteEntry.js"]');
-        const manifest = document.querySelector('link[href*="manifest.json"]');
+        const manifest = document.querySelector('link[href*="site.webmanifest"]');
 
         return {
           hasRuntimeConfig: Boolean(runtimeConfig),
