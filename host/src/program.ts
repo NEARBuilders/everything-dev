@@ -517,7 +517,8 @@ export function setupApiRoutes(
     ],
     interceptors: [
       onError((error: unknown) => {
-        formatORPCError(error);
+        const formatted = formatORPCError(error);
+        if (formatted) console.error(formatted);
         throw error;
       }),
     ],
@@ -622,6 +623,9 @@ export const createStartServer = (onReady?: () => void) =>
           }
         }
 
+        logger.warn(
+          `[CSRF] Blocked ${c.req.method} ${c.req.path} from origin=${origin ?? "missing"} referer=${referer ?? "missing"}`,
+        );
         return c.json({ error: "CSRF validation failed: request origin is not allowed" }, 403);
       };
     };
@@ -875,6 +879,7 @@ export const createStartServer = (onReady?: () => void) =>
         return await proxyUiAssetRequest(c);
       } catch (error) {
         const { message, status } = getTenantRuntimeErrorResponse(error);
+        logger.error(`[Proxy Asset] ${c.req.method} ${c.req.path} — ${message}`);
         return c.text(message, { status: status as 404 | 500 | 502 });
       }
     });
@@ -896,6 +901,9 @@ export const createStartServer = (onReady?: () => void) =>
           return await proxyStaticAssetRequest(c.req.raw, pluginUiUrl);
         } catch (error) {
           const { message, status } = getTenantRuntimeErrorResponse(error);
+          logger.error(
+            `[Plugin UI Proxy] ${c.req.method} ${c.req.path} (plugin=${pluginKey}) — ${message}`,
+          );
           return c.text(message, { status: status as 404 | 500 | 502 });
         }
       });
@@ -982,6 +990,7 @@ export const createStartServer = (onReady?: () => void) =>
         });
       } catch (error) {
         const { message, status } = getTenantRuntimeErrorResponse(error);
+        logger.error(`[SSR] ${c.req.method} ${c.req.path} — ${message}`);
         return c.text(message, { status: status as 404 | 500 | 502 });
       }
 
