@@ -28,12 +28,43 @@ jobs:
         github.event.workflow_run.head_branch == 'main'
       )
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
       ZE_CI_TOKEN: ${{ secrets.ZEPHYR_CI_TOKEN }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       TARGET_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref_name }}
+      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5432/api_db
+      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5433/auth_db
+      CORS_ORIGIN: http://127.0.0.1:4100
+    services:
+      postgres-api:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: api_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+      postgres-auth:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: auth_db
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -58,6 +89,14 @@ jobs:
       - name: Run postinstall
         run: bun run postinstall
 
+      - name: Setup Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version: "1.22"
+
+      - name: Install Playwright browser
+        run: bun run test:regression:browser:install
+
       - name: Install NEAR CLI
         run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/download/v0.23.5/near-cli-rs-installer.sh | sh
 
@@ -76,6 +115,20 @@ jobs:
       - name: Publish with deploy
         timeout-minutes: 20
         run: bun run bos publish --deploy${{ inputs.verbose == true && ' --verbose' || '' }}
+
+      - name: Validate production regression against published remotes
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            if bun run test:regression:prod; then
+              echo "Production regression passed"
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 15s (propagation delay)..."
+            sleep 15
+          done
+          echo "Production regression failed after 3 attempts"
+          exit 1
 
       - name: Install Railway CLI
         run: npm i -g @railway/cli
