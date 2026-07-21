@@ -1,5 +1,11 @@
 # every-plugin
 
+## 2.9.3
+
+### Patch Changes
+
+- 9d17953: Fixed `tools` parameter type in plugin `initialize` — it was incorrectly typed as optional (`tools?:`) but is always provided by the plugin runtime. Child repos no longer need `tools!.buildService()` workarounds.
+
 ## 2.9.2
 
 ### Patch Changes
