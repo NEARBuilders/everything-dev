@@ -1,5 +1,11 @@
 # everything-dev
 
+## 1.51.0
+
+### Minor Changes
+
+- acf134e: Removed the pglite URL validation guard on `API_DATABASE_URL` in production. Added `tsconfig.json` and `tsconfig.contract.json` to the plugin sync template, so plugin tsconfigs are now framework-owned and synced during `bos sync`.
+
 ## 1.50.0
 
 ### Minor Changes
