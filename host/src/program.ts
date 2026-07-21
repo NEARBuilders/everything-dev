@@ -578,54 +578,24 @@ export const createStartServer = (onReady?: () => void) =>
 
     const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-    const createCsrfMiddleware = (origins: string[]) => {
+    const createCsrfMiddleware = () => {
       return async (c: Context, next: Next) => {
         if (SAFE_METHODS.has(c.req.method)) {
           return next();
         }
 
         const origin = c.req.header("origin");
-        const referer = c.req.header("referer");
 
-        const isAllowedOrigin = (o: string): boolean => {
-          try {
-            const parsed = new URL(o);
-            return origins.some((allowed) => {
-              if (!allowed) return false;
-              try {
-                const allowedUrl = new URL(allowed);
-                return (
-                  parsed.protocol === allowedUrl.protocol &&
-                  parsed.hostname === allowedUrl.hostname &&
-                  parsed.port === allowedUrl.port
-                );
-              } catch {
-                return allowed === o;
-              }
-            });
-          } catch {
-            return false;
-          }
-        };
-
-        if (origin && isAllowedOrigin(origin)) {
+        if (!origin) {
           return next();
         }
 
-        if (referer) {
-          try {
-            const refererOrigin = new URL(referer).origin;
-            if (isAllowedOrigin(refererOrigin)) {
-              return next();
-            }
-          } catch {
-            // invalid referer URL — fall through to rejection
-          }
+        const host = c.req.header("host");
+        if (host && host === new URL(origin).hostname) {
+          return next();
         }
 
-        logger.warn(
-          `[CSRF] Blocked ${c.req.method} ${c.req.path} from origin=${origin ?? "missing"} referer=${referer ?? "missing"}`,
-        );
+        logger.warn(`[CSRF] Blocked ${c.req.method} ${c.req.path} from origin=${origin}`);
         return c.json({ error: "CSRF validation failed: request origin is not allowed" }, 403);
       };
     };
@@ -644,7 +614,7 @@ export const createStartServer = (onReady?: () => void) =>
       }),
     );
 
-    app.use("/*", createCsrfMiddleware(allowedOrigins));
+    app.use("/*", createCsrfMiddleware());
 
     const staticAssetPattern =
       /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|md|webmanifest|woff2?|ttf|eot|webp|avif|map|txt|xml)$/i;

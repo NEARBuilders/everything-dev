@@ -948,8 +948,132 @@ const LEGACY_DIST_IMPORT_REWRITES = [
   ["from 'everything-dev/dist/", "from 'everything-dev/"],
 ] as const;
 
-async function rewriteLegacyPluginScopedLayerPatterns(projectDir: string): Promise<string[]> {
-  const files = await glob("plugins/*/src/index.ts", {
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function balancedParenEnd(source: string, openIdx: number): number {
+  let depth = 1;
+  let i = openIdx;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0) return i;
+    }
+    i++;
+  }
+  return -1;
+}
+
+function deriveTagFromLayerExpr(layerExpr: string): string | null {
+  const m = layerExpr.match(/^\s*([A-Z]\w*)/);
+  if (!m) return null;
+  const name = m[1];
+  if (name.endsWith("Live")) return `${name.slice(0, -4)}Tag`;
+  if (name.endsWith("Layer")) return `${name.slice(0, -5)}Tag`;
+  return null;
+}
+
+type PipeProvideCall = {
+  argStart: number;
+  endIdx: number;
+  dotIdx: number;
+  pipeCloseEnd: number;
+};
+
+function findAllPipeEffectProvideCalls(source: string): PipeProvideCall[] {
+  const out: PipeProvideCall[] = [];
+  const needle = "Effect.provide(";
+  let searchFrom = 0;
+  while (true) {
+    const provideIdx = source.indexOf(needle, searchFrom);
+    if (provideIdx === -1) break;
+    const argStart = provideIdx + needle.length;
+    const endIdx = balancedParenEnd(source, argStart);
+    if (endIdx === -1) {
+      searchFrom = argStart;
+      continue;
+    }
+    let p = provideIdx - 1;
+    while (p >= 0 && /\s/.test(source[p])) p--;
+    if (p < 0 || source[p] !== "(") {
+      searchFrom = endIdx + 1;
+      continue;
+    }
+    p--;
+    const pipeWord = ".pipe";
+    if (p - pipeWord.length + 1 < 0 || source.slice(p - pipeWord.length + 1, p + 1) !== pipeWord) {
+      searchFrom = endIdx + 1;
+      continue;
+    }
+    const dotIdx = p - pipeWord.length + 1;
+    let q = endIdx + 1;
+    while (q < source.length && /\s/.test(source[q])) q++;
+    if (q < source.length && source[q] === ",") q++;
+    while (q < source.length && /\s/.test(source[q])) q++;
+    if (q >= source.length || source[q] !== ")") {
+      searchFrom = endIdx + 1;
+      continue;
+    }
+    out.push({ argStart, endIdx, dotIdx, pipeCloseEnd: q + 1 });
+    searchFrom = q + 1;
+  }
+  return out;
+}
+
+function rewritePipeEffectProvideForm(source: string, relPath: string): string {
+  const calls = findAllPipeEffectProvideCalls(source);
+  if (calls.length === 0) return source;
+
+  let result = source;
+
+  for (let k = calls.length - 1; k >= 0; k--) {
+    const call = calls[k];
+    const layerExpr = result.slice(call.argStart, call.endIdx).trim();
+    const tagName = deriveTagFromLayerExpr(layerExpr);
+    if (!tagName) {
+      console.warn(
+        `[Upgrade] ${relPath}: found .pipe(Effect.provide(${layerExpr})) but could not derive a tag name — skipping. Migrate manually to tools.buildService(<Tag>, ${layerExpr}).`,
+      );
+      continue;
+    }
+    const tagUseRe = new RegExp(`(yield\\*\\s+)${escapeRegex(tagName)}(\\s*;?)`, "g");
+    const tagMatches = [...result.matchAll(tagUseRe)];
+    if (tagMatches.length !== 1) {
+      console.warn(
+        `[Upgrade] ${relPath}: found .pipe(Effect.provide(${layerExpr})) expecting a single \`yield* ${tagName}\`, but found ${tagMatches.length} — skipping. Migrate manually.`,
+      );
+      continue;
+    }
+    const tm = tagMatches[0];
+    const tagStart = tm.index ?? -1;
+    if (tagStart < 0) continue;
+    const tagLen = tm[0].length;
+    const replacement = `${tm[1]}tools.buildService(${tagName}, ${layerExpr})${tm[2]}`;
+    if (tagStart < call.dotIdx) {
+      result =
+        result.slice(0, tagStart) +
+        replacement +
+        result.slice(tagStart + tagLen, call.dotIdx) +
+        result.slice(call.pipeCloseEnd);
+    } else {
+      result =
+        result.slice(0, call.dotIdx) +
+        result.slice(call.pipeCloseEnd, tagStart) +
+        replacement +
+        result.slice(tagStart + tagLen);
+    }
+  }
+
+  return result;
+}
+
+export async function rewriteLegacyPluginScopedLayerPatterns(
+  projectDir: string,
+): Promise<string[]> {
+  const files = await glob(["plugins/*/src/index.ts", "api/src/index.ts"], {
     cwd: projectDir,
     nodir: true,
     dot: false,
@@ -968,6 +1092,11 @@ async function rewriteLegacyPluginScopedLayerPatterns(projectDir: string): Promi
 
     // Rewrite yield* Effect.provide(Tag, LayerExpr) → yield* tools.buildService(Tag, LayerExpr)
     next = next.replaceAll(effectProvidePattern, "yield* tools.buildService(");
+
+    // Rewrite the .pipe(Effect.provide(<LayerExpr>)) form: move <LayerExpr> into a
+    // tools.buildService(<Tag>, <LayerExpr>) call replacing the bare `yield* <Tag>`
+    // inside the generator, and drop the trailing .pipe(Effect.provide(...)).
+    next = rewritePipeEffectProvideForm(next, file);
 
     // Add tools as third argument to initialize if it only has (config) or (config, plugins)
     const hasEffectProvideOrServiceBuild = next.includes("tools.buildService(");

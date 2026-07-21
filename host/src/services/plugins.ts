@@ -541,6 +541,12 @@ export const initializePlugins = Effect.gen(function* () {
     if (authClient) {
       apiPluginsClient.auth = authClient;
     }
+    yield* Effect.logInfo(`[Plugins] API auth client available: ${Boolean(authClient)}`);
+    if (Object.keys(pluginsClient).length > 0) {
+      yield* Effect.logInfo(
+        `[Plugins] API plugins available: ${Object.keys(pluginsClient).join(", ")}`,
+      );
+    }
     const apiResult = yield* loadPluginEntryEffect(
       runtime,
       apiEntry,
