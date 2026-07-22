@@ -1,4 +1,4 @@
-import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { ClientOnly, createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { Globe, Home } from "lucide-react";
 import { getAccount, getActiveRuntime, getAppName, sessionQueryOptions } from "@/app";
 import builtOn from "@/assets/built_on.png";
@@ -136,14 +136,16 @@ function Layout() {
           <header
             className={`shrink-0 bg-card/50 ${isAuthenticated ? "border-b border-border animate-fade-in" : ""}`}
           >
-            {isNavigating && (
-              <div className="absolute top-0 left-0 right-0 h-[2px] z-50 overflow-hidden">
-                <div
-                  className="h-full bg-foreground animate-progress-bar"
-                  style={{ width: "100%" }}
-                />
-              </div>
-            )}
+            <ClientOnly>
+              {isNavigating && (
+                <div className="absolute top-0 left-0 right-0 h-[2px] z-50 overflow-hidden">
+                  <div
+                    className="h-full bg-foreground animate-progress-bar"
+                    style={{ width: "100%" }}
+                  />
+                </div>
+              )}
+            </ClientOnly>
 
             <div className="flex items-center justify-between px-4 sm:px-6 h-12">
               {isAuthenticated ? (
