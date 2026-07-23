@@ -801,6 +801,16 @@ export const createStartServer = (onReady?: () => void) =>
 
     const sessionMiddleware = createSessionMiddleware(plugins);
 
+    if (isDev) {
+      app.use("/api/auth/*", async (c, next) => {
+        await next();
+        const setCookie = c.res.headers.get("set-cookie");
+        if (setCookie) {
+          c.res.headers.set("set-cookie", setCookie.replace(/;\s*Secure/gi, ""));
+        }
+      });
+    }
+
     registerAuthHandler(app, plugins);
     setupApiRoutes(app, config, plugins, sessionMiddleware, loadingState);
 
