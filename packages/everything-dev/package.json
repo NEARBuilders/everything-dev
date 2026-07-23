@@ -1,6 +1,6 @@
 {
   "name": "everything-dev",
-  "version": "1.51.2",
+  "version": "1.51.3",
   "type": "module",
   "engines": {
     "node": ">=20.11"
