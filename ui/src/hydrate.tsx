@@ -88,12 +88,11 @@ export async function hydrate() {
     }
 
     console.log("[Hydrate] Complete!");
-  })()
-    .catch((error) => {
-      console.error("[Hydrate] Failed:", error);
-      window.__EVERYTHING_DEV_HYDRATE_PROMISE__ = undefined;
-      throw error;
-    });
+  })().catch((error) => {
+    console.error("[Hydrate] Failed:", error);
+    window.__EVERYTHING_DEV_HYDRATE_PROMISE__ = undefined;
+    throw error;
+  });
 
   window.__EVERYTHING_DEV_HYDRATE_PROMISE__ = hydratePromise;
   return hydratePromise;

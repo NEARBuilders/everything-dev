@@ -16,7 +16,10 @@ test.describe("apiClient", () => {
     await expect(heading).toContainText("Apps", { timeout: 30000 });
 
     await expect(
-      page.getByText("No published apps found.").or(page.locator('[class*="cursor-pointer"]')).first(),
+      page
+        .getByText("No published apps found.")
+        .or(page.locator('[class*="cursor-pointer"]'))
+        .first(),
     ).toBeVisible({ timeout: 30000 });
 
     expectNoHydrationFailure(pageErrors);

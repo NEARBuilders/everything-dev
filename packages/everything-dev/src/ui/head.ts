@@ -18,9 +18,9 @@ export function getThemeInitScript(): HeadScript {
 
 function escapeJsonForScript(value: unknown): string {
   return JSON.stringify(value)
-    .replace(/<\/script/gi, '<\\/script')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029');
+    .replace(/<\/script/gi, "<\\/script")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }
 
 export function getHydrateScript(
