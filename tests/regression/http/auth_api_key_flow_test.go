@@ -117,7 +117,35 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 		createdThingID = result.ThingID
 	})
 
-	// Step 5: Read thing back via public API
+	// Step 5: Sign out (needs Origin header for Better Auth)
+	t.Run("sign_out", func(t *testing.T) {
+		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/auth/sign-out", map[string]any{}, map[string]string{
+			"Origin": "http://localhost:4100",
+		})
+		regtest.MustStatus(t, status, 200, body)
+	})
+
+	// Step 6: Verify session is gone after sign-out
+	t.Run("session_gone_after_sign_out", func(t *testing.T) {
+		status, _, body := regtest.GetWithOrigin(t, client, baseURL+"/api/auth/get-session")
+		if status != 401 && status != 200 {
+			t.Fatalf("expected 401 or 200, got %d. Body: %s", status, body)
+		}
+		if status == 200 {
+			var result struct {
+				Session any `json:"session"`
+				User    any `json:"user"`
+			}
+			if err := json.Unmarshal([]byte(body), &result); err != nil {
+				t.Fatalf("decoding session response: %v\nBody: %s", err, body)
+			}
+			if result.Session != nil || result.User != nil {
+				t.Fatal("expected session and user to be null after sign-out")
+			}
+		}
+	})
+
+	// Step 7: Read thing back via public API
 	t.Run("read_thing_back", func(t *testing.T) {
 		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/things/"+createdThingID)
 		regtest.MustStatus(t, status, 200, body)
