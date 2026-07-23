@@ -49,4 +49,22 @@ test.describe("App load", () => {
     expect(results.healthStatus).toBe(200);
     expectNoHydrationFailure(pageErrors);
   });
+
+  test("page is interactive after hydration", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await waitForApp(page);
+
+    const assistantBtn = page.getByRole("button", { name: /open assistant/i });
+    await expect(assistantBtn).toBeVisible({ timeout: 10000 });
+    await assistantBtn.click({ force: true });
+
+    const skillBtn = page.getByText("Open skill");
+    await expect(skillBtn).toBeVisible({ timeout: 5000 });
+    await skillBtn.click();
+
+    await page.waitForURL(/\/skill$/, { timeout: 10000 });
+    await expect(page.getByText("raw skill.md")).toBeVisible({ timeout: 10000 });
+
+    expectNoHydrationFailure(pageErrors);
+  });
 });
