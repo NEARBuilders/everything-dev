@@ -91,8 +91,8 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m "chore: update deployment URLs [skip ci]"
             for i in 1 2 3; do
-              git pull --rebase origin "$TARGET_BRANCH" && git push origin HEAD:"$TARGET_BRANCH" && exit 0
-              sleep 3
+              git fetch origin "$TARGET_BRANCH" && git rebase --abort 2>/dev/null || true && git rebase "origin/$TARGET_BRANCH" -X theirs && git push origin HEAD:"$TARGET_BRANCH" && exit 0
+              sleep 5
             done
             exit 1
           fi
