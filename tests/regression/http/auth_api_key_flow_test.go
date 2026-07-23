@@ -22,7 +22,9 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 	// Step 2: Anonymous sign-in
 	var anonUserID string
 	t.Run("anonymous_sign_in", func(t *testing.T) {
-		status, _, body := regtest.PostEmpty(t, client, baseURL+"/api/auth/sign-in/anonymous")
+		status, headers, body := regtest.PostEmpty(t, client, baseURL+"/api/auth/sign-in/anonymous")
+		t.Logf("Sign-in response headers:\n%s", regtest.HeadersToString(headers))
+		regtest.LogCookieJar(t, client, baseURL)
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {
@@ -50,7 +52,9 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 
 	// Step 3: Session lookup via GET (GET bypasses host CSRF, Origin satisifies Better Auth)
 	t.Run("session_lookup", func(t *testing.T) {
-		status, _, body := regtest.GetWithOrigin(t, client, baseURL+"/api/auth/get-session")
+		status, headers, body := regtest.GetWithOrigin(t, client, baseURL+"/api/auth/get-session")
+		t.Logf("Session lookup headers:\n%s", regtest.HeadersToString(headers))
+		t.Logf("Session lookup body: %s", body)
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {

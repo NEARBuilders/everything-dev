@@ -3,9 +3,12 @@ package regtest
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -148,4 +151,45 @@ func ContainsJSON(body string, keys ...string) bool {
 		}
 	}
 	return true
+}
+
+func HeadersToString(headers http.Header) string {
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, k := range keys {
+		for _, v := range headers[k] {
+			if len(v) > 200 {
+				v = v[:200] + "..."
+			}
+			lines = append(lines, fmt.Sprintf("  %s: %s", k, v))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func LogCookieJar(t *testing.T, client *http.Client, baseURL string) {
+	t.Helper()
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		t.Logf("Cannot parse base URL for cookie check: %v", err)
+		return
+	}
+	cookies := client.Jar.Cookies(parsed)
+	if len(cookies) == 0 {
+		t.Log("Cookie jar: empty (no cookies stored)")
+		return
+	}
+	t.Logf("Cookie jar: %d cookie(s) stored", len(cookies))
+	for _, c := range cookies {
+		valuePreview := c.Value
+		if len(valuePreview) > 40 {
+			valuePreview = valuePreview[:40] + "..."
+		}
+		t.Logf("  %s=%s Domain=%q Secure=%v HttpOnly=%v Path=%q",
+			c.Name, valuePreview, c.Domain, c.Secure, c.HttpOnly, c.Path)
+	}
 }
