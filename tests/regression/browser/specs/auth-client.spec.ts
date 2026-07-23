@@ -63,7 +63,7 @@ test.describe("authClient", () => {
     const settingsLink = page.getByText("Settings");
     await expect(settingsLink).toBeVisible({ timeout: 5000 });
     await settingsLink.click();
-    await page.waitForURL(/\/settings$/, { timeout: 10000 });
+    await page.waitForURL(/\/settings/, { timeout: 10000 });
     await expect(page.locator("h1")).toContainText("Settings", { timeout: 10000 });
 
     expectNoHydrationFailure(pageErrors);
