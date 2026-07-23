@@ -1,6 +1,7 @@
 package regtest
 
 import (
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,8 @@ func Start(t interface{ Fatalf(string, ...any) }) *Process {
 	if err != nil {
 		if t != nil {
 			t.Fatalf("finding repo root: %v", err)
+		} else {
+			log.Printf("ERROR: finding repo root: %v", err)
 		}
 		return nil
 	}
@@ -33,6 +36,7 @@ func Start(t interface{ Fatalf(string, ...any) }) *Process {
 		"API_DATABASE_URL=postgres://everythingdev:everythingdev@127.0.0.1:5432/api_db",
 		"AUTH_DATABASE_URL=postgres://everythingdev:everythingdev@127.0.0.1:5433/auth_db",
 		"CORS_ORIGIN=http://localhost:4100",
+		"BETTER_AUTH_SECRET=regression-test-secret-do-not-use-in-production",
 		"CI=true",
 	)
 
@@ -43,6 +47,8 @@ func Start(t interface{ Fatalf(string, ...any) }) *Process {
 	if err != nil {
 		if t != nil {
 			t.Fatalf("creating log file: %v", err)
+		} else {
+			log.Printf("ERROR: creating log file: %v", err)
 		}
 		return nil
 	}
@@ -53,6 +59,8 @@ func Start(t interface{ Fatalf(string, ...any) }) *Process {
 		f.Close()
 		if t != nil {
 			t.Fatalf("starting regression target: %v", err)
+		} else {
+			log.Printf("ERROR: starting regression target: %v", err)
 		}
 		return nil
 	}

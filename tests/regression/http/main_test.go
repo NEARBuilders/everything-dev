@@ -2,6 +2,7 @@ package regression
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"testing"
 
@@ -11,14 +12,19 @@ import (
 var baseURL string
 
 func TestMain(m *testing.M) {
+	log.Println("Starting regression test server...")
 	proc := regtest.Start(nil)
 	if proc == nil {
+		log.Println("ERROR: Start returned nil (server failed to start)")
 		os.Exit(1)
 	}
 	baseURL = proc.BaseURL
+	log.Printf("Base URL: %s", baseURL)
 	regtest.WaitForReady(nil, baseURL)
 
+	log.Println("Server ready, running tests...")
 	code := m.Run()
+	log.Println("Tests complete, stopping server...")
 	proc.Stop()
 	os.Exit(code)
 }

@@ -81,6 +81,7 @@ jobs:
       API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5432/api_db
       AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5433/auth_db
       CORS_ORIGIN: http://localhost:4100
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
     services:
       postgres-api:
         image: postgres:17-alpine
