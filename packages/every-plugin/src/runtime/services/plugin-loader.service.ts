@@ -1,5 +1,5 @@
 import type { InferSchemaInput, InferSchemaOutput } from "@orpc/contract";
-import { Context, Effect, Context as EffectContext, Layer, Scope } from "effect";
+import { Context, Effect, Context as EffectContext, Exit, Layer, Scope } from "effect";
 import type { z } from "zod";
 import type { PluginServicesTools } from "../../plugin";
 import type {
@@ -248,12 +248,10 @@ export class PluginLoaderService extends Effect.Service<PluginLoaderService>()(
                 ),
             };
 
-            // Initialize plugin within the scope
-            // The plugin's initialize method handles:
-            //   1. Building services (DB pools, caches) via tools.buildService
-            //   2. Shaping final deps via initialize
-            // Any Layer.scoped resources built through tools.buildService are
-            // bound to the plugin scope and persist until the plugin is shutdown.
+            // Initialize plugin within the scope.
+            // If initialize fails, close the scope immediately so scoped
+            // resources (DB pools, caches) are released — otherwise every
+            // failed initialization leaks until the process exits.
             const context = yield* plugin
               .initialize(
                 { variables: _variables, secrets: hydratedConfig.secrets },
@@ -262,6 +260,16 @@ export class PluginLoaderService extends Effect.Service<PluginLoaderService>()(
               )
               .pipe(
                 Effect.provideService(Scope.Scope, scope),
+                Effect.tapError(() =>
+                  Scope.close(scope, Exit.succeed(undefined)).pipe(
+                    Effect.catchAll((closeError) =>
+                      Effect.logWarning(
+                        `Failed to close scope for plugin ${plugin.id} after initialize error`,
+                        closeError,
+                      ),
+                    ),
+                  ),
+                ),
                 Effect.tapError((error) =>
                   Effect.logError(`Plugin ${plugin.id} failed during initialize-plugin: ${error}`),
                 ),

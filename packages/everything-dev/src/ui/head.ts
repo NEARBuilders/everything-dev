@@ -16,6 +16,13 @@ export function getThemeInitScript(): HeadScript {
   };
 }
 
+function escapeJsonForScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/<\/script/gi, '<\\/script')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
 export function getHydrateScript(
   runtimeConfig: Partial<ClientRuntimeConfig> | undefined,
   containerName = "ui",
@@ -24,12 +31,13 @@ export function getHydrateScript(
 ): HeadScript {
   return {
     children: `
- window.__CSP_NONCE__=${JSON.stringify(cspNonce)};
- window.__RUNTIME_CONFIG__=${JSON.stringify(runtimeConfig)};
- function __hydrate(){
-  if (window.__EVERYTHING_DEV_HYDRATE_PROMISE__) {
-    return;
-  }
+ window.__CSP_NONCE__=${cspNonce != null ? escapeJsonForScript(cspNonce) : null};
+ window.__RUNTIME_CONFIG__=${escapeJsonForScript(runtimeConfig)};
+  function __hydrate(){
+   if (window.__EVERYTHING_DEV_HYDRATE_PROMISE__) {
+     console.warn('[Hydrate] Already in progress, skipping duplicate call');
+     return;
+   }
    var container = window['${containerName}'];
    if (!container) {
      console.warn('[Hydrate] Container not ready yet, waiting...');
@@ -49,8 +57,9 @@ export function getHydrateScript(
     return mod().hydrate();
   }).catch(function(e){
     console.error('[Hydrate] Failed:', e);
+    window.__EVERYTHING_DEV_HYDRATE_PROMISE__ = undefined;
   });
- }
+  }
  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',__hydrate);}else{__hydrate();}
  		`.trim(),
   };

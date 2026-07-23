@@ -91,17 +91,26 @@ export class PluginRuntime<R = RegisteredPlugins> {
       this.pluginCache.set(cacheKey, cachedPlugin);
     }
 
-    const initialized = await this.runPromise(cachedPlugin);
+    let initialized: InitializedPlugin<AnyPlugin>;
+    try {
+      initialized = await this.runPromise(cachedPlugin);
+    } catch (error) {
+      // Evict failed initializations so the next call retries instead
+      // of returning the permanently-cached failure from Effect.cached.
+      this.pluginCache.delete(cacheKey);
+      throw error;
+    }
+
+    // Construct the router once per plugin instance, not per client/request.
+    const router = initialized.plugin.createRouter(initialized.context) as PluginRouterType<R[K]>;
 
     // Create client factory that accepts request context
-    const createClient = (context?: any) => {
-      const router = initialized.plugin.createRouter(initialized.context);
-      return createRouterClient(router, { context: context ?? {} });
-    };
+    const createClient = (context?: any) =>
+      createRouterClient(router, { context: context ?? {} });
 
     return {
       createClient: createClient as any,
-      router: initialized.plugin.createRouter(initialized.context) as PluginRouterType<R[K]>,
+      router,
       metadata: initialized.metadata,
       initialized: initialized as InitializedPlugin<RegisteredPlugin<K, R>>,
     } as UsePluginResult<K, R>;
