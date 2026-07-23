@@ -1,5 +1,13 @@
 # host
 
+## 1.13.6
+
+### Patch Changes
+
+- a49c930: Set `Cross-Origin-Resource-Policy: cross-origin` on static asset responses (favicon, og:image, manifest, etc.) so social media crawlers and link-preview tools can load them cross-origin. HTML and API responses retain `same-origin` CORP.
+- 9d8b671: Strip `etag`/`last-modified` and override `cache-control` on proxied static assets to prevent Cloudflare from serving stale headers via 304 revalidation. Sets `cache-control: public, max-age=14400, s-maxage=300` (no `stale-while-revalidate`) so the CDN always does a full GET after 5 min, guaranteeing fresh response headers.
+- cf711d7: Extracted health/memory profiling into `host/src/routes/health.ts`. `/api/_health` now includes `memory` (rss, heapTotal, heapUsed, external in bytes + MB) and per-plugin metadata (key, name, remoteUrl, version). New `/api/_memory` endpoint accepts `?gc=true` to force GC before returning the memory snapshot. Documented `DB_POOL_MAX`, `DB_CONNECTION_TIMEOUT_MS`, `DB_IDLE_TIMEOUT_MS`, `DB_SSL_REJECT_UNAUTHORIZED` in `.env.example`.
+
 ## 1.13.5
 
 ### Patch Changes
