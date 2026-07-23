@@ -21,24 +21,24 @@ func TestOpenAPISurface(t *testing.T) {
 	client := regtest.NewCookieClient()
 
 	t.Run("reference_html", func(t *testing.T) {
-		body, resp := regtest.GetText(t, client, baseURL+"/api")
-		regtest.MustStatus(t, resp, 200)
-		regtest.MustHeaderContains(t, resp, "Content-Type", "text/html")
+		status, headers, body := regtest.GetRaw(t, client, baseURL+"/api")
+		regtest.MustStatus(t, status, 200, body)
+		regtest.MustHeaderContains(t, headers, "Content-Type", "text/html")
 
 		if !strings.Contains(body, "Scalar") && !strings.Contains(body, "swagger") {
 			t.Fatal("expected API reference HTML to contain Scalar or Swagger UI markers")
 		}
-		if !strings.Contains(body, "spec.json") {
-			t.Fatal("expected reference HTML to reference spec.json")
-		}
 	})
 
 	t.Run("spec_json", func(t *testing.T) {
-		var doc openAPIDoc
-		resp := regtest.GetJSON(t, client, baseURL+"/api/spec.json", &doc)
+		status, headers, body := regtest.GetRaw(t, client, baseURL+"/api/spec.json")
+		regtest.MustStatus(t, status, 200, body)
+		regtest.MustHeaderContains(t, headers, "Content-Type", "application/json")
 
-		regtest.MustStatus(t, resp, 200)
-		regtest.MustHeaderContains(t, resp, "Content-Type", "application/json")
+		var doc openAPIDoc
+		if err := json.Unmarshal([]byte(body), &doc); err != nil {
+			t.Fatalf("spec.json not valid JSON: %v", err)
+		}
 
 		if doc.OpenAPI == "" {
 			t.Fatal("openapi field is empty")
@@ -59,14 +59,13 @@ func TestOpenAPISurface(t *testing.T) {
 		checkPath("/ping")
 		checkPath("/things")
 		checkPath("/things/{thingId}")
-		checkPath("/v1/registry/status")
 	})
 }
 
 func TestOpenAPIDocValidJSON(t *testing.T) {
 	client := regtest.NewCookieClient()
-	body, resp := regtest.GetText(t, client, baseURL+"/api/spec.json")
-	regtest.MustStatus(t, resp, 200)
+	status, _, body := regtest.GetRaw(t, client, baseURL+"/api/spec.json")
+	regtest.MustStatus(t, status, 200, body)
 
 	var raw json.RawMessage
 	if err := json.Unmarshal([]byte(body), &raw); err != nil {

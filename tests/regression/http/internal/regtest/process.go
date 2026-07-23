@@ -24,13 +24,15 @@ func Start(t interface{ Fatalf(string, ...any) }) *Process {
 		return nil
 	}
 
+	killStalePorts(workdir)
+
 	cmd := exec.Command("bun", "run", "regression:start:"+string(mode))
 	cmd.Dir = workdir
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env,
 		"API_DATABASE_URL=postgres://everythingdev:everythingdev@127.0.0.1:5432/api_db",
 		"AUTH_DATABASE_URL=postgres://everythingdev:everythingdev@127.0.0.1:5433/auth_db",
-		"CORS_ORIGIN=http://127.0.0.1:4100",
+		"CORS_ORIGIN=http://localhost:4100",
 		"CI=true",
 	)
 
@@ -81,6 +83,14 @@ func (p *Process) Stop() {
 		p.Cmd.Process.Kill()
 		<-p.done
 	}
+}
+
+func killStalePorts(workdir string) {
+	ports := []string{"4100", "4101", "4102", "4103", "4110", "4111"}
+	for _, port := range ports {
+		exec.Command("sh", "-c", "lsof -ti:"+port+" | xargs kill -9 2>/dev/null || true").Run()
+	}
+	time.Sleep(500 * time.Millisecond)
 }
 
 func findRepoRoot() (string, error) {

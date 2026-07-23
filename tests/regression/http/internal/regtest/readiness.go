@@ -1,6 +1,7 @@
 package regtest
 
 import (
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -35,15 +36,18 @@ func WaitForReady(f fatalf, baseURL string) {
 			backoff = 5 * time.Second
 		}
 
-		resp, err := client.Get(baseURL + "/health")
-		if err == nil {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if resp.StatusCode == 200 && strings.TrimSpace(string(body)) == "OK" {
-				log.Printf("Ready after %v", time.Since(start).Round(time.Millisecond))
-				return
-			}
+		if !healthOK(client, baseURL) {
+			continue
 		}
+		if !apiHealthOK(client, baseURL) {
+			continue
+		}
+		if !rootHTMLOK(client, baseURL) {
+			continue
+		}
+
+		log.Printf("Ready after %v", time.Since(start).Round(time.Millisecond))
+		return
 	}
 
 	msg := "Target did not become ready within " + deadline.String()
@@ -52,4 +56,47 @@ func WaitForReady(f fatalf, baseURL string) {
 	} else {
 		log.Fatalf(msg)
 	}
+}
+
+func healthOK(client *http.Client, baseURL string) bool {
+	resp, err := client.Get(baseURL + "/health")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode == 200 && strings.TrimSpace(string(body)) == "OK"
+}
+
+func apiHealthOK(client *http.Client, baseURL string) bool {
+	resp, err := client.Get(baseURL + "/api/_health")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return false
+	}
+	var result struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return false
+	}
+	return result.Status == "ready"
+}
+
+func rootHTMLOK(client *http.Client, baseURL string) bool {
+	resp, err := client.Get(baseURL + "/")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return false
+	}
+	ct := resp.Header.Get("Content-Type")
+	return strings.Contains(ct, "text/html") && strings.Contains(string(body), "window.__RUNTIME_CONFIG__")
 }

@@ -414,11 +414,14 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
     };
 
     // Write merged state once after all allocations succeed
-    savePortState(input.configDir, {
-      postgresPorts: pgPorts,
-      redisPorts: rdPorts,
-      devPorts: devPortsState,
-    });
+    // Skip persistence for regression tests / ephemeral runs
+    if (process.env.BOS_NO_PERSIST_PORTS !== "1") {
+      savePortState(input.configDir, {
+        postgresPorts: pgPorts,
+        redisPorts: rdPorts,
+        devPorts: devPortsState,
+      });
+    }
 
     const hostIsLocal = input.bosConfig.host?.source === "local";
     const apiIsLocal = input.bosConfig.api?.source === "local";

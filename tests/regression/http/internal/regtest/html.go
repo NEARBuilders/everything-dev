@@ -7,7 +7,11 @@ func HTMLContainsTitle(html string) bool {
 }
 
 func HTMLContainsMetaName(html, name string) bool {
-	return strings.Contains(html, `name="`+name+`"`)
+	// Support both orderings:
+	//   <meta name="description" content="...">
+	//   <meta content="..." name="description">
+	return strings.Contains(html, `name="`+name+`"`) ||
+		strings.Contains(html, `name='`+name+`'`)
 }
 
 func HTMLContainsMetaProperty(html, property string) bool {

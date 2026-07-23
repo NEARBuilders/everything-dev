@@ -80,7 +80,7 @@ jobs:
       CI: true
       API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5432/api_db
       AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5433/auth_db
-      CORS_ORIGIN: http://127.0.0.1:4100
+      CORS_ORIGIN: http://localhost:4100
     services:
       postgres-api:
         image: postgres:17-alpine

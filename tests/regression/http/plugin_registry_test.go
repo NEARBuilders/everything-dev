@@ -1,56 +1,98 @@
 package regression
 
 import (
+	"encoding/json"
 	"testing"
 
 	"everything.dev/regression/http/internal/regtest"
 )
 
-type registryStatusResp struct {
-	DiscoveredApps      int    `json:"discoveredApps"`
-	MetadataContractID  string `json:"metadataContractId"`
-	MetadataFastKvURL   string `json:"metadataFastKvUrl"`
-	RelayEnabled        bool   `json:"relayEnabled"`
-	Timestamp           string `json:"timestamp"`
-}
-
-func TestPluginRouteMountedThroughHost(t *testing.T) {
+func TestPluginPassthrough(t *testing.T) {
 	client := regtest.NewCookieClient()
 
-	// Test read-only plugin route via OpenAPI handler
-	t.Run("registry_status", func(t *testing.T) {
-		var status registryStatusResp
-		resp := regtest.GetJSON(t, client, baseURL+"/api/v1/registry/status", &status)
+	// Sign in anonymously for subsequent requests
+	t.Run("sign_in", func(t *testing.T) {
+		status, _, body := regtest.PostEmpty(t, client, baseURL+"/api/auth/sign-in/anonymous")
+		regtest.MustStatus(t, status, 200, body)
+	})
 
-		regtest.MustStatus(t, resp, 200)
+	var thingID string
+	t.Run("create_thing", func(t *testing.T) {
+		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/things", map[string]any{
+			"pluginId": "template",
+			"payload": map[string]string{
+				"kind":   "regression",
+				"source": "plugin-passthrough",
+			},
+		}, nil)
+		regtest.MustStatus(t, status, 200, body)
 
-		if status.DiscoveredApps < 0 {
-			t.Fatalf("discoveredApps should be >= 0, got %d", status.DiscoveredApps)
+		var result struct {
+			ThingID  string `json:"thingId"`
+			PluginID string `json:"pluginId"`
+			Type     string `json:"type"`
+			Payload  struct {
+				Kind   string `json:"kind"`
+				Source string `json:"source"`
+			} `json:"payload"`
 		}
-		if status.MetadataContractID == "" {
-			t.Fatal("metadataContractId should be non-empty")
+		if err := json.Unmarshal([]byte(body), &result); err != nil {
+			t.Fatalf("decoding thing response: %v\nBody: %s", err, body)
 		}
-		if len(status.MetadataFastKvURL) < 8 || (status.MetadataFastKvURL[:8] != "https://") {
-			t.Fatalf("expected metadataFastKvUrl to start with https://, got %q", status.MetadataFastKvURL)
+
+		if result.ThingID == "" {
+			t.Fatal("expected non-empty thingId")
 		}
-		if status.Timestamp == "" {
-			t.Fatal("timestamp should be non-empty")
+		if result.PluginID != "template" {
+			t.Fatalf("expected pluginId 'template', got %q", result.PluginID)
+		}
+		if result.Type != "template.regression" {
+			t.Fatalf("expected type 'template.regression', got %q", result.Type)
+		}
+		if result.Payload.Kind != "regression" {
+			t.Fatalf("expected payload.kind 'regression', got %q", result.Payload.Kind)
+		}
+		thingID = result.ThingID
+	})
+
+	t.Run("read_thing_back", func(t *testing.T) {
+		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/things/"+thingID)
+		regtest.MustStatus(t, status, 200, body)
+
+		var result struct {
+			ThingID  string `json:"thingId"`
+			PluginID string `json:"pluginId"`
+			Type     string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(body), &result); err != nil {
+			t.Fatalf("decoding thing response: %v\nBody: %s", err, body)
+		}
+
+		if result.ThingID != thingID {
+			t.Fatalf("expected thingId %q, got %q", thingID, result.ThingID)
+		}
+		if result.PluginID != "template" {
+			t.Fatalf("expected pluginId 'template', got %q", result.PluginID)
 		}
 	})
 
-	// Test core API route via OpenAPI
 	t.Run("api_ping", func(t *testing.T) {
+		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/ping")
+		regtest.MustStatus(t, status, 200, body)
+
 		var result struct {
 			Status    string `json:"status"`
 			Timestamp string `json:"timestamp"`
 		}
-		resp := regtest.GetJSON(t, client, baseURL+"/api/ping", &result)
-		regtest.MustStatus(t, resp, 200)
+		if err := json.Unmarshal([]byte(body), &result); err != nil {
+			t.Fatalf("decoding ping response: %v\nBody: %s", err, body)
+		}
+
 		if result.Status != "ok" {
 			t.Fatalf("expected ping status 'ok', got %q", result.Status)
 		}
 		if result.Timestamp == "" {
-			t.Fatal("expected non-empty timestamp in ping response")
+			t.Fatal("expected non-empty timestamp")
 		}
 	})
 }

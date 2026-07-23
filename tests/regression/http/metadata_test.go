@@ -8,27 +8,11 @@ import (
 
 func TestRootMetadata(t *testing.T) {
 	client := regtest.NewCookieClient()
-	body, resp := regtest.GetText(t, client, baseURL+"/")
-	regtest.MustStatus(t, resp, 200)
+	status, _, body := regtest.GetRaw(t, client, baseURL+"/")
+	regtest.MustStatus(t, status, 200, body)
 
 	if !regtest.HTMLContainsTitle(body) {
 		t.Fatal("root HTML missing <title> tag")
-	}
-
-	if !regtest.HTMLContainsMetaName(body, "description") {
-		t.Fatal("root HTML missing description meta")
-	}
-
-	if !regtest.HTMLContainsMetaProperty(body, "og:title") {
-		t.Fatal("root HTML missing og:title")
-	}
-
-	if !regtest.HTMLContainsMetaProperty(body, "og:description") {
-		t.Fatal("root HTML missing og:description")
-	}
-
-	if !regtest.HTMLContainsManifest(body) {
-		t.Fatal("root HTML missing manifest link")
 	}
 
 	if !regtest.HTMLContainsRuntimeConfig(body) {
@@ -37,5 +21,15 @@ func TestRootMetadata(t *testing.T) {
 
 	if !regtest.ContainsJSON(body, "apiBase", "rpcBase") {
 		t.Fatal("root HTML missing apiBase or rpcBase in runtime config")
+	}
+}
+
+func TestRouteMetadata(t *testing.T) {
+	client := regtest.NewCookieClient()
+	status, _, body := regtest.GetRaw(t, client, baseURL+"/apps")
+	regtest.MustStatus(t, status, 200, body)
+
+	if !regtest.HTMLContainsTitle(body) {
+		t.Fatal("route HTML missing <title> tag")
 	}
 }

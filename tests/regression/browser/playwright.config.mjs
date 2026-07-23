@@ -1,5 +1,11 @@
 import { defineConfig } from "@playwright/test";
 
+const mode = process.env.REGRESSION_MODE ?? "dev";
+const command =
+  mode === "prod"
+    ? "bun run regression:start:prod"
+    : "bun run regression:start:dev";
+
 export default defineConfig({
   testDir: "./specs",
   timeout: 60000,
@@ -8,24 +14,18 @@ export default defineConfig({
   use: {
     browserName: "chromium",
     headless: true,
-    baseURL: "http://127.0.0.1:4100",
+    baseURL: "http://localhost:4100",
+  },
+  webServer: {
+    command,
+    url: "http://localhost:4100/health",
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+    stdout: "pipe",
+    stderr: "pipe",
   },
   projects: [
-    {
-      name: "dev",
-      webServer: {
-        command: "bun run regression:start:dev",
-        url: "http://127.0.0.1:4100/health",
-        reuseExistingServer: !process.env.CI,
-      },
-    },
-    {
-      name: "prod",
-      webServer: {
-        command: "bun run regression:start:prod",
-        url: "http://127.0.0.1:4100/health",
-        reuseExistingServer: !process.env.CI,
-      },
-    },
+    { name: "dev" },
+    { name: "prod" },
   ],
 });

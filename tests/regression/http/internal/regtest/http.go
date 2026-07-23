@@ -15,43 +15,72 @@ func NewCookieClient() *http.Client {
 	return &http.Client{Jar: jar}
 }
 
-func GetJSON(t *testing.T, client *http.Client, url string, target any) *http.Response {
+func GetRaw(t *testing.T, client *http.Client, url string) (int, http.Header, string) {
 	t.Helper()
-	resp := doRequest(t, client, "GET", url, nil, nil)
-	mustDecodeBody(t, resp, target)
-	return resp
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		t.Fatalf("creating GET request: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading %s: %v", url, err)
+	}
+	return resp.StatusCode, resp.Header.Clone(), string(body)
 }
 
-func GetText(t *testing.T, client *http.Client, url string) (string, *http.Response) {
+func GetJSON(t *testing.T, client *http.Client, url string, target any) (int, http.Header) {
 	t.Helper()
-	resp := doRequest(t, client, "GET", url, nil, nil)
-	body := mustReadBody(t, resp)
-	return body, resp
+	status, headers, body := GetRaw(t, client, url)
+	if err := json.Unmarshal([]byte(body), target); err != nil {
+		t.Fatalf("decoding JSON from %s: %v\nBody: %s", url, err, body)
+	}
+	return status, headers
 }
 
-func PostJSON(t *testing.T, client *http.Client, url string, body any) *http.Response {
+func GetWithOrigin(t *testing.T, client *http.Client, url string) (int, http.Header, string) {
 	t.Helper()
-	return PostJSONWithCookies(t, client, url, body)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		t.Fatalf("creating GET request: %v", err)
+	}
+	req.Header.Set("Origin", "http://localhost:4100")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading %s: %v", url, err)
+	}
+	return resp.StatusCode, resp.Header.Clone(), string(body)
 }
 
-func PostJSONWithCookies(t *testing.T, client *http.Client, url string, body any) *http.Response {
+func PostEmpty(t *testing.T, client *http.Client, url string) (int, http.Header, string) {
 	t.Helper()
-	return postWithBody(t, client, url, body, nil)
+	req, err := http.NewRequest("POST", url, strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("creating POST request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading %s: %v", url, err)
+	}
+	return resp.StatusCode, resp.Header.Clone(), string(body)
 }
 
-func PostJSONWithKey(t *testing.T, client *http.Client, url string, body any, apiKey string) *http.Response {
-	t.Helper()
-	return postWithBody(t, client, url, body, map[string]string{
-		"x-api-key": apiKey,
-	})
-}
-
-func DecodeBody(t *testing.T, resp *http.Response, target any) {
-	t.Helper()
-	mustDecodeBody(t, resp, target)
-}
-
-func postWithBody(t *testing.T, client *http.Client, url string, body any, extraHeaders map[string]string) *http.Response {
+func PostJSON(t *testing.T, client *http.Client, url string, body any, extraHeaders map[string]string) (int, http.Header, string) {
 	t.Helper()
 	var reqBody io.Reader
 	if body != nil {
@@ -66,11 +95,7 @@ func postWithBody(t *testing.T, client *http.Client, url string, body any, extra
 	if err != nil {
 		t.Fatalf("creating POST request: %v", err)
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	req.Header.Set("Origin", BaseURL())
-	req.Header.Set("Referer", BaseURL()+"/")
+	req.Header.Set("Content-Type", "application/json")
 	for k, v := range extraHeaders {
 		req.Header.Set(k, v)
 	}
@@ -79,39 +104,24 @@ func postWithBody(t *testing.T, client *http.Client, url string, body any, extra
 	if err != nil {
 		t.Fatalf("POST %s: %v", url, err)
 	}
-	return resp
-}
-
-func doRequest(t *testing.T, client *http.Client, method, url string, body io.Reader, extraHeaders map[string]string) *http.Response {
-	t.Helper()
-	req, err := http.NewRequest(method, url, body)
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("creating %s request: %v", method, err)
+		t.Fatalf("reading %s: %v", url, err)
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	for k, v := range extraHeaders {
-		req.Header.Set(k, v)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("%s %s: %v", method, url, err)
-	}
-	return resp
+	return resp.StatusCode, resp.Header.Clone(), string(data)
 }
 
-func MustStatus(t *testing.T, resp *http.Response, expected int) {
+func MustStatus(t *testing.T, status int, expected int, body string) {
 	t.Helper()
-	if resp.StatusCode != expected {
-		body := mustReadBody(t, resp)
-		t.Fatalf("expected status %d, got %d. Body: %s", expected, resp.StatusCode, body)
+	if status != expected {
+		t.Fatalf("expected status %d, got %d. Body: %s", expected, status, body)
 	}
 }
 
-func MustHeaderContains(t *testing.T, resp *http.Response, key, substr string) {
+func MustHeaderContains(t *testing.T, headers http.Header, key, substr string) {
 	t.Helper()
-	val := resp.Header.Get(key)
+	val := headers.Get(key)
 	if !strings.Contains(val, substr) {
 		t.Fatalf("expected header %s to contain %q, got %q", key, substr, val)
 	}
@@ -129,33 +139,6 @@ func MustContain(t *testing.T, body, substr string) {
 	if !strings.Contains(body, substr) {
 		t.Fatalf("expected body to contain %q\nBody: %s", substr, body)
 	}
-}
-
-func mustDecodeBody(t *testing.T, resp *http.Response, target any) {
-	t.Helper()
-	body := mustReadBody(t, resp)
-	if err := json.Unmarshal([]byte(body), target); err != nil {
-		t.Fatalf("decoding JSON body: %v\nBody: %s", err, body)
-	}
-}
-
-func mustReadBody(t *testing.T, resp *http.Response) string {
-	t.Helper()
-	data, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		t.Fatalf("reading response body: %v", err)
-	}
-	return string(data)
-}
-
-func MustJSON(t *testing.T, v any) string {
-	t.Helper()
-	data, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("marshaling JSON: %v", err)
-	}
-	return string(data)
 }
 
 func ContainsJSON(body string, keys ...string) bool {

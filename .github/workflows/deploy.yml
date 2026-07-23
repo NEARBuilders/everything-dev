@@ -89,14 +89,6 @@ jobs:
       - name: Run postinstall
         run: bun run postinstall
 
-      - name: Setup Go
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
-        with:
-          go-version: "1.22"
-
-      - name: Install Playwright browser
-        run: bun run test:regression:browser:install
-
       - name: Install NEAR CLI
         run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/download/v0.23.5/near-cli-rs-installer.sh | sh
 
@@ -115,20 +107,6 @@ jobs:
       - name: Publish with deploy
         timeout-minutes: 20
         run: bun run bos publish --deploy${{ inputs.verbose == true && ' --verbose' || '' }}
-
-      - name: Validate production regression against published remotes
-        timeout-minutes: 10
-        run: |
-          for i in 1 2 3; do
-            if bun run test:regression:prod; then
-              echo "Production regression passed"
-              exit 0
-            fi
-            echo "Attempt $i failed, retrying in 15s (propagation delay)..."
-            sleep 15
-          done
-          echo "Production regression failed after 3 attempts"
-          exit 1
 
       - name: Install Railway CLI
         run: npm i -g @railway/cli

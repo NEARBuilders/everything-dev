@@ -17,7 +17,6 @@ import {
 import { formatORPCError } from "every-plugin/errors";
 import { onError } from "every-plugin/orpc";
 import { getBaseStyles, getHydrateScript, getThemeInitScript } from "everything-dev/ui/head";
-import { serializeHeadData } from "everything-dev/ui/router";
 import { type Context, Hono, type Next } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
@@ -34,7 +33,7 @@ import {
   type RuntimeConfig,
   readCorsOrigins,
 } from "./services/config";
-import type { HeadData, RouterModule } from "./types";
+import type { RouterModule } from "./types";
 
 type HonoEnv = { Variables: AuthVariables };
 
@@ -591,7 +590,7 @@ export const createStartServer = (onReady?: () => void) =>
         }
 
         const host = c.req.header("host");
-        if (host && host === new URL(origin).hostname) {
+        if (host && host.split(":")[0] === new URL(origin).hostname) {
           return next();
         }
 
@@ -726,7 +725,6 @@ export const createStartServer = (onReady?: () => void) =>
       runtimeSourceConfig: RuntimeConfig,
       runtimeConfig: ClientRuntimeConfig,
       error?: Error | null,
-      headData?: HeadData | null,
     ) => {
       const nonce = CSP_STRICT ? ctx.get("secureHeadersNonce") : undefined;
       const uiIntegrity = runtimeSourceConfig.ui.integrity;
@@ -761,26 +759,6 @@ export const createStartServer = (onReady?: () => void) =>
           ? `<p class="error">SSR unavailable, showing client app.</p><p>${error.message}</p>`
           : `<p>Loading...</p>`
       }</div></div></div>`;
-
-      if (headData) {
-        const serialized = serializeHeadData(headData, nonce as string | undefined);
-        return ctx.html(
-          `<!DOCTYPE html>
-            <html lang="en">
-              <head>
-                ${serialized.metaHtml}
-                ${serialized.linkHtml}
-                <link rel="stylesheet" href="${assetsUrl}/static/css/style.css${uiVersion}" />
-                <style>${baseStyles}</style>
-                ${themeScript}
-                ${serialized.scriptHtml}
-                ${pluginUiScripts}
-              </head>
-              <body>${shellBody}</body>
-            </html>`,
-          200,
-        );
-      }
 
       const title =
         runtimeConfig.runtime?.title ?? runtimeSourceConfig.title ?? runtimeSourceConfig.account;
@@ -1019,25 +997,7 @@ export const createStartServer = (onReady?: () => void) =>
         }
       }
 
-      let headData: HeadData | null = null;
-      if (ssrRouterModule) {
-        try {
-          const pluginContext = buildPluginContext(c);
-          const ssrApiClient = createPluginsClient(plugins, pluginContext);
-          headData = await ssrRouterModule.getRouteHead(c.req.path, {
-            runtimeConfig,
-            apiClient: ssrApiClient,
-            session: c.get("session")
-              ? ({ session: c.get("session"), user: c.get("user") } as never)
-              : undefined,
-            cspNonce: nonce,
-          });
-        } catch (e) {
-          logger.warn("[Shell] Failed to get route head data:", e);
-        }
-      }
-
-      return renderClientShell(c, effectiveConfig, runtimeConfig, moduleLoadError, headData);
+      return renderClientShell(c, effectiveConfig, runtimeConfig, moduleLoadError);
     });
 
     const startHttpServer = () => {

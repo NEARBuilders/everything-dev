@@ -1,6 +1,8 @@
 package regression
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"everything.dev/regression/http/internal/regtest"
@@ -10,24 +12,29 @@ func TestBootSurface(t *testing.T) {
 	client := regtest.NewCookieClient()
 
 	t.Run("health", func(t *testing.T) {
-		body, resp := regtest.GetText(t, client, baseURL+"/health")
-		regtest.MustStatus(t, resp, 200)
+		status, _, body := regtest.GetRaw(t, client, baseURL+"/health")
+		regtest.MustStatus(t, status, 200, body)
 		if body != "OK" {
 			t.Fatalf("expected body OK, got %q", body)
 		}
 	})
 
 	t.Run("api_health", func(t *testing.T) {
+		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/_health")
+		regtest.MustStatus(t, status, 200, body)
+
 		var result struct {
 			Status  string `json:"status"`
 			Auth    struct {
 				Mounted bool `json:"mounted"`
 			} `json:"auth"`
 			Plugins struct {
-				Loaded int `json:"loaded"`
+				Loaded []string `json:"loaded"`
 			} `json:"plugins"`
 		}
-		regtest.GetJSON(t, client, baseURL+"/api/_health", &result)
+		if err := json.Unmarshal([]byte(body), &result); err != nil {
+			t.Fatalf("decoding api health: %v\nBody: %s", err, body)
+		}
 
 		if result.Status != "ready" {
 			t.Fatalf("expected status 'ready', got %q", result.Status)
@@ -35,41 +42,43 @@ func TestBootSurface(t *testing.T) {
 		if !result.Auth.Mounted {
 			t.Fatal("auth should be mounted")
 		}
-		if result.Plugins.Loaded < 1 {
-			t.Fatalf("expected at least 1 plugin loaded, got %d", result.Plugins.Loaded)
+		if len(result.Plugins.Loaded) < 1 {
+			t.Fatalf("expected at least 1 plugin loaded, got %d", len(result.Plugins.Loaded))
 		}
 	})
 
 	t.Run("root", func(t *testing.T) {
-		body, resp := regtest.GetText(t, client, baseURL+"/")
-		regtest.MustStatus(t, resp, 200)
-		regtest.MustHeaderContains(t, resp, "Content-Type", "text/html")
-		if !regtest.HTMLContainsRuntimeConfig(body) {
-			t.Fatal("root HTML missing window.__RUNTIME_CONFIG__")
-		}
-		if !regtest.HTMLContainsTitle(body) {
-			t.Fatal("root HTML missing title")
-		}
+		status, headers, body := regtest.GetRaw(t, client, baseURL+"/")
+		regtest.MustStatus(t, status, 200, body)
+		regtest.MustHeaderContains(t, headers, "Content-Type", "text/html")
+		regtest.MustContain(t, body, "window.__RUNTIME_CONFIG__")
+		regtest.MustContain(t, body, "<title>")
 	})
 
 	t.Run("skill_md", func(t *testing.T) {
-		_, resp := regtest.GetText(t, client, baseURL+"/skill.md")
-		regtest.MustStatus(t, resp, 200)
-		regtest.MustNotContain(t, resp.Header.Get("Content-Type"), "text/html")
+		status, headers, body := regtest.GetRaw(t, client, baseURL+"/skill.md")
+		regtest.MustStatus(t, status, 200, body)
+		ct := headers.Get("Content-Type")
+		if strings.Contains(ct, "text/html") {
+			t.Fatalf("expected non-HTML content-type for skill.md, got %q", ct)
+		}
 	})
 
 	t.Run("llms_txt", func(t *testing.T) {
-		_, resp := regtest.GetText(t, client, baseURL+"/llms.txt")
-		regtest.MustStatus(t, resp, 200)
-		regtest.MustNotContain(t, resp.Header.Get("Content-Type"), "text/html")
+		status, headers, body := regtest.GetRaw(t, client, baseURL+"/llms.txt")
+		regtest.MustStatus(t, status, 200, body)
+		ct := headers.Get("Content-Type")
+		if strings.Contains(ct, "text/html") {
+			t.Fatalf("expected non-HTML content-type for llms.txt, got %q", ct)
+		}
 	})
 
 	t.Run("site_webmanifest", func(t *testing.T) {
-		_, resp := regtest.GetText(t, client, baseURL+"/site.webmanifest")
-		regtest.MustStatus(t, resp, 200)
-		ct := resp.Header.Get("Content-Type")
-		if ct != "application/manifest+json" && ct != "application/json" {
-			t.Fatalf("expected manifest content type, got %q", ct)
+		status, headers, body := regtest.GetRaw(t, client, baseURL+"/site.webmanifest")
+		regtest.MustStatus(t, status, 200, body)
+		ct := headers.Get("Content-Type")
+		if !strings.Contains(ct, "application/manifest+json") && !strings.Contains(ct, "application/json") {
+			t.Fatalf("expected manifest or json content type, got %q", ct)
 		}
 	})
 }
