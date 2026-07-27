@@ -1,5 +1,11 @@
 # @everything-dev/registry-plugin
 
+## 1.4.2
+
+### Patch Changes
+
+- b34b4c6: Fix FastKV config URL construction: append storage key as URL path segment instead of POST body
+
 ## 1.4.1
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # everything-dev
 
+## 1.51.6
+
+### Patch Changes
+
+- b34b4c6: Fix FastKV config URL construction: append storage key as URL path segment instead of POST body
+- 7784fac: Fix Zephyr auth/output logs being silently suppressed during `bos publish --deploy`. Always forward stderr from build processes, broaden Zephyr log detection to catch all `ZEPHYR`-branded lines and `ZE` error codes, and include Zephyr context in upload failure messages.
+
 ## 1.51.5
 
 ### Patch Changes
