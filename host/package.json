@@ -17,7 +17,6 @@
   "dependencies": {
     "@electric-sql/pglite": "catalog:",
     "@hono/node-server": "^2.0.1",
-    "@modelcontextprotocol/hono": "catalog:",
     "@modelcontextprotocol/server": "catalog:",
     "@module-federation/enhanced": "catalog:",
     "@module-federation/node": "catalog:",

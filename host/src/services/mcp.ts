@@ -9,6 +9,7 @@ import type { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import type { Context, Hono } from "hono";
 import type { AuthPluginContext, HonoEnv } from "../lib/auth";
+import { logger } from "../utils/logger";
 import { buildPluginContext } from "./auth";
 import type { RuntimeConfig } from "./config";
 
@@ -18,6 +19,15 @@ interface McpRequestContext {
 }
 
 const mcpRequestStorage = new AsyncLocalStorage<McpRequestContext>();
+
+let mcpTransport: WebStandardStreamableHTTPServerTransport | null = null;
+
+export function closeMcpServer(): Promise<void> {
+  if (!mcpTransport) return Promise.resolve();
+  const t = mcpTransport;
+  mcpTransport = null;
+  return t.close();
+}
 
 export async function mountMcpRoute(
   app: Hono<HonoEnv>,
@@ -58,6 +68,8 @@ export async function mountMcpRoute(
       );
       if (hasSseResponse) continue;
 
+      const methodUpper = method.toUpperCase();
+      const isBodyMethod = ["POST", "PUT", "PATCH"].includes(methodUpper);
       const parameters = operation.parameters ?? [];
       const pathParamNames = parameters
         .filter((p: any) => p.in === "path")
@@ -65,7 +77,6 @@ export async function mountMcpRoute(
       const queryParamNames = parameters
         .filter((p: any) => p.in === "query")
         .map((p: any) => p.name as string);
-      const isBodyMethod = ["POST", "PUT", "PATCH"].includes(method.toUpperCase());
 
       const properties: Record<string, unknown> = {};
       const required: string[] = [];
@@ -96,10 +107,7 @@ export async function mountMcpRoute(
         ...(required.length > 0 ? { required } : {}),
       };
 
-      const description =
-        operation.description ?? operation.summary ?? `${method.toUpperCase()} ${path}`;
-
-      const methodUpper = method.toUpperCase();
+      const description = operation.description ?? operation.summary ?? `${methodUpper} ${path}`;
 
       server.registerTool(
         operationId,
@@ -152,29 +160,38 @@ export async function mountMcpRoute(
             body: isJsonBody ? JSON.stringify(bodyFields) : undefined,
           });
 
-          const result = await apiHandler.handle(req, {
-            prefix: "/api",
-            context: store.context,
-          });
+          try {
+            const result = await apiHandler.handle(req, {
+              prefix: "/api",
+              context: store.context,
+            });
 
-          if (!result.response) {
+            if (!result.response) {
+              return {
+                content: [{ type: "text" as const, text: "Not Found" }],
+                isError: true,
+              };
+            }
+
+            const response = result.response;
+            let text: string;
+            try {
+              text = await response.text();
+            } catch {
+              text = response.statusText || `HTTP ${response.status}`;
+            }
             return {
-              content: [{ type: "text" as const, text: "Not Found" }],
+              content: [{ type: "text" as const, text: text || response.statusText }],
+              isError: !response.ok,
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logger.error(`[MCP] Tool "${operationId}" failed: ${message}`);
+            return {
+              content: [{ type: "text" as const, text: message }],
               isError: true,
             };
           }
-
-          const response = result.response;
-          let text: string;
-          try {
-            text = await response.text();
-          } catch {
-            text = response.statusText || `HTTP ${response.status}`;
-          }
-          return {
-            content: [{ type: "text" as const, text: text || response.statusText }],
-            isError: !response.ok,
-          };
         },
       );
     }
@@ -185,6 +202,7 @@ export async function mountMcpRoute(
   });
 
   await server.connect(transport);
+  mcpTransport = transport;
 
   app.all("/api/mcp", async (c: Context<HonoEnv>) => {
     const context = buildPluginContext(c);

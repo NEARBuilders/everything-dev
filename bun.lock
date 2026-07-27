@@ -75,7 +75,6 @@
       "dependencies": {
         "@electric-sql/pglite": "catalog:",
         "@hono/node-server": "^2.0.1",
-        "@modelcontextprotocol/hono": "catalog:",
         "@modelcontextprotocol/server": "catalog:",
         "@module-federation/enhanced": "catalog:",
         "@module-federation/node": "catalog:",
@@ -349,7 +348,6 @@
     "@better-auth/passkey": "1.6.9",
     "@electric-sql/pglite": "^0.4.5",
     "@libsql/client": "0.17.0",
-    "@modelcontextprotocol/hono": "2.0.0-beta.5",
     "@modelcontextprotocol/server": "2.0.0-beta.5",
     "@module-federation/dts-plugin": "^2.4.0",
     "@module-federation/enhanced": "^2.4.0",
@@ -756,8 +754,6 @@
     "@manypkg/get-packages": ["@manypkg/get-packages@1.1.3", "", { "dependencies": { "@babel/runtime": "^7.5.5", "@changesets/types": "^4.0.1", "@manypkg/find-root": "^1.1.0", "fs-extra": "^8.1.0", "globby": "^11.0.0", "read-yaml-file": "^1.1.0" } }, "sha512-fo+QhuU3qE/2TQMQmbVMqaQ6EWbMhi4ABWP+O4AM1NqPBuy0OrApV5LO6BrrgnhtAHS2NH6RrVk9OL181tTi8A=="],
 
     "@modelcontextprotocol/core": ["@modelcontextprotocol/core@2.0.0-beta.5", "", { "dependencies": { "zod": "^4.2.0" } }, "sha512-HKbY9XTbsDy1Y6r2I55TGE3JEapM0vg96e1MUmBIF9LGjos5gjhcIrTz1yvBPLg2aFKHjwhUAQfRdrCEnPxNew=="],
-
-    "@modelcontextprotocol/hono": ["@modelcontextprotocol/hono@2.0.0-beta.5", "", { "peerDependencies": { "@modelcontextprotocol/server": "^2.0.0-beta.5", "hono": "^4.11.4" } }, "sha512-jhdUv9RT8HQUuatblAMaed/tP9KuAFozsf87OUxsvviEaQervh5dtTj9w7iCVHlsDLID6hF0Eh1Insy5WT7P9Q=="],
 
     "@modelcontextprotocol/server": ["@modelcontextprotocol/server@2.0.0-beta.5", "", { "dependencies": { "@modelcontextprotocol/core": "2.0.0-beta.5", "zod": "^4.2.0" } }, "sha512-i1E5l75rQKsgY/AKAIspgMBH1vEL7dqiK7tHr0L+raYcb0SWOziqNGJXGIG6NY4AlXDWIKGJQGB7Nqfs3oUi5g=="],
 
