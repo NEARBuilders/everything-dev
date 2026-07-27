@@ -137,12 +137,13 @@ export async function fetchBosConfigFromFastKv<T>(
   config: RegistryConfig,
 ): Promise<T> {
   const { accountId, gatewayId, pathSegments } = parseBosUrl(bosUrl);
-  const value = await readLatestValue({
-    baseUrl: getFastKvBaseUrlForAccount(accountId),
-    currentAccountId: getRegistryNamespaceForAccount(accountId, config),
-    predecessorId: accountId,
-    key: getRegistryConfigKey(accountId, gatewayId, pathSegments),
-  });
+  const key = encodeURIComponent(getRegistryConfigKey(accountId, gatewayId, pathSegments));
+  const baseUrl = getFastKvBaseUrlForAccount(accountId);
+  const namespace = getRegistryNamespaceForAccount(accountId, config);
+  const payload = await fetchJson<FastKvListResponse>(
+    `${baseUrl}/v0/latest/${encodeURIComponent(namespace)}/${encodeURIComponent(accountId)}/${key}`,
+  );
+  const value = payload?.entries?.find(Boolean)?.value ?? null;
 
   if (!value) {
     throw new Error(`No config found for ${bosUrl}`);

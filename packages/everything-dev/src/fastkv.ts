@@ -101,15 +101,9 @@ export function parseBosUrl(bosUrl: string): {
 
 export async function fetchBosConfigFromFastKv<T>(bosUrl: string): Promise<T> {
   const { accountId, gatewayId, pathSegments } = parseBosUrl(bosUrl);
+  const key = encodeURIComponent(getRegistryConfigKey(accountId, gatewayId, pathSegments));
   const payload = await fetchJson<FastKvListResponse>(
-    `${getFastKvBaseUrlForAccount(accountId)}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId))}/${encodeURIComponent(accountId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        key: getRegistryConfigKey(accountId, gatewayId, pathSegments),
-        limit: 1,
-      }),
-    },
+    `${getFastKvBaseUrlForAccount(accountId)}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId))}/${encodeURIComponent(accountId)}/${key}`,
   );
   const value = payload?.entries?.find(Boolean)?.value;
 
