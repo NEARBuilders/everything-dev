@@ -1,5 +1,15 @@
 # api
 
+## 2.7.7
+
+### Patch Changes
+
+- 3be7608: Add PluginIdTag to Effect context for reliable plugin slug derivation in production
+
+  - `every-plugin`: Exports `PluginIdTag` (`Context.Tag<string>`) and provides it via `Effect.provideService` during plugin initialization
+  - `api`: Replaces `getMigrationSlug(import.meta.dirname)` with `yield* PluginIdTag` so the slug resolves correctly in Module Federation remotes
+  - `everything-dev`: Adds `pg` to dependencies and `neverBundle` to fix module resolution in child projects running `bos db doctor`/`repair`
+
 ## 2.7.6
 
 ### Patch Changes
