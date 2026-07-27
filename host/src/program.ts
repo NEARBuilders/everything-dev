@@ -33,6 +33,7 @@ import {
   type RuntimeConfig,
   readCorsOrigins,
 } from "./services/config";
+import { mountMcpRoute } from "./services/mcp";
 import type { RouterModule } from "./types";
 
 type HonoEnv = { Variables: AuthVariables };
@@ -350,7 +351,7 @@ async function proxyStaticAssetRequest(req: Request, targetBase: string): Promis
   return response;
 }
 
-export function setupApiRoutes(
+export async function setupApiRoutes(
   app: Hono<HonoEnv>,
   config: RuntimeConfig,
   plugins: PluginResult,
@@ -522,6 +523,8 @@ export function setupApiRoutes(
       }),
     ],
   });
+
+  await mountMcpRoute(app, { apiRouter, apiHandler, config });
 
   app.all("/api/rpc", (c: Context<HonoEnv>) => handleOrpc(c, rpcHandler, "/api/rpc"));
   app.all("/api/rpc/*", (c: Context<HonoEnv>) => {
@@ -816,7 +819,9 @@ export const createStartServer = (onReady?: () => void) =>
     }
 
     registerAuthHandler(app, plugins);
-    setupApiRoutes(app, config, plugins, sessionMiddleware, loadingState);
+    yield* Effect.promise(() =>
+      setupApiRoutes(app, config, plugins, sessionMiddleware, loadingState),
+    );
 
     app.on(["GET", "HEAD"], "*", async (c: Context<HonoEnv>, next) => {
       const { pathname } = new URL(c.req.url);

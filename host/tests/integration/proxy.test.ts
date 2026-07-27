@@ -310,7 +310,7 @@ describe("API Proxy", () => {
 
       registerAuthHandler(app, plugins);
 
-      setupApiRoutes(app, config, plugins, async (_c, next) => next(), {
+      await setupApiRoutes(app, config, plugins, async (_c, next) => next(), {
         status: "ready",
         startTime: Date.now(),
         milestones: [],
