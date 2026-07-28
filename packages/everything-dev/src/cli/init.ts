@@ -1067,15 +1067,22 @@ export async function runBunInstallForUpgrade(
 
 export async function runTypesGen(
   destination: string,
-  spinner?: { message: (msg: string) => void },
+  opts?: {
+    spinner?: { message: (msg: string) => void };
+    remotePlugins?: string[];
+  },
 ): Promise<void> {
   const localBosBin = join(destination, "node_modules", ".bin", "bos");
   if (existsSync(localBosBin)) {
+    const args = ["types", "gen"];
+    if (opts?.remotePlugins && opts.remotePlugins.length > 0) {
+      args.push("--remote-plugins", opts.remotePlugins.join(","));
+    }
     await runWithProgress(
       "node_modules/.bin/bos",
-      ["types", "gen"],
+      args,
       destination,
-      spinner,
+      opts?.spinner,
       "Generating types",
     );
     return;

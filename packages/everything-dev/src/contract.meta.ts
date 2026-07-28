@@ -156,6 +156,10 @@ export const cliCommandMeta = {
     fields: {
       env: { description: "Environment: development (default) or production" },
       dryRun: { description: "Preview what would be fetched without writing files" },
+      remotePlugins: {
+        description:
+          "Comma-separated plugin IDs to fetch contract types remotely (e.g. --remote-plugins auth,registry)",
+      },
     },
   },
   dbStudio: {

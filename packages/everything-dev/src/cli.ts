@@ -869,26 +869,45 @@ async function main() {
         process.exit(1);
       }
       console.log(colors.green(`${icons.ok} Types generated`));
-      if (result.source) {
-        console.log(
-          `  ${colors.dim("Mode:")} ${result.source === "remote" ? colors.cyan("remote") : colors.dim("local")}`,
-        );
-      }
       if (result.generated.length > 0) {
-        console.log(`  ${colors.dim("Generated:")}`);
+        console.log(`  ${colors.dim("Written:")}`);
         for (const f of result.generated) console.log(`    ${colors.dim(f)}`);
       }
-      if (result.fetched.length > 0) {
-        console.log(`  ${colors.dim("Fetched (remote):")}`);
-        for (const url of result.fetched) console.log(`    ${colors.dim(url)}`);
-      }
-      if (result.skipped.length > 0) {
-        console.log(`  ${colors.dim("Skipped:")}`);
-        for (const s of result.skipped) console.log(`    ${colors.dim(s)}`);
+      if (result.fetched.length > 0 || result.skipped.length > 0 || result.failed.length > 0) {
+        console.log(`  ${colors.dim("Contract sources:")}`);
+        for (const entry of result.fetched) {
+          const space = entry.indexOf(" ");
+          const key = space !== -1 ? entry.slice(0, space) : entry;
+          const rest = space !== -1 ? entry.slice(space + 1) : "";
+          const restSpace = rest.indexOf(" ");
+          const detail = restSpace !== -1 ? rest.slice(restSpace + 1) : "";
+          console.log(
+            `    ${key} ${colors.cyan("remote")}${detail ? ` ${colors.dim(detail)}` : ""}`,
+          );
+        }
+        for (const entry of result.skipped) {
+          const space = entry.indexOf(" ");
+          const key = space !== -1 ? entry.slice(0, space) : entry;
+          const rest = space !== -1 ? entry.slice(space + 1) : "";
+          if (rest === "no URL resolved") {
+            console.log(`    ${key} ${colors.dim("no URL resolved")}`);
+            continue;
+          }
+          const restSpace = rest.indexOf(" ");
+          const detail = restSpace !== -1 ? rest.slice(restSpace + 1) : "";
+          console.log(`    ${key} ${colors.dim("local")}${detail ? ` ${colors.dim(detail)}` : ""}`);
+        }
       }
       if (result.failed.length > 0) {
         console.log(`  ${colors.yellow("Failed:")}`);
-        for (const f of result.failed) console.log(`    ${colors.error(f)}`);
+        for (const f of result.failed) {
+          const colon = f.indexOf(": ");
+          if (colon !== -1) {
+            console.log(`    ${colors.error(f.slice(0, colon))}${colors.dim(f.slice(colon))}`);
+          } else {
+            console.log(`    ${colors.error(f)}`);
+          }
+        }
       }
       console.log();
       return;

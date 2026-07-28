@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
 import { Effect } from "effect";
@@ -1630,7 +1630,11 @@ export default createPlugin({
         const env =
           input.env ?? (process.env.NODE_ENV === "production" ? "production" : "development");
 
-        const refreshed = await loadResolvedConfig({ cwd: projectDir, env });
+        const refreshed = await loadResolvedConfig({
+          cwd: projectDir,
+          env,
+          remotePlugins: input.remotePlugins,
+        });
         if (!refreshed) {
           return {
             status: "error" as const,
@@ -1649,26 +1653,32 @@ export default createPlugin({
           const hasLocalApiWorkspace = existsSync(join(projectDir, "api", "src"));
 
           if (refreshed.runtime.api.source !== "local") {
-            fetched.push(`api (${refreshed.runtime.api.url})`);
+            fetched.push(`api remote (${refreshed.runtime.api.url})`);
           } else {
-            skipped.push("api (local)");
+            const path = refreshed.runtime.api.localPath
+              ? ` (${relative(projectDir, refreshed.runtime.api.localPath)})`
+              : "";
+            skipped.push(`api local${path}`);
           }
 
           if (refreshed.runtime.auth) {
             if (refreshed.runtime.auth.source !== "local") {
-              fetched.push(`auth (${refreshed.runtime.auth.url})`);
+              fetched.push(`auth remote (${refreshed.runtime.auth.url})`);
             } else {
-              skipped.push("auth (local)");
+              const path = refreshed.runtime.auth.localPath
+                ? ` (${relative(projectDir, refreshed.runtime.auth.localPath)})`
+                : "";
+              skipped.push(`auth local${path}`);
             }
           }
 
           for (const [key, plugin] of pluginEntries) {
             if (plugin.url && plugin.source !== "local") {
-              fetched.push(`${key} (${plugin.url})`);
+              fetched.push(`${key} remote (${plugin.url})`);
             } else if (plugin.localPath) {
-              skipped.push(`${key} (local)`);
+              skipped.push(`${key} local (${relative(projectDir, plugin.localPath)})`);
             } else {
-              skipped.push(`${key} (no URL resolved)`);
+              skipped.push(`${key} no URL resolved`);
             }
           }
 
@@ -1686,7 +1696,6 @@ export default createPlugin({
             fetched,
             skipped,
             failed: [],
-            source: refreshed.runtime.api.source,
           };
         }
 
@@ -1715,11 +1724,12 @@ export default createPlugin({
         const failed: string[] = [];
         for (const entry of contractStatus) {
           if (entry.source === "remote") {
-            fetched.push(entry.url ? `${entry.key} (${entry.url})` : entry.key);
+            fetched.push(entry.url ? `${entry.key} remote (${entry.url})` : entry.key);
           } else if (entry.source === "local") {
-            skipped.push(`${entry.key} (local)`);
+            const path = entry.localPath ? ` (${relative(projectDir, entry.localPath)})` : "";
+            skipped.push(`${entry.key} local${path}`);
           } else if (entry.source === "skipped") {
-            skipped.push(`${entry.key} (no URL resolved)`);
+            skipped.push(`${entry.key} no URL resolved`);
           } else if (entry.source === "failed") {
             const detail = entry.error ? `: ${entry.error}` : "";
             failed.push(`${entry.key}${detail}`);
@@ -1732,7 +1742,6 @@ export default createPlugin({
           fetched,
           skipped,
           failed,
-          source: refreshed.runtime.api.source,
         };
       } catch (error) {
         return {

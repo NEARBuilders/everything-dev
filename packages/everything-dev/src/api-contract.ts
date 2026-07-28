@@ -474,6 +474,7 @@ export interface ContractBridgeStatus {
   key: string;
   source: "local" | "remote" | "skipped" | "failed";
   url?: string;
+  localPath?: string;
   error?: string;
 }
 
@@ -514,6 +515,8 @@ export async function syncApiContractBridge(opts: {
       key: "api",
       source: opts.runtimeConfig.api.source,
       url: opts.runtimeConfig.api.source !== "local" ? opts.apiBaseUrl : undefined,
+      localPath:
+        opts.runtimeConfig.api.source === "local" ? opts.runtimeConfig.api.localPath : undefined,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -542,6 +545,10 @@ export async function syncApiContractBridge(opts: {
         key: "auth",
         source: opts.runtimeConfig.auth.source,
         url: opts.runtimeConfig.auth.source !== "local" ? opts.runtimeConfig.auth.url : undefined,
+        localPath:
+          opts.runtimeConfig.auth.source === "local"
+            ? opts.runtimeConfig.auth.localPath
+            : undefined,
       });
       if (authSource.generatedPath) {
         generatedPath = authSource.generatedPath;
@@ -626,6 +633,7 @@ export async function syncApiContractBridge(opts: {
         key,
         source: plugin.source,
         url: plugin.source !== "local" ? plugin.url : undefined,
+        localPath: plugin.source === "local" ? plugin.localPath : undefined,
       });
       if (result.value.source.generatedPath) {
         generatedPath = result.value.source.generatedPath;

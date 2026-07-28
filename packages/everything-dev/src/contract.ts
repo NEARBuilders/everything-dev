@@ -317,6 +317,7 @@ export const StatusResultSchema = z.object({
 export const TypesGenOptionsSchema = z.object({
   env: z.enum(["development", "production"]).optional(),
   dryRun: z.boolean().default(false),
+  remotePlugins: z.array(z.string()).optional(),
 });
 
 export const TypesGenResultSchema = z.object({
@@ -325,7 +326,6 @@ export const TypesGenResultSchema = z.object({
   fetched: z.array(z.string()),
   skipped: z.array(z.string()),
   failed: z.array(z.string()),
-  source: z.enum(["local", "remote"]).optional(),
   error: z.string().optional(),
 });
 
