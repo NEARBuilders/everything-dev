@@ -382,13 +382,11 @@ describe("buildRuntimeConfig nodes field", () => {
       "development",
     );
 
-    expect(result.nodes).toBeDefined();
-    expect(result.nodes!.api).toBeDefined();
-    expect(result.nodes!.api.kind).toBe("api");
-    expect(result.nodes!.api.sourceOrigin).toBe("config");
-    expect(result.nodes!.ui).toBeDefined();
-    expect(result.nodes!.ui.kind).toBe("ui");
-    expect(result.nodes!.ui.sourceOrigin).toBe("config");
+    const dag = buildDependencyDAG(result);
+    expect(dag.nodes.has("api")).toBe(true);
+    expect(dag.nodes.get("api")?.kind).toBe("api");
+    expect(dag.nodes.has("ui")).toBe(true);
+    expect(dag.nodes.get("ui")?.kind).toBe("ui");
   });
 });
 

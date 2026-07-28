@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fetchApiPluginManifest } from "./api-contract";
-import { manifestPluginsToNodes, mergeManifestNodes, normalizeToNodes } from "./dag";
+import { manifestPluginsToNodes } from "./dag";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import { fetchJsonOrNull } from "./http-client";
 import {
@@ -892,14 +892,6 @@ export async function buildRuntimeConfig(
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`[Config] Failed to fetch API plugin manifest for discovery: ${message}`);
     }
-  }
-
-  const nodeMap = normalizeToNodes(result);
-  if (manifestNodes.length > 0) {
-    const merged = mergeManifestNodes(nodeMap, manifestNodes);
-    result.nodes = Object.fromEntries(merged.entries());
-  } else if (nodeMap.size > 0) {
-    result.nodes = Object.fromEntries(nodeMap.entries());
   }
 
   if (manifestPluginEntries.length > 0) {

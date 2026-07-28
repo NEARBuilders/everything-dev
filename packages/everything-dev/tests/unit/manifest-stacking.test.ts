@@ -101,18 +101,12 @@ describe("manifest stacking (one level deep)", () => {
 
     expect(result.plugins?.pluginA.url).toBe("http://pluginA.cdn");
 
-    expect(result.nodes?.discovered).toBeDefined();
-    expect(result.nodes?.discovered.sourceOrigin).toBe("manifest");
-    expect(result.nodes?.discovered.kind).toBe("plugin");
-
-    expect(result.nodes?.pluginA.sourceOrigin).toBe("config");
-
     expect(result.api.dependsOn).toEqual(expect.arrayContaining(["pluginA", "auth"]));
 
     const dag = buildDependencyDAG(result);
     expect(dag.sorted).toContain("discovered");
     expect(dag.sorted.indexOf("auth")).toBeLessThan(dag.sorted.indexOf("discovered"));
-    expect(dag.nodes.get("discovered")?.sourceOrigin).toBe("manifest");
+    expect(dag.nodes.get("discovered")?.kind).toBe("plugin");
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Plugin "discovered"'));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("STRIPE_KEY"));
@@ -140,7 +134,6 @@ describe("manifest stacking (one level deep)", () => {
 
     expect(result.plugins?.discovered.url).toBe("http://my-discovered.cdn");
     expect(result.plugins?.discovered.variables).toEqual({ TIMEOUT: 10000 });
-    expect(result.nodes?.discovered.sourceOrigin).toBe("config");
   });
 
   it("gracefully degrades when manifest fetch fails", async () => {
@@ -156,9 +149,6 @@ describe("manifest stacking (one level deep)", () => {
     });
 
     expect(result.plugins?.discovered).toBeUndefined();
-    expect(result.nodes).toBeDefined();
-    expect(result.nodes?.api).toBeDefined();
-    expect(result.nodes?.api.sourceOrigin).toBe("config");
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("Failed to fetch API plugin manifest"),
     );
