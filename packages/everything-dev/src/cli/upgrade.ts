@@ -9,7 +9,6 @@ import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../contract";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { saveBosConfig } from "../utils/save-config";
 import { readInstalledFrameworkVersion } from "./framework-version";
-import { getExtendsRef, parseBosRef, readJsonFile } from "./utils/helpers";
 import {
   buildChildRootScripts,
   fetchParentConfig,
@@ -20,6 +19,7 @@ import {
 } from "./init";
 import { syncTemplate } from "./sync";
 import { timePhase } from "./timing";
+import { getExtendsRef, parseBosRef, readJsonFile } from "./utils/helpers";
 
 const FRAMEWORK_PACKAGES = ["everything-dev", "every-plugin"];
 const AUTH_CORE_PACKAGE = "@better-auth/core";

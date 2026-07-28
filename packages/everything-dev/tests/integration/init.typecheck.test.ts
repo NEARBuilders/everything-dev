@@ -151,9 +151,7 @@ describe("bos init — typecheck", () => {
     rewriteFrameworkPackageSpecs(testDir, frameworkTarballs);
 
     expect(existsSync(join(testDir, "bos.config.json"))).toBe(true);
-    expect(existsSync(join(testDir, "ui", "src", "lib", "api-types.gen.ts"))).toBe(true);
     expect(existsSync(join(testDir, "ui", "src", "lib", "auth-types.gen.ts"))).toBe(true);
-    expect(existsSync(join(testDir, "api", "src", "lib", "plugins-types.gen.ts"))).toBe(true);
     expect(existsSync(join(testDir, "api", "src", "lib", "auth-types.gen.ts"))).toBe(true);
     const pkg = JSON.parse(readFileSync(join(testDir, "ui", "package.json"), "utf-8")) as {
       dependencies?: Record<string, string>;

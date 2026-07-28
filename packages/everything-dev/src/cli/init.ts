@@ -746,6 +746,13 @@ export async function personalizeConfig(
     await saveBosConfig(destination, config);
   }
 
+  for (const relPath of ["ui/src/lib/api-types.gen.ts", "api/src/lib/plugins-types.gen.ts"]) {
+    const absolutePath = join(destination, relPath);
+    try {
+      rmSync(absolutePath, { force: true });
+    } catch {}
+  }
+
   const pkgPath = join(destination, "package.json");
   if (existsSync(pkgPath)) {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as Record<string, unknown>;
