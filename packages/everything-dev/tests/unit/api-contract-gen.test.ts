@@ -121,13 +121,13 @@ describe("writeGeneratedFiles — apiDependsOn filtering", () => {
       },
     });
 
-    const pluginAClientPath = join(pluginASrc, "plugins-client.gen.ts");
+    const pluginAClientPath = join(pluginASrc, "lib", "plugins-client.gen.ts");
     expect(existsSync(pluginAClientPath)).toBe(true);
     const pluginAClient = readFileSync(pluginAClientPath, "utf-8");
     expect(pluginAClient).toContain("authContract");
     expect(pluginAClient).not.toContain("pluginBContract");
 
-    const pluginBClientPath = join(pluginBSrc, "plugins-client.gen.ts");
+    const pluginBClientPath = join(pluginBSrc, "lib", "plugins-client.gen.ts");
     expect(existsSync(pluginBClientPath)).toBe(true);
     const pluginBClient = readFileSync(pluginBClientPath, "utf-8");
     expect(pluginBClient).toContain("pluginAContract");

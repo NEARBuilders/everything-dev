@@ -356,7 +356,7 @@ function writePluginClientGen(opts: {
   const pluginSrcDir = join(opts.configDir, "plugins", opts.pluginKey, "src");
   if (!existsSync(pluginSrcDir)) return;
 
-  const targetPath = join(pluginSrcDir, "plugins-client.gen.ts");
+  const targetPath = join(pluginSrcDir, "lib", "plugins-client.gen.ts");
   const lines: string[] = [];
 
   for (const source of opts.depSources) {

@@ -960,12 +960,12 @@ export type InferOutput<_TRoute extends string> = any;
     for (const plugin of opts.plugins ?? []) {
       const pluginSrcDir = join(destination, "plugins", plugin, "src");
       const pluginIndexPath = join(pluginSrcDir, "index.ts");
-      const pluginClientGenPath = join(pluginSrcDir, "plugins-client.gen.ts");
+      const pluginClientGenPath = join(pluginSrcDir, "lib", "plugins-client.gen.ts");
       if (!existsSync(pluginIndexPath) || existsSync(pluginClientGenPath)) {
         continue;
       }
       const pluginIndex = readFileSync(pluginIndexPath, "utf-8");
-      if (!pluginIndex.includes("./plugins-client.gen")) {
+      if (!pluginIndex.includes("./lib/plugins-client.gen")) {
         continue;
       }
       writeFileSync(pluginClientGenPath, "export type PluginsClient = Record<string, never>;\n");

@@ -1690,9 +1690,16 @@ export default createPlugin({
             generated.push("host/src/lib/auth-types.gen.ts");
           }
           for (const [key, _plugin] of pluginEntries) {
-            const pluginSrc = join(projectDir, "plugins", key, "src", "plugins-client.gen.ts");
+            const pluginSrc = join(
+              projectDir,
+              "plugins",
+              key,
+              "src",
+              "lib",
+              "plugins-client.gen.ts",
+            );
             if (existsSync(pluginSrc)) {
-              generated.push(`plugins/${key}/src/plugins-client.gen.ts`);
+              generated.push(`plugins/${key}/src/lib/plugins-client.gen.ts`);
             }
           }
 
@@ -1724,9 +1731,9 @@ export default createPlugin({
           generated.push("host/src/lib/auth-types.gen.ts");
         }
         for (const [key, _plugin] of Object.entries(refreshed.runtime.plugins ?? {})) {
-          const pluginSrc = join(projectDir, "plugins", key, "src", "plugins-client.gen.ts");
+          const pluginSrc = join(projectDir, "plugins", key, "src", "lib", "plugins-client.gen.ts");
           if (existsSync(pluginSrc)) {
-            generated.push(`plugins/${key}/src/plugins-client.gen.ts`);
+            generated.push(`plugins/${key}/src/lib/plugins-client.gen.ts`);
           }
         }
 
