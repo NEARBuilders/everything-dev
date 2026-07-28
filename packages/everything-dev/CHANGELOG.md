@@ -1,5 +1,38 @@
 # everything-dev
 
+## 1.52.0
+
+### Minor Changes
+
+- e574161: Improve `bos sync` and `bos upgrade` with conflict detection, script cleanup, `--json` flag, and upgrade ordering fix
+
+  - **Conflict detection**: Snapshot-based 3-way hash comparison (local vs source vs snapshot) in sync. Files modified by both user and template are backed up to `.bos/sync-backup/` and overwritten with the template version. User-only changes are respected (left alone). Output includes a "For AI agents" block with version delta, conflict count, backup path, upstream PR link, and intent skills reference.
+  - **`--json` flag**: `bos sync --json` and `bos upgrade --json` output machine-parseable JSON for CI integration.
+  - **Upgrade ordering fix**: Install new packages BEFORE running migrations by re-executing `bos upgrade --migrations-only --json` from the newly installed package, ensuring migration code runs with the latest version.
+  - **Script exclusion**: Parent-only scripts (those not in `buildChildRootScripts`) are automatically cleaned from child project `package.json` during `personalizeConfig` and `migrateChildRootPackageJson`. Self-maintaining via `getParentOnlyScriptKeys()`.
+  - **Child root scripts cleaned up**: `node_modules/.bin/bos` replaced with `bos` shorthand. `test` script uses `--if-present` per workspace for flexible test execution when workspaces may or may not have tests.
+  - **Dead code removed**: Removed `--force` messaging, stale "Review changes" blocks from sync/upgrade output.
+  - **Root app support**: `bos upgrade` now skips sync and parent plugin discovery when there is no `extends` field, instead of silently swallowing a sync error. Framework updates and migrations still run normally in root apps.
+  - **No double banner**: Child processes (`bos types gen`, re-exec upgrade) now set `BOS_NO_BANNER=1` to suppress the banner, preventing duplicate output and fixing a latent JSON corruption bug in the re-exec path. The banner is gated on `process.env.BOS_NO_BANNER` being unset.
+  - **Safer cleanups**: Removed `.github/renovate.json` from obsolete files list (should be preserved). Changed "Removed" label to "Migrated" in CLI output since the list includes both rewritten and actually-deleted files.
+  - **Bug fixes**: Fixed `changelogUrl` always being `undefined` in non-dry-run upgrade results. Fixed `runTypesGen` being called twice. Fixed `skipped` array never being populated in sync results. Removed unused `sharedSync` variable and `existsSync` import.
+
+- 7c71c87: Move to dependency-graph-based plugin composition with manifest stacking and per-plugin type generation
+
+  - **Dependency DAG**: New `dag.ts` module with `normalizeToNodes()`, `topologicalSort()`, `buildDependencyDAG()`, `mergeManifestNodes()`, `getDependenciesForNode()`, and `getSingletonKey()`. API implicitly depends on all non-ui siblings unless `dependsOn` is explicit.
+  - **Manifest stacking (one level deep)**: `buildRuntimeConfig` now fetches the API plugin manifest when remote, discovers sub-plugins with secrets/variables, and merges them into the runtime config. Config-declared plugins override manifest-discovered ones.
+  - **Per-plugin type generation**: `writeGeneratedFiles()` now generates per-plugin `plugins-client.gen.ts` files in `plugins/{key}/src/` when `dependsOn` is declared, and `plugins-types.gen.ts` is filtered by `apiDependsOn`.
+  - **Host DAG-based loading**: `plugins.ts` loads auth, plugins, and API in DAG order with a singleton cache, using `getDependenciesForNode` to wire per-plugin client contexts. Removed `loadedPluginKeys.unshift("api")` hack.
+  - **Node-based runtime config**: `RuntimeConfigSchema` gains a `nodes` field populated by `buildRuntimeConfig`, enabling the host to reason about the plugin graph directly.
+  - **Async `buildRuntimeConfig`**: Now returns `Promise<RuntimeConfig>` — all callers updated.
+
+- e574161: Improve `bos types gen` with `--remote-plugins` flag, cleaner output, and local paths
+
+  - **`--remote-plugins` flag**: `bos types gen --remote-plugins auth,apps` forces specified plugins to fetch contract types remotely, matching `bos dev --remote-plugins` behavior. The flag is passed through from `runTypesGen` in init.ts, so `bos sync` and `bos upgrade` also benefit.
+  - **Cleaner output**: Replaced misleading "Mode: local|remote" (which only reflected the API source) with a "Contract sources:" section that shows each plugin's actual source. Output is now organized as "Written:" (generated files) and "Contract sources:" (per-plugin remote/local status).
+  - **Local paths shown**: Local contract sources now display their relative project path (e.g., `api local (api)`, `apps local (plugins/apps)`) instead of just "local".
+  - **Removed unused `source` field**: The `source` field was removed from `TypesGenResultSchema` and the handler since it was redundant — each contract source now reports its own status individually.
+
 ## 1.51.7
 
 ### Patch Changes
