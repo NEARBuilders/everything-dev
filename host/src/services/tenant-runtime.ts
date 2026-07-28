@@ -427,12 +427,22 @@ function buildEffectiveRuntimeConfig(
   return effectiveConfig;
 }
 
+function matchesTenantPattern(accountId: string, pattern: string): boolean {
+  if (pattern === accountId) return true;
+  if (pattern.startsWith("*.") && accountId.endsWith(pattern.slice(1))) return true;
+  return false;
+}
+
 function isSsrAllowed(accountId: string): boolean {
   if (parseBoolean(process.env.ALLOW_UNTRUSTED_SSR)) {
     return true;
   }
 
-  return getTenantWhitelist().has(accountId);
+  const whitelist = getTenantWhitelist();
+  for (const entry of whitelist) {
+    if (matchesTenantPattern(accountId, entry)) return true;
+  }
+  return false;
 }
 
 export async function resolveRequestRuntime(
