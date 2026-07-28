@@ -9,6 +9,7 @@ export default defineConfig({
     "src/index.ts",
     "src/types.ts",
     "src/config.ts",
+    "src/dag.ts",
     "src/fastkv.ts",
     "src/contract.meta.ts",
     "src/db.ts",
@@ -66,7 +67,9 @@ export default defineConfig({
           await writeFile(filepath, SHEBANG + content);
         }
         await chmod(filepath, 0o755);
-      } catch {}
+      } catch (err) {
+        console.warn(`[tsdown] Failed to set shebang/permissions on ${file}: ${err}`);
+      }
     }
   },
 });

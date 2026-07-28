@@ -1,5 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fetchApiPluginManifest } from "./api-contract";
+import { manifestPluginsToNodes, mergeManifestNodes, normalizeToNodes } from "./dag";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import { fetchJsonOrNull } from "./http-client";
 import {
@@ -21,6 +23,7 @@ import type {
   JsonValue,
   PluginEntryValue,
   RuntimeConfig,
+  RuntimeDependencyNode,
   RuntimePluginConfig,
 } from "./types";
 import { BosConfigSchema } from "./types";
@@ -203,7 +206,7 @@ export async function loadResolvedConfig(options?: {
       runtimeEnv,
       options?.remotePlugins,
     );
-    const runtime = buildRuntimeConfig(config, baseDir, runtimeEnv, {
+    const runtime = await buildRuntimeConfig(config, baseDir, runtimeEnv, {
       plugins: pluginRuntime,
     });
     const warnings = drainConfigWarnings();
@@ -711,12 +714,12 @@ export interface BuildRuntimeConfigOptions {
   proxy?: string;
 }
 
-export function buildRuntimeConfig(
+export async function buildRuntimeConfig(
   config: BosConfig,
   baseDir: string,
   env: BosEnv,
   options?: BuildRuntimeConfigOptions,
-): RuntimeConfig {
+): Promise<RuntimeConfig> {
   const uiConfig = config.app.ui;
   const apiConfig = config.app.api;
   const authConfig = config.app.auth;
@@ -778,7 +781,7 @@ export function buildRuntimeConfig(
   const apiIsRemote = apiRuntime.source === "remote";
   const resolvedApiName = resolvePluginRuntimeName(apiConfig.name, apiRuntime.localPath, "api");
 
-  return {
+  const result: RuntimeConfig = {
     env,
     account: config.account,
     domain: config.domain,
@@ -842,6 +845,73 @@ export function buildRuntimeConfig(
     plugins:
       options?.plugins && Object.keys(options.plugins).length > 0 ? options.plugins : undefined,
   };
+
+  let manifestNodes: RuntimeDependencyNode[] = [];
+  const manifestPluginEntries: Array<{ key: string; config: RuntimePluginConfig }> = [];
+
+  if (result.api.source === "remote" && result.api.url) {
+    try {
+      const manifest = await fetchApiPluginManifest(result.api.url);
+      if (manifest.plugins?.length) {
+        manifestNodes = manifestPluginsToNodes(manifest.plugins);
+        for (const node of manifestNodes) {
+          if (!result.plugins?.[node.key]) {
+            manifestPluginEntries.push({
+              key: node.key,
+              config: {
+                name: node.name,
+                url: node.url,
+                entry: node.entry,
+                source: "remote",
+                dependsOn: node.dependsOn,
+                secrets: node.secrets,
+                variables: node.variables,
+              },
+            });
+            if (node.secrets) {
+              for (const secretName of node.secrets) {
+                if (!process.env[secretName]) {
+                  console.warn(
+                    `[Config] Plugin "${node.key}" (discovered from manifest) expects secret "${secretName}" but it is not set in the environment.`,
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+      if (manifest.dependsOn?.length) {
+        const existing = new Set(result.api.dependsOn ?? []);
+        for (const dep of manifest.dependsOn) {
+          if (!existing.has(dep)) {
+            result.api.dependsOn = [...(result.api.dependsOn ?? []), dep];
+          }
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[Config] Failed to fetch API plugin manifest for discovery: ${message}`);
+    }
+  }
+
+  const nodeMap = normalizeToNodes(result);
+  if (manifestNodes.length > 0) {
+    const merged = mergeManifestNodes(nodeMap, manifestNodes);
+    result.nodes = Object.fromEntries(merged.entries());
+  } else if (nodeMap.size > 0) {
+    result.nodes = Object.fromEntries(nodeMap.entries());
+  }
+
+  if (manifestPluginEntries.length > 0) {
+    if (!result.plugins) result.plugins = {};
+    for (const { key, config } of manifestPluginEntries) {
+      if (!result.plugins[key]) {
+        result.plugins[key] = config;
+      }
+    }
+  }
+
+  return result;
 }
 
 async function loadConfigFile(configPath: string, baseDir: string): Promise<BosConfigInput> {
@@ -1062,6 +1132,7 @@ function buildRuntimePluginConfig(
         }
       : undefined,
     routes,
+    dependsOn: source.dependsOn ? normalizeStringArray(source.dependsOn) : undefined,
   };
 }
 

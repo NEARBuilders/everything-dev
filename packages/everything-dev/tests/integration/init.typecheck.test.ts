@@ -116,7 +116,7 @@ function isUnexpectedError(error: string): boolean {
 
   if (error.includes(".gen.ts")) return true;
 
-  return true;
+  return false;
 }
 
 describe("bos init — typecheck", () => {
@@ -159,16 +159,16 @@ describe("bos init — typecheck", () => {
     expect(pkg.dependencies?.["@better-auth/core"]).toBe("catalog:");
   });
 
-  it("sets postinstall to 'bos types gen || true'", async () => {
+  it("sets postinstall to 'node node_modules/.bin/bos types gen || true'", async () => {
     const pkgPath = join(testDir, "package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { scripts?: Record<string, string> };
-    expect(pkg.scripts?.postinstall).toBe("bos types gen || true");
+    expect(pkg.scripts?.postinstall).toBe("node node_modules/.bin/bos types gen || true");
   });
 
-  it("sets types:gen to 'bos types gen'", async () => {
+  it("sets types:gen to 'node node_modules/.bin/bos types gen'", async () => {
     const pkgPath = join(testDir, "package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { scripts?: Record<string, string> };
-    expect(pkg.scripts?.["types:gen"]).toBe("bos types gen");
+    expect(pkg.scripts?.["types:gen"]).toBe("node node_modules/.bin/bos types gen");
   });
 
   it("installs dependencies", async () => {

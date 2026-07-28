@@ -487,12 +487,17 @@ export async function resolveRequestRuntime(
     );
   }
 
-  const tenantRuntimeConfig = buildRuntimeConfig(remoteConfig.config, process.cwd(), "production", {
-    hostSource: "remote",
-    uiSource: "remote",
-    apiSource: "remote",
-    authSource: "remote",
-  });
+  const tenantRuntimeConfig = await buildRuntimeConfig(
+    remoteConfig.config,
+    process.cwd(),
+    "production",
+    {
+      hostSource: "remote",
+      uiSource: "remote",
+      apiSource: "remote",
+      authSource: "remote",
+    },
+  );
   const effectiveConfig = buildEffectiveRuntimeConfig(
     baseConfig,
     tenantRuntimeConfig,

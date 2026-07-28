@@ -91,7 +91,7 @@ export function detectLocalPackages(
   return packages;
 }
 
-export function buildRuntimeConfig(
+export async function buildRuntimeConfig(
   bosConfig: BosConfig,
   options: {
     hostSource?: "local" | "remote";
@@ -102,7 +102,7 @@ export function buildRuntimeConfig(
     env?: "development" | "production";
     plugins?: Record<string, RuntimePluginConfig>;
   },
-): RuntimeConfig {
+): Promise<RuntimeConfig> {
   return configBuildRuntimeConfig(bosConfig, getProjectRoot(), options.env ?? "development", {
     hostSource: options.hostSource,
     uiSource: options.uiSource,

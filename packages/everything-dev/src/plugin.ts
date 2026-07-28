@@ -658,7 +658,7 @@ export default createPlugin({
       }
 
       suppressWarnings();
-      const developmentRuntime = buildRuntimeConfig(deps.bosConfig, {
+      const developmentRuntime = await buildRuntimeConfig(deps.bosConfig, {
         uiSource,
         apiSource,
         authSource,
@@ -827,7 +827,7 @@ export default createPlugin({
         "production",
       );
       suppressWarnings();
-      const runtimeConfig = buildRuntimeConfig(config, {
+      const runtimeConfig = await buildRuntimeConfig(config, {
         uiSource: "remote",
         apiSource: "remote",
         authSource: "remote",
@@ -997,7 +997,7 @@ export default createPlugin({
       }
 
       suppressWarnings();
-      const runtimeConfig = buildRuntimeConfig(deps.bosConfig, {
+      const runtimeConfig = await buildRuntimeConfig(deps.bosConfig, {
         uiSource: deps.bosConfig.app.ui?.development ? "local" : "remote",
         apiSource: deps.bosConfig.app.api?.development ? "local" : "remote",
         authSource: deps.bosConfig.app.auth?.development ? "local" : "remote",
@@ -1689,6 +1689,12 @@ export default createPlugin({
           if (existsSync(join(projectDir, "host", "src"))) {
             generated.push("host/src/lib/auth-types.gen.ts");
           }
+          for (const [key, _plugin] of pluginEntries) {
+            const pluginSrc = join(projectDir, "plugins", key, "src", "plugins-client.gen.ts");
+            if (existsSync(pluginSrc)) {
+              generated.push(`plugins/${key}/src/plugins-client.gen.ts`);
+            }
+          }
 
           return {
             status: "success" as const,
@@ -1716,6 +1722,12 @@ export default createPlugin({
         }
         if (existsSync(join(projectDir, "host", "src"))) {
           generated.push("host/src/lib/auth-types.gen.ts");
+        }
+        for (const [key, _plugin] of Object.entries(refreshed.runtime.plugins ?? {})) {
+          const pluginSrc = join(projectDir, "plugins", key, "src", "plugins-client.gen.ts");
+          if (existsSync(pluginSrc)) {
+            generated.push(`plugins/${key}/src/plugins-client.gen.ts`);
+          }
         }
 
         const contractStatus = artifacts?.contractStatus ?? [];

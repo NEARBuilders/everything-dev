@@ -225,7 +225,7 @@ describe("tenant host nested integration", () => {
       ],
     });
 
-    buildRuntimeConfigMock.mockReturnValue({
+    buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
       account: "chicago.alice.linktree.near",
       title: "Chicago Alice",

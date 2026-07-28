@@ -141,7 +141,7 @@ describe("resolveRequestRuntime", () => {
       extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
-    buildRuntimeConfigMock.mockReturnValue({
+    buildRuntimeConfigMock.mockResolvedValue({
       ...createBaseRuntimeConfig(),
       account: "alice.linktree.near",
       ui: {
@@ -184,7 +184,7 @@ describe("resolveRequestRuntime", () => {
       ],
     });
 
-    buildRuntimeConfigMock.mockReturnValue({
+    buildRuntimeConfigMock.mockResolvedValue({
       ...createBaseRuntimeConfig(),
       account: "chicago.alice.linktree.near",
       ui: {
@@ -227,7 +227,7 @@ describe("resolveRequestRuntime", () => {
       ],
     });
 
-    buildRuntimeConfigMock.mockReturnValue(createBaseRuntimeConfig());
+    buildRuntimeConfigMock.mockResolvedValue(createBaseRuntimeConfig());
 
     await expect(
       resolveRequestRuntime(createBaseRuntimeConfig(), new Request("https://alice.linktree.com/")),
@@ -256,7 +256,7 @@ describe("resolveRequestRuntime", () => {
       extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
-    buildRuntimeConfigMock.mockReturnValue({
+    buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
       account: "alice.linktree.near",
       title: "Alice",
@@ -307,7 +307,7 @@ describe("resolveRequestRuntime", () => {
       extendsChain: ["bos://bob.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
-    buildRuntimeConfigMock.mockReturnValue({
+    buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
       account: "bob.linktree.near",
       ui: {
@@ -353,7 +353,7 @@ describe("resolveRequestRuntime", () => {
       extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
-    buildRuntimeConfigMock.mockReturnValue({
+    buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
       account: "alice.linktree.near",
       ui: {
@@ -395,7 +395,7 @@ describe("resolveRequestRuntime", () => {
       extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
-    buildRuntimeConfigMock.mockReturnValue({
+    buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
       account: "alice.linktree.near",
       ui: {
@@ -441,7 +441,7 @@ describe("resolveRequestRuntime", () => {
       extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
-    buildRuntimeConfigMock.mockReturnValue({
+    buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
       account: "alice.linktree.near",
       ui: {
@@ -501,7 +501,7 @@ describe("resolveRequestRuntime", () => {
       extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
-    buildRuntimeConfigMock.mockReturnValue({
+    buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
       account: "alice.linktree.near",
       ui: {
@@ -576,7 +576,7 @@ describe("resolveRequestRuntime", () => {
         ],
       });
 
-      buildRuntimeConfigMock.mockReturnValue({
+      buildRuntimeConfigMock.mockResolvedValue({
         ...baseConfig,
         account: "alice.linktree.near",
         ui: {
@@ -641,7 +641,7 @@ describe("resolveRequestRuntime", () => {
         ],
       });
 
-      buildRuntimeConfigMock.mockReturnValue({
+      buildRuntimeConfigMock.mockResolvedValue({
         ...baseConfig,
         account: "alice.linktree.near",
         ui: {
@@ -701,7 +701,7 @@ describe("resolveRequestRuntime", () => {
       extendsChain: ["bos://bob.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
-    buildRuntimeConfigMock.mockReturnValue({
+    buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
       account: "bob.linktree.near",
       ui: {

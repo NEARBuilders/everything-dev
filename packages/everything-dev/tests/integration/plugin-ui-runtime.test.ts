@@ -85,7 +85,7 @@ describe("plugin UI runtime config", () => {
       baseDir,
       "development" as BosEnv,
     );
-    const runtime = buildRuntimeConfig(config, baseDir, "development" as BosEnv, {
+    const runtime = await buildRuntimeConfig(config, baseDir, "development" as BosEnv, {
       plugins: pluginRuntime,
     });
 

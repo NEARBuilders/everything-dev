@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fetchJsonOrNull, fetchResponse } from "./http-client";
-import type { RuntimeConfig, RuntimePluginConfig } from "./types";
+import type { JsonObject, RuntimeConfig, RuntimePluginConfig } from "./types";
 
 export interface ApiPluginManifest {
   schemaVersion: 1;
@@ -28,6 +28,15 @@ export interface ApiPluginManifest {
     exports: string[];
     sha256?: string;
   }>;
+  plugins?: Array<{
+    key: string;
+    name: string;
+    url: string;
+    dependsOn?: string[];
+    secrets?: string[];
+    variables?: JsonObject;
+  }>;
+  dependsOn?: string[];
 }
 
 interface ContractSource {
@@ -69,7 +78,7 @@ function getApiPluginManifestUrl(apiBaseUrl: string): string {
   return `${trimTrailingSlash(apiBaseUrl)}/plugin.manifest.json`;
 }
 
-async function fetchApiPluginManifest(apiBaseUrl: string): Promise<ApiPluginManifest> {
+export async function fetchApiPluginManifest(apiBaseUrl: string): Promise<ApiPluginManifest> {
   const url = getApiPluginManifestUrl(apiBaseUrl);
   const manifest = await fetchJsonOrNull<ApiPluginManifest>(url, { retries: 0 });
   if (!manifest) {
@@ -339,12 +348,53 @@ async function resolveContractSource(opts: {
   });
 }
 
-function writeGeneratedFiles(opts: {
+function writePluginClientGen(opts: {
+  configDir: string;
+  pluginKey: string;
+  depSources: ContractSource[];
+}) {
+  const pluginSrcDir = join(opts.configDir, "plugins", opts.pluginKey, "src");
+  if (!existsSync(pluginSrcDir)) return;
+
+  const targetPath = join(pluginSrcDir, "plugins-client.gen.ts");
+  const lines: string[] = [];
+
+  for (const source of opts.depSources) {
+    const importPath = toImportPath(targetPath, source.sourceFilePath);
+    lines.push(`import type { ContractType as ${source.importName} } from "${importPath}";`);
+  }
+
+  lines.push('import type { ContractRouterClient, AnyContractRouter } from "@orpc/contract";');
+  lines.push(
+    "type ClientFactory<C extends AnyContractRouter> = (context?: Record<string, unknown>) => ContractRouterClient<C>;",
+  );
+  lines.push("");
+
+  if (opts.depSources.length === 0) {
+    lines.push("export type PluginsClient = Record<string, never>;");
+  } else {
+    lines.push("export type PluginsClient = {");
+    for (const source of opts.depSources) {
+      const key = /^[$A-Z_][0-9A-Z_$]*$/i.test(source.key)
+        ? source.key
+        : JSON.stringify(source.key);
+      lines.push(`  ${key}: ClientFactory<${source.importName}>;`);
+    }
+    lines.push("};");
+  }
+
+  mkdirSync(dirname(targetPath), { recursive: true });
+  writeFileIfChanged(targetPath, `${lines.join("\n")}\n`);
+}
+
+export function writeGeneratedFiles(opts: {
   configDir: string;
   sources: ContractSource[];
   pluginKeys: string[];
   authSource: ContractSource | null;
   authExportPath?: string | null;
+  apiDependsOn?: string[];
+  pluginDependsOn?: Record<string, string[]>;
 }) {
   const hasLocalApiWorkspace = existsSync(join(opts.configDir, "api", "src"));
   const baseSource = opts.sources.find((source) => source.key === "api");
@@ -389,22 +439,24 @@ function writeGeneratedFiles(opts: {
   writeFileIfChanged(uiContractPath, `${uiLines.join("\n")}\n`);
 
   // --- Generate api/src/lib/plugins-types.gen.ts ---
-  // Includes both plugin contracts AND auth as a unified PluginsClient type
+  // Filtered by apiDependsOn when explicit; includes all plugins + auth when implicit
   if (hasLocalApiWorkspace) {
     const pluginsClientPath = join(opts.configDir, "api", "src", "lib", "plugins-types.gen.ts");
     const pluginsClientLines: string[] = [];
 
-    for (const source of pluginSources) {
+    const allPluginSources = [...pluginSources];
+    if (opts.authSource) {
+      allPluginSources.push({ ...opts.authSource, key: "auth" });
+    }
+
+    const apiDepSources = opts.apiDependsOn?.length
+      ? allPluginSources.filter((s) => opts.apiDependsOn!.includes(s.key))
+      : allPluginSources;
+
+    for (const source of apiDepSources) {
       const importPath = toImportPath(pluginsClientPath, source.sourceFilePath);
       pluginsClientLines.push(
         `import type { ContractType as ${source.importName} } from "${importPath}";`,
-      );
-    }
-
-    if (opts.authSource) {
-      const authImportPath = toImportPath(pluginsClientPath, opts.authSource.sourceFilePath);
-      pluginsClientLines.push(
-        `import type { ContractType as ${opts.authSource.importName} } from "${authImportPath}";`,
       );
     }
 
@@ -416,16 +468,11 @@ function writeGeneratedFiles(opts: {
     );
     pluginsClientLines.push("");
 
-    const allPluginSources = [...pluginSources];
-    if (opts.authSource) {
-      allPluginSources.push({ ...opts.authSource, key: "auth" });
-    }
-
-    if (allPluginSources.length === 0) {
+    if (apiDepSources.length === 0) {
       pluginsClientLines.push("export type PluginsClient = Record<string, never>;");
     } else {
       pluginsClientLines.push("export type PluginsClient = {");
-      for (const source of allPluginSources) {
+      for (const source of apiDepSources) {
         const key = /^[$A-Z_][0-9A-Z_$]*$/i.test(source.key)
           ? source.key
           : JSON.stringify(source.key);
@@ -436,6 +483,27 @@ function writeGeneratedFiles(opts: {
 
     mkdirSync(dirname(pluginsClientPath), { recursive: true });
     writeFileIfChanged(pluginsClientPath, `${pluginsClientLines.join("\n")}\n`);
+  }
+
+  // --- Generate per-plugin plugins-client.gen.ts ---
+  const allSourcesForLookup = [...pluginSources];
+  if (opts.authSource) {
+    allSourcesForLookup.push({ ...opts.authSource, key: "auth" });
+  }
+
+  for (const pluginKey of opts.pluginKeys) {
+    const deps = opts.pluginDependsOn?.[pluginKey];
+    if (!deps?.length) continue;
+
+    const depSources = deps
+      .map((depKey) => allSourcesForLookup.find((s) => s.key === depKey))
+      .filter((s): s is ContractSource => Boolean(s));
+
+    writePluginClientGen({
+      configDir: opts.configDir,
+      pluginKey,
+      depSources,
+    });
   }
 
   // --- Generate */src/lib/auth-types.gen.ts ---
@@ -658,12 +726,21 @@ export async function syncApiContractBridge(opts: {
     .filter(([key]) => !excludedPluginKeys.has(key))
     .map(([key]) => key);
 
+  const pluginDependsOn: Record<string, string[]> = {};
+  for (const [key, plugin] of pluginEntries) {
+    if (!excludedPluginKeys.has(key) && plugin.dependsOn?.length) {
+      pluginDependsOn[key] = plugin.dependsOn;
+    }
+  }
+
   writeGeneratedFiles({
     configDir: opts.configDir,
     sources,
     pluginKeys: allPluginKeys,
     authSource,
     authExportPath,
+    apiDependsOn: opts.runtimeConfig.api.dependsOn,
+    pluginDependsOn,
   });
 
   if (opts.runtimeConfig.api.source !== "local") {

@@ -83,6 +83,7 @@ export const BosPluginRefSchema = ComposableAppEntrySchema.extend({
   version: z.string().optional(),
   app: z.record(z.string(), z.unknown()).optional(),
   plugins: z.record(z.string(), z.unknown()).optional(),
+  dependsOn: z.array(z.string()).optional(),
 });
 export type BosPluginRef = z.infer<typeof BosPluginRefSchema>;
 export type PluginEntryValue = string | BosPluginRef;
@@ -114,8 +115,35 @@ export const RuntimePluginConfigSchema = z.object({
   shared: SharedDepMapSchema.optional(),
   ui: PluginRuntimeUiSchema.optional(),
   routes: z.array(z.string()).optional(),
+  dependsOn: z.array(z.string()).optional(),
 });
 export type RuntimePluginConfig = z.infer<typeof RuntimePluginConfigSchema>;
+
+export const DependencyNodeKindSchema = z.enum(["api", "auth", "ui", "plugin"]);
+export type DependencyNodeKind = z.infer<typeof DependencyNodeKindSchema>;
+
+export const RuntimeDependencyNodeSchema = z.object({
+  key: z.string(),
+  kind: DependencyNodeKindSchema,
+  name: z.string(),
+  url: z.string(),
+  entry: z.string(),
+  source: SourceModeSchema,
+  dependsOn: z.array(z.string()).optional(),
+  extendsRef: z.string().optional(),
+  localPath: z.string().optional(),
+  port: z.number().optional(),
+  proxy: z.string().optional(),
+  variables: JsonObjectSchema.optional(),
+  secrets: z.array(z.string()).optional(),
+  integrity: z.string().optional(),
+  shared: SharedDepMapSchema.optional(),
+  ui: PluginRuntimeUiSchema.optional(),
+  routes: z.array(z.string()).optional(),
+  sourceOrigin: z.enum(["config", "manifest"]).optional(),
+  singletonKey: z.string().optional(),
+});
+export type RuntimeDependencyNode = z.infer<typeof RuntimeDependencyNodeSchema>;
 
 export const UiConfigSchema = z
   .object({
@@ -268,6 +296,7 @@ export const RuntimeConfigSchema = z.object({
     port: z.number().optional(),
     ssrUrl: z.string().optional(),
     ssrIntegrity: z.string().optional(),
+    dependsOn: z.array(z.string()).optional(),
   }),
   api: FederationEntrySchema.extend({
     localPath: z.string().optional(),
@@ -276,6 +305,7 @@ export const RuntimeConfigSchema = z.object({
     variables: JsonObjectSchema.optional(),
     secrets: z.array(z.string()).optional(),
     shared: SharedDepMapSchema.optional(),
+    dependsOn: z.array(z.string()).optional(),
   }),
   auth: FederationEntrySchema.extend({
     extendsRef: z.string().optional(),
@@ -285,8 +315,10 @@ export const RuntimeConfigSchema = z.object({
     variables: JsonObjectSchema.optional(),
     secrets: z.array(z.string()).optional(),
     shared: SharedDepMapSchema.optional(),
+    dependsOn: z.array(z.string()).optional(),
   }).optional(),
   plugins: z.record(z.string(), RuntimePluginConfigSchema).optional(),
+  nodes: z.record(z.string(), RuntimeDependencyNodeSchema).optional(),
 });
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 

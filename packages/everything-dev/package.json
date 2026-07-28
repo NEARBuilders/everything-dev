@@ -36,6 +36,15 @@
       "import": "./dist/config.mjs",
       "require": "./dist/config.cjs"
     },
+    "./dag": {
+      "development": {
+        "types": "./src/dag.ts",
+        "import": "./src/dag.ts"
+      },
+      "types": "./dist/dag.d.mts",
+      "import": "./dist/dag.mjs",
+      "require": "./dist/dag.cjs"
+    },
     "./fastkv": {
       "development": {
         "types": "./src/fastkv.ts",
