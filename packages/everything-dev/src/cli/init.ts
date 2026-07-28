@@ -22,10 +22,10 @@ import {
   loadManifestNormalizationSpec,
   normalizePackageManifestsInTree,
 } from "../internal/manifest-normalizer";
-import { resolveExtendsRef } from "../merge";
 import type { BosConfig, BosConfigInput } from "../types";
 import { saveBosConfig } from "../utils/save-config";
 import { writeSnapshot } from "./snapshot";
+import { getExtendsRef, parseBosRef, readJsonFile } from "./utils/helpers";
 
 const require = createRequire(import.meta.url);
 
@@ -64,24 +64,6 @@ export interface CatalogChainSource {
   catalog: Record<string, string>;
   repository?: string;
   extendsChain: string[];
-}
-
-function getExtendsRef(config: Record<string, unknown>): string | undefined {
-  if (typeof config.extends === "string") {
-    return config.extends;
-  }
-
-  if (config.extends && typeof config.extends === "object") {
-    return resolveExtendsRef(config.extends as Record<string, string>, "production");
-  }
-
-  return undefined;
-}
-
-function parseBosRef(ref: string): { account: string; gateway: string } | null {
-  const match = ref.match(/^bos:\/\/([^/]+)\/(.+)$/);
-  if (!match?.[1] || !match[2]) return null;
-  return { account: match[1], gateway: match[2] };
 }
 
 function readWorkspaceCatalog(sourceDir: string): Record<string, string> {
@@ -1041,26 +1023,30 @@ function toRelativeImportPath(fromPath: string, toPath: string): string {
 
 export async function runBunInstall(
   destination: string,
-  spinner?: { message: (msg: string) => void },
+  opts?: {
+    spinner?: { message: (msg: string) => void };
+  },
 ): Promise<void> {
   await runWithProgress(
     "bun",
     ["install", "--ignore-scripts"],
     destination,
-    spinner,
+    opts?.spinner,
     "Installing dependencies",
   );
 }
 
 export async function runBunInstallForUpgrade(
   destination: string,
-  spinner?: { message: (msg: string) => void },
+  opts?: {
+    spinner?: { message: (msg: string) => void };
+  },
 ): Promise<void> {
   await runWithProgress(
     "bun",
     ["install", "--force"],
     destination,
-    spinner,
+    opts?.spinner,
     "Installing dependencies",
   );
 }
@@ -1168,10 +1154,6 @@ export function stripOrphanedWorkspacesFromLockfile(
 export function removeInitLockfile(lockfilePath: string): void {
   if (!existsSync(lockfilePath)) return;
   rmSync(lockfilePath, { force: true });
-}
-
-function readJsonFile<T>(filePath: string): T {
-  return JSON.parse(readFileSync(filePath, "utf-8")) as T;
 }
 
 export async function scaffoldMinimalProject(

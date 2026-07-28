@@ -6,10 +6,10 @@ import * as p from "@clack/prompts";
 import { glob } from "glob";
 import { loadResolvedConfig } from "../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../contract";
-import { resolveExtendsRef } from "../merge";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { saveBosConfig } from "../utils/save-config";
 import { readInstalledFrameworkVersion } from "./framework-version";
+import { getExtendsRef, parseBosRef, readJsonFile } from "./utils/helpers";
 import {
   buildChildRootScripts,
   fetchParentConfig,
@@ -73,10 +73,6 @@ function extractSemver(value: string | undefined): string | null {
   if (!value) return null;
   const match = value.match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/);
   return match?.[0] ?? null;
-}
-
-function readJsonFile<T>(filePath: string): T {
-  return JSON.parse(readFileSync(filePath, "utf-8")) as T;
 }
 
 function readRootPackageJson(projectDir: string): Record<string, unknown> {
@@ -346,24 +342,6 @@ async function readExtendedRootSource(projectDir: string): Promise<ExtendedRootS
     repository: source.repository ?? repository,
     extendsChain: source.extendsChain.length > 0 ? source.extendsChain : extendsChain,
   };
-}
-
-function getExtendsRef(config: Record<string, unknown>): string | undefined {
-  if (typeof config.extends === "string") {
-    return config.extends;
-  }
-
-  if (config.extends && typeof config.extends === "object") {
-    return resolveExtendsRef(config.extends as Record<string, string>, "production");
-  }
-
-  return undefined;
-}
-
-function parseBosRef(ref: string): { account: string; gateway: string } | null {
-  const match = ref.match(/^bos:\/\/([^/]+)\/(.+)$/);
-  if (!match?.[1] || !match[2]) return null;
-  return { account: match[1], gateway: match[2] };
 }
 
 function parseTargetedRef(ref: string): { configRef: string; targetPath?: string } {
