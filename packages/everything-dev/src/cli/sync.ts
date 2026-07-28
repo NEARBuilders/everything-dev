@@ -19,7 +19,7 @@ import {
   runBunInstall,
   runTypesGen,
 } from "./init";
-import { writeSnapshot } from "./snapshot";
+import { readSnapshot, writeSnapshot } from "./snapshot";
 
 const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   ".env.example",
@@ -416,6 +416,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       updated: [],
       skipped: [],
       added: [],
+      conflicted: [],
       error: "No extends field found in bos.config.json — cannot determine parent",
     };
   }
@@ -427,6 +428,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       updated: [],
       skipped: [],
       added: [],
+      conflicted: [],
       error: `Invalid extends reference: ${extendsRef}`,
     };
   }
@@ -521,6 +523,10 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
     const updated: string[] = [];
     const skipped: string[] = [];
     const added: string[] = [];
+    const conflicted: string[] = [];
+
+    const snapshot = await readSnapshot(projectDir);
+    const snapshotFiles = snapshot?.files ?? {};
 
     for (const [destPath, filePath] of destToSource.entries()) {
       const localHash = computeLocalHash(projectDir, destPath);
@@ -531,9 +537,28 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
         continue;
       }
 
-      if (localHash !== sourceHash) {
-        updated.push(destPath);
+      if (localHash === sourceHash) {
+        skipped.push(destPath);
+        continue;
       }
+
+      const snapshotHash = snapshotFiles[destPath];
+      if (!snapshotHash) {
+        updated.push(destPath);
+        continue;
+      }
+
+      if (localHash === snapshotHash) {
+        updated.push(destPath);
+        continue;
+      }
+
+      if (sourceHash === snapshotHash) {
+        skipped.push(destPath);
+        continue;
+      }
+
+      conflicted.push(destPath);
     }
 
     const account = (localConfig.account as string) || extendsAccount;
@@ -567,13 +592,15 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
         updated,
         skipped,
         added,
+        conflicted,
       };
     }
 
-    const filesToWrite = [...updated, ...added];
+    const filesToWrite = [...updated, ...added, ...conflicted];
 
+    let backupDir: string | undefined;
     if (filesToWrite.length > 0) {
-      backupFiles(projectDir, filesToWrite);
+      backupDir = backupFiles(projectDir, filesToWrite) ?? undefined;
 
       for (const destPath of filesToWrite) {
         const sourcePath = destToSource.get(destPath) ?? destPath;
@@ -647,6 +674,8 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       updated,
       skipped,
       added,
+      conflicted,
+      backupDir,
     };
   } finally {
     await cleanup();

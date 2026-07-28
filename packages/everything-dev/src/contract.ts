@@ -255,6 +255,7 @@ export const InitResultSchema = z.object({
 export const SyncOptionsSchema = z.object({
   dryRun: z.boolean().default(false),
   noInstall: z.boolean().default(false),
+  json: z.boolean().default(false),
 });
 
 export const SyncResultSchema = z.object({
@@ -262,6 +263,8 @@ export const SyncResultSchema = z.object({
   updated: z.array(z.string()),
   skipped: z.array(z.string()),
   added: z.array(z.string()),
+  conflicted: z.array(z.string()).default([]),
+  backupDir: z.string().optional(),
   error: z.string().optional(),
 });
 
@@ -269,6 +272,8 @@ export const UpgradeOptionsSchema = z.object({
   dryRun: z.boolean().default(false),
   noInstall: z.boolean().default(false),
   noSync: z.boolean().default(false),
+  json: z.boolean().default(false),
+  migrationsOnly: z.boolean().default(false),
 });
 
 export const UpgradeResultSchema = z.object({

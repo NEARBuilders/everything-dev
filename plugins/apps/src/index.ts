@@ -23,7 +23,7 @@ export default createPlugin({
 
   contract,
 
-  initialize: (config) =>
+  initialize: (config, _plugins, tools) =>
     Effect.gen(function* () {
       const RegistryConfig = RegistryConfigService.Live({
         namespace: config.variables.registryNamespace,
@@ -34,7 +34,7 @@ export default createPlugin({
 
       const RegistryServices = RegistryService.Live.pipe(Layer.provide(RegistryConfig));
 
-      const registryService = yield* Effect.provide(RegistryService, RegistryServices);
+      const registryService = yield* tools.buildService(RegistryService, RegistryServices);
 
       yield* Effect.logInfo("[Registry] Services Initialized");
       return { registryService };

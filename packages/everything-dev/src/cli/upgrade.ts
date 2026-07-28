@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
@@ -12,6 +13,7 @@ import { readInstalledFrameworkVersion } from "./framework-version";
 import {
   buildChildRootScripts,
   fetchParentConfig,
+  getParentOnlyScriptKeys,
   resolveCatalogChainSource,
   runBunInstallForUpgrade,
   runTypesGen,
@@ -51,7 +53,6 @@ const OBSOLETE_FILES = [
   "ui/scripts/generate-metadata.ts",
   ".github/dependabot.yml",
   ".github/templates/dependabot.yml",
-  ".github/renovate.json",
   ".github/workflows/packages-release.yml",
   ".github/workflows/publish.yml",
   ".github/workflows/release-sync.yml",
@@ -843,7 +844,7 @@ export async function migrateChildRootPackageJson(projectDir: string): Promise<b
       changed = true;
     }
   }
-  for (const obsoleteScript of ["sync-catalog", "init"]) {
+  for (const obsoleteScript of [...getParentOnlyScriptKeys(projectDir), "sync-catalog", "init"]) {
     if (obsoleteScript in scripts) {
       delete scripts[obsoleteScript];
       changed = true;
@@ -944,8 +945,8 @@ async function rewriteLegacyUiImports(projectDir: string): Promise<string[]> {
 }
 
 const LEGACY_DIST_IMPORT_REWRITES = [
-  ['from "everything-dev/dist/', 'from "everything-dev/'],
-  ["from 'everything-dev/dist/", "from 'everything-dev/"],
+  ['from "everything-dev/', 'from "everything-dev/'],
+  ["from 'everything-dev/", "from 'everything-dev/"],
 ] as const;
 
 function escapeRegex(s: string): string {
@@ -1153,6 +1154,101 @@ async function rewriteLegacyDistImports(projectDir: string): Promise<string[]> {
   return migrated;
 }
 
+async function runMigrationPhase(
+  projectDir: string,
+  options: UpgradeOptions,
+  parentSource: ExtendedRootSource,
+): Promise<UpgradeResult> {
+  const timings: PhaseTiming[] = [];
+
+  const migratedBosConfigs = await timePhase(timings, "migrate bos configs", () =>
+    migrateBosConfigFiles(projectDir),
+  );
+  const migratedRootPackageJson = await timePhase(timings, "migrate root package", () =>
+    migrateChildRootPackageJson(projectDir),
+  );
+
+  let syncResult: UpgradeResult["sync"];
+  let addedPlugins: string[] = [];
+  if (!options.noSync && parentSource.extendsChain.length > 0) {
+    addedPlugins = await timePhase(timings, "discover parent plugins", async () => {
+      if (options.dryRun) return [];
+      return addSelectedParentPlugins(projectDir);
+    });
+
+    syncResult = await timePhase(timings, "sync template", () =>
+      syncTemplate(projectDir, {
+        dryRun: false,
+        noInstall: true,
+        json: false,
+      }),
+    );
+  }
+
+  await timePhase(timings, "sync shared deps", async () => {
+    const configResult = await loadResolvedConfig({ cwd: projectDir });
+    if (!configResult) {
+      throw new Error("No bos.config.json found in current directory");
+    }
+
+    return syncResolvedSharedDeps({
+      configDir: projectDir,
+      hostMode: "local",
+      bosConfig: configResult.config,
+    });
+  });
+
+  if (!options.noInstall) {
+    await timePhase(timings, "generate types", () => runTypesGen(projectDir));
+  }
+
+  const migratedFiles = await timePhase(timings, "clean obsolete files", async () => {
+    const nextMigratedFiles = [
+      ...migratedBosConfigs,
+      ...(migratedRootPackageJson ? ["package.json"] : []),
+      ...(await rewriteLegacyUiImports(projectDir)),
+      ...(await rewriteLegacyPluginScopedLayerPatterns(projectDir)),
+      ...(await rewriteLegacyDistImports(projectDir)),
+    ];
+    for (const file of OBSOLETE_FILES) {
+      const filePath = join(projectDir, file);
+      if (existsSync(filePath)) {
+        rmSync(filePath);
+        nextMigratedFiles.push(file);
+      }
+    }
+
+    const legacyPluginDbFiles = await glob("plugins/*/src/db/{migrator,load-migrations}.ts", {
+      cwd: projectDir,
+      nodir: true,
+      dot: false,
+      absolute: false,
+    });
+    for (const file of legacyPluginDbFiles) {
+      rmSync(join(projectDir, file));
+      nextMigratedFiles.push(file);
+    }
+
+    return nextMigratedFiles;
+  });
+
+  let changelogUrl: string | undefined;
+  const mainPkg = parentSource.catalog["everything-dev"];
+  if (mainPkg) {
+    changelogUrl = buildChangelogUrl(undefined, mainPkg, parentSource.repository);
+  }
+
+  return {
+    status: "upgraded",
+    packages: [],
+    sync: syncResult,
+    migrated: migratedFiles.length > 0 ? migratedFiles : undefined,
+    selectedPlugins: addedPlugins.length > 0 ? addedPlugins : undefined,
+    timings,
+    changelogUrl,
+  };
+}
+
 export async function upgradeTemplate(
   projectDir: string,
   options: UpgradeOptions,
@@ -1249,6 +1345,11 @@ export async function upgradeTemplate(
     };
   }
 
+  if (options.migrationsOnly) {
+    return await runMigrationPhase(projectDir, options, parentSource);
+  }
+
+  // Phase 1: apply package updates, install, then re-exec migrations from the new package
   await timePhase(timings, "apply package updates", async () => {
     if (inheritedCatalogPackageNames.length > 0) {
       syncRootCatalogWithParent(projectDir, sourceRootCatalog);
@@ -1261,97 +1362,88 @@ export async function upgradeTemplate(
     }
   });
 
-  const migratedBosConfigs = await timePhase(timings, "migrate bos configs", () =>
-    migrateBosConfigFiles(projectDir),
-  );
-  const migratedRootPackageJson = await timePhase(timings, "migrate root package", () =>
-    migrateChildRootPackageJson(projectDir),
-  );
+  const needsInstall = (hasUpdates || hasCatalogUpdates) && !options.noInstall;
 
-  let syncResult: UpgradeResult["sync"];
-  let addedPlugins: string[] = [];
-  if (!options.noSync) {
-    addedPlugins = await timePhase(timings, "discover parent plugins", async () => {
-      if (options.dryRun) return [];
-      return addSelectedParentPlugins(projectDir);
-    });
-
-    syncResult = await timePhase(timings, "sync template", () =>
-      syncTemplate(projectDir, {
-        dryRun: false,
-        noInstall: true,
-      }),
-    );
-
-    if (inheritedCatalogPackageNames.length > 0) {
-      syncRootCatalogWithParent(projectDir, sourceRootCatalog);
-    }
-  }
-
-  const sharedSync = await timePhase(timings, "sync shared deps", async () => {
-    const configResult = await loadResolvedConfig({ cwd: projectDir });
-    if (!configResult) {
-      throw new Error("No bos.config.json found in current directory");
-    }
-
-    return syncResolvedSharedDeps({
-      configDir: projectDir,
-      hostMode: "local",
-      bosConfig: configResult.config,
-    });
-  });
-
-  if ((hasUpdates || addedPlugins.length > 0 || sharedSync.catalogChanged) && !options.noInstall) {
+  if (needsInstall) {
     await timePhase(timings, "install dependencies", () => runBunInstallForUpgrade(projectDir));
-    await timePhase(timings, "generate types", () => runTypesGen(projectDir));
   }
 
-  const migratedFiles = await timePhase(timings, "clean obsolete files", async () => {
-    const nextMigratedFiles = [
-      ...migratedBosConfigs,
-      ...(migratedRootPackageJson ? ["package.json"] : []),
-      ...(await rewriteLegacyUiImports(projectDir)),
-      ...(await rewriteLegacyPluginScopedLayerPatterns(projectDir)),
-      ...(await rewriteLegacyDistImports(projectDir)),
+  // If we installed new framework packages, re-exec from the new package so migrations
+  // run with the latest code instead of the old cached modules.
+  if (needsInstall && hasFrameworkUpdates) {
+    const bosPath = join(projectDir, "node_modules", ".bin", "bos");
+    const childArgs = [
+      "upgrade",
+      "--migrations-only",
+      "--no-install",
+      ...(options.noSync ? ["--no-sync"] : []),
+      "--json",
     ];
-    for (const file of OBSOLETE_FILES) {
-      const filePath = join(projectDir, file);
-      if (existsSync(filePath)) {
-        rmSync(filePath);
-        nextMigratedFiles.push(file);
-      }
-    }
 
-    const legacyPluginDbFiles = await glob("plugins/*/src/db/{migrator,load-migrations}.ts", {
+    const childResult = spawnSync(bosPath, childArgs, {
       cwd: projectDir,
-      nodir: true,
-      dot: false,
-      absolute: false,
+      stdio: ["inherit", "pipe", "pipe"],
+      encoding: "utf-8",
+      env: { ...process.env, BOS_NO_BANNER: "1" },
     });
-    for (const file of legacyPluginDbFiles) {
-      rmSync(join(projectDir, file));
-      nextMigratedFiles.push(file);
+
+    if (childResult.status !== 0) {
+      return {
+        status: "error",
+        packages: [
+          ...packages,
+          ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
+        ],
+        timings,
+        error: `Migration phase failed: ${childResult.stderr || childResult.stdout || "Unknown error"}`,
+      };
     }
 
-    return nextMigratedFiles;
-  });
-
-  let changelogUrl: string | undefined;
-  const mainPkg = packages.find((p) => p.name === "everything-dev");
-  if (mainPkg?.from && mainPkg.from !== mainPkg.to) {
-    changelogUrl = buildChangelogUrl(mainPkg.from, mainPkg.to, parentSource.repository);
+    try {
+      const childUpgrade: UpgradeResult = JSON.parse(childResult.stdout);
+      const mainPkg = packages.find((p) => p.name === "everything-dev");
+      const changelogUrl =
+        mainPkg?.from && mainPkg.from !== mainPkg.to
+          ? buildChangelogUrl(mainPkg.from, mainPkg.to, parentSource.repository)
+          : undefined;
+      return {
+        ...childUpgrade,
+        packages: [
+          ...packages,
+          ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
+        ],
+        timings: [...timings, ...(childUpgrade.timings ?? [])],
+        changelogUrl,
+      };
+    } catch {
+      return {
+        status: "error",
+        packages: [
+          ...packages,
+          ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
+        ],
+        timings,
+        error: "Failed to parse migration phase output",
+      };
+    }
   }
 
+  // No framework version change: run migrations inline (same-package, no re-exec needed)
+  // runMigrationPhase handles types gen internally — no separate runTypesGen call needed here.
+
+  const migrationResult = await runMigrationPhase(projectDir, options, parentSource);
+  const mainPkg = packages.find((p) => p.name === "everything-dev");
+  const changelogUrl =
+    mainPkg?.from && mainPkg.from !== mainPkg.to
+      ? buildChangelogUrl(mainPkg.from, mainPkg.to, parentSource.repository)
+      : undefined;
   return {
-    status: "upgraded",
+    ...migrationResult,
     packages: [
       ...packages,
       ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
     ],
-    sync: syncResult,
-    migrated: migratedFiles.length > 0 ? migratedFiles : undefined,
-    selectedPlugins: addedPlugins.length > 0 ? addedPlugins : undefined,
-    timings,
+    timings: [...timings, ...(migrationResult.timings ?? [])],
     changelogUrl,
   };
 }

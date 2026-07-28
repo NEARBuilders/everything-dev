@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -128,17 +128,15 @@ describe("syncTemplate", () => {
     });
 
     expect(result.status).toBe("synced");
-    expect(result.updated).toContain("ui/src/lib/api.ts");
+    expect(result.conflicted).not.toContain("ui/src/lib/api.ts");
+    expect(result.updated).not.toContain("ui/src/lib/api.ts");
     expect(result.updated).not.toContain("ui/src/providers/index.tsx");
-    expect(result.skipped).not.toContain("ui/src/providers/index.tsx");
+    expect(result.conflicted).not.toContain("ui/src/providers/index.tsx");
     expect(result.updated).not.toContain("ui/src/components/user-nav.tsx");
-    expect(result.skipped).not.toContain("ui/src/components/user-nav.tsx");
-    expect(readFileSync(frameworkOwnedPath, "utf-8")).toBe(
-      readFileSync(join(REPO_ROOT, "ui", "src", "lib", "api.ts"), "utf-8"),
-    );
+    expect(result.conflicted).not.toContain("ui/src/components/user-nav.tsx");
+    expect(readFileSync(frameworkOwnedPath, "utf-8")).toBe("framework override\n");
     expect(readFileSync(syncOwnedPath, "utf-8")).toBe("provider override\n");
     expect(readFileSync(appOwnedPath, "utf-8")).toBe("component override\n");
-    expect(existsSync(join(projectDir, ".bos", "sync-backup"))).toBe(true);
   });
 
   it("sync does not re-add plugin workspaces because it only manages framework-owned files", async () => {

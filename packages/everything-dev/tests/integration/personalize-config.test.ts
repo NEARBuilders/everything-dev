@@ -144,9 +144,9 @@ describe("personalizeConfig with real root config", () => {
     expect(pkg.dependencies?.["every-plugin"]).toBe("catalog:");
     expect(pkg.devDependencies?.["everything-dev"]).toBeUndefined();
     expect(pkg.devDependencies?.["every-plugin"]).toBeUndefined();
-    expect(pkg.scripts?.postinstall).toBe("node_modules/.bin/bos types gen || true");
-    expect(pkg.scripts?.["types:gen"]).toBe("node_modules/.bin/bos types gen");
-    expect(pkg.scripts?.bos).toBe("node_modules/.bin/bos");
+    expect(pkg.scripts?.postinstall).toBe("bos types gen || true");
+    expect(pkg.scripts?.["types:gen"]).toBe("bos types gen");
+    expect(pkg.scripts?.bos).toBe("bos");
     expect(pkg.workspaces?.packages).toEqual(expect.arrayContaining(["ui", "api", "plugins/*"]));
     expect(pkg.workspaces?.packages).toHaveLength(3);
     expect(pkg.workspaces?.packages).not.toContain("plugins/apps");
