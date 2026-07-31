@@ -37,7 +37,10 @@ export function unwrapDatabaseError(error: unknown): string {
   return parts.join(": ");
 }
 
-export async function createDatabaseDriver(url: string): Promise<DatabaseDriver> {
+export async function createDatabaseDriver(
+  url: string,
+  schemaName?: string,
+): Promise<DatabaseDriver> {
   if (url.startsWith("pglite:") || url === ":memory:") {
     const { drizzle } = await import("drizzle-orm/pglite");
     const { PGlite } = await import("@electric-sql/pglite");
@@ -47,6 +50,10 @@ export async function createDatabaseDriver(url: string): Promise<DatabaseDriver>
       mkdirSync(dirname(dataDir), { recursive: true });
     }
     const pglite = new PGlite(dataDir);
+    if (schemaName) {
+      await pglite.exec(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
+      await pglite.exec(`SET search_path TO "${schemaName}", public`);
+    }
     const db = drizzle(pglite, { schema });
     return {
       db,
@@ -71,6 +78,12 @@ export async function createDatabaseDriver(url: string): Promise<DatabaseDriver>
   pool.on("error", (err: Error) => {
     console.error("[Database] Unexpected pool error:", err.message);
   });
+  if (schemaName) {
+    pool.on("connect", (client) => {
+      client.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
+      client.query(`SET search_path TO "${schemaName}", public`);
+    });
+  }
   let closed = false;
   return {
     db: drizzle(pool, { schema }),
@@ -78,10 +91,7 @@ export async function createDatabaseDriver(url: string): Promise<DatabaseDriver>
       if (closed) return;
       closed = true;
       pool.removeAllListeners("error");
-      console.error(
-        "[Database] pool.end() called from:",
-        new Error("pool.end() stack trace").stack,
-      );
+      pool.removeAllListeners("connect");
       await pool.end();
     },
   };

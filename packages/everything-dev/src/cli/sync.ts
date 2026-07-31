@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { dirname, join } from "node:path";
 import { glob } from "glob";
 import { loadResolvedConfig } from "../config";
+import { findBosConfigPath, readBosConfigSource, stringifyBosConfig } from "../config-source";
 import type { SyncOptions, SyncResult } from "../contract";
 import {
   isPlainObject as isPlainObjectFromMerge,
@@ -25,6 +26,7 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   ".env.example",
   ".gitignore",
   "biome.json",
+  "bos.config.toml",
   "bos.config.json",
   "bunfig.toml",
   "package.json",
@@ -273,15 +275,23 @@ function buildSyncedFileContent(
       : filePath);
   const dest = join(projectDir, destPath);
 
-  if (filePath.endsWith("bos.config.json")) {
-    const localContent = existsSync(dest) ? readFileSync(dest, "utf-8") : null;
+  if (filePath.endsWith("bos.config.json") || filePath.endsWith("bos.config.toml")) {
+    const localTomlDest = join(projectDir, "bos.config.toml");
+    const _localJsonDest = join(projectDir, "bos.config.json");
+    const actualDest = existsSync(localTomlDest) ? localTomlDest : dest;
+    const isLocalToml = actualDest.endsWith(".toml");
+    const localContent = existsSync(actualDest) ? readFileSync(actualDest, "utf-8") : null;
     const templateContent = readFileSync(src, "utf-8");
 
     if (localContent) {
-      const local = JSON.parse(localContent) as Record<string, unknown>;
+      const local = isLocalToml
+        ? (readBosConfigSource(actualDest) as Record<string, unknown>)
+        : (JSON.parse(localContent) as Record<string, unknown>);
       const template = JSON.parse(templateContent) as Record<string, unknown>;
       const merged = mergeBosConfigWithTemplate(local, template);
-      return `${JSON.stringify(merged, null, 2)}\n`;
+      return isLocalToml
+        ? `${stringifyBosConfig(merged as Record<string, unknown>)}\n`
+        : `${JSON.stringify(merged, null, 2)}\n`;
     }
   }
 
@@ -396,13 +406,12 @@ function hasPluginsWorkspace(projectDir: string): boolean {
 }
 
 export async function syncTemplate(projectDir: string, options: SyncOptions): Promise<SyncResult> {
-  // Sync reads the raw bos.config.json (not the resolved config) because it needs
+  // Sync reads the raw config (not the resolved config) because it needs
   // the user's explicit local settings: their extends ref, selected plugins, etc.
   // The resolved config is the merged result and would include inherited parent
   // values that the user didn't explicitly choose, which would break sync filtering.
-  const localConfig = JSON.parse(
-    readFileSync(join(projectDir, "bos.config.json"), "utf-8"),
-  ) as Record<string, unknown>;
+  const configPath = findBosConfigPath(projectDir) ?? join(projectDir, "bos.config.json");
+  const localConfig = readBosConfigSource(configPath) as Record<string, unknown>;
 
   let extendsRef: string | undefined;
   if (typeof localConfig.extends === "string") {

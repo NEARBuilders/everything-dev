@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import process from "node:process";
 import { Effect } from "effect";
 import { buildWorkspaceTargets, selectWorkspaceTargets } from "./build";
 import { generateCodeArtifacts } from "./code-artifacts";
 import { loadResolvedConfig } from "./config";
+import { findBosConfigPath, readBosConfigSource } from "./config-source";
 import type { WorkspaceDeployResult } from "./contract";
 import {
   buildRegistryConfigUrlForNetwork,
@@ -200,8 +199,18 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     bosConfig = refreshed.config;
   }
 
-  const rawConfigPath = join(configDir, "bos.config.json");
-  const rawConfig = JSON.parse(readFileSync(rawConfigPath, "utf-8")) as BosConfigInput;
+  const rawConfigPath = findBosConfigPath(configDir);
+  if (!rawConfigPath) {
+    return {
+      status: "error",
+      registryUrl,
+      built,
+      skipped,
+      deployResults,
+      error: "No bos.config.toml or bos.config.json found",
+    };
+  }
+  const rawConfig = readBosConfigSource(rawConfigPath);
   const publishPayload: BosConfigInput = isStaging ? { ...rawConfig, domain: gateway } : rawConfig;
 
   const registryEntries: Record<string, string> = {

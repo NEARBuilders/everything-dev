@@ -1,6 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fetchApiPluginManifest } from "./api-contract";
+import {
+  findBosConfigPath,
+  findBosConfigPathInDir,
+  readBosConfigSource,
+  readBosConfigWithResolvedFallback,
+} from "./config-source";
 import { manifestPluginsToNodes } from "./dag";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import { fetchJsonOrNull } from "./http-client";
@@ -81,17 +87,9 @@ export function findConfigPath(cwd?: string): string | null {
   const cached = configPathCache.get(cacheKey);
   if (cached !== undefined) return cached;
 
-  let dir = cacheKey;
-  while (dir !== "/") {
-    const configPath = join(dir, "bos.config.json");
-    if (existsSync(configPath)) {
-      configPathCache.set(cacheKey, configPath);
-      return configPath;
-    }
-    dir = dirname(dir);
-  }
-  configPathCache.set(cacheKey, null);
-  return null;
+  const configPath = findBosConfigPath(cacheKey);
+  configPathCache.set(cacheKey, configPath);
+  return configPath;
 }
 
 export function getConfig(): BosConfig | null {
@@ -473,26 +471,11 @@ export function writeResolvedConfig(
 export function resolveBosConfigPath(configDir: string): string {
   const resolvedPath = getResolvedConfigPath(configDir);
   if (existsSync(resolvedPath)) return resolvedPath;
-  return join(configDir, "bos.config.json");
+  return findBosConfigPath(configDir) ?? join(configDir, "bos.config.json");
 }
 
 export function readBosConfigForBuild(configDir: string): Record<string, unknown> {
-  const resolvedPath = getResolvedConfigPath(configDir);
-  if (existsSync(resolvedPath)) {
-    try {
-      const raw = JSON.parse(readFileSync(resolvedPath, "utf-8"));
-      if (isPlainObject(raw)) {
-        const { _resolved, ...configData } = raw;
-        return configData as Record<string, unknown>;
-      }
-    } catch (e) {
-      console.warn(
-        `[Config] Failed to parse _resolved.json, falling back to bos.config.json: ${e}`,
-      );
-    }
-  }
-  const bosConfigPath = join(configDir, "bos.config.json");
-  return JSON.parse(readFileSync(bosConfigPath, "utf-8")) as Record<string, unknown>;
+  return readBosConfigWithResolvedFallback(configDir);
 }
 
 function parseExtendsTarget(ref: string): ParsedExtendsTarget {
@@ -635,8 +618,8 @@ export async function resolveComposableReference(
 
   if (localDevelopmentPath) {
     const localPath = localDevelopmentPath;
-    const localConfigPath = join(localPath, "bos.config.json");
-    if (existsSync(localConfigPath)) {
+    const localConfigPath = findBosConfigPathInDir(localPath);
+    if (localConfigPath) {
       const localConfig = await resolveConfigWithExtends(
         localConfigPath,
         localPath,
@@ -912,7 +895,7 @@ async function loadConfigFile(configPath: string, baseDir: string): Promise<BosC
   }
 
   const resolvedPath = isAbsolute(configPath) ? configPath : resolve(baseDir, configPath);
-  return JSON.parse(readFileSync(resolvedPath, "utf-8")) as BosConfigInput;
+  return readBosConfigSource(resolvedPath);
 }
 
 async function resolveConfigWithExtends(
@@ -961,6 +944,7 @@ function normalizePluginEntry(raw: PluginOverrideValue): BosPluginRef | null | f
   if (typeof raw === "string") {
     return { extends: raw };
   }
+  if (raw.disabled === true) return null;
   return raw;
 }
 

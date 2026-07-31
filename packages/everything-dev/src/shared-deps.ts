@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { findBosConfigPath, readBosConfigSource } from "./config-source";
 import { type BosEnv, isPlainObject, type ResolvedConfigMeta, rebuildOrderedConfig } from "./merge";
 import { type SharedDepConfig, SharedDepMapSchema } from "./types";
 
@@ -200,12 +201,17 @@ export async function syncResolvedSharedDeps(opts: {
   env?: BosEnv;
   extendsChain?: string[];
 }): Promise<SharedDepsSyncResult> {
-  const bosConfigPath = join(opts.configDir, "bos.config.json");
   const resolvedConfigPath = join(opts.configDir, ".bos", "bos.resolved-config.json");
   const packageJsonPath = join(opts.configDir, "package.json");
   const generatedPath = join(opts.configDir, ".bos", "generated", "shared-deps.json");
 
-  const bosConfig: unknown = opts.bosConfig ?? JSON.parse(readFileSync(bosConfigPath, "utf-8"));
+  const bosConfig: unknown =
+    opts.bosConfig ??
+    (() => {
+      const configPath = findBosConfigPath(opts.configDir);
+      if (!configPath) throw new Error("No bos.config.toml or bos.config.json found");
+      return readBosConfigSource(configPath);
+    })();
   if (!isPlainObject(bosConfig)) {
     throw new Error("bos.config.json must be an object");
   }

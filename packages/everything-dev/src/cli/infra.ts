@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import * as p from "@clack/prompts";
 import { config as loadDotenv } from "dotenv";
+import { findBosConfigPath, readBosConfigSource } from "../config-source";
 import type { RuntimeConfig } from "../types";
 
 const POSTGRES_USER = "everythingdev";
@@ -175,7 +176,7 @@ export function buildOriginMap(
   configDir: string,
   runtimeConfig: RuntimeConfig,
 ): Map<string, string> {
-  const configPath = join(configDir, "bos.config.json");
+  const configPath = findBosConfigPath(configDir);
 
   const originMap = new Map<string, string>();
   const account = runtimeConfig.account;
@@ -188,8 +189,8 @@ export function buildOriginMap(
     return null;
   };
 
-  const rawConfig = existsSync(configPath)
-    ? (JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>)
+  const rawConfig = configPath
+    ? (readBosConfigSource(configPath) as Record<string, unknown>)
     : null;
   const rawPlugins = rawConfig?.plugins as Record<string, unknown> | undefined;
 

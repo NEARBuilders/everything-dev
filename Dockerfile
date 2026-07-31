@@ -30,7 +30,7 @@ COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
 COPY --from=builder --chown=appuser:appgroup /app/package.json .
 COPY --from=builder --chown=appuser:appgroup /app/bun.lock .
 COPY --from=builder --chown=appuser:appgroup /app/bunfig.toml .
-COPY --from=builder --chown=appuser:appgroup /app/bos.config.json ./
+COPY --from=builder --chown=appuser:appgroup /app/bos.config.* ./
 COPY --from=builder --chown=appuser:appgroup /app/packages/everything-dev ./packages/everything-dev
 COPY --from=builder --chown=appuser:appgroup /app/packages/every-plugin ./packages/every-plugin
 

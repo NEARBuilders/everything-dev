@@ -11,6 +11,7 @@ honor its STOP conditions, and update your row when done.
 | 003  | Require API_DATABASE_URL in production | P1 | S | — | DONE |
 | 006  | Add warnings to empty catch blocks | P1 | S | — | DONE |
 | 007  | Add CSRF protection to state-changing endpoints | P1 | M | — | DONE |
+| toml-infra-alchemy | TOML config + shared databases + Alchemy integration | P2 | L | — | PLANNED |
 
 ## Dependency notes
 

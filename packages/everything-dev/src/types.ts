@@ -84,6 +84,7 @@ export const BosPluginRefSchema = ComposableAppEntrySchema.extend({
   app: z.record(z.string(), z.unknown()).optional(),
   plugins: z.record(z.string(), z.unknown()).optional(),
   dependsOn: z.array(z.string()).optional(),
+  disabled: z.boolean().optional(),
 });
 export type BosPluginRef = z.infer<typeof BosPluginRefSchema>;
 export type PluginEntryValue = string | BosPluginRef;

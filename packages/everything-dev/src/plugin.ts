@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -54,6 +54,7 @@ import {
   resumeWarnings,
   suppressWarnings,
 } from "./config";
+import { findBosConfigPathInDir, readBosConfigSource } from "./config-source";
 import {
   type BosConfigResult,
   bosContract,
@@ -531,12 +532,10 @@ export default createPlugin({
       const version = manifest?.plugin.version ?? pkgJson.version;
 
       if (publishedUrl) {
-        const rootConfigPath = join(deps.configDir, "bos.config.json");
+        const rootConfigPath =
+          findBosConfigPathInDir(deps.configDir) ?? join(deps.configDir, "bos.config.json");
         try {
-          const rootConfig = JSON.parse(readFileSync(rootConfigPath, "utf-8")) as Record<
-            string,
-            unknown
-          >;
+          const rootConfig = readBosConfigSource(rootConfigPath) as Record<string, unknown>;
           if (!rootConfig.plugins || typeof rootConfig.plugins !== "object") {
             rootConfig.plugins = {};
           }
