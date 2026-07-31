@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import * as p from "@clack/prompts";
 import { config as loadDotenv } from "dotenv";
 import { findBosConfigPath, readBosConfigSource } from "../config-source";
-import type { RuntimeConfig } from "../types";
+import type { InfraConfig, InfraDatabase, RuntimeConfig } from "../types";
 
 const POSTGRES_USER = "everythingdev";
 const POSTGRES_PASSWORD = "everythingdev";
@@ -227,11 +227,96 @@ export function buildOriginMap(
   return originMap;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSingleDatabaseConfig(value: InfraConfig["database"]): value is InfraDatabase {
+  return isPlainObject(value) && ("type" in value || "schemaMode" in value);
+}
+
+function resolveDatabasePort(
+  secret: string,
+  slug: string,
+  portMap: Record<string, number>,
+): number {
+  if (portMap[slug] !== undefined) return portMap[slug];
+  if (secret === API_DATABASE_SECRET) {
+    portMap[slug] = 5432;
+  } else if (secret === AUTH_DATABASE_SECRET) {
+    portMap[slug] = 5433;
+  } else {
+    resolvePort(slug, portMap, BASE_POSTGRES_PORT);
+  }
+  return portMap[slug];
+}
+
+function buildDatabaseConfigFromSecret(
+  secret: string,
+  originMap: Map<string, string>,
+  portMap: Record<string, number>,
+): DatabaseSecretConfig {
+  const slug = normalizeDatabaseSlug(secret);
+  const fromKey = originMap.get(secret) ?? "";
+  const port = resolveDatabasePort(secret, slug, portMap);
+
+  const volumeName = fromKey
+    ? `${fromKey.replace(/\./g, "_")}_postgres_${slug}_data`
+    : `postgres_${slug}_data`;
+  const containerName = fromKey ? `${fromKey}-postgres-${slug}` : `postgres-${slug}`;
+
+  return {
+    secret,
+    slug,
+    fromKey,
+    port,
+    serviceName: `postgres-${slug.replace(/_/g, "-")}`,
+    containerName,
+    databaseName: `${slug}_db`,
+    volumeName,
+    url: `postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${port}/${slug}_db`,
+  };
+}
+
 export function buildDatabaseConfigs(
   secrets: string[],
   originMap: Map<string, string>,
   portMap: Record<string, number>,
+  infraConfig?: InfraConfig,
 ): DatabaseSecretConfig[] {
+  // When infra.database is explicitly declared
+  if (infraConfig?.database) {
+    if (isSingleDatabaseConfig(infraConfig.database)) {
+      // Single shared database config
+      portMap.shared = portMap.shared ?? 5432;
+      return [
+        {
+          secret: "DATABASE_URL",
+          slug: "shared",
+          fromKey: "",
+          port: portMap.shared,
+          serviceName: "postgres-shared",
+          containerName: "everythingdev-postgres-shared",
+          databaseName: "shared_db",
+          volumeName: "everythingdev_postgres_shared_data",
+          url: `postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${portMap.shared}/shared_db`,
+        },
+      ];
+    }
+
+    // Per-plugin database record config
+    const databaseRecord = infraConfig.database as Record<string, InfraDatabase>;
+    const results: DatabaseSecretConfig[] = [];
+    for (const [pluginId, _dbConfig] of Object.entries(databaseRecord)) {
+      const expectedSecret = `${pluginId.toUpperCase()}_DATABASE_URL`;
+      const matchingSecret = secrets.find((s) => s.toUpperCase() === expectedSecret);
+      if (matchingSecret) {
+        results.push(buildDatabaseConfigFromSecret(matchingSecret, originMap, portMap));
+      }
+    }
+    return results;
+  }
+
   const databaseSecrets = uniqueSecrets(
     secrets.filter((secret) => secret.endsWith("_DATABASE_URL")),
   );

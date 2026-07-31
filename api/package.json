@@ -26,6 +26,7 @@
     "effect": "catalog:",
     "every-plugin": "catalog:",
     "pg": "catalog:",
+    "@neondatabase/serverless": "^1.0.0",
     "@electric-sql/pglite": "catalog:",
     "zod": "catalog:"
   },

@@ -594,7 +594,7 @@ export async function migrateBosConfigFiles(projectDir: string): Promise<string[
     const rootConfig = readBosConfigSource(rootConfigPath) as Record<string, unknown>;
     let rootChanged = migrateRootConfigTargets(rootConfig);
 
-    const pluginConfigPaths = await glob("plugins/*/bos.config.json", {
+    const pluginConfigPaths = await glob("plugins/*/bos.config.{json,toml}", {
       cwd: projectDir,
       nodir: true,
       dot: false,
@@ -602,7 +602,7 @@ export async function migrateBosConfigFiles(projectDir: string): Promise<string[
     });
 
     for (const relativePath of pluginConfigPaths) {
-      const match = relativePath.match(/^plugins\/([^/]+)\/bos\.config\.json$/);
+      const match = relativePath.match(/^plugins\/([^/]+)\/bos\.config\.(json|toml)$/);
       const pluginKey = match?.[1];
       if (!pluginKey) continue;
 
@@ -1167,7 +1167,7 @@ async function runMigrationPhase(
   await timePhase(timings, "sync shared deps", async () => {
     const configResult = await loadResolvedConfig({ cwd: projectDir });
     if (!configResult) {
-      throw new Error("No bos.config.json found in current directory");
+      throw new Error("No bos.config file found in current directory");
     }
 
     return syncResolvedSharedDeps({

@@ -344,7 +344,7 @@ export default createPlugin({
         return {
           status: "error" as const,
           key: "",
-          error: "No bos.config.json found",
+          error: "No bos.config file found",
         };
       }
 
@@ -402,7 +402,7 @@ export default createPlugin({
         return {
           status: "error" as const,
           key: input.key,
-          error: "No bos.config.json found",
+          error: "No bos.config file found",
         };
       }
 
@@ -443,7 +443,7 @@ export default createPlugin({
         return {
           status: "error" as const,
           key: input.key,
-          error: "No bos.config.json found",
+          error: "No bos.config file found",
         };
       }
 
@@ -551,12 +551,9 @@ export default createPlugin({
             delete entry.integrity;
           }
           writeFileSync(rootConfigPath, `${JSON.stringify(rootConfig, null, 2)}\n`);
-          console.log(`   ✅ Updated bos.config.json: plugins.${input.key}.production`);
+          console.log(`   ✅ Updated config: plugins.${input.key}.production`);
         } catch (err) {
-          console.error(
-            `   ❌ Failed to update bos.config.json:`,
-            err instanceof Error ? err.message : err,
-          );
+          console.error(`   ❌ Failed to update config:`, err instanceof Error ? err.message : err);
         }
 
         await generateCodeArtifacts(deps.configDir, deps.bosConfig);
@@ -641,7 +638,7 @@ export default createPlugin({
       if (!deps.bosConfig) {
         return {
           status: "error" as const,
-          description: "No bos.config.json found",
+          description: "No bos.config file found",
           processes: [],
           timings: devTimings,
         };
@@ -650,7 +647,7 @@ export default createPlugin({
       if (proxy && !resolveProxyUrl(deps.bosConfig)) {
         return {
           status: "error" as const,
-          description: "No valid proxy URL configured in bos.config.json",
+          description: "No valid proxy URL configured in bos.config",
           processes: [],
           timings: devTimings,
         };
@@ -806,7 +803,7 @@ export default createPlugin({
           status: "error" as const,
           url: "",
           error:
-            "No configuration found. Provide --account and --gateway flags, or create a local bos.config.json.",
+            "No configuration found. Provide --account and --gateway flags, or create a local bos.config.",
         };
       }
 
@@ -1041,7 +1038,7 @@ export default createPlugin({
         return {
           status: "error" as const,
           registryUrl: "",
-          error: "No bos.config.json found",
+          error: "No bos.config file found",
         };
       }
 
@@ -1083,7 +1080,7 @@ export default createPlugin({
           status: "error" as const,
           registryUrl: "",
           redeployed: false,
-          error: "No bos.config.json found",
+          error: "No bos.config file found",
         };
       }
 
@@ -1135,12 +1132,13 @@ export default createPlugin({
       let service: string | undefined;
 
       if (process.env.RAILWAY_TOKEN) {
-        const railwayService = input.service ?? deps.bosConfig.ci?.railway?.service;
+        const railwayService =
+          input.service ?? deps.bosConfig.deploy?.service ?? deps.bosConfig.ci?.railway?.service;
         if (!railwayService) {
           console.log();
           console.log(
             colors.yellow(
-              "  Railway redeploy skipped: ci.railway.service is not configured in bos.config.json",
+              "  Railway redeploy skipped: no service configured — set [deploy].service in bos.config.toml",
             ),
           );
           return {
@@ -1152,7 +1150,7 @@ export default createPlugin({
             redeployed: false,
             deployResults: result.deployResults,
             error:
-              "Config published but Railway redeploy failed: ci.railway.service is not configured in bos.config.json",
+              "Config published but Railway redeploy failed: no service configured — set [deploy].service in bos.config.toml",
           };
         }
 
@@ -1219,7 +1217,7 @@ export default createPlugin({
           contract: "",
           allowance: input.allowance,
           functionNames: PUBLISH_FUNCTION_NAMES,
-          error: "No bos.config.json found",
+          error: "No bos.config file found",
         };
       }
 
@@ -1563,7 +1561,7 @@ export default createPlugin({
             updated: [],
             skipped: [],
             added: [],
-            error: "No bos.config.json found in current directory",
+            error: "No bos.config file found in current directory",
           };
         }
 
@@ -1596,7 +1594,7 @@ export default createPlugin({
           return {
             status: "error" as const,
             packages: [],
-            error: "No bos.config.json found in current directory",
+            error: "No bos.config file found in current directory",
           };
         }
 
@@ -1621,7 +1619,7 @@ export default createPlugin({
             fetched: [],
             skipped: [],
             failed: [],
-            error: "No bos.config.json found in current directory",
+            error: "No bos.config file found in current directory",
           };
         }
 
@@ -1641,7 +1639,7 @@ export default createPlugin({
             fetched: [],
             skipped: [],
             failed: [],
-            error: "Failed to load bos.config.json",
+            error: "Failed to load bos.config",
           };
         }
 
@@ -1782,7 +1780,7 @@ export default createPlugin({
             plugin: input.plugin,
             source: "remote" as const,
             section: "",
-            error: "No bos.config.json found in current directory",
+            error: "No bos.config file found in current directory",
           };
         }
 
@@ -1795,7 +1793,7 @@ export default createPlugin({
             plugin: input.plugin,
             source: "remote" as const,
             section: "",
-            error: "Failed to load bos.config.json",
+            error: "Failed to load bos.config",
           };
         }
 
@@ -1837,7 +1835,7 @@ export default createPlugin({
             appliedHashCount: 0,
             expectedTables: [],
             missingTables: [],
-            error: "No bos.config.json",
+            error: "No bos.config file",
           };
         }
 
@@ -1893,7 +1891,7 @@ export default createPlugin({
         if (!configPath) {
           return {
             status: "error" as const,
-            message: "No bos.config.json found",
+            message: "No bos.config file found",
             diagnosis: null,
             error: "No config",
           };
@@ -1939,7 +1937,7 @@ export default createPlugin({
             status: "error" as const,
             packages: [],
             envFile: "missing" as const,
-            error: "No bos.config.json found in current directory",
+            error: "No bos.config file found in current directory",
           };
         }
 

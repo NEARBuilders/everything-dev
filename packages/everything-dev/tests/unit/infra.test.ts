@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildDatabaseConfigs,
   ensureEnvFile,
   loadPortState,
   loadProjectEnv,
@@ -517,5 +518,41 @@ describe("generated infra", () => {
     const loaded = loadPortState(dir);
     expect(loaded.devPorts).toBeUndefined();
     expect(loaded.postgresPorts.api).toBe(5432);
+  });
+});
+
+describe("buildDatabaseConfigs with infraConfig", () => {
+  it("returns shared DATABASE_URL when infraConfig.database present", () => {
+    const configs = buildDatabaseConfigs(
+      ["API_DATABASE_URL", "AUTH_DATABASE_URL"],
+      new Map(),
+      {},
+      { database: { type: "postgres", schemaMode: "per-plugin" } },
+    );
+    expect(configs).toHaveLength(1);
+    expect(configs[0].secret).toBe("DATABASE_URL");
+    expect(configs[0].slug).toBe("shared");
+    expect(configs[0].port).toBe(5432);
+    expect(configs[0].url).toContain("shared_db");
+  });
+
+  it("falls back to convention scanning when infraConfig.database is absent", () => {
+    const originMap = new Map<string, string>();
+    originMap.set("API_DATABASE_URL", "everything.near");
+    originMap.set("AUTH_DATABASE_URL", "everything.near");
+    const configs = buildDatabaseConfigs(["API_DATABASE_URL", "AUTH_DATABASE_URL"], originMap, {});
+    expect(configs.length).toBeGreaterThan(1);
+    expect(configs.map((c) => c.secret)).toContain("API_DATABASE_URL");
+    expect(configs.map((c) => c.secret)).toContain("AUTH_DATABASE_URL");
+  });
+
+  it("uses existing port when infraConfig.database present", () => {
+    const configs = buildDatabaseConfigs(
+      ["API_DATABASE_URL"],
+      new Map(),
+      { shared: 5433 },
+      { database: { type: "postgres", schemaMode: "per-plugin" } },
+    );
+    expect(configs[0].port).toBe(5433);
   });
 });

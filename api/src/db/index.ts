@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { Data } from "every-plugin/effect";
+import type { PoolConfig } from "pg";
 import * as schema from "./schema";
 
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
@@ -9,6 +10,16 @@ export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 export interface DatabaseDriver {
   readonly db: Database;
   close(): Promise<void>;
+}
+
+interface PoolLike {
+  on(event: "error", listener: (err: Error) => void): this;
+  on(
+    event: "connect",
+    listener: (client: { query: (sql: string) => Promise<unknown> }) => void,
+  ): this;
+  removeAllListeners(event?: string | symbol): this;
+  end(): Promise<void>;
 }
 
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{
@@ -37,6 +48,42 @@ export function unwrapDatabaseError(error: unknown): string {
   return parts.join(": ");
 }
 
+function buildPoolConfig(url: string): PoolConfig {
+  const isLocal = url.includes("localhost") || url.includes("127.0.0.1");
+  return {
+    connectionString: url,
+    ssl: isLocal
+      ? false
+      : { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === "true" },
+    max: Number(process.env.DB_POOL_MAX) || 10,
+    connectionTimeoutMillis: Number(process.env.DB_CONNECTION_TIMEOUT_MS) || 30_000,
+    idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS) || 30_000,
+  };
+}
+
+function attachPoolSchemaHandlers(pool: PoolLike, schemaName: string | undefined): void {
+  pool.on("error", (err: Error) => {
+    console.error("[Database] Unexpected pool error:", err.message);
+  });
+  if (schemaName) {
+    pool.on("connect", async (client) => {
+      await client.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
+      await client.query(`SET search_path TO "${schemaName}", public`);
+    });
+  }
+}
+
+function createCloseHandler(pool: PoolLike): () => Promise<void> {
+  let closed = false;
+  return async () => {
+    if (closed) return;
+    closed = true;
+    pool.removeAllListeners("error");
+    pool.removeAllListeners("connect");
+    await pool.end();
+  };
+}
+
 export async function createDatabaseDriver(
   url: string,
   schemaName?: string,
@@ -63,36 +110,28 @@ export async function createDatabaseDriver(
     };
   }
 
+  // Neon WebSocket Pool (pooled connection, works with PgBouncer)
+  if (url.includes("neon.tech")) {
+    try {
+      const { Pool } = await import("@neondatabase/serverless");
+      const { drizzle } = await import("drizzle-orm/neon-serverless");
+      const pool = new Pool(buildPoolConfig(url));
+      attachPoolSchemaHandlers(pool, schemaName);
+      return {
+        db: drizzle(pool, { schema }),
+        close: createCloseHandler(pool),
+      };
+    } catch {
+      // @neondatabase/serverless not installed, fall through to pg
+    }
+  }
+
   const { Pool } = await import("pg");
   const { drizzle } = await import("drizzle-orm/node-postgres");
-  const isLocal = url.includes("localhost") || url.includes("127.0.0.1");
-  const pool = new Pool({
-    connectionString: url,
-    ssl: isLocal
-      ? false
-      : { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === "true" },
-    max: Number(process.env.DB_POOL_MAX) || 10,
-    connectionTimeoutMillis: Number(process.env.DB_CONNECTION_TIMEOUT_MS) || 30_000,
-    idleTimeoutMillis: Number(process.env.DB_IDLE_TIMEOUT_MS) || 30_000,
-  });
-  pool.on("error", (err: Error) => {
-    console.error("[Database] Unexpected pool error:", err.message);
-  });
-  if (schemaName) {
-    pool.on("connect", (client) => {
-      client.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
-      client.query(`SET search_path TO "${schemaName}", public`);
-    });
-  }
-  let closed = false;
+  const pool = new Pool(buildPoolConfig(url));
+  attachPoolSchemaHandlers(pool, schemaName);
   return {
     db: drizzle(pool, { schema }),
-    close: async () => {
-      if (closed) return;
-      closed = true;
-      pool.removeAllListeners("error");
-      pool.removeAllListeners("connect");
-      await pool.end();
-    },
+    close: createCloseHandler(pool),
   };
 }

@@ -1,6 +1,6 @@
 import { Data } from "effect";
 import type { AppOrchestrator } from "../service-descriptor";
-import type { RuntimeConfig } from "../types";
+import type { InfraConfig, RuntimeConfig } from "../types";
 
 export interface CliPorts {
   host?: number;
@@ -104,6 +104,7 @@ export class InfraError extends Data.TaggedError("InfraError")<{
 export interface InfraInput {
   configDir: string;
   bosConfig: RuntimeConfig;
+  infraConfig?: InfraConfig;
   cli: {
     port?: number;
     apiPort?: number;

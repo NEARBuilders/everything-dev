@@ -561,7 +561,7 @@ async function main() {
 
     if (descriptor.key === "config") {
       if (!result.config) {
-        console.error("No bos.config.json found");
+        console.error("No bos.config file found");
         process.exit(1);
       }
 

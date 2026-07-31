@@ -426,7 +426,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       skipped: [],
       added: [],
       conflicted: [],
-      error: "No extends field found in bos.config.json — cannot determine parent",
+      error: "No extends field found in bos.config — cannot determine parent",
     };
   }
 

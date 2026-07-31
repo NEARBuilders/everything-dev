@@ -213,7 +213,7 @@ export async function syncResolvedSharedDeps(opts: {
       return readBosConfigSource(configPath);
     })();
   if (!isPlainObject(bosConfig)) {
-    throw new Error("bos.config.json must be an object");
+    throw new Error("bos.config must be an object");
   }
 
   const pkgJson = existsSync(packageJsonPath)

@@ -11,6 +11,8 @@ export const BOS_CONFIG_ORDER = [
   "staging",
   "repository",
   "ci",
+  "infra",
+  "deploy",
   "app",
   "plugins",
 ] as const;
@@ -136,6 +138,19 @@ export function mergeBosConfigWithExtends(
         }
       }
     }
+  }
+
+  // Backward compat: map ci.railway → deploy if deploy section is absent
+  if (
+    !mergedRecord.deploy &&
+    isPlainObject(mergedRecord.ci) &&
+    isPlainObject((mergedRecord.ci as Record<string, unknown>).railway)
+  ) {
+    const railway = (mergedRecord.ci as Record<string, unknown>).railway as Record<string, unknown>;
+    mergedRecord.deploy = {
+      provider: "railway",
+      ...(railway.service ? { service: railway.service } : {}),
+    };
   }
 
   return rebuildOrderedConfig(mergedRecord) as BosConfigInput;

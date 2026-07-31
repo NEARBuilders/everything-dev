@@ -238,7 +238,7 @@ export async function loadBosConfig(options?: {
 }): Promise<RuntimeConfig> {
   const result = await loadResolvedConfig(options);
   if (!result) {
-    throw new Error("No bos.config.json found");
+    throw new Error("No bos.config file found");
   }
 
   return result.runtime;
@@ -984,7 +984,7 @@ async function resolveRuntimePlugins(
       if (!pluginRuntime.localPath && !pluginRuntime.url) {
         if (forceSource === "remote") {
           emitConfigWarning(
-            `[Config] Plugin "${pluginId}" has no production URL in bos.config.json and cannot be resolved as remote. Add a "production" field or remove it from --remote-plugins.`,
+            `[Config] Plugin "${pluginId}" has no production URL in bos.config and cannot be resolved as remote. Add a "production" field or remove it from --remote-plugins.`,
           );
         }
         return null;
