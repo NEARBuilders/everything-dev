@@ -9,8 +9,8 @@ export async function saveBosConfig(
   config: BosConfig | Record<string, unknown>,
 ): Promise<void> {
   const existingPath = findBosConfigPath(configDir);
-  const isToml = existingPath?.endsWith(".toml") ?? false;
-  const filePath = existingPath ?? join(configDir, "bos.config.json");
+  const isToml = existingPath?.endsWith(".toml") ?? true;
+  const filePath = existingPath ?? join(configDir, "bos.config.toml");
 
   const ordered = rebuildOrderedConfig(config as Record<string, unknown>);
   const next = isToml
