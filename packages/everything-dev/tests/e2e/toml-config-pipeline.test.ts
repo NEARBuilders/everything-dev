@@ -35,7 +35,6 @@ describe("TOML config e2e pipeline", () => {
         ``,
         `[infra.database]`,
         `type = "postgres"`,
-        `schemaMode = "per-plugin"`,
         ``,
         `[deploy]`,
         `provider = "railway"`,
@@ -73,7 +72,6 @@ describe("TOML config e2e pipeline", () => {
     if (infra.database && !Array.isArray(infra.database) && typeof infra.database === "object") {
       const db = infra.database as Record<string, unknown>;
       expect(db.type).toBe("postgres");
-      expect(db.schemaMode).toBe("per-plugin");
     }
 
     const appUi = config.app?.ui as Record<string, unknown> | undefined;
@@ -92,7 +90,7 @@ describe("TOML config e2e pipeline", () => {
   it("merges infra + deploy through extends chain", () => {
     const parent = {
       account: "parent.near",
-      infra: { database: { type: "postgres" as const, schemaMode: "per-plugin" as const } },
+      infra: { database: { type: "postgres" as const } },
     };
     const child = {
       account: "child.near",
@@ -122,7 +120,7 @@ describe("TOML config e2e pipeline", () => {
       ["API_DATABASE_URL", "AUTH_DATABASE_URL"],
       new Map(),
       {},
-      { database: { type: "postgres", schemaMode: "per-plugin" } },
+      { database: { type: "postgres" } },
     );
     expect(configs).toHaveLength(1);
     expect(configs[0].secret).toBe("DATABASE_URL");
@@ -131,7 +129,7 @@ describe("TOML config e2e pipeline", () => {
   it("generateAlchemyRun produces valid output", () => {
     generateAlchemyRun(
       { provider: "railway", service: "test-api", redeploy: true },
-      { database: { type: "postgres", schemaMode: "per-plugin" } },
+      { database: { type: "postgres" } },
       tmpDir,
     );
 
@@ -162,7 +160,6 @@ describe("TOML config e2e pipeline", () => {
       [
         `[infra.database]`,
         `type = "postgres"`,
-        `schemaMode = "per-plugin"`,
         ``,
         `[infra.redis]`,
         `enabled = true`,
@@ -176,7 +173,6 @@ describe("TOML config e2e pipeline", () => {
     expect(config.infra?.database).toBeDefined();
     const db = config.infra!.database as Record<string, unknown>;
     expect(db.type).toBe("postgres");
-    expect(db.schemaMode).toBe("per-plugin");
     expect(config.infra?.redis?.enabled).toBe(true);
     expect(config.deploy?.provider).toBe("railway");
     expect(config.deploy?.service).toBe("my-app");

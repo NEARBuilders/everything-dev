@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import * as p from "@clack/prompts";
 import { config as loadDotenv } from "dotenv";
 import { findBosConfigPath, readBosConfigSource } from "../config-source";
+import { isPlainObject } from "../merge";
 import type { InfraConfig, InfraDatabase, RuntimeConfig } from "../types";
 
 const POSTGRES_USER = "everythingdev";
@@ -227,12 +228,8 @@ export function buildOriginMap(
   return originMap;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function isSingleDatabaseConfig(value: InfraConfig["database"]): value is InfraDatabase {
-  return isPlainObject(value) && ("type" in value || "schemaMode" in value);
+  return isPlainObject(value) && "type" in value;
 }
 
 function resolveDatabasePort(
@@ -305,11 +302,15 @@ export function buildDatabaseConfigs(
     }
 
     // Per-plugin database record config
+    // NOTE: per-plugin InfraDatabase.dedicated is aspirational (separate containers
+    // per plugin) — currently all plugins share one Docker compose postgres instance
+    // via search_path isolation. The .secret field overrides the conventional
+    // {PLUGIN}_DATABASE_URL naming when present.
     const databaseRecord = infraConfig.database as Record<string, InfraDatabase>;
     const results: DatabaseSecretConfig[] = [];
-    for (const [pluginId, _dbConfig] of Object.entries(databaseRecord)) {
-      const expectedSecret = `${pluginId.toUpperCase()}_DATABASE_URL`;
-      const matchingSecret = secrets.find((s) => s.toUpperCase() === expectedSecret);
+    for (const [pluginId, pluginDb] of Object.entries(databaseRecord)) {
+      const expectedSecret = pluginDb.secret ?? `${pluginId.toUpperCase()}_DATABASE_URL`;
+      const matchingSecret = secrets.find((s) => s.toUpperCase() === expectedSecret.toUpperCase());
       if (matchingSecret) {
         results.push(buildDatabaseConfigFromSecret(matchingSecret, originMap, portMap));
       }

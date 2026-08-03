@@ -266,7 +266,6 @@ export type CiConfig = z.infer<typeof CiConfigSchema>;
 
 export const InfraDatabaseSchema = z.object({
   type: z.enum(["postgres"]).default("postgres"),
-  schemaMode: z.enum(["per-plugin", "shared", "per-tenant"]).default("per-plugin"),
   dedicated: z.boolean().optional(),
   secret: z.string().optional(),
 });

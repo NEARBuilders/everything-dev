@@ -527,7 +527,7 @@ describe("buildDatabaseConfigs with infraConfig", () => {
       ["API_DATABASE_URL", "AUTH_DATABASE_URL"],
       new Map(),
       {},
-      { database: { type: "postgres", schemaMode: "per-plugin" } },
+      { database: { type: "postgres" } },
     );
     expect(configs).toHaveLength(1);
     expect(configs[0].secret).toBe("DATABASE_URL");
@@ -551,8 +551,96 @@ describe("buildDatabaseConfigs with infraConfig", () => {
       ["API_DATABASE_URL"],
       new Map(),
       { shared: 5433 },
-      { database: { type: "postgres", schemaMode: "per-plugin" } },
+      { database: { type: "postgres" } },
     );
     expect(configs[0].port).toBe(5433);
+  });
+
+  it("returns per-plugin configs from record variant", () => {
+    const originMap = new Map<string, string>();
+    originMap.set("AUTH_DATABASE_URL", "test.near");
+    originMap.set("API_DATABASE_URL", "test.near");
+    const configs = buildDatabaseConfigs(
+      ["API_DATABASE_URL", "EXAMPLE_DATABASE_URL", "AUTH_DATABASE_URL"],
+      originMap,
+      {},
+      {
+        database: {
+          auth: { type: "postgres" },
+          api: { type: "postgres" },
+        },
+      },
+    );
+    expect(configs).toHaveLength(2);
+    const secrets = configs.map((c) => c.secret).sort();
+    expect(secrets).toEqual(["API_DATABASE_URL", "AUTH_DATABASE_URL"]);
+  });
+
+  it("skips per-plugin entries without matching secrets", () => {
+    const configs = buildDatabaseConfigs(
+      ["API_DATABASE_URL"],
+      new Map(),
+      {},
+      {
+        database: {
+          auth: { type: "postgres" },
+          nonexistent: { type: "postgres" },
+        },
+      },
+    );
+    expect(configs).toHaveLength(0);
+  });
+
+  it("assigns 5432 and 5433 for API and AUTH ports in per-plugin record", () => {
+    const originMap = new Map<string, string>();
+    originMap.set("API_DATABASE_URL", "test.near");
+    originMap.set("AUTH_DATABASE_URL", "test.near");
+    const configs = buildDatabaseConfigs(
+      ["API_DATABASE_URL", "AUTH_DATABASE_URL"],
+      originMap,
+      {},
+      {
+        database: {
+          api: { type: "postgres" },
+          auth: { type: "postgres" },
+        },
+      },
+    );
+    const apiConfig = configs.find((c) => c.secret === "API_DATABASE_URL");
+    const authConfig = configs.find((c) => c.secret === "AUTH_DATABASE_URL");
+    expect(apiConfig?.port).toBe(5432);
+    expect(authConfig?.port).toBe(5433);
+  });
+
+  it("uses custom secret name from per-plugin InfraDatabase.secret", () => {
+    const originMap = new Map<string, string>();
+    originMap.set("CUSTOM_DB_URL", "test.near");
+    const configs = buildDatabaseConfigs(
+      ["CUSTOM_DB_URL", "AUTH_DATABASE_URL"],
+      originMap,
+      {},
+      {
+        database: {
+          auth: { type: "postgres", secret: "CUSTOM_DB_URL" },
+        },
+      },
+    );
+    expect(configs).toHaveLength(1);
+    expect(configs[0].secret).toBe("CUSTOM_DB_URL");
+  });
+
+  it("falls back to conventional secret when InfraDatabase.secret is absent", () => {
+    const configs = buildDatabaseConfigs(
+      ["AUTH_DATABASE_URL"],
+      new Map(),
+      {},
+      {
+        database: {
+          auth: { type: "postgres" },
+        },
+      },
+    );
+    expect(configs).toHaveLength(1);
+    expect(configs[0].secret).toBe("AUTH_DATABASE_URL");
   });
 });

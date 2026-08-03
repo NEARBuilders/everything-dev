@@ -53,9 +53,7 @@ function generateScript(spec: AlchemyRunSpec, infraConfig: InfraConfig | undefin
 
   if (infraConfig?.database) {
     lines.push("");
-    lines.push(
-      `// Database: schemaMode = ${typeof infraConfig.database === "object" && "schemaMode" in infraConfig.database ? (infraConfig.database as Record<string, unknown>).schemaMode : "per-plugin"}`,
-    );
+    lines.push("// Database isolation handled via search_path at the driver layer");
   }
 
   if (spec.provider === "railway") {
