@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildInitPatterns, copyFilteredFiles, personalizeConfig } from "../../src/cli/init";
+import { findBosConfigPathInDir, readBosConfigSource } from "../../src/config-source";
 import { loadManifestNormalizationSpec } from "../../src/internal/manifest-normalizer";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
@@ -213,5 +214,33 @@ describe("personalizeConfig with real root config", () => {
       development: "local:plugins/auth",
       production: "https://auth.child.dev",
     });
+  });
+
+  it("mode=init writes bos.config.toml and cleans up stale json from template copy", async () => {
+    const testDir = mkdtempSync(join(tmpdir(), "bos-init-toml-"));
+    tempDirs.push(testDir);
+    const repoConfig = readFileSync(join(REPO_ROOT, "bos.config.json"), "utf-8");
+
+    writeFileSync(join(testDir, "bos.config.json"), repoConfig);
+
+    await personalizeConfig(testDir, {
+      mode: "init",
+      extendsAccount: "dev.everything.near",
+      extendsGateway: "everything.dev",
+      account: "test.near",
+      domain: "test.dev",
+      overrides: ["ui", "api"],
+      workspaceOpts: { sourceDir: REPO_ROOT },
+    });
+
+    const configPath = findBosConfigPathInDir(testDir);
+    expect(configPath).toBe(join(testDir, "bos.config.toml"));
+    expect(configPath).not.toBeNull();
+    expect(existsSync(join(testDir, "bos.config.json"))).toBe(false);
+
+    const config = readBosConfigSource(configPath!);
+    expect(config.account).toBe("test.near");
+    expect(config.domain).toBe("test.dev");
+    expect(config.extends).toBe("bos://dev.everything.near/everything.dev");
   });
 });

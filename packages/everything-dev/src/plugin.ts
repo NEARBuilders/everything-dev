@@ -1448,6 +1448,7 @@ export default createPlugin({
 
             await timePhase(timings, "personalize config", () =>
               personalizeConfig(targetDir, {
+                mode: "init",
                 extendsAccount,
                 extendsGateway,
                 account: account || extendsAccount,
