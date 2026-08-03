@@ -744,7 +744,11 @@ export async function personalizeConfig(
       }
     }
 
-    await saveBosConfig(destination, config);
+    await saveBosConfig(destination, config, opts.mode === "init" ? "toml" : undefined);
+
+    if (opts.mode === "init" && configPath?.endsWith(".json")) {
+      rmSync(configPath, { force: true });
+    }
   }
 
   for (const relPath of ["ui/src/lib/api-types.gen.ts", "api/src/lib/plugins-types.gen.ts"]) {
@@ -1229,7 +1233,7 @@ export async function scaffoldMinimalProject(
     config.plugins = {};
   }
 
-  await saveBosConfig(destination, config);
+  await saveBosConfig(destination, config, "toml");
 
   const workspacePackages: string[] = [];
   for (const section of opts.overrides) {
