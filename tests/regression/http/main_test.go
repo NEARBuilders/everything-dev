@@ -22,6 +22,8 @@ func TestMain(m *testing.M) {
 	log.Printf("Base URL: %s", baseURL)
 	regtest.WaitForReady(nil, baseURL)
 
+	regtest.TruncateThings()
+
 	log.Println("Server ready, running tests...")
 	code := m.Run()
 	log.Println("Tests complete, stopping server...")

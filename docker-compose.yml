@@ -1,0 +1,50 @@
+name: dev.everything.near
+
+x-pg-common: &pg-common
+  image: postgres:17-alpine
+  environment: &pg-env
+    POSTGRES_USER: everythingdev
+    POSTGRES_PASSWORD: everythingdev
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U everythingdev"]
+    interval: 3s
+    timeout: 3s
+    retries: 5
+
+services:
+  postgres-api:
+    <<: *pg-common
+    container_name: dev.everything.near-postgres-api
+    environment:
+      <<: *pg-env
+      POSTGRES_DB: api_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - dev_everything_near_postgres_api_data:/var/lib/postgresql/data
+
+  postgres-auth:
+    <<: *pg-common
+    container_name: auth.everything.near-postgres-auth
+    environment:
+      <<: *pg-env
+      POSTGRES_DB: auth_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - auth_everything_near_postgres_auth_data:/var/lib/postgresql/data
+
+  postgres-template:
+    <<: *pg-common
+    container_name: dev.everything.near-postgres-template
+    environment:
+      <<: *pg-env
+      POSTGRES_DB: template_db
+    ports:
+      - "5434:5432"
+
+volumes:
+  dev_everything_near_postgres_api_data:
+    name: dev_everything_near_postgres_api_data
+  auth_everything_near_postgres_auth_data:
+    name: auth_everything_near_postgres_auth_data
