@@ -255,15 +255,11 @@ export default createPlugin.withPlugins<PluginsClient>()({
         .handler(async ({ input }) =>
           templateClient.createThing({ thingId: input.thingId, payload: input.payload })),
 
-      getThing: builder.getThing
-        .use(requireAuth)
-        .handler(async ({ input }) =>
-          templateClient.getThing({ thingId: input.thingId })),
+      getThing: builder.getThing.handler(async ({ input }) =>
+        templateClient.getThing({ thingId: input.thingId })),
 
-      listThings: builder.listThings
-        .use(requireAuth)
-        .handler(async ({ input }) =>
-          templateClient.listThings(input)),
+      listThings: builder.listThings.handler(async ({ input }) =>
+        templateClient.listThings(input)),
 
       deleteThing: builder.deleteThing
         .use(requireAuth)

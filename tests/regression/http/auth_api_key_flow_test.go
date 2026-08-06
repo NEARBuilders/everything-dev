@@ -13,8 +13,8 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 	// Step 1: Unauthenticated create should fail
 	t.Run("unauthenticated_create_fails", func(t *testing.T) {
 		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/things", map[string]any{
-			"pluginId": "template",
-			"payload":  map[string]string{"kind": "regression"},
+			"thingId": "regression-unauth",
+			"payload": map[string]string{"kind": "regression"},
 		}, nil)
 		regtest.MustStatus(t, status, 401, body)
 	})
@@ -81,7 +81,7 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 	var createdThingID string
 	t.Run("create_thing_with_session", func(t *testing.T) {
 		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/things", map[string]any{
-			"pluginId": "template",
+			"thingId": "regression-session",
 			"payload": map[string]string{
 				"kind":   "regression",
 				"source": "session",
@@ -91,12 +91,8 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 
 		var result struct {
 			ThingID  string `json:"thingId"`
-			PluginID string `json:"pluginId"`
 			Type     string `json:"type"`
-			Payload  struct {
-				Kind   string `json:"kind"`
-				Source string `json:"source"`
-			} `json:"payload"`
+			Action   string `json:"action"`
 		}
 		if err := json.Unmarshal([]byte(body), &result); err != nil {
 			t.Fatalf("decoding thing response: %v\nBody: %s", err, body)
@@ -105,14 +101,11 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 		if result.ThingID == "" {
 			t.Fatal("expected non-empty thingId")
 		}
-		if result.PluginID != "template" {
-			t.Fatalf("expected pluginId 'template', got %q", result.PluginID)
-		}
 		if result.Type != "template.regression" {
 			t.Fatalf("expected type 'template.regression', got %q", result.Type)
 		}
-		if result.Payload.Kind != "regression" {
-			t.Fatalf("expected payload.kind 'regression', got %q", result.Payload.Kind)
+		if result.Action != "template.regression.created" {
+			t.Fatalf("expected action 'template.regression.created', got %q", result.Action)
 		}
 		createdThingID = result.ThingID
 	})
@@ -151,9 +144,8 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {
-			ThingID  string `json:"thingId"`
-			PluginID string `json:"pluginId"`
-			Type     string `json:"type"`
+			ThingID string `json:"thingId"`
+			Type    string `json:"type"`
 		}
 		if err := json.Unmarshal([]byte(body), &result); err != nil {
 			t.Fatalf("decoding thing response: %v\nBody: %s", err, body)
@@ -161,9 +153,6 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 
 		if result.ThingID != createdThingID {
 			t.Fatalf("expected thingId %q, got %q", createdThingID, result.ThingID)
-		}
-		if result.PluginID != "template" {
-			t.Fatalf("expected pluginId 'template', got %q", result.PluginID)
 		}
 		if result.Type != "template.regression" {
 			t.Fatalf("expected type 'template.regression', got %q", result.Type)

@@ -180,7 +180,7 @@ export const contract = oc.router({
       }),
     )
     .output(ThingSchema)
-    .errors({ UNAUTHORIZED, NOT_FOUND }),
+    .errors({ NOT_FOUND }),
 
   listThings: oc
     .route({
@@ -202,8 +202,7 @@ export const contract = oc.router({
         cursor: z.string().optional().describe("Opaque cursor for the next page"),
       }),
     )
-    .output(ListThingsSchema)
-    .errors({ UNAUTHORIZED }),
+    .output(ListThingsSchema),
 
   deleteThing: oc
     .route({
