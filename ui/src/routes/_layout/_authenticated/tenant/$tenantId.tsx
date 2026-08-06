@@ -120,11 +120,21 @@ function TenantDetail() {
 
   const updateMutation = useMutation({
     mutationFn: async () => {
-      return apiClient.updateTenant({
+      const updated = await apiClient.updateTenant({
         tenantId,
         name,
         subdomain,
       });
+      if (name !== updated.name || subdomain !== updated.subdomain) {
+        await publishTenantConfig(apiClient, auth, {
+          accountId: updated.accountId,
+          gatewayId,
+          subdomain: updated.subdomain,
+          name: updated.name,
+          status: updated.status === "active" ? "active" : undefined,
+        });
+      }
+      return updated;
     },
     onSuccess: () => {
       toast.success("Tenant updated");
@@ -168,6 +178,20 @@ function TenantDetail() {
       toast.success("Tenant reactivated");
       invalidate();
     },
+  });
+
+  const republishMutation = useMutation({
+    mutationFn: async () => {
+      return publishTenantConfig(apiClient, auth, {
+        accountId: tenant?.accountId ?? "",
+        gatewayId,
+        subdomain: tenant?.subdomain ?? "",
+        name: tenant?.name ?? "",
+        status: tenant?.status !== "active" ? tenant?.status : undefined,
+      });
+    },
+    onSuccess: () => toast.success("Config republished"),
+    onError: (error: Error) => toast.error(error.message || "Failed to republish config"),
   });
 
   const deleteMutation = useMutation({
@@ -365,6 +389,14 @@ function TenantDetail() {
               <ExternalLink className="h-3.5 w-3.5" />
               open {tenant.subdomain}.{gatewayId}
             </a>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => republishMutation.mutate()}
+              disabled={republishMutation.isPending}
+            >
+              republish config
+            </Button>
           </Card>
         </section>
 

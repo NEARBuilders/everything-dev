@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
 import type { TransactionBuilder } from "near-kit";
@@ -61,6 +61,14 @@ function NewTenantPage() {
   const [name, setName] = useState("");
 
   const gatewayId = getActiveRuntime()?.gatewayId ?? "everything.dev";
+  const parentAccount = getAccount();
+
+  const { data: preflight } = useQuery({
+    queryKey: ["tenant-preflight", subdomain, parentAccount],
+    queryFn: () =>
+      apiClient.tenantPreflight({ subdomain, parentAccount }),
+    enabled: !!subdomain && /^[a-z0-9-]+$/.test(subdomain),
+  });
 
   const generateSubdomain = (value: string) =>
     value
@@ -318,12 +326,28 @@ function NewTenantPage() {
                 <p className="text-xs text-muted-foreground mt-2">
                   Only lowercase letters, numbers, and hyphens.
                 </p>
+                {preflight && !preflight.subdomain.available && (
+                  <p className="text-xs text-destructive mt-2">
+                    {preflight.subdomain.reserved
+                      ? `"${subdomain}" is a reserved subdomain`
+                      : `"${subdomain}" is already taken`}
+                  </p>
+                )}
               </Field>
             </CardContent>
           </Card>
 
           <div className="flex gap-2">
-            <Button type="submit" disabled={isCreating || !name || !subdomain} variant="outline">
+            <Button
+              type="submit"
+              disabled={
+                isCreating ||
+                !name ||
+                !subdomain ||
+                (preflight ? !preflight.subdomain.available : false)
+              }
+              variant="outline"
+            >
               {isCreating ? "creating..." : "create tenant"}
             </Button>
           </div>
