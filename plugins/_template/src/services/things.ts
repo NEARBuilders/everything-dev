@@ -27,10 +27,7 @@ export interface ListThingsResult {
   meta: { total: number; hasMore: boolean; nextCursor: string | null };
 }
 
-type ThingsError = ORPCError<
-  "NOT_FOUND" | "CONFLICT" | "INTERNAL_SERVER_ERROR",
-  unknown
->;
+type ThingsError = ORPCError<"NOT_FOUND" | "CONFLICT" | "INTERNAL_SERVER_ERROR", unknown>;
 
 function toIsoString(value: Date | string | null | undefined): string {
   if (!value) return "";
@@ -60,10 +57,7 @@ export function resolveType(payload: unknown): string {
 export class ThingsService extends Context.Tag("template/ThingsService")<
   ThingsService,
   {
-    createThing: (
-      thingId: string,
-      payload: unknown,
-    ) => Effect.Effect<CreatedThing, ThingsError>;
+    createThing: (thingId: string, payload: unknown) => Effect.Effect<CreatedThing, ThingsError>;
 
     getThing: (thingId: string) => Effect.Effect<Thing, ThingsError>;
 
@@ -126,7 +120,10 @@ export class ThingsService extends Context.Tag("template/ThingsService")<
 
         deleteThing: (thingId) =>
           query(() =>
-            db.delete(things).where(eq(things.thingId, thingId)).returning({ thingId: things.thingId }),
+            db
+              .delete(things)
+              .where(eq(things.thingId, thingId))
+              .returning({ thingId: things.thingId }),
           ).pipe(
             Effect.flatMap((rows) => {
               if (rows.length === 0) {

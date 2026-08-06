@@ -13,17 +13,15 @@ type SearchResult = z.infer<typeof SearchResultSchema>;
  */
 export class TemplateService {
   constructor(
-    private readonly baseUrl: string,
+    readonly baseUrl: string,
     readonly _apiKey: string,
-    private readonly timeout: number,
+    readonly timeout: number,
   ) {}
 
   getById(id: string) {
     const { baseUrl, timeout } = this;
     return Effect.gen(function* () {
-      yield* Effect.logInfo(
-        `[TemplateService] Fetching from ${baseUrl} with timeout ${timeout}ms`,
-      );
+      yield* Effect.logInfo(`[TemplateService] Fetching from ${baseUrl} with timeout ${timeout}ms`);
 
       return yield* Effect.tryPromise({
         try: async () => {

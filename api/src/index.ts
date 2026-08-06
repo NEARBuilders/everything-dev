@@ -220,45 +220,43 @@ export default createPlugin.withPlugins<PluginsClient>()({
         return tenant;
       }),
 
-      tenantPreflight: builder.tenantPreflight
-        .use(requireAuth)
-        .handler(async ({ input }) => {
-          const subdomainValid = SUBDOMAIN_SEGMENT_REGEX.test(input.subdomain);
-          const accountId = `${input.subdomain}.${input.parentAccount}`;
-          const accountFormat = ACCOUNT_ID_REGEX.test(accountId) ? ("valid" as const) : ("invalid" as const);
+      tenantPreflight: builder.tenantPreflight.use(requireAuth).handler(async ({ input }) => {
+        const subdomainValid = SUBDOMAIN_SEGMENT_REGEX.test(input.subdomain);
+        const accountId = `${input.subdomain}.${input.parentAccount}`;
+        const accountFormat = ACCOUNT_ID_REGEX.test(accountId)
+          ? ("valid" as const)
+          : ("invalid" as const);
 
-          const reserved = RESERVED_SUBDOMAINS.has(input.subdomain);
-          const existingSubdomain = subdomainValid
-            ? await services.tenants.resolveTenantBySubdomain(input.subdomain)
-            : null;
-          const subdomainAvailable = subdomainValid && !reserved && !existingSubdomain;
+        const reserved = RESERVED_SUBDOMAINS.has(input.subdomain);
+        const existingSubdomain = subdomainValid
+          ? await services.tenants.resolveTenantBySubdomain(input.subdomain)
+          : null;
+        const existingAccount = subdomainValid
+          ? await services.tenants.resolveTenantByAccountId(accountId)
+          : null;
+        const accountAvailable = accountFormat === "valid" && !existingAccount;
 
-          const existingAccount = subdomainValid
-            ? await services.tenants.resolveTenantByAccountId(accountId)
-            : null;
-          const accountAvailable = accountFormat === "valid" && !existingAccount;
-
-          return {
-            subdomain: { available: !reserved && !existingSubdomain, reserved },
-            accountId: { format: accountFormat, available: accountAvailable },
-          };
-        }),
+        return {
+          subdomain: { available: !reserved && !existingSubdomain, reserved },
+          accountId: { format: accountFormat, available: accountAvailable },
+        };
+      }),
 
       createThing: builder.createThing
         .use(requireAuth)
         .handler(async ({ input }) =>
-          templateClient.createThing({ thingId: input.thingId, payload: input.payload })),
+          templateClient.createThing({ thingId: input.thingId, payload: input.payload }),
+        ),
 
       getThing: builder.getThing.handler(async ({ input }) =>
-        templateClient.getThing({ thingId: input.thingId })),
+        templateClient.getThing({ thingId: input.thingId }),
+      ),
 
-      listThings: builder.listThings.handler(async ({ input }) =>
-        templateClient.listThings(input)),
+      listThings: builder.listThings.handler(async ({ input }) => templateClient.listThings(input)),
 
       deleteThing: builder.deleteThing
         .use(requireAuth)
-        .handler(async ({ input }) =>
-          templateClient.deleteThing({ thingId: input.thingId })),
+        .handler(async ({ input }) => templateClient.deleteThing({ thingId: input.thingId })),
 
       testError: builder.testError.handler(async ({ input }) => {
         switch (input.kind) {
@@ -272,7 +270,6 @@ export default createPlugin.withPlugins<PluginsClient>()({
             throw new ORPCError("CONFLICT", { message: "test conflict error" });
           case "bad_request":
             throw new ORPCError("BAD_REQUEST", { message: "test bad request error" });
-          case "internal":
           default:
             throw new Error("test internal server error");
         }

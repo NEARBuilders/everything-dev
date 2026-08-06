@@ -72,9 +72,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
       // Scoped DB-backed service (pool lifecycle is bound to the plugin scope).
       const thingsService = yield* tools.buildService(
         ThingsService,
-        ThingsService.Live.pipe(
-          Layer.provide(DatabaseLive(config.secrets.TEMPLATE_DATABASE_URL)),
-        ),
+        ThingsService.Live.pipe(Layer.provide(DatabaseLive(config.secrets.TEMPLATE_DATABASE_URL))),
       );
 
       const publisher = new MemoryPublisher<BackgroundEvents>({
@@ -202,7 +200,6 @@ export default createPlugin.withPlugins<PluginsClient>()({
             throw new ORPCError("CONFLICT", { message: "test conflict error" });
           case "bad_request":
             throw new ORPCError("BAD_REQUEST", { message: "test bad request error" });
-          case "internal":
           default:
             throw new Error("test internal server error");
         }

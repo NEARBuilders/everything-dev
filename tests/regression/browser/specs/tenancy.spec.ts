@@ -11,7 +11,7 @@ test.describe("tenancy", () => {
   });
 
   test("renders seeded tenant detail page", async ({ page }) => {
-    const { tenantID, subdomain } = loadSeedData();
+    const { tenantID } = loadSeedData();
 
     await page.goto(`/tenant/${tenantID}`, { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("networkidle");

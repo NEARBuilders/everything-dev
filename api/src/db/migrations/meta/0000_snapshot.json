@@ -106,23 +106,17 @@
         "tenants_subdomain_unique": {
           "name": "tenants_subdomain_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "subdomain"
-          ]
+          "columns": ["subdomain"]
         },
         "tenants_account_id_unique": {
           "name": "tenants_account_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "account_id"
-          ]
+          "columns": ["account_id"]
         },
         "tenants_org_id_unique": {
           "name": "tenants_org_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "org_id"
-          ]
+          "columns": ["org_id"]
         }
       },
       "policies": {},
@@ -134,11 +128,7 @@
     "public.tenant_status": {
       "name": "tenant_status",
       "schema": "public",
-      "values": [
-        "active",
-        "suspended",
-        "pending_deletion"
-      ]
+      "values": ["active", "suspended", "pending_deletion"]
     }
   },
   "schemas": {},

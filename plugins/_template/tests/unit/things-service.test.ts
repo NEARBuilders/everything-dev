@@ -26,36 +26,41 @@ interface ThingsSvc {
   createThing: (
     thingId: string,
     payload: unknown,
-  ) => Effect.Effect<{
-    thingId: string;
-    type: string;
-    payload: unknown;
-    action: string;
-    createdAt: string;
-    updatedAt: string;
-  }, unknown>;
-  getThing: (thingId: string) => Effect.Effect<{
-    thingId: string;
-    type: string;
-    payload: unknown;
-    createdAt: string;
-    updatedAt: string;
-  }, unknown>;
-  deleteThing: (thingId: string) => Effect.Effect<{ success: true }, unknown>;
-  listThings: (input: {
-    type?: string;
-    limit?: number;
-    cursor?: string;
-  }) => Effect.Effect<{
-    data: {
+  ) => Effect.Effect<
+    {
+      thingId: string;
+      type: string;
+      payload: unknown;
+      action: string;
+      createdAt: string;
+      updatedAt: string;
+    },
+    unknown
+  >;
+  getThing: (thingId: string) => Effect.Effect<
+    {
       thingId: string;
       type: string;
       payload: unknown;
       createdAt: string;
       updatedAt: string;
-    }[];
-    meta: { total: number; hasMore: boolean; nextCursor: string | null };
-  }, unknown>;
+    },
+    unknown
+  >;
+  deleteThing: (thingId: string) => Effect.Effect<{ success: true }, unknown>;
+  listThings: (input: { type?: string; limit?: number; cursor?: string }) => Effect.Effect<
+    {
+      data: {
+        thingId: string;
+        type: string;
+        payload: unknown;
+        createdAt: string;
+        updatedAt: string;
+      }[];
+      meta: { total: number; hasMore: boolean; nextCursor: string | null };
+    },
+    unknown
+  >;
 }
 
 async function runService<A>(

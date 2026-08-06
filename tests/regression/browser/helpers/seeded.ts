@@ -1,6 +1,6 @@
-import { expect, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { expect, type Page } from "@playwright/test";
 
 interface CookieEntry {
   name: string;

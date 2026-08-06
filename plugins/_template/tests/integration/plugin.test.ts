@@ -119,9 +119,7 @@ describe("Template Plugin Integration Tests", () => {
     it("should reject fetching a missing thing with NOT_FOUND", async () => {
       const client = await getPluginClient({ userId: "user123" });
 
-      await expect(client.getThing({ thingId: "missing-thing" })).rejects.toThrow(
-        "not found",
-      );
+      await expect(client.getThing({ thingId: "missing-thing" })).rejects.toThrow("not found");
     });
   });
 

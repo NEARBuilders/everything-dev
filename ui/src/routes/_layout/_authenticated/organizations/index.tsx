@@ -2,7 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { Building2, Mail, Plus, RefreshCw, Users } from "lucide-react";
 import { toast } from "sonner";
-import { type Organization, type SessionData, sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
+import {
+  type Organization,
+  type SessionData,
+  sessionQueryOptions,
+  useApiClient,
+  useAuthClient,
+} from "@/app";
 import { Button, Card } from "@/components";
 import { PageContainer } from "@/components/layout/page-container";
 
@@ -82,9 +88,7 @@ function OrganizationsList() {
       const results = await Promise.allSettled(
         orgs.map((o) => apiClient.resolveTenantByOrgId({ orgId: o.id })),
       );
-      return new Set(
-        orgs.filter((_, i) => results[i]?.status === "fulfilled").map((o) => o.id),
-      );
+      return new Set(orgs.filter((_, i) => results[i]?.status === "fulfilled").map((o) => o.id));
     },
     enabled: orgs.length > 0,
     staleTime: 60 * 1000,

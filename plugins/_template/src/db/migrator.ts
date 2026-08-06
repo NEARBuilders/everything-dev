@@ -1,5 +1,5 @@
-import { sql } from "drizzle-orm";
 import type { Migration } from "virtual:drizzle-migrations.sql";
+import { sql } from "drizzle-orm";
 import type { TemplateDatabase } from "./index";
 
 function normalizeRows<T>(result: unknown): T[] {

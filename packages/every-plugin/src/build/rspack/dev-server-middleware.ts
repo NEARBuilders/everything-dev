@@ -33,8 +33,7 @@ const readRuntimeConfigFromEnv = (): any => {
 const collectSiblingRemotes = (runtimeConfig: any, pluginId: string) => {
   const siblings: Record<string, { remote: string }> = {};
 
-  const isApi =
-    pluginId === "api" || runtimeConfig?.api?.name === pluginId;
+  const isApi = pluginId === "api" || runtimeConfig?.api?.name === pluginId;
 
   const ownKey = runtimeConfig?.plugins?.[pluginId] ? pluginId : null;
   let dependsOn: string[] = [];
@@ -108,9 +107,7 @@ export function setupPluginMiddleware(
       const { siblings, dependsOn } = collectSiblingRemotes(runtimeConfig, pluginId);
 
       if (dependsOn.length > 0) {
-        console.log(
-          `│  🔗 Loading sibling plugin(s) for ${pluginId}: ${dependsOn.join(", ")}`,
-        );
+        console.log(`│  🔗 Loading sibling plugin(s) for ${pluginId}: ${dependsOn.join(", ")}`);
       }
 
       const registry: Record<string, { remote: string }> = {

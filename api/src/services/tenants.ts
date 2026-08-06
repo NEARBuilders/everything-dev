@@ -2,7 +2,7 @@ import { and, eq, inArray, not } from "drizzle-orm";
 import { Context, Effect, Layer } from "every-plugin/effect";
 import { ORPCError } from "every-plugin/orpc";
 import { DatabaseTag } from "../db/layer";
-import { tenants as tenantsTable, type tenantStatus } from "../db/schema";
+import { type tenantStatus, tenants as tenantsTable } from "../db/schema";
 
 export type TenantStatus = (typeof tenantStatus)["enumValues"][number];
 
@@ -28,7 +28,10 @@ export interface TenantInput {
 export interface TenantsService {
   listTenantsByOrgIds(orgIds: string[]): Promise<TenantRecord[]>;
   createTenant(input: TenantInput): Promise<TenantRecord>;
-  updateTenant(id: string, input: Partial<Pick<TenantInput, "name" | "subdomain">>): Promise<TenantRecord>;
+  updateTenant(
+    id: string,
+    input: Partial<Pick<TenantInput, "name" | "subdomain">>,
+  ): Promise<TenantRecord>;
   softDeleteTenant(id: string): Promise<TenantRecord | null>;
   suspendTenant(id: string): Promise<TenantRecord | null>;
   reactivateTenant(id: string): Promise<TenantRecord | null>;

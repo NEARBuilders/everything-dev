@@ -163,7 +163,10 @@ export const contract = oc.router({
       }),
     )
     .output(CreatedThingSchema)
-    .errors({ UNAUTHORIZED, CONFLICT: { status: 409, message: "A thing with this ID already exists" } }),
+    .errors({
+      UNAUTHORIZED,
+      CONFLICT: { status: 409, message: "A thing with this ID already exists" },
+    }),
 
   getThing: oc
     .route({
@@ -186,7 +189,8 @@ export const contract = oc.router({
       method: "GET",
       path: "/things",
       summary: "List things",
-      description: "Lists things from the template plugin with optional type filtering and cursor pagination.",
+      description:
+        "Lists things from the template plugin with optional type filtering and cursor pagination.",
       tags: ["Things"],
     })
     .input(

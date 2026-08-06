@@ -65,8 +65,7 @@ function NewTenantPage() {
 
   const { data: preflight } = useQuery({
     queryKey: ["tenant-preflight", subdomain, parentAccount],
-    queryFn: () =>
-      apiClient.tenantPreflight({ subdomain, parentAccount }),
+    queryFn: () => apiClient.tenantPreflight({ subdomain, parentAccount }),
     enabled: !!subdomain && /^[a-z0-9-]+$/.test(subdomain),
   });
 

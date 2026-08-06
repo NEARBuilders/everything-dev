@@ -63,9 +63,7 @@ test.describe("Error boundary", () => {
     expect(result.text).not.toContain("<html");
   });
 
-  test("UI survives an injected 500 API response without an uncaught error", async ({
-    page,
-  }) => {
+  test("UI survives an injected 500 API response without an uncaught error", async ({ page }) => {
     await page.route("**/api/rpc/**", (route) =>
       route.fulfill({
         status: 500,

@@ -1,12 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import {
-  Building2,
-  ExternalLink,
-  Pencil,
-  Trash2,
-  Users,
-} from "lucide-react";
+import { Building2, ExternalLink, Pencil, Trash2, Users } from "lucide-react";
 import type { TransactionBuilder } from "near-kit";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -109,9 +103,7 @@ function TenantDetail() {
     staleTime: 60 * 1000,
   });
 
-  const isOwner = members.some(
-    (m) => m.userId === session?.user?.id && m.role === "owner",
-  );
+  const isOwner = members.some((m) => m.userId === session?.user?.id && m.role === "owner");
   const isAdmin = members.some(
     (m) => m.userId === session?.user?.id && (m.role === "admin" || m.role === "owner"),
   );
@@ -329,9 +321,7 @@ function TenantDetail() {
                     value={
                       <Input
                         value={subdomain}
-                        onChange={(e) =>
-                          setSubdomain(e.target.value.replace(/[^a-z0-9-]/g, ""))
-                        }
+                        onChange={(e) => setSubdomain(e.target.value.replace(/[^a-z0-9-]/g, ""))}
                         className="max-w-xs"
                       />
                     }

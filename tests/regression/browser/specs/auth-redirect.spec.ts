@@ -8,9 +8,7 @@ test.describe("Auth redirect", () => {
     pageErrors = collectErrors(page);
   });
 
-  test("unauthenticated /settings redirects to /login with a redirect target", async ({
-    page,
-  }) => {
+  test("unauthenticated /settings redirects to /login with a redirect target", async ({ page }) => {
     await page.goto("/settings", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
 
