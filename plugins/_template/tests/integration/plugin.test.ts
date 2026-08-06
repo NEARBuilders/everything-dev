@@ -124,4 +124,13 @@ describe("Template Plugin Integration Tests", () => {
       );
     });
   });
+
+  describe("testError helper", () => {
+    it("should not throw for valid unknown kind handling (defaults to internal)", async () => {
+      const client = await getPluginClient();
+      await expect(client.testError({ kind: "internal" as any })).rejects.toThrow(
+        "test internal server error",
+      );
+    });
+  });
 });

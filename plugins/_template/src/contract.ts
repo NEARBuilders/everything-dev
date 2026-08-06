@@ -7,6 +7,10 @@ const Errors = {
     status: 401,
     message: "User ID required",
   },
+  FORBIDDEN: {
+    status: 403,
+    message: "Operation not permitted",
+  },
   NOT_FOUND: {
     status: 404,
     message: "Failed to fetch item: Item not found",
@@ -15,7 +19,20 @@ const Errors = {
     status: 409,
     message: "A thing with this ID already exists",
   },
+  BAD_REQUEST: {
+    status: 400,
+    message: "Bad request",
+  },
 };
+
+const ErrorTestKindSchema = z.enum([
+  "unauthorized",
+  "forbidden",
+  "not_found",
+  "conflict",
+  "bad_request",
+  "internal",
+]);
 
 // Schema for the data items this plugin provides
 export const ItemSchema = z.object({
@@ -243,6 +260,33 @@ export const contract = oc.router({
     )
     .output(z.object({ success: z.literal(true) }))
     .errors({ NOT_FOUND: { status: 404, message: "Thing not found" } }),
+
+  testError: oc
+    .route({
+      method: "GET",
+      path: "/errors",
+      summary: "Trigger a specific error kind",
+      description:
+        "Regression-test helper that throws the requested error kind so the host error surface can be validated.",
+      tags: ["Testing"],
+    })
+    .input(
+      z.object({
+        kind: ErrorTestKindSchema.describe("Which error kind to trigger"),
+      }),
+    )
+    .output(
+      z.object({
+        ok: z.literal(true).describe("Always true when no error is thrown"),
+      }),
+    )
+    .errors({
+      UNAUTHORIZED: Errors.UNAUTHORIZED,
+      FORBIDDEN: Errors.FORBIDDEN,
+      NOT_FOUND: Errors.NOT_FOUND,
+      CONFLICT: Errors.CONFLICT,
+      BAD_REQUEST: Errors.BAD_REQUEST,
+    }),
 });
 
 export type ContractType = typeof contract;

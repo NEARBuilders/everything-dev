@@ -58,12 +58,6 @@ type RuntimeClientConfig = ClientRuntimeConfig & { runtime?: ActiveRuntimeState 
 
 type RuntimePlugin = NonNullable<RuntimeConfig["plugins"]>[string];
 
-const BOS_VIEWER_DEFAULT_PATH = "every.near/widget/index";
-const BOS_VIEWER_RUNTIME_SCRIPT_URL =
-  "https://cdn.jsdelivr.net/npm/near-bos-webcomponent@0.0.9/dist/runtime.25b143da327a5371509f.bundle.js";
-const BOS_VIEWER_MAIN_SCRIPT_URL =
-  "https://cdn.jsdelivr.net/npm/near-bos-webcomponent@0.0.9/dist/main.1b3f0d7d1017de355a7c.bundle.js";
-
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 900_000;
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 300;
 const BODY_LIMIT_MAX = Number(process.env.BODY_LIMIT_MAX) || 10 * 1024 * 1024;
@@ -79,10 +73,6 @@ function normalizeUrl(url?: string | null) {
   } catch {
     return url.replace(/\/$/, "");
   }
-}
-
-function isViewerFramePath(pathname: string) {
-  return pathname === "/_viewer" || /^\/_runtime\/[^/]+\/[^/]+\/_viewer\/?$/.test(pathname);
 }
 
 function getRuntimeOverride(pathname: string) {
@@ -627,9 +617,6 @@ export const createStartServer = (onReady?: () => void) =>
     const staticAssetPattern =
       /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|md|webmanifest|woff2?|ttf|eot|webp|avif|map|txt|xml)$/i;
 
-    const isHealthPath = (pathname: string) =>
-      pathname === "/health" || pathname === HEALTH_PATH || pathname === MEMORY_PATH;
-
     app.use(
       "/*",
       rateLimiter({
@@ -649,7 +636,6 @@ export const createStartServer = (onReady?: () => void) =>
         },
         skip: (c) => {
           const { pathname } = new URL(c.req.url);
-          if (isHealthPath(pathname)) return true;
           const lastSegment = pathname.split("/").pop() ?? "";
           return staticAssetPattern.test(lastSegment);
         },
@@ -684,9 +670,7 @@ export const createStartServer = (onReady?: () => void) =>
       : ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:", ...uniqueOrigins, ...cdnOrigins];
 
     app.use("*", (c, next) => {
-      const frameAncestors = isViewerFramePath(c.req.path) ? ["'self'"] : ["'none'"];
-
-      const viewerPath = isViewerFramePath(c.req.path);
+      const frameAncestors = ["'none'"];
 
       const lastSegment = c.req.path.split("/").pop() ?? "";
       const isStaticAsset = staticAssetPattern.test(lastSegment);
@@ -705,9 +689,7 @@ export const createStartServer = (onReady?: () => void) =>
             ...(uiConfig.url ? [new URL(uiConfig.url).origin] : []),
           ],
           connectSrc: ["'self'", "https:", ...uniqueOrigins, ...wsOrigins, ...cdnOrigins],
-          fontSrc: viewerPath
-            ? ["'self'", "data:", "https:", ...uniqueOrigins]
-            : ["'self'", "https:", ...uniqueOrigins],
+          fontSrc: ["'self'", "https:", ...uniqueOrigins],
           manifestSrc: [
             "'self'",
             "https:",
@@ -881,73 +863,6 @@ export const createStartServer = (onReady?: () => void) =>
         }
       });
     }
-
-    const renderBosViewer = (c: Context<HonoEnv>) => {
-      const nonce = CSP_STRICT ? c.get("secureHeadersNonce") : undefined;
-      const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
-      const widgetPath =
-        new URL(c.req.url).searchParams.get("path")?.trim() || BOS_VIEWER_DEFAULT_PATH;
-      const widgetPathJson = JSON.stringify(widgetPath);
-
-      c.header("X-Robots-Tag", "noindex, nofollow");
-
-      return c.html(
-        `<!DOCTYPE html>
-          <html lang="en">
-            <head>
-              <meta charset="utf-8" />
-              <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-              <meta name="robots" content="noindex, nofollow" />
-              <title>Viewer</title>
-              <style>
-                html, body, #viewer-root { height: 100%; margin: 0; }
-                body { background: #fff; overflow: hidden; }
-                near-social-viewer { display: block; width: 100%; height: 100%; }
-              </style>
-              <script${nonceAttr}>
-                (function() {
-                  var widgetPath = ${widgetPathJson};
-                  while (widgetPath.startsWith("/")) {
-                    widgetPath = widgetPath.slice(1);
-                  }
-                  history.replaceState(null, "", "/" + widgetPath);
-                })();
-              </script>
-              <script${nonceAttr} src="${BOS_VIEWER_RUNTIME_SCRIPT_URL}"></script>
-              <script${nonceAttr} src="${BOS_VIEWER_MAIN_SCRIPT_URL}"></script>
-            </head>
-            <body>
-              <div id="viewer-root"></div>
-              <script${nonceAttr}>
-                (function() {
-                  var widgetPath = ${widgetPathJson};
-                  while (widgetPath.startsWith("/")) {
-                    widgetPath = widgetPath.slice(1);
-                  }
-                  var mount = function() {
-                    var root = document.getElementById("viewer-root");
-                    if (!root || root.querySelector("near-social-viewer")) return;
-                    var viewer = document.createElement("near-social-viewer");
-                    viewer.setAttribute("src", widgetPath);
-                    viewer.setAttribute("network", "mainnet");
-                    root.appendChild(viewer);
-                  };
-
-                  if (customElements.get("near-social-viewer")) {
-                    mount();
-                    return;
-                  }
-
-                  customElements.whenDefined("near-social-viewer").then(mount);
-                })();
-              </script>
-            </body>
-          </html>`,
-      );
-    };
-
-    app.get("/_viewer", renderBosViewer);
-    app.get("/_runtime/:accountId/:gatewayId/_viewer", renderBosViewer);
 
     app.use("/*", sessionMiddleware);
 

@@ -115,6 +115,28 @@ func PostJSON(t *testing.T, client *http.Client, url string, body any, extraHead
 	return resp.StatusCode, resp.Header.Clone(), string(data)
 }
 
+func PostRaw(t *testing.T, client *http.Client, url string, bodyBytes []byte, extraHeaders map[string]string) (int, http.Header, string) {
+	t.Helper()
+	req, err := http.NewRequest("POST", url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		t.Fatalf("creating POST request: %v", err)
+	}
+	for k, v := range extraHeaders {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading %s: %v", url, err)
+	}
+	return resp.StatusCode, resp.Header.Clone(), string(data)
+}
+
 func MustStatus(t *testing.T, status int, expected int, body string) {
 	t.Helper()
 	if status != expected {

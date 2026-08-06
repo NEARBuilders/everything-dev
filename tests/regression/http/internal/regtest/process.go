@@ -38,6 +38,9 @@ func Start(t interface{ Fatalf(string, ...any) }) *Process {
 		"CORS_ORIGIN=http://localhost:4100",
 		"BETTER_AUTH_SECRET=regression-test-secret-do-not-use-in-production",
 		"CI=true",
+		"RATE_LIMIT_WINDOW_MS=1000",
+		"RATE_LIMIT_MAX=100",
+		"BODY_LIMIT_MAX=65536",
 	)
 
 	logDir := filepath.Join(workdir, ".bos", "logs")

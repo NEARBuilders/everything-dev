@@ -61,11 +61,19 @@ export declare const contract: {
             status: number;
             message: string;
         };
+        FORBIDDEN: {
+            status: number;
+            message: string;
+        };
         NOT_FOUND: {
             status: number;
             message: string;
         };
         CONFLICT: {
+            status: number;
+            message: string;
+        };
+        BAD_REQUEST: {
             status: number;
             message: string;
         };
@@ -163,6 +171,39 @@ export declare const contract: {
         success: z.ZodLiteral<true>;
     }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, import("@orpc/contract").MergedErrorMap<Record<never, never>, {
         NOT_FOUND: {
+            status: number;
+            message: string;
+        };
+    }>>, Record<never, never>>;
+    testError: import("@orpc/contract").ContractProcedure<z.ZodObject<{
+        kind: z.ZodEnum<{
+            unauthorized: "unauthorized";
+            forbidden: "forbidden";
+            not_found: "not_found";
+            conflict: "conflict";
+            bad_request: "bad_request";
+            internal: "internal";
+        }>;
+    }, z.core.$strip>, z.ZodObject<{
+        ok: z.ZodLiteral<true>;
+    }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, import("@orpc/contract").MergedErrorMap<Record<never, never>, {
+        UNAUTHORIZED: {
+            status: number;
+            message: string;
+        };
+        FORBIDDEN: {
+            status: number;
+            message: string;
+        };
+        NOT_FOUND: {
+            status: number;
+            message: string;
+        };
+        CONFLICT: {
+            status: number;
+            message: string;
+        };
+        BAD_REQUEST: {
             status: number;
             message: string;
         };
