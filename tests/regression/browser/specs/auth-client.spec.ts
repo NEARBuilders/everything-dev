@@ -53,7 +53,7 @@ test.describe("authClient", () => {
 
     await page.waitForURL(/\/home$/, { timeout: 15000 });
 
-    await expect(page.getByText("Workspace")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Identity Status")).toBeVisible({ timeout: 10000 });
 
     const isAnonymous = page.getByText("anonymous session", { exact: true });
     await expect(isAnonymous).toBeVisible({ timeout: 5000 });
