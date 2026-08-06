@@ -39,7 +39,7 @@ This is a **Module Federation monorepo** with runtime-loaded configuration:
 
 ## Current Runtime Resolution Status
 
-The host already has request-scoped runtime identity support. In `host/src/program.ts`, `resolveActiveRuntime()` can derive runtime metadata from `/_runtime/:account/:gateway`, and the host injects that into `window.__RUNTIME_CONFIG__` for the UI.
+The host has request-scoped runtime identity support. In `host/src/program.ts`, `resolveActiveRuntime()` derives runtime metadata from the base config and injects that into `window.__RUNTIME_CONFIG__` for the UI. Tenant-specific resolution is handled by `resolveRequestRuntime()` in `host/src/services/tenant-runtime.ts`.
 
 However, the underlying server core is still process-wide. `ConfigService` is an immutable Effect layer, so auth wiring, API/plugin routers, and the base host runtime are still built from a single startup config snapshot.
 

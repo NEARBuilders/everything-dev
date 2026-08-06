@@ -204,15 +204,9 @@ export default createPlugin.withPlugins<PluginsClient>()({
           return result;
         }),
 
-      resolveTenant: builder.resolveTenant.handler(async ({ input, errors }) => {
+      resolveTenant: builder.resolveTenant.handler(async ({ input }) => {
         const tenant = await services.tenants.resolveTenantByAccountId(input.accountId);
-        if (!tenant) {
-          throw errors.NOT_FOUND({
-            message: "Tenant not found",
-            data: { resource: "tenant", resourceId: input.accountId },
-          });
-        }
-        return tenant;
+        return tenant ?? null;
       }),
 
       resolveTenantByOrgId: builder.resolveTenantByOrgId.handler(async ({ input, errors }) => {

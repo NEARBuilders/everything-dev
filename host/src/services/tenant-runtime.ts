@@ -457,15 +457,6 @@ export async function resolveRequestRuntime(
 ): Promise<RequestRuntimeResolution> {
   const verificationMode = options?.verification ?? "blocking";
   const url = new URL(request.url);
-  if (url.pathname.startsWith("/_runtime/")) {
-    return {
-      config: baseConfig,
-      tenantAccountId: null,
-      gatewayId: normalizeDomain(baseConfig.domain, baseConfig.host.url),
-      ssrAllowed: Boolean(baseConfig.ui.ssrUrl),
-    };
-  }
-
   const gatewayId = normalizeDomain(baseConfig.domain, baseConfig.host.url);
   const tenantAccountId = resolveTenantAccountId(url.hostname, gatewayId, baseConfig.account);
   if (!tenantAccountId) {

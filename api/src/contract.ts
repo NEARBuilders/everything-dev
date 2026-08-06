@@ -118,8 +118,7 @@ export const contract = oc.router({
   resolveTenant: oc
     .route({ method: "GET", path: "/tenants/account/{accountId}" })
     .input(z.object({ accountId: z.string() }))
-    .output(TenantSchema)
-    .errors({ NOT_FOUND }),
+    .output(TenantSchema.nullable()),
 
   resolveTenantByOrgId: oc
     .route({ method: "GET", path: "/tenants/org/{orgId}" })

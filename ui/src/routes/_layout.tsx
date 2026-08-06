@@ -17,15 +17,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { UserNav } from "@/components/user-nav";
 import { cn } from "@/lib/utils";
 
-interface TenantContext {
-  id: string;
-  subdomain: string;
-  accountId: string;
-  orgId: string;
-  name: string;
-  createdAt: string;
-}
-
 type SidebarRole = "anon" | "member" | "admin";
 
 interface SidebarItem {
@@ -58,12 +49,7 @@ export const Route = createFileRoute("/_layout")({
     );
 
     const accountId = getAccount(context.runtimeConfig);
-    let tenant: TenantContext | null = null;
-    try {
-      tenant = await apiClient.resolveTenant({ accountId });
-    } catch {
-      tenant = null;
-    }
+    const tenant = await apiClient.resolveTenant({ accountId });
 
     return {
       runtimeConfig: context.runtimeConfig,

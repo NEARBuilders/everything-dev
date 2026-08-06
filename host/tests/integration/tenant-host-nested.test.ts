@@ -76,13 +76,6 @@ function createBaseConfig() {
         url: "http://127.0.0.1:0/apps",
         entry: "http://127.0.0.1:0/apps/mf-manifest.json",
         source: "remote",
-        ui: {
-          name: "apps-ui",
-          url: "http://127.0.0.1:0/apps-ui",
-          entry: "http://127.0.0.1:0/apps-ui/mf-manifest.json",
-          source: "remote",
-          integrity: "sha384-apps",
-        },
       },
     },
   } as const;
@@ -129,12 +122,7 @@ describe("tenant host nested integration", () => {
   const previousAllowUntrustedSsr = process.env.ALLOW_UNTRUSTED_SSR;
 
   beforeAll(async () => {
-    assetServer = await startStaticServer({
-      "/__mf/plugin-ui/apps/chunk.js": {
-        body: "console.log('nested-tenant-plugin-ui')",
-        contentType: "application/javascript",
-      },
-    });
+    assetServer = await startStaticServer({});
 
     const port = await getAvailablePort();
     baseUrl = `http://127.0.0.1:${port}`;
@@ -160,11 +148,6 @@ describe("tenant host nested integration", () => {
         plugins: {
           apps: {
             ...config.plugins.apps,
-            ui: {
-              ...config.plugins.apps.ui,
-              url: `${assetServer.baseUrl}/apps-ui`,
-              entry: `${assetServer.baseUrl}/apps-ui/mf-manifest.json`,
-            },
           },
         },
       } as any,
@@ -212,10 +195,6 @@ describe("tenant host nested integration", () => {
         plugins: {
           apps: {
             production: "https://plugins.example.com/apps",
-            ui: {
-              production: "https://plugins.example.com/chicago-apps-ui",
-              integrity: "sha384-chicago-apps",
-            },
           },
         },
       },
@@ -244,12 +223,6 @@ describe("tenant host nested integration", () => {
       plugins: {
         apps: {
           ...baseConfig.plugins.apps,
-          ui: {
-            ...baseConfig.plugins.apps.ui,
-            url: assetServer.baseUrl,
-            entry: `${assetServer.baseUrl}/apps-ui/mf-manifest.json`,
-            integrity: "sha384-chicago-apps",
-          },
         },
       },
     });
@@ -268,6 +241,5 @@ describe("tenant host nested integration", () => {
       "production",
     );
     expect(html).toContain(`${assetServer.baseUrl}/chicago-ui/remoteEntry.js`);
-    expect(html).toContain(`/__mf/plugin-ui/apps/remoteEntry.js`);
   });
 });

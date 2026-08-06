@@ -75,23 +75,6 @@ function normalizeUrl(url?: string | null) {
   }
 }
 
-function getRuntimeOverride(pathname: string) {
-  const match = pathname.match(/^\/_runtime\/([^/]+)\/([^/]+)(?:\/|$)/);
-  if (!match) {
-    return null;
-  }
-
-  const [, encodedAccountId, encodedGatewayId] = match;
-  const accountId = decodeURIComponent(encodedAccountId);
-  const gatewayId = decodeURIComponent(encodedGatewayId);
-
-  return {
-    accountId,
-    gatewayId,
-    runtimeBasePath: `/_runtime/${encodeURIComponent(accountId)}/${encodeURIComponent(gatewayId)}`,
-  };
-}
-
 function getFallbackGatewayId(config: RuntimeConfig) {
   if (config.domain) {
     return config.domain;
@@ -100,21 +83,8 @@ function getFallbackGatewayId(config: RuntimeConfig) {
   return normalizeUrl(config.host?.url)?.replace(/^https?:\/\//, "") ?? "runtime";
 }
 
-async function resolveActiveRuntime(config: RuntimeConfig, request: Request) {
+function resolveActiveRuntime(config: RuntimeConfig, request: Request) {
   const url = new URL(request.url);
-  const override = getRuntimeOverride(url.pathname);
-
-  if (override) {
-    return {
-      accountId: override.accountId,
-      gatewayId: override.gatewayId,
-      runtimeBasePath: override.runtimeBasePath,
-      title: `${override.accountId}/${override.gatewayId}`,
-      description: null,
-      hostUrl: url.origin,
-    } satisfies ActiveRuntimeState;
-  }
-
   const fallbackGatewayId = getFallbackGatewayId(config);
   return {
     accountId: config.account,
@@ -648,10 +618,8 @@ export const createStartServer = (onReady?: () => void) =>
       ...(config.api?.url ? [new URL(config.api.url).origin] : []),
       ...(config.auth?.url ? [new URL(config.auth.url).origin] : []),
       ...Object.values(config.plugins ?? {}).flatMap((p: RuntimePlugin) => {
-        const origins: string[] = [];
-        if (p.url) origins.push(new URL(p.url).origin);
-        if (p.ui?.url) origins.push(new URL(p.ui.url).origin);
-        return origins;
+        if (p.url) return [new URL(p.url).origin];
+        return [];
       }),
     ];
 
@@ -738,17 +706,6 @@ export const createStartServer = (onReady?: () => void) =>
 
       const themeScript = `<script${nonceAttr}>${(getThemeInitScript() as { children?: string }).children ?? ""}</script>`;
 
-      const pluginUiScripts = Object.entries(runtimeSourceConfig.plugins ?? {})
-        .filter(([, p]: [string, RuntimePlugin]) => p.ui?.url && p.ui.source === "remote")
-        .map(([pluginKey, p]: [string, RuntimePlugin]) => {
-          const uiSri = p.ui!.integrity
-            ? ` integrity="${p.ui!.integrity}" crossorigin="anonymous"`
-            : "";
-          const pluginVersion = p.ui!.integrity ? `?v=${encodeURIComponent(p.ui!.integrity)}` : "";
-          return `<script${nonceAttr} src="/__mf/plugin-ui/${pluginKey}/remoteEntry.js${pluginVersion}"${uiSri}></script>`;
-        })
-        .join("\n");
-
       const shellBody = `<div id="root"><div class="shell"><div class="fade">${
         error
           ? `<p class="error">SSR unavailable, showing client app.</p><p>${error.message}</p>`
@@ -778,7 +735,6 @@ export const createStartServer = (onReady?: () => void) =>
               <style>${baseStyles}</style>
               ${themeScript}
               <script${nonceAttr} src="${assetsUrl}/remoteEntry.js${uiVersion}"${sriAttr}></script>
-              ${pluginUiScripts}
               <script${nonceAttr}>${hydrateScript}</script>
             </head>
             <body>${shellBody}</body>
@@ -818,8 +774,6 @@ export const createStartServer = (onReady?: () => void) =>
         pathname === "/" ||
         pathname === "/api" ||
         pathname.startsWith("/api/") ||
-        pathname.startsWith("/__mf/") ||
-        pathname.startsWith("/_runtime/") ||
         pathname === "/health"
       ) {
         return next();
@@ -838,31 +792,6 @@ export const createStartServer = (onReady?: () => void) =>
         return c.text(message, { status: status as 404 | 500 | 502 });
       }
     });
-
-    for (const [pluginKey, pluginConfig] of Object.entries(config.plugins ?? {}) as Array<
-      [string, RuntimePlugin]
-    >) {
-      if (!pluginConfig.ui?.url) continue;
-      const proxyPrefix = `/__mf/plugin-ui/${pluginKey}`;
-      app.all(`${proxyPrefix}/*`, async (c: Context<HonoEnv>) => {
-        try {
-          const runtime = await resolveRequestRuntime(config, c.req.raw, {
-            verification: "stale-while-revalidate",
-          });
-          const pluginUiUrl = runtime.config.plugins?.[pluginKey]?.ui?.url;
-          if (!pluginUiUrl) {
-            return c.text(`Plugin UI unavailable for ${pluginKey}`, 404);
-          }
-          return await proxyStaticAssetRequest(c.req.raw, pluginUiUrl);
-        } catch (error) {
-          const { message, status } = getTenantRuntimeErrorResponse(error);
-          logger.error(
-            `[Plugin UI Proxy] ${c.req.method} ${c.req.path} (plugin=${pluginKey}) — ${message}`,
-          );
-          return c.text(message, { status: status as 404 | 500 | 502 });
-        }
-      });
-    }
 
     app.use("/*", sessionMiddleware);
 

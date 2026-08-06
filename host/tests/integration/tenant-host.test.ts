@@ -52,13 +52,6 @@ function createBaseConfig() {
         url: "http://127.0.0.1:0/apps",
         entry: "http://127.0.0.1:0/apps/mf-manifest.json",
         source: "remote",
-        ui: {
-          name: "apps-ui",
-          url: "http://127.0.0.1:0/apps-ui",
-          entry: "http://127.0.0.1:0/apps-ui/mf-manifest.json",
-          source: "remote",
-          integrity: "sha384-apps",
-        },
       },
     },
   } as const;
@@ -102,12 +95,7 @@ describe("tenant host integration", () => {
   const previousPort = process.env.PORT;
 
   beforeAll(async () => {
-    assetServer = await startStaticServer({
-      "/__mf/plugin-ui/apps/chunk.js": {
-        body: "console.log('tenant-plugin-ui')",
-        contentType: "application/javascript",
-      },
-    });
+    assetServer = await startStaticServer({});
 
     const port = await getAvailablePort();
     baseUrl = `http://127.0.0.1:${port}`;
@@ -130,11 +118,6 @@ describe("tenant host integration", () => {
         plugins: {
           apps: {
             ...config.plugins.apps,
-            ui: {
-              ...config.plugins.apps.ui,
-              url: `${assetServer.baseUrl}/apps-ui`,
-              entry: `${assetServer.baseUrl}/apps-ui/mf-manifest.json`,
-            },
           },
         },
       } as any,
@@ -181,37 +164,10 @@ describe("tenant host integration", () => {
         plugins: {
           apps: {
             ...createBaseConfig().plugins.apps,
-            ui: {
-              ...createBaseConfig().plugins.apps.ui,
-              url: assetServer.baseUrl,
-              entry: `${assetServer.baseUrl}/apps-ui/mf-manifest.json`,
-              integrity: "sha384-plugin-alice",
-            },
           },
         },
       },
     });
-  });
-
-  it("renders tenant plugin UI scripts into the client shell", async () => {
-    const response = await fetch(`${baseUrl}/`, {
-      headers: { "x-forwarded-host": "alice.linktree.com", "x-forwarded-proto": "https" },
-    });
-
-    const html = await response.text();
-
-    expect(response.status).toBe(200);
-    expect(html).toContain(`${assetServer.baseUrl}/alice-ui/remoteEntry.js`);
-    expect(html).toContain(`/__mf/plugin-ui/apps/remoteEntry.js`);
-  });
-
-  it("proxies tenant plugin UI asset requests", async () => {
-    const response = await fetch(`${baseUrl}/__mf/plugin-ui/apps/chunk.js`, {
-      headers: { "x-forwarded-host": "alice.linktree.com", "x-forwarded-proto": "https" },
-    });
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toContain("tenant-plugin-ui");
   });
 
   it("returns 502 for upstream tenant runtime failures", async () => {

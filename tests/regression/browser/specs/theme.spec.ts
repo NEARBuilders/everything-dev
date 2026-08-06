@@ -21,7 +21,7 @@ test.describe("theme", () => {
 
     await expect(html).toHaveClass(/dark/);
 
-    const lightToggle = page.locator("button[aria-label='Switch to light theme']");
+    const lightToggle = page.locator("button[aria-label='Switch to light theme']").first();
     await expect(lightToggle).toBeVisible({ timeout: 5000 });
     await lightToggle.click();
 
@@ -49,7 +49,7 @@ test.describe("theme", () => {
 
     await expect(html).toHaveClass(/dark/);
 
-    const darkToggle = page.locator("button[aria-label='Switch to light theme']");
+    const darkToggle = page.locator("button[aria-label='Switch to light theme']").first();
     await expect(darkToggle).toBeVisible({ timeout: 10000 });
     await darkToggle.click();
 

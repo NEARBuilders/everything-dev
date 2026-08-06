@@ -49,18 +49,27 @@ test.describe("authClient", () => {
 
     const anonymousBtn = page.getByText("continue anonymously");
     await expect(anonymousBtn).toBeVisible({ timeout: 10000 });
+
+    const signInDone = page.waitForResponse(
+      (resp) => resp.status() === 200 && resp.url().includes("/api/auth/sign-in/anonymous"),
+      { timeout: 15000 },
+    );
+
     await anonymousBtn.click();
+    await signInDone;
 
     await page.waitForURL(/\/home$/, { timeout: 15000 });
-
-    await expect(page.getByText("settings")).toBeVisible({ timeout: 10000 });
+    await page.reload();
+    await page.waitForURL(/\/home$/, { timeout: 15000 });
+    await page.waitForLoadState("networkidle");
+    await waitForApp(page);
 
     const isAnonymous = page.getByText("anonymous session", { exact: true });
     await expect(isAnonymous).toBeVisible({ timeout: 5000 });
 
     expect(signInResponses.length).toBeGreaterThanOrEqual(1);
 
-    const settingsLink = page.getByText("settings");
+    const settingsLink = page.getByText("settings").first();
     await expect(settingsLink).toBeVisible({ timeout: 5000 });
     await settingsLink.click();
     await page.waitForURL(/\/settings/, { timeout: 10000 });
