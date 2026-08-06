@@ -34,16 +34,6 @@ export async function createDatabaseDriver(url: string): Promise<DatabaseDriver>
         ? false
         : { rejectUnauthorized: false },
   });
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS things (
-      thing_id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      payload JSONB NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS things_type_idx ON things (type);
-  `);
   return {
     db: drizzle(pool, { schema }),
     close: async () => {
