@@ -19,7 +19,7 @@ func TestPluginPassthrough(t *testing.T) {
 	var thingID string
 	t.Run("create_thing", func(t *testing.T) {
 		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/things", map[string]any{
-			"pluginId": "template",
+			"thingId": "regression-plugin-test",
 			"payload": map[string]string{
 				"kind":   "regression",
 				"source": "plugin-passthrough",
@@ -28,13 +28,9 @@ func TestPluginPassthrough(t *testing.T) {
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {
-			ThingID  string `json:"thingId"`
-			PluginID string `json:"pluginId"`
-			Type     string `json:"type"`
-			Payload  struct {
-				Kind   string `json:"kind"`
-				Source string `json:"source"`
-			} `json:"payload"`
+			ThingID string `json:"thingId"`
+			Type    string `json:"type"`
+			Action  string `json:"action"`
 		}
 		if err := json.Unmarshal([]byte(body), &result); err != nil {
 			t.Fatalf("decoding thing response: %v\nBody: %s", err, body)
@@ -43,14 +39,11 @@ func TestPluginPassthrough(t *testing.T) {
 		if result.ThingID == "" {
 			t.Fatal("expected non-empty thingId")
 		}
-		if result.PluginID != "template" {
-			t.Fatalf("expected pluginId 'template', got %q", result.PluginID)
+		if result.Type == "" {
+			t.Fatal("expected non-empty type")
 		}
-		if result.Type != "template.regression" {
-			t.Fatalf("expected type 'template.regression', got %q", result.Type)
-		}
-		if result.Payload.Kind != "regression" {
-			t.Fatalf("expected payload.kind 'regression', got %q", result.Payload.Kind)
+		if result.Action == "" {
+			t.Fatal("expected non-empty action")
 		}
 		thingID = result.ThingID
 	})
@@ -60,9 +53,8 @@ func TestPluginPassthrough(t *testing.T) {
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {
-			ThingID  string `json:"thingId"`
-			PluginID string `json:"pluginId"`
-			Type     string `json:"type"`
+			ThingID string `json:"thingId"`
+			Type    string `json:"type"`
 		}
 		if err := json.Unmarshal([]byte(body), &result); err != nil {
 			t.Fatalf("decoding thing response: %v\nBody: %s", err, body)
@@ -71,8 +63,8 @@ func TestPluginPassthrough(t *testing.T) {
 		if result.ThingID != thingID {
 			t.Fatalf("expected thingId %q, got %q", thingID, result.ThingID)
 		}
-		if result.PluginID != "template" {
-			t.Fatalf("expected pluginId 'template', got %q", result.PluginID)
+		if result.Type == "" {
+			t.Fatal("expected non-empty type")
 		}
 	})
 

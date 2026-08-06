@@ -64,23 +64,27 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
   contract,
 
-  initialize: (config, _plugins, tools) =>
+  initialize: (config, plugins, tools) =>
     Effect.gen(function* () {
       const database = DatabaseLive(config.secrets.API_DATABASE_URL);
       const tenantsLayer = TenantsLive.pipe(Layer.provide(database));
 
       const tenantsService = yield* tools.buildService(TenantsTag, tenantsLayer);
 
+      const templateClient = plugins.template();
+
       console.log("[API] Services Initialized");
 
       return {
         tenants: tenantsService,
+        templateClient,
       };
     }),
 
   shutdown: () => Effect.log("[API] Shutdown"),
 
   createRouter: (services, builder) => {
+    const { templateClient } = services;
     const { requireAuth, requireOrganization, requireOrgRole } = createAuthMiddleware(builder);
 
     const authorizedTenant = async (
@@ -245,6 +249,26 @@ export default createPlugin.withPlugins<PluginsClient>()({
             accountId: { format: accountFormat, available: accountAvailable },
           };
         }),
+
+      createThing: builder.createThing
+        .use(requireAuth)
+        .handler(async ({ input }) =>
+          templateClient.createThing({ thingId: input.thingId, payload: input.payload })),
+
+      getThing: builder.getThing
+        .use(requireAuth)
+        .handler(async ({ input }) =>
+          templateClient.getThing({ thingId: input.thingId })),
+
+      listThings: builder.listThings
+        .use(requireAuth)
+        .handler(async ({ input }) =>
+          templateClient.listThings(input)),
+
+      deleteThing: builder.deleteThing
+        .use(requireAuth)
+        .handler(async ({ input }) =>
+          templateClient.deleteThing({ thingId: input.thingId })),
 
       testError: builder.testError.handler(async ({ input }) => {
         switch (input.kind) {
