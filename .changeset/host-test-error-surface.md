@@ -2,6 +2,7 @@
 "host": minor
 "api": minor
 "@every-plugin/template": patch
+"every-plugin": patch
 ---
 
 Remove `_viewer` paths from the host and add structured error testing surface.
@@ -13,3 +14,4 @@ Remove `_viewer` paths from the host and add structured error testing surface.
 - Append template plugin's thing routes (`/api/things`) to the API router with `requireAuth`, restoring the host-level `/api/things` surface via `_plugins.template()` passthrough
 - Add regression tests verifying structured error responses, security headers (CSP/CSRF/X-Frame-Options), body-size limiting, and rate limiting
 - Add router-composition note to `plans/orpc-v2-effect-migration.md` (Phase 1.7) for future direct-router merging in `every-plugin`
+- Standalone plugin dev servers now load declared `dependsOn` sibling plugins via `BOS_RUNTIME_CONFIG`, enabling `_plugins.*()` in `initialize` during local development

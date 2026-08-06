@@ -289,9 +289,7 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
       ...(port > 0 ? { PORT: String(port) } : {}),
     };
 
-    if (name === "host") {
-      envVars.BOS_RUNTIME_CONFIG = JSON.stringify(runtimeConfig);
-    }
+    envVars.BOS_RUNTIME_CONFIG = JSON.stringify(runtimeConfig);
 
     const cmd = Command.make(command, ...args).pipe(
       Command.workingDirectory(fullCwd),

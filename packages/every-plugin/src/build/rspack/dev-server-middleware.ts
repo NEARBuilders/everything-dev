@@ -18,6 +18,61 @@ const normalizePrefix = (prefix?: string): string => {
   return cleaned ? `/${cleaned}` : "";
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const readRuntimeConfigFromEnv = (): any => {
+  const raw = process.env.BOS_RUNTIME_CONFIG;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+const collectSiblingRemotes = (runtimeConfig: any, pluginId: string) => {
+  const siblings: Record<string, { remote: string }> = {};
+
+  const isApi =
+    pluginId === "api" || runtimeConfig?.api?.name === pluginId;
+
+  const ownKey = runtimeConfig?.plugins?.[pluginId] ? pluginId : null;
+  let dependsOn: string[] = [];
+  if (ownKey) {
+    dependsOn = runtimeConfig.plugins[ownKey].dependsOn ?? [];
+  } else if (isApi) {
+    dependsOn = runtimeConfig?.api?.dependsOn ?? [];
+  }
+
+  for (const depId of dependsOn) {
+    const dep = runtimeConfig?.plugins?.[depId];
+    if (!dep || dep.source !== "local" || !dep.url) continue;
+    if (depId === pluginId) continue;
+    const base = dep.url.replace(/\/$/, "");
+    siblings[depId] = { remote: `${base}/remoteEntry.js` };
+  }
+
+  return { siblings, dependsOn };
+};
+
+const loadPluginWithRetry = async (
+  runtime: any,
+  pluginId: string,
+  timeoutMs = 90000,
+): Promise<any> => {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      return await runtime.usePlugin(pluginId, { variables: {}, secrets: {} } as any);
+    } catch (error) {
+      lastError = error;
+      await sleep(500);
+    }
+  }
+  throw lastError;
+};
+
 export function setupPluginMiddleware(
   devServer: any,
   pluginInfo: PluginInfo,
@@ -49,18 +104,40 @@ export function setupPluginMiddleware(
 
       const pluginId = devConfig?.pluginId || pluginInfo.normalizedName;
 
-      const runtime = createPluginRuntime({
-        registry: {
-          [pluginId]: {
-            remote: `http://localhost:${port}/remoteEntry.js`,
-          },
+      const runtimeConfig = readRuntimeConfigFromEnv();
+      const { siblings, dependsOn } = collectSiblingRemotes(runtimeConfig, pluginId);
+
+      if (dependsOn.length > 0) {
+        console.log(
+          `│  🔗 Loading sibling plugin(s) for ${pluginId}: ${dependsOn.join(", ")}`,
+        );
+      }
+
+      const registry: Record<string, { remote: string }> = {
+        [pluginId]: {
+          remote: `http://localhost:${port}/remoteEntry.js`,
         },
+        ...siblings,
+      };
+
+      const runtime = createPluginRuntime({
+        registry,
       });
 
       const defaultConfig = { variables: {}, secrets: {} };
 
-      // @ts-expect-error we don't know the plugin id
-      const loaded = await runtime.usePlugin(pluginId, (devConfig?.config ?? defaultConfig) as any);
+      const pluginsMap: Record<string, unknown> = {};
+      for (const depId of Object.keys(siblings)) {
+        const dep = await loadPluginWithRetry(runtime, depId);
+        pluginsMap[depId] = dep.createClient;
+        console.log(`│  ✅ Loaded dependency plugin: ${depId}`);
+      }
+
+      const loaded: any = await runtime.usePlugin<typeof pluginId>(
+        pluginId,
+        (devConfig?.config ?? defaultConfig) as any,
+        Object.keys(pluginsMap).length > 0 ? pluginsMap : undefined,
+      );
 
       cleanup = async () => {
         handlers.rpc = null;

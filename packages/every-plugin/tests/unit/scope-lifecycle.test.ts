@@ -207,7 +207,9 @@ describe("Scope lifecycle", () => {
           );
           return yield* Effect.fail(new Error("intentional init failure"));
         }),
-      createRouter: () => ({}),
+      createRouter: (_deps, builder) => ({
+        ping: builder.ping.handler(async () => ({ ok: true as const })),
+      }),
     });
 
     const runtime = createPluginRuntime({
@@ -305,12 +307,12 @@ describe("Scope lifecycle", () => {
     expect(routerCallCount).toBe(1);
 
     // createClient should not call createRouter again
-    const client = result.createClient({});
+    const client = result.createClient();
     expect(client).toBeDefined();
     expect(routerCallCount).toBe(1);
 
     // Second createClient still reuses the same router
-    const client2 = result.createClient({});
+    const client2 = result.createClient();
     expect(client2).toBeDefined();
     expect(routerCallCount).toBe(1);
 
