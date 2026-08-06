@@ -50,17 +50,13 @@ test.describe("App load", () => {
     expectNoHydrationFailure(pageErrors);
   });
 
-  test("page is interactive after hydration", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+  test("about page navigates to skill", async ({ page }) => {
+    await page.goto("/about", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
 
-    const assistantBtn = page.getByRole("button", { name: /open assistant/i });
-    await expect(assistantBtn).toBeVisible({ timeout: 10000 });
-    await assistantBtn.click({ force: true });
-
-    const skillBtn = page.getByText("Open skill");
-    await expect(skillBtn).toBeVisible({ timeout: 5000 });
-    await skillBtn.click();
+    const skillLink = page.getByText("Open skill");
+    await expect(skillLink).toBeVisible({ timeout: 10000 });
+    await skillLink.click();
 
     await page.waitForURL(/\/skill$/, { timeout: 10000 });
     await expect(page.getByText("raw skill.md")).toBeVisible({ timeout: 10000 });

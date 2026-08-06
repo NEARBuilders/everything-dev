@@ -68,7 +68,9 @@ export const ComposableAppEntrySchema = z.object({
 });
 export type ComposableAppEntry = z.infer<typeof ComposableAppEntrySchema>;
 
-export const ApiPluginConfigSchema = ComposableAppEntrySchema;
+export const ApiPluginConfigSchema = ComposableAppEntrySchema.extend({
+  dependsOn: z.array(z.string()).optional(),
+});
 export type ApiPluginConfig = z.infer<typeof ApiPluginConfigSchema>;
 
 export const PluginUiConfigSchema = z.object({
@@ -273,7 +275,7 @@ export const BosConfigSchema = z.object({
   app: z.object({
     host: HostConfigSchema,
     ui: UiConfigSchema,
-    api: ComposableAppEntrySchema,
+    api: ApiPluginConfigSchema,
     auth: ComposableAppEntrySchema.optional(),
   }),
 });

@@ -823,6 +823,7 @@ export async function buildRuntimeConfig(
       secrets: apiConfig.secrets,
       integrity: apiIsRemote ? apiConfig.integrity : undefined,
       shared: apiConfig.shared,
+      dependsOn: apiConfig.dependsOn ? normalizeStringArray(apiConfig.dependsOn) : undefined,
     },
     auth: (() => {
       if (!authConfig || !authRuntime) return undefined;

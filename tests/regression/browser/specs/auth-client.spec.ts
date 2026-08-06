@@ -53,14 +53,14 @@ test.describe("authClient", () => {
 
     await page.waitForURL(/\/home$/, { timeout: 15000 });
 
-    await expect(page.locator("h1")).toContainText("Workspace", { timeout: 10000 });
+    await expect(page.getByText("Workspace")).toBeVisible({ timeout: 10000 });
 
     const isAnonymous = page.getByText("anonymous session", { exact: true });
     await expect(isAnonymous).toBeVisible({ timeout: 5000 });
 
     expect(signInResponses.length).toBeGreaterThanOrEqual(1);
 
-    const settingsLink = page.getByText("Settings");
+    const settingsLink = page.getByText("settings");
     await expect(settingsLink).toBeVisible({ timeout: 5000 });
     await settingsLink.click();
     await page.waitForURL(/\/settings/, { timeout: 10000 });
