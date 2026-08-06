@@ -73,6 +73,9 @@
     "template": {
       "development": "local:plugins/_template",
       "production": "https://elliot-braem-6878-every-plugin-template-everythin-83a69c153-ze.zephyrcloud.app",
+      "secrets": [
+        "TEMPLATE_DATABASE_URL"
+      ],
       "integrity": "sha384-G4yrA0f+4PEF/lNxB5GIZO8azVCVFne5OHlVNrzWYVnTVczbChroAxZ//DU2uzmT"
     }
   }
