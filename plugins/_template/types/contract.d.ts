@@ -17,10 +17,34 @@ export declare const BackgroundEventSchema: z.ZodObject<{
     index: z.ZodNumber;
     timestamp: z.ZodNumber;
 }, z.core.$strip>;
-export declare const ThingPayloadSchema: z.ZodObject<{
+export declare const ThingSchema: z.ZodObject<{
+    thingId: z.ZodString;
     type: z.ZodString;
     payload: z.ZodUnknown;
-    action: z.ZodOptional<z.ZodString>;
+    createdAt: z.ZodString;
+    updatedAt: z.ZodString;
+}, z.core.$strip>;
+export declare const CreatedThingSchema: z.ZodObject<{
+    thingId: z.ZodString;
+    type: z.ZodString;
+    payload: z.ZodUnknown;
+    createdAt: z.ZodString;
+    updatedAt: z.ZodString;
+    action: z.ZodString;
+}, z.core.$strip>;
+export declare const ListThingsSchema: z.ZodObject<{
+    data: z.ZodArray<z.ZodObject<{
+        thingId: z.ZodString;
+        type: z.ZodString;
+        payload: z.ZodUnknown;
+        createdAt: z.ZodString;
+        updatedAt: z.ZodString;
+    }, z.core.$strip>>;
+    meta: z.ZodObject<{
+        total: z.ZodNumber;
+        hasMore: z.ZodBoolean;
+        nextCursor: z.ZodNullable<z.ZodString>;
+    }, z.core.$strip>;
 }, z.core.$strip>;
 export declare const contract: {
     getById: import("@orpc/contract").ContractProcedure<z.ZodObject<{
@@ -38,6 +62,10 @@ export declare const contract: {
             message: string;
         };
         NOT_FOUND: {
+            status: number;
+            message: string;
+        };
+        CONFLICT: {
             status: number;
             message: string;
         };
@@ -85,25 +113,59 @@ export declare const contract: {
         thingId: z.ZodString;
         payload: z.ZodUnknown;
     }, z.core.$strip>, z.ZodObject<{
+        thingId: z.ZodString;
         type: z.ZodString;
         payload: z.ZodUnknown;
-        action: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, Record<never, never>>, Record<never, never>>;
+        createdAt: z.ZodString;
+        updatedAt: z.ZodString;
+        action: z.ZodString;
+    }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, import("@orpc/contract").MergedErrorMap<Record<never, never>, {
+        CONFLICT: {
+            status: number;
+            message: string;
+        };
+    }>>, Record<never, never>>;
     getThing: import("@orpc/contract").ContractProcedure<z.ZodObject<{
         thingId: z.ZodString;
     }, z.core.$strip>, z.ZodObject<{
+        thingId: z.ZodString;
         type: z.ZodString;
         payload: z.ZodUnknown;
+        createdAt: z.ZodString;
+        updatedAt: z.ZodString;
     }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, import("@orpc/contract").MergedErrorMap<Record<never, never>, {
         NOT_FOUND: {
             status: number;
             message: string;
         };
     }>>, Record<never, never>>;
+    listThings: import("@orpc/contract").ContractProcedure<z.ZodObject<{
+        type: z.ZodOptional<z.ZodString>;
+        limit: z.ZodDefault<z.ZodNumber>;
+        cursor: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        data: z.ZodArray<z.ZodObject<{
+            thingId: z.ZodString;
+            type: z.ZodString;
+            payload: z.ZodUnknown;
+            createdAt: z.ZodString;
+            updatedAt: z.ZodString;
+        }, z.core.$strip>>;
+        meta: z.ZodObject<{
+            total: z.ZodNumber;
+            hasMore: z.ZodBoolean;
+            nextCursor: z.ZodNullable<z.ZodString>;
+        }, z.core.$strip>;
+    }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, Record<never, never>>, Record<never, never>>;
     deleteThing: import("@orpc/contract").ContractProcedure<z.ZodObject<{
         thingId: z.ZodString;
     }, z.core.$strip>, z.ZodObject<{
         success: z.ZodLiteral<true>;
-    }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, Record<never, never>>, Record<never, never>>;
+    }, z.core.$strip>, import("@orpc/contract").MergedErrorMap<Record<never, never>, import("@orpc/contract").MergedErrorMap<Record<never, never>, {
+        NOT_FOUND: {
+            status: number;
+            message: string;
+        };
+    }>>, Record<never, never>>;
 };
 export type ContractType = typeof contract;

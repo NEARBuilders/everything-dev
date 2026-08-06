@@ -196,6 +196,7 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
     extends: ExtendsSchema.optional(),
     account: z.string().optional(),
     domain: z.string().optional(),
+    status: z.enum(["active", "suspended", "pending_deletion"]).optional(),
     testnet: z.string().optional(),
     template: z.string().optional(),
     gateway: z
@@ -224,6 +225,7 @@ export interface BosConfigInput {
   extends?: string | ExtendsConfig;
   account?: string;
   domain?: string;
+  status?: "active" | "suspended" | "pending_deletion";
   title?: string;
   description?: string;
   testnet?: string;

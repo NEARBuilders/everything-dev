@@ -1,5 +1,4 @@
 import { Effect } from "every-plugin/effect";
-import { ORPCError } from "every-plugin/orpc";
 import type { z } from "every-plugin/zod";
 
 // Import types from contract
@@ -9,41 +8,21 @@ import type { ItemSchema, SearchResultSchema } from "./contract";
 type Item = z.infer<typeof ItemSchema>;
 type SearchResult = z.infer<typeof SearchResultSchema>;
 
-type StoredThing = {
-  thingId: string;
-  type: string;
-  payload: unknown;
-  createdAt: string;
-  updatedAt: string;
-};
-
 /**
  * Template Service - Wraps external API calls with Effect-based error handling.
  */
 export class TemplateService {
-  private readonly things = new Map<string, StoredThing>();
-
   constructor(
     private readonly baseUrl: string,
     readonly _apiKey: string,
     private readonly timeout: number,
   ) {}
 
-  private resolveThingType(payload: unknown) {
-    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-      const kind = (payload as Record<string, unknown>).kind;
-      if (typeof kind === "string" && kind.trim()) {
-        return `template.${kind.trim()}`;
-      }
-    }
-
-    return "template.thing";
-  }
-
   getById(id: string) {
+    const { baseUrl, timeout } = this;
     return Effect.gen(function* () {
       yield* Effect.logInfo(
-        `[TemplateService] Fetching from ${this.baseUrl} with timeout ${this.timeout}ms`,
+        `[TemplateService] Fetching from ${baseUrl} with timeout ${timeout}ms`,
       );
 
       return yield* Effect.tryPromise({
@@ -103,56 +82,6 @@ export class TemplateService {
       },
       catch: (error: unknown) =>
         new Error(`Health check failed: ${error instanceof Error ? error.message : String(error)}`),
-    });
-  }
-
-  createThing(thingId: string, payload: unknown) {
-    return Effect.sync(() => {
-      const now = new Date().toISOString();
-      const type = this.resolveThingType(payload);
-      const storedThing: StoredThing = {
-        thingId,
-        type,
-        payload,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      this.things.set(thingId, storedThing);
-
-      return {
-        type,
-        payload,
-        action: `${type}.created`,
-      };
-    });
-  }
-
-  getThing(thingId: string) {
-    return Effect.tryPromise({
-      try: async () => {
-        const thing = this.things.get(thingId);
-        if (!thing) {
-          throw new ORPCError("NOT_FOUND", { message: "Thing not found" });
-        }
-
-        return {
-          type: thing.type,
-          payload: thing.payload,
-        };
-      },
-      catch: (error: unknown) =>
-        error instanceof ORPCError
-          ? error
-          : new ORPCError("INTERNAL_SERVER_ERROR", {
-              message: `Failed to fetch thing: ${error instanceof Error ? error.message : String(error)}`,
-            }),
-    });
-  }
-
-  deleteThing(thingId: string) {
-    return Effect.sync(() => {
-      this.things.delete(thingId);
     });
   }
 }

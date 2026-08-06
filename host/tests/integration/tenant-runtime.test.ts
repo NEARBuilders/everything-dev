@@ -234,6 +234,56 @@ describe("resolveRequestRuntime", () => {
     ).rejects.toThrow("must extend bos://linktree.near/linktree.com");
   });
 
+  it("rejects a suspended tenant with 503 based on published config status", async () => {
+    loadRemoteConfigMock.mockResolvedValue({
+      source: "bos://alice.linktree.near/linktree.com",
+      rawConfig: {
+        extends: "bos://linktree.near/linktree.com",
+        status: "suspended",
+      },
+      config: {
+        account: "alice.linktree.near",
+        app: {
+          host: { development: "local:host", production: "https://host.example.com" },
+          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
+          api: { name: "api", production: "https://api.example.com" },
+        },
+      },
+      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
+    });
+
+    buildRuntimeConfigMock.mockResolvedValue(createBaseRuntimeConfig());
+
+    await expect(
+      resolveRequestRuntime(createBaseRuntimeConfig(), new Request("https://alice.linktree.com/")),
+    ).rejects.toMatchObject({ status: 503, message: "Tenant is suspended" });
+  });
+
+  it("rejects a pending_deletion tenant with 410 based on published config status", async () => {
+    loadRemoteConfigMock.mockResolvedValue({
+      source: "bos://alice.linktree.near/linktree.com",
+      rawConfig: {
+        extends: "bos://linktree.near/linktree.com",
+        status: "pending_deletion",
+      },
+      config: {
+        account: "alice.linktree.near",
+        app: {
+          host: { development: "local:host", production: "https://host.example.com" },
+          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
+          api: { name: "api", production: "https://api.example.com" },
+        },
+      },
+      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
+    });
+
+    buildRuntimeConfigMock.mockResolvedValue(createBaseRuntimeConfig());
+
+    await expect(
+      resolveRequestRuntime(createBaseRuntimeConfig(), new Request("https://alice.linktree.com/")),
+    ).rejects.toMatchObject({ status: 410, message: "Tenant has been deleted" });
+  });
+
   it("applies a tenant UI override and allows SSR for whitelisted tenants", async () => {
     const baseConfig = createBaseRuntimeConfig();
 

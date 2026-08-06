@@ -25,14 +25,15 @@ import {
   Button,
   Card,
   CardContent,
-  EmptyState,
+  InfoRow,
   Input,
-  PageContainer,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@/components";
+import { EmptyState as SharedEmptyState } from "@/components/empty-state";
+import { PageContainer } from "@/components/layout/page-container";
 
 type AuthClientType = import("@/app").AuthClient;
 
@@ -351,8 +352,8 @@ function OrganizationDetail() {
 
   if (isLoadingOrgs) {
     return (
-      <PageContainer variant="default">
-        <div className="flex items-center justify-center min-h-[30vh]">
+      <PageContainer variant="wide">
+        <div className="flex flex-col items-center justify-center min-h-[40vh]">
           <p className="text-sm text-muted-foreground">Loading organization...</p>
         </div>
       </PageContainer>
@@ -361,13 +362,13 @@ function OrganizationDetail() {
 
   if (!org) {
     return (
-      <PageContainer variant="default">
-        <EmptyState
+      <PageContainer variant="wide">
+        <SharedEmptyState
           icon={Building2}
           title="Organization not found"
           description="This organization does not exist or you do not have access."
           action={
-            <Button asChild variant="outline" size="sm">
+            <Button asChild variant="outline">
               <Link to="/organizations">back to organizations</Link>
             </Button>
           }
@@ -377,33 +378,33 @@ function OrganizationDetail() {
   }
 
   return (
-    <PageContainer variant="default">
+    <PageContainer variant="wide">
       <div className="space-y-6">
         <header className="space-y-2">
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            <Building2 size={14} />
-            <span>Organization</span>
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            <Users className="h-3 w-3" />
+            <Link to="/organizations" className="hover:text-foreground transition-colors">
+              Organizations
+            </Link>
+            <span>/</span>
+            <span className="text-foreground">{org.slug}</span>
           </div>
-          <div className="flex items-center justify-between gap-4">
-            <h1 className="text-xl font-semibold text-foreground">{org.name}</h1>
-            <Button asChild variant="outline" size="sm">
-              <Link to="/organizations">back</Link>
-            </Button>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+                {org.name}
+              </h1>
+            </div>
           </div>
-          <p className="text-sm text-muted-foreground">@{org.slug}</p>
         </header>
-        <div className="rounded-[12px] border border-border bg-card p-6">
-          <div className="flex flex-wrap items-center gap-2 mb-4">
+
+        <Card className="p-6 space-y-4 hover:shadow-md">
+          <div className="flex flex-wrap items-center gap-2">
             <Chip>organization</Chip>
             {isActive && <Chip accent>active</Chip>}
             {isPersonal && <Chip>personal</Chip>}
           </div>
-          <h2 className="text-foreground text-2xl font-semibold mb-1">{org.name}</h2>
-          <p className="text-muted-foreground text-sm font-mono mb-1">@{org.slug}</p>
-          <p className="text-muted-foreground text-sm leading-relaxed mb-4">
-            Manage membership, invitations, and organization-scoped API access.
-          </p>
-          <div className="flex flex-col gap-2 mb-4">
+          <div className="flex flex-col gap-2">
             <InfoRow label="members" value={String(members.length)} />
             <InfoRow label="invites" value={String(pendingInvitationsCount)} />
             <InfoRow label="api keys" value={String(apiKeys.length)} />
@@ -416,7 +417,6 @@ function OrganizationDetail() {
               <Button
                 onClick={() => switchOrgMutation.mutate()}
                 disabled={switchOrgMutation.isPending}
-                size="sm"
               >
                 {switchOrgMutation.isPending ? "switching..." : "switch to org"}
               </Button>
@@ -424,7 +424,6 @@ function OrganizationDetail() {
             {isOwner && !isPersonal && (
               <Button
                 variant="outline"
-                size="sm"
                 onClick={() => {
                   setEditName(org.name);
                   setEditSlug(org.slug);
@@ -438,7 +437,6 @@ function OrganizationDetail() {
             {!isPersonal && !isOwner && (
               <Button
                 variant="outline"
-                size="sm"
                 onClick={() => {
                   if (confirm(`Leave "${org.name}"?`)) {
                     leaveOrgMutation.mutate();
@@ -453,7 +451,6 @@ function OrganizationDetail() {
             {isOwner && !isPersonal && (
               <Button
                 variant="outline"
-                size="sm"
                 onClick={() => {
                   if (confirm(`Delete "${org.name}"? This cannot be undone.`)) {
                     deleteOrgMutation.mutate();
@@ -466,10 +463,10 @@ function OrganizationDetail() {
               </Button>
             )}
           </div>
-        </div>
+        </Card>
 
         {isEditing && isOwner && (
-          <div className="rounded-[12px] border border-border bg-card p-6 space-y-4">
+          <Card className="p-6 space-y-4 hover:shadow-md">
             <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
               Edit Organization
             </div>
@@ -495,15 +492,14 @@ function OrganizationDetail() {
               <Button
                 onClick={() => updateOrgMutation.mutate({ name: editName, slug: editSlug })}
                 disabled={updateOrgMutation.isPending || !editName || !editSlug}
-                size="sm"
               >
                 {updateOrgMutation.isPending ? "saving..." : "save"}
               </Button>
-              <Button onClick={() => setIsEditing(false)} variant="outline" size="sm">
+              <Button onClick={() => setIsEditing(false)} variant="outline">
                 cancel
               </Button>
             </div>
-          </div>
+          </Card>
         )}
 
         <Tabs defaultValue="members" className="w-full min-w-0">
@@ -536,15 +532,13 @@ function OrganizationDetail() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-[12px] border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-                No members found
-              </div>
+              <EmptyState label="No members found" />
             )}
           </TabsContent>
 
           <TabsContent value="invitations" className="space-y-6 pt-4">
             {canManageMembers && !isPersonal && (
-              <div className="rounded-[12px] border border-border bg-card p-6 space-y-4">
+              <Card className="p-6 space-y-4 hover:shadow-md">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   Invite member
                 </div>
@@ -568,11 +562,10 @@ function OrganizationDetail() {
                   onClick={() => inviteMutation.mutate()}
                   disabled={inviteMutation.isPending || !inviteEmail}
                   variant="outline"
-                  size="sm"
                 >
                   {inviteMutation.isPending ? "sending..." : "send invitation"}
                 </Button>
-              </div>
+              </Card>
             )}
 
             {(() => {
@@ -599,21 +592,19 @@ function OrganizationDetail() {
                   ))}
                 </div>
               ) : (
-                <div className="rounded-[12px] border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-                  No pending invitations
-                </div>
+                <EmptyState label="No pending invitations" />
               );
             })()}
           </TabsContent>
 
           <TabsContent value="apikeys" className="space-y-6 pt-4">
             {canManageMembers && (
-              <div className="rounded-[12px] border border-border bg-card p-6">
+              <Card className="p-6 hover:shadow-md">
                 <ApiKeyForm
                   onCreate={(values: ApiKeyFormValues) => createApiKeyMutation.mutate(values)}
                   isPending={createApiKeyMutation.isPending}
                 />
-              </div>
+              </Card>
             )}
 
             {createdApiKey && (
@@ -623,10 +614,7 @@ function OrganizationDetail() {
             {apiKeys.length > 0 ? (
               <div className="grid gap-4 md:grid-cols-2">
                 {apiKeys.map((key) => (
-                  <div
-                    key={key.id}
-                    className="rounded-[12px] border border-border bg-card p-5 space-y-3"
-                  >
+                  <Card key={key.id} className="p-5 space-y-3 hover:shadow-md">
                     <div className="space-y-1 min-w-0">
                       <div className="font-medium text-foreground break-all">
                         {key.name ?? "unnamed"}
@@ -645,7 +633,6 @@ function OrganizationDetail() {
                       <Button
                         onClick={() => handleCopyApiKey(key.start || "", "Key prefix copied")}
                         variant="outline"
-                        size="sm"
                       >
                         copy id
                       </Button>
@@ -654,36 +641,22 @@ function OrganizationDetail() {
                           onClick={() => deleteApiKeyMutation.mutate(key.id)}
                           disabled={deleteApiKeyMutation.isPending}
                           variant="outline"
-                          size="sm"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                           delete
                         </Button>
                       )}
                     </div>
-                  </div>
+                  </Card>
                 ))}
               </div>
             ) : (
-              <div className="rounded-[12px] border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-                No API keys
-              </div>
+              <EmptyState label="No API keys" />
             )}
           </TabsContent>
         </Tabs>
       </div>
     </PageContainer>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[100px_1fr] gap-4 rounded-[8px] border border-border bg-muted px-3.5 py-2.5 items-center">
-      <span className="text-muted-foreground text-[11px] font-bold uppercase tracking-wider">
-        {label}
-      </span>
-      <span className="text-foreground text-[13px] break-all">{value}</span>
-    </div>
   );
 }
 
@@ -695,6 +668,10 @@ function Chip({ children, accent }: { children: React.ReactNode; accent?: boolea
       {children}
     </span>
   );
+}
+
+function EmptyState({ label }: { label: string }) {
+  return <Card className="p-8 text-center text-sm text-muted-foreground">{label}</Card>;
 }
 
 interface MemberCardMember {
@@ -727,7 +704,7 @@ function MemberCard({
   const user = member.user;
 
   return (
-    <Card>
+    <Card className="hover:shadow-md">
       <CardContent className="p-5 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -830,7 +807,7 @@ function InvitationCard({
   isCancelling?: boolean;
 }) {
   return (
-    <Card>
+    <Card className="hover:shadow-md">
       <CardContent className="p-5 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1 min-w-0">
@@ -842,7 +819,7 @@ function InvitationCard({
           </div>
           <div className="flex gap-1 shrink-0">
             {onResend && (
-              <Button onClick={onResend} disabled={isResending} variant="outline" size="sm">
+              <Button onClick={onResend} disabled={isResending} variant="outline">
                 <RefreshCw className="h-3 w-3 mr-1" />
                 resend
               </Button>
@@ -852,7 +829,6 @@ function InvitationCard({
                 onClick={onCancel}
                 disabled={isCancelling}
                 variant="outline"
-                size="sm"
                 className="text-destructive hover:text-destructive"
               >
                 <Trash2 className="h-3 w-3 mr-1" />

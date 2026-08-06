@@ -3,7 +3,7 @@ import { Check, Copy, ExternalLink, FileText } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { getAccount, getActiveRuntime, getAppName } from "@/app";
-import { PageContainer } from "@/components";
+import { PageContainer } from "@/components/layout/page-container";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 

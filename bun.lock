@@ -209,8 +209,11 @@
       "name": "@every-plugin/template",
       "version": "1.2.1",
       "dependencies": {
+        "@electric-sql/pglite": "catalog:",
         "@orpc/contract": "catalog:",
         "@orpc/server": "catalog:",
+        "drizzle-orm": "catalog:",
+        "pg": "catalog:",
       },
       "devDependencies": {
         "@effect/language-service": "^0.85.1",
@@ -219,7 +222,9 @@
         "@rspack/cli": "catalog:",
         "@rspack/core": "catalog:",
         "@types/node": "catalog:",
+        "@types/pg": "catalog:",
         "dotenv": "^17.2.3",
+        "drizzle-kit": "catalog:",
         "every-plugin": "catalog:",
         "everything-dev": "catalog:",
         "vite-tsconfig-paths": "^5.1.4",

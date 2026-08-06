@@ -1,9 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { Users } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAuthClient } from "@/app";
 import { Button, Card, CardContent, Input } from "@/components";
+import { PageContainer } from "@/components/layout/page-container";
 
 export const Route = createFileRoute("/_layout/_authenticated/organizations/new")({
   head: () => ({
@@ -60,89 +62,95 @@ function NewOrganization() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">New Organization</h1>
-          <p className="text-sm text-muted-foreground">
-            Create a workspace for team members and organization API keys.
-          </p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/organizations">back to organizations</Link>
-        </Button>
-      </div>
+    <PageContainer variant="narrow">
+      <div className="space-y-6">
+        <header className="space-y-2">
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            <Users className="h-3 w-3" />
+            Teams
+          </div>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+                New Organization
+              </h1>
+            </div>
+            <Button asChild variant="outline">
+              <Link to="/organizations">back to organizations</Link>
+            </Button>
+          </div>
+        </header>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          createMutation.mutate();
-        }}
-        className="space-y-6"
-      >
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <Field label="name" htmlFor="organization-name">
-              <Input
-                id="organization-name"
-                type="text"
-                value={name}
-                onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="My Team"
-                required
-              />
-            </Field>
-            <Field label="slug" htmlFor="organization-slug">
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">@</span>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            createMutation.mutate();
+          }}
+          className="space-y-6"
+        >
+          <Card>
+            <CardContent className="p-6 space-y-4">
+              <Field label="name" htmlFor="organization-name">
                 <Input
-                  id="organization-slug"
+                  id="organization-name"
                   type="text"
-                  value={slug}
-                  onChange={(e) => setSlug(e.target.value.replace(/[^a-z0-9-]/g, ""))}
-                  placeholder="my-team"
-                  pattern="[a-z0-9-]+"
+                  value={name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  placeholder="My Team"
                   required
                 />
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Only lowercase letters, numbers, and hyphens.
-              </p>
-            </Field>
-          </CardContent>
-        </Card>
+              </Field>
+              <Field label="slug" htmlFor="organization-slug">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">@</span>
+                  <Input
+                    id="organization-slug"
+                    type="text"
+                    value={slug}
+                    onChange={(e) => setSlug(e.target.value.replace(/[^a-z0-9-]/g, ""))}
+                    placeholder="my-team"
+                    pattern="[a-z0-9-]+"
+                    required
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Only lowercase letters, numbers, and hyphens.
+                </p>
+              </Field>
+            </CardContent>
+          </Card>
 
-        <div className="flex gap-2">
-          <Button asChild variant="outline" size="sm">
-            <Link to="/organizations">cancel</Link>
-          </Button>
-          <Button
-            type="submit"
-            disabled={createMutation.isPending || !name || !slug}
-            variant="outline"
-            size="sm"
-          >
-            {createMutation.isPending ? "creating..." : "create"}
-          </Button>
-        </div>
-      </form>
+          <div className="flex gap-2">
+            <Button asChild variant="outline">
+              <Link to="/organizations">cancel</Link>
+            </Button>
+            <Button
+              type="submit"
+              disabled={createMutation.isPending || !name || !slug}
+              variant="outline"
+            >
+              {createMutation.isPending ? "creating..." : "create"}
+            </Button>
+          </div>
+        </form>
 
-      <section className="space-y-4">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-          What Happens Next
-        </h2>
-        <Card>
-          <CardContent className="p-4">
-            <ul className="space-y-2 text-xs text-muted-foreground">
-              <li>• Your organization will be created immediately</li>
-              <li>• You'll be the owner with full permissions</li>
-              <li>• You can invite team members from the organization settings</li>
-              <li>• You can switch between organizations anytime</li>
-            </ul>
-          </CardContent>
-        </Card>
-      </section>
-    </div>
+        <section className="space-y-4">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+            What Happens Next
+          </h2>
+          <Card>
+            <CardContent className="p-4">
+              <ul className="space-y-2 text-xs text-muted-foreground">
+                <li>• Your organization will be created immediately</li>
+                <li>• You'll be the owner with full permissions</li>
+                <li>• You can invite team members from the organization settings</li>
+                <li>• You can switch between organizations anytime</li>
+              </ul>
+            </CardContent>
+          </Card>
+        </section>
+      </div>
+    </PageContainer>
   );
 }
 

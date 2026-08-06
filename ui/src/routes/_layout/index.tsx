@@ -1,125 +1,122 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { AnimatePresence, motion } from "framer-motion";
-import { Copy, ExternalLink, Sparkles } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-
-type SearchParams = {
-  path?: string;
-};
+import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { Building2, Plus, Shield } from "lucide-react";
+import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
+import { Button, Card } from "@/components";
+import { PageContainer } from "@/components/layout/page-container";
 
 export const Route = createFileRoute("/_layout/")({
-  validateSearch: (search: Record<string, unknown>): SearchParams => ({
-    path: typeof search.path === "string" && search.path.length > 0 ? search.path : undefined,
-  }),
-  component: HomeViewerPage,
+  beforeLoad: async ({ context }) => {
+    const { authClient } = context;
+    const session = await context.queryClient.ensureQueryData(
+      sessionQueryOptions(authClient, context.session),
+    );
+    if (!session?.user) {
+      throw redirect({ to: "/login" });
+    }
+  },
+  component: TenantListPage,
 });
 
-function HomeViewerPage() {
-  const { path } = Route.useSearch();
-  const iframeSrc = path ? `./_viewer?path=${encodeURIComponent(path)}` : "./_viewer";
+function TenantListPage() {
+  const apiClient = useApiClient();
+  const auth = useAuthClient();
+  const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
+
+  const { data: tenants = [], isLoading } = useQuery({
+    queryKey: ["tenants"],
+    queryFn: () => apiClient.listTenants(),
+    staleTime: 30_000,
+  });
 
   return (
-    <div className="relative h-full w-full bg-background">
-      <iframe
-        title="BOS viewer"
-        src={iframeSrc}
-        loading="eager"
-        allow="clipboard-read; clipboard-write"
-        sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
-        className="block h-full w-full border-0 bg-background"
-      />
-      <FloatingSkillAssistant />
-    </div>
+    <PageContainer variant="wide">
+      <div className="space-y-8">
+        <header className="space-y-2">
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            <Building2 className="h-3 w-3" />
+            Tenants
+          </div>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+                {session?.user?.name || session?.user?.email || "Your"} Tenants
+              </h1>
+            </div>
+            <Button asChild variant="outline">
+              <Link to="/tenant/new">
+                <Plus className="h-4 w-4" />
+                create tenant
+              </Link>
+            </Button>
+          </div>
+        </header>
+
+        {isLoading ? (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((n) => (
+              <Card key={n} className="p-6 space-y-4">
+                <div className="h-5 w-3/4 rounded-[4px] animate-pulse bg-muted" />
+                <div className="h-4 w-1/2 rounded-[4px] animate-pulse bg-muted" />
+                <div className="h-10 w-full rounded-[12px] animate-pulse bg-muted" />
+              </Card>
+            ))}
+          </div>
+        ) : tenants.length === 0 ? (
+          <Card className="p-10 text-center space-y-4 items-center">
+            <Building2 className="h-10 w-10 mx-auto text-muted-foreground" />
+            <p className="text-base font-semibold text-foreground">No tenants yet.</p>
+            <p className="text-sm text-muted-foreground">
+              Create a tenant to deploy your own app with custom UI and API.
+            </p>
+            <Button asChild variant="outline">
+              <Link to="/tenant/new">
+                <Plus className="h-4 w-4" />
+                create your first tenant
+              </Link>
+            </Button>
+          </Card>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {tenants.map((tenant) => (
+              <Card key={tenant.id} className="p-6 space-y-4 hover:shadow-md">
+                <div className="space-y-1">
+                  <div className="text-lg font-semibold text-foreground">{tenant.name}</div>
+                  <div className="text-[11px] font-mono text-muted-foreground">
+                    {tenant.subdomain}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <TenantMeta label="account" value={tenant.accountId} mono />
+                  <TenantMeta
+                    label="created"
+                    value={tenant.createdAt ? new Date(tenant.createdAt).toLocaleDateString() : "—"}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button asChild variant="outline">
+                    <Link to="/admin">
+                      <Shield className="h-3.5 w-3.5" />
+                      manage
+                    </Link>
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </PageContainer>
   );
 }
 
-function FloatingSkillAssistant() {
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const issueUrl = "https://github.com/NEARBuilders/everything-dev/issues/new";
-
-  const handleCopy = async () => {
-    const rawSkillUrl = "/skill.md";
-    await navigator.clipboard.writeText(rawSkillUrl);
-    setCopied(true);
-    toast.success("Skill URL copied");
-    setTimeout(() => setCopied(false), 2000);
-  };
-
+function TenantMeta({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="pointer-events-none fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.98 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            className="pointer-events-auto w-[min(22rem,calc(100vw-2rem))] rounded-[24px] border border-border bg-card/95 p-4 shadow-2xl backdrop-blur"
-          >
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Sparkles size={16} />
-              Assistant
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <Button asChild className="justify-start">
-                <Link to="/skill" preload="intent" onClick={() => setOpen(false)}>
-                  <Sparkles size={14} />
-                  Open skill
-                </Link>
-              </Button>
-              <Button variant="outline" asChild className="justify-start">
-                <a href={issueUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink size={14} />
-                  Report issue
-                </a>
-              </Button>
-              <Button variant="outline" asChild className="justify-start">
-                <Link to="/about" preload="intent" onClick={() => setOpen(false)}>
-                  <ExternalLink size={14} />
-                  About
-                </Link>
-              </Button>
-              <Button variant="outline" className="justify-start" onClick={handleCopy}>
-                <Copy size={14} />
-                {copied ? "Copied URL" : "Copy skill URL"}
-              </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <motion.button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        animate={
-          open
-            ? { y: 0, scale: 1.02 }
-            : {
-                y: [0, -34, 0, -15, 0, -6, 0],
-                scale: [1, 1.02, 0.97, 1.01, 0.992, 1, 1],
-              }
-        }
-        transition={
-          open
-            ? { duration: 0.25, ease: "easeOut" }
-            : {
-                duration: 2.8,
-                ease: [0.22, 1, 0.36, 1],
-                repeat: Number.POSITIVE_INFINITY,
-                times: [0, 0.18, 0.34, 0.5, 0.66, 0.8, 1],
-              }
-        }
-        whileTap={{ scale: 0.97 }}
-        aria-expanded={open}
-        aria-label={open ? "Close assistant" : "Open assistant"}
-        className="pointer-events-auto relative h-24 w-24 cursor-pointer rounded-full border border-white/10 bg-black text-white shadow-[0_20px_50px_rgba(0,0,0,0.45)]"
-      >
-        <span className="absolute inset-[10%] rounded-full bg-[radial-gradient(circle_at_30%_28%,rgba(255,255,255,0.24),rgba(255,255,255,0.05)_28%,transparent_44%)]" />
-        <span className="absolute inset-[18%] rounded-full border border-white/6" />
-      </motion.button>
+    <div className="flex items-center gap-2 text-xs">
+      <span className="text-muted-foreground uppercase tracking-wide shrink-0">{label}</span>
+      <span className={`text-foreground truncate ${mono ? "font-mono text-[11px]" : ""}`}>
+        {value}
+      </span>
     </div>
   );
 }

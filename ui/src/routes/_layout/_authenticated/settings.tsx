@@ -1,7 +1,8 @@
 import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { Settings } from "lucide-react";
 import { sessionQueryOptions } from "@/app";
-import { PageContainer, Tabs, TabsList, TabsTrigger } from "@/components";
+import { Tabs, TabsList, TabsTrigger } from "@/components";
+import { PageContainer } from "@/components/layout/page-container";
 
 export const Route = createFileRoute("/_layout/_authenticated/settings")({
   head: () => ({
@@ -31,17 +32,20 @@ function SettingsLayout() {
     tabs.find((t) => pathname === t.to || pathname.startsWith(`${t.to}/`))?.value ?? "profile";
 
   return (
-    <PageContainer variant="default">
+    <PageContainer variant="wide">
       <div className="space-y-6">
         <header className="space-y-2">
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            <Settings size={14} />
-            <span>Account</span>
+          <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            <Settings className="h-3 w-3" />
+            Account
           </div>
-          <h1 className="text-xl font-semibold text-foreground">Settings</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage your account identity and security settings.
-          </p>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+                Settings
+              </h1>
+            </div>
+          </div>
         </header>
 
         <Tabs value={activeTab} className="w-full min-w-0">

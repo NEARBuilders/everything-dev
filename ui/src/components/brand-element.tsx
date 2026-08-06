@@ -2,7 +2,7 @@ interface BrandElementProps {
   appName: string;
   showText?: boolean;
   className?: string;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
 }
 
 export function BrandElement({
@@ -11,8 +11,8 @@ export function BrandElement({
   className = "",
   size = "md",
 }: BrandElementProps) {
-  const boxSize = size === "sm" ? "w-8 h-8" : "w-10 h-10";
-  const iconSize = size === "sm" ? "w-4 h-4" : "w-5 h-5";
+  const boxSize = size === "sm" ? "w-8 h-8" : size === "lg" ? "w-14 h-14" : "w-10 h-10";
+  const iconSize = size === "sm" ? "w-4 h-4" : size === "lg" ? "w-7 h-7" : "w-5 h-5";
 
   return (
     <div className={`flex items-center justify-center gap-3 ${className}`}>

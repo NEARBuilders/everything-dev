@@ -12,7 +12,8 @@ export default {
       timeout: 10000,
     },
     secrets: {
-      apiKey: process.env.TEMPLATE_PLUGIN_API_KEY || "dev-key-12345",
+      TEMPLATE_API_KEY: process.env.TEMPLATE_API_KEY || "dev-key-12345",
+      TEMPLATE_DATABASE_URL: process.env.TEMPLATE_DATABASE_URL || "pglite:.bos/_template/:memory:",
     },
   } satisfies PluginConfigInput<typeof Plugin>,
 };

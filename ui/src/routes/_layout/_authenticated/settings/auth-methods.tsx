@@ -4,7 +4,7 @@ import { KeyRound, Mail, Wallet } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { type SessionData, sessionQueryOptions, useAuthClient } from "@/app";
-import { Button, ConfirmDialog, Input } from "@/components";
+import { Button, Card, ConfirmDialog, Input } from "@/components";
 
 export const Route = createFileRoute("/_layout/_authenticated/settings/auth-methods")({
   component: AuthMethodsSettings,
@@ -29,9 +29,9 @@ function AuthMethodsSettings() {
 
 function EmailMethod({ user }: { user: { email?: string; isAnonymous?: boolean | null } }) {
   return (
-    <div className="rounded-[12px] border border-border bg-card p-6 space-y-4">
+    <Card className="p-6 space-y-4">
       <div className="flex items-start gap-4">
-        <div className="w-10 h-10 rounded-[10px] border border-border bg-muted flex items-center justify-center shrink-0">
+        <div className="w-10 h-10 rounded-[10px] border-2 border-outset border-border-strong bg-muted flex items-center justify-center shrink-0">
           <Mail className="h-4 w-4 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1 space-y-1">
@@ -44,7 +44,7 @@ function EmailMethod({ user }: { user: { email?: string; isAnonymous?: boolean |
           </p>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -73,9 +73,9 @@ function NearMethod({ nearAccountId }: { nearAccountId: string | null }) {
   });
 
   return (
-    <div className="rounded-[12px] border border-border bg-card p-6 space-y-4">
+    <Card className="p-6 space-y-4">
       <div className="flex items-start gap-4">
-        <div className="w-10 h-10 rounded-[10px] border border-border bg-muted flex items-center justify-center shrink-0">
+        <div className="w-10 h-10 rounded-[10px] border-2 border-outset border-border-strong bg-muted flex items-center justify-center shrink-0">
           <Wallet className="h-4 w-4 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1 space-y-1">
@@ -89,19 +89,18 @@ function NearMethod({ nearAccountId }: { nearAccountId: string | null }) {
             </div>
           ) : (
             <div className="flex items-center gap-3 pt-1">
-              <button
-                type="button"
+              <Button
                 onClick={() => linkNearMutation.mutate()}
                 disabled={linkNearMutation.isPending}
-                className="h-9 px-4 inline-flex items-center justify-center gap-2 text-sm font-medium border-2 border-outset border-border-strong bg-card text-foreground shadow-sm hover:shadow-md hover:bg-muted active:border-inset active:shadow-none transition-all duration-200 ease-out disabled:pointer-events-none disabled:opacity-50 rounded-[12px]"
+                variant="outline"
               >
                 {linkNearMutation.isPending ? "connecting..." : "connect NEAR wallet"}
-              </button>
+              </Button>
             </div>
           )}
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -155,9 +154,9 @@ function PasskeysMethod() {
 
   return (
     <>
-      <div className="rounded-[12px] border border-border bg-card p-6 space-y-4">
+      <Card className="p-6 space-y-4">
         <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-[10px] border border-border bg-muted flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-[10px] border-2 border-outset border-border-strong bg-muted flex items-center justify-center shrink-0">
             <KeyRound className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="min-w-0 flex-1 space-y-3">
@@ -183,7 +182,6 @@ function PasskeysMethod() {
                       onClick={() => setPasskeyToDelete(passkey)}
                       disabled={removePasskeyMutation.isPending}
                       variant="outline"
-                      size="sm"
                     >
                       remove
                     </Button>
@@ -204,14 +202,13 @@ function PasskeysMethod() {
                 onClick={() => addPasskeyMutation.mutate()}
                 disabled={addPasskeyMutation.isPending}
                 variant="outline"
-                size="sm"
               >
                 {addPasskeyMutation.isPending ? "adding..." : "add passkey"}
               </Button>
             </div>
           </div>
         </div>
-      </div>
+      </Card>
 
       <ConfirmDialog
         open={!!passkeyToDelete}

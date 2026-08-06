@@ -18,7 +18,10 @@
   },
   "dependencies": {
     "@orpc/contract": "catalog:",
-    "@orpc/server": "catalog:"
+    "@orpc/server": "catalog:",
+    "drizzle-orm": "catalog:",
+    "pg": "catalog:",
+    "@electric-sql/pglite": "catalog:"
   },
   "devDependencies": {
     "@effect/language-service": "^0.85.1",
@@ -26,8 +29,10 @@
     "@rspack/cli": "catalog:",
     "@rspack/core": "catalog:",
     "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "@proj-airi/unplugin-drizzle-orm-migrations": "^0.1.4",
     "dotenv": "^17.2.3",
+    "drizzle-kit": "catalog:",
     "everything-dev": "catalog:",
     "every-plugin": "catalog:",
     "vite-tsconfig-paths": "^5.1.4",
@@ -42,6 +47,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit"
   }
 }

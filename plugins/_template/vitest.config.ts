@@ -1,3 +1,4 @@
+import DrizzleORMMigrations from "@proj-airi/unplugin-drizzle-orm-migrations/vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig } from "vitest/config";
 
@@ -13,5 +14,6 @@ export default defineConfig({
     tsconfigPaths({
       projects: ["./tsconfig.json"],
     }),
+    DrizzleORMMigrations(),
   ],
 });

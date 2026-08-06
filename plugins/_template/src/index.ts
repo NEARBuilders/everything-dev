@@ -1,12 +1,14 @@
 import { createPlugin } from "every-plugin";
-import { Effect } from "every-plugin/effect";
+import { Effect, Layer } from "every-plugin/effect";
 import { getEventMeta, MemoryPublisher, ORPCError } from "every-plugin/orpc";
 import { z } from "every-plugin/zod";
 
 import { contract } from "./contract";
-import { ContextSchema } from "./lib/context";
+import { DatabaseLive } from "./db/layer";
+import { ContextSchema, runEffect } from "./lib/context";
 import type { PluginsClient } from "./plugins-client.gen";
 import { TemplateService } from "./service";
+import { ThingsService } from "./services/things";
 
 type BackgroundEvents = {
   "background-updates": {
@@ -46,29 +48,34 @@ export default createPlugin.withPlugins<PluginsClient>()({
   }),
 
   secrets: z.object({
-    apiKey: z.string().min(1, "API key is required").default("template-dev-key"),
+    TEMPLATE_API_KEY: z.string().min(1, "TEMPLATE_API_KEY is required").default("template-dev-key"),
+    TEMPLATE_DATABASE_URL: z
+      .string()
+      .default("pglite:.bos/_template/:memory:")
+      .describe("Database connection string. Use pglite: for local, postgres:// for production."),
   }),
 
   context: ContextSchema,
 
   contract,
 
-  initialize: (config, _plugins, _tools) =>
+  initialize: (config, _plugins, tools) =>
     Effect.gen(function* () {
       const service = new TemplateService(
         config.variables.baseUrl,
-        config.secrets.apiKey,
+        config.secrets.TEMPLATE_API_KEY,
         config.variables.timeout,
       );
 
       yield* service.ping();
 
-      // For scoped resources (DB pools, caches, repositories):
-      // import { Layer } from "every-plugin/effect";
-      // const repo = yield* tools.buildService(
-      //   MyRepoTag,
-      //   MyRepoLive.pipe(Layer.provide(DatabaseLive(config.secrets.MY_DATABASE_URL))),
-      // );
+      // Scoped DB-backed service (pool lifecycle is bound to the plugin scope).
+      const thingsService = yield* tools.buildService(
+        ThingsService,
+        ThingsService.Live.pipe(
+          Layer.provide(DatabaseLive(config.secrets.TEMPLATE_DATABASE_URL)),
+        ),
+      );
 
       const publisher = new MemoryPublisher<BackgroundEvents>({
         resumeRetentionSeconds: 60 * 2,
@@ -100,16 +107,19 @@ export default createPlugin.withPlugins<PluginsClient>()({
         );
       }
 
-      return { service, publisher };
+      return { service, thingsService, publisher };
     }),
 
   shutdown: () => Effect.void,
 
   createRouter: (context, builder) => {
-    const { service, publisher } = context;
+    const { service, thingsService, publisher } = context;
 
     return {
       getById: builder.getById.handler(async ({ input, context }) => {
+        if (!context.userId) {
+          throw new ORPCError("UNAUTHORIZED", { message: "User ID required" });
+        }
         try {
           const item = await Effect.runPromise(service.getById(input.id));
           return { item, userId: context.userId };
@@ -165,16 +175,19 @@ export default createPlugin.withPlugins<PluginsClient>()({
       }),
 
       createThing: builder.createThing.handler(async ({ input }) => {
-        return await Effect.runPromise(service.createThing(input.thingId, input.payload));
+        return await runEffect(thingsService.createThing(input.thingId, input.payload));
       }),
 
       getThing: builder.getThing.handler(async ({ input }) => {
-        return await Effect.runPromise(service.getThing(input.thingId));
+        return await runEffect(thingsService.getThing(input.thingId));
+      }),
+
+      listThings: builder.listThings.handler(async ({ input }) => {
+        return await runEffect(thingsService.listThings(input));
       }),
 
       deleteThing: builder.deleteThing.handler(async ({ input }) => {
-        await Effect.runPromise(service.deleteThing(input.thingId));
-        return { success: true as const };
+        return await runEffect(thingsService.deleteThing(input.thingId));
       }),
     };
   },

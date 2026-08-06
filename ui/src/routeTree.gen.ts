@@ -27,6 +27,7 @@ import { Route as LayoutAuthenticatedSettingsIndexRouteImport } from './routes/_
 import { Route as LayoutAuthenticatedOrganizationsIndexRouteImport } from './routes/_layout/_authenticated/organizations/index'
 import { Route as LayoutAppsAccountIdGatewayIdRouteImport } from './routes/_layout/apps/$accountId/$gatewayId'
 import { Route as LayoutAuthenticatedThingsNewRouteImport } from './routes/_layout/_authenticated/things/new'
+import { Route as LayoutAuthenticatedTenantNewRouteImport } from './routes/_layout/_authenticated/tenant/new'
 import { Route as LayoutAuthenticatedSettingsSecurityRouteImport } from './routes/_layout/_authenticated/settings/security'
 import { Route as LayoutAuthenticatedSettingsProfileRouteImport } from './routes/_layout/_authenticated/settings/profile'
 import { Route as LayoutAuthenticatedSettingsAuthMethodsRouteImport } from './routes/_layout/_authenticated/settings/auth-methods'
@@ -129,6 +130,12 @@ const LayoutAuthenticatedThingsNewRoute =
     path: '/things/new',
     getParentRoute: () => LayoutAuthenticatedRoute,
   } as any)
+const LayoutAuthenticatedTenantNewRoute =
+  LayoutAuthenticatedTenantNewRouteImport.update({
+    id: '/tenant/new',
+    path: '/tenant/new',
+    getParentRoute: () => LayoutAuthenticatedRoute,
+  } as any)
 const LayoutAuthenticatedSettingsSecurityRoute =
   LayoutAuthenticatedSettingsSecurityRouteImport.update({
     id: '/security',
@@ -184,6 +191,7 @@ export interface FileRoutesByFullPath {
   '/settings/auth-methods': typeof LayoutAuthenticatedSettingsAuthMethodsRoute
   '/settings/profile': typeof LayoutAuthenticatedSettingsProfileRoute
   '/settings/security': typeof LayoutAuthenticatedSettingsSecurityRoute
+  '/tenant/new': typeof LayoutAuthenticatedTenantNewRoute
   '/things/new': typeof LayoutAuthenticatedThingsNewRoute
   '/apps/$accountId/$gatewayId': typeof LayoutAppsAccountIdGatewayIdRoute
   '/organizations/': typeof LayoutAuthenticatedOrganizationsIndexRoute
@@ -207,6 +215,7 @@ export interface FileRoutesByTo {
   '/settings/auth-methods': typeof LayoutAuthenticatedSettingsAuthMethodsRoute
   '/settings/profile': typeof LayoutAuthenticatedSettingsProfileRoute
   '/settings/security': typeof LayoutAuthenticatedSettingsSecurityRoute
+  '/tenant/new': typeof LayoutAuthenticatedTenantNewRoute
   '/things/new': typeof LayoutAuthenticatedThingsNewRoute
   '/apps/$accountId/$gatewayId': typeof LayoutAppsAccountIdGatewayIdRoute
   '/organizations': typeof LayoutAuthenticatedOrganizationsIndexRoute
@@ -234,6 +243,7 @@ export interface FileRoutesById {
   '/_layout/_authenticated/settings/auth-methods': typeof LayoutAuthenticatedSettingsAuthMethodsRoute
   '/_layout/_authenticated/settings/profile': typeof LayoutAuthenticatedSettingsProfileRoute
   '/_layout/_authenticated/settings/security': typeof LayoutAuthenticatedSettingsSecurityRoute
+  '/_layout/_authenticated/tenant/new': typeof LayoutAuthenticatedTenantNewRoute
   '/_layout/_authenticated/things/new': typeof LayoutAuthenticatedThingsNewRoute
   '/_layout/apps/$accountId/$gatewayId': typeof LayoutAppsAccountIdGatewayIdRoute
   '/_layout/_authenticated/organizations/': typeof LayoutAuthenticatedOrganizationsIndexRoute
@@ -260,6 +270,7 @@ export interface FileRouteTypes {
     | '/settings/auth-methods'
     | '/settings/profile'
     | '/settings/security'
+    | '/tenant/new'
     | '/things/new'
     | '/apps/$accountId/$gatewayId'
     | '/organizations/'
@@ -283,6 +294,7 @@ export interface FileRouteTypes {
     | '/settings/auth-methods'
     | '/settings/profile'
     | '/settings/security'
+    | '/tenant/new'
     | '/things/new'
     | '/apps/$accountId/$gatewayId'
     | '/organizations'
@@ -309,6 +321,7 @@ export interface FileRouteTypes {
     | '/_layout/_authenticated/settings/auth-methods'
     | '/_layout/_authenticated/settings/profile'
     | '/_layout/_authenticated/settings/security'
+    | '/_layout/_authenticated/tenant/new'
     | '/_layout/_authenticated/things/new'
     | '/_layout/apps/$accountId/$gatewayId'
     | '/_layout/_authenticated/organizations/'
@@ -448,6 +461,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAuthenticatedThingsNewRouteImport
       parentRoute: typeof LayoutAuthenticatedRoute
     }
+    '/_layout/_authenticated/tenant/new': {
+      id: '/_layout/_authenticated/tenant/new'
+      path: '/tenant/new'
+      fullPath: '/tenant/new'
+      preLoaderRoute: typeof LayoutAuthenticatedTenantNewRouteImport
+      parentRoute: typeof LayoutAuthenticatedRoute
+    }
     '/_layout/_authenticated/settings/security': {
       id: '/_layout/_authenticated/settings/security'
       path: '/security'
@@ -524,6 +544,7 @@ interface LayoutAuthenticatedRouteChildren {
   LayoutAuthenticatedAcceptInvitationIdRoute: typeof LayoutAuthenticatedAcceptInvitationIdRoute
   LayoutAuthenticatedOrganizationsSlugRoute: typeof LayoutAuthenticatedOrganizationsSlugRoute
   LayoutAuthenticatedOrganizationsNewRoute: typeof LayoutAuthenticatedOrganizationsNewRoute
+  LayoutAuthenticatedTenantNewRoute: typeof LayoutAuthenticatedTenantNewRoute
   LayoutAuthenticatedThingsNewRoute: typeof LayoutAuthenticatedThingsNewRoute
   LayoutAuthenticatedOrganizationsIndexRoute: typeof LayoutAuthenticatedOrganizationsIndexRoute
 }
@@ -539,6 +560,7 @@ const LayoutAuthenticatedRouteChildren: LayoutAuthenticatedRouteChildren = {
     LayoutAuthenticatedOrganizationsSlugRoute,
   LayoutAuthenticatedOrganizationsNewRoute:
     LayoutAuthenticatedOrganizationsNewRoute,
+  LayoutAuthenticatedTenantNewRoute: LayoutAuthenticatedTenantNewRoute,
   LayoutAuthenticatedThingsNewRoute: LayoutAuthenticatedThingsNewRoute,
   LayoutAuthenticatedOrganizationsIndexRoute:
     LayoutAuthenticatedOrganizationsIndexRoute,

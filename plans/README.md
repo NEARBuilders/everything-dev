@@ -11,6 +11,7 @@ honor its STOP conditions, and update your row when done.
 | 003  | Require API_DATABASE_URL in production | P1 | S | — | DONE |
 | 006  | Add warnings to empty catch blocks | P1 | S | — | DONE |
 | 007  | Add CSRF protection to state-changing endpoints | P1 | M | — | DONE |
+| ui-extends-ui | UI-Extends-UI Federation Composition | P2 | L | — | PLANNED |
 
 ## Dependency notes
 

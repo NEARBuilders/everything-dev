@@ -11,6 +11,10 @@ const Errors = {
     status: 404,
     message: "Failed to fetch item: Item not found",
   },
+  CONFLICT: {
+    status: 409,
+    message: "A thing with this ID already exists",
+  },
 };
 
 // Schema for the data items this plugin provides
@@ -33,10 +37,25 @@ export const BackgroundEventSchema = z.object({
   timestamp: z.number().describe("Unix timestamp in milliseconds when the event was created"),
 });
 
-export const ThingPayloadSchema = z.object({
-  type: z.string().describe("Plugin-defined thing type"),
-  payload: z.unknown().describe("Plugin-defined thing payload"),
-  action: z.string().optional().describe("Optional plugin-defined event action"),
+export const ThingSchema = z.object({
+  thingId: z.string().describe("Unique identifier for the thing"),
+  type: z.string().describe("Plugin-derived thing type"),
+  payload: z.unknown().describe("Plugin-owned thing payload"),
+  createdAt: z.string().datetime().describe("ISO 8601 timestamp when the thing was created"),
+  updatedAt: z.string().datetime().describe("ISO 8601 timestamp when the thing was last updated"),
+});
+
+export const CreatedThingSchema = ThingSchema.extend({
+  action: z.string().describe("Action emitted for the creation, e.g. template.note.created"),
+});
+
+export const ListThingsSchema = z.object({
+  data: z.array(ThingSchema).describe("List of things matching the query"),
+  meta: z.object({
+    total: z.number().describe("Total number of matching things"),
+    hasMore: z.boolean().describe("Whether another page of results exists"),
+    nextCursor: z.string().nullable().describe("Opaque cursor for the next page, or null if done"),
+  }),
 });
 
 // oRPC Contract definition
@@ -158,7 +177,7 @@ export const contract = oc.router({
       method: "POST",
       path: "/things",
       summary: "Create a thing",
-      description: "Stores a plugin-owned thing payload and returns its public type",
+      description: "Creates a DB-backed thing and returns it",
       tags: ["Things"],
     })
     .input(
@@ -167,14 +186,15 @@ export const contract = oc.router({
         payload: z.unknown(),
       }),
     )
-    .output(ThingPayloadSchema),
+    .output(CreatedThingSchema)
+    .errors({ CONFLICT: Errors.CONFLICT }),
 
   getThing: oc
     .route({
       method: "GET",
       path: "/things/{thingId}",
       summary: "Get a thing",
-      description: "Returns the plugin-owned payload for a thing",
+      description: "Returns the DB-backed thing by ID",
       tags: ["Things"],
     })
     .input(
@@ -182,15 +202,38 @@ export const contract = oc.router({
         thingId: z.string().min(1, "Thing ID is required"),
       }),
     )
-    .output(ThingPayloadSchema.omit({ action: true }))
+    .output(ThingSchema)
     .errors({ NOT_FOUND: { status: 404, message: "Thing not found" } }),
+
+  listThings: oc
+    .route({
+      method: "GET",
+      path: "/things",
+      summary: "List things",
+      description:
+        "Lists things with optional type filtering and offset-based cursor pagination, ordered by newest first.",
+      tags: ["Things"],
+    })
+    .input(
+      z.object({
+        type: z.string().optional().describe("Filter by thing type"),
+        limit: z
+          .number()
+          .min(1)
+          .max(100)
+          .default(10)
+          .describe("Maximum number of results to return"),
+        cursor: z.string().optional().describe("Opaque cursor for the next page"),
+      }),
+    )
+    .output(ListThingsSchema),
 
   deleteThing: oc
     .route({
       method: "DELETE",
       path: "/things/{thingId}",
       summary: "Delete a thing",
-      description: "Removes the plugin-owned payload for a thing",
+      description: "Removes the DB-backed thing by ID",
       tags: ["Things"],
     })
     .input(
@@ -198,7 +241,8 @@ export const contract = oc.router({
         thingId: z.string().min(1, "Thing ID is required"),
       }),
     )
-    .output(z.object({ success: z.literal(true) })),
+    .output(z.object({ success: z.literal(true) }))
+    .errors({ NOT_FOUND: { status: 404, message: "Thing not found" } }),
 });
 
 export type ContractType = typeof contract;

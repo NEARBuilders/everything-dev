@@ -445,6 +445,11 @@ function isSsrAllowed(accountId: string): boolean {
   return false;
 }
 
+function getTenantStatus(remoteConfig: Awaited<ReturnType<typeof getRemoteConfigCached>>): string {
+  const raw = remoteConfig.rawConfig as { status?: string } | undefined;
+  return raw?.status ?? "active";
+}
+
 export async function resolveRequestRuntime(
   baseConfig: RuntimeConfig,
   request: Request,
@@ -504,6 +509,14 @@ export async function resolveRequestRuntime(
     tenantAccountId,
     getAllowedOverrides(),
   );
+
+  const tenantStatus = getTenantStatus(remoteConfig);
+  if (tenantStatus === "suspended") {
+    throw new TenantRuntimeError("Tenant is suspended", 503);
+  }
+  if (tenantStatus === "pending_deletion") {
+    throw new TenantRuntimeError("Tenant has been deleted", 410);
+  }
 
   if (effectiveConfig.ui.url !== baseConfig.ui.url) {
     await verifyUiIntegrity(effectiveConfig, verificationMode);
