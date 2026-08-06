@@ -97,12 +97,12 @@ func (p *Process) Stop() {
 	}
 }
 
-func TruncateThings() {
+func ResetTemplateDatabase() {
 	cmd := exec.Command("docker", "exec", "dev.everything.near-postgres-template",
 		"psql", "-U", "everythingdev", "-d", "template_db",
-		"-c", "DELETE FROM things")
+		"-c", "DROP TABLE IF EXISTS things, drizzle_migrations CASCADE")
 	if err := cmd.Run(); err != nil {
-		log.Printf("WARN: failed to truncate template things table (may not exist yet): %v", err)
+		log.Printf("WARN: failed to reset template database (container may not be running): %v", err)
 	}
 }
 
