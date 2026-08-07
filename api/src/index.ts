@@ -128,9 +128,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
       createTenant: builder.createTenant
         .use(requireAuth)
-        .use(requireOrganization)
-        .handler(async ({ input, context }) => {
-          const orgId = context.organization.activeOrganizationId;
+        .handler(async ({ input }) => {
           validateSubdomain(input.subdomain);
           validateAccountId(input.accountId);
           if (!input.accountId.startsWith(`${input.subdomain}.`)) {
@@ -143,7 +141,8 @@ export default createPlugin.withPlugins<PluginsClient>()({
             subdomain: input.subdomain,
             name: input.name,
             accountId: input.accountId,
-            orgId,
+            orgId: input.orgId,
+            status: input.status,
           });
         }),
 
@@ -153,9 +152,12 @@ export default createPlugin.withPlugins<PluginsClient>()({
         .handler(async ({ input, context }) => {
           const tenant = await authorizedTenant(input, context);
           if (input.subdomain !== undefined) validateSubdomain(input.subdomain);
+          if (input.accountId !== undefined) validateAccountId(input.accountId);
           return await services.tenants.updateTenant(tenant.id, {
             name: input.name,
             subdomain: input.subdomain,
+            accountId: input.accountId,
+            status: input.status,
           });
         }),
 

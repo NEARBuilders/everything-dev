@@ -23,6 +23,7 @@ export interface TenantInput {
   name: string;
   accountId: string;
   orgId: string;
+  status?: TenantStatus;
 }
 
 export interface TenantsService {
@@ -30,7 +31,7 @@ export interface TenantsService {
   createTenant(input: TenantInput): Promise<TenantRecord>;
   updateTenant(
     id: string,
-    input: Partial<Pick<TenantInput, "name" | "subdomain">>,
+    input: Partial<Pick<TenantInput, "name" | "subdomain" | "accountId" | "status">>,
   ): Promise<TenantRecord>;
   softDeleteTenant(id: string): Promise<TenantRecord | null>;
   suspendTenant(id: string): Promise<TenantRecord | null>;
@@ -96,6 +97,7 @@ export const TenantsLive = Layer.effect(
               name: input.name,
               accountId: input.accountId,
               orgId: input.orgId,
+              ...(input.status !== undefined && { status: input.status }),
             })
             .onConflictDoNothing()
             .returning();

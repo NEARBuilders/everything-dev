@@ -8,6 +8,13 @@
       "when": 1786038125301,
       "tag": "0000_bouncy_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786078137908,
+      "tag": "0001_brief_magik",
+      "breakpoints": true
     }
   ]
 }

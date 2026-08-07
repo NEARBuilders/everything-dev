@@ -43,8 +43,9 @@ const RESERVED_SUBDOMAINS = [
 const CREATION_STEPS = [
   { label: "Checking subaccount availability", blocking: true },
   { label: "Creating organization", blocking: true },
-  { label: "Creating NEAR subaccount", blocking: true },
   { label: "Registering tenant", blocking: true },
+  { label: "Creating NEAR subaccount", blocking: true },
+  { label: "Activating tenant", blocking: true },
   { label: "Setting active organization", blocking: false },
   { label: "Publishing registry metadata", blocking: false },
   { label: "Publishing tenant config", blocking: false },
@@ -150,44 +151,57 @@ function NewTenantPage() {
         }
       };
 
+      let tenant: Awaited<ReturnType<typeof apiClient.createTenant>> | undefined;
+      const pendingAccountId = `${subdomain}.${parentAccount}`;
+      try {
+        tenant = await runStep(2, () =>
+          apiClient.createTenant({
+            subdomain,
+            name,
+            accountId: pendingAccountId,
+            orgId: orgData.id,
+            status: "pending",
+          }),
+        );
+        if (!tenant) {
+          throw new Error(steps[2].error ?? "Failed to register tenant");
+        }
+      } catch (err) {
+        await rollbackOrg();
+        throw err;
+      }
+
       let accountId: string;
       try {
-        updateStep(2, "running");
+        updateStep(3, "running");
         const subAccount = await auth.near.createSubAccount({
           subAccountName: subdomain,
           publicKey,
         });
-        updateStep(2, "success");
+        updateStep(3, "success");
         if (subAccount.error) throw new Error(subAccount.error.message);
         accountId = subAccount.data?.accountId;
         if (!accountId) {
           throw new Error("Subaccount created but no accountId returned");
         }
       } catch (err) {
-        updateStep(2, "failed", err instanceof Error ? err.message : String(err));
+        updateStep(3, "failed", err instanceof Error ? err.message : String(err));
         await rollbackOrg();
+        await apiClient.deleteTenant({ tenantId: tenant!.id });
         throw err;
       }
 
-      let tenant: Awaited<ReturnType<typeof apiClient.createTenant>> | undefined;
-      try {
-        tenant = await runStep(3, () =>
-          apiClient.createTenant({
-            subdomain,
-            name,
-            accountId,
-            orgId: orgData.id,
-          }),
-        );
-        if (!tenant) {
-          throw new Error(steps[3].error ?? "Failed to register tenant");
-        }
-      } catch (err) {
-        await rollbackOrg();
-        throw err;
+      tenant = await runStep(4, () =>
+        apiClient.updateTenant({
+          tenantId: tenant!.id,
+          status: "active",
+        }),
+      );
+      if (!tenant) {
+        throw new Error(steps[4].error ?? "Failed to activate tenant");
       }
 
-      const setActive = await runStep(4, () =>
+      const setActive = await runStep(5, () =>
         auth.organization.setActive({ organizationId: orgData.id }),
       );
       let hadFailures = false;
@@ -199,7 +213,7 @@ function NewTenantPage() {
       const relayerInfo = await auth.near.getRelayerInfo();
       const hasRelayer = relayerInfo.data?.enabled === true;
 
-      const metadata = await runStep(5, async () => {
+      const metadata = await runStep(6, async () => {
         const prepared = await apiClient.apps.prepareRegistryMetadataWrite({
           accountId,
           gatewayId,
@@ -238,7 +252,7 @@ function NewTenantPage() {
         toast.warning("Registry metadata publish failed — non-blocking");
       }
 
-      const config = await runStep(6, async () => {
+      const config = await runStep(7, async () => {
         const tenantConfig = {
           extends: `bos://${parentAccount}/${gatewayId}`,
           account: accountId,
@@ -299,9 +313,9 @@ function NewTenantPage() {
         toast.success(`Tenant "${name}" created`);
       }
 
-      updateStep(7, "running");
+      updateStep(8, "running");
       await new Promise((resolve) => setTimeout(resolve, 1500));
-      updateStep(7, "success");
+      updateStep(8, "success");
 
       window.location.href = `/tenant/${result.tenant.id}`;
     },

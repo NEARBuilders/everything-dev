@@ -11,7 +11,7 @@ const ErrorTestKindSchema = z.enum([
   "internal",
 ]);
 
-export const TenantStatusSchema = z.enum(["active", "suspended", "pending_deletion"]);
+export const TenantStatusSchema = z.enum(["active", "pending", "suspended", "pending_deletion"]);
 
 export const TenantSchema = z.object({
   id: z.string(),
@@ -80,10 +80,11 @@ export const contract = oc.router({
         name: z.string(),
         accountId: z.string(),
         orgId: z.string(),
+        status: z.enum(["active", "pending"]).optional(),
       }),
     )
     .output(TenantSchema)
-    .errors({ UNAUTHORIZED, BAD_REQUEST, FORBIDDEN }),
+    .errors({ UNAUTHORIZED, BAD_REQUEST }),
 
   updateTenant: oc
     .route({ method: "PATCH", path: "/tenants/{tenantId}" })
@@ -92,6 +93,8 @@ export const contract = oc.router({
         tenantId: z.string(),
         name: z.string().optional(),
         subdomain: z.string().optional(),
+        accountId: z.string().optional(),
+        status: TenantStatusSchema.optional(),
       }),
     )
     .output(TenantSchema)
