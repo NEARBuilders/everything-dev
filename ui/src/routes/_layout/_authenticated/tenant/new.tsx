@@ -196,6 +196,9 @@ function NewTenantPage() {
         toast.warning("Failed to set active organization");
       }
 
+      const relayerInfo = await auth.near.getRelayerInfo();
+      const hasRelayer = relayerInfo.data?.enabled === true;
+
       const metadata = await runStep(5, async () => {
         const prepared = await apiClient.apps.prepareRegistryMetadataWrite({
           accountId,
@@ -205,20 +208,30 @@ function NewTenantPage() {
           homepageUrl: `https://${subdomain}.${gatewayId}`,
         });
 
-        const signed = await auth.near.buildSignedDelegateAction(
-          prepared.data.contractId,
-          (builder: TransactionBuilder) =>
-            builder.functionCall(
-              prepared.data.contractId,
-              prepared.data.methodName,
-              prepared.data.args,
-              { gas: METADATA_GAS, attachedDeposit: 0n },
-            ),
-        );
+        if (hasRelayer) {
+          const signed = await auth.near.buildSignedDelegateAction(
+            prepared.data.contractId,
+            (builder: TransactionBuilder) =>
+              builder.functionCall(
+                prepared.data.contractId,
+                prepared.data.methodName,
+                prepared.data.args,
+                { gas: METADATA_GAS, attachedDeposit: 0n },
+              ),
+          );
 
-        const relayed = await auth.near.relayTransaction({ payload: signed });
-        if (relayed.error) throw new Error(relayed.error.message);
-        return relayed;
+          const relayed = await auth.near.relayTransaction({ payload: signed });
+          if (relayed.error) throw new Error(relayed.error.message);
+          return relayed;
+        }
+
+        return auth.near.client
+          .transaction(accountId)
+          .functionCall(prepared.data.contractId, prepared.data.methodName, prepared.data.args, {
+            gas: METADATA_GAS,
+            attachedDeposit: 0n,
+          })
+          .send({ waitUntil: "EXECUTED" });
       });
       if (!metadata) {
         hadFailures = true;
@@ -240,20 +253,30 @@ function NewTenantPage() {
           config: tenantConfig,
         });
 
-        const signed = await auth.near.buildSignedDelegateAction(
-          prepared.data.contractId,
-          (builder: TransactionBuilder) =>
-            builder.functionCall(
-              prepared.data.contractId,
-              prepared.data.methodName,
-              prepared.data.args,
-              { gas: CONFIG_GAS, attachedDeposit: 0n },
-            ),
-        );
+        if (hasRelayer) {
+          const signed = await auth.near.buildSignedDelegateAction(
+            prepared.data.contractId,
+            (builder: TransactionBuilder) =>
+              builder.functionCall(
+                prepared.data.contractId,
+                prepared.data.methodName,
+                prepared.data.args,
+                { gas: CONFIG_GAS, attachedDeposit: 0n },
+              ),
+          );
 
-        const relayed = await auth.near.relayTransaction({ payload: signed });
-        if (relayed.error) throw new Error(relayed.error.message);
-        return relayed;
+          const relayed = await auth.near.relayTransaction({ payload: signed });
+          if (relayed.error) throw new Error(relayed.error.message);
+          return relayed;
+        }
+
+        return auth.near.client
+          .transaction(accountId)
+          .functionCall(prepared.data.contractId, prepared.data.methodName, prepared.data.args, {
+            gas: CONFIG_GAS,
+            attachedDeposit: 0n,
+          })
+          .send({ waitUntil: "EXECUTED" });
       });
       if (!config) {
         hadFailures = true;
