@@ -42,8 +42,8 @@ const RESERVED_SUBDOMAINS = [
 
 const CREATION_STEPS = [
   { label: "Checking subaccount availability", blocking: true },
-  { label: "Creating NEAR subaccount", blocking: true },
   { label: "Creating organization", blocking: true },
+  { label: "Creating NEAR subaccount", blocking: true },
   { label: "Registering tenant", blocking: true },
   { label: "Setting active organization", blocking: false },
   { label: "Publishing registry metadata", blocking: false },
@@ -131,45 +131,61 @@ function NewTenantPage() {
         throw new Error(`Subdomain "${subdomain}" is already taken`);
       }
 
-      updateStep(1, "running");
-      let subAccount: Awaited<ReturnType<typeof auth.near.createSubAccount>>;
-      try {
-        subAccount = await auth.near.createSubAccount({
-          subAccountName: subdomain,
-          publicKey,
-        });
-        updateStep(1, "success");
-      } catch (err) {
-        updateStep(1, "failed", err instanceof Error ? err.message : String(err));
-        throw err;
-      }
-      if (subAccount.error) throw new Error(subAccount.error.message);
-
-      const accountId = subAccount.data?.accountId;
-      if (!accountId) {
-        throw new Error("Subaccount created but no accountId returned");
-      }
-
-      const org = await runStep(2, () =>
+      const org = await runStep(1, () =>
         auth.organization.create({
           name,
           slug: subdomain,
         }),
       );
-      if (!org) throw new Error(steps[2].error ?? "Failed to create organization");
+      if (!org) throw new Error(steps[1].error ?? "Failed to create organization");
       if (org.error) throw new Error(org.error.message);
       if (!org.data) throw new Error("Organization creation returned no data");
       const orgData = org.data;
 
-      const tenant = await runStep(3, () =>
-        apiClient.createTenant({
-          subdomain,
-          name,
-          accountId,
-          orgId: orgData.id,
-        }),
-      );
-      if (!tenant) throw new Error(steps[3].error ?? "Failed to register tenant");
+      const rollbackOrg = async () => {
+        try {
+          await auth.organization.delete({ organizationId: orgData.id });
+        } catch (rollbackErr) {
+          console.warn("Failed to roll back organization", rollbackErr);
+        }
+      };
+
+      let accountId: string;
+      try {
+        updateStep(2, "running");
+        const subAccount = await auth.near.createSubAccount({
+          subAccountName: subdomain,
+          publicKey,
+        });
+        updateStep(2, "success");
+        if (subAccount.error) throw new Error(subAccount.error.message);
+        accountId = subAccount.data?.accountId;
+        if (!accountId) {
+          throw new Error("Subaccount created but no accountId returned");
+        }
+      } catch (err) {
+        updateStep(2, "failed", err instanceof Error ? err.message : String(err));
+        await rollbackOrg();
+        throw err;
+      }
+
+      let tenant: Awaited<ReturnType<typeof apiClient.createTenant>> | undefined;
+      try {
+        tenant = await runStep(3, () =>
+          apiClient.createTenant({
+            subdomain,
+            name,
+            accountId,
+            orgId: orgData.id,
+          }),
+        );
+        if (!tenant) {
+          throw new Error(steps[3].error ?? "Failed to register tenant");
+        }
+      } catch (err) {
+        await rollbackOrg();
+        throw err;
+      }
 
       const setActive = await runStep(4, () =>
         auth.organization.setActive({ organizationId: orgData.id }),
@@ -371,12 +387,12 @@ function NewTenantPage() {
             <Card>
               <CardContent className="p-4 space-y-2 text-xs text-muted-foreground">
                 <p>
-                  1. <strong>NEAR subaccount</strong> — {subdomain || "{subdomain}"}.{gatewayId} is
-                  created and linked to your wallet
+                  1. <strong>Organization</strong> — A Better-Auth organization is created first
+                  (you become owner)
                 </p>
                 <p>
-                  2. <strong>Organization</strong> — A Better-Auth organization is created (you
-                  become owner)
+                  2. <strong>NEAR subaccount</strong> — {subdomain || "{subdomain}"}.{gatewayId} is
+                  created and linked to your wallet
                 </p>
                 <p>
                   3. <strong>Tenant row</strong> — The tenant is registered in the database

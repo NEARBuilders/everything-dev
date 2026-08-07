@@ -44,6 +44,10 @@
     },
     "auth": {
       "extends": "bos://auth.everything.near/auth.everything.dev#app.auth",
+      "secrets": [
+        "NEAR_SUB_ACCOUNT_PARENT_KEY_MAINNET",
+        "NEAR_SUB_ACCOUNT_PARENT_KEY_TESTNET"
+      ],
       "variables": {
         "passkey": {
           "rpID": "everything.dev",
@@ -53,6 +57,18 @@
           "recipients": {
             "mainnet": "dev.everything.near",
             "testnet": "dev.allthethings.testnet"
+          },
+          "subAccount": {
+            "mainnet": {
+              "parentAccount": "dev.everything.near",
+              "parentHasFullAccess": true,
+              "minDeposit": "0.1 NEAR"
+            },
+            "testnet": {
+              "parentAccount": "dev.allthethings.testnet",
+              "parentHasFullAccess": true,
+              "minDeposit": "0.1 NEAR"
+            }
           }
         }
       }
