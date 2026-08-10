@@ -17,7 +17,6 @@ import {
 import {
   ensureEnvFile,
   loadProjectEnv,
-  materializeInfraPlan,
   syncGeneratedInfra,
   writeGeneratedInfra,
 } from "./cli/infra";
@@ -712,25 +711,7 @@ export default createPlugin({
       }
 
       const services = buildServiceDescriptorMapFromPlan(plan, { ssr, proxy });
-      materializeInfraPlan(
-        deps.configDir,
-        plan.envGenerated,
-        plan.composeModel.databases.map((d) => ({
-          serviceName: `postgres-${d.slug.replace(/_/g, "-")}`,
-          containerName: d.containerName,
-          port: d.port,
-          volumeName: d.volumeName,
-          databaseName: d.dbName,
-        })),
-        plan.composeModel.redis.map((r) => ({
-          serviceName: `redis-${r.slug.replace(/_/g, "-")}`,
-          containerName: r.containerName,
-          port: r.port,
-          volumeName: r.volumeName,
-        })),
-        plan.runtimeConfig.account,
-        plan.resolvedPorts.host,
-      );
+      writeGeneratedInfra(deps.configDir, plan.runtimeConfig);
       ensureEnvFile(deps.configDir);
       loadProjectEnv(deps.configDir);
 
