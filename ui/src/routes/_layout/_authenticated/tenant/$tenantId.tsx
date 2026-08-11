@@ -179,7 +179,10 @@ function TenantDetail() {
         gatewayId,
         subdomain: tenant?.subdomain ?? "",
         name: tenant?.name ?? "",
-        status: tenant?.status === "suspended" || tenant?.status === "pending_deletion" ? tenant?.status : undefined,
+        status:
+          tenant?.status === "suspended" || tenant?.status === "pending_deletion"
+            ? tenant?.status
+            : undefined,
       });
     },
     onSuccess: () => toast.success("Config republished"),

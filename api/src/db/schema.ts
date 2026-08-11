@@ -1,6 +1,11 @@
 import { pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
-export const tenantStatus = pgEnum("tenant_status", ["active", "pending", "suspended", "pending_deletion"]);
+export const tenantStatus = pgEnum("tenant_status", [
+  "active",
+  "pending",
+  "suspended",
+  "pending_deletion",
+]);
 
 export const tenants = pgTable(
   "tenants",

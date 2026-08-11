@@ -126,25 +126,23 @@ export default createPlugin.withPlugins<PluginsClient>()({
         return services.tenants.listTenantsByOrgIds((orgIds ?? []).map((o) => o.id));
       }),
 
-      createTenant: builder.createTenant
-        .use(requireAuth)
-        .handler(async ({ input }) => {
-          validateSubdomain(input.subdomain);
-          validateAccountId(input.accountId);
-          if (!input.accountId.startsWith(`${input.subdomain}.`)) {
-            throw new ORPCError("BAD_REQUEST", {
-              message: "accountId must start with subdomain",
-              data: { subdomain: input.subdomain, accountId: input.accountId },
-            });
-          }
-          return await services.tenants.createTenant({
-            subdomain: input.subdomain,
-            name: input.name,
-            accountId: input.accountId,
-            orgId: input.orgId,
-            status: input.status,
+      createTenant: builder.createTenant.use(requireAuth).handler(async ({ input }) => {
+        validateSubdomain(input.subdomain);
+        validateAccountId(input.accountId);
+        if (!input.accountId.startsWith(`${input.subdomain}.`)) {
+          throw new ORPCError("BAD_REQUEST", {
+            message: "accountId must start with subdomain",
+            data: { subdomain: input.subdomain, accountId: input.accountId },
           });
-        }),
+        }
+        return await services.tenants.createTenant({
+          subdomain: input.subdomain,
+          name: input.name,
+          accountId: input.accountId,
+          orgId: input.orgId,
+          status: input.status,
+        });
+      }),
 
       updateTenant: builder.updateTenant
         .use(requireAuth)
