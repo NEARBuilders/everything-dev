@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -10,114 +9,16 @@ import {
   runBunInstall,
 } from "../../src/cli/init";
 import { getFrameworkTarballs, rewriteFrameworkPackageSpecs } from "./framework-packages";
+import {
+  assertTypecheckSuccess,
+  renderTypeErrors,
+  runCommand,
+  runTypecheck,
+  unexpectedTypeErrors,
+  writeGeneratedAuthStubs,
+} from "./typecheck-utils";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
-
-interface CommandResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-function runCommand(
-  command: string,
-  args: string[],
-  cwd: string,
-  timeout = 120_000,
-): Promise<CommandResult> {
-  return new Promise((resolve, reject) => {
-    let stdout = "";
-    let stderr = "";
-    const child = spawn(command, args, { cwd, stdio: "pipe" });
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Command '${command} ${args.join(" ")}' timed out after ${timeout}ms`));
-    }, timeout);
-    child.stdout?.on("data", (data) => {
-      stdout += data.toString();
-    });
-    child.stderr?.on("data", (data) => {
-      stderr += data.toString();
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr });
-    });
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-  });
-}
-
-function parseTypeErrors(output: string): string[] {
-  const lines = output.split("\n");
-  const errors: string[] = [];
-  let currentError: string[] = [];
-
-  for (const line of lines) {
-    if (/^\S+\(\d+,\d+\):\s*error\s+TS\d+/.test(line) || /^error\s+TS\d+/.test(line)) {
-      if (currentError.length > 0) errors.push(currentError.join("\n"));
-      currentError = [line];
-    } else if (currentError.length > 0) {
-      if (line.trim() === "" || /^\s+(TS\d+|Found \d+ error)/.test(line)) {
-        errors.push(currentError.join("\n"));
-        currentError = [];
-      } else {
-        currentError.push(line);
-      }
-    }
-  }
-  if (currentError.length > 0) errors.push(currentError.join("\n"));
-  return errors;
-}
-
-function writeGeneratedAuthStubs(projectDir: string) {
-  const authDir = join(projectDir, ".bos", "generated", "auth");
-  mkdirSync(authDir, { recursive: true });
-  writeFileSync(
-    join(authDir, "auth-export.d.ts"),
-    `export type Auth = any;
-export type AuthOrganizationContext = any;
-export type AuthOrganization = any;
-export type AuthOrganizationSummary = any;
-export type AuthOrganizationMember = any;
-export type AuthApiKey = any;
-export type AuthInvitation = any;
-export type GetActiveMemberInput = any;
-export type GetOrganizationInput = any;
-export type ListMembersInput = any;
-export type ListInvitationsInput = any;
-export type ListApiKeysInput = any;
-export type AuthServices = any;
-export type createAuthInstance = any;
-`,
-  );
-  writeFileSync(
-    join(authDir, "contract.d.ts"),
-    `export type ContractType = any;
-export type InferOutput<_TRoute extends string> = any;
-`,
-  );
-}
-
-function isUnexpectedError(error: string): boolean {
-  const corePaths = [
-    "ui/src/lib/",
-    "ui/src/lib/api",
-    "ui/src/lib/api-types.gen",
-    "ui/src/lib/auth-types.gen",
-    "api/src/contract",
-    "api/src/index",
-    "api/src/lib/plugins-types.gen",
-    "api/src/lib/auth-types.gen",
-  ];
-  if (corePaths.some((p) => error.includes(p))) return true;
-
-  if (error.includes(".gen.ts")) return true;
-
-  return false;
-}
 
 describe("bos init — typecheck", () => {
   let testDir: string;
@@ -187,38 +88,24 @@ describe("bos init — typecheck", () => {
   }, 120_000);
 
   it("typechecks api with zero unexpected errors", async () => {
-    const result = await runCommand(
-      "bun",
-      ["run", "--cwd", "api", "tsc", "--noEmit"],
-      testDir,
-      120_000,
-    );
-    const errors = parseTypeErrors(result.stdout + result.stderr);
-    const unexpected = errors.filter(isUnexpectedError);
+    const result = await runTypecheck(testDir, "api", { raw: true });
+    const unexpected = unexpectedTypeErrors(result.stdout + result.stderr);
 
     if (unexpected.length > 0) {
-      console.error(`\nUnexpected API type errors:\n${unexpected.join("\n---\n")}`);
+      console.error(renderTypeErrors("api", unexpected));
     }
 
-    expect(result.code).toBe(0);
-    expect(unexpected).toEqual([]);
+    assertTypecheckSuccess(result, "api");
   }, 120_000);
 
   it("typechecks ui with zero unexpected errors", async () => {
-    const result = await runCommand(
-      "bun",
-      ["run", "--cwd", "ui", "tsc", "--noEmit"],
-      testDir,
-      120_000,
-    );
-    const errors = parseTypeErrors(result.stdout + result.stderr);
-    const unexpected = errors.filter(isUnexpectedError);
+    const result = await runTypecheck(testDir, "ui", { raw: true });
+    const unexpected = unexpectedTypeErrors(result.stdout + result.stderr);
 
     if (unexpected.length > 0) {
-      console.error(`\nUnexpected UI type errors:\n${unexpected.join("\n---\n")}`);
+      console.error(renderTypeErrors("ui", unexpected));
     }
 
-    expect(result.code).toBe(0);
-    expect(unexpected).toEqual([]);
+    assertTypecheckSuccess(result, "ui");
   }, 120_000);
 });
