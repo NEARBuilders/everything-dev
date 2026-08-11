@@ -453,6 +453,9 @@ export function writeGeneratedFiles(opts: {
       ? allPluginSources.filter((s) => opts.apiDependsOn!.includes(s.key))
       : allPluginSources;
 
+    const unresolvedDepKeys =
+      opts.apiDependsOn?.filter((depKey) => !allPluginSources.some((s) => s.key === depKey)) ?? [];
+
     for (const source of apiDepSources) {
       const importPath = toImportPath(pluginsClientPath, source.sourceFilePath);
       pluginsClientLines.push(
@@ -468,7 +471,7 @@ export function writeGeneratedFiles(opts: {
     );
     pluginsClientLines.push("");
 
-    if (apiDepSources.length === 0) {
+    if (apiDepSources.length === 0 && unresolvedDepKeys.length === 0) {
       pluginsClientLines.push("export type PluginsClient = Record<string, never>;");
     } else {
       pluginsClientLines.push("export type PluginsClient = {");
@@ -477,6 +480,10 @@ export function writeGeneratedFiles(opts: {
           ? source.key
           : JSON.stringify(source.key);
         pluginsClientLines.push(`  ${key}: ClientFactory<${source.importName}>;`);
+      }
+      for (const key of unresolvedDepKeys) {
+        const keyStr = /^[$A-Z_][0-9A-Z_$]*$/i.test(key) ? key : JSON.stringify(key);
+        pluginsClientLines.push(`  ${keyStr}?: ClientFactory<AnyContractRouter>;`);
       }
       pluginsClientLines.push("};");
     }

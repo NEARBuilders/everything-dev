@@ -71,7 +71,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
       const tenantsService = yield* tools.buildService(TenantsTag, tenantsLayer);
 
-      const templateClient = plugins.template();
+      const templateClient = plugins.template?.();
 
       console.log("[API] Services Initialized");
 
