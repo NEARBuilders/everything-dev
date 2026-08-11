@@ -64,23 +64,27 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
   contract,
 
-  initialize: (config, _plugins, tools) =>
+  initialize: (config, plugins, tools) =>
     Effect.gen(function* () {
       const database = DatabaseLive(config.secrets.API_DATABASE_URL);
       const tenantsLayer = TenantsLive.pipe(Layer.provide(database));
 
       const tenantsService = yield* tools.buildService(TenantsTag, tenantsLayer);
 
+      const templateClient = plugins.template?.();
+
       console.log("[API] Services Initialized");
 
       return {
         tenants: tenantsService,
+        templateClient,
       };
     }),
 
   shutdown: () => Effect.log("[API] Shutdown"),
 
   createRouter: (services, builder) => {
+    const { templateClient } = services;
     const { requireAuth, requireOrganization, requireOrgRole } = createAuthMiddleware(builder);
 
     const authorizedTenant = async (
@@ -239,6 +243,42 @@ export default createPlugin.withPlugins<PluginsClient>()({
           subdomain: { available: !reserved && !existingSubdomain, reserved },
           accountId: { format: accountFormat, available: accountAvailable },
         };
+      }),
+
+      createThing: builder.createThing.use(requireAuth).handler(async ({ input }) => {
+        if (!templateClient) {
+          throw new ORPCError("BAD_REQUEST", {
+            message: "The template plugin is not included in this deployment",
+          });
+        }
+        return await templateClient.createThing({ thingId: input.thingId, payload: input.payload });
+      }),
+
+      getThing: builder.getThing.handler(async ({ input }) => {
+        if (!templateClient) {
+          throw new ORPCError("BAD_REQUEST", {
+            message: "The template plugin is not included in this deployment",
+          });
+        }
+        return await templateClient.getThing({ thingId: input.thingId });
+      }),
+
+      listThings: builder.listThings.handler(async ({ input }) => {
+        if (!templateClient) {
+          throw new ORPCError("BAD_REQUEST", {
+            message: "The template plugin is not included in this deployment",
+          });
+        }
+        return await templateClient.listThings(input);
+      }),
+
+      deleteThing: builder.deleteThing.use(requireAuth).handler(async ({ input }) => {
+        if (!templateClient) {
+          throw new ORPCError("BAD_REQUEST", {
+            message: "The template plugin is not included in this deployment",
+          });
+        }
+        return await templateClient.deleteThing({ thingId: input.thingId });
       }),
 
       testError: builder.testError.handler(async ({ input }) => {
