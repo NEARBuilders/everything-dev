@@ -28,11 +28,11 @@ function ThingDetailPage() {
 
   const thingQuery = useQuery({
     queryKey: ["thing", thingId],
-    queryFn: () => apiClient.getThing({ thingId }),
+    queryFn: () => apiClient.template.getThing({ thingId }),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => apiClient.deleteThing({ thingId }),
+    mutationFn: () => apiClient.template.deleteThing({ thingId }),
     onSuccess: () => {
       toast.success("Thing deleted");
       void router.navigate({ to: "/things" });

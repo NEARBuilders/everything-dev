@@ -34,10 +34,12 @@ describe("bos init — typecheck", () => {
   }, 120_000);
 
   it("scaffolds project with template files", async () => {
-    const patterns = buildInitPatterns(["ui", "api", "plugins"], ["apps"]);
+    const patterns = buildInitPatterns(["ui", "api", "plugins"], ["apps", "template"], {
+      template: "_template",
+    });
     await copyFilteredFiles(REPO_ROOT, testDir, patterns, {
       overrides: ["ui", "api", "plugins"],
-      plugins: ["apps"],
+      plugins: ["apps", "template"],
     });
 
     await personalizeConfig(testDir, {
@@ -47,7 +49,7 @@ describe("bos init — typecheck", () => {
       domain: "test.dev",
       workspaceOpts: { sourceDir: REPO_ROOT },
       overrides: ["ui", "api", "plugins"],
-      plugins: ["apps"],
+      plugins: ["apps", "template"],
     });
     rewriteFrameworkPackageSpecs(testDir, frameworkTarballs);
 

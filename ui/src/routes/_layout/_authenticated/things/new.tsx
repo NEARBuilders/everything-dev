@@ -31,7 +31,7 @@ function NewThingPage() {
       } catch {
         throw new Error("Invalid JSON payload");
       }
-      return apiClient.createThing({ thingId: thingId.trim(), payload });
+      return apiClient.template.createThing({ thingId: thingId.trim(), payload });
     },
     onSuccess: (thing) => {
       toast.success("Thing created");

@@ -5,6 +5,7 @@ import { z } from "every-plugin/zod";
 
 import { contract } from "./contract";
 import { DatabaseLive } from "./db/layer";
+import { createAuthMiddleware } from "./lib/auth";
 import { ContextSchema, runEffect } from "./lib/context";
 import type { PluginsClient } from "./plugins-client.gen";
 import { TemplateService } from "./service";
@@ -112,6 +113,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
   createRouter: (context, builder) => {
     const { service, thingsService, publisher } = context;
+    const { requireAuth } = createAuthMiddleware(builder);
 
     return {
       getById: builder.getById.handler(async ({ input, context }) => {
@@ -172,7 +174,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         return { ok: true };
       }),
 
-      createThing: builder.createThing.handler(async ({ input }) => {
+      createThing: builder.createThing.use(requireAuth).handler(async ({ input }) => {
         return await runEffect(thingsService.createThing(input.thingId, input.payload));
       }),
 
@@ -184,7 +186,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         return await runEffect(thingsService.listThings(input));
       }),
 
-      deleteThing: builder.deleteThing.handler(async ({ input }) => {
+      deleteThing: builder.deleteThing.use(requireAuth).handler(async ({ input }) => {
         return await runEffect(thingsService.deleteThing(input.thingId));
       }),
 

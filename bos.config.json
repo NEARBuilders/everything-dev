@@ -35,9 +35,6 @@
     "api": {
       "development": "local:api",
       "production": "https://elliot-braem-6880-api-everything-dev-nearbuilders-649a0258d-ze.zephyrcloud.app",
-      "dependsOn": [
-        "template"
-      ],
       "secrets": [
         "API_DATABASE_URL"
       ],

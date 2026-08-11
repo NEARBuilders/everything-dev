@@ -31,11 +31,7 @@ function LiveStreamPage() {
   useEffect(() => {
     setConnected(true);
 
-    const templateClient = (
-      apiClient as typeof apiClient & {
-        template?: { listenBackground: (input: {}) => Promise<AsyncIterable<ThingEvent>> };
-      }
-    ).template;
+    const templateClient = apiClient.template;
 
     if (!templateClient) {
       setConnected(false);
