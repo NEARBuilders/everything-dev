@@ -25,6 +25,21 @@ export async function loadTestRuntimeConfig(): Promise<RuntimeConfig> {
   return config;
 }
 
+export function createMockSession() {
+  return {
+    user: {
+      id: "test-user-id",
+      name: "Test User",
+      email: "test@everything.dev",
+      role: "user",
+    },
+    session: {
+      id: "test-session-id",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+  };
+}
+
 export function createMockAuthClient(): AuthClient {
   const noOp = (): Promise<{ data: null; error: null }> =>
     Promise.resolve({ data: null, error: null });
@@ -111,11 +126,12 @@ export function buildTestRenderOptions(
   config: RuntimeConfig,
   apiClient: ApiClient,
   authClient?: AuthClient,
+  session = createMockSession(),
 ): RenderOptionsWithApi<ApiClient> {
   return {
     runtimeConfig: buildTestClientRuntimeConfig(config),
     apiClient,
-    session: null,
+    session,
     authClient,
   } satisfies RenderOptionsWithApi<ApiClient>;
 }

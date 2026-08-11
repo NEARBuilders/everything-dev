@@ -57,7 +57,7 @@ describe("bundled host SSR runtime", () => {
     const html = await response.text();
 
     expect(response.status).toBe(200);
-    expect(html).toContain('<iframe title="BOS viewer"');
+    expect(html).toContain("connect to everything");
     expect(html).not.toContain("SSR unavailable, showing client app.");
     expect(html).not.toContain("<p>Loading...</p>");
 

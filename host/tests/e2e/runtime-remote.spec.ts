@@ -148,7 +148,15 @@ for (const scenario of scenarios) {
         () => performance.getEntriesByType("navigation").length,
       );
 
-      await expect(page.getByRole("link", { name: /^Skill$/ })).toBeVisible();
+      try {
+        await expect(page.getByRole("link", { name: /^Skill$/ })).toBeVisible();
+      } catch (e) {
+        const html = await page.content();
+        console.error("[Diagnostic] Page HTML (first 3000 chars):", html.slice(0, 3000));
+        console.error("[Diagnostic] Page errors:", JSON.stringify(pageErrors));
+        console.error("[Diagnostic] Console errors:", JSON.stringify(consoleErrors));
+        throw e;
+      }
       await page.getByRole("link", { name: /^Skill$/ }).dispatchEvent("click");
 
       await page.waitForURL(/\/skill$/);
@@ -176,7 +184,10 @@ for (const scenario of scenarios) {
           document.documentElement.classList.contains("dark"),
         );
 
-        await page.getByRole("button", { name: "Toggle theme" }).click();
+        await page
+          .getByRole("button", { name: /Switch to .* theme/ })
+          .first()
+          .click();
 
         await expect
           .poll(async () =>

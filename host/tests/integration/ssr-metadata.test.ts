@@ -2,7 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RenderOptionsWithApi, RouterModule, RuntimeConfig } from "@/types";
 import { createTestApiClient } from "../helpers/api-client";
 import { loadBundledRouterModule } from "../helpers/bundled-ssr-module";
-import { buildTestClientRuntimeConfig, loadTestRuntimeConfig } from "../helpers/runtime-config";
+import {
+  buildTestClientRuntimeConfig,
+  createMockSession,
+  loadTestRuntimeConfig,
+} from "../helpers/runtime-config";
 
 async function consumeStream(stream: ReadableStream): Promise<string> {
   const reader = stream.getReader();
@@ -63,7 +67,7 @@ describe("SSR Social Metadata", () => {
         },
       },
       apiClient: mockApiClient,
-      session: null,
+      session: createMockSession(),
     };
 
     const result = await routerModule.renderToStream(
@@ -147,20 +151,20 @@ describe("SSR Social Metadata", () => {
 
     it("og:image URL is absolute", () => {
       const content = extractMetaContent(streamHtml, "property", "og:image");
-      expect(content).toBeDefined();
       expect(
         content,
         "og:image must be an absolute URL for social scrapers (metatags.io, Facebook, Twitter). Got relative URL.",
-      ).toMatch(/^https?:\/\//);
+      ).toBeDefined();
+      expect(content!.toString()).toMatch(/^https?:\/\//);
     });
 
     it("twitter:image URL is absolute", () => {
       const content = extractMetaContent(streamHtml, "name", "twitter:image");
-      expect(content).toBeDefined();
       expect(
         content,
         "twitter:image must be an absolute URL for social scrapers. Got relative URL.",
-      ).toMatch(/^https?:\/\//);
+      ).toBeDefined();
+      expect(content!.toString()).toMatch(/^https?:\/\//);
     });
   });
 });

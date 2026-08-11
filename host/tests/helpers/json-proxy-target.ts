@@ -23,6 +23,20 @@ export async function startJsonProxyTarget(): Promise<JsonProxyTarget> {
       return;
     }
 
+    if (req.url?.startsWith("/api/auth/")) {
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(null));
+      return;
+    }
+
+    if (req.method === "POST" && req.url?.startsWith("/api/rpc/")) {
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ json: null, meta: [] }));
+      return;
+    }
+
     res.statusCode = 404;
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ error: "Not Found" }));

@@ -283,10 +283,16 @@ bun run changeset
 
 **Before committing:**
 ```bash
-bun run test    # Run all tests
+bun run test    # Run all tests (root script — NOT `bun test`, which uses Bun's native runner)
 bun typecheck   # Type check all packages
 bun lint        # Run linting
 ```
+
+Host tests specifically use vitest via the workspace script:
+```bash
+bun run --cwd host test    # NODE_ENV=production BOS_CONFIG_PATH=../bos.config.json vitest run
+```
+Always use `bun run test` / `bun run --cwd host test` — never `bun test`, which invokes Bun's built-in runner and produces different (and misleading) results.
 
 ## Common Patterns
 

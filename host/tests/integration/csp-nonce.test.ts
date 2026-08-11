@@ -6,6 +6,7 @@ import { loadBundledRouterModule } from "../helpers/bundled-ssr-module";
 import {
   buildTestClientRuntimeConfig,
   createMockAuthClient,
+  createMockSession,
   loadTestRuntimeConfig,
 } from "../helpers/runtime-config";
 
@@ -24,6 +25,7 @@ async function consumeStream(stream: ReadableStream): Promise<string> {
 
 const mockApiClient = createTestApiClient({});
 const mockAuthClient = createMockAuthClient();
+const mockSession = createMockSession();
 
 describe("CSP Nonce Regression Tests", () => {
   let routerModule: RouterModule;
@@ -49,7 +51,7 @@ describe("CSP Nonce Regression Tests", () => {
       const renderOptions: RenderOptionsWithApi<ApiClient> = {
         runtimeConfig: buildTestClientRuntimeConfig(config),
         apiClient: mockApiClient,
-        session: null,
+        session: mockSession,
         authClient: mockAuthClient,
         cspNonce: testNonce,
       };
@@ -77,7 +79,7 @@ describe("CSP Nonce Regression Tests", () => {
       const renderOptions: RenderOptionsWithApi<ApiClient> = {
         runtimeConfig: buildTestClientRuntimeConfig(config),
         apiClient: mockApiClient,
-        session: null,
+        session: mockSession,
         authClient: mockAuthClient,
         cspNonce: testNonce,
       };
@@ -105,7 +107,7 @@ describe("CSP Nonce Regression Tests", () => {
       const renderOptions: RenderOptionsWithApi<ApiClient> = {
         runtimeConfig: buildTestClientRuntimeConfig(config),
         apiClient: mockApiClient,
-        session: null,
+        session: mockSession,
         authClient: mockAuthClient,
         cspNonce: testNonce,
       };
@@ -126,7 +128,7 @@ describe("CSP Nonce Regression Tests", () => {
       const renderOptions: RenderOptionsWithApi<ApiClient> = {
         runtimeConfig: buildTestClientRuntimeConfig(config),
         apiClient: mockApiClient,
-        session: null,
+        session: mockSession,
         authClient: mockAuthClient,
       };
 
@@ -161,7 +163,7 @@ describe("CSP Nonce Regression Tests", () => {
           rpcBase: "/rpc",
         },
         apiClient: mockApiClient,
-        session: null,
+        session: mockSession,
         authClient: mockAuthClient,
         cspNonce: "typed-nonce-without-cast",
       };
@@ -180,7 +182,7 @@ describe("CSP Nonce Regression Tests", () => {
           rpcBase: "/rpc",
         },
         apiClient: mockApiClient,
-        session: null,
+        session: mockSession,
         authClient: mockAuthClient,
       };
 
