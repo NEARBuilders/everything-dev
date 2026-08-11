@@ -217,22 +217,29 @@ export function runTypecheck(
 }
 
 export function assertTypecheckSuccess(result: CommandResult, workspace: string): void {
-  const errors = unexpectedTypeErrors(result.stdout + result.stderr);
-  const receivedErrors =
-    errors.length > 0
-      ? errors
-      : result.code !== 0
-        ? [
-            new TypeErrorDetail({
-              location: "(typecheck output)",
-              line: 0,
-              code: "TS0000",
-              message: summarizeOutput(result.stdout + result.stderr),
-              fixHint: "Inspect the full typecheck output for this workspace",
-              raw: (result.stdout + result.stderr).trim(),
-            }),
-          ]
-        : [];
+  const output = result.stdout + result.stderr;
+  const unexpected = unexpectedTypeErrors(output);
+  let receivedErrors: TypeErrorDetail[];
+
+  if (unexpected.length > 0) {
+    receivedErrors = unexpected;
+  } else if (result.code !== 0) {
+    receivedErrors = parseTypeErrors(output).map(parseTypeErrorDetail);
+    if (receivedErrors.length === 0) {
+      receivedErrors = [
+        new TypeErrorDetail({
+          location: "(typecheck output)",
+          line: 0,
+          code: "TS0000",
+          message: summarizeOutput(output),
+          fixHint: "Inspect the full typecheck output for this workspace",
+          raw: output.trim(),
+        }),
+      ];
+    }
+  } else {
+    receivedErrors = [];
+  }
 
   expect({ workspace, exitCode: result.code, unexpectedErrors: receivedErrors }).toEqual({
     workspace,

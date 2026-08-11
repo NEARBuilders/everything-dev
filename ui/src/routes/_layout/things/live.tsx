@@ -31,11 +31,22 @@ function LiveStreamPage() {
   useEffect(() => {
     setConnected(true);
 
+    const templateClient = (
+      apiClient as typeof apiClient & {
+        template?: { listenBackground: (input: {}) => Promise<AsyncIterable<ThingEvent>> };
+      }
+    ).template;
+
+    if (!templateClient) {
+      setConnected(false);
+      return;
+    }
+
     const abort = new AbortController();
 
     (async () => {
       try {
-        const stream = await apiClient.template.listenBackground({});
+        const stream = await templateClient.listenBackground({});
         for await (const event of stream) {
           if (abort.signal.aborted) break;
           setEvents((prev) => [event as ThingEvent, ...prev].slice(0, 200));

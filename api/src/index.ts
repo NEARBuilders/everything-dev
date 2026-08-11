@@ -245,21 +245,41 @@ export default createPlugin.withPlugins<PluginsClient>()({
         };
       }),
 
-      createThing: builder.createThing
-        .use(requireAuth)
-        .handler(async ({ input }) =>
-          templateClient.createThing({ thingId: input.thingId, payload: input.payload }),
-        ),
+      createThing: builder.createThing.use(requireAuth).handler(async ({ input }) => {
+        if (!templateClient) {
+          throw new ORPCError("BAD_REQUEST", {
+            message: "The template plugin is not included in this deployment",
+          });
+        }
+        return await templateClient.createThing({ thingId: input.thingId, payload: input.payload });
+      }),
 
-      getThing: builder.getThing.handler(async ({ input }) =>
-        templateClient.getThing({ thingId: input.thingId }),
-      ),
+      getThing: builder.getThing.handler(async ({ input }) => {
+        if (!templateClient) {
+          throw new ORPCError("BAD_REQUEST", {
+            message: "The template plugin is not included in this deployment",
+          });
+        }
+        return await templateClient.getThing({ thingId: input.thingId });
+      }),
 
-      listThings: builder.listThings.handler(async ({ input }) => templateClient.listThings(input)),
+      listThings: builder.listThings.handler(async ({ input }) => {
+        if (!templateClient) {
+          throw new ORPCError("BAD_REQUEST", {
+            message: "The template plugin is not included in this deployment",
+          });
+        }
+        return await templateClient.listThings(input);
+      }),
 
-      deleteThing: builder.deleteThing
-        .use(requireAuth)
-        .handler(async ({ input }) => templateClient.deleteThing({ thingId: input.thingId })),
+      deleteThing: builder.deleteThing.use(requireAuth).handler(async ({ input }) => {
+        if (!templateClient) {
+          throw new ORPCError("BAD_REQUEST", {
+            message: "The template plugin is not included in this deployment",
+          });
+        }
+        return await templateClient.deleteThing({ thingId: input.thingId });
+      }),
 
       testError: builder.testError.handler(async ({ input }) => {
         switch (input.kind) {
