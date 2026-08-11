@@ -1,10 +1,4 @@
 import { serve } from "@hono/node-server";
-import { getConnInfo } from "@hono/node-server/conninfo";
-import { OpenAPIHandler } from "@orpc/openapi/fetch";
-import { OpenAPIReferencePlugin } from "@orpc/openapi/plugins";
-import { RPCHandler } from "@orpc/server/fetch";
-import { BatchHandlerPlugin } from "@orpc/server/plugins";
-import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import {
   Cause,
   Effect,
@@ -14,66 +8,30 @@ import {
   Layer,
   ManagedRuntime,
 } from "every-plugin/effect";
-import { formatORPCError } from "every-plugin/errors";
-import { onError } from "every-plugin/orpc";
 import { getBaseStyles, getHydrateScript, getThemeInitScript } from "everything-dev/ui/head";
-import { type Context, Hono, type Next } from "hono";
-import { bodyLimit } from "hono/body-limit";
-import { cors } from "hono/cors";
-import { HTTPException } from "hono/http-exception";
-import { proxy } from "hono/proxy";
-import { NONCE, secureHeaders } from "hono/secure-headers";
-import { timeout } from "hono/timeout";
-import { rateLimiter } from "hono-rate-limiter";
+import { type Context, Hono } from "hono";
 import type { AuthVariables } from "./lib/auth";
+import { getCspStrict, SecurityMiddleware, STATIC_ASSET_PATTERN } from "./middleware/security";
+import { proxyStaticAssetRequest } from "./middleware/static-proxy";
+import { setupApiRoutes } from "./routes/api";
+import type { HealthLoadingState } from "./routes/health";
 import { buildPluginContext, createSessionMiddleware, registerAuthHandler } from "./services/auth";
-import {
-  type ClientRuntimeConfig,
-  ConfigService,
-  type RuntimeConfig,
-  readCorsOrigins,
-} from "./services/config";
-import { closeMcpServer, mountMcpRoute } from "./services/mcp";
-import type { RouterModule } from "./types";
-
-type HonoEnv = { Variables: AuthVariables };
-
-import {
-  getHealthStatus,
-  getMemorySnapshot,
-  HEALTH_PATH,
-  MEMORY_PATH,
-  tryGc,
-} from "./routes/health";
+import { type ClientRuntimeConfig, ConfigService, type RuntimeConfig } from "./services/config";
 import { loadRouterModule, resetFederationInstance } from "./services/federation.server";
 import { startIntegrityMonitor } from "./services/integrity-monitor";
+import { closeMcpServer } from "./services/mcp";
 import { createPluginsClient, type PluginResult, PluginsService } from "./services/plugins";
-
 import { getTenantRuntimeErrorResponse, resolveRequestRuntime } from "./services/tenant-runtime";
+import type { RouterModule, RuntimePlugin } from "./types";
+import { extractErrorDetails } from "./utils/errors";
 import { logger } from "./utils/logger";
+import { normalizeUrl } from "./utils/normalize";
+
+type HonoEnv = { Variables: AuthVariables };
 
 type ActiveRuntimeState = NonNullable<ClientRuntimeConfig["runtime"]>;
 
 type RuntimeClientConfig = ClientRuntimeConfig & { runtime?: ActiveRuntimeState };
-
-type RuntimePlugin = NonNullable<RuntimeConfig["plugins"]>[string];
-
-const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 900_000;
-const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 300;
-const BODY_LIMIT_MAX = Number(process.env.BODY_LIMIT_MAX) || 10 * 1024 * 1024;
-const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS) || 30_000;
-
-function normalizeUrl(url?: string | null) {
-  if (!url) {
-    return null;
-  }
-
-  try {
-    return new URL(url).toString().replace(/\/$/, "");
-  } catch {
-    return url.replace(/\/$/, "");
-  }
-}
 
 function getFallbackGatewayId(config: RuntimeConfig) {
   if (config.domain) {
@@ -172,357 +130,16 @@ function buildRuntimeClientConfig(
   } as RuntimeClientConfig;
 }
 
-function extractErrorDetails(error: unknown): {
-  message: string;
-  stack?: string;
-  cause?: string;
-} {
-  if (!error) return { message: "Unknown error (null/undefined)" };
-
-  if (error instanceof Error) {
-    const details: { message: string; stack?: string; cause?: string } = {
-      message: error.message || error.name || "Error",
-      stack: error.stack,
-    };
-
-    if (error.cause) {
-      if (error.cause instanceof Error) {
-        details.cause = `${error.cause.name}: ${error.cause.message}`;
-      } else if (typeof error.cause === "object" && "_tag" in (error.cause as object)) {
-        try {
-          const squashed = Cause.squash(error.cause as Cause.Cause<unknown>);
-          if (squashed instanceof Error) {
-            details.cause = `[Effect] ${squashed.name}: ${squashed.message}`;
-          } else {
-            details.cause = `[Effect] ${String(squashed)}`;
-          }
-        } catch {
-          details.cause = `[Effect Cause] ${JSON.stringify(error.cause)}`;
-        }
-      } else {
-        details.cause = String(error.cause);
-      }
-    }
-
-    return details;
-  }
-
-  if (typeof error === "object" && error !== null) {
-    if ("_tag" in error) {
-      try {
-        const squashed = Cause.squash(error as Cause.Cause<unknown>);
-        return extractErrorDetails(squashed);
-      } catch {
-        return { message: `[Effect] ${JSON.stringify(error)}` };
-      }
-    }
-
-    if ("message" in error) {
-      return { message: String((error as { message: unknown }).message) };
-    }
-
-    return { message: JSON.stringify(error) };
-  }
-
-  return { message: String(error) };
-}
-
-export async function proxyRequest(
-  req: Request,
-  targetBase: string,
-  rewriteCookies = false,
-): Promise<Response> {
-  const url = new URL(req.url);
-  const targetUrl = `${targetBase}${url.pathname}${url.search}`;
-
-  const headers = new Headers(req.headers);
-  headers.delete("host");
-  headers.set("accept-encoding", "identity");
-
-  if (rewriteCookies) {
-    const cookieHeader = headers.get("cookie");
-    if (cookieHeader) {
-      const rewrittenCookies = cookieHeader.replace(/\bbetter-auth\./g, "__Secure-better-auth.");
-      headers.set("cookie", rewrittenCookies);
-    }
-  }
-
-  const proxyReq = new Request(targetUrl, {
-    method: req.method,
-    headers,
-    body: req.body,
-    duplex: "half",
-  } as RequestInit);
-
-  const response = await fetch(proxyReq);
-
-  const responseHeaders = new Headers(response.headers);
-  responseHeaders.delete("content-encoding");
-  responseHeaders.delete("content-length");
-
-  if (rewriteCookies) {
-    responseHeaders.delete("set-cookie");
-    const setCookies =
-      typeof response.headers.getSetCookie === "function"
-        ? response.headers.getSetCookie()
-        : (response.headers.get("set-cookie")?.split(/,(?=\s*(?:__Secure-|__Host-)?\w+=)/) ?? []);
-    for (const cookie of setCookies) {
-      const rewritten = cookie
-        .replace(/^(__Secure-|__Host-)/i, "")
-        .replace(/;\s*Domain=[^;]*/gi, "")
-        .replace(/;\s*Secure/gi, "");
-      responseHeaders.append("set-cookie", rewritten);
-    }
-  }
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: responseHeaders,
-  });
-}
-
-function buildStaticAssetProxyHeaders(req: Request) {
-  const headers = new Headers();
-
-  for (const name of ["accept", "accept-language"]) {
-    const value = req.headers.get(name);
-    if (value) {
-      headers.set(name, value);
-    }
-  }
-
-  return headers;
-}
-
-async function proxyStaticAssetRequest(req: Request, targetBase: string): Promise<Response> {
-  const url = new URL(req.url);
-  const targetUrl = `${targetBase}${url.pathname}${url.search}`;
-
-  const response = await proxy(targetUrl, {
-    raw: req,
-    headers: buildStaticAssetProxyHeaders(req),
-  });
-
-  response.headers.delete("etag");
-  response.headers.delete("last-modified");
-  response.headers.set("cache-control", "public, max-age=14400, s-maxage=300");
-
-  return response;
-}
-
-export async function setupApiRoutes(
-  app: Hono<HonoEnv>,
-  config: RuntimeConfig,
-  plugins: PluginResult,
-  sessionMiddleware: ReturnType<typeof createSessionMiddleware>,
-  loadingState: {
-    status: string;
-    startTime: number;
-    milestones: string[];
-    error: Error | null;
-    ssrEnabled: boolean;
-  },
-) {
-  const apiConfig = config.api;
-
-  if (!apiConfig) {
-    throw new Error("API config is required to start the host");
-  }
-
-  const isProxyMode = process.argv.includes("--proxy");
-
-  const publicRpcRouters = new Map<string, RPCHandler<any>>();
-
-  const registerPublicRpcRouter = (prefix: string, router: unknown) => {
-    publicRpcRouters.set(
-      prefix,
-      new RPCHandler(router as any, {
-        plugins: [new BatchHandlerPlugin()],
-        interceptors: [
-          onError((error: unknown) => {
-            const formatted = formatORPCError(error);
-            if (formatted) console.error(formatted);
-            throw error;
-          }),
-        ],
-      }),
-    );
-  };
-
-  if (plugins.auth?.router) {
-    registerPublicRpcRouter("/api/rpc/auth", plugins.auth.router);
-  }
-
-  for (const [pluginKey, plugin] of Object.entries(plugins.plugins)) {
-    registerPublicRpcRouter(`/api/rpc/${pluginKey}`, plugin.router);
-  }
-
-  const getPublicRpcRoute = (pathname: string) => {
-    for (const [prefix, handler] of publicRpcRouters.entries()) {
-      if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
-        return { prefix, handler };
-      }
-    }
-
-    return null;
-  };
-
-  if (isProxyMode) {
-    const proxyTarget = apiConfig.proxy!;
-    logger.info(`[API] Proxy mode enabled → ${proxyTarget}`);
-
-    app.all("/api/*", async (c: Context<HonoEnv>) => {
-      if (c.req.path === HEALTH_PATH) {
-        return c.json(getHealthStatus(plugins, loadingState));
-      }
-      if (c.req.path === MEMORY_PATH) {
-        const gcRan = c.req.query("gc") === "true" && tryGc();
-        return c.json({ memory: getMemorySnapshot(), gc: gcRan });
-      }
-      const response = await proxyRequest(c.req.raw, proxyTarget, true);
-      return response;
-    });
-
-    return;
-  }
-
-  app.get(HEALTH_PATH, (c: Context<HonoEnv>) => {
-    return c.json(getHealthStatus(plugins, loadingState));
-  });
-
-  app.get(MEMORY_PATH, (c: Context<HonoEnv>) => {
-    const gcRan = c.req.query("gc") === "true" && tryGc();
-    return c.json({ memory: getMemorySnapshot(), gc: gcRan });
-  });
-
-  app.use(
-    "/api/*",
-    bodyLimit({
-      maxSize: BODY_LIMIT_MAX,
-      onError: (c) => c.json({ error: "Request body too large" }, 413),
-    }),
-  );
-
-  app.use(
-    "/api/*",
-    timeout(API_TIMEOUT_MS, () => {
-      return new HTTPException(408, { message: "Request timeout" });
-    }),
-  );
-
-  app.use("/api/*", sessionMiddleware);
-
-  const handleOrpc = async (
-    c: Context<HonoEnv>,
-    handler: RPCHandler<any> | OpenAPIHandler<any>,
-    prefix: `/${string}`,
-  ) => {
-    const context = buildPluginContext(c);
-
-    const result = await handler.handle(c.req.raw, { prefix, context });
-    if (!result.response) {
-      return c.text("Not Found", 404);
-    }
-
-    const contentType = result.response.headers.get("content-type") ?? "";
-    if (contentType.includes("text/html")) {
-      const nonce = c.get("secureHeadersNonce") as string | undefined;
-      if (nonce) {
-        const body = await result.response.text();
-        const injected = body.replace(/<script/gi, `<script nonce="${nonce}"`);
-        return c.html(injected, result.response.status as any);
-      }
-    }
-
-    return c.newResponse(result.response.body, result.response);
-  };
-
-  const apiRouter = plugins.api?.router;
-
-  if (!apiRouter) {
-    const unavailable = (c: Context<HonoEnv>) =>
-      c.json({ error: "Service Unavailable", message: "The API is currently unavailable." }, 503);
-
-    app.all("/api/rpc", unavailable);
-    app.all("/api/rpc/*", unavailable);
-    app.all("/api", unavailable);
-    app.all("/api/*", unavailable);
-    return;
-  }
-
-  const rpcHandler = new RPCHandler(apiRouter as any, {
-    plugins: [new BatchHandlerPlugin()],
-    interceptors: [
-      onError((error: unknown) => {
-        const formatted = formatORPCError(error);
-        if (formatted) console.error(formatted);
-        throw error;
-      }),
-    ],
-  });
-
-  const apiHandler = new OpenAPIHandler(apiRouter as any, {
-    plugins: [
-      new OpenAPIReferencePlugin({
-        schemaConverters: [new ZodToJsonSchemaConverter()],
-        specGenerateOptions: {
-          info: {
-            title: `${config.title ?? config.account} API`,
-            version: "1.0.0",
-          },
-          servers: [{ url: "/api" }, { url: `${config.host?.url ?? ""}/api` }],
-        },
-      }),
-    ],
-    interceptors: [
-      onError((error: unknown) => {
-        const formatted = formatORPCError(error);
-        if (formatted) console.error(formatted);
-        throw error;
-      }),
-    ],
-  });
-
-  try {
-    await mountMcpRoute(app, { apiRouter, apiHandler, config });
-  } catch (error) {
-    logger.warn(
-      `[MCP] Failed to mount /api/mcp: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  app.all("/api/rpc", (c: Context<HonoEnv>) => handleOrpc(c, rpcHandler, "/api/rpc"));
-  app.all("/api/rpc/*", (c: Context<HonoEnv>) => {
-    const publicRoute = getPublicRpcRoute(c.req.path);
-    if (publicRoute) {
-      return handleOrpc(c, publicRoute.handler, publicRoute.prefix as `/${string}`);
-    }
-
-    return handleOrpc(c, rpcHandler, "/api/rpc");
-  });
-  app.all("/api", (c: Context<HonoEnv>) => handleOrpc(c, apiHandler, "/api"));
-  app.all("/api/*", (c: Context<HonoEnv>) => handleOrpc(c, apiHandler, "/api"));
-}
-
 export const createStartServer = (onReady?: () => void) =>
   Effect.gen(function* () {
     const port = Number(process.env.PORT) || 3000;
     const isDev = process.env.NODE_ENV !== "production";
-    const corsOrigins = yield* readCorsOrigins();
-
-    if (corsOrigins.length === 0 && !isDev) {
-      logger.warn(
-        "[Security] CORS_ORIGIN is not set in production. Auth endpoints will reject cross-origin requests.",
-      );
-      logger.warn(
-        "[Security] Set CORS_ORIGIN to your allowed origins (comma-separated), e.g.: CORS_ORIGIN=https://yourdomain.com,https://app.yourdomain.com",
-      );
-    }
+    const CSP_STRICT = getCspStrict(isDev);
 
     const config = yield* ConfigService;
     const uiConfig = config.ui!;
     const plugins = yield* PluginsService;
+    const security = yield* SecurityMiddleware;
 
     const app = new Hono<HonoEnv>();
 
@@ -539,160 +156,18 @@ export const createStartServer = (onReady?: () => void) =>
       return c.json({ error: details.message, cause: details.cause }, 500);
     });
 
-    const allowedOrigins =
-      corsOrigins.length > 0
-        ? corsOrigins
-        : [config.host?.url ?? "", ...(uiConfig.url ? [uiConfig.url] : [])];
-
-    const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-
-    const createCsrfMiddleware = () => {
-      return async (c: Context, next: Next) => {
-        if (SAFE_METHODS.has(c.req.method)) {
-          return next();
-        }
-
-        const origin = c.req.header("origin");
-
-        if (!origin) {
-          return next();
-        }
-
-        const host = c.req.header("host");
-        if (host && host.split(":")[0] === new URL(origin).hostname) {
-          return next();
-        }
-
-        logger.warn(`[CSRF] Blocked ${c.req.method} ${c.req.path} from origin=${origin}`);
-        return c.json({ error: "CSRF validation failed: request origin is not allowed" }, 403);
-      };
-    };
-
-    app.use(
-      "/*",
-      cors({
-        origin: (origin) => {
-          if (!origin) return "*";
-          if (allowedOrigins.includes(origin)) return origin;
-          if (origin.startsWith("https://")) return origin;
-          if (isDev && origin.startsWith("http://")) return origin;
-          return null;
-        },
-        credentials: true,
-      }),
-    );
-
-    app.use("/*", createCsrfMiddleware());
-
-    const staticAssetPattern =
-      /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|md|webmanifest|woff2?|ttf|eot|webp|avif|map|txt|xml)$/i;
-
-    app.use(
-      "/*",
-      rateLimiter({
-        windowMs: RATE_LIMIT_WINDOW_MS,
-        limit: RATE_LIMIT_MAX,
-        keyGenerator: (c) => {
-          const forwarded = c.req.header("x-forwarded-for");
-          if (forwarded) {
-            return forwarded.split(",")[0]!.trim();
-          }
-          try {
-            const info = getConnInfo(c);
-            return info.remote.address ?? "unknown";
-          } catch {
-            return "unknown";
-          }
-        },
-        skip: (c) => {
-          const { pathname } = new URL(c.req.url);
-          const lastSegment = pathname.split("/").pop() ?? "";
-          return staticAssetPattern.test(lastSegment);
-        },
-        message: { error: "Too many requests, please try again later." },
-      }),
-    );
-
-    const remoteOrigins = [
-      ...(uiConfig.url ? [new URL(uiConfig.url).origin] : []),
-      ...(config.api?.url ? [new URL(config.api.url).origin] : []),
-      ...(config.auth?.url ? [new URL(config.auth.url).origin] : []),
-      ...Object.values(config.plugins ?? {}).flatMap((p: RuntimePlugin) => {
-        if (p.url) return [new URL(p.url).origin];
-        return [];
-      }),
-    ];
-
-    const uniqueOrigins = [...new Set(remoteOrigins)];
-
-    const pluginConnectSrcs = [
-      ...new Set(
-        Object.values(config.plugins ?? {}).flatMap((p: RuntimePlugin) => p.connectSrc ?? []),
-      ),
-    ];
-
-    const wsOrigins = isDev
-      ? uniqueOrigins.filter((o) => o.startsWith("http:")).map((o) => o.replace(/^http:/, "ws:"))
-      : [];
-
-    const CSP_STRICT = process.env.CSP_STRICT === "false" ? false : !isDev;
-
-    const cdnOrigins = ["https://cdn.jsdelivr.net", "https://unpkg.com"];
-
-    const cspScriptSrc = CSP_STRICT
-      ? [NONCE, "'strict-dynamic'", "'unsafe-eval'"]
-      : ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:", ...uniqueOrigins, ...cdnOrigins];
-
-    app.use("*", (c, next) => {
-      const frameAncestors = ["'none'"];
-
-      const lastSegment = c.req.path.split("/").pop() ?? "";
-      const isStaticAsset = staticAssetPattern.test(lastSegment);
-
-      return secureHeaders({
-        crossOriginOpenerPolicy: "same-origin-allow-popups",
-        crossOriginResourcePolicy: isStaticAsset ? "cross-origin" : "same-origin",
-        contentSecurityPolicy: {
-          defaultSrc: ["'self'"],
-          scriptSrc: cspScriptSrc,
-          styleSrc: ["'self'", "'unsafe-inline'", "https:", ...uniqueOrigins, ...cdnOrigins],
-          imgSrc: [
-            "'self'",
-            "data:",
-            ...(isDev ? ["http:"] : ["https:"]),
-            ...(uiConfig.url ? [new URL(uiConfig.url).origin] : []),
-          ],
-          connectSrc: [
-            "'self'",
-            "https:",
-            ...uniqueOrigins,
-            ...wsOrigins,
-            ...cdnOrigins,
-            ...pluginConnectSrcs,
-          ],
-          fontSrc: ["'self'", "https:", ...uniqueOrigins],
-          manifestSrc: [
-            "'self'",
-            "https:",
-            ...(uiConfig.url ? [new URL(uiConfig.url).origin] : []),
-          ],
-          frameSrc: ["'self'", "https:", ...uniqueOrigins],
-          objectSrc: ["'none'"],
-          baseUri: ["'self'"],
-          formAction: ["'self'"],
-          frameAncestors,
-          workerSrc: ["'self'", "https:", ...uniqueOrigins],
-        },
-      })(c, next);
-    });
+    app.use("/*", security.cors);
+    app.use("/*", security.csrf);
+    app.use("/*", security.rateLimit);
+    app.use("*", security.csp);
 
     app.get("/health", (c: Context<HonoEnv>) => c.text("OK"));
 
-    const loadingState = {
-      status: "ready" as "loading" | "ready" | "failed",
+    const loadingState: HealthLoadingState = {
+      status: "ready",
       startTime: Date.now(),
-      milestones: [] as string[],
-      error: null as Error | null,
+      milestones: [],
+      error: null,
       ssrEnabled: Boolean(uiConfig.ssrUrl),
     };
 
@@ -744,6 +219,7 @@ export const createStartServer = (onReady?: () => void) =>
               <meta charset="utf-8" />
               <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
               <title>${title}</title>
+              <link rel="manifest" href="${assetsUrl}/site.webmanifest" />
               <link rel="stylesheet" href="${assetsUrl}/static/css/style.css${uiVersion}" />
               <style>${baseStyles}</style>
               ${themeScript}
@@ -793,7 +269,7 @@ export const createStartServer = (onReady?: () => void) =>
       }
 
       const lastSegment = pathname.split("/").pop() ?? "";
-      if (!staticAssetPattern.test(lastSegment)) {
+      if (!STATIC_ASSET_PATTERN.test(lastSegment)) {
         return next();
       }
 
@@ -952,7 +428,8 @@ export const runServer = (input: ServerInput): ServerHandle => {
     }
   }
   const ConfigLive = Layer.succeed(ConfigService, input.config);
-  const ServerLive = Layer.provideMerge(PluginsService.Live, ConfigLive);
+  const AppLive = Layer.provideMerge(PluginsService.Live, ConfigLive);
+  const ServerLive = Layer.provideMerge(SecurityMiddleware.Live, AppLive);
 
   const stopMonitor = startIntegrityMonitor(input.config);
 

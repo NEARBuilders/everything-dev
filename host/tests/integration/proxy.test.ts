@@ -1,7 +1,8 @@
 import { type Context, Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AuthVariables } from "../../src/lib/auth";
-import { proxyRequest, setupApiRoutes } from "../../src/program";
+import { proxyRequest } from "../../src/middleware/static-proxy";
+import { setupApiRoutes } from "../../src/routes/api";
 import { registerAuthHandler } from "../../src/services/auth";
 import type { PluginResult } from "../../src/services/plugins";
 

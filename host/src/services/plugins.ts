@@ -6,7 +6,9 @@ import { buildDependencyDAG, getDependenciesForNode, getSingletonKey } from "eve
 import { IntegrityRegistry, verifyConfigAgainstChain } from "everything-dev/integrity";
 import { installIntegrityFetchHook } from "everything-dev/mf";
 import type { RuntimeConfig, SharedConfig } from "everything-dev/types";
+import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
+import { toProtocolUrl } from "../utils/normalize";
 import { ConfigService, readCorsOrigins } from "./config";
 import { PluginError } from "./errors";
 
@@ -108,15 +110,6 @@ function formatError(error: unknown): string {
     return JSON.stringify(error);
   }
   return String(error);
-}
-
-function normalizeDomain(domain: string | undefined, env: string): string | undefined {
-  if (!domain) return domain;
-  if (/^https?:\/\//.test(domain)) return domain;
-  if (env === "development" && /^(localhost|127\.0\.0\.1)/.test(domain)) {
-    return `http://${domain}`;
-  }
-  return `https://${domain}`;
 }
 
 function mergeSharedMaps(
@@ -257,12 +250,10 @@ const unavailableResult = (
   status: { available: false, pluginName, error, errorDetails, loadedPlugins },
 });
 
-type RuntimePluginInput = NonNullable<RuntimeConfig["plugins"]>[string];
-
 interface RuntimePluginEntry {
   key: string;
   runtimeId: string;
-  config: RuntimeConfig["api"] | RuntimePluginInput;
+  config: RuntimeConfig["api"] | RuntimePlugin;
 }
 
 function collectSecrets(config: { secrets?: string[] }): Record<string, string> {
@@ -284,7 +275,7 @@ function buildAuthBaseVariables(
     config.env === "development"
       ? (config.host?.url ?? `http://localhost:${config.host?.port ?? 3000}`)
       : config.domain;
-  const hostUrl = normalizeDomain(rawHostUrl, config.env);
+  const hostUrl = toProtocolUrl(rawHostUrl, config.env);
   const base: Record<string, unknown> = {
     account: config.account,
     domain: hostUrl,

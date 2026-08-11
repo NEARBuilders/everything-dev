@@ -6,7 +6,9 @@ import {
   type RuntimeConfig,
 } from "everything-dev/config";
 import { verifySriForUrl } from "everything-dev/integrity";
+import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
+import { resolveDomain } from "../utils/normalize";
 
 const REMOTE_CONFIG_TTL_MS = 30_000;
 const VERIFICATION_TTL_MS = 5 * 60_000;
@@ -17,7 +19,6 @@ const NEAR_ACCOUNT_ID_REGEX =
 
 type RuntimeOverrideTarget = ReturnType<typeof parseRuntimeOverrideTargets>[number];
 type BosEnv = "development" | "production" | "staging";
-type RuntimePlugin = NonNullable<RuntimeConfig["plugins"]>[string];
 type IntegrityVerificationMode = "blocking" | "stale-while-revalidate";
 
 interface ResolveRequestRuntimeOptions {
@@ -98,23 +99,6 @@ export function clearTenantRuntimeCaches() {
   unsupportedOverrideWarnings.clear();
   tenantWhitelistCache = null;
   allowedOverridesCache = null;
-}
-
-function normalizeDomain(domain: string | undefined, fallbackHostUrl: string): string {
-  if (domain && domain.length > 0) {
-    return domain;
-  }
-
-  try {
-    return new URL(fallbackHostUrl).hostname;
-  } catch {
-    return (
-      fallbackHostUrl
-        .replace(/^https?:\/\//, "")
-        .replace(/\/$/, "")
-        .split(":")[0] ?? ""
-    );
-  }
 }
 
 function parseBoolean(value: string | undefined): boolean {
@@ -458,7 +442,7 @@ export async function resolveRequestRuntime(
 ): Promise<RequestRuntimeResolution> {
   const verificationMode = options?.verification ?? "blocking";
   const url = new URL(request.url);
-  const gatewayId = normalizeDomain(baseConfig.domain, baseConfig.host.url);
+  const gatewayId = resolveDomain(baseConfig.domain, baseConfig.host.url);
   const tenantAccountId = resolveTenantAccountId(url.hostname, gatewayId, baseConfig.account);
   if (!tenantAccountId) {
     return {

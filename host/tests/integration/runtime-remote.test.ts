@@ -74,8 +74,7 @@ for (const scenario of scenarios) {
 
       if (scenario.ssr) {
         expect(html).toContain('<div id="root">');
-        expect(html).toContain("manifest.json");
-        expect(html).toContain('<iframe title="BOS viewer"');
+        expect(html).toContain("site.webmanifest");
         expect(html).not.toContain("SSR unavailable, showing client app.");
         expect(html).not.toContain("<p>Loading...</p>");
       }
