@@ -1,5 +1,9 @@
 # React Native Migration Plan (Re.Pack Super-App)
 
+> This plan describes the implementation strategy. For the architectural design and how
+> native plugins integrate with the `app.ts` surface, `everything-dev` subpath exports, and
+> the generic host composition model, see [beta-v2-native.md](./beta-v2-native.md).
+
 ## Architecture Overview
 
 ```
@@ -322,18 +326,22 @@ The RN app is **another client** of the same API, just like the web app.
 
 ## Phase 8: Shared Code Strategy
 
-Extract platform-agnostic logic into shared packages:
+All shared logic lives in `everything-dev` via subpath exports (see
+[beta-v2-native.md](./beta-v2-native.md) for the full list). No separate packages.
 
 ```
-packages/
-├── api-client/       # oRPC client factory (shared)
-├── auth-core/        # Auth actions, session types (shared)
-├── runtime-config/   # Config types, helpers like getAccount() (shared)
-├── types/            # Shared TypeScript types (already exists as everything-dev/types)
-└── contract/         # oRPC contract definitions (shared)
+packages/everything-dev/src/
+├── api-client.ts       # "everything-dev/api" — oRPC client factory (shared)
+├── auth-core.ts        # "everything-dev/auth" — auth actions, session types (shared)
+├── runtime-config.ts   # "everything-dev/config" — config types, getAccount() (shared)
+├── types.ts            # "everything-dev/types" — shared TypeScript types
+├── web/
+│   └── compose.ts      # "everything-dev/web" — composeApp, defineWebPlugin
+└── native/
+    └── compose.ts      # "everything-dev/native" — loadNativePlugins, defineNativePlugin
 ```
 
-Platform-specific code stays in `ui/` (web) and `app/` (RN):
+Platform-specific code stays in `web/` and `native/`:
 - Component libraries (shadcn vs gluestack)
 - Navigation (TanStack Router vs React Navigation)
 - Auth client setup (cookies vs tokens)
