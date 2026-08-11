@@ -41,13 +41,15 @@ export interface DriftReport {
 function getExistingTables(
   db: Database,
   tables: string[],
+  schemaName?: string,
 ): Effect.Effect<Set<string>, DatabaseError> {
   if (tables.length === 0) return Effect.succeed(new Set<string>());
+  const schema = schemaName ?? "public";
   return Effect.tryPromise({
     try: () =>
       db.execute(sql`
         SELECT table_name FROM information_schema.tables
-        WHERE table_schema = 'public'
+        WHERE table_schema = ${sql.raw(`'${schema}'`)}
           AND table_name = ANY(${sql.raw(toSqlArray(tables))})
       `),
     catch: (cause) =>
@@ -180,12 +182,21 @@ export function migrate(
   db: Database,
   migrations: Migration[],
   storage?: MigrationStorage,
+  schemaName?: string,
 ): Effect.Effect<number, DatabaseError> {
   return Effect.gen(function* () {
     const sorted = [...migrations].sort((a, b) => a.idx - b.idx);
     const journal = storage ?? getMigrationStorage();
 
     yield* ensureMigrationTable(db, journal);
+
+    if (schemaName) {
+      yield* Effect.tryPromise({
+        try: () => db.execute(sql`CREATE SCHEMA IF NOT EXISTS ${sql.raw(`"${schemaName}"`)}`),
+        catch: (cause) =>
+          new DatabaseError({ stage: "migration", migrationTag: "init-data-schema", cause }),
+      });
+    }
 
     const ref = journalRef(journal);
     const appliedHashes = yield* readAppliedHashes(db, ref);
@@ -200,7 +211,7 @@ export function migrate(
       // as applied rather than crashing on a duplicate DDL error.
       const expectedTables = extractExpectedTables([migration]);
       if (expectedTables.length > 0) {
-        const existing = yield* getExistingTables(db, expectedTables);
+        const existing = yield* getExistingTables(db, expectedTables, schemaName);
         const missingTables = expectedTables.filter((t) => !existing.has(t));
         if (missingTables.length === 0) {
           yield* Effect.logWarning(
@@ -302,6 +313,7 @@ export function detectDrift(
   db: Database,
   migrations: Migration[],
   storage?: MigrationStorage,
+  schemaName?: string,
 ): Effect.Effect<DriftReport, DatabaseError> {
   return Effect.gen(function* () {
     const journal = storage ?? getMigrationStorage();
@@ -322,7 +334,7 @@ export function detectDrift(
       };
     }
 
-    const existing = yield* getExistingTables(db, expectedTables);
+    const existing = yield* getExistingTables(db, expectedTables, schemaName);
     const missingTables = expectedTables.filter((t) => !existing.has(t));
 
     if (appliedCount === 0 && missingTables.length === 0) {

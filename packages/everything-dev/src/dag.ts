@@ -190,7 +190,7 @@ export function topologicalSort(nodes: Map<string, RuntimeDependencyNode>): stri
   if (result.length !== nodes.size) {
     const cyclic = [...nodes.keys()].filter((k) => !result.includes(k));
     throw new Error(
-      `Circular dependency detected among: ${cyclic.join(" -> ")}. Check dependsOn declarations in bos.config.json.`,
+      `Circular dependency detected among: ${cyclic.join(" -> ")}. Check dependsOn declarations in bos.config.`,
     );
   }
 

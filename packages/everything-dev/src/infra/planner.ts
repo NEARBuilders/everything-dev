@@ -13,7 +13,7 @@ import {
   savePortState,
 } from "../cli/infra";
 import { buildDescription } from "../service-descriptor";
-import type { RuntimeConfig } from "../types";
+import type { InfraConfig, RuntimeConfig } from "../types";
 import type {
   ClaimRecord,
   CliPorts,
@@ -173,6 +173,7 @@ function allocateServices(
 function allocateDatabases(
   runtimeConfig: RuntimeConfig,
   configDir: string,
+  infraConfig?: InfraConfig,
 ): Effect.Effect<
   {
     postgres: Record<string, number>;
@@ -191,7 +192,7 @@ function allocateDatabases(
     const allocator = yield* PortAllocator;
 
     const infraDatabases: DatabaseSecretConfig[] = yield* Effect.sync(() =>
-      buildDatabaseConfigs(allSecrets, originMap, { ...persisted.postgresPorts }),
+      buildDatabaseConfigs(allSecrets, originMap, { ...persisted.postgresPorts }, infraConfig),
     );
     const infraRedis: RedisSecretConfig[] = yield* Effect.sync(() =>
       buildRedisConfigs(allSecrets, originMap, { ...persisted.redisPorts }),
@@ -405,7 +406,7 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
       redisPlans,
       postgres: pgPorts,
       redis: rdPorts,
-    } = yield* allocateDatabases(input.bosConfig, input.configDir);
+    } = yield* allocateDatabases(input.bosConfig, input.configDir, input.infraConfig);
 
     const resolvedPorts: ResolvedPorts = {
       ...svcPorts,

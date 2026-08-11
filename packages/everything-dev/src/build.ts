@@ -4,6 +4,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { formatDuration } from "./cli/timing";
 import { resolveLocalDevelopmentPath } from "./config";
+import { findBosConfigPathInDir } from "./config-source";
 import type { WorkspaceDeployResult } from "./contract";
 import { applyDeployResults, type DeployResultEntry, parseDeployLines } from "./integrity";
 import { syncResolvedSharedDeps } from "./shared-deps";
@@ -346,7 +347,8 @@ export async function buildWorkspaceTargets(opts: {
     delete env.DEPLOY;
   }
 
-  const bosConfigPath = join(opts.configDir, "bos.config.json");
+  const bosConfigPath =
+    findBosConfigPathInDir(opts.configDir) ?? join(opts.configDir, "bos.config.json");
   let configSnapshot: string | undefined;
   if (opts.deploy && existsSync(bosConfigPath)) {
     configSnapshot = readFileSync(bosConfigPath, "utf-8");

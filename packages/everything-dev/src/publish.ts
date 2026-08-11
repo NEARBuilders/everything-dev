@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import process from "node:process";
 import { Effect } from "effect";
+import { generateAlchemyRun } from "./alchemy";
 import { buildWorkspaceTargets, selectWorkspaceTargets } from "./build";
 import { generateCodeArtifacts } from "./code-artifacts";
 import { loadResolvedConfig } from "./config";
+import { findBosConfigPath, readBosConfigSource } from "./config-source";
 import type { WorkspaceDeployResult } from "./contract";
 import {
   buildRegistryConfigUrlForNetwork,
@@ -103,7 +103,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     return {
       status: "error",
       registryUrl: "",
-      error: "bos.config.json must define domain to publish",
+      error: "bos.config must define a domain to publish",
     };
   }
 
@@ -193,15 +193,25 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
         built,
         skipped,
         deployResults,
-        error: "Failed to reload bos.config.json after build",
+        error: "Failed to reload bos.config after build",
       };
     }
 
     bosConfig = refreshed.config;
   }
 
-  const rawConfigPath = join(configDir, "bos.config.json");
-  const rawConfig = JSON.parse(readFileSync(rawConfigPath, "utf-8")) as BosConfigInput;
+  const rawConfigPath = findBosConfigPath(configDir);
+  if (!rawConfigPath) {
+    return {
+      status: "error",
+      registryUrl,
+      built,
+      skipped,
+      deployResults,
+      error: "No bos.config.toml or bos.config.json found",
+    };
+  }
+  const rawConfig = readBosConfigSource(rawConfigPath);
   const publishPayload: BosConfigInput = isStaging ? { ...rawConfig, domain: gateway } : rawConfig;
 
   const registryEntries: Record<string, string> = {
@@ -263,6 +273,18 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
       gateway,
       publishConfig: publishPayload,
     });
+
+    if (bosConfig.deploy) {
+      console.log(`  Generating deploy script from [deploy] config...`);
+      try {
+        generateAlchemyRun(bosConfig.deploy, bosConfig.infra, configDir);
+        console.log(`    ${colors.dim("alchemy.run.ts written")}`);
+      } catch (err) {
+        console.warn(
+          `${colors.yellow("  ⚠ Failed to write alchemy.run.ts:")} ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
 
     return {
       status: "published",

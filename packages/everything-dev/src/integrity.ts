@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { readBosConfigSource, stringifyBosConfig } from "./config-source";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import { fetchResponse } from "./http-client";
 
@@ -248,7 +249,8 @@ export function reportDeployResult(opts: {
   );
 
   try {
-    const config = JSON.parse(readFileSync(opts.bosConfigPath, "utf8")) as Record<string, unknown>;
+    const isToml = opts.bosConfigPath.endsWith(".toml");
+    const config = readBosConfigSource(opts.bosConfigPath) as Record<string, unknown>;
     setNestedPath(config, opts.urlField, opts.url);
     if (opts.integrityField) {
       if (opts.integrity) {
@@ -257,13 +259,18 @@ export function reportDeployResult(opts: {
         deleteNestedPath(config, opts.integrityField);
       }
     }
-    writeFileSync(opts.bosConfigPath, `${JSON.stringify(config, null, 2)}\n`);
-    console.log(`   ✅ Updated bos.config.json: ${opts.urlField}`);
+    const content = isToml
+      ? `${stringifyBosConfig(config)}\n`
+      : `${JSON.stringify(config, null, 2)}\n`;
+    writeFileSync(opts.bosConfigPath, content);
+    const label = isToml ? "bos.config.toml" : "bos.config.json";
+    console.log(`   ✅ Updated ${label}: ${opts.urlField}`);
     if (opts.integrityField && opts.integrity) {
-      console.log(`   ✅ Updated bos.config.json: ${opts.integrityField}`);
+      console.log(`   ✅ Updated ${label}: ${opts.integrityField}`);
     }
   } catch (err) {
-    console.error("   ❌ Failed to update bos.config.json:", (err as Error).message);
+    const label = opts.bosConfigPath.endsWith(".toml") ? "bos.config.toml" : "bos.config.json";
+    console.error(`   ❌ Failed to update ${label}:`, (err as Error).message);
   }
 }
 
@@ -305,7 +312,7 @@ export function applyDeployResults(
 }
 
 export function findPluginKey(bosConfigPath: string, pluginDir: string): string | null {
-  const config = JSON.parse(readFileSync(bosConfigPath, "utf8")) as Record<string, unknown>;
+  const config = readBosConfigSource(bosConfigPath) as Record<string, unknown>;
   const plugins = config.plugins as Record<string, Record<string, unknown>> | undefined;
   if (!plugins) return null;
   const configRoot = join(bosConfigPath, "..");

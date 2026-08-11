@@ -11,6 +11,8 @@ export const BOS_CONFIG_ORDER = [
   "staging",
   "repository",
   "ci",
+  "infra",
+  "deploy",
   "app",
   "plugins",
 ] as const;
@@ -48,10 +50,14 @@ function unionArrays(a: unknown, b: unknown): unknown[] | undefined {
   return result;
 }
 
-function cleanNullSentinels(obj: Record<string, unknown>): Record<string, unknown> {
+function cleanNullSentinels(
+  obj: Record<string, unknown>,
+  stripDisabled = false,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (value === null || value === undefined) continue;
+    if (stripDisabled && isPlainObject(value) && value.disabled === true) continue;
     if (isPlainObject(value)) {
       const cleaned = cleanNullSentinels(value);
       if (Object.keys(cleaned).length > 0) {
@@ -100,6 +106,7 @@ export function mergeBosConfigWithExtends(
   if (child.plugins !== undefined && isPlainObject(child.plugins)) {
     (merged as Record<string, unknown>).plugins = cleanNullSentinels(
       child.plugins as Record<string, unknown>,
+      true,
     );
   }
 
@@ -131,6 +138,19 @@ export function mergeBosConfigWithExtends(
         }
       }
     }
+  }
+
+  // Backward compat: map ci.railway → deploy if deploy section is absent
+  if (
+    !mergedRecord.deploy &&
+    isPlainObject(mergedRecord.ci) &&
+    isPlainObject((mergedRecord.ci as Record<string, unknown>).railway)
+  ) {
+    const railway = (mergedRecord.ci as Record<string, unknown>).railway as Record<string, unknown>;
+    mergedRecord.deploy = {
+      provider: "railway",
+      ...(railway.service ? { service: railway.service } : {}),
+    };
   }
 
   return rebuildOrderedConfig(mergedRecord) as BosConfigInput;

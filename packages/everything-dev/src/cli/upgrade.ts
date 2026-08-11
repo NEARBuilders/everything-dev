@@ -5,6 +5,7 @@ import process from "node:process";
 import * as p from "@clack/prompts";
 import { glob } from "glob";
 import { loadResolvedConfig } from "../config";
+import { findBosConfigPathInDir, readBosConfigSource } from "../config-source";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../contract";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { saveBosConfig } from "../utils/save-config";
@@ -271,12 +272,12 @@ function syncRootCatalogWithParent(
 }
 
 async function readExtendedRootSource(projectDir: string): Promise<ExtendedRootSource> {
-  const configPath = join(projectDir, "bos.config.json");
-  if (!existsSync(configPath)) {
+  const configPath = findBosConfigPathInDir(projectDir);
+  if (!configPath) {
     return { catalog: {}, extendsChain: [] };
   }
 
-  const localConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+  const localConfig = readBosConfigSource(configPath) as Record<string, unknown>;
   let extendsRef = getExtendsRef(localConfig);
   if (!extendsRef?.startsWith("bos://")) {
     return {
@@ -587,13 +588,13 @@ function getApiEntry(pluginConfig: Record<string, unknown>): Record<string, unkn
 
 export async function migrateBosConfigFiles(projectDir: string): Promise<string[]> {
   const migrated: string[] = [];
-  const rootConfigPath = join(projectDir, "bos.config.json");
+  const rootConfigPath = findBosConfigPathInDir(projectDir) ?? join(projectDir, "bos.config.json");
 
   if (existsSync(rootConfigPath)) {
-    const rootConfig = JSON.parse(readFileSync(rootConfigPath, "utf-8")) as Record<string, unknown>;
+    const rootConfig = readBosConfigSource(rootConfigPath) as Record<string, unknown>;
     let rootChanged = migrateRootConfigTargets(rootConfig);
 
-    const pluginConfigPaths = await glob("plugins/*/bos.config.json", {
+    const pluginConfigPaths = await glob("plugins/*/bos.config.{json,toml}", {
       cwd: projectDir,
       nodir: true,
       dot: false,
@@ -601,13 +602,13 @@ export async function migrateBosConfigFiles(projectDir: string): Promise<string[
     });
 
     for (const relativePath of pluginConfigPaths) {
-      const match = relativePath.match(/^plugins\/([^/]+)\/bos\.config\.json$/);
+      const match = relativePath.match(/^plugins\/([^/]+)\/bos\.config\.(json|toml)$/);
       const pluginKey = match?.[1];
       if (!pluginKey) continue;
 
       const filePath = join(projectDir, relativePath);
       try {
-        const pluginConfig = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+        const pluginConfig = readBosConfigSource(filePath) as Record<string, unknown>;
         rootChanged = mergePluginConfigIntoRoot(rootConfig, pluginKey, pluginConfig) || rootChanged;
       } catch (e) {
         console.warn(`[Upgrade] Failed to parse plugin config at ${filePath}: ${e}`);
@@ -643,12 +644,12 @@ async function loadParentPluginOptions(projectDir: string): Promise<{
   parentPlugins: Record<string, unknown>;
   newPluginKeys: string[];
 } | null> {
-  const configPath = join(projectDir, "bos.config.json");
-  if (!existsSync(configPath)) {
+  const configPath = findBosConfigPathInDir(projectDir);
+  if (!configPath) {
     return null;
   }
 
-  const localConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+  const localConfig = readBosConfigSource(configPath) as Record<string, unknown>;
   const extendsRef = getExtendsRef(localConfig);
   if (!extendsRef?.startsWith("bos://")) {
     return null;
@@ -770,13 +771,13 @@ async function findWorkspacePackageJsons(projectDir: string): Promise<string[]> 
 }
 
 export async function migrateChildRootPackageJson(projectDir: string): Promise<boolean> {
-  const configPath = join(projectDir, "bos.config.json");
+  const configPath = findBosConfigPathInDir(projectDir);
   const pkgPath = join(projectDir, "package.json");
-  if (!existsSync(configPath) || !existsSync(pkgPath)) {
+  if (!configPath || !existsSync(pkgPath)) {
     return false;
   }
 
-  const config = readJsonFile<Record<string, unknown>>(configPath);
+  const config = readBosConfigSource(configPath) as Record<string, unknown>;
   const extendsRef = getExtendsRef(config);
   if (!extendsRef?.startsWith("bos://")) {
     return false;
@@ -1166,7 +1167,7 @@ async function runMigrationPhase(
   await timePhase(timings, "sync shared deps", async () => {
     const configResult = await loadResolvedConfig({ cwd: projectDir });
     if (!configResult) {
-      throw new Error("No bos.config.json found in current directory");
+      throw new Error("No bos.config file found in current directory");
     }
 
     return syncResolvedSharedDeps({

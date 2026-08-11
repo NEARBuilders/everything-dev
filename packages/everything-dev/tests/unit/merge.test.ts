@@ -6,6 +6,7 @@ import {
   rebuildOrderedConfig,
   resolveExtendsRef,
 } from "../../src/merge";
+import type { BosConfigInput } from "../../src/types";
 
 describe("mergeBosConfigWithExtends", () => {
   it("child scalars override parent scalars", () => {
@@ -491,7 +492,49 @@ describe("BOS_CONFIG_ORDER", () => {
     expect(BOS_CONFIG_ORDER).toContain("testnet");
     expect(BOS_CONFIG_ORDER).toContain("staging");
     expect(BOS_CONFIG_ORDER).toContain("repository");
+    expect(BOS_CONFIG_ORDER).toContain("ci");
+    expect(BOS_CONFIG_ORDER).toContain("infra");
+    expect(BOS_CONFIG_ORDER).toContain("deploy");
     expect(BOS_CONFIG_ORDER).toContain("app");
     expect(BOS_CONFIG_ORDER).toContain("plugins");
+  });
+});
+
+describe("ci.railway → deploy backward compat", () => {
+  it("maps ci.railway to deploy when deploy section is absent", () => {
+    const child = {
+      ci: { railway: { service: "my-service" } },
+      account: "test.near",
+    };
+    const merged = mergeBosConfigWithExtends({}, child as BosConfigInput);
+    expect((merged as Record<string, unknown>).deploy).toEqual({
+      provider: "railway",
+      service: "my-service",
+    });
+  });
+
+  it("does not overwrite deploy when it already exists", () => {
+    const child = {
+      ci: { railway: { service: "ci-service" } },
+      deploy: { provider: "railway", service: "deploy-service" },
+      account: "test.near",
+    };
+    const merged = mergeBosConfigWithExtends({}, child as BosConfigInput);
+    expect((merged as Record<string, unknown>).deploy).toEqual({
+      provider: "railway",
+      service: "deploy-service",
+    });
+  });
+
+  it("does not create deploy when ci.railway is absent", () => {
+    const child = { ci: {}, account: "test.near" };
+    const merged = mergeBosConfigWithExtends({}, child as BosConfigInput);
+    expect((merged as Record<string, unknown>).deploy).toBeUndefined();
+  });
+
+  it("does not create deploy when ci is absent", () => {
+    const child = { account: "test.near" };
+    const merged = mergeBosConfigWithExtends({}, child as BosConfigInput);
+    expect((merged as Record<string, unknown>).deploy).toBeUndefined();
   });
 });

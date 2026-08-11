@@ -84,6 +84,7 @@ export const BosPluginRefSchema = ComposableAppEntrySchema.extend({
   app: z.record(z.string(), z.unknown()).optional(),
   plugins: z.record(z.string(), z.unknown()).optional(),
   dependsOn: z.array(z.string()).optional(),
+  disabled: z.boolean().optional(),
 });
 export type BosPluginRef = z.infer<typeof BosPluginRefSchema>;
 export type PluginEntryValue = string | BosPluginRef;
@@ -196,6 +197,8 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
     extends: ExtendsSchema.optional(),
     account: z.string().optional(),
     domain: z.string().optional(),
+    title: z.string().optional(),
+    description: z.string().optional(),
     testnet: z.string().optional(),
     template: z.string().optional(),
     gateway: z
@@ -217,6 +220,8 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
     app: z.record(z.string(), BosConfigInputAppEntrySchema).optional(),
     plugins: z.record(z.string(), z.union([z.string(), BosConfigInputSchema])).optional(),
     ci: CiConfigSchema.optional(),
+    infra: InfraConfigSchema.optional(),
+    deploy: DeployConfigSchema.optional(),
   }),
 );
 
@@ -245,6 +250,8 @@ export interface BosConfigInput {
   app?: Record<string, BosConfigInputAppEntry>;
   plugins?: Record<string, string | BosConfigInput>;
   ci?: CiConfig;
+  infra?: InfraConfig;
+  deploy?: DeployConfig;
 }
 
 export const RailwayCiSchema = z.object({
@@ -257,6 +264,31 @@ export const CiConfigSchema = z.object({
 });
 export type CiConfig = z.infer<typeof CiConfigSchema>;
 
+export const InfraDatabaseSchema = z.object({
+  type: z.enum(["postgres"]).default("postgres"),
+  dedicated: z.boolean().optional(),
+  secret: z.string().optional(),
+});
+export type InfraDatabase = z.infer<typeof InfraDatabaseSchema>;
+
+export const InfraConfigSchema = z.object({
+  database: z.union([InfraDatabaseSchema, z.record(z.string(), InfraDatabaseSchema)]).optional(),
+  redis: z
+    .object({
+      enabled: z.boolean().optional(),
+      slug: z.string().optional(),
+    })
+    .optional(),
+});
+export type InfraConfig = z.infer<typeof InfraConfigSchema>;
+
+export const DeployConfigSchema = z.object({
+  provider: z.enum(["railway", "alchemy"]).default("railway"),
+  service: z.string().optional(),
+  redeploy: z.boolean().optional(),
+});
+export type DeployConfig = z.infer<typeof DeployConfigSchema>;
+
 export const BosConfigSchema = z.object({
   account: z.string(),
   extends: ExtendsSchema.optional(),
@@ -267,6 +299,8 @@ export const BosConfigSchema = z.object({
   staging: BosStagingSchema.optional(),
   repository: z.string().optional(),
   ci: CiConfigSchema.optional(),
+  infra: InfraConfigSchema.optional(),
+  deploy: DeployConfigSchema.optional(),
   plugins: z.record(z.string(), z.union([z.string(), BosPluginRefSchema])).optional(),
   app: z.object({
     host: HostConfigSchema,
