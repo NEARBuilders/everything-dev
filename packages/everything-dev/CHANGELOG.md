@@ -1,5 +1,38 @@
 # everything-dev
 
+## 1.53.0
+
+### Minor Changes
+
+- ada1cd2: Add a `connectSrc` field to plugin config so plugins can whitelist external WebSocket/HTTPS origins in the host CSP.
+
+  - Plugins can declare `connectSrc: ["wss://relay.damus.io"]` in `bos.config.json`; the host merges these into the CSP `connect-src` directive in both dev and prod
+  - `connectSrc` arrays are unioned across `extends` chains (like `secrets`)
+  - The field flows through `RuntimePluginConfig`, DAG nodes, and tenant plugin overrides
+  - Removes the need for dev-only proxy workarounds (e.g. `relay-proxy.mjs`) to reach third-party relays in production
+
+- ada1cd2: Add tenant lifecycle status to the runtime and gate resolution on it.
+
+  - Add an optional `status` field (`active` | `suspended` | `pending_deletion`) to `BosConfigInput` so it survives config parsing
+  - Host `resolveRequestRuntime()` now reads the tenant's published config status and rejects suspended tenants (503) and pending-deletion tenants (410) before serving
+  - Tenant suspend/reactivate/delete republish the tenant config with the matching status so the host picks it up without an API round-trip
+
+### Patch Changes
+
+- 25f6d08: `bos dev` now generates `.env.example` and `docker-compose.yml` via the full runtime secret set (`writeGeneratedInfra`) instead of only auto-generated database/redis URLs and `CORS_ORIGIN`. This fixes regenerated files silently dropping host/API/auth/plugin secrets (e.g. `BETTER_AUTH_SECRET`, `CSP_STRICT`, GitHub/Google client secrets) that remain declared in `bos.config.json`.
+- ada1cd2: Generate optional `PluginsClient` properties for unresolved `api.dependsOn` plugins.
+
+  When `api.dependsOn` references a plugin that isn't registered in the configuration,
+  the generated `PluginsClient` type now includes an optional property with a generic
+  `ClientFactory<AnyContractRouter>` signature, instead of silently dropping the
+  dependency. This allows the API entry point to use optional chaining
+  (`plugins.pluginKey?.()`) without type errors.
+
+  Previously, an unresolved dependency caused `PluginsClient` to be typed as
+  `Record<string, never>`, which combined with `noUncheckedIndexedAccess: true` in
+  the API's tsconfig produced TS18048/TS2722 errors on any direct access to the
+  dependency.
+
 ## 1.52.0
 
 ### Minor Changes

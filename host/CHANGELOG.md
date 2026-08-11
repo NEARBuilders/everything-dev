@@ -1,5 +1,45 @@
 # host
 
+## 1.16.0
+
+### Minor Changes
+
+- ada1cd2: Remove `_viewer` paths from the host and add structured error testing surface.
+
+  - Remove `_viewer` route, `renderBosViewer`, `isViewerFramePath`, and viewer-specific CSP/font-src conditionals from the host; always apply `frame-ancestors 'none'`
+  - Rate limiter no longer skips the `/health` path, protecting it from DDoS
+  - Add `testError` route to the core API shell with six error kinds (`unauthorized`, `forbidden`, `not_found`, `conflict`, `bad_request`, `internal`), returning structured JSON errors with correct status codes and content types
+  - Add `testError` route to the `@every-plugin/template` plugin as a demonstration
+  - Append template plugin's thing routes (`/api/things`) to the API router with `requireAuth`, restoring the host-level `/api/things` surface via `_plugins.template()` passthrough
+  - Add regression tests verifying structured error responses, security headers (CSP/CSRF/X-Frame-Options), body-size limiting, and rate limiting
+  - Add router-composition note to `plans/orpc-v2-effect-migration.md` (Phase 1.7) for future direct-router merging in `every-plugin`
+  - Standalone plugin dev servers now load declared `dependsOn` sibling plugins via `BOS_RUNTIME_CONFIG`, enabling `_plugins.*()` in `initialize` during local development
+
+- ada1cd2: Add a `connectSrc` field to plugin config so plugins can whitelist external WebSocket/HTTPS origins in the host CSP.
+
+  - Plugins can declare `connectSrc: ["wss://relay.damus.io"]` in `bos.config.json`; the host merges these into the CSP `connect-src` directive in both dev and prod
+  - `connectSrc` arrays are unioned across `extends` chains (like `secrets`)
+  - The field flows through `RuntimePluginConfig`, DAG nodes, and tenant plugin overrides
+  - Removes the need for dev-only proxy workarounds (e.g. `relay-proxy.mjs`) to reach third-party relays in production
+
+- ada1cd2: Add tenant lifecycle status to the runtime and gate resolution on it.
+
+  - Add an optional `status` field (`active` | `suspended` | `pending_deletion`) to `BosConfigInput` so it survives config parsing
+  - Host `resolveRequestRuntime()` now reads the tenant's published config status and rejects suspended tenants (503) and pending-deletion tenants (410) before serving
+  - Tenant suspend/reactivate/delete republish the tenant config with the matching status so the host picks it up without an API round-trip
+
+### Patch Changes
+
+- ada1cd2: Report truthful API readiness from `/api/_health`.
+
+  The health endpoint previously hardcoded `status: "ready"`, so it reported ready even when the API plugin failed to load (e.g. its database was unreachable), which surfaced as confusing 503s on every `/api/*` route. `getHealthStatus` now derives the effective status from the plugin result:
+
+  - `ready` only when the API router is mounted and `plugins.status.available` is true
+  - `degraded` when the API plugin failed to load
+  - `failed` when the loading state is marked failed
+
+  This makes regression readiness checks fail with a clear signal instead of deep 503 failures.
+
 ## 1.15.0
 
 ### Minor Changes

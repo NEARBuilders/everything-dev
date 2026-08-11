@@ -1,5 +1,38 @@
 # @every-plugin/template
 
+## 1.3.0
+
+### Minor Changes
+
+- ada1cd2: Move the things CRUD into the template plugin as a DB-backed demonstration of database best practices, replacing the in-memory `Map` store while keeping the existing streaming demos.
+
+  - Add drizzle infrastructure under `src/db/`: `things` table schema, PGLite/Postgres driver, scoped `DatabaseTag`/`DatabaseLive` layer, and a migration runner with a generated initial migration
+  - Add `ThingsService` (Effect `Context.Tag`) with `createThing`, `getThing`, `deleteThing`, and a new `listThings` (type filter + offset cursor pagination); errors are typed `Effect<_, ORPCError>` (`NOT_FOUND`, `CONFLICT`, `INTERNAL_SERVER_ERROR`)
+  - Build the service via `tools.buildService` so the database pool lifecycle is bound to the plugin scope
+  - Rename the `apiKey` secret to `TEMPLATE_API_KEY` and add a `TEMPLATE_DATABASE_URL` secret (defaults to in-memory PGLite); all secrets now follow the uppercase convention
+  - Add dependency scripts `db:generate`, `db:push`, and `db:studio`
+
+  Streaming demonstrations (`search`, background events via `MemoryPublisher`) are preserved.
+
+### Patch Changes
+
+- ada1cd2: Remove `_viewer` paths from the host and add structured error testing surface.
+
+  - Remove `_viewer` route, `renderBosViewer`, `isViewerFramePath`, and viewer-specific CSP/font-src conditionals from the host; always apply `frame-ancestors 'none'`
+  - Rate limiter no longer skips the `/health` path, protecting it from DDoS
+  - Add `testError` route to the core API shell with six error kinds (`unauthorized`, `forbidden`, `not_found`, `conflict`, `bad_request`, `internal`), returning structured JSON errors with correct status codes and content types
+  - Add `testError` route to the `@every-plugin/template` plugin as a demonstration
+  - Append template plugin's thing routes (`/api/things`) to the API router with `requireAuth`, restoring the host-level `/api/things` surface via `_plugins.template()` passthrough
+  - Add regression tests verifying structured error responses, security headers (CSP/CSRF/X-Frame-Options), body-size limiting, and rate limiting
+  - Add router-composition note to `plans/orpc-v2-effect-migration.md` (Phase 1.7) for future direct-router merging in `every-plugin`
+  - Standalone plugin dev servers now load declared `dependsOn` sibling plugins via `BOS_RUNTIME_CONFIG`, enabling `_plugins.*()` in `initialize` during local development
+
+- ada1cd2: Route the things UI through the namespaced `template` plugin client and enforce auth on thing writes.
+
+  - Things routes in the UI now call `apiClient.template.createThing`, `apiClient.template.getThing`, `apiClient.template.deleteThing`, and `apiClient.template.listThings` instead of the removed top-level `api` client methods; `live.tsx` no longer needs a cast to reach the template client
+  - The parent API now proxies thing routes to the template plugin through the in-process `templateClient`, keeping `createThing`/`deleteThing` auth-protected at the API boundary with `requireAuth` while `getThing`/`listThings` remain public
+  - The template plugin's `createThing` and `deleteThing` handlers no longer enforce auth themselves (auth is enforced by the parent API), so direct plugin-to-plugin calls don't depend on per-call auth context
+
 ## 1.2.1
 
 ### Patch Changes

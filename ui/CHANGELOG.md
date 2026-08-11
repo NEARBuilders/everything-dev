@@ -1,5 +1,36 @@
 # ui
 
+## 1.9.0
+
+### Minor Changes
+
+- ada1cd2: Add a tenant creation flow and make primary screens tenant-aware, alongside new reusable UI primitives.
+
+  - Add a new `/_layout/_authenticated/tenant/new` route with a multi-step `Stepper` flow for creating a tenant; create redirects to the new tenant detail page
+  - Add a `/_layout/_authenticated/tenant/$tenantId` detail page with inline name/subdomain editing, status badge, suspend/reactivate/delete actions (which republish the tenant config with the matching status), a standalone "republish config" retry button, and links to the org and live site
+  - Run a tenant preflight check on the creation form (reserved/taken subdomain warnings, disabled submit until available)
+  - Make the home page, layout, settings, and organizations screens tenant-aware; replace the `wikiAccountId` org-metadata coupling with `resolveTenantByOrgId`
+  - Add reusable UI primitives: `field`, `info-row`, `network-toggle`, `spinner`, `stepper`, `textarea`, `app-detail-content`, and `json-highlight`
+  - Polish existing primitives (`button`, `checkbox`, `label`, `radio-group`, `separator`, `sonner`, `brand-element`, `theme-toggle`)
+
+### Patch Changes
+
+- ada1cd2: Route the things UI through the namespaced `template` plugin client and enforce auth on thing writes.
+
+  - Things routes in the UI now call `apiClient.template.createThing`, `apiClient.template.getThing`, `apiClient.template.deleteThing`, and `apiClient.template.listThings` instead of the removed top-level `api` client methods; `live.tsx` no longer needs a cast to reach the template client
+  - The parent API now proxies thing routes to the template plugin through the in-process `templateClient`, keeping `createThing`/`deleteThing` auth-protected at the API boundary with `requireAuth` while `getThing`/`listThings` remain public
+  - The template plugin's `createThing` and `deleteThing` handlers no longer enforce auth themselves (auth is enforced by the parent API), so direct plugin-to-plugin calls don't depend on per-call auth context
+
+- ada1cd2: Reorder the tenant creation pipeline to create the Better-Auth organization _before_ the irreversible NEAR subaccount, and roll back the org if subaccount creation or tenant registration fails. Add `parentHasFullAccess` and `minDeposit` subaccount config to the SIWN auth runtime variables.
+
+  Make the FastKV config + metadata publish relayer-aware: use delegate action + relay when the relayer is configured, fall back to a direct transaction signed by the user's wallet as the new subaccount when the relayer is unavailable.
+
+- ada1cd2: Scope tenant routes to the active organization via the `requireOrganization` auth middleware.
+
+  - `listTenants` and `createTenant` now require an active organization (401/403 when unauthenticated or no active org selected)
+  - `createTenant` derives the tenant's `orgId` from `context.organization.activeOrganizationId` instead of trusting a client-supplied `orgId`, which was removed from the contract input
+  - Reorder the tenant creation UI flow so the new organization is set active before the tenant is registered, and roll back the org if activating it fails
+
 ## 1.8.4
 
 ### Patch Changes

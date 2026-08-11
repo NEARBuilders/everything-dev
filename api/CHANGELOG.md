@@ -1,5 +1,36 @@
 # api
 
+## 2.8.0
+
+### Minor Changes
+
+- ada1cd2: Refactor the API shell around a tenants model and remove the legacy in-repo things/votes/registry providers.
+
+  - Add `services/tenants.ts` with a `TenantsService` (`listTenantsByOrgIds`, `createTenant`, `updateTenant`, `softDeleteTenant`, `suspendTenant`, `reactivateTenant`, `resolveTenantByAccountId`, `resolveTenantById`, `resolveTenantByOrgId`, `resolveTenantBySubdomain`) backed by a new `tenants` table in `db/schema.ts`
+  - Extend the `tenants` table with `status` (`active`/`suspended`/`pending_deletion`), `updated_at`, and `deleted_at` columns (soft-delete lifecycle)
+  - Add routes for `updateTenant`, `deleteTenant` (soft), `suspendTenant`, `reactivateTenant`, `resolveTenantByOrgId`, and `tenantPreflight`; `listTenants` now uses `requireAuth` consistently
+  - Remove `services/thing.ts`, `services/votes.ts`, and `services/registry.ts` plus their unit tests (`tests/unit/context.test.ts`, `tests/unit/db.test.ts`) and the stale `0000_famous_fabian_cortez` migration
+  - Update `contract.ts` and `index.ts` to expose tenant routes and thin proxy handlers for the things routes that forward to the `@every-plugin/template` plugin
+
+  The things logic moved to the `@every-plugin/template` plugin as a DB-backed demonstration.
+
+- ada1cd2: Remove `_viewer` paths from the host and add structured error testing surface.
+
+  - Remove `_viewer` route, `renderBosViewer`, `isViewerFramePath`, and viewer-specific CSP/font-src conditionals from the host; always apply `frame-ancestors 'none'`
+  - Rate limiter no longer skips the `/health` path, protecting it from DDoS
+  - Add `testError` route to the core API shell with six error kinds (`unauthorized`, `forbidden`, `not_found`, `conflict`, `bad_request`, `internal`), returning structured JSON errors with correct status codes and content types
+  - Add `testError` route to the `@every-plugin/template` plugin as a demonstration
+  - Append template plugin's thing routes (`/api/things`) to the API router with `requireAuth`, restoring the host-level `/api/things` surface via `_plugins.template()` passthrough
+  - Add regression tests verifying structured error responses, security headers (CSP/CSRF/X-Frame-Options), body-size limiting, and rate limiting
+  - Add router-composition note to `plans/orpc-v2-effect-migration.md` (Phase 1.7) for future direct-router merging in `every-plugin`
+  - Standalone plugin dev servers now load declared `dependsOn` sibling plugins via `BOS_RUNTIME_CONFIG`, enabling `_plugins.*()` in `initialize` during local development
+
+- ada1cd2: Scope tenant routes to the active organization via the `requireOrganization` auth middleware.
+
+  - `listTenants` and `createTenant` now require an active organization (401/403 when unauthenticated or no active org selected)
+  - `createTenant` derives the tenant's `orgId` from `context.organization.activeOrganizationId` instead of trusting a client-supplied `orgId`, which was removed from the contract input
+  - Reorder the tenant creation UI flow so the new organization is set active before the tenant is registered, and roll back the org if activating it fails
+
 ## 2.7.8
 
 ### Patch Changes
