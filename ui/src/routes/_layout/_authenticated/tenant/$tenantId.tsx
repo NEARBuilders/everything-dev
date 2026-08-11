@@ -53,7 +53,7 @@ async function publishTenantConfig(
 
 export const Route = createFileRoute("/_layout/_authenticated/tenant/$tenantId")({
   head: () => ({
-    title: "Tenant | app",
+    meta: [{ title: "Tenant | app" }],
   }),
   component: TenantDetail,
 });

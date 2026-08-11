@@ -19,18 +19,19 @@ export const Route = createFileRoute("/_layout/_authenticated/things/new")({
 function NewThingPage() {
   const apiClient = useApiClient();
   const navigate = useNavigate();
-  const [pluginId, setPluginId] = useState("template");
+  const [thingId, setThingId] = useState("");
   const [payloadRaw, setPayloadRaw] = useState('{\n  "kind": "demo",\n  "value": "hello"\n}');
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      if (!thingId.trim()) throw new Error("thingId is required");
       let payload: unknown;
       try {
         payload = JSON.parse(payloadRaw);
       } catch {
         throw new Error("Invalid JSON payload");
       }
-      return apiClient.createThing({ pluginId, payload });
+      return apiClient.createThing({ thingId: thingId.trim(), payload });
     },
     onSuccess: (thing) => {
       toast.success("Thing created");
@@ -54,21 +55,20 @@ function NewThingPage() {
         <div className="space-y-4">
           <div className="space-y-2">
             <label
-              htmlFor="plugin-id"
+              htmlFor="thing-id"
               className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
             >
-              Plugin ID
+              Thing ID
             </label>
             <input
-              id="plugin-id"
+              id="thing-id"
               type="text"
-              value={pluginId}
-              onChange={(e) => setPluginId(e.target.value)}
+              value={thingId}
+              onChange={(e) => setThingId(e.target.value)}
+              placeholder="thing-123"
               className="w-full rounded-[8px] border-2 border-border bg-background px-3 py-2 text-sm font-mono text-foreground outline-none focus:ring-2 focus:ring-ring"
             />
-            <p className="text-xs text-muted-foreground">
-              Must match a registered plugin provider on the API.
-            </p>
+            <p className="text-xs text-muted-foreground">Unique identifier for the thing.</p>
           </div>
 
           <div className="space-y-2">
@@ -87,7 +87,10 @@ function NewThingPage() {
             />
           </div>
 
-          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
+          <Button
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending || !thingId.trim()}
+          >
             {createMutation.isPending ? "Creating..." : "Create thing"}
           </Button>
         </div>

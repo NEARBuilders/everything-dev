@@ -8,20 +8,16 @@ export const Route = createFileRoute("/_layout/things/live")({
   head: () => ({
     meta: [
       { title: "Live Stream | Things | everything.dev" },
-      { name: "description", content: "Real-time SSE event stream for the thing registry." },
+      { name: "description", content: "Real-time event stream from the template plugin." },
     ],
   }),
   component: LiveStreamPage,
 });
 
 type ThingEvent = {
-  thingId: string;
-  pluginId: string;
-  type: string;
-  action: string;
-  timestamp: string;
-  userId?: string;
-  totalCount?: number;
+  id: string;
+  index: number;
+  timestamp: number;
 };
 
 function LiveStreamPage() {
@@ -29,9 +25,6 @@ function LiveStreamPage() {
   const router = useRouter();
   const canGoBack = router.history.canGoBack?.() ?? false;
   const [events, setEvents] = useState<ThingEvent[]>([]);
-  const [filterPluginId, setFilterPluginId] = useState("");
-  const [filterType, setFilterType] = useState("");
-  const [filterAction, setFilterAction] = useState("");
   const [connected, setConnected] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -42,12 +35,7 @@ function LiveStreamPage() {
 
     (async () => {
       try {
-        const stream = apiClient.subscribeThings({
-          pluginId: filterPluginId || undefined,
-          type: filterType || undefined,
-          action: filterAction || undefined,
-        }) as unknown as AsyncIterable<ThingEvent>;
-
+        const stream = await apiClient.template.listenBackground({});
         for await (const event of stream) {
           if (abort.signal.aborted) break;
           setEvents((prev) => [event as ThingEvent, ...prev].slice(0, 200));
@@ -60,7 +48,7 @@ function LiveStreamPage() {
     })();
 
     return () => abort.abort();
-  }, [apiClient, filterPluginId, filterType, filterAction]);
+  }, [apiClient]);
 
   const clearEvents = useCallback(() => setEvents([]), []);
 
@@ -102,12 +90,6 @@ function LiveStreamPage() {
         </button>
       </div>
 
-      <div className="shrink-0 flex flex-wrap gap-2 border-b border-border bg-muted/20 px-4 py-2">
-        <FilterInput placeholder="pluginId" value={filterPluginId} onChange={setFilterPluginId} />
-        <FilterInput placeholder="type" value={filterType} onChange={setFilterType} />
-        <FilterInput placeholder="action" value={filterAction} onChange={setFilterAction} />
-      </div>
-
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-1.5">
         {events.length === 0 && (
           <p className="text-xs text-muted-foreground text-center py-12">
@@ -116,53 +98,25 @@ function LiveStreamPage() {
         )}
         {events.map((event, i) => (
           <div
-            key={`${event.thingId}-${event.timestamp}-${i}`}
+            key={`${event.id}-${event.index}-${i}`}
             className="flex items-start gap-2 rounded-[6px] border border-border bg-card px-3 py-2"
           >
             <div className="min-w-0 flex-1 space-y-0.5">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <Badge variant="secondary" className="text-[10px] font-mono">
-                  {event.pluginId}
-                </Badge>
-                <Badge variant="outline" className="text-[10px] font-mono">
-                  {event.type}
+                  #{event.index}
                 </Badge>
                 <span className="text-[10px] font-mono text-foreground font-semibold">
-                  {event.action}
+                  {event.id}
                 </span>
-              </div>
-              <div className="font-mono text-[11px] text-muted-foreground truncate">
-                {event.thingId}
               </div>
               <div className="text-[10px] text-muted-foreground">
                 {new Date(event.timestamp).toLocaleTimeString()}
-                {event.userId && <> &middot; {event.userId.slice(0, 8)}</>}
-                {event.totalCount !== undefined && <> &middot; {event.totalCount} votes</>}
               </div>
             </div>
           </div>
         ))}
       </div>
     </div>
-  );
-}
-
-function FilterInput({
-  placeholder,
-  value,
-  onChange,
-}: {
-  placeholder: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <input
-      type="text"
-      placeholder={placeholder}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="rounded-[6px] border border-border bg-background px-2 py-1 text-xs font-mono text-foreground outline-none placeholder:text-muted-foreground w-28"
-    />
   );
 }
