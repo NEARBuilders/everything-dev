@@ -76,13 +76,15 @@ function getPluginDetail(plugins: PluginResult) {
 
 export function getHealthStatus(plugins: PluginResult, loadingState: HealthLoadingState) {
   const elapsed = Date.now() - loadingState.startTime;
+  const status =
+    loadingState.status === "failed"
+      ? "failed"
+      : plugins.api?.router && plugins.status.available
+        ? "ready"
+        : "degraded";
   return {
-    status: loadingState.status,
-    ssr: loadingState.ssrEnabled
-      ? loadingState.status === "ready"
-        ? "available"
-        : "unavailable"
-      : "disabled",
+    status,
+    ssr: loadingState.ssrEnabled ? (status === "ready" ? "available" : "unavailable") : "disabled",
     auth: plugins.auth
       ? { mounted: true, name: plugins.auth.name }
       : { mounted: false, name: null },
