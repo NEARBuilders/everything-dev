@@ -1,5 +1,11 @@
 # api
 
+## 2.7.8
+
+### Patch Changes
+
+- 30d504f: Bump `zod` to 4.4.3, `better-near-auth` to 1.7.4, and align `@better-auth/core` with `better-auth` 1.6.25
+
 ## 2.7.7
 
 ### Patch Changes
