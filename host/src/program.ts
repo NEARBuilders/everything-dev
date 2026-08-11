@@ -10,125 +10,21 @@ import {
 } from "every-plugin/effect";
 import { type Context, Hono } from "hono";
 import type { AuthVariables } from "./lib/auth";
-import { getCspStrict, SecurityMiddleware, STATIC_ASSET_PATTERN } from "./middleware/security";
-import { proxyStaticAssetRequest } from "./middleware/static-proxy";
+import { getCspStrict, SecurityMiddleware } from "./middleware/security";
+import { createStaticAssetProxyHandler } from "./middleware/static-proxy";
 import { setupApiRoutes } from "./routes/api";
 import type { HealthLoadingState } from "./routes/health";
-import { renderClientShell } from "./routes/html";
-import { buildPluginContext, createSessionMiddleware, registerAuthHandler } from "./services/auth";
-import { type ClientRuntimeConfig, ConfigService, type RuntimeConfig } from "./services/config";
-import { loadRouterModule, resetFederationInstance } from "./services/federation.server";
+import { createSsrFallbackHandler } from "./routes/ssr";
+import { createSessionMiddleware, registerAuthHandler } from "./services/auth";
+import { ConfigService, type RuntimeConfig } from "./services/config";
+import { resetFederationInstance } from "./services/federation.server";
 import { startIntegrityMonitor } from "./services/integrity-monitor";
 import { closeMcpServer } from "./services/mcp";
-import { createPluginsClient, type PluginResult, PluginsService } from "./services/plugins";
-import { getTenantRuntimeErrorResponse, resolveRequestRuntime } from "./services/tenant-runtime";
-import type { RouterModule, RuntimePlugin } from "./types";
+import { PluginsService } from "./services/plugins";
 import { extractErrorDetails } from "./utils/errors";
 import { logger } from "./utils/logger";
-import { normalizeUrl } from "./utils/normalize";
 
 type HonoEnv = { Variables: AuthVariables };
-
-type ActiveRuntimeState = NonNullable<ClientRuntimeConfig["runtime"]>;
-
-type RuntimeClientConfig = ClientRuntimeConfig & { runtime?: ActiveRuntimeState };
-
-function getFallbackGatewayId(config: RuntimeConfig) {
-  if (config.domain) {
-    return config.domain;
-  }
-
-  return normalizeUrl(config.host?.url)?.replace(/^https?:\/\//, "") ?? "runtime";
-}
-
-function resolveActiveRuntime(config: RuntimeConfig, request: Request) {
-  const url = new URL(request.url);
-  const fallbackGatewayId = getFallbackGatewayId(config);
-  return {
-    accountId: config.account,
-    gatewayId: fallbackGatewayId,
-    runtimeBasePath: "/",
-    title: config.title ?? config.account,
-    description: config.description ?? null,
-    hostUrl: url.origin,
-  } satisfies ActiveRuntimeState;
-}
-
-function buildRuntimeClientConfig(
-  config: RuntimeConfig,
-  request: Request,
-  activeRuntime: ActiveRuntimeState,
-  plugins: PluginResult,
-): RuntimeClientConfig {
-  const requestUrl = new URL(request.url);
-  const uiConfig = config.ui;
-
-  if (!uiConfig) {
-    throw new Error("UI config is required to build the runtime client config");
-  }
-
-  return {
-    env: config.env,
-    account: activeRuntime.accountId,
-    networkId: config.account.endsWith(".testnet") ? "testnet" : "mainnet",
-    hostUrl: requestUrl.origin,
-    assetsUrl: uiConfig.url,
-    apiBase: "/api",
-    rpcBase: "/api/rpc",
-    authAvailable: plugins.auth !== null,
-    repository: config.repository,
-    ui: {
-      name: uiConfig.name,
-      url: uiConfig.url,
-      entry: uiConfig.entry,
-      integrity: uiConfig.integrity,
-    },
-    api: config.api
-      ? {
-          name: config.api.name,
-          url: config.api.url,
-          entry: config.api.entry,
-          integrity: config.api.integrity,
-          ...(config.api.variables ? { variables: config.api.variables } : {}),
-        }
-      : undefined,
-    auth: config.auth
-      ? {
-          name: config.auth.name,
-          url: config.auth.url,
-          entry: config.auth.entry,
-          integrity: config.auth.integrity,
-          ...(config.auth.variables ? { variables: config.auth.variables } : {}),
-        }
-      : undefined,
-    plugins: Object.fromEntries(
-      (Object.entries(config.plugins ?? {}) as Array<[string, RuntimePlugin]>).map(
-        ([key, plugin]) => [
-          key,
-          {
-            name: plugin.name,
-            url: plugin.url,
-            entry: plugin.entry,
-            integrity: plugin.integrity,
-            ...(plugin.variables ? { variables: plugin.variables } : {}),
-            ...(plugin.ui
-              ? {
-                  ui: {
-                    name: plugin.ui.name,
-                    url: plugin.ui.url,
-                    entry: plugin.ui.entry,
-                    source: plugin.ui.source,
-                    integrity: plugin.ui.integrity,
-                  },
-                }
-              : {}),
-          },
-        ],
-      ),
-    ),
-    runtime: activeRuntime,
-  } as RuntimeClientConfig;
-}
 
 export const createStartServer = (onReady?: () => void) =>
   Effect.gen(function* () {
@@ -171,12 +67,7 @@ export const createStartServer = (onReady?: () => void) =>
       ssrEnabled: Boolean(uiConfig.ssrUrl),
     };
 
-    const proxyUiAssetRequest = async (c: Context<HonoEnv>) => {
-      const runtime = await resolveRequestRuntime(config, c.req.raw, {
-        verification: "stale-while-revalidate",
-      });
-      return await proxyStaticAssetRequest(c.req.raw, runtime.config.ui.url);
-    };
+    app.on(["GET", "HEAD"], "*", createStaticAssetProxyHandler(config));
 
     const sessionMiddleware = createSessionMiddleware(plugins);
 
@@ -195,107 +86,9 @@ export const createStartServer = (onReady?: () => void) =>
       setupApiRoutes(app, config, plugins, sessionMiddleware, loadingState),
     );
 
-    app.on(["GET", "HEAD"], "*", async (c: Context<HonoEnv>, next) => {
-      const { pathname } = new URL(c.req.url);
-
-      if (
-        pathname === "/" ||
-        pathname === "/api" ||
-        pathname.startsWith("/api/") ||
-        pathname === "/health"
-      ) {
-        return next();
-      }
-
-      const lastSegment = pathname.split("/").pop() ?? "";
-      if (!STATIC_ASSET_PATTERN.test(lastSegment)) {
-        return next();
-      }
-
-      try {
-        return await proxyUiAssetRequest(c);
-      } catch (error) {
-        const { message, status } = getTenantRuntimeErrorResponse(error);
-        logger.error(`[Proxy Asset] ${c.req.method} ${c.req.path} — ${message}`);
-        return c.text(message, { status: status as 404 | 500 | 502 });
-      }
-    });
-
     app.use("/*", sessionMiddleware);
 
-    app.get("*", async (c: Context<HonoEnv>) => {
-      if (c.req.path === "/api" || c.req.path.startsWith("/api/")) {
-        return c.notFound();
-      }
-
-      let resolvedRuntime: Awaited<ReturnType<typeof resolveRequestRuntime>>;
-      try {
-        resolvedRuntime = await resolveRequestRuntime(config, c.req.raw, {
-          verification: "blocking",
-        });
-      } catch (error) {
-        const { message, status } = getTenantRuntimeErrorResponse(error);
-        logger.error(`[SSR] ${c.req.method} ${c.req.path} — ${message}`);
-        return c.text(message, { status: status as 404 | 500 | 502 });
-      }
-
-      const effectiveConfig = resolvedRuntime.config;
-      const activeRuntime = await resolveActiveRuntime(effectiveConfig, c.req.raw);
-      const nonce = CSP_STRICT ? c.get("secureHeadersNonce") : undefined;
-      const runtimeConfig = buildRuntimeClientConfig(
-        effectiveConfig,
-        c.req.raw,
-        activeRuntime,
-        plugins,
-      );
-
-      let ssrRouterModule: RouterModule | null = null;
-      let moduleLoadError: Error | null = null;
-
-      if (effectiveConfig.ui.ssrUrl) {
-        const result = await Effect.runPromise(
-          loadRouterModule(effectiveConfig).pipe(Effect.either),
-        );
-        if (result._tag === "Right") {
-          ssrRouterModule = result.right;
-        } else {
-          moduleLoadError = result.left;
-          logger.error("[SSR] Failed to load Router module:", moduleLoadError);
-        }
-      }
-
-      if (ssrRouterModule && effectiveConfig.ui.ssrUrl) {
-        try {
-          const pluginContext = buildPluginContext(c);
-          const ssrApiClient = createPluginsClient(plugins, pluginContext);
-
-          const render = () =>
-            ssrRouterModule.renderToStream(c.req.raw, {
-              session: c.get("session") ? { session: c.get("session"), user: c.get("user") } : null,
-              basepath: runtimeConfig.runtime?.runtimeBasePath,
-              runtimeConfig,
-              apiClient: ssrApiClient,
-              cspNonce: nonce,
-            });
-
-          const result = await render();
-          const responseHeaders = new Headers(result?.headers);
-          const cspHeader = c.res.headers.get("Content-Security-Policy");
-          if (cspHeader) {
-            responseHeaders.set("Content-Security-Policy", cspHeader);
-          }
-          return new Response(result?.stream, {
-            status: result?.statusCode,
-            headers: responseHeaders,
-          });
-        } catch (error) {
-          logger.error("[SSR] Streaming error:", error);
-          moduleLoadError = error as Error;
-        }
-      }
-
-      return renderClientShell(c, nonce, effectiveConfig, runtimeConfig, moduleLoadError);
-    });
+    app.get("*", createSsrFallbackHandler(config, plugins, CSP_STRICT));
 
     const startHttpServer = () => {
       const hostname = process.env.HOST || "0.0.0.0";
