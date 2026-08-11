@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { getAppName, sessionQueryOptions, useAuthClient } from "@/app";
@@ -15,6 +15,7 @@ type SearchParams = {
 };
 
 export const Route = createFileRoute("/_layout/login")({
+  ssr: false,
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     redirect: typeof search.redirect === "string" ? search.redirect : undefined,
   }),
@@ -40,30 +41,28 @@ export const Route = createFileRoute("/_layout/login")({
 function LoginPage() {
   const navigate = useNavigate();
   const auth = useAuthClient();
-  const { data: session, isLoading } = useQuery(sessionQueryOptions(auth, undefined));
+  const queryClient = useQueryClient();
+  const { data: session } = useQuery(sessionQueryOptions(auth, undefined));
   const { redirect } = Route.useSearch();
   const { runtimeConfig } = Route.useRouteContext();
   const appName = getAppName(runtimeConfig);
 
   const [nearPending, setNearPending] = useState(false);
   const [anonPending, setAnonPending] = useState(false);
-  const [detectedAccount, setDetectedAccount] = useState<{ accountId: string } | null>(null);
+  const [detectedAccount, setDetectedAccount] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    (auth.near as any).detectNearAccount?.().then((result: { accountId: string } | null) => {
-      if (!cancelled && result) {
-        setDetectedAccount({ accountId: result.accountId });
+    auth.near.detectNearAccount().then((result) => {
+      if (result?.accountId) {
+        setDetectedAccount(result.accountId);
       }
     });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [auth.near]);
 
-  const handleSuccess = (message: string) => {
+  const handleSuccess = async (message: string) => {
     const redirectTo = redirect?.startsWith("/") ? redirect : "/home";
     toast.success(message);
+    queryClient.invalidateQueries({ queryKey: ["session"] });
     navigate({ to: redirectTo, replace: true, search: {} });
   };
 
@@ -82,9 +81,9 @@ function LoginPage() {
   const handleNear = async () => {
     setNearPending(true);
     await auth.signIn.near({
-      onSuccess: () => {
+      onSuccess: async () => {
         setNearPending(false);
-        handleSuccess("Signed in with NEAR");
+        await handleSuccess("Signed in with NEAR");
       },
       onError: (error: { code?: string; message?: string }) => {
         setNearPending(false);
@@ -98,9 +97,9 @@ function LoginPage() {
     try {
       await auth.signIn.anonymous({
         fetchOptions: {
-          onSuccess: () => {
+          onSuccess: async () => {
             setAnonPending(false);
-            handleSuccess("Started anonymous session");
+            await handleSuccess("Started anonymous session");
           },
           onError: (ctx: { error?: { message?: string } }) => {
             setAnonPending(false);
@@ -114,15 +113,8 @@ function LoginPage() {
   };
 
   if (session?.user) {
-    return null;
-  }
-
-  if (isLoading) {
-    return (
-      <div className="min-h-full w-full flex items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
-      </div>
-    );
+    const redirectTo = redirect?.startsWith("/") ? redirect : "/home";
+    return <Navigate to={redirectTo} replace search={{}} />;
   }
 
   const isPending = nearPending || anonPending;
@@ -145,7 +137,7 @@ function LoginPage() {
                     disabled={isPending}
                     className="w-full"
                   >
-                    {nearPending ? "connecting..." : `Continue as ${detectedAccount.accountId}`}
+                    {nearPending ? "connecting..." : `Continue as ${detectedAccount}`}
                   </Button>
                   <Button
                     type="button"

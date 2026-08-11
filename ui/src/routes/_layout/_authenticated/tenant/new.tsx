@@ -238,7 +238,8 @@ function NewTenantPage() {
           return relayed;
         }
 
-        return auth.near.client
+        return auth.near
+          .getNearClient()
           .transaction(accountId)
           .functionCall(prepared.data.contractId, prepared.data.methodName, prepared.data.args, {
             gas: METADATA_GAS,
@@ -283,7 +284,8 @@ function NewTenantPage() {
           return relayed;
         }
 
-        return auth.near.client
+        return auth.near
+          .getNearClient()
           .transaction(accountId)
           .functionCall(prepared.data.contractId, prepared.data.methodName, prepared.data.args, {
             gas: CONFIG_GAS,
