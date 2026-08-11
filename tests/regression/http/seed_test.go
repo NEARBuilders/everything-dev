@@ -165,7 +165,6 @@ func TestSeedRegressionData(t *testing.T) {
 			"subdomain": tenantSubdomain,
 			"name":      "Regression Tenant",
 			"accountId": fmt.Sprintf("%s.testnet", tenantSubdomain),
-			"orgId":     orgAID,
 		}, nil)
 		if status != 200 {
 			t.Fatalf("expected status 200, got %d. Body: %s", status, body)

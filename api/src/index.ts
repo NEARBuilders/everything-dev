@@ -119,30 +119,33 @@ export default createPlugin.withPlugins<PluginsClient>()({
         smsConfigured: !!process.env.SMS_PROVIDER,
       })),
 
-      listTenants: builder.listTenants.use(requireAuth).handler(async ({ context }) => {
-        const orgIds = (context as Record<string, unknown>).organizations as
-          | { id: string }[]
-          | undefined;
-        return services.tenants.listTenantsByOrgIds((orgIds ?? []).map((o) => o.id));
-      }),
+      listTenants: builder.listTenants
+        .use(requireAuth)
+        .use(requireOrganization)
+        .handler(async ({ context }) =>
+          services.tenants.listTenantsByOrgIds([context.organization.activeOrganizationId]),
+        ),
 
-      createTenant: builder.createTenant.use(requireAuth).handler(async ({ input }) => {
-        validateSubdomain(input.subdomain);
-        validateAccountId(input.accountId);
-        if (!input.accountId.startsWith(`${input.subdomain}.`)) {
-          throw new ORPCError("BAD_REQUEST", {
-            message: "accountId must start with subdomain",
-            data: { subdomain: input.subdomain, accountId: input.accountId },
+      createTenant: builder.createTenant
+        .use(requireAuth)
+        .use(requireOrganization)
+        .handler(async ({ input, context }) => {
+          validateSubdomain(input.subdomain);
+          validateAccountId(input.accountId);
+          if (!input.accountId.startsWith(`${input.subdomain}.`)) {
+            throw new ORPCError("BAD_REQUEST", {
+              message: "accountId must start with subdomain",
+              data: { subdomain: input.subdomain, accountId: input.accountId },
+            });
+          }
+          return await services.tenants.createTenant({
+            subdomain: input.subdomain,
+            name: input.name,
+            accountId: input.accountId,
+            orgId: context.organization.activeOrganizationId,
+            status: input.status,
           });
-        }
-        return await services.tenants.createTenant({
-          subdomain: input.subdomain,
-          name: input.name,
-          accountId: input.accountId,
-          orgId: input.orgId,
-          status: input.status,
-        });
-      }),
+        }),
 
       updateTenant: builder.updateTenant
         .use(requireAuth)

@@ -70,7 +70,7 @@ export const contract = oc.router({
   listTenants: oc
     .route({ method: "GET", path: "/tenants" })
     .output(z.array(TenantSchema))
-    .errors({ UNAUTHORIZED }),
+    .errors({ UNAUTHORIZED, FORBIDDEN }),
 
   createTenant: oc
     .route({ method: "POST", path: "/tenants" })
@@ -79,12 +79,11 @@ export const contract = oc.router({
         subdomain: z.string(),
         name: z.string(),
         accountId: z.string(),
-        orgId: z.string(),
         status: z.enum(["active", "pending"]).optional(),
       }),
     )
     .output(TenantSchema)
-    .errors({ UNAUTHORIZED, BAD_REQUEST }),
+    .errors({ UNAUTHORIZED, FORBIDDEN, BAD_REQUEST }),
 
   updateTenant: oc
     .route({ method: "PATCH", path: "/tenants/{tenantId}" })

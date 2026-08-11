@@ -43,10 +43,10 @@ const RESERVED_SUBDOMAINS = [
 const CREATION_STEPS = [
   { label: "Checking subaccount availability", blocking: true },
   { label: "Creating organization", blocking: true },
+  { label: "Setting active organization", blocking: true },
   { label: "Registering tenant", blocking: true },
   { label: "Creating NEAR subaccount", blocking: true },
   { label: "Activating tenant", blocking: true },
-  { label: "Setting active organization", blocking: false },
   { label: "Publishing registry metadata", blocking: false },
   { label: "Publishing tenant config", blocking: false },
   { label: "Redirecting", blocking: false },
@@ -151,20 +151,27 @@ function NewTenantPage() {
         }
       };
 
+      const setActive = await runStep(2, () =>
+        auth.organization.setActive({ organizationId: orgData.id }),
+      );
+      if (!setActive) {
+        await rollbackOrg();
+        throw new Error(steps[2].error ?? "Failed to set active organization");
+      }
+
       let tenant: Awaited<ReturnType<typeof apiClient.createTenant>> | undefined;
       const pendingAccountId = `${subdomain}.${parentAccount}`;
       try {
-        tenant = await runStep(2, () =>
+        tenant = await runStep(3, () =>
           apiClient.createTenant({
             subdomain,
             name,
             accountId: pendingAccountId,
-            orgId: orgData.id,
             status: "pending",
           }),
         );
         if (!tenant) {
-          throw new Error(steps[2].error ?? "Failed to register tenant");
+          throw new Error(steps[3].error ?? "Failed to register tenant");
         }
       } catch (err) {
         await rollbackOrg();
@@ -173,42 +180,34 @@ function NewTenantPage() {
 
       let accountId: string;
       try {
-        updateStep(3, "running");
+        updateStep(4, "running");
         const subAccount = await auth.near.createSubAccount({
           subAccountName: subdomain,
           publicKey,
         });
-        updateStep(3, "success");
+        updateStep(4, "success");
         if (subAccount.error) throw new Error(subAccount.error.message);
         accountId = subAccount.data?.accountId;
         if (!accountId) {
           throw new Error("Subaccount created but no accountId returned");
         }
       } catch (err) {
-        updateStep(3, "failed", err instanceof Error ? err.message : String(err));
+        updateStep(4, "failed", err instanceof Error ? err.message : String(err));
         await rollbackOrg();
         await apiClient.deleteTenant({ tenantId: tenant!.id });
         throw err;
       }
 
-      tenant = await runStep(4, () =>
+      tenant = await runStep(5, () =>
         apiClient.updateTenant({
           tenantId: tenant!.id,
           status: "active",
         }),
       );
       if (!tenant) {
-        throw new Error(steps[4].error ?? "Failed to activate tenant");
+        throw new Error(steps[5].error ?? "Failed to activate tenant");
       }
-
-      const setActive = await runStep(5, () =>
-        auth.organization.setActive({ organizationId: orgData.id }),
-      );
       let hadFailures = false;
-      if (!setActive) {
-        hadFailures = true;
-        toast.warning("Failed to set active organization");
-      }
 
       const relayerInfo = await auth.near.getRelayerInfo();
       const hasRelayer = relayerInfo.data?.enabled === true;
@@ -428,14 +427,15 @@ function NewTenantPage() {
                   (you become owner)
                 </p>
                 <p>
-                  2. <strong>NEAR subaccount</strong> — {subdomain || "{subdomain}"}.{gatewayId} is
+                  2. <strong>Active org</strong> — Your session switches to the new organization
+                </p>
+                <p>
+                  3. <strong>Tenant row</strong> — The tenant is registered under the active
+                  organization
+                </p>
+                <p>
+                  4. <strong>NEAR subaccount</strong> — {subdomain || "{subdomain}"}.{gatewayId} is
                   created and linked to your wallet
-                </p>
-                <p>
-                  3. <strong>Tenant row</strong> — The tenant is registered in the database
-                </p>
-                <p>
-                  4. <strong>Active org</strong> — Your session switches to the new organization
                 </p>
                 <p>
                   5. <strong>Registry metadata</strong> — Title and homepage published to the apps
