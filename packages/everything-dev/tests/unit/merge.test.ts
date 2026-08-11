@@ -225,6 +225,30 @@ describe("mergeBosConfigWithExtends", () => {
     expect(api.secrets).toContain("EXTRA_SECRET");
   });
 
+  it("connectSrc arrays are unioned", () => {
+    const parent = {
+      plugins: {
+        apps: {
+          connectSrc: ["wss://relay.damus.io"],
+        },
+      },
+    };
+    const child = {
+      plugins: {
+        apps: {
+          connectSrc: ["wss://relay.damus.io", "wss://nos.lol"],
+        },
+      },
+    };
+    const merged = mergeBosConfigWithExtends(parent, child);
+    const apps = (merged.plugins as Record<string, Record<string, unknown>>).apps as Record<
+      string,
+      unknown
+    >;
+    expect(apps.connectSrc).toContain("wss://relay.damus.io");
+    expect(apps.connectSrc).toContain("wss://nos.lol");
+  });
+
   it("routes arrays come only from the child plugin config", () => {
     const parent = {
       plugins: {

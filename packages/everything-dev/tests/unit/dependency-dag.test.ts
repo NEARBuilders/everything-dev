@@ -165,6 +165,24 @@ describe("normalizeToNodes", () => {
     expect(nodes.get("myPlugin")?.dependsOn).toEqual(["apps", "auth"]);
   });
 
+  it("passes through connectSrc from plugin config", () => {
+    const config = makeRuntimeConfig({
+      plugins: {
+        apps: {
+          name: "apps",
+          url: "http://localhost:3010",
+          entry: "http://localhost:3010/mf-manifest.json",
+          source: "local",
+          localPath: "/plugins/apps",
+          connectSrc: ["wss://relay.damus.io"],
+        },
+      },
+    });
+
+    const nodes = normalizeToNodes(config);
+    expect(nodes.get("apps")?.connectSrc).toEqual(["wss://relay.damus.io"]);
+  });
+
   it("preserves dependsOn from api config", () => {
     const config = makeRuntimeConfig({
       api: {

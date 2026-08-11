@@ -1107,6 +1107,7 @@ function buildRuntimePluginConfig(
     variables: normalizeJsonRecord(source.variables),
     secrets: normalizeStringArray(source.secrets),
     shared: source.shared,
+    connectSrc: normalizeStringArray(source.connectSrc),
     integrity: runtimeTarget.source === "remote" ? source.integrity : undefined,
     ui: uiRuntime
       ? {

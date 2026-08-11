@@ -65,6 +65,7 @@ export const ComposableAppEntrySchema = z.object({
   secrets: z.array(z.string()).optional(),
   routes: z.array(z.string()).optional(),
   shared: SharedDepMapSchema.optional(),
+  connectSrc: z.array(z.string()).optional(),
 });
 export type ComposableAppEntry = z.infer<typeof ComposableAppEntrySchema>;
 
@@ -115,6 +116,7 @@ export const RuntimePluginConfigSchema = z.object({
   secrets: z.array(z.string()).optional(),
   integrity: z.string().optional(),
   shared: SharedDepMapSchema.optional(),
+  connectSrc: z.array(z.string()).optional(),
   ui: PluginRuntimeUiSchema.optional(),
   routes: z.array(z.string()).optional(),
   dependsOn: z.array(z.string()).optional(),
@@ -140,6 +142,7 @@ export const RuntimeDependencyNodeSchema = z.object({
   secrets: z.array(z.string()).optional(),
   integrity: z.string().optional(),
   shared: SharedDepMapSchema.optional(),
+  connectSrc: z.array(z.string()).optional(),
   ui: PluginRuntimeUiSchema.optional(),
   routes: z.array(z.string()).optional(),
   sourceOrigin: z.enum(["config", "manifest"]).optional(),

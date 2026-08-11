@@ -85,6 +85,7 @@ export function normalizeToNodes(config: RuntimeConfig): Map<string, RuntimeDepe
       secrets: plugin.secrets,
       integrity: plugin.integrity,
       shared: plugin.shared,
+      connectSrc: plugin.connectSrc,
       ui: plugin.ui,
       routes: plugin.routes,
       dependsOn: plugin.dependsOn,

@@ -380,6 +380,7 @@ function buildEffectivePluginConfig(
   return {
     ...basePlugin,
     ...(tenantPlugin.ui ? { ui: tenantPlugin.ui } : {}),
+    ...(tenantPlugin.connectSrc ? { connectSrc: tenantPlugin.connectSrc } : {}),
   };
 }
 

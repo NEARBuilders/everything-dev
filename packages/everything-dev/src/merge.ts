@@ -26,7 +26,7 @@ export interface ResolvedConfigMeta {
   source?: string;
 }
 
-const ARRAY_UNION_KEYS = new Set(["secrets"]);
+const ARRAY_UNION_KEYS = new Set(["secrets", "connectSrc"]);
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);

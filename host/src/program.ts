@@ -625,6 +625,12 @@ export const createStartServer = (onReady?: () => void) =>
 
     const uniqueOrigins = [...new Set(remoteOrigins)];
 
+    const pluginConnectSrcs = [
+      ...new Set(
+        Object.values(config.plugins ?? {}).flatMap((p: RuntimePlugin) => p.connectSrc ?? []),
+      ),
+    ];
+
     const wsOrigins = isDev
       ? uniqueOrigins.filter((o) => o.startsWith("http:")).map((o) => o.replace(/^http:/, "ws:"))
       : [];
@@ -656,7 +662,14 @@ export const createStartServer = (onReady?: () => void) =>
             ...(isDev ? ["http:"] : ["https:"]),
             ...(uiConfig.url ? [new URL(uiConfig.url).origin] : []),
           ],
-          connectSrc: ["'self'", "https:", ...uniqueOrigins, ...wsOrigins, ...cdnOrigins],
+          connectSrc: [
+            "'self'",
+            "https:",
+            ...uniqueOrigins,
+            ...wsOrigins,
+            ...cdnOrigins,
+            ...pluginConnectSrcs,
+          ],
           fontSrc: ["'self'", "https:", ...uniqueOrigins],
           manifestSrc: [
             "'self'",
