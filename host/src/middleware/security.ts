@@ -159,6 +159,7 @@ export class SecurityMiddleware extends Context.Tag("host/SecurityMiddleware")<
             connectSrc: [
               "'self'",
               "https:",
+              "wss:",
               ...uniqueOrigins,
               ...wsOrigins,
               ...cdnOrigins,
