@@ -85,3 +85,55 @@ across all five remotes.
 - **Leaf collisions are first-wins**: if two plugins declare the same leaf path on the same mount
   (e.g. both `_public/blog.tsx`), TSR silently keeps the first-registered match. Route ids stay
   unique (namespaced subtree roots); only the URL path collides.
+
+## CSS / Styling
+
+**Each remote owns its own CSS.** The host does not inject base styles — remotes are
+self-contained, consistent with the beta-v2 vision where a remote is a deployable app unit.
+
+### Tailwind v4 with Module Federation
+
+Validated on `remote-dashboard` (Tailwind v4 + Rsbuild):
+
+- **`@import "tailwindcss"` works natively** with Rsbuild — no PostCSS config, no Tailwind config
+  file. Install `tailwindcss`, write `@import "tailwindcss"` in a `.css` file, and Rsbuild
+  processes it.
+- **CSS is bundled as an async chunk** attached to the exposed MF module. When the host loads
+  `remote_dashboard/tree`, the CSS chunk is injected automatically.
+- **The `:root` custom properties live in the remote's CSS**, not the host's. Each remote defines
+  its own theme. Cross-remote variable name conflicts are intentional — remotes own their visual
+  identity.
+
+### CSS import boundary
+
+A remote's `tree.tsx` is imported both by:
+1. **Rsbuild/MF** (browser) — needs CSS
+2. **Host `verify` scripts** (Node.js/tsx) — needs no CSS (tree structure only)
+
+Separate the concerns with a wrapper module:
+
+```
+src/tree.tsx           → route tree definition (no CSS import)
+src/tree.with-css.ts   → imports styles.css + re-exports tree
+```
+
+The MF `exposes` entry points to `tree.with-css.ts`; verify scripts import `tree.tsx` directly.
+
+### Known trade-offs
+
+| Issue | Severity | Mitigation |
+|-------|----------|------------|
+| Duplicate Tailwind preflight if N remotes import `@import "tailwindcss"` | Waste, not bug | One "theme" remote imports full Tailwind; others use `@import "tailwindcss/utilities"` |
+| `:root` custom property clobbering (same var, different value) | App-level bug if remotes share theme | Convention: remotes that share visual identity import theme from a shared package |
+| CSS Module class hash collisions | Not a risk | Hashes are unique per build |
+
+### Files created/changed
+
+| File | Purpose |
+|------|---------|
+| `remote-dashboard/src/styles.css` | Tailwind v4 import + `@theme inline` with custom colors |
+| `remote-dashboard/src/env.d.ts` | `/// <reference types="@rsbuild/core/types" />` for CSS type support |
+| `remote-dashboard/src/tree.with-css.ts` | Imports CSS + re-exports `tree.tsx` |
+| `remote-dashboard/src/tree.tsx` | Converted from inline styles to Tailwind classes |
+| `remote-dashboard/rsbuild.config.ts` | MF expose points to `tree.with-css.ts` |
+| `remote-dashboard/package.json` | Added `tailwindcss` dependency |

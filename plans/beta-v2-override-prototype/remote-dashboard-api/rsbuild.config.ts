@@ -1,25 +1,18 @@
 import { defineConfig } from "@rsbuild/core";
-import { pluginReact } from "@rsbuild/plugin-react";
 import { pluginModuleFederation } from "@module-federation/rsbuild-plugin";
 
 export default defineConfig({
   plugins: [
-    pluginReact(),
     pluginModuleFederation({
-      name: "remote_dashboard",
+      name: "remote_dashboard_api",
       filename: "remoteEntry.js",
       exposes: {
-        "./tree": "./src/tree.with-css.ts",
-      },
-      shared: {
-        react: { singleton: true, requiredVersion: false },
-        "react-dom": { singleton: true, requiredVersion: false },
-        "@tanstack/react-router": { singleton: true, requiredVersion: false },
+        "./api": "./src/index.ts",
       },
     }),
   ],
   server: {
-    port: 3102,
+    port: 3101,
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -35,7 +28,7 @@ export default defineConfig({
   tools: {
     rspack: {
       output: {
-        uniqueName: "remote_dashboard",
+        uniqueName: "remote_dashboard_api",
       },
     },
   },

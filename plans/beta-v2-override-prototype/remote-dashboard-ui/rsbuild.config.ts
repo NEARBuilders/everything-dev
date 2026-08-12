@@ -6,10 +6,10 @@ export default defineConfig({
   plugins: [
     pluginReact(),
     pluginModuleFederation({
-      name: "remote_dashboard",
+      name: "remote_dashboard_ui",
       filename: "remoteEntry.js",
       exposes: {
-        "./tree": "./src/tree.with-css.ts",
+        "./tree": "./src/tree.tsx",
       },
       shared: {
         react: { singleton: true, requiredVersion: false },
@@ -35,7 +35,7 @@ export default defineConfig({
   tools: {
     rspack: {
       output: {
-        uniqueName: "remote_dashboard",
+        uniqueName: "remote_dashboard_ui",
       },
     },
   },

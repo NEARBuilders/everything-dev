@@ -1,5 +1,5 @@
 {
-  "name": "remote-dashboard",
+  "name": "remote-dashboard-api",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,18 +8,10 @@
     "build": "rsbuild build",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@tanstack/react-router": "1.157.16",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
-  },
   "devDependencies": {
     "@module-federation/rsbuild-plugin": "^2.4.0",
     "@rsbuild/core": "1.7.5",
-    "@rsbuild/plugin-react": "1.4.6",
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
-    "tailwindcss": "^4.1.6",
+    "@types/node": "^25.0.3",
     "typescript": "^5.9.3"
   }
 }

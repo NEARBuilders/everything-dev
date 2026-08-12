@@ -1,0 +1,6 @@
+packages:
+  - "host"
+  - "remote-dashboard-api"
+  - "remote-dashboard-ui"
+  - "remote-landing"
+  - "remote-tenant-dashboard-ui"

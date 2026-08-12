@@ -6,10 +6,10 @@ export default defineConfig({
   plugins: [
     pluginReact(),
     pluginModuleFederation({
-      name: "remote_dashboard",
+      name: "remote_tenant_dashboard_ui",
       filename: "remoteEntry.js",
       exposes: {
-        "./tree": "./src/tree.with-css.ts",
+        "./tree": "./src/tree.tsx",
       },
       shared: {
         react: { singleton: true, requiredVersion: false },
@@ -19,7 +19,7 @@ export default defineConfig({
     }),
   ],
   server: {
-    port: 3102,
+    port: 3104,
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -35,7 +35,7 @@ export default defineConfig({
   tools: {
     rspack: {
       output: {
-        uniqueName: "remote_dashboard",
+        uniqueName: "remote_tenant_dashboard_ui",
       },
     },
   },

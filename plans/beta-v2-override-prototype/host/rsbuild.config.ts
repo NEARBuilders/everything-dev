@@ -6,20 +6,25 @@ export default defineConfig({
   plugins: [
     pluginReact(),
     pluginModuleFederation({
-      name: "remote_dashboard",
+      name: "host",
       filename: "remoteEntry.js",
-      exposes: {
-        "./tree": "./src/tree.with-css.ts",
-      },
       shared: {
-        react: { singleton: true, requiredVersion: false },
-        "react-dom": { singleton: true, requiredVersion: false },
-        "@tanstack/react-router": { singleton: true, requiredVersion: false },
+        react: { singleton: true, requiredVersion: false, eager: true },
+        "react-dom": { singleton: true, requiredVersion: false, eager: true },
+        "@tanstack/react-router": { singleton: true, requiredVersion: false, eager: true },
       },
     }),
   ],
+  source: {
+    entry: {
+      index: "./src/main.tsx",
+    },
+  },
+  html: {
+    template: "./src/index.html",
+  },
   server: {
-    port: 3102,
+    port: 3000,
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -31,12 +36,5 @@ export default defineConfig({
   },
   output: {
     assetPrefix: "auto",
-  },
-  tools: {
-    rspack: {
-      output: {
-        uniqueName: "remote_dashboard",
-      },
-    },
   },
 });
