@@ -1,5 +1,11 @@
 # host
 
+## 1.16.1
+
+### Patch Changes
+
+- 97ae11d: Add `wss:` scheme to CSP `connect-src` directive to allow WebSocket connections (e.g. nostr relays, streaming APIs). Plugins declaring `connectSrc` with `wss://` URLs now work through the host without per-request CSP overrides.
+
 ## 1.16.0
 
 ### Minor Changes
