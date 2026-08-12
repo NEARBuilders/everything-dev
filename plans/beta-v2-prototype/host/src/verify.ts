@@ -26,7 +26,14 @@ const EXPECTED = [
   { path: "/blog", plugin: "filebased" },
   { path: "/blog/hello-world", plugin: "filebased" },
   { path: "/account", plugin: "filebased" },
+  { path: "/organization/acme/dashboard", plugin: "org" },
+  { path: "/organization/acme/settings", plugin: "org" },
 ] as const;
+
+const EXPECTED_PARAMS: Array<{ path: string; params: Record<string, string> }> = [
+  { path: "/organization/acme/dashboard", params: { orgSlug: "acme" } },
+  { path: "/organization/other-org/settings", params: { orgSlug: "other-org" } },
+];
 
 async function main() {
   const plugins: WebPluginModule[] = [
@@ -34,6 +41,7 @@ async function main() {
     await importRemoteTree("dashboard"),
     await importRemoteTree("settings"),
     await importRemoteTree("filebased"),
+    await importRemoteTree("org"),
   ];
 
   const { routeTree, mountCounts, pluginTreeChildren } = composeApp(plugins);
@@ -54,6 +62,7 @@ async function main() {
     getMatchedRoutes: (p: string) => {
       foundRoute: { id: string } | undefined;
       matchedRoutes: Array<{ id: string }>;
+      routeParams: Record<string, string>;
     };
   }).getMatchedRoutes;
 
@@ -78,6 +87,36 @@ async function main() {
     console.log(`  ok    ${expected.path.padEnd(24)} ${expected.plugin}  matched=${matchId}`);
   }
 
+  // Param resolution: for a parameterized mount, the `$orgSlug` value must flow
+  // into the leaf match's params.
+  let paramFailures = 0;
+  console.log("\n=== parameterized mount params ===");
+  for (const expected of EXPECTED_PARAMS) {
+    try {
+      const res = matched(expected.path);
+      const matchParams = res.routeParams ?? {};
+      let paramOk = true;
+      for (const [k, v] of Object.entries(expected.params)) {
+        if (matchParams[k] !== v) {
+          paramOk = false;
+          console.log(`  FAIL  ${expected.path}  expected ${k}=${v}, got ${matchParams[k]}`);
+        }
+      }
+      if (!paramOk) {
+        paramFailures += 1;
+        continue;
+      }
+      console.log(
+        `  ok    ${expected.path.padEnd(24)} params={${Object.entries(expected.params)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(", ")}}`,
+      );
+    } catch (err) {
+      paramFailures += 1;
+      console.log(`  FAIL  ${expected.path}  (${(err as Error).message})`);
+    }
+  }
+
   // Structural check: the host mount layout must be an ancestor of the grafted
   // leaf in the branch, i.e. mount "/id" must appear before the leaf route id.
   let branchFailures = 0;
@@ -94,9 +133,9 @@ async function main() {
     console.log(`  ${ok ? "ok" : "FAIL"}  ${expected.path.padEnd(24)} host mount ${mountId} before ${leaf}`);
   }
 
-  const totalFailures = failures + branchFailures;
+  const totalFailures = failures + branchFailures + paramFailures;
   console.log(
-    `\n=== RESULT: ${totalFailures === 0 ? `PASS — ${EXPECTED.length}/${EXPECTED.length} routes grafted, matched, and include host mount in render branch` : `${totalFailures} FAILURES`} ===`,
+    `\n=== RESULT: ${totalFailures === 0 ? `PASS — ${EXPECTED.length}/${EXPECTED.length} routes grafted, matched, params resolved, and include host mount in render branch` : `${totalFailures} FAILURES`} ===`,
   );
 
   process.exit(totalFailures === 0 ? 0 : 1);

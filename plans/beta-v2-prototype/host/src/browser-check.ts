@@ -147,6 +147,8 @@ async function main() {
       ["/blog", "File-based blog index (/blog)"],
       ["/blog/hello-world", "Blog post: hello-world"],
       ["/account", "Account (/account)"],
+      ["/organization/acme/dashboard", "Org Dashboard (/organization/acme/dashboard)"],
+      ["/organization/acme/settings", "Org Settings (/organization/acme/settings)"],
     ] as const;
     let failures = 0;
     console.log("\n=== cross-remote route navigation ===");

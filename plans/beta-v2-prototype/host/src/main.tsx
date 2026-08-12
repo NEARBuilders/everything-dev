@@ -4,12 +4,14 @@ import { createRoot } from "react-dom/client";
 import React from "react";
 import { RouterProvider } from "@tanstack/react-router";
 import { composeApp, type WebPluginModule } from "./compose";
+import { MOCK_ADMIN_USER } from "./mount-registry";
 
 const REMOTES: Array<{ name: string; entry: string }> = [
   { name: "remote_landing", entry: "http://localhost:3101/remoteEntry.js" },
   { name: "remote_dashboard", entry: "http://localhost:3102/remoteEntry.js" },
   { name: "remote_settings", entry: "http://localhost:3103/remoteEntry.js" },
   { name: "remote_filebased", entry: "http://localhost:3104/remoteEntry.js" },
+  { name: "remote_org", entry: "http://localhost:3105/remoteEntry.js" },
 ];
 
 async function loadPlugins(): Promise<WebPluginModule[]> {
@@ -46,7 +48,7 @@ async function boot() {
       rootChildCount: routeTree.children?.length,
     });
 
-    const router = createRouter({ routeTree });
+    const router = createRouter({ routeTree, context: MOCK_ADMIN_USER });
 
     const mountNode = document.getElementById("root")!;
     createRoot(mountNode).render(

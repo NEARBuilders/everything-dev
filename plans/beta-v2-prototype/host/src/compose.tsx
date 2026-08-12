@@ -1,5 +1,6 @@
 import type { AnyRoute } from "@tanstack/react-router";
 import { createRootRoute, createRoute, Link, Outlet } from "@tanstack/react-router";
+import { createMountRegistry, MOUNT_ALIASES } from "./mount-registry";
 
 /**
  * Plugin contract v2 — a plugin exports its route tree and nothing else.
@@ -23,39 +24,6 @@ export interface ComposedApp {
   pluginTreeChildren: Record<string, number>;
 }
 
-function PublicLayout() {
-  return (
-    <div style={{ border: "2px dashed #2563eb", padding: 12, borderRadius: 8, margin: 12 }}>
-      <div style={{ fontSize: 12, color: "#2563eb", textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>
-        host · mount point: public
-      </div>
-      <Outlet />
-    </div>
-  );
-}
-
-function AuthLayout() {
-  return (
-    <div style={{ border: "2px dashed #dc2626", padding: 12, borderRadius: 8, margin: 12 }}>
-      <div style={{ fontSize: 12, color: "#dc2626", textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>
-        host · mount point: auth
-      </div>
-      <Outlet />
-    </div>
-  );
-}
-
-function AdminLayout() {
-  return (
-    <div style={{ border: "2px dashed #7c3aed", padding: 12, borderRadius: 8, margin: 12 }}>
-      <div style={{ fontSize: 12, color: "#7c3aed", textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>
-        host · mount point: admin
-      </div>
-      <Outlet />
-    </div>
-  );
-}
-
 /**
  * Derive the host mount id from a plugin subtree root's id.
  * `/_public` or `_public` → `public`; `_auth` → `auth`. A route whose last
@@ -68,18 +36,18 @@ function deriveMountId(route: AnyRoute): string | undefined {
 }
 
 /**
- * Generic host composition — mounts-only knowledge.
+ * Generic host composition — registry-driven mounts.
  *
  * The host knows NOTHING about plugin internals. It walks each plugin's tree
  * root children, treats every `_<mount>` pathless layout as a mount
- * declaration, auto-namespaces the subtree root id (`<plugin>__<mount>`) to
- * keep route ids globally unique, reparents it onto the host mount, and grafts.
+ * declaration, resolves the mount through the mount registry (static pathless
+ * layouts + parameterized routes like `_organization`), auto-namespaces the
+ * subtree root id (`<plugin>__<mount>`) to keep route ids globally unique,
+ * reparents it onto the graft target, and grafts.
  *
- * No plugin config exists: the plugin's own route files (`_public.tsx`) are the
- * mount declaration. Collisions between two plugins declaring the same mount
- * are resolved by the host's per-plugin id namespace — invisible to the author.
- *
- * Every mount point is a *pathless* layout, so grafting never changes URLs.
+ * The registry is the ONLY place a mount type is defined: its layout, its auth
+ * `beforeLoad`, its `ssr` behavior, and its URL footprint (pathless vs
+ * `$orgSlug`). Adding `_billing` later is one registry entry.
  */
 export function composeApp(plugins: WebPluginModule[]): ComposedApp {
   const rootRoute = createRootRoute({
@@ -90,32 +58,18 @@ export function composeApp(plugins: WebPluginModule[]): ComposedApp {
           <Link to="/about">About</Link>{" "}
           <Link to="/dashboard">Dashboard</Link>{" "}
           <Link to="/settings">Settings</Link>{" "}
-          <Link to="/admin/users">Admin</Link>
+          <Link to="/admin/users">Admin</Link>{" "}
+          <Link to="/organization/acme/dashboard">Org</Link>
         </header>
         <Outlet />
       </div>
     ),
   });
 
-  const mountPoints = {
-    public: createRoute({
-      id: "public",
-      component: PublicLayout,
-      getParentRoute: () => rootRoute,
-    }),
-    auth: createRoute({
-      id: "auth",
-      component: AuthLayout,
-      getParentRoute: () => rootRoute,
-    }),
-    admin: createRoute({
-      id: "admin",
-      component: AdminLayout,
-      getParentRoute: () => rootRoute,
-    }),
-  };
+  const mountRegistry = createMountRegistry(rootRoute);
+  const mountIds = Object.keys(mountRegistry);
 
-  const subtreesByMount: Record<string, AnyRoute[]> = { public: [], auth: [], admin: [] };
+  const subtreesByMount: Record<string, AnyRoute[]> = {};
   const pluginTreeChildren: Record<string, number> = {};
 
   for (const plugin of plugins) {
@@ -124,32 +78,36 @@ export function composeApp(plugins: WebPluginModule[]): ComposedApp {
     for (const child of children) {
       const mountId = deriveMountId(child);
       if (!mountId) continue;
-      const mount = mountPoints[mountId as keyof typeof mountPoints];
-      if (!mount) continue;
+      const canonicalId = MOUNT_ALIASES[mountId] ?? mountId;
+      const entry = mountRegistry[canonicalId];
+      if (!entry) continue;
+      const graftTarget = entry.kind === "parameterized" ? entry.paramRoute : entry.route;
       // Auto-namespace the subtree ROOT id (invisible: pathless, not a URL) +
-      // reparent onto the host mount. Descendants reference this same root
+      // reparent onto the mount. Descendants reference this same root
       // object, so the chain below stays intact — one shallow mutation.
       const rootOptions = (child as any).options ?? {};
       (child as any).options = {
         ...rootOptions,
-        id: `${plugin.name}__${mountId}`,
-        getParentRoute: () => mount,
+        id: `${plugin.name}__${canonicalId}`,
+        getParentRoute: () => graftTarget,
       };
-      subtreesByMount[mountId].push(child);
+      (subtreesByMount[canonicalId] ??= []).push(child);
     }
   }
 
-  const populatedMounts = (Object.keys(mountPoints) as Array<keyof typeof mountPoints>).map(
-    (id) => mountPoints[id].addChildren(subtreesByMount[id] ?? []),
-  );
+  const populatedMounts = mountIds.map((id) => {
+    const entry = mountRegistry[id];
+    const subtrees = subtreesByMount[id] ?? [];
+    if (entry.kind === "parameterized") {
+      // parameterized mount: parentRoute → paramRoute → grafted subtrees
+      return entry.parentRoute.addChildren([entry.paramRoute.addChildren(subtrees)]);
+    }
+    return entry.route.addChildren(subtrees);
+  });
 
   return {
     routeTree: rootRoute.addChildren(populatedMounts),
-    mountCounts: {
-      public: subtreesByMount.public.length,
-      auth: subtreesByMount.auth.length,
-      admin: subtreesByMount.admin.length,
-    },
+    mountCounts: Object.fromEntries(mountIds.map((id) => [id, subtreesByMount[id]?.length ?? 0])),
     pluginTreeChildren,
   };
 }

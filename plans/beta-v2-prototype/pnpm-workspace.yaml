@@ -4,3 +4,4 @@ packages:
   - "remote-dashboard"
   - "remote-settings"
   - "remote-filebased"
+  - "remote-org"
