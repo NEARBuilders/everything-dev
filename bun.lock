@@ -39,7 +39,7 @@
     },
     "api": {
       "name": "api",
-      "version": "2.8.0",
+      "version": "2.8.1",
       "dependencies": {
         "@electric-sql/pglite": "catalog:",
         "@orpc/contract": "catalog:",
@@ -71,7 +71,7 @@
     },
     "host": {
       "name": "host",
-      "version": "1.16.0",
+      "version": "1.16.1",
       "dependencies": {
         "@electric-sql/pglite": "catalog:",
         "@hono/node-server": "^2.0.1",
@@ -264,7 +264,7 @@
     },
     "ui": {
       "name": "ui",
-      "version": "1.9.0",
+      "version": "1.9.1",
       "dependencies": {
         "@better-auth/api-key": "catalog:",
         "@better-auth/core": "catalog:",
@@ -389,7 +389,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "better-auth": "1.6.25",
-    "better-near-auth": "1.8.2",
+    "better-near-auth": "1.10.0",
     "drizzle-kit": "^0.31.8",
     "drizzle-orm": "^0.45.1",
     "effect": "3.21.2",
@@ -1510,7 +1510,7 @@
 
     "better-call": ["better-call@1.3.7", "", { "dependencies": { "@better-auth/utils": "^0.4.0", "@better-fetch/fetch": "^1.1.21", "rou3": "^0.7.12", "set-cookie-parser": "^3.0.1" }, "peerDependencies": { "zod": "^4.0.0" }, "optionalPeers": ["zod"] }, "sha512-Al51/hjp2SSp6CRTa3F2ptcx4yQVS1xWKoY6jcVXqNYOap6mHFP2jUBn5EwIL4iIed1/Sq4hlQ+Umm6EflZG+w=="],
 
-    "better-near-auth": ["better-near-auth@1.8.2", "", { "dependencies": { "@scure/base": "^2.2.0", "nanostores": "^1.1.0", "near-kit": "^0.14.0", "zod": "^4.4.3" }, "peerDependencies": { "@better-auth/core": "^1.6.25", "better-auth": "^1.6.25", "typescript": "^5.9.3" } }, "sha512-sZWGaIaFZejENw7Upe77Hg3r6xjG/pN0QOGfvrDUvYoRXbcCLsvdlM0Ra+FLwWYZzidcCGzkarFwJ1ehaoAu8g=="],
+    "better-near-auth": ["better-near-auth@1.10.0", "", { "dependencies": { "@scure/base": "^2.2.0", "nanostores": "^1.1.0", "near-kit": "^0.14.0", "zod": "^4.4.3" }, "peerDependencies": { "@better-auth/core": "^1.6.25", "better-auth": "^1.6.25", "typescript": "^5.9.3" } }, "sha512-qLMm+pM+3wUHewLvEwpgT0LDFAIXhRwoKr0IgNcKC0Eu+DALaqe6x8KGX7FmIffY9ETevGubNjth2cmG1AaOMg=="],
 
     "better-path-resolve": ["better-path-resolve@1.0.0", "", { "dependencies": { "is-windows": "^1.0.0" } }, "sha512-pbnl5XzGBdrFU/wT4jqmJVPn2B6UHPBOhzMQkY/SPUPB6QtUXtmBHBIwCbXJol93mOpGMnQyP/+BB19q04xj7g=="],
 
