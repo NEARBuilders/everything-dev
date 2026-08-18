@@ -1,5 +1,12 @@
 # everything-dev
 
+## 1.53.2
+
+### Patch Changes
+
+- ad6c462: Fix stale auth type name in type generation by replacing the hard-coded re-export list in `auth-types.gen.ts` with `export type *`. New types added to the auth plugin's `auth-export.ts` now flow through automatically without generator changes, preventing the class of `TS2724` errors caused by stale type names.
+- ad6c462: Fix `Deploy` and `Staging` workflows failing with `! [rejected] main -> main (fetch first)` when remote `main` (or `staging`) advances during the long deploy window. The final push step now `fetch` + `rebase` against the remote ref before pushing, retries up to 5 times with exponential backoff, and exits cleanly when there's nothing to push after rebase. This eliminates races with the `Release` workflow's auto-merged `chore: version packages` PR, manual `workflow_dispatch` triggers, Renovate, and human commits landing during deploy.
+
 ## 1.53.1
 
 ### Patch Changes
