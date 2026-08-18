@@ -935,8 +935,9 @@ export type AuthOrganizationSummary = any;
 export type AuthOrganizationMember = any;
 export type AuthApiKey = any;
 export type AuthInvitation = any;
+export type AuthTeam = any;
 export type GetActiveMemberInput = any;
-export type GetOrganizationInput = any;
+export type GetFullOrganizationInput = any;
 export type ListMembersInput = any;
 export type ListInvitationsInput = any;
 export type ListApiKeysInput = any;
@@ -983,22 +984,7 @@ function generateAuthTypesContent(targetPath: string, configDir: string): string
     targetPath,
   );
 
-  return `export type {
-  Auth,
-  AuthOrganizationContext,
-  AuthOrganization,
-  AuthOrganizationSummary,
-  AuthOrganizationMember,
-  AuthApiKey,
-  AuthInvitation,
-  GetActiveMemberInput,
-  GetOrganizationInput,
-  ListMembersInput,
-  ListInvitationsInput,
-  ListApiKeysInput,
-  AuthServices,
-  createAuthInstance,
-} from "${authExportRel}";
+  return `export type * from "${authExportRel}";
 import type { InferOutput, ContractType as AuthContract } from "${contractRel}";
 import type { Auth as BaseAuth } from "${authExportRel}";
 
