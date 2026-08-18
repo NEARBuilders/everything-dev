@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Data } from "effect";
 import { expect } from "vitest";
+import { buildAuthContractStub, buildAuthExportStub } from "../../src/auth-types-gen";
 
 export interface CommandResult {
   code: number;
@@ -44,31 +45,8 @@ export function runCommand(
 export function writeGeneratedAuthStubs(projectDir: string) {
   const authDir = join(projectDir, ".bos", "generated", "auth");
   mkdirSync(authDir, { recursive: true });
-  writeFileSync(
-    join(authDir, "auth-export.d.ts"),
-    `export type Auth = any;
-export type AuthOrganizationContext = any;
-export type AuthOrganization = any;
-export type AuthOrganizationSummary = any;
-export type AuthOrganizationMember = any;
-export type AuthApiKey = any;
-export type AuthInvitation = any;
-export type AuthTeam = any;
-export type GetActiveMemberInput = any;
-export type GetFullOrganizationInput = any;
-export type ListMembersInput = any;
-export type ListInvitationsInput = any;
-export type ListApiKeysInput = any;
-export type AuthServices = any;
-export type createAuthInstance = any;
-`,
-  );
-  writeFileSync(
-    join(authDir, "contract.d.ts"),
-    `export type ContractType = any;
-export type InferOutput<_TRoute extends string> = any;
-`,
-  );
+  writeFileSync(join(authDir, "auth-export.d.ts"), buildAuthExportStub());
+  writeFileSync(join(authDir, "contract.d.ts"), buildAuthContractStub());
 }
 
 export function writeGeneratedTypeStubsEmpty(projectDir: string) {

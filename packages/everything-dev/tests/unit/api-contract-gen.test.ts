@@ -79,8 +79,6 @@ export type InferOutput<T extends string> = Record<string, unknown>;
     expect(uiAuthTypes).not.toContain("export type {\n  Auth,");
     expect(uiAuthTypes).toContain("AuthSessionUser");
     expect(uiAuthTypes).toContain("AuthPluginContext");
-    expect(uiAuthTypes).toContain("AuthBaseSession");
-    expect(uiAuthTypes).toContain("AuthContractType");
   });
 
   it("uses `export type *` in the contract-based path when no authExportPath is provided", async () => {

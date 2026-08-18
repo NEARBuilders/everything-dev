@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { buildAuthTypesGenContent } from "./auth-types-gen";
 import { fetchJsonOrNull, fetchResponse } from "./http-client";
 import type { JsonObject, RuntimeConfig, RuntimePluginConfig } from "./types";
 
@@ -185,76 +186,6 @@ async function fetchAuthExportTypes(opts: {
   writeFileIfChanged(generatedPath, content);
 
   return generatedPath;
-}
-
-function writeAuthTypesGen(targetPath: string, authExportPath: string) {
-  const exportImportPath = toImportPath(targetPath, authExportPath);
-  const content = [
-    `export type * from "${exportImportPath}";`,
-    `import type { InferOutput, ContractType as AuthContract } from "${toImportPath(targetPath, join(dirname(authExportPath), "contract.d.ts"))}";`,
-    `import type { Auth as BaseAuth } from "${exportImportPath}";`,
-    "",
-    'type RawAuthSession = InferOutput<"getSession">;',
-    'type RawAuthRequestContext = InferOutput<"getContext">;',
-    'type RawAuthActiveMember = InferOutput<"getActiveMember">;',
-    "",
-    'export type AuthSessionUser = NonNullable<RawAuthSession["user"]>;',
-    'export type AuthSessionData = NonNullable<RawAuthSession["session"]>;',
-    "export type AuthSession = {",
-    "  user: AuthSessionUser | null;",
-    "  session: AuthSessionData | null;",
-    "};",
-    "export type AuthRequestContext = RawAuthRequestContext;",
-    "export type AuthPluginContext = Partial<AuthRequestContext> & {",
-    "  reqHeaders?: Headers;",
-    "  getRawBody?: () => Promise<string>;",
-    "};",
-    "export type AuthActiveMember = RawAuthActiveMember;",
-    'export type AuthBaseSession = BaseAuth["$Infer"]["Session"];',
-    "export type AuthContractType = AuthContract;",
-    "",
-  ].join("\n");
-  mkdirSync(dirname(targetPath), { recursive: true });
-  writeFileIfChanged(targetPath, content);
-}
-
-function writeContractBasedAuthTypesGen(targetPath: string, configDir: string) {
-  const authExportRel = toImportPath(
-    targetPath,
-    join(configDir, ".bos", "generated", "auth", "auth-export.d.ts"),
-  );
-  const contractRel = toImportPath(
-    targetPath,
-    join(configDir, ".bos", "generated", "auth", "contract.d.ts"),
-  );
-
-  const content = [
-    `export type * from "${authExportRel}";`,
-    `import type { InferOutput, ContractType as AuthContract } from "${contractRel}";`,
-    `import type { Auth as BaseAuth } from "${authExportRel}";`,
-    "",
-    'type RawAuthSession = InferOutput<"getSession">;',
-    'type RawAuthRequestContext = InferOutput<"getContext">;',
-    'type RawAuthActiveMember = InferOutput<"getActiveMember">;',
-    "",
-    'export type AuthSessionUser = NonNullable<RawAuthSession["user"]>;',
-    'export type AuthSessionData = NonNullable<RawAuthSession["session"]>;',
-    "export type AuthSession = {",
-    "  user: AuthSessionUser | null;",
-    "  session: AuthSessionData | null;",
-    "};",
-    "export type AuthRequestContext = RawAuthRequestContext;",
-    "export type AuthPluginContext = Partial<AuthRequestContext> & {",
-    "  reqHeaders?: Headers;",
-    "  getRawBody?: () => Promise<string>;",
-    "};",
-    "export type AuthActiveMember = RawAuthActiveMember;",
-    'export type AuthBaseSession = BaseAuth["$Infer"]["Session"];',
-    "export type AuthContractType = AuthContract;",
-    "",
-  ].join("\n");
-  mkdirSync(dirname(targetPath), { recursive: true });
-  writeFileIfChanged(targetPath, content);
 }
 
 async function resolveContractSource(opts: {
@@ -504,11 +435,32 @@ export function writeGeneratedFiles(opts: {
 
   if (opts.authExportPath) {
     for (const authTypesPath of authTypeTargets) {
-      writeAuthTypesGen(authTypesPath, opts.authExportPath);
+      const exportImportPath = toImportPath(authTypesPath, opts.authExportPath);
+      const contractImportPath = toImportPath(
+        authTypesPath,
+        join(dirname(opts.authExportPath), "contract.d.ts"),
+      );
+      mkdirSync(dirname(authTypesPath), { recursive: true });
+      writeFileIfChanged(
+        authTypesPath,
+        buildAuthTypesGenContent(exportImportPath, contractImportPath),
+      );
     }
   } else if (opts.authSource) {
     for (const authTypesPath of authTypeTargets) {
-      writeContractBasedAuthTypesGen(authTypesPath, opts.configDir);
+      const exportImportPath = toImportPath(
+        authTypesPath,
+        join(opts.configDir, ".bos", "generated", "auth", "auth-export.d.ts"),
+      );
+      const contractImportPath = toImportPath(
+        authTypesPath,
+        join(opts.configDir, ".bos", "generated", "auth", "contract.d.ts"),
+      );
+      mkdirSync(dirname(authTypesPath), { recursive: true });
+      writeFileIfChanged(
+        authTypesPath,
+        buildAuthTypesGenContent(exportImportPath, contractImportPath),
+      );
     }
   }
 

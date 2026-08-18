@@ -1,24 +1,13 @@
 import type {
-  AuthPluginContext,
   AuthRequestContext,
   AuthSession,
   AuthSessionData,
   AuthSessionUser,
-  AuthServices as GeneratedAuthServices,
 } from "@/lib/auth-types.gen";
 
-export type {
-  AuthPluginContext,
-  AuthRequestContext,
-  AuthSession,
-  AuthSessionData,
-  AuthSessionUser,
-};
-export type AuthUser = AuthSessionUser;
+export type * from "@/lib/auth-types.gen";
 
-interface AuthServices extends GeneratedAuthServices {
-  auth: GeneratedAuthServices["auth"];
-}
+export type AuthUser = AuthSessionUser;
 
 export interface AuthClient {
   getSession(): Promise<AuthSession | null>;
@@ -38,5 +27,3 @@ export type HonoEnv = { Variables: AuthVariables };
 export function toAuthClientContext(headers: Headers): Record<string, string> {
   return Object.fromEntries(headers.entries());
 }
-
-export type { AuthServices };

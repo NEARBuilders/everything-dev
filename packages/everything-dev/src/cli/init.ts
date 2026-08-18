@@ -15,6 +15,11 @@ import { dirname, join, relative, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { execa } from "execa";
 import { glob } from "glob";
+import {
+  buildAuthContractStub,
+  buildAuthExportStub,
+  buildAuthTypesGenContent,
+} from "../auth-types-gen";
 import type { OverrideSection } from "../contract";
 import { fetchBosConfigFromFastKv } from "../fastkv";
 import { fetchResponse } from "../http-client";
@@ -915,7 +920,15 @@ export async function personalizeConfig(
   for (const authTypesGenPath of authTypesPaths) {
     if (!existsSync(authTypesGenPath)) {
       mkdirSync(dirname(authTypesGenPath), { recursive: true });
-      writeFileSync(authTypesGenPath, generateAuthTypesContent(authTypesGenPath, destination));
+      const authExportRel = toRelativeImportPath(
+        join(destination, ".bos", "generated", "auth", "auth-export.d.ts"),
+        authTypesGenPath,
+      );
+      const contractRel = toRelativeImportPath(
+        join(destination, ".bos", "generated", "auth", "contract.d.ts"),
+        authTypesGenPath,
+      );
+      writeFileSync(authTypesGenPath, buildAuthTypesGenContent(authExportRel, contractRel));
     }
   }
 
@@ -926,34 +939,11 @@ export async function personalizeConfig(
     }
     const authExportStubPath = join(authDir, "auth-export.d.ts");
     if (!existsSync(authExportStubPath)) {
-      writeFileSync(
-        authExportStubPath,
-        `export type Auth = any;
-export type AuthOrganizationContext = any;
-export type AuthOrganization = any;
-export type AuthOrganizationSummary = any;
-export type AuthOrganizationMember = any;
-export type AuthApiKey = any;
-export type AuthInvitation = any;
-export type AuthTeam = any;
-export type GetActiveMemberInput = any;
-export type GetFullOrganizationInput = any;
-export type ListMembersInput = any;
-export type ListInvitationsInput = any;
-export type ListApiKeysInput = any;
-export type AuthServices = any;
-export type createAuthInstance = any;
-`,
-      );
+      writeFileSync(authExportStubPath, buildAuthExportStub());
     }
     const contractStubPath = join(authDir, "contract.d.ts");
     if (!existsSync(contractStubPath)) {
-      writeFileSync(
-        contractStubPath,
-        `export type ContractType = any;
-export type InferOutput<_TRoute extends string> = any;
-`,
-      );
+      writeFileSync(contractStubPath, buildAuthContractStub());
     }
   }
 
@@ -972,41 +962,6 @@ export type InferOutput<_TRoute extends string> = any;
       writeFileSync(pluginClientGenPath, "export type PluginsClient = Record<string, never>;\n");
     }
   }
-}
-
-function generateAuthTypesContent(targetPath: string, configDir: string): string {
-  const authExportRel = toRelativeImportPath(
-    join(configDir, ".bos", "generated", "auth", "auth-export.d.ts"),
-    targetPath,
-  );
-  const contractRel = toRelativeImportPath(
-    join(configDir, ".bos", "generated", "auth", "contract.d.ts"),
-    targetPath,
-  );
-
-  return `export type * from "${authExportRel}";
-import type { InferOutput, ContractType as AuthContract } from "${contractRel}";
-import type { Auth as BaseAuth } from "${authExportRel}";
-
-type RawAuthSession = InferOutput<"getSession">;
-type RawAuthRequestContext = InferOutput<"getContext">;
-type RawAuthActiveMember = InferOutput<"getActiveMember">;
-
-export type AuthSessionUser = NonNullable<RawAuthSession["user"]>;
-export type AuthSessionData = NonNullable<RawAuthSession["session"]>;
-export type AuthSession = {
-  user: AuthSessionUser | null;
-  session: AuthSessionData | null;
-};
-export type AuthRequestContext = RawAuthRequestContext;
-export type AuthPluginContext = Partial<AuthRequestContext> & {
-  reqHeaders?: Headers;
-  getRawBody?: () => Promise<string>;
-};
-export type AuthActiveMember = RawAuthActiveMember;
-export type AuthBaseSession = BaseAuth["$Infer"]["Session"];
-export type AuthContractType = AuthContract;
-`;
 }
 
 function toRelativeImportPath(fromPath: string, toPath: string): string {
