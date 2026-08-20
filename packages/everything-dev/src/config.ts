@@ -562,11 +562,29 @@ function getAssociatedUi(
   return ui;
 }
 
+function applyNullOverrides(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  for (const [key, value] of Object.entries(source)) {
+    if (value === null) {
+      target[key] = null;
+    } else if (isPlainObject(value) && isPlainObject(target[key])) {
+      applyNullOverrides(
+        target[key] as Record<string, unknown>,
+        value as Record<string, unknown>,
+      );
+    }
+  }
+}
+
 function mergeComposableEntries(
   parent: Partial<BosPluginRef>,
   child: Partial<BosPluginRef>,
 ): BosPluginRef {
-  return bosConfigMerger({ ...child }, parent) as BosPluginRef;
+  const merged = bosConfigMerger({ ...child }, parent) as Record<string, unknown>;
+  applyNullOverrides(merged, child as Record<string, unknown>);
+  return merged as BosPluginRef;
 }
 
 function stripUnsafeLocalDevelopment<T extends Record<string, unknown> | undefined>(

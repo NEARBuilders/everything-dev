@@ -41,7 +41,7 @@ services:
       <<: *pg-env
       POSTGRES_DB: template_db
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - dev_everything_near_postgres_template_data:/var/lib/postgresql/data
 
