@@ -38,45 +38,26 @@ export async function collectHeadData(router: AnyRouter): Promise<HeadData> {
   const scriptMap = new Map<string, HeadScript>();
 
   for (const match of router.state.matches) {
-    const route =
-      (
-        router as AnyRouter & {
-          routesById?: Record<string, { options?: { head?: (...args: unknown[]) => unknown } }>;
-        }
-      ).routesById?.[(match as { routeId: string }).routeId] ??
-      (match as { route?: { options?: { head?: (...args: unknown[]) => unknown } } }).route;
-    const headFn = route?.options?.head;
-    if (!headFn) continue;
+    const matchData = match as {
+      meta?: HeadMeta[];
+      links?: HeadLink[];
+      headScripts?: HeadScript[];
+    };
 
-    try {
-      const headResult = (await headFn({
-        loaderData: match.loaderData,
-        matches: router.state.matches,
-        match,
-        params: match.params,
-      })) as {
-        meta?: HeadMeta[];
-        links?: HeadLink[];
-        scripts?: HeadScript[];
-      };
-
-      if (headResult?.meta) {
-        for (const meta of headResult.meta) {
-          metaMap.set(getMetaKey(meta), meta);
-        }
+    if (matchData.meta) {
+      for (const meta of matchData.meta) {
+        metaMap.set(getMetaKey(meta), meta);
       }
-      if (headResult?.links) {
-        for (const link of headResult.links) {
-          linkMap.set(getLinkKey(link), link);
-        }
+    }
+    if (matchData.links) {
+      for (const link of matchData.links) {
+        linkMap.set(getLinkKey(link), link);
       }
-      if (headResult?.scripts) {
-        for (const script of headResult.scripts) {
-          scriptMap.set(getScriptKey(script), script);
-        }
+    }
+    if (matchData.headScripts) {
+      for (const script of matchData.headScripts) {
+        scriptMap.set(getScriptKey(script), script);
       }
-    } catch (error) {
-      console.warn(`[collectHeadData] head() failed for ${match.routeId}:`, error);
     }
   }
 

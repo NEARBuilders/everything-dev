@@ -20,6 +20,7 @@ import type {
   PsResult,
   StartOptions,
   StartResult,
+  TypecheckWorkspaceResult,
 } from "./contract";
 import type { ProgressEvent, StartSummary } from "./plugin";
 import bosPlugin, { consumeDevSession, pluginEvents } from "./plugin";
@@ -909,6 +910,39 @@ async function main() {
           }
         }
       }
+      console.log();
+      return;
+    }
+
+    if (descriptor.key === "typecheck") {
+      console.log();
+      if (result.status === "error") {
+        console.error(`[CLI] ${result.error || "Unknown error"}`);
+        process.exit(1);
+      }
+      const failed = result.results.filter((r: TypecheckWorkspaceResult) => !r.passed);
+      const passed = result.results.filter((r: TypecheckWorkspaceResult) => r.passed);
+      console.log(colors.cyan(frames.top(52)));
+      console.log(`  ${icons.app} ${gradients.cyber("TYPECHECK")}`);
+      console.log(colors.cyan(frames.bottom(52)));
+      console.log();
+      for (const r of result.results) {
+        const icon = r.passed ? colors.green("✓") : colors.error("✗");
+        console.log(`  ${icon} ${r.workspace}`);
+      }
+      if (result.skipped.length > 0) {
+        console.log(`  ${colors.dim(`Skipped: ${result.skipped.join(", ")}`)}`);
+      }
+      console.log();
+      if (failed.length > 0) {
+        console.log(`  ${colors.error(`${failed.length} failed`)}`);
+        for (const f of failed) {
+          if (f.error) console.log(`    ${colors.dim(f.error)}`);
+        }
+        console.log();
+        process.exit(1);
+      }
+      console.log(`  ${colors.green(`${passed.length} passed`)}`);
       console.log();
       return;
     }

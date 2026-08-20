@@ -1,0 +1,165 @@
+{
+  "id": "85c9d130-a4b6-4026-a2df-890fddfa7518",
+  "prevId": "7b8a421a-d0c7-414a-96e8-0c259935178b",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.tenants": {
+      "name": "tenants",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "subdomain": {
+          "name": "subdomain",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "org_id": {
+          "name": "org_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "tenant_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "allow_ui_overrides": {
+          "name": "allow_ui_overrides",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "allow_backend_overrides": {
+          "name": "allow_backend_overrides",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "allow_ssr": {
+          "name": "allow_ssr",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "tenants_subdomain_idx": {
+          "name": "tenants_subdomain_idx",
+          "columns": [
+            {
+              "expression": "subdomain",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tenants_account_id_idx": {
+          "name": "tenants_account_id_idx",
+          "columns": [
+            {
+              "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "tenants_subdomain_unique": {
+          "name": "tenants_subdomain_unique",
+          "nullsNotDistinct": false,
+          "columns": ["subdomain"]
+        },
+        "tenants_account_id_unique": {
+          "name": "tenants_account_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["account_id"]
+        },
+        "tenants_org_id_unique": {
+          "name": "tenants_org_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["org_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.tenant_status": {
+      "name": "tenant_status",
+      "schema": "public",
+      "values": ["active", "pending", "suspended", "pending_deletion"]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

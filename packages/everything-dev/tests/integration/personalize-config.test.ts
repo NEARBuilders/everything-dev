@@ -112,9 +112,9 @@ describe("personalizeConfig with real root config", () => {
     expect(existsSync(join(testDir, "plugins", "apps"))).toBe(true);
     expect(existsSync(join(testDir, "plugins", "example"))).toBe(false);
     expect(existsSync(join(testDir, "plugins", "example"))).toBe(false);
-    expect(existsSync(join(testDir, "ui", "src", "routes", "_layout", "apps", "index.tsx"))).toBe(
-      true,
-    );
+    expect(
+      existsSync(join(testDir, "ui", "src", "routes", "_layout", "_public", "apps", "index.tsx")),
+    ).toBe(true);
     expect(
       existsSync(join(testDir, "ui", "src", "routes", "_layout", "_authenticated", "example.tsx")),
     ).toBe(false);

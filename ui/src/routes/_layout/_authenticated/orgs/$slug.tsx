@@ -59,7 +59,7 @@ const orgMembersQueryKey = (orgId: string) => ["org-members", orgId] as const;
 const orgInvitationsQueryKey = (orgId: string) => ["org-invitations", orgId] as const;
 const orgApiKeysQueryKey = (orgId: string) => ["org-api-keys", orgId] as const;
 
-export const Route = createFileRoute("/_layout/_authenticated/organizations/$slug")({
+export const Route = createFileRoute("/_layout/_authenticated/orgs/$slug")({
   head: () => ({
     title: "Organization | auth.everything.dev",
     meta: [{ name: "description", content: "Manage organization details and members." }],
@@ -328,7 +328,7 @@ function OrganizationDetail() {
     onSuccess: async () => {
       toast.success("You have left the organization");
       await queryClient.invalidateQueries({ queryKey: ["organizations"] });
-      await router.navigate({ to: "/organizations" });
+      await router.navigate({ to: "/orgs" });
     },
     onError: (error: Error) => toast.error(error.message || "Failed to leave organization"),
   });
@@ -341,7 +341,7 @@ function OrganizationDetail() {
     onSuccess: async () => {
       toast.success("Organization deleted");
       await queryClient.invalidateQueries({ queryKey: ["organizations"] });
-      await router.navigate({ to: "/organizations" });
+      await router.navigate({ to: "/orgs" });
     },
     onError: (error: Error) => toast.error(error.message || "Failed to delete organization"),
   });
@@ -369,7 +369,7 @@ function OrganizationDetail() {
           description="This organization does not exist or you do not have access."
           action={
             <Button asChild variant="outline">
-              <Link to="/organizations">back to organizations</Link>
+              <Link to="/orgs">back to organizations</Link>
             </Button>
           }
         />
@@ -383,7 +383,7 @@ function OrganizationDetail() {
         <header className="space-y-2">
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
             <Users className="h-3 w-3" />
-            <Link to="/organizations" className="hover:text-foreground transition-colors">
+            <Link to="/orgs" className="hover:text-foreground transition-colors">
               Organizations
             </Link>
             <span>/</span>

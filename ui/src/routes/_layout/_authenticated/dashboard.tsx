@@ -2,12 +2,29 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Home as HomeIcon, Settings } from "lucide-react";
 import { useMemo } from "react";
-import { type Passkey, type SessionData, sessionQueryOptions, useAuthClient } from "@/app";
+import {
+  getAccount,
+  type Passkey,
+  type SessionData,
+  sessionQueryOptions,
+  useAuthClient,
+} from "@/app";
 import { Card } from "@/components";
 import { PageContainer } from "@/components/layout/page-container";
 import { InfoRow } from "@/components/ui/info-row";
 
-export const Route = createFileRoute("/_layout/_authenticated/home")({
+export const Route = createFileRoute("/_layout/_authenticated/dashboard")({
+  beforeLoad: async ({ context }) => {
+    const { apiClient, runtimeConfig } = context;
+    const accountId = getAccount(runtimeConfig);
+    let tenant: Awaited<ReturnType<typeof apiClient.resolveTenant>> | null = null;
+    try {
+      tenant = await apiClient.resolveTenant({ accountId });
+    } catch {
+      tenant = null;
+    }
+    return { tenant };
+  },
   head: () => ({
     meta: [{ title: "Workspace | app" }, { name: "description", content: "Your workspace." }],
   }),

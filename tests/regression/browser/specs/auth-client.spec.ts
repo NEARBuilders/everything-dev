@@ -58,9 +58,9 @@ test.describe("authClient", () => {
     await anonymousBtn.click();
     await signInDone;
 
-    await page.waitForURL(/\/home$/, { timeout: 15000 });
+    await page.waitForURL(/\/dashboard$/, { timeout: 15000 });
     await page.reload();
-    await page.waitForURL(/\/home$/, { timeout: 15000 });
+    await page.waitForURL(/\/dashboard$/, { timeout: 15000 });
     await page.waitForLoadState("networkidle");
     await waitForApp(page);
 

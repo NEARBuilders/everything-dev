@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfig } from "../../src/services/config";
 
 const loadRemoteConfigMock = vi.fn();
@@ -7,19 +7,6 @@ const verifySriForUrlMock = vi.fn();
 
 vi.mock("everything-dev/config", async () => {
   return {
-    parseRuntimeOverrideTargets: (value?: string | null) =>
-      value
-        ? [
-            ...new Set(
-              value
-                .split(",")
-                .map((entry) => entry.trim())
-                .filter(Boolean),
-            ),
-          ]
-        : [],
-    isRuntimeOverrideAllowed: (targets: string[], target: string) =>
-      targets.includes(target) || (target.startsWith("plugins.") && targets.includes("plugins.*")),
     loadRemoteConfig: loadRemoteConfigMock,
     buildRuntimeConfig: buildRuntimeConfigMock,
   };
@@ -33,12 +20,42 @@ const { clearTenantRuntimeCaches, resolveRequestRuntime } = await import(
   "../../src/services/tenant-runtime"
 );
 
+import type { BindingResolver } from "../../src/services/binding-resolver";
+
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((res) => {
     resolve = res;
   });
   return { promise, resolve };
+}
+
+function createMockBindingResolver(
+  ...hostnames: Array<{
+    hostname: string;
+    allowUiOverrides?: boolean;
+    allowBackendOverrides?: boolean;
+    allowSsr?: boolean;
+    status?: "active" | "pending" | "suspended" | "pending_deletion";
+  }>
+): BindingResolver {
+  const map = new Map(
+    hostnames.map((entry) => [
+      entry.hostname,
+      {
+        hostname: entry.hostname,
+        accountId: entry.hostname.replace(/\.com$/, ".near"),
+        allowUiOverrides: entry.allowUiOverrides ?? true,
+        allowBackendOverrides: entry.allowBackendOverrides ?? false,
+        allowSsr: entry.allowSsr ?? false,
+        status: entry.status ?? "active",
+      },
+    ]),
+  );
+  return {
+    resolve: async (hostname: string) => map.get(hostname) ?? null,
+    clear: () => {},
+  };
 }
 
 function createBaseRuntimeConfig(): RuntimeConfig {
@@ -96,35 +113,25 @@ function createBaseRuntimeConfig(): RuntimeConfig {
 }
 
 describe("resolveRequestRuntime", () => {
-  const envSnapshot = { ...process.env };
-
   beforeEach(() => {
     vi.clearAllMocks();
     clearTenantRuntimeCaches();
     verifySriForUrlMock.mockResolvedValue(undefined);
-    process.env = {
-      ...envSnapshot,
-      ALLOW_OVERRIDE: "ui",
-      TENANT_WHITELIST: "alice.linktree.near",
-      ALLOW_UNTRUSTED_SSR: "false",
-    };
-  });
-
-  afterEach(() => {
-    process.env = { ...envSnapshot };
   });
 
   it("returns the base runtime on the bare domain", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
-    const result = await resolveRequestRuntime(baseConfig, new Request("https://linktree.com/"));
+    const result = await resolveRequestRuntime(baseConfig, new Request("https://linktree.com/"), {
+      bindingResolver: createMockBindingResolver(),
+    });
 
     expect(result.config).toBe(baseConfig);
     expect(result.tenantAccountId).toBeNull();
     expect(loadRemoteConfigMock).not.toHaveBeenCalled();
   });
 
-  it("derives tenant accounts relative to the active runtime account", async () => {
+  it("resolves the tenant account for a hostname via the binding resolver", async () => {
     loadRemoteConfigMock.mockResolvedValue({
       source: "bos://alice.linktree.near/linktree.com",
       rawConfig: {
@@ -155,6 +162,12 @@ describe("resolveRequestRuntime", () => {
     const result = await resolveRequestRuntime(
       createBaseRuntimeConfig(),
       new Request("https://alice.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: true,
+        }),
+      },
     );
 
     expect(result.tenantAccountId).toBe("alice.linktree.near");
@@ -164,7 +177,7 @@ describe("resolveRequestRuntime", () => {
     );
   });
 
-  it("supports nested tenant labels within the active runtime namespace", async () => {
+  it("resolves nested tenant hostnames via the binding resolver", async () => {
     loadRemoteConfigMock.mockResolvedValue({
       source: "bos://chicago.alice.linktree.near/linktree.com",
       rawConfig: {
@@ -198,6 +211,12 @@ describe("resolveRequestRuntime", () => {
     const result = await resolveRequestRuntime(
       createBaseRuntimeConfig(),
       new Request("https://chicago.alice.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "chicago.alice.linktree.com",
+          allowUiOverrides: true,
+        }),
+      },
     );
 
     expect(result.tenantAccountId).toBe("chicago.alice.linktree.near");
@@ -230,61 +249,37 @@ describe("resolveRequestRuntime", () => {
     buildRuntimeConfigMock.mockResolvedValue(createBaseRuntimeConfig());
 
     await expect(
-      resolveRequestRuntime(createBaseRuntimeConfig(), new Request("https://alice.linktree.com/")),
+      resolveRequestRuntime(createBaseRuntimeConfig(), new Request("https://alice.linktree.com/"), {
+        bindingResolver: createMockBindingResolver({ hostname: "alice.linktree.com" }),
+      }),
     ).rejects.toThrow("must extend bos://linktree.near/linktree.com");
   });
 
-  it("rejects a suspended tenant with 503 based on published config status", async () => {
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
-        status: "suspended",
-      },
-      config: {
-        account: "alice.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
-          api: { name: "api", production: "https://api.example.com" },
-        },
-      },
-      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
-    });
-
-    buildRuntimeConfigMock.mockResolvedValue(createBaseRuntimeConfig());
-
+  it("rejects a suspended tenant with 503 based on the binding status", async () => {
     await expect(
-      resolveRequestRuntime(createBaseRuntimeConfig(), new Request("https://alice.linktree.com/")),
+      resolveRequestRuntime(createBaseRuntimeConfig(), new Request("https://alice.linktree.com/"), {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          status: "suspended",
+        }),
+      }),
     ).rejects.toMatchObject({ status: 503, message: "Tenant is suspended" });
+    expect(loadRemoteConfigMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a pending_deletion tenant with 410 based on published config status", async () => {
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
-        status: "pending_deletion",
-      },
-      config: {
-        account: "alice.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
-          api: { name: "api", production: "https://api.example.com" },
-        },
-      },
-      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
-    });
-
-    buildRuntimeConfigMock.mockResolvedValue(createBaseRuntimeConfig());
-
+  it("rejects a pending_deletion tenant with 410 based on the binding status", async () => {
     await expect(
-      resolveRequestRuntime(createBaseRuntimeConfig(), new Request("https://alice.linktree.com/")),
+      resolveRequestRuntime(createBaseRuntimeConfig(), new Request("https://alice.linktree.com/"), {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          status: "pending_deletion",
+        }),
+      }),
     ).rejects.toMatchObject({ status: 410, message: "Tenant has been deleted" });
+    expect(loadRemoteConfigMock).not.toHaveBeenCalled();
   });
 
-  it("applies a tenant UI override and allows SSR for whitelisted tenants", async () => {
+  it("applies a tenant UI override and allows SSR when the binding enables both", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
     loadRemoteConfigMock.mockResolvedValue({
@@ -325,6 +320,13 @@ describe("resolveRequestRuntime", () => {
     const result = await resolveRequestRuntime(
       baseConfig,
       new Request("https://alice.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: true,
+          allowSsr: true,
+        }),
+      },
     );
 
     expect(result.tenantAccountId).toBe("alice.linktree.near");
@@ -338,7 +340,7 @@ describe("resolveRequestRuntime", () => {
     );
   });
 
-  it("disables SSR for non-whitelisted tenants when untrusted SSR is off", async () => {
+  it("disables SSR when the binding does not allow it", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
     loadRemoteConfigMock.mockResolvedValue({
@@ -373,6 +375,13 @@ describe("resolveRequestRuntime", () => {
     const result = await resolveRequestRuntime(
       baseConfig,
       new Request("https://bob.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "bob.linktree.com",
+          allowUiOverrides: true,
+          allowSsr: false,
+        }),
+      },
     );
 
     expect(result.ssrAllowed).toBe(false);
@@ -380,7 +389,7 @@ describe("resolveRequestRuntime", () => {
     expect(result.config.ui.ssrIntegrity).toBeUndefined();
   });
 
-  it("disables SSR for whitelisted tenants when ssrIntegrity is missing", async () => {
+  it("disables SSR for SSR-enabled bindings when ssrIntegrity is missing", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
     loadRemoteConfigMock.mockResolvedValue({
@@ -419,6 +428,13 @@ describe("resolveRequestRuntime", () => {
     const result = await resolveRequestRuntime(
       baseConfig,
       new Request("https://alice.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: true,
+          allowSsr: true,
+        }),
+      },
     );
 
     expect(result.ssrAllowed).toBe(false);
@@ -426,7 +442,7 @@ describe("resolveRequestRuntime", () => {
     expect(result.config.ui.ssrIntegrity).toBeUndefined();
   });
 
-  it("disables SSR for whitelisted tenants when ssrUrl is missing", async () => {
+  it("disables SSR for SSR-enabled bindings when ssrUrl is missing", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
     loadRemoteConfigMock.mockResolvedValue({
@@ -460,6 +476,13 @@ describe("resolveRequestRuntime", () => {
     const result = await resolveRequestRuntime(
       baseConfig,
       new Request("https://alice.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: true,
+          allowSsr: true,
+        }),
+      },
     );
 
     expect(result.ssrAllowed).toBe(false);
@@ -467,7 +490,7 @@ describe("resolveRequestRuntime", () => {
     expect(result.config.ui.ssrIntegrity).toBeUndefined();
   });
 
-  it("allows SSR for whitelisted tenants when both ssrUrl and ssrIntegrity are present", async () => {
+  it("allows SSR when the binding enables SSR and both ssrUrl and ssrIntegrity are present", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
     loadRemoteConfigMock.mockResolvedValue({
@@ -508,6 +531,13 @@ describe("resolveRequestRuntime", () => {
     const result = await resolveRequestRuntime(
       baseConfig,
       new Request("https://alice.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: true,
+          allowSsr: true,
+        }),
+      },
     );
 
     expect(result.ssrAllowed).toBe(true);
@@ -515,9 +545,8 @@ describe("resolveRequestRuntime", () => {
     expect(result.config.ui.ssrIntegrity).toBe("sha384-alice-ssr");
   });
 
-  it("applies existing plugin UI overrides when plugins are allowed", async () => {
+  it("applies existing plugin UI overrides when backend overrides are allowed", async () => {
     const baseConfig = createBaseRuntimeConfig();
-    process.env.ALLOW_OVERRIDE = "ui,plugins.*";
 
     loadRemoteConfigMock.mockResolvedValue({
       source: "bos://alice.linktree.near/linktree.com",
@@ -591,6 +620,14 @@ describe("resolveRequestRuntime", () => {
     const result = await resolveRequestRuntime(
       baseConfig,
       new Request("https://alice.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: true,
+          allowSsr: true,
+          allowBackendOverrides: true,
+        }),
+      },
     );
 
     expect(result.config.plugins?.apps.ui?.url).toBe("https://plugins.example.com/alice-apps-ui");
@@ -639,7 +676,13 @@ describe("resolveRequestRuntime", () => {
         },
       });
 
-      await resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/"));
+      await resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/"), {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: true,
+          allowSsr: true,
+        }),
+      });
 
       const refresh = createDeferred<void>();
       verifySriForUrlMock.mockImplementationOnce(() => refresh.promise);
@@ -648,6 +691,11 @@ describe("resolveRequestRuntime", () => {
       await expect(
         resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/asset.js"), {
           verification: "stale-while-revalidate",
+          bindingResolver: createMockBindingResolver({
+            hostname: "alice.linktree.com",
+            allowUiOverrides: true,
+            allowSsr: true,
+          }),
         }),
       ).resolves.toMatchObject({ tenantAccountId: "alice.linktree.near" });
       expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
@@ -655,6 +703,11 @@ describe("resolveRequestRuntime", () => {
       await expect(
         resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/asset-2.js"), {
           verification: "stale-while-revalidate",
+          bindingResolver: createMockBindingResolver({
+            hostname: "alice.linktree.com",
+            allowUiOverrides: true,
+            allowSsr: true,
+          }),
         }),
       ).resolves.toMatchObject({ tenantAccountId: "alice.linktree.near" });
       expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
@@ -704,7 +757,13 @@ describe("resolveRequestRuntime", () => {
         },
       });
 
-      await resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/"));
+      await resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/"), {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: true,
+          allowSsr: true,
+        }),
+      });
 
       const refresh = createDeferred<void>();
       verifySriForUrlMock.mockImplementationOnce(() => refresh.promise);
@@ -716,6 +775,11 @@ describe("resolveRequestRuntime", () => {
         new Request("https://alice.linktree.com/"),
         {
           verification: "blocking",
+          bindingResolver: createMockBindingResolver({
+            hostname: "alice.linktree.com",
+            allowUiOverrides: true,
+            allowSsr: true,
+          }),
         },
       ).then(() => {
         settled = true;
@@ -732,50 +796,109 @@ describe("resolveRequestRuntime", () => {
     }
   });
 
-  it("recomputes the tenant whitelist when the env value changes", async () => {
+  it("gates SSR per tenant based on the binding allowSsr flag", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
     loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://bob.linktree.near/linktree.com",
+      source: "bos://alice.linktree.near/linktree.com",
       rawConfig: {
         extends: "bos://linktree.near/linktree.com",
       },
       config: {
-        account: "bob.linktree.near",
+        account: "alice.linktree.near",
         app: {
           host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/bob-ui" },
+          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
           api: { name: "api", production: "https://api.example.com" },
         },
       },
-      extendsChain: ["bos://bob.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
+      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
     buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
-      account: "bob.linktree.near",
+      account: "alice.linktree.near",
       ui: {
         ...baseConfig.ui,
-        url: "https://cdn.example.com/bob-ui",
-        entry: "https://cdn.example.com/bob-ui/mf-manifest.json",
-        integrity: "sha384-bob",
-        ssrUrl: "https://cdn.example.com/bob-ui-ssr",
-        ssrIntegrity: "sha384-bob-ssr",
+        url: "https://cdn.example.com/alice-ui",
+        entry: "https://cdn.example.com/alice-ui/mf-manifest.json",
+        integrity: "sha384-alice",
+        ssrUrl: "https://cdn.example.com/alice-ui-ssr",
+        ssrIntegrity: "sha384-alice-ssr",
       },
     });
 
     const blocked = await resolveRequestRuntime(
       baseConfig,
-      new Request("https://bob.linktree.com/"),
+      new Request("https://alice.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: true,
+          allowSsr: false,
+        }),
+      },
     );
     expect(blocked.ssrAllowed).toBe(false);
-
-    process.env.TENANT_WHITELIST = "bob.linktree.near";
+    expect(blocked.config.ui.ssrUrl).toBeUndefined();
 
     const allowed = await resolveRequestRuntime(
       baseConfig,
-      new Request("https://bob.linktree.com/"),
+      new Request("https://alice.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: true,
+          allowSsr: true,
+        }),
+      },
     );
     expect(allowed.ssrAllowed).toBe(true);
+    expect(allowed.config.ui.ssrUrl).toBe("https://cdn.example.com/alice-ui-ssr");
+  });
+
+  it("does not apply tenant UI overrides when the binding disallows them", async () => {
+    const baseConfig = createBaseRuntimeConfig();
+
+    loadRemoteConfigMock.mockResolvedValue({
+      source: "bos://alice.linktree.near/linktree.com",
+      rawConfig: {
+        extends: "bos://linktree.near/linktree.com",
+      },
+      config: {
+        account: "alice.linktree.near",
+        app: {
+          host: { development: "local:host", production: "https://host.example.com" },
+          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
+          api: { name: "api", production: "https://api.example.com" },
+        },
+      },
+      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
+    });
+
+    buildRuntimeConfigMock.mockResolvedValue({
+      ...baseConfig,
+      account: "alice.linktree.near",
+      ui: {
+        ...baseConfig.ui,
+        url: "https://cdn.example.com/alice-ui",
+        entry: "https://cdn.example.com/alice-ui/mf-manifest.json",
+        integrity: "sha384-alice",
+      },
+    });
+
+    const result = await resolveRequestRuntime(
+      baseConfig,
+      new Request("https://alice.linktree.com/"),
+      {
+        bindingResolver: createMockBindingResolver({
+          hostname: "alice.linktree.com",
+          allowUiOverrides: false,
+        }),
+      },
+    );
+
+    expect(result.config.ui.url).toBe(baseConfig.ui.url);
+    expect(verifySriForUrlMock).not.toHaveBeenCalled();
   });
 });

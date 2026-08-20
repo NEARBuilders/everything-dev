@@ -7,7 +7,7 @@ import { useAuthClient } from "@/app";
 import { Button, Card, CardContent, Input } from "@/components";
 import { PageContainer } from "@/components/layout/page-container";
 
-export const Route = createFileRoute("/_layout/_authenticated/organizations/new")({
+export const Route = createFileRoute("/_layout/_authenticated/orgs/new")({
   head: () => ({
     title: "New Organization | auth.everything.dev",
     meta: [{ name: "description", content: "Create a new organization." }],
@@ -37,7 +37,7 @@ function NewOrganization() {
       await queryClient.refetchQueries({ queryKey: ["organizations"] });
       if (data?.slug) {
         await router.navigate({
-          to: "/organizations/$slug",
+          to: "/orgs/$slug",
           params: { slug: data.slug },
         });
       }
@@ -76,7 +76,7 @@ function NewOrganization() {
               </h1>
             </div>
             <Button asChild variant="outline">
-              <Link to="/organizations">back to organizations</Link>
+              <Link to="/orgs">back to organizations</Link>
             </Button>
           </div>
         </header>
@@ -122,7 +122,7 @@ function NewOrganization() {
 
           <div className="flex gap-2">
             <Button asChild variant="outline">
-              <Link to="/organizations">cancel</Link>
+              <Link to="/orgs">cancel</Link>
             </Button>
             <Button
               type="submit"

@@ -3,18 +3,15 @@ import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/reac
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { getAppName, sessionQueryOptions, useAuthClient } from "@/app";
-import builtOn from "@/assets/built_on.png";
-import builtOnRev from "@/assets/built_on_rev.png";
 import { BrandElement } from "@/components/brand-element";
 import { Button } from "@/components/ui/button";
-import { NetworkToggle } from "@/components/ui/network-toggle";
 import { UnderConstruction } from "@/components/under-construction";
 
 type SearchParams = {
   redirect?: string;
 };
 
-export const Route = createFileRoute("/_layout/login")({
+export const Route = createFileRoute("/_layout/_anon/login")({
   ssr: false,
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     redirect: typeof search.redirect === "string" ? search.redirect : undefined,
@@ -27,7 +24,7 @@ export const Route = createFileRoute("/_layout/login")({
       queryClient.getQueryData(sessionQueryOptions(authClient, initialSession).queryKey);
 
     if (session?.user) {
-      const redirectTo = search.redirect?.startsWith("/") ? search.redirect : "/home";
+      const redirectTo = search.redirect?.startsWith("/") ? search.redirect : "/dashboard";
       throw redirect({ to: redirectTo, search: {} });
     }
   },
@@ -60,7 +57,7 @@ function LoginPage() {
   }, [auth.near]);
 
   const handleSuccess = async (message: string) => {
-    const redirectTo = redirect?.startsWith("/") ? redirect : "/home";
+    const redirectTo = redirect?.startsWith("/") ? redirect : "/dashboard";
     toast.success(message);
     queryClient.invalidateQueries({ queryKey: ["session"] });
     navigate({ to: redirectTo, replace: true, search: {} });
@@ -113,15 +110,14 @@ function LoginPage() {
   };
 
   if (session?.user) {
-    const redirectTo = redirect?.startsWith("/") ? redirect : "/home";
+    const redirectTo = redirect?.startsWith("/") ? redirect : "/dashboard";
     return <Navigate to={redirectTo} replace search={{}} />;
   }
 
   const isPending = nearPending || anonPending;
 
   return (
-    <div className="min-h-full w-full flex flex-col animate-fade-in">
-      <NetworkToggle />
+    <div className="relative min-h-full w-full flex flex-col">
       <div className="flex-1 flex items-center justify-center px-6">
         <div className="w-full max-w-sm flex flex-col items-center gap-5">
           <BrandElement appName={appName} size="lg" />
@@ -142,7 +138,25 @@ function LoginPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={handleNear}
+                    onClick={async () => {
+                      setNearPending(true);
+                      try {
+                        await auth.near.disconnect();
+                        await auth.signIn.near({
+                          onSuccess: async () => {
+                            setNearPending(false);
+                            await handleSuccess("Signed in with NEAR");
+                          },
+                          onError: (error: { code?: string; message?: string }) => {
+                            setNearPending(false);
+                            handleError(error);
+                          },
+                        });
+                      } catch {
+                        setNearPending(false);
+                        toast.error("Failed to disconnect wallet");
+                      }
+                    }}
                     disabled={isPending}
                     className="w-full"
                   >
@@ -186,30 +200,10 @@ function LoginPage() {
           </div>
 
           <UnderConstruction
-            sourceFile="ui/src/routes/_layout/login.tsx"
+            sourceFile="ui/src/routes/_layout/_anon/login.tsx"
             runtimeConfig={runtimeConfig}
           />
         </div>
-      </div>
-
-      <div className="shrink-0 flex items-center justify-center py-3">
-        <a
-          href="https://near.dev"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="relative block h-5 w-[84px]"
-        >
-          <img
-            src={builtOn}
-            alt="Built on NEAR"
-            className="absolute inset-0 h-full w-full object-contain dark:hidden"
-          />
-          <img
-            src={builtOnRev}
-            alt="Built on NEAR"
-            className="absolute inset-0 hidden h-full w-full object-contain dark:block"
-          />
-        </a>
       </div>
     </div>
   );

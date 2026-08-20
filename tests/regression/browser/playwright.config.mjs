@@ -1,7 +1,12 @@
 import { defineConfig } from "@playwright/test";
 
 const mode = process.env.REGRESSION_MODE ?? "dev";
-const command = mode === "prod" ? "bun run regression:start:prod" : "bun run regression:start:dev";
+const command =
+  mode === "prod"
+    ? "bun run regression:start:prod"
+    : mode === "backcompat"
+      ? "bun run regression:start:backcompat"
+      : "bun run regression:start:dev";
 
 export default defineConfig({
   testDir: "./specs",
@@ -32,5 +37,5 @@ export default defineConfig({
       CI: "true",
     },
   },
-  projects: [{ name: "dev" }, { name: "prod" }],
+  projects: [{ name: "dev" }, { name: "prod" }, { name: "backcompat" }],
 });

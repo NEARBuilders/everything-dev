@@ -48,7 +48,7 @@ Practical consequence:
 - Path-based runtime metadata works today.
 - Shared-host tenant UI mode now works today: the host can resolve a tenant config per request, enforce that it extends the base BOS runtime, and apply request-scoped UI overrides while keeping auth/API/plugin routers fixed.
 - Supported tenant overrides today are `app.ui`, existing `plugins.<id>.ui`, and existing `plugins.<id>.sidebar`.
-- Tenant SSR is gated by `TENANT_WHITELIST` and `ALLOW_UNTRUSTED_SSR`.
+- Tenant SSR is gated per-tenant by the `allow_ssr` column on the tenant record; the host's BindingResolver reads these permissions from the API's `GET /tenants/bindings` endpoint (cached for 30s).
 - True wildcard-domain full runtime swapping for host/plugin/auth/api still needs dynamic scoped app rebuilding in the host.
 - The active design doc for that work is `plans/runtime-config-hot-swap.md`.
 

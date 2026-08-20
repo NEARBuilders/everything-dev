@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -1750,6 +1751,134 @@ export default createPlugin({
           fetched: [],
           skipped: [],
           failed: [],
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }),
+
+    typecheck: builder.typecheck.handler(async ({ input }) => {
+      try {
+        const configPath = findConfigPath();
+        if (!configPath) {
+          return {
+            status: "error" as const,
+            checked: [],
+            skipped: [],
+            results: [],
+            error: "No bos.config.json found in current directory",
+          };
+        }
+
+        const projectDir = resolve(dirname(configPath));
+        const refreshed = await loadResolvedConfig({ cwd: projectDir });
+        if (!refreshed) {
+          return {
+            status: "error" as const,
+            checked: [],
+            skipped: [],
+            results: [],
+            error: "Failed to load bos.config.json",
+          };
+        }
+
+        const runtime = refreshed.runtime;
+        type AppTarget = { source?: string; localPath?: string };
+        const workspaceEntries: Array<{ key: string; label: string; dir: string }> = [];
+        const skipped: Array<{ key: string; label: string }> = [];
+
+        const appTargets: Array<{ key: string; label: string; target: AppTarget | undefined }> = [
+          { key: "host", label: "host", target: runtime.host },
+          { key: "ui", label: "ui", target: runtime.ui },
+          { key: "api", label: "api", target: runtime.api },
+        ];
+        if (runtime.auth) {
+          appTargets.push({ key: "auth", label: "auth", target: runtime.auth });
+        }
+
+        for (const entry of appTargets) {
+          if (
+            entry.target?.source === "local" &&
+            entry.target.localPath &&
+            existsSync(join(entry.target.localPath, "tsconfig.json"))
+          ) {
+            workspaceEntries.push({
+              key: entry.key,
+              label: entry.label,
+              dir: entry.target.localPath,
+            });
+          } else {
+            skipped.push({ key: entry.key, label: entry.label });
+          }
+        }
+
+        for (const [key, plugin] of Object.entries(runtime.plugins ?? {})) {
+          const label = `plugins/${key}`;
+          if (
+            plugin.source === "local" &&
+            plugin.localPath &&
+            existsSync(join(plugin.localPath, "tsconfig.json"))
+          ) {
+            workspaceEntries.push({ key, label, dir: plugin.localPath });
+          } else {
+            skipped.push({ key, label });
+          }
+        }
+
+        const selected = selectWorkspaceTargets(input.packages, refreshed.config);
+        const targets =
+          input.packages === "all"
+            ? workspaceEntries
+            : workspaceEntries.filter((entry) => selected.includes(entry.key));
+        const skippedEntries =
+          input.packages === "all"
+            ? skipped
+            : skipped.filter((entry) => selected.includes(entry.key));
+
+        const checked: string[] = [];
+        const results: Array<{ workspace: string; passed: boolean; error?: string }> = [];
+
+        for (const entry of targets) {
+          const packageJsonPath = join(entry.dir, "package.json");
+          let args: string[] = ["run", "tsc", "--noEmit"];
+          if (existsSync(packageJsonPath)) {
+            try {
+              const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+                scripts?: Record<string, string>;
+              };
+              if (pkg.scripts?.typecheck) {
+                args = ["run", "typecheck"];
+              }
+            } catch {
+              // ignore unreadable package.json
+            }
+          }
+
+          console.log(`\n  ${colors.dim("Checking")} ${colors.cyan(entry.label)}`);
+          const child = spawnSync("bun", args, {
+            cwd: entry.dir,
+            stdio: "inherit",
+          });
+          const passed = child.status === 0;
+          checked.push(entry.label);
+          results.push({
+            workspace: entry.label,
+            passed,
+            error: passed ? undefined : `typecheck failed (exit code ${child.status ?? "n/a"})`,
+          });
+        }
+
+        return {
+          status: "success" as const,
+          checked,
+          skipped: skippedEntries.map((entry) => entry.label),
+          results,
+        };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          checked: [],
+          skipped: [],
+          results: [],
           error: error instanceof Error ? error.message : "Unknown error",
         };
       }

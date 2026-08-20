@@ -9,7 +9,7 @@ import { Markdown } from "@/components/ui/markdown";
 
 const INTENT_REGISTRY_URL = "https://tanstack.com/intent/registry/everything-dev";
 
-export const Route = createFileRoute("/_layout/skill")({
+export const Route = createFileRoute("/_layout/_public/skill")({
   loader: async ({ context }) => {
     const runtimeConfig = context.runtimeConfig;
 

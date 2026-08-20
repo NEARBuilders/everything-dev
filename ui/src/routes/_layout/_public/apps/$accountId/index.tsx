@@ -9,7 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 const BASE_RUNTIME = "bos://dev.everything.near/everything.dev";
 
-export const Route = createFileRoute("/_layout/apps/$accountId/")({
+export const Route = createFileRoute("/_layout/_public/apps/$accountId/")({
   loader: async ({ params, context }) => {
     const { queryClient, apiClient } = context;
     await queryClient.prefetchQuery({

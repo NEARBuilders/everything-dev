@@ -96,9 +96,6 @@ For the temporary publish registry, use `bos publish` or `bos publish --deploy`.
 | `API_SOURCE` | `local` or `remote` | Based on NODE_ENV |
 | `API_PROXY` | Proxy API requests to another host URL | - |
 | `NETWORK_ID` | Tenant account suffix resolution: `mainnet` or `testnet` | `mainnet` |
-| `ALLOW_OVERRIDE` | Comma-separated tenant override targets like `ui`, `plugins.*`, `plugins.apps` | - |
-| `TENANT_WHITELIST` | Comma-separated tenant account IDs allowed to SSR | - |
-| `ALLOW_UNTRUSTED_SSR` | Allow tenant SSR without whitelist | `false` |
 | `HOST_DATABASE_URL` | SQLite database URL for auth | `file:./database.db` |
 | `HOST_DATABASE_AUTH_TOKEN` | Auth token for remote database | - |
 | `BETTER_AUTH_SECRET` | Secret for session encryption | - |
@@ -112,7 +109,7 @@ For the temporary publish registry, use `bos publish` or `bos publish --deploy`.
 - Current: tenant config must extend the base BOS runtime
 - Current: tenant accounts derive relative to the active runtime account namespace
 - Current: supported tenant overrides are `app.ui`, existing `plugins.<id>.ui`, and existing `plugins.<id>.sidebar`
-- Current: tenant SSR is opt-in via `TENANT_WHITELIST` or `ALLOW_UNTRUSTED_SSR=true`
+- Current: tenant SSR is gated per-tenant by the `allowSsr` column on the tenant record; the host's BindingResolver reads these permissions from the API's `GET /tenants/bindings` endpoint (cached for 30s)
 - Not yet implemented: tenant API/auth overrides in fixed-core mode
 - Not yet implemented: dynamic new plugin IDs per tenant
 
@@ -123,9 +120,6 @@ Example deployment:
 ```bash
 BOS_ACCOUNT=linktree.near
 BOS_GATEWAY=linktree.com
-ALLOW_OVERRIDE=ui,plugins.*
-TENANT_WHITELIST=alice.linktree.near,bob.linktree.near
-ALLOW_UNTRUSTED_SSR=false
 bos start --no-interactive
 ```
 
@@ -139,7 +133,8 @@ Example tenant behavior:
 Tenant config rules:
 
 - must extend the base BOS runtime
-- may only override targets allowed by `ALLOW_OVERRIDE`
+- may only override the tenant `ui` when `allow_ui_overrides` is true on the tenant record
+- plugin UI overrides require `allow_backend_overrides` on the tenant record
 - in fixed-core mode, only UI-facing overrides are applied
 - custom UI remotes must provide integrity
 - custom plugin UI remotes must provide integrity
@@ -147,9 +142,8 @@ Tenant config rules:
 
 Tenant SSR rules:
 
-- if `ALLOW_UNTRUSTED_SSR=true`, any valid tenant UI with SSR config may SSR
-- otherwise the tenant account must appear in `TENANT_WHITELIST`
-- non-whitelisted tenants fall back to client rendering
+- tenant SSR is allowed only when the tenant record has `allow_ssr` set
+- tenants without `allow_ssr` fall back to client rendering
 
 ### Proxy Mode
 

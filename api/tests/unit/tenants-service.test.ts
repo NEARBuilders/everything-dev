@@ -147,6 +147,62 @@ describe("TenantsService", () => {
     expect(await runService(layer, (svc) => svc.listTenantsByOrgIds([]))).toEqual([]);
   });
 
+  it("lists active and non-deleted bindings with default permissions", async () => {
+    const layer = freshLayer();
+    await runService(layer, (svc) =>
+      svc.createTenant({
+        ...baseInput,
+        subdomain: "acme",
+        accountId: "acme.example.near",
+      }),
+    );
+    const suspended = await runService(layer, (svc) =>
+      svc.createTenant({
+        ...baseInput,
+        subdomain: "beta",
+        accountId: "beta.example.near",
+        orgId: "org-2",
+      }),
+    );
+    await runService(layer, (svc) => svc.suspendTenant(suspended.id));
+
+    const bindings = await runService(layer, (svc) => svc.listBindings());
+
+    expect(bindings).toHaveLength(2);
+    expect(bindings.find((b) => b.hostname === "acme")).toMatchObject({
+      hostname: "acme",
+      accountId: "acme.example.near",
+      allowUiOverrides: true,
+      allowBackendOverrides: false,
+      allowSsr: false,
+      status: "active",
+    });
+    expect(bindings.find((b) => b.hostname === "beta")?.status).toBe("suspended");
+  });
+
+  it("persists allow_* overrides on create and update", async () => {
+    const layer = freshLayer();
+    const created = await runService(layer, (svc) =>
+      svc.createTenant({
+        ...baseInput,
+        allowUiOverrides: false,
+        allowBackendOverrides: true,
+        allowSsr: true,
+      }),
+    );
+    expect(created).toMatchObject({
+      allowUiOverrides: false,
+      allowBackendOverrides: true,
+      allowSsr: true,
+    });
+
+    const updated = await runService(layer, (svc) =>
+      svc.updateTenant(created.id, { allowSsr: false }),
+    );
+    expect(updated.allowSsr).toBe(false);
+    expect(updated.allowUiOverrides).toBe(false);
+  });
+
   it("updates a tenant name", async () => {
     const layer = freshLayer();
     const created = await runService(layer, (svc) => svc.createTenant(baseInput));

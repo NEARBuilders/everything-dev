@@ -42,8 +42,8 @@ export function loadSeedData(): SeedData {
 }
 
 export async function verifyAuthenticated(page: Page) {
-  await page.goto("/home", { waitUntil: "domcontentloaded" });
+  await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(500);
   await page.waitForLoadState("networkidle");
-  await expect(page.locator("button[title='menu']")).toBeVisible({ timeout: 10000 });
+  await expect(page.locator("button[title='account menu']")).toBeVisible({ timeout: 10000 });
 }

@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
-export const Route = createFileRoute("/_layout/things/")({
+export const Route = createFileRoute("/_layout/_public/things/")({
   head: () => ({
     meta: [
       { title: "Things | everything.dev" },

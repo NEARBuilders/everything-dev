@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useApiClient } from "@/app";
 import { Badge } from "@/components";
 
-export const Route = createFileRoute("/_layout/things/live")({
+export const Route = createFileRoute("/_layout/_public/things/live")({
   head: () => ({
     meta: [
       { title: "Live Stream | Things | everything.dev" },

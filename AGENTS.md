@@ -168,7 +168,7 @@ Current fixed-core host rules:
 - the shared host still boots once from one base runtime snapshot
 - child runtime config must extend the active BOS runtime
 - supported request-scoped overrides are `ui` and existing `plugins.<id>.ui`
-- tenant SSR is gated by `TENANT_WHITELIST` and `ALLOW_UNTRUSTED_SSR`
+- tenant SSR is gated per-tenant by the `allowSsr` column on the tenant record; the host's BindingResolver reads permissions from the API's `GET /tenants/bindings` endpoint (cached for 30s)
 - nested label routing and account-relative tenant derivation are the intended architecture direction, but not the complete resolver behavior today
 
 For full per-request host/plugin/auth/api swapping, start from `plans/runtime-config-hot-swap.md`.

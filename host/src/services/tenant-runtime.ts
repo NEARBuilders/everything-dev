@@ -1,28 +1,25 @@
-import {
-  buildRuntimeConfig,
-  isRuntimeOverrideAllowed,
-  loadRemoteConfig,
-  parseRuntimeOverrideTargets,
-  type RuntimeConfig,
-} from "everything-dev/config";
+import { buildRuntimeConfig, loadRemoteConfig, type RuntimeConfig } from "everything-dev/config";
 import { verifySriForUrl } from "everything-dev/integrity";
 import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
 import { resolveDomain } from "../utils/normalize";
+import {
+  type BindingResolver,
+  clearBindingResolverCache,
+  createBindingResolver,
+} from "./binding-resolver";
 
 const REMOTE_CONFIG_TTL_MS = 30_000;
 const VERIFICATION_TTL_MS = 5 * 60_000;
 const MAX_REMOTE_CONFIG_CACHE_SIZE = 256;
 const MAX_VERIFICATION_CACHE_SIZE = 512;
-const NEAR_ACCOUNT_ID_REGEX =
-  /^(?=.{2,64}$)([a-z0-9]+(?:[-_][a-z0-9]+)*)(\.([a-z0-9]+(?:[-_][a-z0-9]+)*))*$/;
 
-type RuntimeOverrideTarget = ReturnType<typeof parseRuntimeOverrideTargets>[number];
 type BosEnv = "development" | "production" | "staging";
 type IntegrityVerificationMode = "blocking" | "stale-while-revalidate";
 
 interface ResolveRequestRuntimeOptions {
   verification?: IntegrityVerificationMode;
+  bindingResolver?: BindingResolver;
 }
 
 interface CachedRemoteConfig {
@@ -55,9 +52,6 @@ export class TenantRuntimeError extends Error {
 
 const remoteConfigCache = new Map<string, CachedRemoteConfig>();
 const verifiedUiCache = new Map<string, CachedVerification>();
-const unsupportedOverrideWarnings = new Set<string>();
-let tenantWhitelistCache: { raw: string; value: Set<string> } | null = null;
-let allowedOverridesCache: { raw: string; value: RuntimeOverrideTarget[] } | null = null;
 
 function pruneExpiredCacheEntries<T extends { expiresAt: number }>(
   cache: Map<string, T>,
@@ -96,92 +90,7 @@ export function getTenantRuntimeErrorResponse(error: unknown): { status: number;
 export function clearTenantRuntimeCaches() {
   remoteConfigCache.clear();
   verifiedUiCache.clear();
-  unsupportedOverrideWarnings.clear();
-  tenantWhitelistCache = null;
-  allowedOverridesCache = null;
-}
-
-function parseBoolean(value: string | undefined): boolean {
-  if (!value) return false;
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
-
-function getTenantWhitelist(): Set<string> {
-  const raw = process.env.TENANT_WHITELIST ?? "";
-  if (tenantWhitelistCache?.raw === raw) {
-    return tenantWhitelistCache.value;
-  }
-
-  const value = new Set(
-    raw
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean),
-  );
-  tenantWhitelistCache = { raw, value };
-  return value;
-}
-
-function getAllowedOverrides(): RuntimeOverrideTarget[] {
-  const raw = process.env.ALLOW_OVERRIDE ?? "";
-  if (allowedOverridesCache?.raw === raw) {
-    return allowedOverridesCache.value;
-  }
-
-  const value = parseRuntimeOverrideTargets(raw);
-  allowedOverridesCache = { raw, value };
-  return value;
-}
-
-function warnUnsupportedOverrideTargets(targets: ReadonlyArray<RuntimeOverrideTarget>) {
-  for (const target of targets) {
-    if (target === "ui" || target === "plugins" || target.startsWith("plugins.")) {
-      continue;
-    }
-
-    if (!unsupportedOverrideWarnings.has(target)) {
-      unsupportedOverrideWarnings.add(target);
-      logger.warn(
-        `[Tenant Runtime] Ignoring unsupported override target "${target}" in fixed-core mode`,
-      );
-    }
-  }
-}
-
-function resolveTenantAccountId(
-  hostname: string,
-  gatewayId: string,
-  namespaceAccountId: string,
-): string | null {
-  const normalizedHost = hostname.toLowerCase();
-  const normalizedGateway = gatewayId.toLowerCase();
-  const normalizedNamespaceAccountId = namespaceAccountId.toLowerCase();
-
-  if (
-    normalizedHost === normalizedGateway ||
-    normalizedHost === "localhost" ||
-    normalizedHost === "127.0.0.1"
-  ) {
-    return null;
-  }
-
-  const suffix = `.${normalizedGateway}`;
-  if (!normalizedHost.endsWith(suffix)) {
-    return null;
-  }
-
-  const tenantLabel = normalizedHost.slice(0, -suffix.length);
-  const tenantSegments = tenantLabel.split(".").filter(Boolean);
-  if (tenantSegments.length === 0 || tenantSegments.join(".") !== tenantLabel) {
-    throw new TenantRuntimeError(`Invalid tenant host: ${hostname}`, 404);
-  }
-
-  const accountId = `${tenantSegments.join(".")}.${normalizedNamespaceAccountId}`;
-  if (!NEAR_ACCOUNT_ID_REGEX.test(accountId)) {
-    throw new TenantRuntimeError(`Invalid tenant account: ${accountId}`, 404);
-  }
-
-  return accountId;
+  clearBindingResolverCache();
 }
 
 function getRemoteConfigCached(bosUrl: string, env: BosEnv) {
@@ -347,16 +256,6 @@ async function verifyPluginUiIntegrity(
   );
 }
 
-function isPluginOverrideAllowed(
-  allowedOverrides: ReadonlyArray<RuntimeOverrideTarget>,
-  pluginKey: string,
-): boolean {
-  return (
-    isRuntimeOverrideAllowed(allowedOverrides, "plugins") ||
-    isRuntimeOverrideAllowed(allowedOverrides, `plugins.${pluginKey}`)
-  );
-}
-
 function buildEffectivePluginConfig(
   basePlugin: RuntimePlugin,
   tenantPlugin: RuntimePlugin,
@@ -372,10 +271,9 @@ function buildEffectiveRuntimeConfig(
   baseConfig: RuntimeConfig,
   tenantConfig: RuntimeConfig,
   tenantAccountId: string,
-  allowedOverrides: ReadonlyArray<RuntimeOverrideTarget>,
+  allowUiOverrides: boolean,
+  allowBackendOverrides: boolean,
 ): RuntimeConfig {
-  warnUnsupportedOverrideTargets(allowedOverrides);
-
   const effectiveConfig: RuntimeConfig = {
     ...baseConfig,
     account: tenantAccountId,
@@ -385,7 +283,7 @@ function buildEffectiveRuntimeConfig(
     repository: tenantConfig.repository,
   };
 
-  if (isRuntimeOverrideAllowed(allowedOverrides, "ui")) {
+  if (allowUiOverrides) {
     effectiveConfig.ui = tenantConfig.ui;
   }
 
@@ -399,7 +297,7 @@ function buildEffectiveRuntimeConfig(
         continue;
       }
 
-      if (!isPluginOverrideAllowed(allowedOverrides, pluginKey)) {
+      if (!allowBackendOverrides) {
         continue;
       }
 
@@ -412,29 +310,6 @@ function buildEffectiveRuntimeConfig(
   return effectiveConfig;
 }
 
-function matchesTenantPattern(accountId: string, pattern: string): boolean {
-  if (pattern === accountId) return true;
-  if (pattern.startsWith("*.") && accountId.endsWith(pattern.slice(1))) return true;
-  return false;
-}
-
-function isSsrAllowed(accountId: string): boolean {
-  if (parseBoolean(process.env.ALLOW_UNTRUSTED_SSR)) {
-    return true;
-  }
-
-  const whitelist = getTenantWhitelist();
-  for (const entry of whitelist) {
-    if (matchesTenantPattern(accountId, entry)) return true;
-  }
-  return false;
-}
-
-function getTenantStatus(remoteConfig: Awaited<ReturnType<typeof getRemoteConfigCached>>): string {
-  const raw = remoteConfig.rawConfig as { status?: string } | undefined;
-  return raw?.status ?? "active";
-}
-
 export async function resolveRequestRuntime(
   baseConfig: RuntimeConfig,
   request: Request,
@@ -443,14 +318,23 @@ export async function resolveRequestRuntime(
   const verificationMode = options?.verification ?? "blocking";
   const url = new URL(request.url);
   const gatewayId = resolveDomain(baseConfig.domain, baseConfig.host.url);
-  const tenantAccountId = resolveTenantAccountId(url.hostname, gatewayId, baseConfig.account);
-  if (!tenantAccountId) {
+  const bindingResolver = options?.bindingResolver ?? createBindingResolver(baseConfig);
+  const binding = await bindingResolver.resolve(url.hostname);
+  if (!binding) {
     return {
       config: baseConfig,
       tenantAccountId: null,
       gatewayId,
       ssrAllowed: Boolean(baseConfig.ui.ssrUrl),
     };
+  }
+
+  const tenantAccountId = binding.accountId;
+  if (binding.status === "suspended") {
+    throw new TenantRuntimeError("Tenant is suspended", 503);
+  }
+  if (binding.status === "pending_deletion") {
+    throw new TenantRuntimeError("Tenant has been deleted", 410);
   }
 
   const bosUrl = `bos://${tenantAccountId}/${gatewayId}`;
@@ -483,16 +367,9 @@ export async function resolveRequestRuntime(
     baseConfig,
     tenantRuntimeConfig,
     tenantAccountId,
-    getAllowedOverrides(),
+    binding.allowUiOverrides,
+    binding.allowBackendOverrides,
   );
-
-  const tenantStatus = getTenantStatus(remoteConfig);
-  if (tenantStatus === "suspended") {
-    throw new TenantRuntimeError("Tenant is suspended", 503);
-  }
-  if (tenantStatus === "pending_deletion") {
-    throw new TenantRuntimeError("Tenant has been deleted", 410);
-  }
 
   if (effectiveConfig.ui.url !== baseConfig.ui.url) {
     await verifyUiIntegrity(effectiveConfig, verificationMode);
@@ -512,7 +389,7 @@ export async function resolveRequestRuntime(
   const ssrAllowed =
     Boolean(effectiveConfig.ui.ssrUrl) &&
     Boolean(effectiveConfig.ui.ssrIntegrity) &&
-    isSsrAllowed(tenantAccountId);
+    binding.allowSsr;
 
   return {
     config: ssrAllowed

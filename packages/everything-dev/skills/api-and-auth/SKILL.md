@@ -356,6 +356,54 @@ export function createPluginsClient(result, context) {
 }
 ```
 
+### Tenant-Scoped Data
+
+A **tenant** is a deployment record (subdomain + NEAR account + UI/backend/SSR override
+permissions) — distinct from an organization (a group of users) and from a user's own data.
+If your plugin stores data that belongs to a specific tenant deployment (not just a user or
+org), resolve the tenant and scope every query to it.
+
+The `api` plugin owns the `tenants` table and exposes public lookup routes (no auth required —
+tenant lookups are read-only and safe to expose):
+
+```ts
+// From any plugin, via pluginsClient.api (injected through withPlugins<PluginsClient>())
+const tenant = context.organization?.activeOrganizationId
+  ? await plugins.api().resolveTenantByOrgId({ orgId: context.organization.activeOrganizationId })
+  : await plugins.api().resolveTenant({ accountId: context.near?.primaryAccountId ?? "" });
+```
+
+Build a local `requireTenant` middleware in your own plugin (mirrors `requireOrganization`):
+
+```ts
+const requireTenant = builder.middleware(async ({ context, next }) => {
+  const activeOrgId = context.organization?.activeOrganizationId;
+  const tenant = activeOrgId
+    ? await plugins.api().resolveTenantByOrgId({ orgId: activeOrgId }).catch(() => null)
+    : null;
+  if (!tenant) {
+    throw new ORPCError("FORBIDDEN", { message: "No tenant found for this organization" });
+  }
+  return next({ context: { ...context, tenant } });
+});
+
+builder.listReports.use(requireTenant).handler(async ({ context }) => {
+  return await services.reports.listByTenant(context.tenant.id); // always filtered
+});
+```
+
+**Row-level convention (interim isolation)**: add a `tenantId` column to any table holding
+tenant-specific application data, resolved server-side and never trusted from client input —
+same discipline the `tenants` table itself uses for `orgId` scoping. See
+`plugins/_template/src/db/schema.ts` for a commented example table.
+
+**Forward path**: the target architecture (see `plans/beta-v2-tenants.md`) is per-tenant-per-plugin
+Postgres schema isolation (`tenant_<id>_plugin_<name>`, `search_path` injected per request). That
+requires request-scoped DB access instead of the current initialize-time singleton pattern — a
+larger change, only worth it once there's a real multi-tenant plugin ecosystem to isolate. The
+`tenantId` column convention above is forward-compatible: when schema isolation lands, the column
+becomes redundant and can be dropped without reworking query logic.
+
 ## Generated Types
 
 See `references/generated-types.md` for the full table — files, contents, and regeneration triggers.

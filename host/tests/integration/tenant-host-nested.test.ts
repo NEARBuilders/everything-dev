@@ -11,19 +11,6 @@ vi.mock("everything-dev/config", async () => {
     await vi.importActual<typeof import("everything-dev/config")>("everything-dev/config");
   return {
     ...actual,
-    parseRuntimeOverrideTargets: (value?: string | null) =>
-      value
-        ? [
-            ...new Set(
-              value
-                .split(",")
-                .map((entry) => entry.trim())
-                .filter(Boolean),
-            ),
-          ]
-        : [],
-    isRuntimeOverrideAllowed: (targets: string[], target: string) =>
-      targets.includes(target) || (target.startsWith("plugins.") && targets.includes("plugins.*")),
     loadRemoteConfig: loadRemoteConfigMock,
     buildRuntimeConfig: buildRuntimeConfigMock,
   };
@@ -36,6 +23,29 @@ vi.mock("everything-dev/integrity", async () => {
   return {
     ...actual,
     verifySriForUrl: verifySriForUrlMock,
+  };
+});
+
+vi.mock("../../src/services/binding-resolver", async () => {
+  const actual = await vi.importActual<typeof import("../../src/services/binding-resolver")>(
+    "../../src/services/binding-resolver",
+  );
+  return {
+    ...actual,
+    createBindingResolver: () => ({
+      resolve: async (hostname: string) =>
+        hostname === "chicago.alice.linktree.com"
+          ? {
+              hostname: "chicago.alice.linktree.com",
+              accountId: "chicago.alice.linktree.near",
+              allowUiOverrides: true,
+              allowBackendOverrides: false,
+              allowSsr: false,
+              status: "active",
+            }
+          : null,
+      clear: () => {},
+    }),
   };
 });
 
@@ -117,9 +127,6 @@ describe("tenant host nested integration", () => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousHost = process.env.HOST;
   const previousPort = process.env.PORT;
-  const previousAllowOverride = process.env.ALLOW_OVERRIDE;
-  const previousTenantWhitelist = process.env.TENANT_WHITELIST;
-  const previousAllowUntrustedSsr = process.env.ALLOW_UNTRUSTED_SSR;
 
   beforeAll(async () => {
     assetServer = await startStaticServer({});
@@ -129,9 +136,6 @@ describe("tenant host nested integration", () => {
     process.env.NODE_ENV = "production";
     process.env.HOST = "127.0.0.1";
     process.env.PORT = String(port);
-    process.env.ALLOW_OVERRIDE = "ui,plugins.*";
-    process.env.TENANT_WHITELIST = "chicago.alice.linktree.near";
-    process.env.ALLOW_UNTRUSTED_SSR = "false";
     process.argv.push("--proxy");
 
     const config = createBaseConfig();
@@ -162,9 +166,6 @@ describe("tenant host nested integration", () => {
     process.env.NODE_ENV = previousNodeEnv;
     process.env.HOST = previousHost;
     process.env.PORT = previousPort;
-    process.env.ALLOW_OVERRIDE = previousAllowOverride;
-    process.env.TENANT_WHITELIST = previousTenantWhitelist;
-    process.env.ALLOW_UNTRUSTED_SSR = previousAllowUntrustedSsr;
 
     const proxyIdx = process.argv.indexOf("--proxy");
     if (proxyIdx !== -1) {

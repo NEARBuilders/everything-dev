@@ -1,12 +1,10 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { Shield, Users } from "lucide-react";
+import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router";
+import { Shield } from "lucide-react";
 import { getAccount } from "@/app";
-import { Card } from "@/components";
 import { EmptyState } from "@/components/empty-state";
 import { PageContainer } from "@/components/layout/page-container";
-import { InfoRow } from "@/components/ui/info-row";
 
-export const Route = createFileRoute("/_layout/_authenticated/admin")({
+export const Route = createFileRoute("/_layout/_admin/admin")({
   head: () => ({
     meta: [{ title: "Admin | app" }],
   }),
@@ -57,7 +55,7 @@ function AdminPage() {
               home
             </Link>
             <Link
-              to="/organizations"
+              to="/orgs"
               className="h-10 px-4 inline-flex items-center gap-1.5 text-sm font-medium border-2 border-outset border-border-strong bg-card text-foreground shadow-sm hover:shadow-md active:border-inset active:shadow-none transition-all duration-200 ease-out rounded-[12px]"
             >
               organizations
@@ -95,7 +93,7 @@ function AdminPage() {
             label="Organization"
             value={
               <Link
-                to="/organizations/$slug"
+                to="/orgs/$slug"
                 params={{ slug: tenant.subdomain }}
                 className="text-foreground hover:underline font-mono"
               >
@@ -109,42 +107,7 @@ function AdminPage() {
           />
         </section>
 
-        <section className="space-y-3">
-          <SectionHeader title="Tenant details" />
-          <Card className="p-6 space-y-4">
-            <div className="text-muted-foreground text-[11px] font-bold uppercase tracking-wider">
-              Configuration
-            </div>
-            <div className="flex flex-col gap-2">
-              <InfoRow label="name" value={tenant.name} />
-              <InfoRow label="subdomain" value={tenant.subdomain} mono />
-              <InfoRow label="account" value={tenant.accountId} mono />
-              <InfoRow label="org Id" value={tenant.orgId} mono />
-              <InfoRow
-                label="created"
-                value={tenant.createdAt ? new Date(tenant.createdAt).toLocaleDateString() : "—"}
-              />
-            </div>
-          </Card>
-        </section>
-
-        <section className="space-y-3">
-          <SectionHeader title="Members & permissions" />
-          <Card className="p-4 space-y-3">
-            <p className="text-sm text-muted-foreground">
-              This tenant is backed by an organization. Manage members, roles, and invitations
-              there.
-            </p>
-            <Link
-              to="/organizations/$slug"
-              params={{ slug: tenant.subdomain }}
-              className="h-9 px-3 inline-flex items-center gap-1.5 text-xs font-medium border-2 border-outset border-border-strong bg-card text-foreground shadow-sm hover:shadow-md active:border-inset active:shadow-none transition-all duration-200 ease-out rounded-[10px]"
-            >
-              <Users className="h-3.5 w-3.5" />
-              open organization
-            </Link>
-          </Card>
-        </section>
+        <Outlet />
       </div>
     </PageContainer>
   );
@@ -169,15 +132,6 @@ function StatCard({
       >
         {value}
       </div>
-    </div>
-  );
-}
-
-function SectionHeader({ title, action }: { title: string; action?: React.ReactNode }) {
-  return (
-    <div className="flex items-end justify-between gap-3">
-      <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-      {action}
     </div>
   );
 }

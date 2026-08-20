@@ -184,7 +184,7 @@ function parseNearAmount(value: string): number {
   const cleaned = value.replace(/[\s_,]/g, "");
   const match = cleaned.match(/^(\d+(?:\.\d+)?)near$/i);
   if (!match) return NaN;
-  return Number.parseFloat(match[1]);
+  return Number.parseFloat(match[1]!);
 }
 
 const MIN_PUBLISH_ALLOWANCE_NEAR = 0.3;
@@ -422,6 +422,25 @@ export const KillResultSchema = z.object({
   error: z.string().optional(),
 });
 
+export const TypecheckOptionsSchema = z.object({
+  packages: z.string().default("all"),
+});
+
+export const TypecheckWorkspaceResultSchema = z.object({
+  workspace: z.string(),
+  passed: z.boolean(),
+  output: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const TypecheckResultSchema = z.object({
+  status: z.enum(["success", "error"]),
+  checked: z.array(z.string()),
+  skipped: z.array(z.string()),
+  results: z.array(TypecheckWorkspaceResultSchema),
+  error: z.string().optional(),
+});
+
 export const bosContract = oc.router({
   dev: oc.route({ method: "POST", path: "/dev" }).input(DevOptionsSchema).output(DevResultSchema),
   start: oc
@@ -495,6 +514,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/kill" })
     .input(KillOptionsSchema)
     .output(KillResultSchema),
+  typecheck: oc
+    .route({ method: "POST", path: "/typecheck" })
+    .input(TypecheckOptionsSchema)
+    .output(TypecheckResultSchema),
 });
 
 export type DevOptions = z.infer<typeof DevOptionsSchema>;
@@ -540,3 +563,6 @@ export type PidEntry = z.infer<typeof PidEntrySchema>;
 export type PsResult = z.infer<typeof PsResultSchema>;
 export type KillOptions = z.infer<typeof KillOptionsSchema>;
 export type KillResult = z.infer<typeof KillResultSchema>;
+export type TypecheckOptions = z.infer<typeof TypecheckOptionsSchema>;
+export type TypecheckResult = z.infer<typeof TypecheckResultSchema>;
+export type TypecheckWorkspaceResult = z.infer<typeof TypecheckWorkspaceResultSchema>;

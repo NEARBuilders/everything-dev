@@ -229,7 +229,7 @@ describe("upgrade bos config migration", () => {
       `${JSON.stringify(
         {
           domain: "apps.everything.dev",
-          routes: ["ui/src/routes/_layout/apps/**"],
+          routes: ["ui/src/routes/_layout/_public/apps/**"],
         },
         null,
         2,
@@ -249,7 +249,7 @@ describe("upgrade bos config migration", () => {
       };
     };
 
-    expect(rootConfig.plugins.apps.routes).toEqual(["ui/src/routes/_layout/apps/**"]);
+    expect(rootConfig.plugins.apps.routes).toEqual(["ui/src/routes/_layout/_public/apps/**"]);
   });
 
   it("deletes plugin bos.config.json files even when no metadata to merge", async () => {

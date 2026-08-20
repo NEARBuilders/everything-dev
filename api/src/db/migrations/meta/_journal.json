@@ -15,6 +15,20 @@
       "when": 1786078137908,
       "tag": "0001_brief_magik",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786645659094,
+      "tag": "0002_awesome_madame_web",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786653436589,
+      "tag": "0003_brief_freak",
+      "breakpoints": true
     }
   ]
 }

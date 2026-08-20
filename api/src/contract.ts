@@ -17,15 +17,29 @@ export const TenantSchema = z.object({
   id: z.string(),
   subdomain: z.string(),
   accountId: z.string(),
-  orgId: z.string(),
+  orgId: z.string().nullable(),
   name: z.string(),
   status: TenantStatusSchema,
+  allowUiOverrides: z.boolean(),
+  allowBackendOverrides: z.boolean(),
+  allowSsr: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
   deletedAt: z.string().nullable(),
 });
 
 export type Tenant = z.infer<typeof TenantSchema>;
+
+export const TenantBindingSchema = z.object({
+  hostname: z
+    .string()
+    .describe("Subdomain hostname that routes to this tenant on the parent domain"),
+  accountId: z.string(),
+  allowUiOverrides: z.boolean(),
+  allowBackendOverrides: z.boolean(),
+  allowSsr: z.boolean(),
+  status: TenantStatusSchema,
+});
 
 const ThingSchema = z.object({
   thingId: z.string().describe("Unique identifier for the thing"),
@@ -80,6 +94,9 @@ export const contract = oc.router({
         name: z.string(),
         accountId: z.string(),
         status: z.enum(["active", "pending"]).optional(),
+        allowUiOverrides: z.boolean().default(true),
+        allowBackendOverrides: z.boolean().default(false),
+        allowSsr: z.boolean().default(false),
       }),
     )
     .output(TenantSchema)
@@ -94,6 +111,9 @@ export const contract = oc.router({
         subdomain: z.string().optional(),
         accountId: z.string().optional(),
         status: TenantStatusSchema.optional(),
+        allowUiOverrides: z.boolean().optional(),
+        allowBackendOverrides: z.boolean().optional(),
+        allowSsr: z.boolean().optional(),
       }),
     )
     .output(TenantSchema)
@@ -127,6 +147,16 @@ export const contract = oc.router({
     .input(z.object({ orgId: z.string() }))
     .output(TenantSchema)
     .errors({ NOT_FOUND }),
+
+  listTenantBindings: oc
+    .route({
+      method: "GET",
+      path: "/tenants/bindings",
+      summary: "List all active tenant domain bindings",
+      description:
+        "Public — returns the subdomain-to-config mapping used by the host's BindingResolver.",
+    })
+    .output(z.array(TenantBindingSchema)),
 
   tenantPreflight: oc
     .route({ method: "POST", path: "/tenants/preflight" })

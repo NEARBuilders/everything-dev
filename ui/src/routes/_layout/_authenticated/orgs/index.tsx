@@ -18,7 +18,7 @@ type UserInvitationsResponse = Awaited<
 >;
 type UserInvitationItem = NonNullable<UserInvitationsResponse["data"]>[number];
 
-export const Route = createFileRoute("/_layout/_authenticated/organizations/")({
+export const Route = createFileRoute("/_layout/_authenticated/orgs/")({
   head: () => ({
     title: "Organizations | auth.everything.dev",
     meta: [{ name: "description", content: "Manage your organizations and teams." }],
@@ -114,7 +114,7 @@ function OrganizationsList() {
       await queryClient.refetchQueries({ queryKey: ["organizations"] });
       if (invitation.organizationSlug) {
         await router.navigate({
-          to: "/organizations/$slug",
+          to: "/orgs/$slug",
           params: { slug: invitation.organizationSlug },
         });
       }
@@ -164,7 +164,7 @@ function OrganizationsList() {
               </h1>
             </div>
             <Link
-              to="/organizations/new"
+              to="/orgs/new"
               className="h-10 px-4 inline-flex items-center gap-1.5 text-sm font-semibold border-2 border-outset border-border-strong bg-foreground text-background shadow-sm hover:shadow-md active:border-inset active:shadow-none transition-all duration-200 ease-out rounded-[12px]"
             >
               <Plus size={14} />
@@ -253,7 +253,7 @@ function OrganizationsList() {
               <Building2 className="h-10 w-10 mx-auto text-muted-foreground" />
               <p className="text-base font-semibold text-foreground">No organizations yet.</p>
               <Link
-                to="/organizations/new"
+                to="/orgs/new"
                 className="h-10 px-4 inline-flex items-center gap-1.5 text-sm font-semibold border-2 border-outset border-border-strong bg-foreground text-background shadow-sm hover:shadow-md active:border-inset active:shadow-none transition-all duration-200 ease-out rounded-[12px]"
               >
                 create your first org
@@ -303,7 +303,7 @@ function OrganizationsList() {
 
                     <div className="flex flex-wrap gap-2">
                       <Button asChild>
-                        <Link to="/organizations/$slug" params={{ slug: org.slug }}>
+                        <Link to="/orgs/$slug" params={{ slug: org.slug }}>
                           open org
                         </Link>
                       </Button>

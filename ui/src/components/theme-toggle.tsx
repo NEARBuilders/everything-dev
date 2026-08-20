@@ -1,5 +1,6 @@
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
+import { cn } from "@/lib/utils";
 
 export function ThemeToggle({ className }: { className?: string }) {
   const { setTheme, resolvedTheme } = useTheme();
@@ -12,7 +13,7 @@ export function ThemeToggle({ className }: { className?: string }) {
     <button
       type="button"
       onClick={toggleTheme}
-      className={className}
+      className={cn("relative", className)}
       aria-label={`Switch to ${resolvedTheme === "dark" ? "light" : "dark"} theme`}
     >
       <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />

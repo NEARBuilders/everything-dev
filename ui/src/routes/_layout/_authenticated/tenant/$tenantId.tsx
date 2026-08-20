@@ -403,7 +403,7 @@ function TenantDetail() {
               there.
             </p>
             <Button asChild variant="outline" size="sm">
-              <Link to="/organizations/$slug" params={{ slug: tenant.subdomain }}>
+              <Link to="/orgs/$slug" params={{ slug: tenant.subdomain }}>
                 <Users className="h-3.5 w-3.5" />
                 open organization
               </Link>

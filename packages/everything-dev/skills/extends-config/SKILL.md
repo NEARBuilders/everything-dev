@@ -73,13 +73,7 @@ Use this mental model:
 - `domain` is the public ingress for this runtime
 - a runtime can be a child in lineage and still become a new tenant root on its own domain
 
-With host env like:
-
-```bash
-ALLOW_OVERRIDE=ui,plugins.*
-TENANT_WHITELIST=pizza.pingpayio.near
-ALLOW_UNTRUSTED_SSR=false
-```
+Tenant permissions come from the DB, not env vars. The host fetches the tenant bindings map from the API's `GET /tenants/bindings` endpoint (cached for 30s), and the tenant record's allow flags gate what may be overridden and whether SSR is permitted.
 
 Design target for request mapping:
 - `pizza.com` -> base runtime `bos://pizza.pingpayio.near/pizza.com`
@@ -101,9 +95,8 @@ The tenant config must extend the base BOS runtime. Tenant API/auth overrides an
 ### SSR behavior
 
 Tenant SSR is gated separately from inheritance:
-- if `ALLOW_UNTRUSTED_SSR=true`, any valid tenant with SSR config may SSR
-- otherwise the tenant account must be listed in `TENANT_WHITELIST`
-- non-whitelisted tenants fall back to client rendering
+- a tenant may SSR only when its record has `allow_ssr` set
+- tenants without `allow_ssr` fall back to client rendering
 
 ## Resolved Config: `.bos/bos.resolved-config.json`
 

@@ -8,7 +8,7 @@ test.describe("logout", () => {
     pageErrors = collectErrors(page);
   });
 
-  test("sign out redirects to login and session is cleared", async ({ page }) => {
+  test("sign out lands on public page and session is cleared", async ({ page }) => {
     await page.goto("/login", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
 
@@ -23,23 +23,25 @@ test.describe("logout", () => {
     await anonymousBtn.click();
     await signInDone;
 
-    await page.waitForURL(/\/home$/, { timeout: 15000 });
+    await page.waitForURL(/\/dashboard$/, { timeout: 15000 });
     await page.reload();
-    await page.waitForURL(/\/home$/, { timeout: 15000 });
+    await page.waitForURL(/\/dashboard$/, { timeout: 15000 });
     await page.waitForLoadState("networkidle");
     await waitForApp(page);
-    await page.locator("button[title='menu']").click();
+    await page.locator("button[title='account menu']").click();
 
     const signOutItem = page.getByRole("menuitem", { name: "sign out" });
     await expect(signOutItem).toBeVisible({ timeout: 5000 });
     await signOutItem.click();
 
-    await page.waitForURL(/\/login/, { timeout: 15000 });
-    await expect(page.getByText("continue anonymously")).toBeVisible({ timeout: 10000 });
+    await page.waitForURL(/\/$/, { timeout: 15000 });
+    await expect(page.getByText("Get started")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("button[title='account menu']")).toHaveCount(0);
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await waitForApp(page);
-    await expect(page.getByText("continue anonymously")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Get started")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("button[title='account menu']")).toHaveCount(0);
 
     expectNoHydrationFailure(pageErrors);
   });

@@ -73,7 +73,7 @@ export function parseBosUrl(bosUrl: string): {
   gatewayId: string;
   pathSegments: string[];
 } {
-  const strippedUrl = bosUrl.split("#")[0];
+  const strippedUrl = bosUrl.split("#")[0]!;
   const match = strippedUrl.match(/^bos:\/\/([^/]+)\/(.+)$/);
   if (!match?.[1] || !match[2]) {
     throw new Error(`Invalid BOS URL: ${bosUrl}`);

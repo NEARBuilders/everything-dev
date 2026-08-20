@@ -111,8 +111,8 @@ describe("bos init — structure", () => {
 
       expect(existsSync(join(noPluginsDir, "plugins"))).toBe(false);
 
-      expect(existsSync(join(noPluginsDir, "ui/src/routes/_layout/apps"))).toBe(false);
-      expect(existsSync(join(noPluginsDir, "ui/src/routes/_layout/index.tsx"))).toBe(true);
+      expect(existsSync(join(noPluginsDir, "ui/src/routes/_layout/_public/apps"))).toBe(false);
+      expect(existsSync(join(noPluginsDir, "ui/src/routes/_layout/_public/index.tsx"))).toBe(true);
 
       const config = JSON.parse(readFileSync(join(noPluginsDir, "bos.config.json"), "utf-8"));
       expect(config.plugins).toEqual({});

@@ -623,7 +623,7 @@ export async function syncApiContractBridge(opts: {
   );
 
   pluginResults.forEach((result, index) => {
-    const [key, plugin] = resolvablePlugins[index];
+    const [key, plugin] = resolvablePlugins[index]!;
     if (result.status === "fulfilled") {
       sources.push(result.value.source);
       status.push({

@@ -260,7 +260,7 @@ function createServerConfig() {
       },
     },
     server: {
-      port: 3004,
+      port: Number(process.env.PORT) || 3004,
       printUrls: ({ urls }) => urls.filter((url) => url.includes("localhost")),
       headers: {
         "Access-Control-Allow-Origin": "*",

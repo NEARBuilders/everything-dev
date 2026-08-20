@@ -19,7 +19,7 @@ const getStartCommand = (accountId: string, gatewayId: string) =>
 const getExtendsCommand = (accountId: string, gatewayId: string) =>
   `bunx everything-dev@latest init --extends bos://${accountId}/${gatewayId}`;
 
-export const Route = createFileRoute("/_layout/apps/$accountId/$gatewayId")({
+export const Route = createFileRoute("/_layout/_public/apps/$accountId/$gatewayId")({
   loader: async ({ params, context }) => {
     const { queryClient, apiClient } = context;
     await queryClient.prefetchQuery({

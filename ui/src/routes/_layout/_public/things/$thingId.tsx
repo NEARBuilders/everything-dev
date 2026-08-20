@@ -6,7 +6,7 @@ import { sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import { Badge, Button } from "@/components";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export const Route = createFileRoute("/_layout/things/$thingId")({
+export const Route = createFileRoute("/_layout/_public/things/$thingId")({
   head: ({ params }) => ({
     meta: [
       { title: `${params.thingId} | Things | everything.dev` },

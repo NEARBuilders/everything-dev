@@ -204,7 +204,7 @@ What works today:
   - `app.ui`
   - existing `plugins.<pluginId>.ui`
   - existing `plugins.<pluginId>.sidebar`
-- Tenant SSR is gated by `TENANT_WHITELIST` and `ALLOW_UNTRUSTED_SSR`.
+- Tenant SSR is gated per-tenant by the `allow_ssr` column on the tenant record; the host's BindingResolver reads these permissions from the API's `GET /tenants/bindings` endpoint (cached for 30s).
 
 Design direction:
 - nested labels compose onto the active runtime account, such as `chicago.pizza.com -> bos://chicago.pizza.pingpayio.near/pizza.com`

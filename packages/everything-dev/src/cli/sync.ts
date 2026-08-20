@@ -13,6 +13,7 @@ import { syncResolvedSharedDeps } from "../shared-deps";
 import { writeGeneratedInfra } from "./infra";
 import {
   buildChildAgentsMd,
+  buildChildRootScripts,
   extractSkillsBlock,
   personalizeConfig,
   resolveSourceDir,
@@ -153,6 +154,7 @@ export function mergePackageJson(
   filePath: string,
   local: PackageJson,
   template: PackageJson,
+  childScripts?: Record<string, string>,
 ): PackageJson {
   const merged: PackageJson = { ...local, ...template };
 
@@ -185,11 +187,14 @@ export function mergePackageJson(
 
   if (
     (local.scripts && typeof local.scripts === "object") ||
-    (template.scripts && typeof template.scripts === "object")
+    (template.scripts && typeof template.scripts === "object") ||
+    childScripts
   ) {
     const mergedScripts = mergeStringMaps(
       local.scripts as Record<string, string> | undefined,
-      template.scripts as Record<string, string> | undefined,
+      filePath === "package.json" && childScripts
+        ? childScripts
+        : (template.scripts as Record<string, string> | undefined),
     );
     if (mergedScripts) {
       merged.scripts = mergedScripts;
@@ -264,6 +269,7 @@ function buildSyncedFileContent(
   projectDir: string,
   filePath: string,
   explicitDestPath?: string,
+  childScripts?: Record<string, string>,
 ): string | Uint8Array {
   const src = join(sourceDir, filePath);
   const destPath =
@@ -292,7 +298,7 @@ function buildSyncedFileContent(
     if (localContent) {
       const local = JSON.parse(localContent) as Record<string, unknown>;
       const template = JSON.parse(templateContent) as Record<string, unknown>;
-      const merged = mergePackageJson(destPath, local, template);
+      const merged = mergePackageJson(destPath, local, template, childScripts);
       return `${JSON.stringify(merged, null, 2)}\n`;
     }
   }
@@ -305,6 +311,7 @@ function writeSyncedFile(
   projectDir: string,
   filePath: string,
   explicitDestPath?: string,
+  childScripts?: Record<string, string>,
 ): void {
   const destPath =
     explicitDestPath ??
@@ -313,7 +320,10 @@ function writeSyncedFile(
       : filePath);
   const dest = join(projectDir, destPath);
   mkdirSync(dirname(dest), { recursive: true });
-  writeFileSync(dest, buildSyncedFileContent(sourceDir, projectDir, filePath, destPath));
+  writeFileSync(
+    dest,
+    buildSyncedFileContent(sourceDir, projectDir, filePath, destPath, childScripts),
+  );
 }
 
 async function getSelectedChildPlugins(
@@ -448,6 +458,13 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
     const withHost = existsSync(join(projectDir, "host", "package.json"));
     const withPlugins = childPlugins.length > 0 || hasPluginsWorkspace(projectDir);
 
+    const childScripts = buildChildRootScripts({
+      ui: withUi,
+      api: withApi,
+      host: withHost,
+      plugins: withPlugins,
+    });
+
     const destToSource = new Map<string, string>();
     for (const destPath of FRAMEWORK_OWNED_SYNC_FILES) {
       if (destPath.startsWith("ui/") && !withUi) continue;
@@ -530,7 +547,9 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
 
     for (const [destPath, filePath] of destToSource.entries()) {
       const localHash = computeLocalHash(projectDir, destPath);
-      const sourceHash = computeHash(buildSyncedFileContent(sourceDir, projectDir, filePath));
+      const sourceHash = computeHash(
+        buildSyncedFileContent(sourceDir, projectDir, filePath, undefined, childScripts),
+      );
 
       if (localHash === null) {
         added.push(destPath);
@@ -604,7 +623,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
 
       for (const destPath of filesToWrite) {
         const sourcePath = destToSource.get(destPath) ?? destPath;
-        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath);
+        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath, childScripts);
       }
     }
 

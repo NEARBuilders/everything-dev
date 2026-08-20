@@ -64,7 +64,7 @@ export function OrgSwitcher({ organizations, activeOrgId, onSwitch }: OrgSwitche
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link to="/organizations/new" className="flex items-center gap-2 cursor-pointer">
+          <Link to="/orgs/new" className="flex items-center gap-2 cursor-pointer">
             <Plus className="h-3.5 w-3.5" />
             new organization
           </Link>

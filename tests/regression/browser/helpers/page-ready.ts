@@ -33,6 +33,24 @@ export async function waitForApp(page: Page): Promise<void> {
     return typeof window.__RUNTIME_CONFIG__ !== "undefined";
   });
   expect(hasRuntimeConfig).toBeTruthy();
+
+  try {
+    await page.waitForFunction(
+      () => {
+        const p = (window as { __EVERYTHING_DEV_HYDRATE_PROMISE__?: Promise<void> })
+          .__EVERYTHING_DEV_HYDRATE_PROMISE__;
+        return p !== undefined;
+      },
+      { timeout: 5000 },
+    );
+    await page.evaluate(async () => {
+      const p = (window as { __EVERYTHING_DEV_HYDRATE_PROMISE__?: Promise<void> })
+        .__EVERYTHING_DEV_HYDRATE_PROMISE__;
+      if (p) await p;
+    });
+  } catch {
+    // Hydration promise never surfaced (e.g. client-shell fallback path) — proceed.
+  }
 }
 
 export function expectNoHydrationFailure(errors: PageErrors) {

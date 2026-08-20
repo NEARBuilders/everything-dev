@@ -162,6 +162,17 @@ export const cliCommandMeta = {
       },
     },
   },
+  typecheck: {
+    commandPath: ["typecheck"],
+    summary: "Run TypeScript type checking across all local workspaces",
+    interactive: false,
+    fields: {
+      packages: {
+        positional: true,
+        description: "Comma-separated workspace list (default: all)",
+      },
+    },
+  },
   dbStudio: {
     commandPath: ["db", "studio"],
     summary: "Open Drizzle Studio for a plugin's database",

@@ -21,7 +21,7 @@ type SearchParams = {
   preview?: string;
 };
 
-export const Route = createFileRoute("/_layout/apps/")({
+export const Route = createFileRoute("/_layout/_public/apps/")({
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     preview:
       typeof search.preview === "string" && search.preview.length > 0 ? search.preview : undefined,

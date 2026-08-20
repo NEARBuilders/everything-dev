@@ -81,15 +81,9 @@ Child apps can either run as their own base runtime on their own domain, or as r
 
 Shared-host children must extend the base runtime and do not introduce new server-side plugin IDs dynamically.
 
-### 4. Host deployment env for shared-host mode
+### 4. Host resolution for shared-host mode
 
-The shared host uses these env vars to resolve descendant requests:
-
-```bash
-ALLOW_OVERRIDE=ui,plugins.*
-TENANT_WHITELIST=pizza.pingpayio.near,chicago.pizza.pingpayio.near
-ALLOW_UNTRUSTED_SSR=false
-```
+The shared host resolves descendant requests via a DB-backed binding map. It fetches tenant permissions from the API's `GET /tenants/bindings` endpoint (cached for 30s) — no env vars are needed:
 
 Design target, for example:
 - `pingpay.io` -> base runtime `bos://pingpayio.near/pingpay.io`

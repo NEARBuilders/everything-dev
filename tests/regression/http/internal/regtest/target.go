@@ -5,14 +5,17 @@ import "os"
 type TargetMode string
 
 const (
-	ModeDev  TargetMode = "dev"
-	ModeProd TargetMode = "prod"
+	ModeDev        TargetMode = "dev"
+	ModeProd       TargetMode = "prod"
+	ModeBackcompat TargetMode = "backcompat"
 )
 
 func Mode() TargetMode {
-	m := os.Getenv("REGRESSION_MODE")
-	if m == "prod" {
+	switch os.Getenv("REGRESSION_MODE") {
+	case "prod":
 		return ModeProd
+	case "backcompat":
+		return ModeBackcompat
 	}
 	return ModeDev
 }
@@ -22,8 +25,11 @@ func BaseURL() string {
 }
 
 func StartCommand() string {
-	if Mode() == ModeProd {
+	switch Mode() {
+	case ModeProd:
 		return "bun run regression:start:prod"
+	case ModeBackcompat:
+		return "bun run regression:start:backcompat"
 	}
 	return "bun run regression:start:dev"
 }

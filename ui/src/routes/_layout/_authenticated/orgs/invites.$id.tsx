@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { getAppName, useAuthClient } from "@/app";
 import { Badge, Button, Card, CardContent } from "@/components";
 
-export const Route = createFileRoute("/_layout/_authenticated/accept-invitation/$id")({
+export const Route = createFileRoute("/_layout/_authenticated/orgs/invites/$id")({
   head: () => ({
     meta: [{ title: `Accept Invitation | ${getAppName()}` }],
   }),
@@ -63,7 +63,7 @@ function AcceptInvitation() {
       ]);
       await queryClient.refetchQueries({ queryKey: ["organizations"] });
       await router.navigate({
-        to: "/organizations/$slug",
+        to: "/orgs/$slug",
         params: { slug: invitation?.organizationSlug ?? "" },
       });
     },
@@ -78,7 +78,7 @@ function AcceptInvitation() {
     onSuccess: async () => {
       toast.success("Invitation declined");
       await queryClient.invalidateQueries({ queryKey: ["user-invitations"] });
-      await router.navigate({ to: "/organizations" });
+      await router.navigate({ to: "/orgs" });
     },
     onError: (error: Error) => toast.error(error.message || "Failed to decline invitation"),
   });
@@ -100,7 +100,7 @@ function AcceptInvitation() {
             This invitation does not exist, has expired, or is not addressed to your account.
           </p>
           <Button asChild variant="outline" size="sm">
-            <Link to="/organizations">go to organizations</Link>
+            <Link to="/orgs">go to organizations</Link>
           </Button>
         </CardContent>
       </Card>
@@ -166,7 +166,7 @@ function AcceptInvitation() {
 
       <div className="text-center">
         <Button asChild variant="ghost" size="sm">
-          <Link to="/organizations">back to organizations</Link>
+          <Link to="/orgs">back to organizations</Link>
         </Button>
       </div>
     </div>

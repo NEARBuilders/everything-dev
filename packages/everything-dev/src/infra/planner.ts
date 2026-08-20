@@ -453,6 +453,10 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
               ...input.bosConfig.ui,
               port: resolvedPorts.ui,
               url: `http://localhost:${resolvedPorts.ui}`,
+              ssrUrl:
+                input.cli.ssr && resolvedPorts.uiSsr
+                  ? `http://localhost:${resolvedPorts.uiSsr}`
+                  : input.bosConfig.ui.ssrUrl,
             }
           : input.bosConfig.ui,
       auth:

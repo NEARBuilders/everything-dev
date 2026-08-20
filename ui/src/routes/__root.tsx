@@ -16,7 +16,7 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
-import { getRemoteScripts } from "everything-dev/ui/head";
+import { getRemoteScripts, getThemeInitScript } from "everything-dev/ui/head";
 import { getSocialImageMeta } from "everything-dev/ui/metadata";
 import { ThemeProvider } from "next-themes";
 import type { RouterContext } from "@/app";
@@ -123,6 +123,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         ...(typeof window === "undefined"
           ? [{ children: "window.__EVERYTHING_DEV_SSR__=true" }]
           : []),
+        getThemeInitScript(),
         ...getRemoteScripts({
           runtimeConfig: runtimeConfig ?? undefined,
           containerName: "ui",
