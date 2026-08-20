@@ -570,10 +570,7 @@ function applyNullOverrides(
     if (value === null) {
       target[key] = null;
     } else if (isPlainObject(value) && isPlainObject(target[key])) {
-      applyNullOverrides(
-        target[key] as Record<string, unknown>,
-        value as Record<string, unknown>,
-      );
+      applyNullOverrides(target[key] as Record<string, unknown>, value as Record<string, unknown>);
     }
   }
 }
