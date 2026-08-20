@@ -56,7 +56,6 @@
             "mainnet": "dev.everything.near",
             "testnet": "dev.allthethings.testnet"
           },
-          "relayer": false,
           "subAccount": {
             "mainnet": {
               "parentAccount": "dev.everything.near",
