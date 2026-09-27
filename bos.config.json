@@ -1,0 +1,138 @@
+{
+  "account": "dev.everything.near",
+  "domain": "everything.dev",
+  "title": "everything.dev",
+  "description": "Open runtime for apps on NEAR, composed from published config and loaded through a shared host, UI, and API runtime.",
+  "repository": "https://github.com/nearbuilders/everything-dev",
+  "staging": {
+    "domain": "dev.everything.dev"
+  },
+  "ci": {
+    "railway": {
+      "service": "app"
+    }
+  },
+  "app": {
+    "host": {
+      "development": "local:host",
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/host/",
+      "secrets": [
+        "CORS_ORIGIN",
+        "CSP_STRICT"
+      ]
+    },
+    "ui": {
+      "development": "local:ui",
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/ui/",
+      "ssr": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/ui/ssr/"
+    },
+    "api": {
+      "development": "local:api",
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/api/",
+      "variables": {
+        "platformAccount": "dev.everything.near",
+        "gatewayDomains": "everything.dev,dev.everything.dev"
+      },
+      "secrets": [
+        "API_DATABASE_URL"
+      ]
+    },
+    "auth": {
+      "name": "@everything-dev/auth-plugin",
+      "development": "local:plugins/auth",
+      "ui": {
+        "name": "auth-ui",
+        "development": "local:plugins/auth/ui"
+      },
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/auth/",
+      "secrets": [
+        "AUTH_DATABASE_URL",
+        "BETTER_AUTH_SECRET",
+        "GITHUB_CLIENT_SECRET",
+        "GOOGLE_CLIENT_SECRET",
+        "FASTNEAR_API_KEY",
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN",
+        "TWILIO_PHONE_NUMBER",
+        "RESEND_API_KEY",
+        "NEAR_RELAYER_PRIVATE_KEY_MAINNET",
+        "NEAR_RELAYER_PRIVATE_KEY_TESTNET"
+      ],
+      "variables": {
+        "organizationMembershipLimit": 1000,
+        "deviceLink": {
+          "clientId": "everything-web"
+        },
+        "passkey": {
+          "rpID": "everything.dev",
+          "rpName": "everything.dev",
+          "gatewayOrigins": {
+            "mainnet": [
+              "https://everything.dev"
+            ],
+            "testnet": [
+              "https://dev.everything.dev"
+            ]
+          }
+        },
+        "socialProviders": {
+          "github": {},
+          "google": {}
+        },
+        "siwn": {
+          "recipients": {
+            "mainnet": "dev.everything.near",
+            "testnet": "dev.allthethings.testnet"
+          },
+          "relayer": {
+            "mainnet": {
+              "whitelistedContracts": [
+                "dev.everything.near"
+              ],
+              "maxGasPerTransaction": "400000000000000",
+              "maxDepositPerTransaction": "0"
+            },
+            "testnet": {
+              "whitelistedContracts": [
+                "dev.allthethings.testnet"
+              ],
+              "maxGasPerTransaction": "400000000000000",
+              "maxDepositPerTransaction": "0"
+            }
+          },
+          "sessionGasKey": {
+            "mainnet": {
+              "receiverId": "dev.everything.near",
+              "methodNames": [
+                "__fastdata_kv"
+              ]
+            },
+            "testnet": {
+              "receiverId": "dev.allthethings.testnet",
+              "methodNames": [
+                "__fastdata_kv"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "plugins": {
+    "template": {
+      "development": "local:plugins/_template",
+      "variables": {},
+      "secrets": [
+        "TEMPLATE_DATABASE_URL"
+      ],
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/template/"
+    },
+    "apps": {
+      "development": "local:plugins/apps",
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/apps/",
+      "variables": {
+        "registryNamespace": "dev.everything.near"
+      }
+    }
+  }
+}
