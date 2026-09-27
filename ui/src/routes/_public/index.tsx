@@ -21,12 +21,17 @@ export const Route = createFileRoute("/_public/")({
 const subtitles = [
   <>
     An open runtime for apps on{" "}
-    <a href="https://near.org" className="underline hover:text-foreground transition-colors">
+    <a
+      href="https://near.org"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="underline hover:text-foreground transition-colors"
+    >
       NEAR
     </a>
   </>,
-  "an upgradable runtime for a verifiable internet",
-  "in pursuit of the open web.",
+  <>an upgradable runtime for a verifiable internet</>,
+  <>in pursuit of the open web.</>,
 ];
 
 function Landing() {

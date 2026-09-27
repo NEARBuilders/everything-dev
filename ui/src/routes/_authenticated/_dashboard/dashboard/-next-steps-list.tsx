@@ -7,6 +7,7 @@ import {
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
+import type { ReactElement } from "react";
 import { pluginPath } from "@/app";
 import { Button } from "@/components";
 import {
@@ -27,7 +28,7 @@ const STEP_ICONS: Record<NextStepId, Icon> = {
   admin: ShieldCheckIcon,
 };
 
-function stepLink(step: NextStep): React.ReactElement {
+function stepLink(step: NextStep): ReactElement {
   switch (step.id) {
     case "save-account":
       return <Link to={pluginPath("/settings/auth-methods")} />;

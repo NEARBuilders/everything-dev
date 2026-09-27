@@ -26,8 +26,8 @@ export const Route = createFileRoute("/_public/$accountId")({
     const accountId = params.accountId;
     const hostUrl = (loaderData?.hostUrl ?? "").replace(/\/$/, "");
     const siteUrl = hostUrl ? `${hostUrl}/${accountId}` : "";
-    const title = `${accountId} | CityNode`;
-    const description = `${accountId}'s public profile on CityNode.`;
+    const title = `${accountId} | everything.dev`;
+    const description = `${accountId}'s public profile on everything.dev.`;
 
     return {
       meta: [

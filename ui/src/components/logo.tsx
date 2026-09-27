@@ -37,7 +37,7 @@ export function LogoMark({ size = "md", className }: Pick<LogoProps, "size" | "c
 }
 
 export function Logo({
-  appName = "CityNode",
+  appName = "everything.dev",
   showText = true,
   className,
   size = "md",

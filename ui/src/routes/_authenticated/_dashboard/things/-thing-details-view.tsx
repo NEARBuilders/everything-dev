@@ -61,11 +61,9 @@ export function ThingDetailsView({
           headerTestId="thing.heading"
         />
         {thing && (
-          <div className="flex flex-wrap items-center gap-3">
-            <Badge variant="outline" className="font-mono">
-              {thing.type}
-            </Badge>
-          </div>
+          <Badge variant="outline" className="font-mono">
+            {thing.type}
+          </Badge>
         )}
       </div>
 

@@ -47,7 +47,7 @@ describe("sidebar navigation", () => {
   it("hides Admin from members", () => {
     expect(flattenPaths(filterSidebarByRole(NAV_ITEMS, "member"))).not.toContain("/admin");
     expect(flattenPaths(filterSidebarByRole(NAV_ITEMS, "admin"))).toEqual(
-      expect.arrayContaining(["/admin", "/admin/tenants", "/admin/relayer", "/admin/system"]),
+      expect.arrayContaining(["/admin", "/admin/relayer", "/admin/system"]),
     );
   });
 
@@ -94,7 +94,6 @@ describe("breadcrumbs", () => {
   it("names pages instead of echoing path segments", () => {
     expect(labels("/dashboard")).toEqual(["Home"]);
     expect(labels("/settings/api-keys")).toEqual(["Settings", "API keys"]);
-    expect(labels("/admin/tenants/new")).toEqual(["Admin", "Sites", "New site"]);
   });
 
   it("uses the organization name when it is known", () => {

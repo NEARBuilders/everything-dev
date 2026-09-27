@@ -179,7 +179,8 @@ export type UiConfig = z.infer<typeof UiConfigSchema>;
 
 export const HostConfigSchema = z.object({
   development: z.string(),
-  production: z.string(),
+  /** Deploy state (ADR 0005) — absent until the first publish writes it. */
+  production: z.string().optional(),
   integrity: z.string().optional(),
   secrets: z.array(z.string()).optional(),
 });

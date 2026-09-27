@@ -5,8 +5,8 @@ import { Effect, Schema } from "effect";
 import { sanitizeContainerName } from "every-plugin/ui/manifest/contract";
 import { fetchApiPluginManifest } from "./api-contract";
 import { manifestPluginsToNodes } from "./dag";
-import { resolveApp, toConfigInput } from "./descriptor/resolve";
-import { AppDescriptorSchema } from "./descriptor/schema";
+import { applyDevOverlay, resolveApp, toConfigInput } from "./descriptor/resolve";
+import { AppDescriptorSchema, type AppDescriptor } from "./descriptor/schema";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import { fetchJsonOrNull } from "./http-client";
 import {
@@ -99,15 +99,19 @@ export function findConfigPath(cwd?: string): string | null {
 
   let dir = cacheKey;
   while (true) {
-    const jsonPath = join(dir, "bos.config.json");
-    if (existsSync(jsonPath)) {
-      configPathCache.set(cacheKey, jsonPath);
-      return jsonPath;
-    }
+    // The authored descriptor wins over a generated JSON in the same
+    // directory — bos.config.json is pipeline state (ADR 0005), bos.app.ts
+    // is the source. Legacy JSON-only projects (old child repos) still
+    // resolve through the JSON branch.
     const appPath = join(dir, "bos.app.ts");
     if (existsSync(appPath)) {
       configPathCache.set(cacheKey, appPath);
       return appPath;
+    }
+    const jsonPath = join(dir, "bos.config.json");
+    if (existsSync(jsonPath)) {
+      configPathCache.set(cacheKey, jsonPath);
+      return jsonPath;
     }
     const parent = dirname(dir);
     if (parent === dir) break;
@@ -156,6 +160,31 @@ export async function loadAppDescriptorConfig(resolvedPath: string): Promise<Bos
     input.extends = extendsRef as BosConfigInput["extends"];
   }
   return input;
+}
+
+/**
+ * The dev overlay (`bos.dev.ts`, ADR 0005) — a partial `App()` descriptor
+ * merged child-wins over the resolved config when the environment is
+ * development. Never published: it exists only next to the authored config.
+ */
+async function loadDevOverlayInput(baseDir: string): Promise<Partial<AppDescriptor> | null> {
+  const overlayPath = join(baseDir, "bos.dev.ts");
+  if (!existsSync(overlayPath)) return null;
+  try {
+    const mod = (await import(pathToFileURL(overlayPath).href)) as Record<string, unknown>;
+    if (!mod?.default) return null;
+    const parsed = AppDescriptorSchema.partial().safeParse(mod.default);
+    if (!parsed.success) {
+      emitConfigWarning(`[Config] Ignoring invalid bos.dev.ts overlay at ${overlayPath}`);
+      return null;
+    }
+    return parsed.data;
+  } catch (error) {
+    emitConfigWarning(
+      `[Config] Failed to load bos.dev.ts overlay: ${error instanceof Error ? error.message : error}`,
+    );
+    return null;
+  }
 }
 
 export function getConfig(): BosConfig | null {
@@ -285,13 +314,19 @@ export const loadResolvedConfigEffect = Effect.fn("loadResolvedConfig")(function
       suppressWarnings();
       try {
         const extendedChain: string[] = [];
-        const parsed = await resolveConfigWithExtends(
+        let parsed = await resolveConfigWithExtends(
           configPath,
           baseDir,
           new Set(),
           extendedChain,
           env,
         );
+        if (env === "development") {
+          const overlay = await loadDevOverlayInput(baseDir);
+          if (overlay) {
+            parsed = applyDevOverlay(parsed, overlay);
+          }
+        }
         const config = await resolveConfigComposableEntries(
           BosConfigSchema.parse(parsed),
           baseDir,
@@ -553,6 +588,53 @@ export function loadGeneratedResolvedConfig(configDir: string): BosConfig | null
   } catch {
     return null;
   }
+}
+
+/**
+ * Raw read of the generated config (`.bos/bos.resolved-config.json`) —
+ * the single pipeline-owned config surface (ADR 0005). The `_resolved`
+ * meta block is separated so write-backs can preserve it while publish
+ * payloads stay meta-free.
+ */
+export interface GeneratedConfigFile {
+  meta: ResolvedConfigMeta | undefined;
+  config: Record<string, unknown>;
+}
+
+export function readGeneratedConfigFile(configDir: string): GeneratedConfigFile | null {
+  const resolvedPath = getResolvedConfigPath(configDir);
+  if (!existsSync(resolvedPath)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(resolvedPath, "utf-8")) as unknown;
+    if (!isPlainObject(raw)) return null;
+    const { _resolved, ...configData } = raw;
+    return {
+      meta: isPlainObject(_resolved) ? (_resolved as ResolvedConfigMeta) : undefined,
+      config: configData,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Raw write of the generated config — deploys, plugin publishes, and
+ * registry merges land here, never in a repo-root file. Pass the meta
+ * block read by `readGeneratedConfigFile` to preserve it.
+ */
+export function writeGeneratedConfigFile(
+  configDir: string,
+  config: Record<string, unknown>,
+  meta?: ResolvedConfigMeta,
+): void {
+  const resolvedPath = getResolvedConfigPath(configDir);
+  const resolvedDir = dirname(resolvedPath);
+  if (!existsSync(resolvedDir)) {
+    mkdirSync(resolvedDir, { recursive: true });
+  }
+  const ordered = rebuildOrderedConfig(config);
+  const output = meta ? { _resolved: meta, ...ordered } : ordered;
+  writeFileSync(resolvedPath, `${JSON.stringify(output, null, 2)}\n`);
 }
 
 export function writeResolvedConfig(

@@ -1,10 +1,4 @@
-import {
-  BuildingsIcon,
-  CaretRightIcon,
-  GasPumpIcon,
-  GearIcon,
-  UsersIcon,
-} from "@phosphor-icons/react";
+import { CaretRightIcon, GasPumpIcon, GearIcon, UsersIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, type LinkProps } from "@tanstack/react-router";
 import { cn } from "cn";
@@ -22,7 +16,6 @@ import {
 } from "@/components/ui/item";
 import { pageTitle } from "@/lib/page-title";
 import { allNodesQueryOptions } from "@/lib/queries/nodes";
-import { tenantsQueryOptions } from "@/lib/queries/tenants";
 import { useNearAccount } from "@/lib/use-near-account";
 import { useRelayerInfoQuery } from "@/lib/use-relayer";
 import { formatNearFigure, StatFigure, StatGrid } from "./-admin-ui";
@@ -42,7 +35,6 @@ function AdminOverview() {
   const walletAccount = useNearAccount();
 
   const nodesQuery = useQuery(allNodesQueryOptions(apiClient));
-  const tenantsQuery = useQuery(tenantsQueryOptions(apiClient));
   const relayerQuery = useRelayerInfoQuery();
 
   const relayer = relayerQuery.data;
@@ -53,14 +45,9 @@ function AdminOverview() {
 
       <StatGrid>
         <StatFigure
-          label="Communities"
+          label="Nodes"
           value={nodesQuery.data?.length ?? "—"}
           testId="admin.stat.nodes"
-        />
-        <StatFigure
-          label="Sites"
-          value={tenantsQuery.data?.length ?? "—"}
-          testId="admin.stat.tenants"
         />
         <StatFigure
           label="Relayer balance"
@@ -74,13 +61,6 @@ function AdminOverview() {
       <section className="flex flex-col gap-6">
         <SectionHeader title="Manage" sectionTestId="admin.section.manage" />
         <ItemGroup>
-          <ManageRow
-            to="/admin/tenants"
-            icon={BuildingsIcon}
-            title="Sites"
-            testId="admin.heading.tenants"
-            description="Deployments and their DAOs"
-          />
           <ManageRow
             to="/orgs"
             icon={UsersIcon}
