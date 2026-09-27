@@ -1,0 +1,7 @@
+packages:
+  - "host"
+  - "remote-landing"
+  - "remote-dashboard"
+  - "remote-settings"
+  - "remote-filebased"
+  - "remote-org"

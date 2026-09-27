@@ -1,0 +1,28 @@
+{
+  "name": "@manifest-compose/host",
+  "private": true,
+  "version": "0.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "gen": "cd .. && bun generator/src/cli.ts --all",
+    "verify": "bun src/verify.tsx",
+    "serve": "bun src/serve.ts",
+    "start": "bun src/start.tsx --app=base --port=3000",
+    "start:tenant": "bun src/start.tsx --app=tenant --port=3000",
+    "build:client": "bunx rsbuild build -c rsbuild.client.config.ts"
+  },
+  "dependencies": {
+    "@manifest-compose/shared": "workspace:*",
+    "@module-federation/enhanced": "2.9.0",
+    "@module-federation/node": "2.7.50",
+    "@module-federation/runtime": "2.9.0",
+    "@tanstack/react-router": "1.170.32",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "5.9.3"
+  }
+}

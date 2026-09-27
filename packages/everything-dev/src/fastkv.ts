@@ -14,10 +14,13 @@ function getNetworkIdForAccount(accountId: string): NetworkId {
   return accountId.endsWith(".testnet") ? "testnet" : "mainnet";
 }
 
+const FASTKV_TESTNET_URL = "https://kv.test.fastnear.com";
+const FASTKV_MAINNET_URL = "https://kv.main.fastnear.com";
+const REGISTRY_NAMESPACE_TESTNET = "dev.allthethings.testnet";
+const REGISTRY_NAMESPACE_MAINNET = "dev.everything.near";
+
 export function getFastKvBaseUrlForNetwork(network: NetworkId): string {
-  return network === "testnet"
-    ? process.env.REGISTRY_FASTKV_TESTNET_URL || "https://kv.test.fastnear.com"
-    : process.env.REGISTRY_FASTKV_MAINNET_URL || "https://kv.main.fastnear.com";
+  return network === "testnet" ? FASTKV_TESTNET_URL : FASTKV_MAINNET_URL;
 }
 
 function getFastKvBaseUrlForAccount(accountId: string): string {
@@ -26,9 +29,13 @@ function getFastKvBaseUrlForAccount(accountId: string): string {
     : getFastKvBaseUrlForNetwork("mainnet");
 }
 
-export function buildRegistryConfigUrl(accountId: string, gatewayId: string): string {
+export function buildRegistryConfigUrl(
+  accountId: string,
+  gatewayId: string,
+  registry?: string,
+): string {
   const baseUrl = getFastKvBaseUrlForAccount(accountId);
-  const namespace = getRegistryNamespaceForAccount(accountId);
+  const namespace = getRegistryNamespaceForAccount(accountId, registry);
   const key = encodeURIComponent(getRegistryConfigKey(accountId, gatewayId));
   return `${baseUrl}/v0/latest/${encodeURIComponent(namespace)}/${encodeURIComponent(accountId)}/${key}`;
 }
@@ -37,23 +44,21 @@ export function buildRegistryConfigUrlForNetwork(
   network: NetworkId,
   accountId: string,
   gatewayId: string,
+  registry?: string,
 ): string {
   const baseUrl = getFastKvBaseUrlForNetwork(network);
-  const namespace = getRegistryNamespaceForNetwork(network);
+  const namespace = getRegistryNamespaceForNetwork(network, registry);
   const key = encodeURIComponent(getRegistryConfigKey(accountId, gatewayId));
   return `${baseUrl}/v0/latest/${encodeURIComponent(namespace)}/${encodeURIComponent(accountId)}/${key}`;
 }
 
-export function getRegistryNamespaceForAccount(accountId: string): string {
-  return accountId.endsWith(".testnet")
-    ? process.env.REGISTRY_FASTKV_TESTNET_NAMESPACE || "dev.everything.near"
-    : process.env.REGISTRY_FASTKV_MAINNET_NAMESPACE || "dev.everything.near";
+export function getRegistryNamespaceForAccount(accountId: string, registry?: string): string {
+  return registry ?? getRegistryNamespaceForNetwork(getNetworkIdForAccount(accountId));
 }
 
-export function getRegistryNamespaceForNetwork(network: NetworkId): string {
-  return network === "testnet"
-    ? process.env.REGISTRY_FASTKV_TESTNET_NAMESPACE || "dev.everything.near"
-    : process.env.REGISTRY_FASTKV_MAINNET_NAMESPACE || "dev.everything.near";
+export function getRegistryNamespaceForNetwork(network: NetworkId, registry?: string): string {
+  if (registry) return registry;
+  return network === "testnet" ? REGISTRY_NAMESPACE_TESTNET : REGISTRY_NAMESPACE_MAINNET;
 }
 
 function getRegistryConfigKey(
@@ -73,7 +78,7 @@ export function parseBosUrl(bosUrl: string): {
   gatewayId: string;
   pathSegments: string[];
 } {
-  const strippedUrl = bosUrl.split("#")[0];
+  const strippedUrl = bosUrl.split("#")[0]!;
   const match = strippedUrl.match(/^bos:\/\/([^/]+)\/(.+)$/);
   if (!match?.[1] || !match[2]) {
     throw new Error(`Invalid BOS URL: ${bosUrl}`);
@@ -99,11 +104,11 @@ export function parseBosUrl(bosUrl: string): {
   };
 }
 
-export async function fetchBosConfigFromFastKv<T>(bosUrl: string): Promise<T> {
+export async function fetchBosConfigFromFastKv<T>(bosUrl: string, registry?: string): Promise<T> {
   const { accountId, gatewayId, pathSegments } = parseBosUrl(bosUrl);
   const key = encodeURIComponent(getRegistryConfigKey(accountId, gatewayId, pathSegments));
   const payload = await fetchJson<FastKvListResponse>(
-    `${getFastKvBaseUrlForAccount(accountId)}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId))}/${encodeURIComponent(accountId)}/${key}`,
+    `${getFastKvBaseUrlForAccount(accountId)}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId, registry))}/${encodeURIComponent(accountId)}/${key}`,
   );
   const value = payload?.entries?.find(Boolean)?.value;
 
@@ -136,7 +141,7 @@ export interface PluginManifest {
 
 export async function fetchRemotePluginManifest(cdnUrl: string): Promise<PluginManifest | null> {
   const baseUrl = cdnUrl.replace(/\/$/, "");
-  return fetchJsonOrNull<PluginManifest>(`${baseUrl}/plugin.manifest.json`, { retries: 0 });
+  return fetchJsonOrNull<PluginManifest>(`${baseUrl}/plugin.manifest.json`, { retries: 2 });
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {

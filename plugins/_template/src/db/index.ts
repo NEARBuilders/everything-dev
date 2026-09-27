@@ -1,43 +1,26 @@
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { createDatabaseDriver as createSharedDriver } from "everything-dev/db";
 import * as schema from "./schema";
 
-export type TemplateDatabase = PgDatabase<PgQueryResultHKT, typeof schema>;
+export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
+
+export { DatabaseError, unwrapDatabaseError } from "everything-dev/db";
 
 export interface DatabaseDriver {
-  readonly db: TemplateDatabase;
+  readonly db: Database;
   close(): Promise<void>;
 }
 
-export async function createDatabaseDriver(url: string): Promise<DatabaseDriver> {
-  if (url.startsWith("pglite:") || url === ":memory:") {
-    const { drizzle } = await import("drizzle-orm/pglite");
-    const rawDir = url === ":memory:" ? ":memory:" : url.replace("pglite:", "");
-    const dataDir = rawDir.endsWith("/:memory:") || rawDir === ":memory:" ? ":memory:" : rawDir;
-    if (dataDir !== ":memory:") {
-      mkdirSync(dirname(dataDir), { recursive: true });
-    }
-    const db = drizzle(dataDir, { schema });
-    return {
-      db,
-      close: async () => {},
-    };
-  }
-
-  const { Pool } = await import("pg");
-  const { drizzle } = await import("drizzle-orm/node-postgres");
-  const pool = new Pool({
-    connectionString: url,
-    ssl:
-      url.includes("localhost") || url.includes("127.0.0.1")
-        ? false
-        : { rejectUnauthorized: false },
-  });
-  return {
-    db: drizzle(pool, { schema }),
-    close: async () => {
-      await pool.end();
-    },
-  };
+/**
+ * Thin adapter over the shared `createDatabaseDriver` (`everything-dev/db`).
+ *
+ * Engine selection (`pglite:` / `:memory:` → PGlite, else postgres),
+ * protocol-level `search_path`, one-time schema creation, env-driven pool
+ * config, and the idempotent close handler all live in the shared driver.
+ */
+export async function createDatabaseDriver(
+  url: string,
+  schemaName?: string,
+): Promise<DatabaseDriver> {
+  return createSharedDriver(url, schema, schemaName);
 }

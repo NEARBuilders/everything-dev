@@ -4,9 +4,9 @@ import { createPluginRuntime } from "every-plugin/runtime";
 import { describe } from "vitest";
 import { TEST_REGISTRY } from "../registry";
 
-const BACKGROUND_CONFIG = {
+const backgroundConfig = (baseUrl: string) => ({
   variables: {
-    baseUrl: "http://localhost:1337",
+    baseUrl,
     timeout: 5000,
     backgroundEnabled: true,
     backgroundIntervalMs: 200,
@@ -15,7 +15,13 @@ const BACKGROUND_CONFIG = {
   secrets: {
     apiKey: "test-api-key-value",
   },
-};
+});
+
+// Distinct configs keep each test on its own plugin instance (and therefore
+// its own background producer) — structurally-equal configs now share one
+// cached instance whose producer stops after backgroundMaxItems events.
+const SINGLE_CONSUMER_CONFIG = backgroundConfig("http://localhost:1337");
+const MULTI_CONSUMER_CONFIG = backgroundConfig("http://localhost:1338");
 
 const SECRETS_CONFIG = {
   API_KEY: "test-api-key-value",
@@ -34,7 +40,7 @@ describe.sequential("Background Producer Integration Tests", () => {
         console.log("🚀 Testing background producer/consumer with real Module Federation");
 
         const { createClient } = yield* Effect.promise(() =>
-          runtime.usePlugin("test-plugin", BACKGROUND_CONFIG),
+          runtime.usePlugin("test-plugin", SINGLE_CONSUMER_CONFIG),
         );
 
         const client = createClient();
@@ -114,7 +120,7 @@ describe.sequential("Background Producer Integration Tests", () => {
         console.log("🚀 Testing multiple consumers simultaneously");
 
         const { createClient } = yield* Effect.promise(() =>
-          runtime.usePlugin("test-plugin", BACKGROUND_CONFIG),
+          runtime.usePlugin("test-plugin", MULTI_CONSUMER_CONFIG),
         );
 
         const client = createClient();

@@ -1,3 +1,4 @@
+import { ComposePayloadSchema } from "every-plugin/ui/manifest";
 import * as z from "zod";
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -54,6 +55,20 @@ export const FederationEntrySchema = z.object({
 });
 export type FederationEntry = z.infer<typeof FederationEntrySchema>;
 
+export const PluginUiConfigSchema = z.object({
+  name: z.string(),
+  development: z.string().optional(),
+  production: z.string().optional(),
+  /** browser-facing base overriding `production` when server-side loading
+   * must stay container-local (image-native runtimes, ADR 0011) — may be
+   * same-origin relative (/bundles/<account>/<gateway>/<slot>) */
+  publicUrl: z.string().optional(),
+  integrity: z.string().optional(),
+  ssr: z.string().optional(),
+  ssrIntegrity: z.string().optional(),
+});
+export type PluginUiConfig = z.infer<typeof PluginUiConfigSchema>;
+
 export const ComposableAppEntrySchema = z.object({
   extends: ExtendsSchema.optional(),
   name: z.string().optional(),
@@ -66,6 +81,7 @@ export const ComposableAppEntrySchema = z.object({
   routes: z.array(z.string()).optional(),
   shared: SharedDepMapSchema.optional(),
   connectSrc: z.array(z.string()).optional(),
+  ui: PluginUiConfigSchema.optional(),
 });
 export type ComposableAppEntry = z.infer<typeof ComposableAppEntrySchema>;
 
@@ -73,14 +89,6 @@ export const ApiPluginConfigSchema = ComposableAppEntrySchema.extend({
   dependsOn: z.array(z.string()).optional(),
 });
 export type ApiPluginConfig = z.infer<typeof ApiPluginConfigSchema>;
-
-export const PluginUiConfigSchema = z.object({
-  name: z.string(),
-  development: z.string().optional(),
-  production: z.string().optional(),
-  integrity: z.string().optional(),
-});
-export type PluginUiConfig = z.infer<typeof PluginUiConfigSchema>;
 
 export const BosPluginRefSchema = ComposableAppEntrySchema.extend({
   version: z.string().optional(),
@@ -97,9 +105,14 @@ const PluginRuntimeUiSchema = z.object({
   url: z.string(),
   entry: z.string(),
   source: SourceModeSchema,
+  /** browser-facing base; when set the client config serves this instead of
+   * `url` (server-side loading keeps `url`) */
+  publicUrl: z.string().optional(),
   localPath: z.string().optional(),
   port: z.number().optional(),
   integrity: z.string().optional(),
+  ssrUrl: z.string().optional(),
+  ssrIntegrity: z.string().optional(),
 });
 export type PluginRuntimeUi = z.infer<typeof PluginRuntimeUiSchema>;
 
@@ -155,6 +168,8 @@ export const UiConfigSchema = z
     name: z.string().optional(),
     development: z.string().optional(),
     production: z.string().optional(),
+    /** browser-facing base overriding `production` (see PluginUiConfigSchema) */
+    publicUrl: z.string().optional(),
     integrity: z.string().optional(),
     ssr: z.string().optional(),
     ssrIntegrity: z.string().optional(),
@@ -190,6 +205,7 @@ export type RuntimeLineage = z.infer<typeof RuntimeLineageSchema>;
 
 export const BosStagingSchema = z.object({
   domain: z.string(),
+  account: z.string().optional(),
 });
 export type BosStaging = z.infer<typeof BosStagingSchema>;
 
@@ -222,6 +238,11 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
     routes: z.array(z.string()).optional(),
     app: z.record(z.string(), BosConfigInputAppEntrySchema).optional(),
     plugins: z.record(z.string(), z.union([z.string(), BosConfigInputSchema])).optional(),
+    publish: z
+      .object({
+        auth: z.enum(["session", "key", "custody"]).optional(),
+      })
+      .optional(),
     ci: CiConfigSchema.optional(),
   }),
 );
@@ -251,6 +272,7 @@ export interface BosConfigInput {
   routes?: string[];
   app?: Record<string, BosConfigInputAppEntry>;
   plugins?: Record<string, string | BosConfigInput>;
+  publish?: PublishConfig;
   ci?: CiConfig;
 }
 
@@ -264,6 +286,21 @@ export const CiConfigSchema = z.object({
 });
 export type CiConfig = z.infer<typeof CiConfigSchema>;
 
+export const PublishAuthSchema = z.enum(["session", "key", "custody"]);
+export type PublishAuth = z.infer<typeof PublishAuthSchema>;
+
+export const PublishConfigSchema = z.object({
+  auth: PublishAuthSchema.optional(),
+});
+export type PublishConfig = z.infer<typeof PublishConfigSchema>;
+
+const PluginKeySchema = z
+  .string()
+  .regex(
+    /^[a-zA-Z0-9._-]+$/,
+    "plugin key must match [a-zA-Z0-9._-] — keys from remote/extended configs are interpolated into shells and generated code",
+  );
+
 export const BosConfigSchema = z.object({
   account: z.string(),
   extends: ExtendsSchema.optional(),
@@ -273,8 +310,9 @@ export const BosConfigSchema = z.object({
   testnet: z.string().optional(),
   staging: BosStagingSchema.optional(),
   repository: z.string().optional(),
+  publish: PublishConfigSchema.optional(),
   ci: CiConfigSchema.optional(),
-  plugins: z.record(z.string(), z.union([z.string(), BosPluginRefSchema])).optional(),
+  plugins: z.record(PluginKeySchema, z.union([z.string(), BosPluginRefSchema])).optional(),
   app: z.object({
     host: HostConfigSchema,
     ui: UiConfigSchema,
@@ -301,6 +339,9 @@ export const RuntimeConfigSchema = z.object({
   ui: FederationEntrySchema.extend({
     localPath: z.string().optional(),
     port: z.number().optional(),
+    /** browser-facing base; when set the client config serves this instead
+     * of `url` (server-side loading keeps `url`) */
+    publicUrl: z.string().optional(),
     ssrUrl: z.string().optional(),
     ssrIntegrity: z.string().optional(),
     dependsOn: z.array(z.string()).optional(),
@@ -324,7 +365,7 @@ export const RuntimeConfigSchema = z.object({
     shared: SharedDepMapSchema.optional(),
     dependsOn: z.array(z.string()).optional(),
   }).optional(),
-  plugins: z.record(z.string(), RuntimePluginConfigSchema).optional(),
+  plugins: z.record(PluginKeySchema, RuntimePluginConfigSchema).optional(),
   nodes: z.record(z.string(), RuntimeDependencyNodeSchema).optional(),
 });
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
@@ -336,7 +377,7 @@ export const ClientRuntimeConfigSchema = z.object({
   hostUrl: z.string().optional(),
   assetsUrl: z.string(),
   apiBase: z.string(),
-  rpcBase: z.string(),
+  rpcBase: z.templateLiteral([z.literal("/"), z.string()]),
   repository: z.string().optional(),
   authAvailable: z.boolean().optional(),
   runtime: ClientRuntimeInfoSchema.optional(),
@@ -346,6 +387,8 @@ export const ClientRuntimeConfigSchema = z.object({
       url: z.string(),
       entry: z.string(),
       integrity: z.string().optional(),
+      /** composition payload — the server sets it; the client reconstructs the same tree from it before hydrate */
+      compose: ComposePayloadSchema.optional(),
     })
     .optional(),
   api: z
@@ -382,6 +425,8 @@ export const ClientRuntimeConfigSchema = z.object({
             entry: z.string(),
             source: SourceModeSchema,
             integrity: z.string().optional(),
+            ssrUrl: z.string().optional(),
+            ssrIntegrity: z.string().optional(),
           })
           .optional(),
       }),

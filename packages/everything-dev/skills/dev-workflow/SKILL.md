@@ -18,22 +18,29 @@ bos dev --api remote     # UI only
 bos dev --ui remote      # API only
 bos dev                  # Full local (rarely needed)
 
-# Pin individual service ports (unset flags are picked automatically and persisted)
+# Pin individual service ports (explicitly-passed flags are pinned; unset services derive from the base)
 bos dev --port 3100 --api-port 3101 --ui-port 3103 --auth-port 3102 --plugin-port-start 3110
 ```
 
-### Port persistence
+### Port persistence (ADR 0012)
 
-`bos dev` writes the resolved host/api/ui/auth/plugin-port-start values to `.bos/infra-state.json`
-under a `devPorts` key. Subsequent runs reuse the same ports unless you pass an explicit flag
-(or delete the file). This keeps CORS, browser bookmarks, and wallet-allowlisted origins stable
-across restarts.
+Port allocation is atomic block allocation: the layout derives deterministically from one base
+(`--port N` → api N+1, auth N+2, ui N+3, plugins N+10+), and the whole block is validated before
+anything spawns. Only explicitly-passed port flags persist to `.bos/infra-state.json` under
+`devPorts` — never drift. If the preferred block is occupied, the session takes the next block
+(+100) with a prominent notice naming the holders (live sibling sessions via registry claims;
+foreign processes via an lsof ownership probe), and restarts re-try the preferred base.
+Explicitly-passed flags are pinned: an occupied explicit port fails loudly instead of silently
+moving. `bos kill` escalates SIGTERM → 5s → SIGKILL, reaps orphaned children of dead sessions,
+and verifies ports actually freed; new sessions adopt-and-reap orphaned children from dead
+same-project sessions at boot. Test-spawned stacks never persist ports (`BOS_NO_PERSIST_PORTS=1`,
+plus `NODE_ENV=test` / `BOS_TEST=1` are honored).
 
 ### Port budgets (forward-compat for `--workspaces`)
 
-`prepareDevelopmentRuntimeConfig` accepts an optional `portBudget: { min, max }`. When set,
-`pickAvailablePort` skips candidates outside the budget and throws `RangeError` if no free port
-is found inside it. The standalone `bos dev` path does not pass a budget today; a future
+The allocator accepts an optional `portBudget: { min, max }`. When set,
+`pickAvailablePort` skips candidates outside the budget and throws `PortAllocationError` if no
+free port is found inside it. The standalone `bos dev` path does not pass a budget today; a future
 `bos dev --workspaces` orchestrator will slice disjoint budgets per child project.
 
 ## Port Assignments
@@ -44,7 +51,6 @@ is found inside it. The standalone `bos dev` path does not pass a budget today; 
 | api | 3001 | http://localhost:3001 |
 | auth | 3002 | http://localhost:3002 |
 | ui | 3003 | http://localhost:3003 |
-| ui-ssr | 3004 | http://localhost:3004 |
 | plugins | 3010+ | http://localhost:3010+ (incremental — one per plugin in config order) |
 
 ## Service-Descriptor Architecture
@@ -67,7 +73,7 @@ The orchestrator:
 - **UI changes**: Rsbuild HMR — instant at :3003, no rebuild
 - **API changes**: Rspack HMR — instant at :3001, no rebuild
 - **Auth / Plugin changes**: No HMR — require full restart (`bos kill && bos dev`)
-- **SSR (ui-ssr)**: No HMR — restart required after UI changes
+- **SSR (`bos dev --ssr`)**: source-composed SSR in the host dev process — manifests read from disk; restart not required
 - **Config changes**: Require host restart (`bos kill && bos dev`)
 
 ## Contract Sync & Type Generation
@@ -79,7 +85,6 @@ bos types gen   # Regenerate ui/src/lib/api-types.gen.ts and api/src/lib/plugins
 ```
 
 **When it auto-runs:**
-- `bun install` (postinstall hook)
 - `bun typecheck`
 - `bos dev` startup
 - `bos build`, `bos deploy`, `bos publish`
@@ -158,7 +163,6 @@ bos dev                                # Start fresh
 1. Check browser console for Module Federation errors
 2. `bos.config.json` — is `app.ui.development` correct?
 3. Clear browser cache and hard reload (Cmd+Shift+R)
-4. Verify UI SSR restart if using SSR
 
 ### Module Federation errors
 

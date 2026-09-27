@@ -1,0 +1,13 @@
+{
+  "extends": "./base.json",
+  "account": "child.near",
+  "domain": "child.near",
+  "title": "Child",
+  "app": {
+    "auth": {
+      "development": "local:plugins/auth",
+      "name": "@everything-dev/auth-plugin",
+      "secrets": ["BETTER_AUTH_SECRET"]
+    }
+  }
+}

@@ -2,7 +2,7 @@
 name: plugin-development
 description: Build, register, and deploy plugins within everything.dev. Covers the _template scaffold, contract/service/index pattern, database setup with Drizzle, bos.config.json registration, plugin UI/sidebar, and CLI workflow. Use when creating new plugins, adding database-backed routes, or deploying plugins to production.
 metadata:
-  sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,plugins/_template/rspack.config.js,plugins/_template/plugin.dev.ts,plugins/projects/src/db/schema.ts,plugins/projects/src/db/layer.ts,api/src/db/index.ts,api/src/db/migrator.ts,packages/every-plugin/src/plugin.ts"
+  sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,plugins/_template/rspack.config.js,plugins/_template/plugin.dev.ts,plugins/_template/src/db/schema.ts,plugins/_template/src/db/layer.ts,api/src/db/index.ts,api/src/db/migrator.ts,packages/every-plugin/src/plugin.ts"
 ---
 
 # Plugin Development
@@ -45,8 +45,8 @@ Or use the CLI (no automated command yet — copy template manually).
 Use `oc.router()` to define typed routes. Each route has a method, path, optional input/output schemas, and optional error declarations:
 
 ```ts
-import { eventIterator, oc } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
+import { eventIterator, oc } from "@orpc/contract";
+import { z } from "zod";
 
 // Define errors this plugin throws
 const Errors = {
@@ -86,7 +86,7 @@ export type ContractType = typeof contract;
 ```
 
 Key rules:
-- Import from `every-plugin/zod`, `every-plugin/orpc`, `every-plugin/errors` — never directly from `zod` or `@orpc/*`
+- Import `z` from `zod`, `oc`/`eventIterator` from `@orpc/contract`, and `Effect`/`Layer` from `effect` directly — the `every-plugin/zod`, `every-plugin/orpc`, and `every-plugin/effect` facade barrels were deleted. Use `every-plugin/errors` for the shared error shapes
 - Path params (`{id}`) automatically bind to Zod input keys
 - `.output(eventIterator(Schema))` enables SSE streaming routes
 - `.errors(Errors)` enables typed error handling in generated clients
@@ -96,7 +96,7 @@ Key rules:
 Services are plain classes or functions, optionally using Effect:
 
 ```ts
-import { Effect } from "every-plugin/effect";
+import { Effect } from "effect";
 
 export class TemplateService {
   constructor(
@@ -127,10 +127,10 @@ Use `Effect.runPromise(service.method())` to bridge Effect and async handlers in
 ## Step 4: Wire with `createPlugin` (`src/index.ts`)
 
 ```ts
+import { ORPCError } from "@orpc/server";
+import { Effect } from "effect";
 import { createPlugin } from "every-plugin";
-import { Effect } from "every-plugin/effect";
-import { MemoryPublisher, ORPCError } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
+import { z } from "zod";
 import { contract } from "./contract";
 import type { PluginsClient } from "./plugins-client.gen";
 import { TemplateService } from "./service";
@@ -167,7 +167,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
       const publisher = new MemoryPublisher({ resumeRetentionSeconds: 120 });
 
       // For scoped resources (DB pools, caches, repositories):
-      // const repo = yield* tools.buildService(MyRepoTag, MyRepoLive.pipe(...))
+      // const repo = yield* buildScoped(MyRepoTag, MyRepoLive.pipe(...))
 
       return { service, publisher };
     }),
@@ -239,62 +239,16 @@ Good practice:
 **`variables`** — Public config exposed in `bos.config.json` (typed, with defaults).  
 **`secrets`** — Private values from `process.env` (typed, dev defaults).  
 **`context`** — Per-request context injected by the host. See "Request Context Reference" below for all available fields.  
-**`initialize`** — Effect-based startup. Create services, publishers, DB connections. Receives an optional third argument `tools` for building scoped resources. Return value is passed as `deps` to `createRouter`.  
-**`tools`** — Framework-provided third argument in `initialize(config, plugins, tools)`. Use `tools.buildService(tag, layer)` to build scoped resources (DB pools, caches, repositories) that live for the plugin's lifetime.  
+**`initialize`** — Effect-based startup. Return an Effect `Layer`; the runtime builds it against the plugin's lifecycle scope. Use `buildScoped(tag, layer)` (or `buildScopedContext(layer)` for multi-service layers) from `"every-plugin"` to build scoped resources (DB pools, caches, repositories) that live for the plugin's lifetime.  
 **`createRouter`** — Maps contract procedures to handlers. Receives the value returned by `initialize` plus a pre-configured `builder`.
 
-## Request Context Reference
+## Request Context
 
-The host injects a per-request context object into every plugin. The plugin **must declare the fields it uses** in its context zod schema. Only declared fields are available to route handlers and middleware:
+The host injects a per-request context object into every plugin. The plugin **must declare the fields it uses** in its context zod schema — the schema is a filter; the host passes all fields, but your plugin only sees what you declare.
 
-```ts
-context: z.object({
-  userId: z.string().optional(),
-  user: z.object({
-    id: z.string(),
-    role: z.string().optional(),   // "admin", "member", or null for anon
-    email: z.string().optional(),
-    name: z.string().optional(),
-  }).optional(),
-  organizationId: z.string().optional(),   // Active organization UUID
-  organization: z.object({
-    activeOrganizationId: z.string().nullable().optional(),
-    organization: z.object({
-      id: z.string(),
-      name: z.string(),
-      slug: z.string(),
-      logo: z.string().nullable().optional(),
-      metadata: z.record(z.string(), z.unknown()).optional(),  // daoAccountId lives here
-    }).nullable().optional(),
-    member: z.object({
-      id: z.string(),
-      role: z.string(),   // User's role within this org ("admin", "member")
-    }).nullable().optional(),
-    isPersonal: z.boolean(),
-    hasOrganization: z.boolean(),
-  }).optional(),
-  near: z.object({
-    primaryAccountId: z.string().nullable(),
-    linkedAccounts: z.array(z.object({
-      accountId: z.string(),
-      network: z.string(),
-      publicKey: z.string(),
-      isPrimary: z.boolean(),
-    })),
-    hasNearAccount: z.boolean(),
-  }).optional(),
-  walletAddress: z.string().optional(),
-  apiKey: z.object({
-    id: z.string(),
-    name: z.string().nullable().optional(),
-    permissions: z.record(z.string(), z.array(z.string())).nullable().optional(),
-  }).optional(),
-  reqHeaders: z.custom<Headers>().optional(),
-  getRawBody: z.custom<() => Promise<string>>().optional(),
-}),
-```
+Available fields: `userId`, `user` (id, role, email, name), `organizationId` / `organization` (active org envelope, `member.role`, `metadata.daoAccountId`), `near` (primaryAccountId, linkedAccounts), `walletAddress`, `apiKey` (id, name, permissions), `reqHeaders`, `getRawBody`.
 
-The zod schema is a filter — the host passes all fields, but your plugin only sees what you declare. For pre-built auth/organization middleware, see the `api-and-auth` skill.
+See `references/request-context.md` for the full schema and field table. For pre-built auth/organization middleware, see the `api-and-auth` skill.
 
 ## Step 5: Register in `bos.config.json`
 
@@ -324,6 +278,8 @@ Add a plugin entry:
 ```
 
 The CLI updates `bos.config.json` automatically when you run `bos plugin add` / `bos plugin remove`.
+
+**Remote-only plugins:** The `development` key is optional. A plugin can be remote-only (just a `production` URL) — the host/API consume it via `pluginsClient` and HTTP, and types resolve from the deployed manifest. Plugin source does not need to live in the consuming repo. This is how plugins maintained in other repos are mounted.
 
 ## Step 6: `plugin.dev.ts`
 
@@ -393,57 +349,15 @@ export async function createDatabaseDriver(url: string) {
 
 ### Layer Pattern
 
-```ts
-// src/db/layer.ts
-import { Effect, Layer } from "every-plugin/effect";
-import { createDatabaseDriver } from "./index";
-
-export class DatabaseTag extends Context.Tag("plugins/your-plugin/Database")<
-  DatabaseTag,
-  { db: any; close: () => Promise<void> }
->() {}
-
-export function DatabaseLive(url: string) {
-  return Layer.scoped(
-    DatabaseTag,
-    Effect.acquireRelease(
-      Effect.promise(async () => {
-        const driver = await createDatabaseDriver(url);
-        return driver;
-      }),
-      (driver) => Effect.promise(() => driver.close()),
-    ),
-  );
-}
-```
+`DatabaseLive` is a `Layer.scoped` that creates the driver, runs migrations (inside the scoped layer, so the pool stays open for migration queries), and returns the `db`. `acquireRelease` closes the driver on scope release. See `references/database.md` for the full implementation.
 
 ### Migration Generation
 
 1. Create `drizzle.config.ts` in your plugin directory
 2. Run `drizzle-kit generate` to produce SQL migration files
-3. Store migrations in `src/db/migrations/`
-4. Use the custom `migrate()` function during `initialize`. Pass an explicit
-   `storage` resolved from the workspace so the journal slug is reliable
-   under rspack/Module Federation bundling (the no-arg fallback reads
-   `npm_package_name`, which is unreliable in bundled remotes):
+3. Store migrations in `src/db/migrations/` with an explicit `storage` resolved from the workspace (the no-arg fallback reads `npm_package_name`, unreliable under rspack/Module Federation bundling)
 
-```ts
-initialize: (config) =>
-  Effect.gen(function* () {
-    const driver = yield* DatabaseLive(config.secrets.DATABASE_URL);
-    // Or load and apply migrations directly:
-    const { loadMigrations } = yield* Effect.promise(() => import("./db/load-migrations"));
-    const { migrate } = yield* Effect.promise(() => import("./db/migrator"));
-    const { getMigrationSlug, getMigrationStorage } = yield* Effect.promise(
-      () => import("everything-dev/db"),
-    );
-    const storage = getMigrationStorage(getMigrationSlug(import.meta.dirname));
-    const migrations = yield* loadMigrations();
-    yield* migrate(driver.db, migrations, storage);
-
-    return { db: driver.db, ... };
-  }),
-```
+Migrations run inside `DatabaseLive`'s scoped layer. The critical rule is to **build the DB-backed service via `buildScoped`** so the scope (and the pool) lives for the plugin's lifetime. Do NOT call `DatabaseLive` directly in `initialize` and extract the driver — that creates a transient scope that releases the pool immediately. See `references/database.md` for correct/wrong examples.
 
 ### Per-Plugin Isolation
 
@@ -470,7 +384,7 @@ bos plugin publish          # Build and publish just this plugin
 bos publish --deploy        # Build ALL packages + deploy + publish config
 ```
 
-Deploy builds via `rspack.config.js`, uploads to Zephyr CDN, updates `bos.config.json` with production URL + integrity hash, and publishes to FastKV registry. Restart the host after publishing.
+Builds the plugin, updates `bos.config.json` with the deterministic image-native production URL (`https://<domain>/bundles/<account>/<gateway>/<key>/`), and publishes to FastKV registry. Restart the host after publishing.
 
 ### CLI Lifecycle
 

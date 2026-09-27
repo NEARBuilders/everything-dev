@@ -5,343 +5,65 @@
 
 <div align="center">
 
-<h1 style="font-size: 4.25rem; font-weight: 800; line-height: 1; margin: 0;">everything.dev</h1>
+<h1 style="font-size: 4.25rem; font-weight: 800; line-height: 1; margin: 0;">City Nodes</h1>
 
-<img src="ui/src/assets/under-construction.gif" alt="everything.dev" width="380" />
+<img src="ui/src/assets/under-construction.gif" alt="City Nodes" width="380" />
 
 </div>
 
-Runtime apps that compose, verify, and evolve without rebuilding — built on [Module Federation](https://module-federation.io/), [oRPC](https://orpc.dev/), [Tanstack Start](https://tanstack.com/start/latest/docs/framework/react/quick-start), and [NEAR Protocol](https://near.dev/).
+A decentralized network of NEAR validator nodes organized by geography. Every city, state, and country can run its own validator pool — stake NEAR to keep your city's node online.
 
-A published `bos.config.json` defines how host, UI, and API load together. Changing the config changes the composition. UI and API remotes do not need to be rebuilt for URL changes, though the host still needs a restart to pick up a new runtime config snapshot today. The configuration lives on-chain — inspectable, verifiable, and extendable by anyone.
+## What are City Nodes?
 
-This repository is the parent runtime platform: it contains the host, the reference UI, the reference API, and the CLI/tooling used to create and run child project remotes.
+A **City Node** is a NEAR Protocol validator node tied to a real place — a city, state, or country. Each node has its own subdomain (e.g. `chicago.citynode.app`), its own NEAR treasury account, and one or more validator pools that anyone can stake to.
 
-Built with [Tanstack Start](https://tanstack.com/start/latest/docs/framework/react/quick-start), [Hono.js](https://hono.dev/), [oRPC](https://orpc.dev/), [better-auth](https://better-auth.com/), and [rsbuild](https://rsbuild.rs/).
+Nodes form a geography tree:
 
-## Quick Start
+- A **country** node (e.g. USA, Malaysia) sits at the top
+- A **state** node (e.g. Illinois) sits under its country
+- A **city** node (e.g. Chicago, NYC) sits under its state
 
-```bash
-bunx everything-dev@latest init
-```
+A node's **subtree** is itself plus all its descendants. A country page aggregates every validator in its subtree, so stakers can drill from country → state → city.
 
-## Repo Identity
+## The validator pool model
 
-Use this repo in two modes:
+Each node can run **0..N validators**. A validator is a staking target on NEAR with:
 
-1. As the parent runtime platform that defines the host/runtime gateway in `host/` and the CLI in `packages/everything-dev/`.
-2. As the reference app that demonstrates a runtime-composed UI/API/plugin stack driven by `bos.config.json`.
+- an `account_id` — the NEAR pool account you stake to
+- a `protocol` — today: NEAR; extensible to other chains
+- a `role` — `official` (run by the node's org) or `community` (run by a local operator)
+- an `is_default` flag — the pre-selected validator when you land on a node's stake page
 
-Child projects created from this platform should stay config-driven and treat this repository as the upstream host/runtime implementation.
+A node with no validators of its own **inherits** from its parent chain. Kuala Lumpur can stake to Malaysia's validator; a brand-new city with no validator yet can stake to its state's or country's.
 
-## Why
+## How staking works
 
-Two main reasons:
+1. Pick a place — start at the [directory](https://citynode.app) and drill into a country, state, or city.
+2. Open the node's stake page (e.g. `chicago.citynode.app/stake`).
+3. Sign in with your NEAR wallet.
+4. Choose a validator (official or community) and stake NEAR.
 
-1. I'm tired of constantly maintaining similiar logic and infrasturcture across multiple projects
-2. While agents are good at creating prototypes, vibe coding typically comes with security flaws. This framework provides a type-safe starting point, extended from production ready code, on an upgradable runtime, with an incredibly simple deployment flow (publish a JSON and restart a Docker image).
+Staking helps keep that place's validator online and securing the NEAR network.
 
-When solutions are optimized to solve these two problems, a byproduct is more creativity in safety and immense possibility, especially in the era of generative interfaces.
+## Apply to run a node
 
-**Runtime apps that compose, verify, and evolve without rebuilding.**
+Want to set up a node for your city, state, or country? [Apply to run a City Node](https://citynode.app/apply).
 
-For the full argument, see [A New Renaissance: Why Software Must Compose or Collapse](./docs/article-new-renaissance.md).
+## For builders
 
-## CLI Commands
+City Nodes runs on [everything.dev](https://github.com/NEARBuilders/everything-dev) — a Module Federation runtime platform with oRPC contracts, Better-Auth + NEAR SIWN, and an every-plugin API. A fork of this framework exists within this repository, so feel free to make changes to it.
 
-`everything-dev` is the canonical runtime package and CLI. `bos` is a command alias for the same tool. See [AGENTS.md](./AGENTS.md) for the quick reference and [LLM.txt](./LLM.txt) for the full technical guide.
+## Deploy
 
-### Development
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/everything-dev-template?referralCode=MuB_vg&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
-```bash
-everything-dev dev                 # Start development (host mode auto-detected)
-everything-dev dev --ui remote     # Isolate API work
-everything-dev dev --api remote    # Isolate UI work
-           |/ --proxy              # Use a proxy
-everything-dev dev                 # Full local, client shell by default
+The Railway template deploys the everything.dev Docker image. You'll need to provide:
 
-# `bos` is an alias for the same commands
-bos dev --ssr                      # Opt into local SSR
-```
-
-### Production
-
-```bash
-everything-dev start --no-interactive   # All remotes, production URLs
-```
-
-### Build & Publish
-
-```bash
-bos build               # Build all packages (updates bos.config.json)
-bos publish             # Publish config to the temporary dev.everything.near registry
-bos publish --deploy    # Build/deploy all workspaces, then publish
-bun run publish         # Same publish command via root script
-bos sync                # Sync from production (every.near/everything.dev)
-```
-
-### Project Management
-
-```bash
-bos create project <name>   # Scaffold new project
-bos info                    # Show configuration
-bos status                  # Check remote health
-bos clean                   # Clean build artifacts
-```
-
-## Development Workflow
-
-### Making Changes
-
-- **UI Changes**: Edit `ui/src/` → hot reload automatically → publish with `bos publish --deploy`
-- **API Changes**: Edit `api/src/` → hot reload automatically → publish with `bos publish --deploy`
-- **Host Changes**: Edit `host/src/` or `bos.config.json` → publish with `bos publish --deploy`
-
-### Before Committing
-
-Always run these commands before committing:
-
-```bash
-bun run test    # Run all tests
-bun typecheck   # Type check all packages
-bun lint        # Run linting (see lint setup below)
-```
-
-### Changesets
-
-We use [Changesets](https://github.com/changesets/changesets) for versioning:
-
-**When to add a changeset:**
-- Any user-facing change (features, fixes, deprecations)
-- Breaking changes
-- Skip for: docs-only changes, internal refactors, test-only changes
-
-**Create a changeset:**
-```bash
-bun run changeset
-# Follow prompts to select packages and describe changes
-```
-
-The release workflow (`.github/workflows/release.yml`) handles versioning and GitHub releases automatically on merge to main.
-
-Production releases flow through a `repository_dispatch` chain:
-
-1. Push changesets to `main`
-2. CI passes → sends `repository_dispatch(ci-main-success)` with the commit SHA
-3. `Release` creates or updates the `chore: version packages` PR
-4. Merge that version PR
-5. CI passes again → `Release` runs with no pending changesets → publishes to npm
-6. `Release` (and Docker) complete → sends `repository_dispatch(release-completed)`
-7. `Deploy` runs `bos publish --deploy`, updates `bos.config.json`, and redeploys Railway
-
-### Git Workflow
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed contribution guidelines including:
-- Branch naming conventions
-- Semantic commit format
-- Pull request process
-
-## Documentation
-
-- **[AGENTS.md](./AGENTS.md)** - Quick operational guide for AI agents
-- **[CONTRIBUTING.md](./CONTRIBUTING.md)** - Contribution guidelines and git workflow
-- **[LLM.txt](./LLM.txt)** - Deep technical reference for implementation
-- **[API README](./api/README.md)** - API plugin documentation
-- **[UI README](./ui/README.md)** - Frontend documentation
-- **[Host README](./host/README.md)** - Server host documentation
-- **[Auth Plugin README](./plugins/auth/README.md)** - Auth plugin documentation
-
-**Documentation Purpose:**
-- `README.md` (this file) - Human quick start and overview
-- `AGENTS.md` - Agent operational shortcuts
-- `CONTRIBUTING.md` - How to contribute (branch, commit, PR workflow)
-- `LLM.txt` - Technical deep-dive for implementation details
-- Package READMEs (api/, ui/, host/, plugins/auth/) - Package-specific details
-
-## Architecture
-
-**Module Federation monorepo** with runtime-loaded configuration:
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                  host (Server)                          │
-│  Hono.js + oRPC + bos.config.json loader                │
-│  ┌──────────────────┐      ┌──────────────────┐         │
-│  │ Module Federation│      │ every-plugin     │         │
-│  │ Runtime          │      │ Runtime          │         │
-│  └────────┬─────────┘      └────────┬─────────┘         │
-│           ↓                         ↓                   │
-│  Loads UI Runtime          Loads API + Auth Plugins     │
-└───────────┬─────────────────────────┬───────────────────┘
-            ↓                         ↓
-┌───────────────────────┐ ┌───────────────────────┐
-│    ui/ (Runtime)      │ │   api/ + plugins/     │
-│  React + TanStack     │ │  oRPC + Effect        │
-│  ui/src/app.ts        │ │  remoteEntry.js       │
-└───────────────────────┘ └───────────────────────┘
-```
-
-**Key Features:**
-- ✅ **Runtime Configuration** - All URLs from `bos.config.json` (no rebuild needed)
-- ✅ **Independent Deployment** - UI, API, and Host deploy separately
-- ✅ **Type Safety** - End-to-end with oRPC contracts
-- ✅ **UI Runtime Boundary** - `everything-dev/ui/client` and `/server` own router/runtime glue
-- ✅ **CDN-Ready** - Module Federation with [Zephyr Cloud](https://zephyr-cloud.io/)
-
-## Multi-Tenant Status
-
-The host now supports a fixed-core tenant mode for domain-based UI composition.
-
-What works today:
-- The host still boots once from one base `RuntimeConfig`.
-- Auth, API, and server-side plugin routers stay fixed from that base config.
-- `extends` is the lineage edge between runtimes.
-- `account` is the tenant namespace root for the active runtime.
-- `domain` is the public ingress for that runtime.
-- Requests can resolve account-relative tenant runtimes from subdomains, such as `alice.linktree.com -> bos://alice.linktree.near/linktree.com`.
-- Tenant configs must extend the base BOS runtime.
-- Per-request tenant overrides can currently change:
-  - `app.ui`
-  - existing `plugins.<pluginId>.ui`
-  - existing `plugins.<pluginId>.sidebar`
-- Tenant SSR is gated by `TENANT_WHITELIST` and `ALLOW_UNTRUSTED_SSR`.
-
-Design direction:
-- nested labels compose onto the active runtime account, such as `chicago.pizza.com -> bos://chicago.pizza.pingpayio.near/pizza.com`
-- a runtime can extend another runtime and still become a new tenant root on its own domain
-
-What does not work yet:
-- tenant-specific API overrides in fixed-core mode
-- tenant-specific auth overrides
-- loading new plugin IDs dynamically per tenant
-- full per-request host/plugin/auth/api swapping
-
-That fuller hot-swap path is still documented in [`plans/runtime-config-hot-swap.md`](./plans/runtime-config-hot-swap.md), but the current production-ready path is shared host + request-scoped tenant UI.
-
-## Configuration
-
-All runtime configuration lives in `bos.config.json`:
-
-```json
-{
-  "account": "dev.everything.near",
-  "domain": "everything.dev",
-  "staging": { "domain": "staging.dev.yourapp.dev" },
-  "repository": "https://github.com/nearbuilders/everything-dev",
-  "testnet": "dev.allthethings.testnet",
-  "plugins": {
-    "template": {
-      "development": "local:plugins/_template"
-    }
-  },
-  "app": {
-    "host": {
-      "name": "host",
-      "development": "local:host",
-      "production": "https://..."
-    },
-    "ui": {
-      "name": "ui",
-      "development": "local:ui",
-      "production": "https://...",
-      "ssr": "https://..."
-    },
-    "api": {
-      "name": "api",
-      "development": "local:api",
-      "production": "https://...",
-      "variables": {},
-      "secrets": []
-    },
-    "auth": {
-      "name": "everything-dev_auth-plugin",
-      "development": "local:plugins/auth",
-      "production": "https://...",
-      "variables": {
-        "account": "dev.everything.near",
-        "hostUrl": "http://localhost:3000",
-        "uiUrl": "http://localhost:3003"
-      },
-      "secrets": ["AUTH_DATABASE_URL", "BETTER_AUTH_SECRET"]
-    }
-  }
-}
-```
-
-The temporary publish registry currently points at `dev.everything.near`, and `bos publish --deploy` is the release path when you want Zephyr URLs refreshed first.
-
-### Railway
-
-Use the repo `Dockerfile` for the service, and treat the GHCR image as the deployable artifact.
-
-- Image source: `ghcr.io/nearbuilders/everything-dev:latest`
-- Staging: `ghcr.io/nearbuilders/everything-dev:staging`
-- Preview: Railway PR Environment URL for the host service, sourced from the same image-backed service configuration as the base environment
-
-All configuration derives from `bos.config.json` (baked into the image). Only secrets need to be set as environment variables.
-
-Required runtime vars:
-- `APP_ENV` - `production` or `staging` (derives domain from `bos.config.json`)
-- `BETTER_AUTH_SECRET` - Session encryption key
-- `BETTER_AUTH_URL` - Auth callback URL (defaults to host URL from config)
-- `HOST_DATABASE_URL` - Database connection string
-- `HOST_DATABASE_AUTH_TOKEN` - Database auth token
-- `CORS_ORIGIN` - Comma-separated allowed origins (defaults to host + UI URLs from config)
-
-See [LLM.txt](./LLM.txt) for the complete schema and configuration reference.
-
-## Lint Setup
-
-This project uses [Biome](https://biomejs.dev/) for linting and formatting:
-
-```bash
-# Check linting
-bun lint
-
-# Fix auto-fixable issues
-bun lint:fix
-
-# Format code
-bun format
-```
-
-Biome is configured in `biome.json` at the project root. Generated files (like `routeTree.gen.ts`) are automatically excluded.
-
-## Tech Stack
-
-**Frontend:**
-- React 19 + TanStack Router (file-based) + TanStack Query
-- Tailwind CSS v4 + shadcn/ui components
-- Module Federation for microfrontend architecture
-
-**Backend:**
-- Hono.js server + oRPC (type-safe RPC + OpenAPI)
-- [every-plugin](https://plugin.everything.dev/) architecture for modular APIs
-- Effect-TS for service composition
-
-**Database & Auth:**
-- PostgreSQL + Drizzle ORM
-- Better-Auth with NEAR Protocol support
-
-## Related Projects
-
-- **[every-plugin](https://plugin.everything.dev/)** - Plugin framework for modular APIs with typed contracts and runtime composition
-- **[near-kit](https://kit.near.tools)** - Unified NEAR Protocol SDK
-- **[better-near-auth](https://github.com/elliotBraem/better-near-auth)** - NEAR SIWN + gasless relay for Better-Auth (cryptographic identity, verifiable on-chain actions)
-- **[TanStack Intent](https://tanstack.com/intent)** - Agent skills shipped as npm package artifacts (compositional knowledge versioned with code)
-
-## NEAR Ecosystem
-
-everything.dev sits within a broader ecosystem building a verifiable internet on NEAR:
-
-- **[BOS](https://near.social/)** — Composable on-chain frontend components
-- **[web4](https://web4.near.page)** — Web apps as verifiable on-chain smart contracts
-- **[near-dns](https://github.com/frol/near-dns)** — Blockchain-backed DNS resolution
-- **[NameSky](https://namesky.app)** — Named accounts as tradeable on-chain assets
-- **[OutLayer](https://outlayer.fastnear.com)** — TEE-attested verifiable off-chain computation
-- **[NEAR Intents](https://intents.near.org)** — Intent-based cross-chain settlement ($15B+ volume)
-- **[Trezu](https://trezu.org)** — Multi-chain treasury management ($72M AUM)
-- **[NEAR AI Cloud](https://near.ai/cloud)** — Confidential inference with hardware attestation
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `BOS_ACCOUNT` | The NEAR account that owns this app's published configuration on-chain — it signs `bos publish` transactions and namespaces the FastKV registry | `myapp.near` |
+| `BOS_GATEWAY` | The core domain where this app is served — combined with `BOS_ACCOUNT`, it forms the registry lookup path `bos://<account>/<gateway>` | `myapp.com` |
+| `BETTER_AUTH_SECRET` | Secret used for session encryption and key derivation — generate with `openssl rand -base64 32` | (random) |
 
 ## License
 

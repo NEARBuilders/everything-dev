@@ -1,5 +1,4 @@
 [deploy]
-image = "ghcr.io/nearbuilders/everything-dev:latest"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

@@ -1,3 +1,4 @@
+import "./test-env";
 import { createServer } from "node:http";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
@@ -27,15 +28,14 @@ let server: ReturnType<typeof createServer> | null = null;
 let baseUrl = "";
 let port = 0;
 
-export async function getPluginClient(context?: Record<string, unknown>) {
+export async function getPluginClient(
+  context?: Record<string, unknown>,
+  plugins?: Record<string, () => unknown>,
+) {
   if (!server) {
-    const { router } = await runtime.usePlugin(TEST_PLUGIN_ID, TEST_CONFIG);
+    const { router, initialized } = await runtime.usePlugin(TEST_PLUGIN_ID, TEST_CONFIG, plugins);
     const rpcHandler = new RPCHandler(router);
-
-    // Find an available port
-    const testPort = 3000 + Math.floor(Math.random() * 1000);
-    port = testPort;
-    baseUrl = `http://localhost:${port}`;
+    const effectContext = initialized.effectContext;
 
     server = createServer(async (req, res) => {
       const url = new URL(req.url!, baseUrl);
@@ -51,7 +51,7 @@ export async function getPluginClient(context?: Record<string, unknown>) {
 
         const result = await rpcHandler.handle(req, res, {
           prefix: "/rpc",
-          context: requestContext,
+          context: { ...requestContext, "effect/context": effectContext },
         });
         if (result.matched) return;
       }
@@ -60,14 +60,25 @@ export async function getPluginClient(context?: Record<string, unknown>) {
       res.end("Route not found");
     });
 
-    await new Promise<void>((resolve, reject) => {
-      server?.listen(port, "127.0.0.1", () => resolve());
+    const assignedPort = await new Promise<number>((resolve, reject) => {
+      server?.listen(0, "127.0.0.1", () => {
+        const address = server?.address();
+        if (address && typeof address !== "string") {
+          resolve(address.port);
+          return;
+        }
+        server?.close();
+        reject(new Error("Failed to allocate test port"));
+      });
       server?.on("error", reject);
     });
+    port = assignedPort;
+    baseUrl = `http://localhost:${port}`;
   }
 
   const link = new RPCLink({
-    url: `${baseUrl}/rpc`,
+    origin: baseUrl,
+    url: "/rpc",
     fetch: globalThis.fetch,
     headers: context
       ? {
@@ -80,23 +91,25 @@ export async function getPluginClient(context?: Record<string, unknown>) {
   return client;
 }
 
-export function authedContext(userId = "user-1"): Record<string, unknown> {
-  return {
-    userId,
-    user: {
-      id: userId,
-      email: `${userId}@example.com`,
-      name: "Test User",
-    },
+export function authedContext(userId = "user-1", userRole?: string): Record<string, unknown> {
+  const user: Record<string, unknown> = {
+    id: userId,
+    email: `${userId}@example.com`,
+    name: "Test User",
   };
+  if (userRole) user.role = userRole;
+  return { userId, user };
 }
 
 export function orgContext(
   userId = "user-1",
   activeOrganizationId = "org-1",
+  role = "owner",
+  userRole?: string,
+  primaryAccountId?: string,
 ): Record<string, unknown> {
-  return {
-    ...authedContext(userId),
+  const context: Record<string, unknown> = {
+    ...authedContext(userId, userRole),
     organization: {
       activeOrganizationId,
       organization: {
@@ -104,8 +117,16 @@ export function orgContext(
         slug: activeOrganizationId,
         metadata: null,
       },
+      member: {
+        id: "member-1",
+        role,
+      },
     },
   };
+  if (primaryAccountId) {
+    context.near = { primaryAccountId };
+  }
+  return context;
 }
 
 export async function teardown() {
@@ -116,4 +137,17 @@ export async function teardown() {
     server = null;
   }
   await runtime.shutdown();
+}
+
+export function daoContext(
+  userId: string,
+  activeOrganizationId: string,
+  primaryAccountId: string,
+  organizationRole: "owner" | "admin" | "member" = "owner",
+): Record<string, unknown> {
+  return orgContext(userId, activeOrganizationId, organizationRole, "admin", primaryAccountId);
+}
+
+export function getTestRpcUrl() {
+  return baseUrl;
 }

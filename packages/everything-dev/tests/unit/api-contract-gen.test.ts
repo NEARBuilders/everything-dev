@@ -81,7 +81,7 @@ export type InferOutput<T extends string> = Record<string, unknown>;
     expect(uiAuthTypes).toContain("AuthPluginContext");
   });
 
-  it("uses `export type *` in the contract-based path when no authExportPath is provided", async () => {
+  it("creates an auth export fallback when no authExportPath is provided", async () => {
     const { writeGeneratedFiles } = await import("../../src/api-contract");
     testDir = mkdtempSync(join(tmpdir(), "api-contract-auth-test-"));
 
@@ -91,14 +91,6 @@ export type InferOutput<T extends string> = Record<string, unknown>;
 
     const contractPath = join(apiSrc, "contract.ts");
     writeFile(contractPath, "export type ContractType = { ping: string };");
-
-    writeFile(
-      join(authDir, "auth-export.d.ts"),
-      `import type { InferOutput } from "./contract";
-export type AuthTeam = InferOutput<"listTeams">[number];
-export type GetFullOrganizationInput = { organizationId: string };
-`,
-    );
 
     writeFile(
       join(authDir, "contract.d.ts"),
@@ -125,6 +117,9 @@ export type InferOutput<T extends string> = Record<string, unknown>;
 
     expect(uiAuthTypes).toContain("export type * from");
     expect(uiAuthTypes).not.toContain("GetOrganizationInput");
+    expect(readFileSync(join(authDir, "auth-export.d.ts"), "utf-8")).toContain(
+      "AuthOrganizationContext",
+    );
   });
 });
 
@@ -222,6 +217,10 @@ describe("writeGeneratedFiles — apiDependsOn filtering", () => {
         pluginA: ["auth"],
         pluginB: ["pluginA"],
       },
+      pluginLocalPaths: {
+        pluginA: join(testDir, "plugins", "pluginA"),
+        pluginB: join(testDir, "plugins", "pluginB"),
+      },
     });
 
     const pluginAClientPath = join(pluginASrc, "lib", "plugins-client.gen.ts");
@@ -235,5 +234,64 @@ describe("writeGeneratedFiles — apiDependsOn filtering", () => {
     const pluginBClient = readFileSync(pluginBClientPath, "utf-8");
     expect(pluginBClient).toContain("pluginAContract");
     expect(pluginBClient).not.toContain("authContract");
+  });
+
+  it("generates plugins-client.gen.ts for a local auth plugin from authLocalPath", async () => {
+    const { writeGeneratedFiles } = await import("../../src/api-contract");
+    testDir = mkdtempSync(join(tmpdir(), "api-contract-test-"));
+
+    const apiSrc = join(testDir, "api", "src");
+    const authSrc = join(testDir, "plugins", "auth", "src");
+    const pluginASrc = join(testDir, "plugins", "pluginA", "src");
+
+    const contractPath = join(apiSrc, "contract.ts");
+    writeFile(contractPath, "export type ContractType = { ping: string };");
+    mkdirSync(authSrc, { recursive: true });
+    mkdirSync(pluginASrc, { recursive: true });
+
+    writeGeneratedFiles({
+      configDir: testDir,
+      sources: [
+        makeContractSource("api", contractPath),
+        makeContractSource("pluginA", join(pluginASrc, "contract.ts")),
+      ],
+      pluginKeys: ["pluginA"],
+      authSource: makeContractSource("auth", join(authSrc, "contract.ts"), "authContract"),
+      pluginDependsOn: { pluginA: ["auth"] },
+      pluginLocalPaths: { pluginA: join(testDir, "plugins", "pluginA") },
+      authLocalPath: join(testDir, "plugins", "auth"),
+      authDependsOn: ["pluginA"],
+    });
+
+    const authClientPath = join(authSrc, "lib", "plugins-client.gen.ts");
+    expect(existsSync(authClientPath)).toBe(true);
+    const authClient = readFileSync(authClientPath, "utf-8");
+    expect(authClient).toContain("pluginAContract");
+    expect(authClient).toContain("pluginA: PluginClientEntry<pluginAContract>");
+  });
+
+  it("generates an empty PluginsClient for a local auth plugin with no dependsOn", async () => {
+    const { writeGeneratedFiles } = await import("../../src/api-contract");
+    testDir = mkdtempSync(join(tmpdir(), "api-contract-test-"));
+
+    const apiSrc = join(testDir, "api", "src");
+    const authSrc = join(testDir, "plugins", "auth", "src");
+
+    const contractPath = join(apiSrc, "contract.ts");
+    writeFile(contractPath, "export type ContractType = { ping: string };");
+    mkdirSync(authSrc, { recursive: true });
+
+    writeGeneratedFiles({
+      configDir: testDir,
+      sources: [makeContractSource("api", contractPath)],
+      pluginKeys: [],
+      authSource: makeContractSource("auth", join(authSrc, "contract.ts"), "authContract"),
+      authLocalPath: join(testDir, "plugins", "auth"),
+    });
+
+    const authClientPath = join(authSrc, "lib", "plugins-client.gen.ts");
+    expect(existsSync(authClientPath)).toBe(true);
+    const authClient = readFileSync(authClientPath, "utf-8");
+    expect(authClient).toContain("export type PluginsClient = Record<string, never>;");
   });
 });

@@ -1,12 +1,13 @@
 {
-  "account": "dev.everything.near",
-  "domain": "dev.everything.dev",
-  "title": "everything.dev",
-  "description": "Open runtime for apps on NEAR, composed from published config and loaded through a shared host, UI, and API runtime.",
+  "account": "v1.citynode.near",
+  "domain": "citynode.app",
+  "title": "City Nodes",
+  "description": "Decentralized city nodes on NEAR — each city is a tenant with its own validator pool you can stake to.",
+  "repository": "https://github.com/NEARBuilders/citynode.app",
   "staging": {
-    "domain": "dev.everything.dev"
+    "domain": "testnet.citynode.app",
+    "account": "v1.citynode.testnet"
   },
-  "repository": "https://github.com/nearbuilders/everything-dev",
   "ci": {
     "railway": {
       "service": "app"
@@ -15,57 +16,106 @@
   "app": {
     "host": {
       "development": "local:host",
-      "production": "https://elliot-braem-7431-host-everything-dev-nearbuilder-27b9b3d9d-ze.zephyrcloud.app",
+      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/host/",
       "secrets": [
         "CORS_ORIGIN",
-        "TENANT_WHITELIST",
-        "ALLOW_OVERRIDE",
-        "ALLOW_UNTRUSTED_SSR",
         "CSP_STRICT"
-      ],
-      "integrity": "sha384-XDirkyVnVTW0xaAoGeWS2YtjzvHsBmWgSBLDxqROLAMZbq2gyxrUKjd+K2ixqB6H"
+      ]
     },
     "ui": {
       "development": "local:ui",
-      "production": "https://elliot-braem-7426-ui-everything-dev-nearbuilders-3c312f82c-ze.zephyrcloud.app",
-      "ssr": "https://elliot-braem-7430-ui-everything-dev-nearbuilders-a7e526d68-ze.zephyrcloud.app",
-      "integrity": "sha384-Px7RaJw6XF5/DtNxM5efGxF6voOjJxWm5ly6tG16ECWcc2eYM6SIXryP/KOOp4Ho",
-      "ssrIntegrity": "sha384-+L5gUWnjDhP7bKyKQ6e8JNDpGOSUu0E9Z7UiFfRgm7WdZj6FK39zRiq4T2WIhY23"
+      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/ui/",
+      "ssr": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/ui/ssr/"
     },
     "api": {
       "development": "local:api",
-      "production": "https://elliot-braem-7429-api-everything-dev-nearbuilders-0015a0f03-ze.zephyrcloud.app",
+      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/api/",
+      "variables": {
+        "platformAccount": "v1.citynode.near",
+        "gatewayDomains": "citynode.app,testnet.citynode.app"
+      },
       "secrets": [
-        "API_DATABASE_URL"
-      ],
-      "integrity": "sha384-g5kMC6dA5l7l9NBq2U5yWgntreOEqT4+ifIH7a6RMC2JSj6tIuGPG6Xq3ZIAPUAi"
+        "API_DATABASE_URL",
+        "LUMA_CALENDAR_API_KEYS"
+      ]
     },
     "auth": {
-      "extends": "bos://auth.everything.near/auth.everything.dev#app.auth",
+      "name": "@everything-dev/auth-plugin",
+      "development": "local:plugins/auth",
+      "ui": {
+        "name": "auth-ui",
+        "development": "local:plugins/auth/ui"
+      },
+      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/auth/",
       "secrets": [
-        "NEAR_SUB_ACCOUNT_PARENT_KEY_MAINNET",
-        "NEAR_SUB_ACCOUNT_PARENT_KEY_TESTNET"
+        "AUTH_DATABASE_URL",
+        "BETTER_AUTH_SECRET",
+        "GITHUB_CLIENT_SECRET",
+        "GOOGLE_CLIENT_SECRET",
+        "FASTNEAR_API_KEY",
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN",
+        "TWILIO_PHONE_NUMBER",
+        "RESEND_API_KEY",
+        "NEAR_RELAYER_PRIVATE_KEY_MAINNET",
+        "NEAR_RELAYER_PRIVATE_KEY_TESTNET"
       ],
       "variables": {
+        "organizationMembershipLimit": 1000,
+        "deviceLink": {
+          "clientId": "citynode-web"
+        },
         "passkey": {
-          "rpID": "everything.dev",
-          "rpName": "everything.dev"
+          "rpID": "citynode.app",
+          "rpName": "City Nodes",
+          "gatewayOrigins": {
+            "mainnet": [
+              "https://citynode.app"
+            ],
+            "testnet": [
+              "https://testnet.citynode.app"
+            ]
+          }
+        },
+        "socialProviders": {
+          "github": {},
+          "google": {}
         },
         "siwn": {
           "recipients": {
-            "mainnet": "dev.everything.near",
-            "testnet": "dev.allthethings.testnet"
+            "mainnet": "v1.citynode.near",
+            "testnet": "v1.citynode.testnet"
           },
-          "subAccount": {
+          "relayer": {
             "mainnet": {
-              "parentAccount": "dev.everything.near",
-              "parentHasFullAccess": true,
-              "minDeposit": "0.1 NEAR"
+              "whitelistedContracts": [
+                "v1.citynode.near",
+                "dev.everything.near"
+              ],
+              "maxGasPerTransaction": "400000000000000",
+              "maxDepositPerTransaction": "0"
             },
             "testnet": {
-              "parentAccount": "dev.allthethings.testnet",
-              "parentHasFullAccess": true,
-              "minDeposit": "0.1 NEAR"
+              "whitelistedContracts": [
+                "v1.citynode.testnet",
+                "dev.allthethings.testnet"
+              ],
+              "maxGasPerTransaction": "400000000000000",
+              "maxDepositPerTransaction": "0"
+            }
+          },
+          "sessionGasKey": {
+            "mainnet": {
+              "receiverId": "dev.everything.near",
+              "methodNames": [
+                "__fastdata_kv"
+              ]
+            },
+            "testnet": {
+              "receiverId": "dev.allthethings.testnet",
+              "methodNames": [
+                "__fastdata_kv"
+              ]
             }
           }
         }
@@ -73,24 +123,35 @@
     }
   },
   "plugins": {
-    "apps": {
-      "development": "local:plugins/apps",
-      "production": "https://elliot-braem-7428-everything-dev-apps-plugin-ever-d486f8e30-ze.zephyrcloud.app",
-      "variables": {
-        "registryNamespace": "dev.everything.near"
-      },
-      "routes": [
-        "ui/src/routes/_layout/apps/**"
-      ],
-      "integrity": "sha384-ehJsiIaaGQb5NjyNKWKS1+4ct479UK+n7MGaB6ZVdOsPSZd7hklMLZcIX5EkXECK"
-    },
     "template": {
       "development": "local:plugins/_template",
-      "production": "https://elliot-braem-7427-every-plugin-template-everythin-7a18ac30e-ze.zephyrcloud.app",
+      "variables": {},
       "secrets": [
         "TEMPLATE_DATABASE_URL"
       ],
-      "integrity": "sha384-7LAf3x/t4S0nQI0l0rtuvPzpJC81tAHljZOpa1Bc3Lr5pma9jEaM/eClDCvWpnVK"
+      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/template/"
+    },
+    "apps": {
+      "development": "local:plugins/apps",
+      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/apps/"
+    },
+    "proposals": {
+      "development": "local:plugins/proposals",
+      "variables": {
+        "privatePluginIds": []
+      },
+      "secrets": [
+        "PROPOSALS_DATABASE_URL"
+      ],
+      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/proposals/"
+    },
+    "votes": {
+      "development": "local:plugins/votes",
+      "variables": {},
+      "secrets": [
+        "VOTES_DATABASE_URL"
+      ],
+      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/votes/"
     }
   }
 }

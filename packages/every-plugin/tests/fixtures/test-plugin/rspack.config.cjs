@@ -1,5 +1,5 @@
-const { EveryPluginDevServer, FixMfDataUriPlugin } = require("every-plugin/build/rspack");
+const { EveryPluginBuild, FixMfDataUriPlugin } = require("every-plugin/build/rspack");
 
 module.exports = {
-  plugins: [new EveryPluginDevServer({ dts: false }), new FixMfDataUriPlugin()],
+  plugins: [new EveryPluginBuild({ dts: false }), new FixMfDataUriPlugin()],
 };

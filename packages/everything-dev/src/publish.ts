@@ -1,19 +1,30 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { Effect } from "effect";
-import { buildWorkspaceTargets, selectWorkspaceTargets } from "./build";
+import { readSessionHandle } from "./auth-session";
+import { buildWorkspaceTargets, resolveWorkspaceTarget, selectWorkspaceTargets } from "./build";
+import { resolveCdnDeployInputs } from "./cdn-deploy";
 import { generateCodeArtifacts } from "./code-artifacts";
 import { loadResolvedConfig } from "./config";
 import type { WorkspaceDeployResult } from "./contract";
+import { ensureDelegateKey, submitRegistryWriteDelegated } from "./delegate-signer";
 import {
   buildRegistryConfigUrlForNetwork,
   fetchBosConfigFromFastKv,
   getRegistryNamespaceForNetwork,
+  type NetworkId,
 } from "./fastkv";
-import { ensureNearCli, executeTransaction, resolveNearSigningMode } from "./near-cli";
+import { applyDeployResults, type DeployResultEntry } from "./integrity";
+import {
+  describeSigningStrategy,
+  resolveSigningStrategy,
+  type SigningStrategy,
+  submitRegistryWrite,
+} from "./near-signer";
 import { getNetworkIdForAccount } from "./network";
-import type { BosConfig, BosConfigInput, RuntimeConfig } from "./types";
+import { platformUrlDeployEntries } from "./platform-deploy";
+import { collectDistFiles, uploadWorkspaceDist } from "./storage-upload";
+import type { BosConfig, BosConfigInput, PublishConfig, RuntimeConfig } from "./types";
 import { padRight } from "./utils/string";
 import { colors, icons } from "./utils/theme";
 
@@ -21,18 +32,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function extractPublishedUrl(output: string): string | null {
-  const deployMatch = output.match(/🚀.*Deployed:\s*(https?:\S+)/);
-  if (deployMatch) return deployMatch[1];
-  const match = output.match(/https?:\/\/[^\s"'<>]+/g);
-  if (!match || match.length === 0) return null;
-  return match[match.length - 1] ?? null;
-}
-
 export async function waitForPublishedConfig(opts: {
   account: string;
   gateway: string;
   publishConfig: BosConfigInput;
+  registry?: string;
   timeoutMs?: number;
   intervalMs?: number;
 }): Promise<void> {
@@ -49,6 +53,7 @@ export async function waitForPublishedConfig(opts: {
     try {
       const verifiedConfig = await fetchBosConfigFromFastKv<BosConfigInput>(
         `bos://${opts.account}/${opts.gateway}`,
+        opts.registry,
       );
 
       if (JSON.stringify(verifiedConfig) === JSON.stringify(opts.publishConfig)) {
@@ -67,6 +72,23 @@ export async function waitForPublishedConfig(opts: {
   );
 }
 
+export async function isConfigAlreadyPublished(opts: {
+  account: string;
+  gateway: string;
+  publishConfig: BosConfigInput;
+  registry?: string;
+}): Promise<boolean> {
+  try {
+    const current = await fetchBosConfigFromFastKv<BosConfigInput>(
+      `bos://${opts.account}/${opts.gateway}`,
+      opts.registry,
+    );
+    return JSON.stringify(current) === JSON.stringify(opts.publishConfig);
+  } catch {
+    return false;
+  }
+}
+
 interface PublishToFastKvInput {
   bosConfig: BosConfig;
   runtimeConfig: RuntimeConfig | null;
@@ -78,6 +100,8 @@ interface PublishToFastKvInput {
   packages: string;
   network?: "mainnet" | "testnet";
   privateKey?: string;
+  wallet?: boolean;
+  registry?: string;
 }
 
 interface PublishToFastKvResult {
@@ -97,7 +121,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
   const runtimeConfig = input.runtimeConfig;
 
   const isStaging = env === "staging";
-  const account = bosConfig.account;
+  const account = isStaging ? (bosConfig.staging?.account ?? bosConfig.account) : bosConfig.account;
   const gateway = isStaging ? (bosConfig.staging?.domain ?? bosConfig.domain) : bosConfig.domain;
   if (!gateway) {
     return {
@@ -107,36 +131,75 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     };
   }
 
-  const network = input.network ?? getNetworkIdForAccount(account);
-  const registryUrl = buildRegistryConfigUrlForNetwork(network, account, gateway);
+  const network: NetworkId = input.network ?? getNetworkIdForAccount(account);
+  const registryUrl = buildRegistryConfigUrlForNetwork(network, account, gateway, input.registry);
   const targets = selectWorkspaceTargets(input.packages, bosConfig);
 
   let built: string[] | undefined;
   let skipped: string[] | undefined;
   let deployResults: WorkspaceDeployResult[] | undefined;
 
+  const publishAuth: PublishConfig["auth"] = bosConfig.publish?.auth;
+  const governsWalletPublish = (publishAuth === "session" || input.wallet) && !input.privateKey;
+  if (governsWalletPublish) {
+    const session = readSessionHandle(configDir);
+    if (!session?.credential) {
+      return {
+        status: "error",
+        registryUrl,
+        error:
+          (input.wallet
+            ? "--wallet requires"
+            : 'bos.config.json sets publish.auth = "session", but') +
+          " no CLI session is stored in .bos/ for this project. Run bos login to create one.",
+      };
+    }
+    if (session.credential.accountId && session.credential.accountId !== account) {
+      return {
+        status: "error",
+        registryUrl,
+        error:
+          `The CLI session was created for ${session.credential.accountId}, but the configured ` +
+          `account is ${account}. Gasless wallet publish relays the FastKV write under the session's ` +
+          "NEAR account. Run bos login again under the matching account.",
+      };
+    }
+  }
+  if (publishAuth && !input.privateKey) {
+    if (publishAuth === "custody") {
+      return {
+        status: "error",
+        registryUrl,
+        error:
+          'bos.config.json sets publish.auth = "custody", but custody publish is not implemented yet (see NEARBuilders/everything-dev#291).',
+      };
+    }
+  }
+
   if (dryRun) {
     return { status: "dry-run", registryUrl, built, skipped };
   }
 
-  const privateKey =
-    input.privateKey || process.env.NEAR_PRIVATE_KEY || process.env.BOS_NEAR_PRIVATE_KEY;
-  let signingMode: ReturnType<typeof resolveNearSigningMode>;
-  try {
-    signingMode = resolveNearSigningMode(privateKey);
-  } catch (error) {
-    return {
-      status: "error" as const,
-      registryUrl,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
+  const useWallet = input.wallet === true;
+  let strategy: SigningStrategy | undefined;
+  if (useWallet) {
+    console.log(
+      `  Signing via ${colors.cyan("gasless NEP-366 delegate action (relayed by the platform relayer)")}`,
+    );
+  } else {
+    try {
+      strategy = await resolveSigningStrategy({ privateKey: input.privateKey, account, network });
+      console.log(`  Signing via ${colors.cyan(describeSigningStrategy(strategy))}`);
+    } catch (error) {
+      return {
+        status: "error" as const,
+        registryUrl,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
   }
 
   if (input.build) {
-    console.log("  Ensuring NEAR CLI...");
-    await Effect.runPromise(ensureNearCli);
-    console.log("  NEAR CLI ready");
-
     await generateCodeArtifacts(configDir, bosConfig, {
       env: "production",
       runtimeConfig: runtimeConfig ?? undefined,
@@ -202,59 +265,195 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
 
   const rawConfigPath = join(configDir, "bos.config.json");
   const rawConfig = JSON.parse(readFileSync(rawConfigPath, "utf-8")) as BosConfigInput;
-  const publishPayload: BosConfigInput = isStaging ? { ...rawConfig, domain: gateway } : rawConfig;
+  let publishPayload: BosConfigInput = isStaging ? { ...rawConfig, domain: gateway } : rawConfig;
 
+  // CDN deploy (ADR 0020): the resolution chain (env → bos login session →
+  // derived from the base's inherited bundle URLs) lives in cdn-deploy.ts.
+  // The image keeps only the boot role.
+  const session = readSessionHandle(configDir);
+  const cdnDeploy = resolveCdnDeployInputs({
+    env: process.env as Record<string, string | undefined>,
+    runtimeConfig: runtimeConfig ?? null,
+    session: session?.credential ?? null,
+    account,
+    gateway,
+  });
+  if (cdnDeploy.error) {
+    return {
+      status: "error",
+      registryUrl,
+      built,
+      skipped,
+      deployResults,
+      error: cdnDeploy.error,
+    };
+  }
+  const cdnOrigin = cdnDeploy.cdnOrigin;
+  const storageOrigin = cdnDeploy.storageOrigin;
+  const storageApiKey = cdnDeploy.apiKey;
+  const urlOrigin = cdnOrigin ?? `https://${gateway}`;
+  const deployTargets = (built ?? []).filter((key) => targets.includes(key));
+  const platformEntries: DeployResultEntry[] = [];
+
+  console.log();
+  if (cdnOrigin) {
+    console.log(`  CDN deploy — uploading workspace dists to ${storageOrigin}...`);
+  } else {
+    console.log("  Image-native deploy — writing bundle URLs from the runtime origin...");
+  }
+  for (const key of deployTargets) {
+    const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
+    if (!ws) continue;
+
+    let integrity: string | undefined;
+    let ssrIntegrity: string | undefined;
+    let fileCount: number | undefined;
+    if (cdnOrigin) {
+      const result = await uploadWorkspaceDist({
+        origin: storageOrigin,
+        apiKey: storageApiKey,
+        account,
+        gateway,
+        workspace: key,
+        files: await collectDistFiles(join(ws.path, "dist")),
+      });
+      integrity = result.integrity["remoteEntry.js"];
+      ssrIntegrity =
+        result.integrity["ssr/remoteEntry.server.js"] ?? result.integrity["remoteEntry.server.js"];
+      fileCount = result.stored;
+    }
+
+    console.log(
+      `    ${colors.green(icons.ok)} ${padRight(key, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}/${fileCount !== undefined ? ` (${fileCount} files)` : ""}`,
+    );
+
+    platformEntries.push(
+      ...platformUrlDeployEntries({
+        origin: urlOrigin,
+        account,
+        gateway,
+        key,
+        kind: ws.kind,
+        integrity,
+        ssrIntegrity,
+      }),
+    );
+  }
+
+  if (platformEntries.length > 0) {
+    const merged = applyDeployResults(rawConfig as Record<string, unknown>, platformEntries);
+    try {
+      writeFileSync(rawConfigPath, `${JSON.stringify(merged, null, 2)}\n`);
+    } catch (error) {
+      return {
+        status: "error",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        error: `Failed to write bundle URLs to bos.config.json: ${error instanceof Error ? error.message : error}`,
+      };
+    }
+    publishPayload = (isStaging ? { ...merged, domain: gateway } : merged) as BosConfigInput;
+  }
+
+  const registryKey = `apps/${account}/${gateway}/bos.config.json`;
+  const registryNamespace = getRegistryNamespaceForNetwork(network, input.registry);
+  const publishedAt = new Date().toISOString();
   const registryEntries: Record<string, string> = {
-    [`apps/${account}/${gateway}/bos.config.json`]: JSON.stringify(publishPayload),
+    [registryKey]: JSON.stringify(publishPayload),
   };
-
-  const payload = JSON.stringify(registryEntries);
-  const argsBase64 = Buffer.from(payload).toString("base64");
+  if (input.wallet) {
+    const manifestKey = `apps/${account}/${gateway}/manifests/${publishedAt.replace(/[:.]/g, "-")}.json`;
+    registryEntries[manifestKey] = JSON.stringify({
+      account,
+      gateway,
+      network,
+      publishedAt,
+      registryUrl,
+    });
+  }
 
   console.log();
   console.log("  Publishing to:");
   console.log(`    ${colors.cyan(registryUrl)}`);
+  if (input.wallet) {
+    console.log(
+      `    ${colors.dim(`+ per-deploy manifest written atomically in the same delegation`)}`,
+    );
+  }
 
   try {
-    let txHash: string | undefined;
+    const alreadyPublished = await isConfigAlreadyPublished({
+      account,
+      gateway,
+      publishConfig: publishPayload,
+      registry: input.registry,
+    });
+    if (alreadyPublished) {
+      console.log("  Already up to date — skipping transaction");
+      return {
+        status: "published",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        publishConfig: publishPayload,
+      };
+    }
 
     console.log(`  Submitting transaction on ${network}...`);
 
-    try {
-      const tx = await Effect.runPromise(
-        executeTransaction(
-          {
-            account,
-            contract: getRegistryNamespaceForNetwork(network),
-            method: "__fastdata_kv",
-            argsBase64,
-            network,
-            privateKey: signingMode._tag === "privateKey" ? signingMode.privateKey : undefined,
-            gas: "300Tgas",
-            deposit: "0NEAR",
-            verbose: input.verbose,
-          },
-          signingMode,
-        ),
-      );
-      txHash = tx.txHash;
-      if (txHash && !tx.output?.includes("CodeDoesNotExist")) {
-        console.log(`  Transaction submitted: ${colors.dim(txHash)}`);
+    let result: { success: boolean; txHash?: string };
+    if (useWallet) {
+      const session = readSessionHandle(configDir);
+      const credential = session?.credential;
+      if (!credential || credential.accountId !== account) {
+        return {
+          status: "error",
+          registryUrl,
+          error: `--wallet requires a CLI session under ${account}. Run bos login first.`,
+        };
       }
-    } catch (error) {
-      console.log(colors.dim("  Transaction reported an error — verifying publish..."));
-      try {
-        await waitForPublishedConfig({
+      const record = await ensureDelegateKey({
+        configDir,
+        account,
+        contract: registryNamespace,
+        network,
+        siteUrl: credential.siteUrl,
+      });
+      result = await submitRegistryWriteDelegated({
+        account,
+        contract: registryNamespace,
+        network,
+        args: registryEntries,
+        delegatePrivateKey: record.privateKey,
+        relayEndpoint: `${credential.siteUrl}/api/auth/near/relay`,
+        apiKey: credential.apiKey,
+      });
+    } else {
+      if (!strategy) {
+        return {
+          status: "error",
+          registryUrl,
+          error: "non-wallet publish requires a resolved signing strategy",
+        };
+      }
+      result = await submitRegistryWrite(
+        {
           account,
-          gateway,
-          publishConfig: publishPayload,
-          timeoutMs: 30_000,
-          intervalMs: 2_000,
-        });
-        txHash = extractTransactionHash(error);
-      } catch {
-        throw error;
-      }
+          contract: registryNamespace,
+          method: "__fastdata_kv",
+          args: registryEntries,
+          network,
+          privateKey: input.privateKey,
+        },
+        strategy,
+      );
+    }
+
+    if (result.txHash) {
+      console.log(`  Transaction submitted: ${colors.dim(result.txHash)}`);
     }
 
     console.log("  Waiting for publish confirmation...");
@@ -262,12 +461,13 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
       account,
       gateway,
       publishConfig: publishPayload,
+      registry: input.registry,
     });
 
     return {
       status: "published",
       registryUrl,
-      txHash,
+      txHash: result.txHash,
       built,
       skipped,
       deployResults,
@@ -306,10 +506,4 @@ function formatNearError(error: unknown): string {
   }
 
   return message;
-}
-
-function extractTransactionHash(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  const match = message.match(/Transaction ID:\s*([A-Za-z0-9]+)/i);
-  return match?.[1];
 }

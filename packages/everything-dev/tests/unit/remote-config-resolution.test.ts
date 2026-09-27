@@ -38,7 +38,10 @@ describe("resolveRemoteConfigChain", () => {
     expect(result.account).toBe("parent.near");
     expect(result.app.host).toEqual(PARENT_WITH_HOST.app!.host);
     expect(fetchBosConfigFromFastKvMock).toHaveBeenCalledTimes(1);
-    expect(fetchBosConfigFromFastKvMock).toHaveBeenCalledWith("bos://parent.near/parent.dev");
+    expect(fetchBosConfigFromFastKvMock).toHaveBeenCalledWith(
+      "bos://parent.near/parent.dev",
+      undefined,
+    );
   });
 
   it("inherits app.host from the parent via extends", async () => {

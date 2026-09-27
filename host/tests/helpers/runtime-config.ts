@@ -6,7 +6,11 @@ import type { ApiClient } from "../../../ui/src/lib/api";
 import type { AuthClient } from "../../../ui/src/lib/auth";
 
 export async function loadTestRuntimeConfig(): Promise<RuntimeConfig> {
-  const result = await loadResolvedConfig();
+  // Fixtures resolve the repo's own local workspaces. The host test script
+  // runs NODE_ENV=production (production-mode host code paths) — without the
+  // explicit env, production config resolution would point the fixture at the
+  // deployed origin and make beforeAll hooks fetch it live.
+  const result = await loadResolvedConfig({ env: "development" });
 
   if (!result) {
     throw new Error("No bos.config.json found for host tests");

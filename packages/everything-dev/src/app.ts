@@ -2,7 +2,6 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { Context, Data, Effect, Layer } from "effect";
-import type { DevPortState } from "./cli/infra";
 import {
   buildRuntimeConfig as configBuildRuntimeConfig,
   getProjectRoot,
@@ -14,15 +13,10 @@ import type { BosConfig, RuntimeConfig, RuntimePluginConfig } from "./types";
 
 export type { AppOrchestrator };
 
-const DEFAULT_HOST_PORT = 3000;
-const DEFAULT_API_PORT = 3001;
-const DEFAULT_AUTH_PORT = 3002;
-const DEFAULT_UI_PORT = 3003;
-const DEFAULT_PLUGIN_PORT_START = 3010;
-
 const PROBE_TIMEOUT_MS = 250;
 const MAX_PORT_SCAN_STEPS = 1000;
 const PARALLEL_PROBE_WINDOW = 8;
+const BLOCK_STEP = 100;
 
 export type PortBudget = { min: number; max: number };
 
@@ -32,15 +26,36 @@ export class PortAllocationError extends Data.TaggedError("PortAllocationError")
   cause?: unknown;
 }> {}
 
-export class PortAllocator extends Context.Tag("PortAllocator")<
+export interface PortBlockEntry {
+  key: string;
+  preferred: number;
+  pinned: boolean;
+}
+
+export interface PortBlockRequest {
+  base: number;
+  step?: number;
+  entries: PortBlockEntry[];
+}
+
+export interface PortBlockAllocation {
+  base: number;
+  ports: Record<string, number>;
+  conflicts: Array<{ key: string; port: number; claimed: boolean }>;
+}
+
+export class PortAllocator extends Context.Service<
   PortAllocator,
   {
     pickAvailable: (
       preferred: number,
       budget?: PortBudget,
     ) => Effect.Effect<number, PortAllocationError>;
+    acquireBlock: (
+      request: PortBlockRequest,
+    ) => Effect.Effect<PortBlockAllocation, PortAllocationError>;
   }
->() {}
+>()("PortAllocator") {}
 
 export function detectLocalPackages(
   bosConfig?: BosConfig,
@@ -113,8 +128,8 @@ export async function buildRuntimeConfig(
   });
 }
 
-function probePortBindable(port: number): Effect.Effect<boolean> {
-  return Effect.async<boolean>((resume) => {
+export function probePortBindable(port: number): Effect.Effect<boolean> {
+  return Effect.callback<boolean>((resume) => {
     const server = createServer();
 
     server.once("listening", () => {
@@ -176,7 +191,7 @@ function pickAvailablePort(
 
     while (true) {
       if (port >= ceiling || steps > MAX_PORT_SCAN_STEPS) {
-        yield* fail();
+        return yield* fail();
       }
 
       const candidates: number[] = [];
@@ -215,136 +230,93 @@ export const PortAllocatorLive: Layer.Layer<PortAllocator> = Layer.sync(PortAllo
   const usedPorts = claimedPorts();
   return {
     pickAvailable: (preferred, budget) => pickAvailablePort(preferred, usedPorts, budget),
+    acquireBlock: (request) => acquireBlockPort(request, usedPorts),
   };
 });
 
-function withLocalRuntimeUrl<
-  T extends { url: string; entry: string; port?: number; localPath?: string },
->(entry: T, port: number): T {
-  const url = `http://localhost:${port}`;
-  return {
-    ...entry,
-    url,
-    entry: `${url}/mf-manifest.json`,
-    port,
-  };
-}
-
-export interface DevPortOptions {
-  hostPort?: number;
-  apiPort?: number;
-  uiPort?: number;
-  authPort?: number;
-  pluginPortStart?: number;
-  ssr?: boolean;
-  portBudget?: PortBudget;
-}
-
-export interface PreparedDevRuntime {
-  runtimeConfig: RuntimeConfig;
-  devPorts: DevPortState;
-}
-
-export function prepareDevelopmentRuntimeConfig(
-  runtimeConfig: RuntimeConfig,
-  options?: DevPortOptions,
-): Effect.Effect<PreparedDevRuntime, PortAllocationError, PortAllocator> {
-  return Effect.gen(function* () {
-    const allocator = yield* PortAllocator;
-    const budget = options?.portBudget;
-
-    const pickedHostPort = yield* allocator.pickAvailable(
-      options?.hostPort ?? DEFAULT_HOST_PORT,
-      budget,
+// acquireBlockPort validates and acquires a whole port block atomically: every
+// entry is probed before any is yielded; on any conflict the entire block
+// steps (base += step) and retries. Pinned entries (explicit CLI flags) are
+// absolute — an actual listener on one fails loudly instead of silently
+// drifting a port the user named; a registry claim without a listener is
+// stale (PID reuse across container restarts) and never wedges allocation.
+function acquireBlockPort(
+  request: PortBlockRequest,
+  usedPorts: Set<number>,
+): Effect.Effect<PortBlockAllocation, PortAllocationError> {
+  const step = request.step ?? BLOCK_STEP;
+  const fail = (cause: string) =>
+    Effect.fail(
+      new PortAllocationError({
+        preferred: request.base,
+        cause,
+      }),
     );
 
-    const hostIsLocal = runtimeConfig.host.source === "local";
-    const next: RuntimeConfig = {
-      ...runtimeConfig,
-      host: hostIsLocal
-        ? {
-            ...runtimeConfig.host,
-            url: `http://localhost:${pickedHostPort}`,
-            port: pickedHostPort,
-          }
-        : { ...runtimeConfig.host },
-      ui: { ...runtimeConfig.ui },
-      api: { ...runtimeConfig.api },
-      auth: runtimeConfig.auth ? { ...runtimeConfig.auth } : undefined,
-      plugins: runtimeConfig.plugins ? { ...runtimeConfig.plugins } : undefined,
-    };
+  return Effect.gen(function* () {
+    let base = request.base;
+    let steps = 0;
+    let firstConflicts: PortBlockAllocation["conflicts"] = [];
+    while (steps <= MAX_PORT_SCAN_STEPS) {
+      const shift = base - request.base;
+      const candidates = request.entries.map((entry) => ({
+        ...entry,
+        port: entry.pinned ? entry.preferred : entry.preferred + shift,
+      }));
 
-    const devPorts: DevPortState = {
-      host: hostIsLocal ? pickedHostPort : undefined,
-      api: undefined,
-      ui: undefined,
-      auth: undefined,
-      pluginPortStart: undefined,
-    };
-
-    if (next.api.source === "local" && next.api.localPath) {
-      const apiPort = yield* allocator.pickAvailable(
-        options?.apiPort ?? next.api.port ?? DEFAULT_API_PORT,
-        budget,
-      );
-      next.api = withLocalRuntimeUrl(next.api, apiPort);
-      devPorts.api = apiPort;
-    }
-
-    if (next.auth?.source === "local" && next.auth.localPath) {
-      const authPort = yield* allocator.pickAvailable(
-        options?.authPort ?? next.auth.port ?? DEFAULT_AUTH_PORT,
-        budget,
-      );
-      next.auth = withLocalRuntimeUrl(next.auth, authPort);
-      devPorts.auth = authPort;
-    }
-
-    if (next.ui.source === "local" && next.ui.localPath) {
-      const uiPort = yield* allocator.pickAvailable(
-        options?.uiPort ?? next.ui.port ?? DEFAULT_UI_PORT,
-        budget,
-      );
-      next.ui = withLocalRuntimeUrl(next.ui, uiPort);
-      devPorts.ui = uiPort;
-      if (options?.ssr) {
-        const ssrPort = yield* allocator.pickAvailable(uiPort + 1, budget);
-        next.ui.ssrUrl = `http://localhost:${ssrPort}`;
-      } else {
-        next.ui.ssrUrl = undefined;
-      }
-    }
-
-    if (next.plugins) {
-      const entries = Object.entries(next.plugins).sort(([a], [b]) => a.localeCompare(b));
-      let pluginBasePort = options?.pluginPortStart ?? DEFAULT_PLUGIN_PORT_START;
-      let firstLocalPluginPort: number | undefined;
-
-      for (const [pluginId, plugin] of entries) {
-        if (plugin.source === "local" && plugin.localPath) {
-          const pluginPort = yield* allocator.pickAvailable(plugin.port ?? pluginBasePort, budget);
-          next.plugins[pluginId] = withLocalRuntimeUrl(plugin, pluginPort);
-          if (firstLocalPluginPort === undefined) firstLocalPluginPort = pluginPort;
-          pluginBasePort = pluginPort + 1;
+      // Pinned entries are absolute (ADR 0012): an actual listener on one
+      // fails loudly instead of drifting a port the user named. Verified
+      // against the real socket every iteration — a registry claim without
+      // a listener is stale (PID reuse across container restarts) and must
+      // never wedge a pinned allocation.
+      let pinnedHeldByListener: (typeof candidates)[number] | undefined;
+      for (const candidate of candidates.filter((c) => c.pinned)) {
+        const bindable = yield* probePortBindable(candidate.port);
+        if (!bindable) {
+          pinnedHeldByListener = candidate;
+          break;
         }
+        usedPorts.delete(candidate.port);
+      }
+      if (pinnedHeldByListener) {
+        return yield* fail(
+          `explicitly-requested port ${pinnedHeldByListener.port} (${pinnedHeldByListener.key}) is occupied by a listener`,
+        );
+      }
 
-        if (plugin.ui?.source === "local" && plugin.ui.localPath) {
-          const pluginUiPort = yield* allocator.pickAvailable(
-            plugin.ui.port ?? pluginBasePort,
-            budget,
-          );
-          next.plugins[pluginId] = {
-            ...next.plugins[pluginId]!,
-            ui: withLocalRuntimeUrl(plugin.ui, pluginUiPort),
+      const unpinned = candidates.filter((c) => !c.pinned);
+      const claimConflicts = unpinned
+        .filter((c) => usedPorts.has(c.port))
+        .map((c) => ({ key: c.key, port: c.port, claimed: true }));
+      if (shift === 0) {
+        firstConflicts = claimConflicts;
+      }
+
+      if (claimConflicts.length === 0) {
+        const results = yield* Effect.forEach(
+          unpinned,
+          (c) => probePortBindable(c.port).pipe(Effect.map((free) => ({ ...c, free }))),
+          { concurrency: "unbounded" },
+        );
+        const busy = results.filter((r) => !r.free);
+        if (shift === 0) {
+          firstConflicts = busy.map((b) => ({ key: b.key, port: b.port, claimed: false }));
+        }
+        if (busy.length === 0) {
+          for (const candidate of candidates) usedPorts.add(candidate.port);
+          return {
+            base,
+            ports: Object.fromEntries(candidates.map((c) => [c.key, c.port])),
+            conflicts: firstConflicts,
           };
-          if (firstLocalPluginPort === undefined) firstLocalPluginPort = pluginUiPort;
-          pluginBasePort = pluginUiPort + 1;
         }
       }
 
-      devPorts.pluginPortStart = firstLocalPluginPort;
+      base += step;
+      steps += 1;
     }
-
-    return { runtimeConfig: next, devPorts };
+    return yield* fail(
+      `no free port block within ${MAX_PORT_SCAN_STEPS} steps of base ${request.base} (step ${step})`,
+    );
   });
 }

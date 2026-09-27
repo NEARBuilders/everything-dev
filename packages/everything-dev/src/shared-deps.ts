@@ -1,8 +1,25 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { loadAppDescriptorConfig } from "./config";
 import { type BosEnv, isPlainObject, type ResolvedConfigMeta, rebuildOrderedConfig } from "./merge";
 import { type SharedDepConfig, SharedDepMapSchema } from "./types";
+
+async function loadBosConfigForSharedDeps(
+  configDir: string,
+  bosConfigPath: string,
+): Promise<unknown> {
+  if (existsSync(bosConfigPath)) {
+    return JSON.parse(readFileSync(bosConfigPath, "utf-8"));
+  }
+
+  const appDescriptorPath = join(configDir, "bos.app.ts");
+  if (existsSync(appDescriptorPath)) {
+    return loadAppDescriptorConfig(appDescriptorPath);
+  }
+
+  return JSON.parse(readFileSync(bosConfigPath, "utf-8"));
+}
 
 interface PackageJson {
   workspaces?: {
@@ -205,7 +222,8 @@ export async function syncResolvedSharedDeps(opts: {
   const packageJsonPath = join(opts.configDir, "package.json");
   const generatedPath = join(opts.configDir, ".bos", "generated", "shared-deps.json");
 
-  const bosConfig: unknown = opts.bosConfig ?? JSON.parse(readFileSync(bosConfigPath, "utf-8"));
+  const bosConfig: unknown =
+    opts.bosConfig ?? (await loadBosConfigForSharedDeps(opts.configDir, bosConfigPath));
   if (!isPlainObject(bosConfig)) {
     throw new Error("bos.config.json must be an object");
   }

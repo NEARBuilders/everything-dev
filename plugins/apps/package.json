@@ -19,11 +19,13 @@
   "dependencies": {
     "@orpc/contract": "catalog:",
     "@orpc/server": "catalog:",
-    "near-kit": "catalog:"
+    "near-kit": "catalog:",
+    "effect": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@effect/language-service": "^0.85.1",
     "@module-federation/node": "catalog:",
+    "@module-federation/runtime-tools": "catalog:",
     "@rspack/cli": "catalog:",
     "@rspack/core": "catalog:",
     "@types/node": "catalog:",
@@ -33,14 +35,11 @@
     "every-plugin": "catalog:",
     "host": "workspace:*",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "catalog:",
-    "zephyr-rspack-plugin": "catalog:"
+    "vitest": "catalog:"
   },
   "scripts": {
-    "build": "bun run build:types && rspack build",
-    "build:types": "tsc -p tsconfig.contract.json",
-    "deploy": "bun run build:types && DEPLOY=true rspack build",
-    "dev": "bun run build:types && rspack serve",
+    "build": "every-plugin build",
+    "dev": "every-plugin dev",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",

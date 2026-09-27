@@ -17,7 +17,7 @@ loadHostTestEnv(workspaceRoot);
 function ensureUiServerBuild() {
   if (buildReady) return;
 
-  const serverEntry = path.join(uiDir, "dist", "remoteEntry.server.js");
+  const serverEntry = path.join(uiDir, "dist", "ssr", "remoteEntry.server.js");
   if (existsSync(serverEntry)) {
     buildReady = true;
     return;
@@ -64,7 +64,7 @@ export async function loadBundledRouterModule(): Promise<{
     remotes: [
       {
         name: "ui",
-        entry: `${uiServer.baseUrl}/mf-manifest.json`,
+        entry: `${uiServer.baseUrl}/ssr/mf-manifest.json`,
         alias: "ui",
       },
     ],

@@ -1,7 +1,8 @@
+import { MemoryPublisher } from "@orpc/publisher/memory";
+import { ORPCError } from "@orpc/server";
+import { Context, Effect, Layer } from "effect";
 import { createPlugin } from "every-plugin";
-import { Effect } from "every-plugin/effect";
-import { MemoryPublisher, ORPCError } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
+import { z } from "zod";
 import { TestClient } from "./client";
 import { testContract } from "./contract";
 
@@ -15,6 +16,15 @@ type BackgroundEvents = {
     timestamp: number;
   };
 };
+
+class TestServices extends Context.Service<
+  TestServices,
+  {
+    client: TestClient;
+    publisher: MemoryPublisher<BackgroundEvents>;
+    customClient: any;
+  }
+>()("test-plugin/TestServices") {}
 
 // Create the test plugin
 export const TestPlugin = createPlugin({
@@ -42,7 +52,7 @@ export const TestPlugin = createPlugin({
     Effect.gen(function* () {
       // Business logic validation - config structure is guaranteed by schema
       if (config.secrets.apiKey === "invalid-key") {
-        yield* Effect.fail(new Error("Invalid API key format"));
+        return yield* Effect.fail(new Error("Invalid API key format"));
       }
 
       // Initialize client
@@ -50,7 +60,7 @@ export const TestPlugin = createPlugin({
 
       // Test connection (can throw for testing)
       if (config.secrets.apiKey === "connection-fail") {
-        yield* Effect.fail(new Error("Failed to connect to service"));
+        return yield* Effect.fail(new Error("Failed to connect to service"));
       }
 
       yield* Effect.tryPromise({
@@ -63,10 +73,10 @@ export const TestPlugin = createPlugin({
 
       // Create publisher for background events with resume support for serverless
       const publisher = new MemoryPublisher<BackgroundEvents>({
-        resumeRetentionSeconds: 60 * 2, // Retain events for 2 minutes to support resume
+        resume: { enabled: true, seconds: 60 * 2 }, // Retain events for 2 minutes to support resume
       });
 
-      // Start background producer if enabled
+      // Start background producer if enabled (forked into the plugin scope)
       if (config.variables.backgroundEnabled) {
         const maxItems = config.variables.backgroundMaxItems;
 
@@ -83,7 +93,7 @@ export const TestPlugin = createPlugin({
               };
 
               yield* Effect.tryPromise(() => publisher.publish("background-updates", event)).pipe(
-                Effect.catchAll((error) => {
+                Effect.catch((error) => {
                   console.log(`[TestPlugin] Publish failed for event ${i}:`, error);
                   return Effect.void;
                 }),
@@ -101,16 +111,13 @@ export const TestPlugin = createPlugin({
         );
       }
 
-      // Return context object - this gets passed to createRouter
-      return {
+      return Layer.succeed(TestServices, {
         client,
         publisher,
         customClient: config.variables.client,
-      };
+      });
     }),
-  createRouter: (deps, builder) => {
-    const { client, publisher, customClient } = deps;
-
+  createRouter: (builder) => {
     // Middleware for authentication
     const requireAuth = builder.middleware(async ({ context, next }) => {
       if (!context.userId) {
@@ -120,20 +127,24 @@ export const TestPlugin = createPlugin({
     });
 
     return {
-      getById: builder.getById.handler(async ({ input }) => {
-        const item = await client.fetchById(input.id);
+      getById: builder.getById.effect(function* ({ input }) {
+        const { client } = yield* TestServices;
+        const item = yield* Effect.promise(() => client.fetchById(input.id));
         return { item };
       }),
 
-      getBulk: builder.getBulk.handler(async ({ input }) => {
-        const items = await client.fetchBulk(input.ids);
+      getBulk: builder.getBulk.effect(function* ({ input }) {
+        const { client } = yield* TestServices;
+        const items = yield* Effect.promise(() => client.fetchBulk(input.ids));
         return { items };
       }),
 
-      simpleStream: builder.simpleStream.handler(async function* ({ input }) {
+      simpleStream: builder.simpleStream.handler(async function* ({ input, context }) {
+        const { client } = Context.get(context["effect/context"], TestServices);
         yield* client.streamItems(input.count, input.prefix);
       }),
 
+      // eslint-disable require-yield -- intentional empty async generator
       // biome-ignore lint/correctness/useYield: specific test case
       emptyStream: builder.emptyStream.handler(async function* ({ input }) {
         // Log why it's empty, do any setup/cleanup, but don't yield
@@ -141,6 +152,7 @@ export const TestPlugin = createPlugin({
         // Generator ends without yielding - creates empty AsyncIterable
         return;
       }),
+      // eslint-enable require-yield
 
       throwError: builder.throwError.handler(async ({ input, errors }) => {
         const message = input.customMessage || `Test ${input.errorType.toLowerCase()} error`;
@@ -176,24 +188,28 @@ export const TestPlugin = createPlugin({
         }
       }),
 
-      requiresSpecialConfig: builder.requiresSpecialConfig
-        .use(requireAuth)
-        .handler(async ({ input, context }) => {
-          // context.userId is now guaranteed to be non-null due to middleware
-          return {
-            configValue: client.getConfigValue(),
-            inputValue: input.checkValue,
-            userId: context.userId,
-          };
-        }),
+      requiresSpecialConfig: builder.requiresSpecialConfig.use(requireAuth).effect(function* ({
+        input,
+        context,
+      }) {
+        // context.userId is now guaranteed to be non-null due to middleware
+        const { client } = yield* TestServices;
+        return {
+          configValue: client.getConfigValue(),
+          inputValue: input.checkValue,
+          userId: context.userId,
+        };
+      }),
 
       listenBackground: builder.listenBackground.handler(async function* ({
         input,
+        context,
         signal,
         lastEventId,
       }) {
         let count = 0;
         const maxResults = input.maxResults;
+        const { publisher } = Context.get(context["effect/context"], TestServices);
         const iterator = publisher.subscribe("background-updates", { signal, lastEventId });
 
         for await (const event of iterator) {
@@ -205,14 +221,15 @@ export const TestPlugin = createPlugin({
         }
       }),
 
-      enqueueBackground: builder.enqueueBackground.handler(async ({ input }) => {
+      enqueueBackground: builder.enqueueBackground.effect(function* ({ input }) {
+        const { publisher } = yield* TestServices;
         const event = {
           id: input.id || `manual-${Date.now()}`,
           index: -1, // Manual events use -1 to distinguish from auto-generated
           timestamp: Date.now(),
         };
 
-        await publisher.publish("background-updates", event);
+        yield* Effect.promise(() => publisher.publish("background-updates", event));
         return { ok: true };
       }),
 
@@ -220,7 +237,8 @@ export const TestPlugin = createPlugin({
         return { ok: true, timestamp: Date.now() };
       }),
 
-      useClient: builder.useClient.handler(async ({ input }) => {
+      useClient: builder.useClient.effect(function* ({ input }) {
+        const { customClient } = yield* TestServices;
         if (!customClient) {
           return {
             result: "No client provided",
@@ -236,7 +254,7 @@ export const TestPlugin = createPlugin({
         let result: string;
         try {
           if (hasGetData) {
-            const data = await customClient.getData(input.id);
+            const data = yield* Effect.promise(() => customClient.getData(input.id));
             result = `data: ${JSON.stringify(data)}`;
           } else {
             result = "Client missing getData method";
@@ -255,3 +273,5 @@ export const TestPlugin = createPlugin({
     };
   },
 });
+
+export { TestServices };

@@ -27,6 +27,15 @@
       "import": "./dist/types.mjs",
       "require": "./dist/types.cjs"
     },
+    "./descriptor": {
+      "development": {
+        "types": "./src/descriptor/index.ts",
+        "import": "./src/descriptor/index.ts"
+      },
+      "types": "./dist/descriptor/index.d.mts",
+      "import": "./dist/descriptor/index.mjs",
+      "require": "./dist/descriptor/index.cjs"
+    },
     "./config": {
       "development": {
         "types": "./src/config.ts",
@@ -44,6 +53,15 @@
       "types": "./dist/dag.d.mts",
       "import": "./dist/dag.mjs",
       "require": "./dist/dag.cjs"
+    },
+    "./bundle-cache": {
+      "development": {
+        "types": "./src/bundle-cache.ts",
+        "import": "./src/bundle-cache.ts"
+      },
+      "types": "./dist/bundle-cache.d.mts",
+      "import": "./dist/bundle-cache.mjs",
+      "require": "./dist/bundle-cache.cjs"
     },
     "./fastkv": {
       "development": {
@@ -171,15 +189,123 @@
       "import": "./dist/ui/router.mjs",
       "require": "./dist/ui/router.cjs"
     },
+    "./ui/api": {
+      "development": {
+        "types": "./src/ui/api.ts",
+        "import": "./src/ui/api.ts"
+      },
+      "types": "./dist/ui/api.d.mts",
+      "import": "./dist/ui/api.mjs",
+      "require": "./dist/ui/api.cjs"
+    },
+    "./ui/auth": {
+      "development": {
+        "types": "./src/ui/auth.ts",
+        "import": "./src/ui/auth.ts"
+      },
+      "types": "./dist/ui/auth.d.mts",
+      "import": "./dist/ui/auth.mjs",
+      "require": "./dist/ui/auth.cjs"
+    },
+    "./api": {
+      "development": {
+        "types": "./src/api/auth-middleware.ts",
+        "import": "./src/api/auth-middleware.ts"
+      },
+      "types": "./dist/api/auth-middleware.d.mts",
+      "import": "./dist/api/auth-middleware.mjs",
+      "require": "./dist/api/auth-middleware.cjs"
+    },
+    "./ui/tenant": {
+      "development": {
+        "types": "./src/ui/tenant.ts",
+        "import": "./src/ui/tenant.ts"
+      },
+      "types": "./dist/ui/tenant.d.mts",
+      "import": "./dist/ui/tenant.mjs",
+      "require": "./dist/ui/tenant.cjs"
+    },
+    "./ui/entry": {
+      "development": {
+        "types": "./src/ui/entry.ts",
+        "import": "./src/ui/entry.ts"
+      },
+      "types": "./dist/ui/entry.d.mts",
+      "import": "./dist/ui/entry.mjs",
+      "require": "./dist/ui/entry.cjs"
+    },
+    "./ui/hydrate": {
+      "development": {
+        "types": "./src/ui/hydrate.tsx",
+        "import": "./src/ui/hydrate.tsx"
+      },
+      "types": "./dist/ui/hydrate.d.mts",
+      "import": "./dist/ui/hydrate.mjs",
+      "require": "./dist/ui/hydrate.cjs"
+    },
+    "./ui/router-client": {
+      "development": {
+        "types": "./src/ui/router-client.tsx",
+        "import": "./src/ui/router-client.tsx"
+      },
+      "types": "./dist/ui/router-client.d.mts",
+      "import": "./dist/ui/router-client.mjs",
+      "require": "./dist/ui/router-client.cjs"
+    },
+    "./ui/router-server": {
+      "development": {
+        "types": "./src/ui/router-server.tsx",
+        "import": "./src/ui/router-server.tsx"
+      },
+      "types": "./dist/ui/router-server.d.mts",
+      "import": "./dist/ui/router-server.mjs",
+      "require": "./dist/ui/router-server.cjs"
+    },
+    "./ui/router-error": {
+      "development": {
+        "types": "./src/ui/router-error.tsx",
+        "import": "./src/ui/router-error.tsx"
+      },
+      "types": "./dist/ui/router-error.d.mts",
+      "import": "./dist/ui/router-error.mjs",
+      "require": "./dist/ui/router-error.cjs"
+    },
+    "./ui/router-defaults": {
+      "development": {
+        "types": "./src/ui/router-defaults.tsx",
+        "import": "./src/ui/router-defaults.tsx"
+      },
+      "types": "./dist/ui/router-defaults.d.mts",
+      "import": "./dist/ui/router-defaults.mjs",
+      "require": "./dist/ui/router-defaults.cjs"
+    },
+    "./ui/manifest": {
+      "development": {
+        "types": "./src/ui/manifest/index.ts",
+        "import": "./src/ui/manifest/index.ts"
+      },
+      "types": "./dist/ui/manifest/index.d.mts",
+      "import": "./dist/ui/manifest/index.mjs",
+      "require": "./dist/ui/manifest/index.cjs"
+    },
+    "./ui/manifest-generator": {
+      "development": {
+        "types": "./src/ui/manifest-generator.ts",
+        "import": "./src/ui/manifest-generator.ts"
+      },
+      "types": "./dist/ui/manifest-generator.d.mts",
+      "import": "./dist/ui/manifest-generator.mjs",
+      "require": "./dist/ui/manifest-generator.cjs"
+    },
     "./package.json": "./package.json",
     "./db": {
       "development": {
-        "types": "./src/db.ts",
-        "import": "./src/db.ts"
+        "types": "./src/db/index.ts",
+        "import": "./src/db/index.ts"
       },
-      "types": "./dist/db.d.mts",
-      "import": "./dist/db.mjs",
-      "require": "./dist/db.cjs"
+      "types": "./dist/db/index.d.mts",
+      "import": "./dist/db/index.mjs",
+      "require": "./dist/db/index.cjs"
     }
   },
   "files": [
@@ -211,52 +337,90 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.10.1",
-    "@effect/platform": "^0.96.1",
-    "@effect/platform-node": "^0.106.0",
     "@module-federation/enhanced": "catalog:",
     "@module-federation/node": "catalog:",
     "@module-federation/runtime-core": "catalog:",
     "chalk": "^5.6.2",
     "defu": "^6.1.7",
     "dotenv": "^17.3.1",
-    "effect": "^3.21.0",
+    "effect": "4.0.0-rc.117",
     "execa": "^9.5.2",
     "every-plugin": "catalog:",
     "glob": "^13.0.6",
-    "gradient-string": "^3.0.0",
-    "ink": "^6.8.0",
+    "near-kit": "catalog:",
     "pg": "catalog:",
-    "tar": "^7.4.3"
+    "tar": "^7.4.3",
+    "zod": "catalog:"
   },
   "peerDependencies": {
+    "@better-auth/api-key": "catalog:",
+    "@better-auth/passkey": "catalog:",
+    "@orpc/client": "catalog:",
+    "@orpc/contract": "catalog:",
+    "@orpc/tanstack-query": "catalog:",
     "@tanstack/react-query": ">=5.0.0",
     "@tanstack/react-router": ">=1.0.0",
-    "react": ">=19.0.0",
-    "react-dom": ">=19.0.0",
+    "better-auth": "catalog:",
+    "better-near-auth": "catalog:",
+    "sonner": ">=2.0.0",
     "effect": "catalog:",
     "zod": "catalog:"
   },
   "peerDependenciesMeta": {
+    "@better-auth/api-key": {
+      "optional": true
+    },
+    "@better-auth/passkey": {
+      "optional": true
+    },
+    "@orpc/client": {
+      "optional": true
+    },
+    "@orpc/contract": {
+      "optional": true
+    },
+    "@orpc/tanstack-query": {
+      "optional": true
+    },
     "@tanstack/react-query": {
       "optional": true
     },
     "@tanstack/react-router": {
       "optional": true
+    },
+    "sonner": {
+      "optional": true
+    },
+    "better-auth": {
+      "optional": true
+    },
+    "better-near-auth": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@better-auth/api-key": "catalog:",
+    "@better-auth/passkey": "catalog:",
+    "@module-federation/rsbuild-plugin": "catalog:",
+    "@orpc/client": "catalog:",
+    "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
+    "@orpc/tanstack-query": "catalog:",
+    "@rsbuild/core": "catalog:",
+    "@rsbuild/plugin-react": "catalog:",
     "@tanstack/intent": "catalog:",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
-    "@types/gradient-string": "^1.1.6",
-    "@types/node": "^22.10.2",
-    "@types/react": "catalog:",
-    "@types/react-dom": "catalog:",
+    "@tanstack/router-generator": "catalog:",
+    "@tanstack/router-plugin": "catalog:",
+    "@types/node": "catalog:",
     "@types/tar": "^7.0.0",
-    "react-devtools-core": "^7.0.1",
+    "better-auth": "catalog:",
+    "better-near-auth": "catalog:",
+    "jsdom": "^30.0.1",
     "tsdown": "^0.22.0",
-    "typescript": "^5.7.2",
+    "typescript": "^7.0.2",
     "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^4.0.18"
+    "vitest": "catalog:"
   }
 }

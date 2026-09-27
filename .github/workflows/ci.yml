@@ -23,10 +23,15 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       everything-dev: ${{ steps.changes.outputs.everything-dev }}
-      every-plugin: ${{ steps.changes.outputs.everything-plugin }}
+      every-plugin: ${{ steps.changes.outputs.every-plugin }}
+      host: ${{ steps.changes.outputs.host }}
+      regression-http: ${{ steps.changes.outputs.regression-http }}
+      regression-framework: ${{ steps.changes.outputs.regression-framework }}
+      regression-browser: ${{ steps.changes.outputs.regression-browser }}
+      regression-unit: ${{ steps.changes.outputs.regression-unit }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
           fetch-depth: 0
 
@@ -39,6 +44,11 @@ jobs:
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "everything-dev=true" >> "$GITHUB_OUTPUT"
             echo "every-plugin=true" >> "$GITHUB_OUTPUT"
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "regression-http=true" >> "$GITHUB_OUTPUT"
+            echo "regression-framework=true" >> "$GITHUB_OUTPUT"
+            echo "regression-browser=true" >> "$GITHUB_OUTPUT"
+            echo "regression-unit=true" >> "$GITHUB_OUTPUT"
             exit 0
           else
             BEFORE="${{ github.event.before }}"
@@ -50,24 +60,59 @@ jobs:
             fi
           fi
 
-          DIFF=$(git diff --name-only "$BASE" HEAD 2>/dev/null || echo "")
-          if echo "$DIFF" | grep -qE '^packages/everything-dev/|^packages/every-plugin/'; then
+          if ! DIFF=$(git diff --name-only "$BASE" HEAD); then
+            echo "everything-dev=true" >> "$GITHUB_OUTPUT"
+            echo "every-plugin=true" >> "$GITHUB_OUTPUT"
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "regression-http=true" >> "$GITHUB_OUTPUT"
+            echo "regression-framework=true" >> "$GITHUB_OUTPUT"
+            echo "regression-browser=true" >> "$GITHUB_OUTPUT"
+            echo "regression-unit=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if echo "$DIFF" | grep -qE '^tests/regression/lib/|^(package\.json|bun\.lock|bunfig\.toml|tsconfig\.json)$|^\.github/workflows/ci\.yml$'; then
+            echo "regression-unit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "regression-unit=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$DIFF" | grep -qE '^packages/everything-dev/|^packages/every-plugin/|^packages/better-near-auth/|^api/|^plugins/|^(package.json|bun.lock|bunfig.toml|tsconfig.json)$|^\.github/workflows/ci.yml$'; then
             echo "everything-dev=true" >> "$GITHUB_OUTPUT"
           else
             echo "everything-dev=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^packages/every-plugin/'; then
+          if echo "$DIFF" | grep -qE '^packages/every-plugin/|^(package.json|bun.lock|bunfig.toml|tsconfig.json)$|^\.github/workflows/ci.yml$'; then
             echo "every-plugin=true" >> "$GITHUB_OUTPUT"
           else
             echo "every-plugin=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$DIFF" | grep -qE '^host/|^ui/|^packages/|^bos\.config\.json$|^\.env\.test$|^(package\.json|bun\.lock|bunfig\.toml|tsconfig\.json)$|^\.github/workflows/ci\.yml$'; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "host=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$DIFF" | grep -qE '^tests/regression/(http|lib)/|^host/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^bos\.config\.json$|^\.env\.test$|^(package.json|bun.lock|bunfig.toml|tsconfig.json)$|^\.github/workflows/ci\.yml$'; then
+            echo "regression-http=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "regression-http=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$DIFF" | grep -qE '^tests/regression/(framework|lib)/|^packages/everything-dev/src/|^packages/every-plugin/src/|^\.env\.test$|^(package.json|bun.lock|bunfig.toml|tsconfig.json)$|^\.github/workflows/ci\.yml$'; then
+            echo "regression-framework=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "regression-framework=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$DIFF" | grep -qE '^tests/regression/(browser|lib)/|^host/|^ui/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^bos\.config\.json$|^\.env\.test$|^(package.json|bun.lock|bunfig.toml|tsconfig.json)$|^\.github/workflows/ci\.yml$'; then
+            echo "regression-browser=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "regression-browser=false" >> "$GITHUB_OUTPUT"
           fi
 
   lint-and-typecheck:
     name: Lint and Type Check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -77,11 +122,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin
-        run: bun run --cwd packages/every-plugin build
-
-      - name: Run postinstall
-        run: bun run postinstall
+      - name: Patch Effect TypeScript-Go (tsgo) and Oxlint
+        run: bun run prepare
 
       - name: Security audit
         id: audit
@@ -112,8 +154,17 @@ jobs:
       - name: Run Biome lint and format check
         run: bun biome ci .
 
+      - name: Run Effect lint (oxlint, type-aware)
+        run: bun run lint:effect
+
       - name: Run typecheck
         run: bun typecheck
+
+      # The build train: staleness-checked quiet prerequisites
+      # (every-plugin / everything-dev / better-near-auth) + the template
+      # plugin target — contract types + manifest pipeline in one call.
+      - name: Build template plugin via the train (contract types + manifest pipeline)
+        run: bun run build template
 
   framework-tests:
     name: Framework tests
@@ -123,7 +174,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -138,14 +189,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin
-        run: bun run --cwd packages/every-plugin build
-
-      - name: Run postinstall
-        run: bun run postinstall
+      - name: Build framework dists via the train
+        run: bun run build template
 
       - name: Test everything-dev
         run: bun run --cwd packages/everything-dev test
+
+      - name: Test better-near-auth
+        run: bun run --cwd packages/better-near-auth test
 
   plugin-tests:
     name: Plugin runtime tests
@@ -155,7 +206,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -165,66 +216,113 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin
-        run: bun run --cwd packages/every-plugin build
+      - name: Build every-plugin dist via the train
+        run: bun run build template
 
       - name: Test every-plugin
         run: bun run --cwd packages/every-plugin test:all
 
-  regression:
-    name: Regression
+  host-tests:
+    name: Host tests
+    needs: [detect-changes, lint-and-typecheck]
+    if: needs.detect-changes.outputs.host == 'true'
     runs-on: ubuntu-latest
-    needs: [lint-and-typecheck]
-    timeout-minutes: 30
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Patch Effect TypeScript-Go (tsgo) and Oxlint
+        run: bun run prepare
+
+      - name: Build framework dists via the train
+        run: bun run build template
+
+      - name: Test host
+        run: bun run --cwd host test
+
+  regression-unit:
+    name: Regression unit
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-and-typecheck]
+    if: needs.detect-changes.outputs.regression-unit == 'true'
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Run regression lib unit tests
+        run: bun run test:regression:unit
+
+  regression-http:
+    name: Regression HTTP (${{ matrix.command }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # dev = the dev server; start = the deployment image (ADR 0009).
+        # http is render-mode-blind, so it runs on :ssr only. The start leg
+        # pays the docker build, hence the longer timeout.
+        include:
+          - command: dev
+            timeout: 15
+          - command: start
+            timeout: 25
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-and-typecheck]
+    if: needs.detect-changes.outputs.regression-http == 'true'
+    timeout-minutes: ${{ matrix.timeout }}
     env:
       CI: true
-      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5432/api_db
-      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5433/auth_db
+      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
+      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5435/auth_test_db
       CORS_ORIGIN: http://localhost:4100
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
     services:
-      postgres-api:
+      postgres-api-test:
         image: postgres:17-alpine
         env:
           POSTGRES_USER: everythingdev
           POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: api_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
-      postgres-auth:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: auth_db
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
-      postgres-template:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: template_db
+          POSTGRES_DB: api_test_db
         ports:
           - 5434:5432
         options: >-
-          --health-cmd "pg_isready -U everythingdev"
+          --health-cmd "pg_isready -U everythingdev -d api_test_db"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+      postgres-auth-test:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: auth_test_db
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev -d auth_test_db"
           --health-interval 3s
           --health-timeout 3s
           --health-retries 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -232,22 +330,172 @@ jobs:
           bun-version: "1.3.14"
 
       - name: Setup Go
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0 (Node 24)
         with:
           go-version: "1.22"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin
-        run: bun run --cwd packages/every-plugin build
+      - name: Build every-plugin dist via the train
+        if: matrix.command == 'dev'
+        run: bun run build template
 
-      - name: Run postinstall
-        run: bun run postinstall
+      - name: Run HTTP regression suite (${{ matrix.command }})
+        run: bun run test:regression:http:${{ matrix.command }}
+
+      - name: Upload regression artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: regression-http-artifacts-${{ matrix.command }}
+          path: .bos/logs/**
+
+  regression-framework:
+    name: Regression framework (process death)
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-and-typecheck]
+    if: needs.detect-changes.outputs.regression-framework == 'true'
+    timeout-minutes: 15
+    env:
+      CI: true
+      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
+      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5435/auth_test_db
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
+    services:
+      postgres-api-test:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: api_test_db
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev -d api_test_db"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+      postgres-auth-test:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: auth_test_db
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev -d auth_test_db"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+
+      - name: Setup Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0 (Node 24)
+        with:
+          go-version: "1.22"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Build every-plugin dist via the train
+        run: bun run build template
+
+      - name: Run framework regression suite
+        run: bun run test:regression:framework
+
+      - name: Upload regression artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: regression-framework-artifacts
+          path: .bos/logs/**
+
+  regression-browser:
+    name: Regression Browser (${{ matrix.mode }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # start:* = the deployment image via `bos start --config` (full suite);
+        # dev:* = the dev server, smoke-only (ADR 0009). The start legs pay
+        # the docker build, hence the longer timeout.
+        include:
+          - mode: start:ssr
+            slug: start-ssr
+            timeout: 25
+          - mode: start:csr
+            slug: start-csr
+            timeout: 25
+          - mode: dev:ssr
+            slug: dev-ssr
+            timeout: 10
+          - mode: dev:csr
+            slug: dev-csr
+            timeout: 10
+    runs-on: ubuntu-latest
+    needs: [detect-changes, lint-and-typecheck]
+    if: needs.detect-changes.outputs.regression-browser == 'true'
+    timeout-minutes: ${{ matrix.timeout }}
+    env:
+      CI: true
+      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
+      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5435/auth_test_db
+      CORS_ORIGIN: http://localhost:4100
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
+    services:
+      postgres-api-test:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: api_test_db
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev -d api_test_db"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+      postgres-auth-test:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: auth_test_db
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev -d auth_test_db"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Build every-plugin dist via the train
+        if: startsWith(matrix.mode, 'dev:')
+        run: bun run build template
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
@@ -260,41 +508,25 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: bunx playwright install-deps chromium
 
-      - name: Run regression suite
-        run: bun run test:regression
+      - name: Resource watchdog
+        run: |
+          nohup bash -c 'while true; do
+            echo "=== watchdog $(date -u +%H:%M:%S) ==="
+            free -m
+            ps aux --sort=-rss | head -11
+            sleep 30
+          done' >> resource-watchdog.log 2>&1 &
+
+      - name: Run browser regression suite (${{ matrix.mode }})
+        run: bun run test:regression:browser:${{ matrix.mode }}
 
       - name: Upload regression artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
-          name: regression-artifacts
+          name: regression-browser-artifacts-${{ matrix.slug }}
           path: |
             .bos/logs/**
+            resource-watchdog.log
             playwright-report/**
             test-results/**
-
-  notify:
-    name: Notify downstream workflows
-    needs: [lint-and-typecheck, framework-tests, plugin-tests, regression]
-    if: |
-      always() &&
-      !contains(needs.*.result, 'failure') &&
-      github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Send repository dispatch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for i in 1 2 3; do
-            if gh api repos/${{ github.repository }}/dispatches \
-              --method POST \
-              -f event_type=ci-main-success \
-              -f "client_payload[sha]=${{ github.sha }}"; then
-              exit 0
-            fi
-            sleep 5
-          done
-          exit 1

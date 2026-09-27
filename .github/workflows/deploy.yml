@@ -1,8 +1,10 @@
 name: Deploy
 
 on:
-  repository_dispatch:
-    types: [release-completed]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       verbose:
@@ -15,58 +17,26 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/nearbuilders/everything-dev
 
 jobs:
   deploy:
     name: Deploy Production
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
-      # Zephyr server-token auth. Zephyr directly advised us to retain this flow for
-      # our workflow even though server tokens are being deprecated in favor of CI
-      # ZE_SECRET_TOKEN is used directly as the bearer token — no API exchange needed.
-      # We fall back to ZE_CI_TOKEN (below) only if ZEPHYR_AUTH_TOKEN is unset.
-      ZE_SECRET_TOKEN: ${{ secrets.ZEPHYR_AUTH_TOKEN }}
-      ZE_USER_EMAIL: ${{ secrets.ZEPHYR_USER_EMAIL }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      TARGET_BRANCH: ${{ github.ref_name }}
-      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5432/api_db
-      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5433/auth_db
-      CORS_ORIGIN: http://127.0.0.1:4100
-    services:
-      postgres-api:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: api_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
-      postgres-auth:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: everythingdev
-          POSTGRES_PASSWORD: everythingdev
-          POSTGRES_DB: auth_db
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U everythingdev"
-          --health-interval 3s
-          --health-timeout 3s
-          --health-retries 10
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
         with:
-          ref: ${{ env.TARGET_BRANCH }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -76,58 +46,83 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
+      - name: Build everything-dev
+        run: bun run --cwd packages/everything-dev build
+        # fast build path: ensure dist/ is current so workspace imports
+        # in plugins' rspack hooks resolve through the same code as src/.
+
       - name: Build every-plugin
         run: bun run --cwd packages/every-plugin build
 
-      - name: Run postinstall
-        run: bun run postinstall
-
-      - name: Install NEAR CLI
-        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/download/v0.23.5/near-cli-rs-installer.sh | sh
-
-      - name: Verify NEAR CLI
-        run: near --version
-
-      - name: Configure Zephyr CI token fallback
-        if: ${{ env.ZE_SECRET_TOKEN == '' }}
-        env:
-          ZEPHYR_CI_TOKEN: ${{ secrets.ZEPHYR_CI_TOKEN }}
-        run: |
-          echo "ZE_CI_TOKEN=$ZEPHYR_CI_TOKEN" >> "$GITHUB_ENV"
+      - name: Build better-near-auth
+        run: bun run --cwd packages/better-near-auth build
 
       - name: Publish with deploy
         timeout-minutes: 20
-        run: bun run bos publish --deploy${{ inputs.verbose == true && ' --verbose' || '' }}
+        # ADR 0020 CDN deploy: dists upload to the storage API and every
+        # bundle URL points at cdn.everything.dev. The API key is
+        # account-pinned server-side — mint it from the platform account's
+        # session (Settings → API Keys) so the root's own namespace passes
+        # pinning. Unset secret → the publish fails fast with the
+        # credential error instead of silently shipping gateway URLs.
+        env:
+          BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
+          BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
+        run: bun run bos publish --deploy --packages local${{ inputs.verbose == true && ' --verbose' || '' }}
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build and push the universal runtime image
+        timeout-minutes: 45
+        # ADR 0021: the image IS the deployment artifact — the `runtime`
+        # stage (default target) stages the boot namespace and boots
+        # `bos start`. Pushed by SHA tag so deploys pin the validated bytes.
+        run: |
+          IMAGE_TAG=sha-$(echo "${{ github.event.workflow_run.head_sha || github.sha }}" | cut -c1-7)
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> "$GITHUB_ENV"
+          docker build --target runtime -t "${IMAGE}:${IMAGE_TAG}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${IMAGE_TAG}" | tee /tmp/push.log
+          docker push "${IMAGE}:latest"
+          # Pin the deploy to the pushed digest, not the mutable tag.
+          DIGEST=$(grep -o 'sha256:[a-f0-9]*' /tmp/push.log | tail -1)
+          echo "IMAGE_DIGEST=${DIGEST}" >> "$GITHUB_ENV"
 
       - name: Install Railway CLI
-        run: npm i -g @railway/cli
+        run: npm i -g @railway/cli@5.47.1
 
-      - name: Redeploy Railway
-        run: railway redeploy --service app --yes
-
-      - name: Commit and push bos.config.json updates
+      - name: Deploy the pushed image to Railway
+        timeout-minutes: 30
+        # Pull-only deploy: a thin FROM referencing the pushed digest —
+        # Railway builds (pulls) it instead of rebuilding the workspace
+        # dists. The digest is exactly what this pipeline just validated.
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          echo "FROM ${IMAGE}@${IMAGE_DIGEST}" > Dockerfile.railway
+          RAILWAY_DOCKERFILE_PATH=Dockerfile.railway railway up --service app --ci --verbose
 
-          for i in 1 2 3 4 5; do
-            git fetch origin "$TARGET_BRANCH"
-            if ! git rebase "origin/$TARGET_BRANCH"; then
-              echo "Rebase conflict — manual intervention required"
+      - name: Verify release-train identity (mf check)
+        timeout-minutes: 5
+        run: |
+          # Gate the release train: all host/plugin bundles must agree on shared-dep
+          # versions (exact for effect-critical deps) and pluginVersion. Runs AFTER
+          # the deploy — image-native deploys serve /bundles/* from the new image,
+          # so the check can only pass once it's live.
+          attempts=10
+          until bun run bos mf check; do
+            attempts=$((attempts - 1))
+            if [ "$attempts" -le 0 ]; then
+              echo "::error::Release-train identity check failed — bundles are inconsistent (deployment did not come up healthy or skew). See bos mf check output."
               exit 1
             fi
-            git add bos.config.json
-            if git diff --cached --quiet; then
-              echo "Nothing to push after rebase (attempt $i)"
-              exit 0
-            fi
-            git commit -m "chore: update deployment URLs [skip ci]"
-            if git push origin "$TARGET_BRANCH"; then
-              echo "Push succeeded on attempt $i"
-              exit 0
-            fi
-            echo "Push attempt $i failed, retrying in $((i*5))s..."
-            sleep $((i*5))
+            echo "mf check failed; retrying in 20s ($attempts attempt(s) left)…"
+            sleep 20
           done
-          echo "All push attempts failed"
-          exit 1
+
+      - name: Deploy smoke — remote runtime against the live deployment
+        timeout-minutes: 10
+        # ADR 0009 §4: published-config coverage lives in the Deploy workflow.
+        # Boots the real host program against the live production URLs from the
+        # deployed SHA's bos.config.json — SSR compose from the deployed ui,
+        # doc-asset proxy, api ping, root document contract. mf check has
+        # already gated the site being up and consistent above.
+        run: bun run --cwd host test:integration:remote

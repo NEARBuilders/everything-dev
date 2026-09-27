@@ -275,4 +275,21 @@ describe("prepareRegistryConfigWrite", () => {
     expect(result.gas).toBe("300 Tgas");
     expect(result.attachedDeposit).toBe("0 yocto");
   });
+
+  it("targets the global registry namespace that bos:// resolution reads", async () => {
+    const { getRegistryNamespaceForNetwork } = await import("everything-dev/fastkv");
+    const { DEFAULT_REGISTRY_NAMESPACE } = await import("../services/fastkv");
+
+    expect(DEFAULT_REGISTRY_NAMESPACE).toBe(getRegistryNamespaceForNetwork("mainnet"));
+
+    const service = createRegistryMethods({ namespace: DEFAULT_REGISTRY_NAMESPACE });
+
+    const result = service.prepareRegistryConfigWrite({
+      accountId: "testing123.sputnik-dao.near",
+      gatewayId: "citynode.app",
+      config: { account: "testing123.sputnik-dao.near" },
+    });
+
+    expect(result.contractId).toBe(getRegistryNamespaceForNetwork("mainnet"));
+  });
 });

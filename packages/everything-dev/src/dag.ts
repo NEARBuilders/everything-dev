@@ -1,3 +1,4 @@
+import { isAuthMirrorPluginEntry } from "./service-descriptor";
 import type { JsonObject, RuntimeConfig, RuntimeDependencyNode } from "./types";
 
 export interface DependencyDAG {
@@ -70,6 +71,13 @@ export function normalizeToNodes(config: RuntimeConfig): Map<string, RuntimeDepe
 
   for (const [key, plugin] of Object.entries(config.plugins ?? {})) {
     if (!plugin.url) continue;
+    // The auth mirror (a plugins.auth entry mirroring app.auth) must not
+    // clobber the dedicated auth node: the mirror shares the auth backend's
+    // URL, so when it carries a filled url (production/start resolution — in
+    // dev the mirror's url stays empty) this loop would overwrite
+    // kind:"auth" with kind:"plugin" and the host would never wire the auth
+    // surface (no /api/auth/* mount, no session client).
+    if (isAuthMirrorPluginEntry(config.auth, key, plugin)) continue;
     nodes.set(key, {
       key,
       kind: "plugin",
@@ -146,7 +154,7 @@ export function topologicalSort(nodes: Map<string, RuntimeDependencyNode>): stri
   }
 
   for (const [key, node] of nodes) {
-    for (const dep of node.dependsOn ?? []) {
+    for (const dep of new Set(node.dependsOn ?? [])) {
       if (nodes.has(dep)) {
         adjacency.get(dep)!.add(key);
         inDegree.set(key, (inDegree.get(key) ?? 0) + 1);
@@ -224,7 +232,7 @@ export function getDependenciesForNode(
       .filter(Boolean) as RuntimeDependencyNode[];
   }
 
-  const explicitDeps = (node.dependsOn ?? [])
+  const explicitDeps = [...new Set(node.dependsOn ?? [])]
     .map((k) => allNodes.get(k))
     .filter(Boolean) as RuntimeDependencyNode[];
 

@@ -7,6 +7,8 @@ const HYDRATION_PATTERNS = [
   "Cannot read properties of undefined (reading 'call')",
   "Text content did not match",
   "Hydration failed because the initial UI",
+  // React 19 wording — e.g. "the server rendered text didn't match the client".
+  "Hydration failed because the server rendered",
   "Expected server HTML to contain a matching",
   "did not match server-rendered HTML",
 ];
@@ -33,6 +35,24 @@ export async function waitForApp(page: Page): Promise<void> {
     return typeof window.__RUNTIME_CONFIG__ !== "undefined";
   });
   expect(hasRuntimeConfig).toBeTruthy();
+
+  try {
+    await page.waitForFunction(
+      () => {
+        const p = (window as { __EVERYTHING_DEV_HYDRATE_PROMISE__?: Promise<void> })
+          .__EVERYTHING_DEV_HYDRATE_PROMISE__;
+        return p !== undefined;
+      },
+      { timeout: 5000 },
+    );
+    await page.evaluate(async () => {
+      const p = (window as { __EVERYTHING_DEV_HYDRATE_PROMISE__?: Promise<void> })
+        .__EVERYTHING_DEV_HYDRATE_PROMISE__;
+      if (p) await p;
+    });
+  } catch {
+    // Hydration promise never surfaced (e.g. client-shell fallback path) — proceed.
+  }
 }
 
 export function expectNoHydrationFailure(errors: PageErrors) {

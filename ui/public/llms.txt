@@ -1,28 +1,34 @@
-everything.dev is an open runtime for apps on NEAR.
+# City Nodes
 
-The site is published from every.near/everything.dev.
-It is composed at runtime from public configuration rather than built as one fixed application bundle.
+> Decentralized city nodes on NEAR — each city is a tenant with its own validator pool you can stake to.
 
-Core architecture:
-- host: runtime shell, auth boundary, request handling, runtime config loader
-- auth: authentication plugin loaded through every-plugin (Better-Auth, NEAR SIWN, organizations, API keys)
-- ui: remote interface loaded through Module Federation
-- api: remote backend loaded through every-plugin
+## Skills
 
-Canonical runtime model:
-- bos.config.json is the source of truth for runtime composition
-- config can inherit from other published records through bos:// references
-- metadata can be layered on top, but does not replace the runtime manifest
+- [Skill](/skill.md): Agent-ready prompt for talking to, running, editing, and publishing this runtime.
 
-Why it matters:
-- sites can share the same host while varying UI and API composition
-- runtime can change through published config instead of rebuild-only deployment
-- software remains more portable, inspectable, and extensible over time
+## API
 
-Useful public paths:
-- /
-- /about
-- /apps
-- /README.md
-- /skill.md
-- /site.webmanifest
+- [OpenAPI docs](/api): Interactive API reference (Scalar)
+- [OpenAPI spec](/api/spec.json): Machine-readable OpenAPI JSON
+- [oRPC RPC](/api/rpc): Typed JSON-RPC endpoint for all API procedures
+- [Plugin RPC](/api/rpc/auth): Auth plugin RPC (session, NEAR SIWN, relay, API keys, organizations)
+
+## MCP
+
+- [MCP server](/api/mcp): Model Context Protocol server (Streamable HTTP, stateless). Auto-generates tools from the API's OpenAPI spec. Connect your MCP client to discover and call all API operations.
+- [MCP discovery](/.well-known/mcp.json): JSON descriptor with server name, endpoint URL, and auth scheme.
+
+## Auth
+
+Authenticate to the API using an API key:
+
+1. Sign in with your NEAR wallet (SIWN) at the website.
+2. Go to **Settings → API Keys** at `/settings/api-keys`.
+3. Create a key — the full secret (`edk_...`) is shown once.
+4. Pass it on every request: `x-api-key: edk_your_key_here`
+
+The `x-api-key` header works for `/api/*` (REST), `/api/rpc/*` (oRPC), and `/api/mcp` (MCP).
+
+## Source
+
+- [Repository](https://github.com/NEARBuilders/citynode.app): Clone and read `AGENTS.md` for full development instructions, TanStack Intent skills, and workflow guidance.

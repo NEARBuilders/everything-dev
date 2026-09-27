@@ -1,9 +1,11 @@
+import { existsSync, watch } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import * as p from "@clack/prompts";
+import { installBundleFetchFromEnv } from "./bundle-fs-resolve";
 import { findCommandDescriptor } from "./cli/catalog";
 import { resolveFrameworkPackage } from "./cli/framework-version";
 import { printHelp } from "./cli/help";
-import { loadProjectEnv } from "./cli/infra";
 import { fetchParentConfig, runDockerComposeUp } from "./cli/init";
 import { parseCommandInput } from "./cli/parse";
 import { promptInitBasic, promptInitOverrides } from "./cli/prompts";
@@ -16,13 +18,17 @@ import type {
   InitResult,
   KillOptions,
   KillResult,
+  LogsOptions,
+  LogsResult,
   OverrideSection,
   PsResult,
   StartOptions,
   StartResult,
+  TypecheckWorkspaceResult,
 } from "./contract";
-import type { ProgressEvent, StartSummary } from "./plugin";
-import bosPlugin, { consumeDevSession, pluginEvents } from "./plugin";
+import type { StartSummary } from "./dev-program";
+import bosPlugin, { consumeDevSession } from "./plugin";
+import { type ProgressEvent, pluginEvents } from "./progress";
 import { createPluginRuntime } from "./sdk";
 import { printBanner } from "./utils/banner";
 import { colors, frames, gradients, icons } from "./utils/theme";
@@ -138,17 +144,21 @@ async function warnIfOutdated(client: any, command: string): Promise<void> {
 
     if (outdated.length === 0) return;
 
-    console.log();
-    console.log(colors.yellow(`  ! Outdated packages detected:`));
+    const warn = (line: string) => {
+      if (command === "dev" || command === "start") process.stderr.write(`${line}\n`);
+      else console.log(line);
+    };
+    warn("");
+    warn(colors.yellow(`  ! Outdated packages detected:`));
     for (const pkg of outdated) {
-      console.log(colors.dim(`    ${pkg.name}  ${pkg.installed} → ${pkg.latest}`));
+      warn(colors.dim(`    ${pkg.name}  ${pkg.installed} → ${pkg.latest}`));
     }
-    console.log(
+    warn(
       colors.dim(
         `    Run ${colors.cyan("bos upgrade")} to update packages and sync template files.`,
       ),
     );
-    console.log();
+    warn("");
   } catch {
     // silently ignore if status check fails
   }
@@ -165,6 +175,7 @@ async function main() {
   const invocationArgs = args.length > 0 ? args : ["dev"];
   const command = invocationArgs[0] ?? "dev";
   const configPath = findConfigPath();
+  installBundleFetchFromEnv({ configPath });
 
   const commandMatch = findCommandDescriptor(invocationArgs);
   if (!commandMatch) {
@@ -245,10 +256,16 @@ async function main() {
       clearSpinnerStopLine();
 
       const session = consumeDevSession();
-      await outdatedWarning;
+      void outdatedWarning;
       if (session) {
         const { devApp } = await import("./dev-session");
-        devApp(session.orchestrator, session.services, session.runtimeConfig);
+        devApp(
+          session.orchestrator,
+          session.services,
+          session.runtimeConfig,
+          session.envGenerated,
+          session.shellEnv,
+        );
       }
       return;
     }
@@ -286,14 +303,20 @@ async function main() {
       startSpinner.stop("Ready");
 
       const session = consumeDevSession();
-      await outdatedWarning;
+      void outdatedWarning;
       if (session) {
         const summary = session.summary;
         if (summary) {
           printStartSummary(summary);
         }
         const { startApp } = await import("./dev-session");
-        startApp(session.orchestrator, session.services, session.runtimeConfig);
+        startApp(
+          session.orchestrator,
+          session.services,
+          session.runtimeConfig,
+          session.envGenerated,
+          session.shellEnv,
+        );
       }
       return;
     }
@@ -456,8 +479,6 @@ async function main() {
       return;
     }
 
-    await outdatedWarning;
-
     const result = await (client as any)[descriptor.key](input);
 
     if (descriptor.key === "dbStudio") {
@@ -466,30 +487,6 @@ async function main() {
         process.exit(1);
       }
 
-      const configPath = findConfigPath();
-      if (configPath) loadProjectEnv(dirname(configPath));
-
-      const { runStudioLocal, runStudioRemote } = await import("./cli/db-studio");
-      const info = {
-        key: result.plugin as string,
-        source: result.source as "local" | "remote",
-        section: result.section as "app.api" | "app.auth" | "plugins",
-        databaseSecret: result.databaseSecret as string,
-        databaseUrl: result.databaseUrl as string,
-        workspaceDir: result.workspaceDir as string | undefined,
-        projectDir: dirname(configPath ?? process.cwd()),
-      };
-
-      try {
-        if (info.source === "local" && info.workspaceDir) {
-          await runStudioLocal(info);
-        } else {
-          await runStudioRemote(info);
-        }
-      } catch (error) {
-        console.error(`[CLI] ${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
-      }
       return;
     }
 
@@ -828,6 +825,55 @@ async function main() {
       return;
     }
 
+    if (descriptor.key === "logs") {
+      const logsResult = result as LogsResult;
+      const opts = input as LogsOptions;
+      for (const line of logsResult.lines) {
+        console.log(line);
+      }
+      if (logsResult.lines.length === 0) {
+        console.log(colors.dim(`  No matching log lines in ${logsResult.logFile}.`));
+      }
+      if (opts.follow) {
+        if (logsResult.logFile === "unknown" || !existsSync(logsResult.logFile)) {
+          console.log(colors.dim("  No log file to follow — nothing was found on disk."));
+        } else {
+          const filter = opts.service;
+          let byteOffset = 0;
+          for (const line of logsResult.lines) byteOffset += Buffer.byteLength(line, "utf8") + 1;
+          const followMatch = (line: string): boolean => {
+            if (!filter) return true;
+            const source = /\] \[([^\]]+)\] \[(?:OUT|ERR)\] /.exec(line)?.[1];
+            return source === filter || source === `plugin:${filter}`;
+          };
+          const watcher = watch(logsResult.logFile, (event) => {
+            if (event !== "change") return;
+            void readFile(logsResult.logFile, "utf8")
+              .then((text) => {
+                const newLines = text
+                  .slice(byteOffset)
+                  .split("\n")
+                  .filter((line) => line.length > 0 && followMatch(line));
+                byteOffset = Buffer.byteLength(text, "utf8");
+                for (const line of newLines) {
+                  console.log(line);
+                }
+              })
+              .catch(() => {
+                // the followed file was rotated or deleted — stop following
+                watcher.close();
+              });
+          });
+          console.log(colors.dim("  Following — Ctrl+C to stop."));
+          process.on("SIGINT", () => {
+            watcher.close();
+            process.exit(0);
+          });
+        }
+      }
+      return;
+    }
+
     if (descriptor.key === "kill") {
       const killResult = result as KillResult;
       console.log();
@@ -913,9 +959,99 @@ async function main() {
       return;
     }
 
+    if (descriptor.key === "typecheck") {
+      console.log();
+      if (result.status === "error") {
+        console.error(`[CLI] ${result.error || "Unknown error"}`);
+        process.exit(1);
+      }
+      const failed = result.results.filter((r: TypecheckWorkspaceResult) => !r.passed);
+      const passed = result.results.filter((r: TypecheckWorkspaceResult) => r.passed);
+      console.log(colors.cyan(frames.top(52)));
+      console.log(`  ${icons.app} ${gradients.cyber("TYPECHECK")}`);
+      console.log(colors.cyan(frames.bottom(52)));
+      console.log();
+      for (const r of result.results) {
+        const icon = r.passed ? colors.green("✓") : colors.error("✗");
+        console.log(`  ${icon} ${r.workspace}`);
+      }
+      if (result.skipped.length > 0) {
+        console.log(`  ${colors.dim(`Skipped: ${result.skipped.join(", ")}`)}`);
+      }
+      console.log();
+      if (failed.length > 0) {
+        console.log(`  ${colors.error(`${failed.length} failed`)}`);
+        for (const f of failed) {
+          if (f.error) console.log(`    ${colors.dim(f.error)}`);
+        }
+        console.log();
+        process.exit(1);
+      }
+      console.log(`  ${colors.green(`${passed.length} passed`)}`);
+      console.log();
+      return;
+    }
+
+    if (descriptor.key === "mfCheck") {
+      console.log();
+      console.log(
+        `  ${colors.dim("Host")}   ${result.hostReachable ? colors.green("OK  ") : colors.error("FAIL")}  ${
+          result.hostVersion ?? "unreachable"
+        }${result.hostReason ? `  (${result.hostReason})` : ""}`,
+      );
+      for (const r of result.remotes) {
+        const tag = r.ok ? colors.green("OK  ") : colors.error("FAIL");
+        console.log(
+          `  ${colors.dim(r.role.padEnd(10))} ${tag} ${r.url}  pluginVersion=${r.pluginVersion ?? "?"}${
+            r.reason ? `  ↳ ${r.reason}` : ""
+          }`,
+        );
+      }
+      console.log();
+      if (result.status !== "ok") {
+        console.log(
+          colors.error(
+            "  mf-compat: ✗ federation manifests NOT compatible — redeploy affected plugin(s) so pluginVersion and shared versions match host",
+          ),
+        );
+        console.log();
+        process.exit(1);
+      }
+      console.log(colors.green("  mf-compat: ✓ all federation manifests compatible"));
+      console.log();
+      return;
+    }
+
     if (result?.status === "error" && descriptor.key !== "publish" && descriptor.key !== "deploy") {
       console.error(`[CLI] ${result.error || "Unknown error"}`);
       process.exit(1);
+    }
+
+    if (descriptor.key === "login") {
+      console.log();
+      console.log(colors.green(`${icons.ok} Logged in to ${result.siteUrl}`));
+      if (result.accountId) console.log(`  ${colors.dim("Account:")} ${result.accountId}`);
+      if (result.expiresAt) console.log(`  ${colors.dim("Expires:")} ${result.expiresAt}`);
+      if (result.warning) console.log(`  ${colors.yellow("⚠")} ${result.warning}`);
+      if (result.publishKey) {
+        console.log(
+          `  ${colors.dim("Publish key:")} ${result.publishKey.publicKey} ${colors.dim(
+            `(${result.publishKey.network}, exported to ${result.publishKey.exportedTo})`,
+          )}`,
+        );
+      }
+      console.log();
+      return;
+    }
+
+    if (descriptor.key === "logout") {
+      console.log();
+      console.log(colors.green(`${icons.ok} Logged out`));
+      if (result.revokedApiKey) console.log(`  ${colors.dim("Revoked API key")}`);
+      if (result.removedPublishKey) console.log(`  ${colors.dim("Removed exported publish key")}`);
+      if (result.warning) console.log(`  ${colors.yellow("⚠")} ${result.warning}`);
+      console.log();
+      return;
     }
 
     if (descriptor.key === "keyPublish") {
@@ -923,10 +1059,16 @@ async function main() {
       process.stdout.write(`  Network: ${result.network}\n`);
       process.stdout.write(`  Allowance: ${result.allowance}\n`);
       process.stdout.write(`\n`);
+      const secretName = result.env === "staging" ? "NEAR_TESTNET_PRIVATE_KEY" : "NEAR_PRIVATE_KEY";
+      if (!process.stdout.isTTY) {
+        process.stderr.write(
+          `  ⚠ Non-interactive stdout: this private key will be captured in any log or pipe (GitHub Actions logs persist stdout).\n`,
+        );
+      }
       process.stdout.write(
-        `  Set this as NEAR_PRIVATE_KEY in GitHub Actions or before calling publish:\n`,
+        `  Set this as ${secretName} in GitHub Actions or before calling publish:\n`,
       );
-      process.stdout.write(`  NEAR_PRIVATE_KEY=${result.privateKey}\n`);
+      process.stdout.write(`${secretName}=${result.privateKey}\n`);
     }
 
     if (descriptor.key === "pluginAdd") {
@@ -972,6 +1114,30 @@ async function main() {
       if (result.path) console.log(`  ${colors.dim("Path:")} ${result.path}`);
       if (result.script) console.log(`  ${colors.dim("Script:")} bun run ${result.script}`);
       if (result.production) console.log(`  ${colors.dim("Production:")} ${result.production}`);
+      console.log();
+      return;
+    }
+
+    if (descriptor.key === "registryUse") {
+      console.log();
+      if (result.status === "error") {
+        console.error(colors.error(`${icons.err} ${result.error || "Unknown error"}`));
+        process.exit(1);
+      }
+      console.log(
+        colors.green(
+          `${icons.ok} ${result.status === "dry-run" ? "Dry run" : "Composed"} from ${result.from}`,
+        ),
+      );
+      for (const section of result.applied) {
+        console.log(`  ${colors.green("+")} ${section}`);
+      }
+      if (result.configPath) {
+        console.log(`  ${colors.dim("Config:")} ${result.configPath}`);
+      }
+      if (result.status === "updated") {
+        console.log(colors.dim("  Run bos types gen to refresh generated types."));
+      }
       console.log();
       return;
     }
@@ -1110,6 +1276,11 @@ async function main() {
         console.log();
         process.exit(1);
       }
+    }
+
+    if (descriptor.key === "infraExport") {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
     }
   } catch (error) {
     console.error(`[CLI] ${error instanceof Error ? error.message : String(error)}`);

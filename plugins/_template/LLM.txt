@@ -29,9 +29,9 @@ plugins/your-plugin/
 The contract defines what procedures your plugin exposes.
 
 ```typescript
-import { CommonPluginErrors } from "every-plugin";
-import { eventIterator, oc } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
+import { PluginErrors } from "every-plugin";
+import { eventIterator, oc } from "@orpc/contract";
+import { z } from "zod";
 
 // Define schemas for your data types
 export const ItemSchema = z.object({
@@ -47,7 +47,7 @@ export const contract = oc.router({
     .route({ method: 'GET', path: '/items/{id}' })
     .input(z.object({ id: z.string() }))
     .output(z.object({ item: ItemSchema }))
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Server-side streaming
   search: oc
@@ -60,7 +60,7 @@ export const contract = oc.router({
       item: ItemSchema,
       score: z.number()
     })))
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Health check
   ping: oc
@@ -69,14 +69,14 @@ export const contract = oc.router({
       status: z.literal('ok'),
       timestamp: z.string() 
     }))
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 });
 ```
 
 **Key Concepts:**
 - Use `z.object()` for complex types
 - Use `eventIterator()` for streaming procedures
-- Always include `.errors(CommonPluginErrors)` for standard error handling
+- Always include `.errors(PluginErrors)` for standard error handling
 - Define meaningful HTTP methods and paths
 
 ### Step 2: Create Your Service (service.ts)
@@ -84,8 +84,8 @@ export const contract = oc.router({
 The service wraps your external API using a plain TypeScript class with Effect error handling:
 
 ```typescript
-import { Effect } from "every-plugin/effect";
-import { z } from "every-plugin/zod";
+import { Effect } from "effect";
+import { z } from "zod";
 import type { ItemSchema } from "./contract";
 
 type Item = z.infer<typeof ItemSchema>;
@@ -173,10 +173,9 @@ export class YourService {
 Wire everything together using `createPlugin`:
 
 ```typescript
+import { Effect } from "effect";
 import { createPlugin } from "every-plugin";
-import { Effect } from "every-plugin/effect";
-import { implement } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
+import { z } from "zod";
 import { contract } from "./contract";
 import { YourService } from "./service";
 
@@ -259,8 +258,8 @@ Plugins often need to continuously process data or broadcast events to multiple 
 MemoryPublisher provides **broadcast semantics** - all subscribers receive the same events. This is the correct pattern for plugins that mount onto HTTP servers where multiple clients stream data from the same plugin instance.
 
 ```typescript
-import { Effect } from "every-plugin/effect";
-import { MemoryPublisher } from "every-plugin/orpc";
+import { Effect } from "effect";
+import { MemoryPublisher } from "@orpc/publisher/memory";
 
 // Define event channels and their payloads
 type BackgroundEvents = {
@@ -368,11 +367,11 @@ createRouter: (context, builder) => {
 **Scaling to Redis:**
 ```typescript
 // Development: MemoryPublisher (single instance)
-import { MemoryPublisher } from 'every-plugin/orpc';
+import { MemoryPublisher } from '@orpc/publisher/memory';
 const publisher = new MemoryPublisher<Events>({ resumeRetentionSeconds: 120 });
 
 // Production: IORedisPublisher (multi-instance)
-import { IORedisPublisher } from 'every-plugin/orpc';
+import { IORedisPublisher } from '@orpc/publisher/redis';
 import Redis from 'ioredis';
 const redis = new Redis(process.env.REDIS_URL);
 const publisher = new IORedisPublisher<Events>(redis, {
@@ -388,7 +387,7 @@ const publisher = new IORedisPublisher<Events>(redis, {
 Queue provides **work distribution semantics** - each item added to the queue gets consumed by one worker. Use this for background task processing, not for streaming to multiple clients.
 
 ```typescript
-import { Effect, Queue } from "every-plugin/effect";
+import { Queue, Effect } from "effect";
 
 // In initialize
 initialize: (config) =>
@@ -437,7 +436,7 @@ const enqueueTask = builder.enqueueTask.handler(async ({ input }) => {
 
 ### Error Handling
 
-Transform external errors to CommonPluginErrors:
+Transform external errors to PluginErrors:
 
 ```typescript
 import { PluginConfigurationError } from "every-plugin";
@@ -472,7 +471,7 @@ getById(id: string) {
   });
 }
 
-// In createRouter - map to CommonPluginErrors
+// In createRouter - map to PluginErrors
 const getById = builder.getById.handler(async ({ input, errors }) => {
   try {
     const item = await Effect.runPromise(service.getById(input.id));
@@ -543,7 +542,7 @@ webhook: oc
   .route({ method: 'POST', path: '/webhook' })
   .input(WebhookPayloadSchema)
   .output(z.object({ processed: z.boolean() }))
-  .errors(CommonPluginErrors),
+  .errors(PluginErrors),
 
 // In initialize - create queue for webhook events
 const webhookQueue = yield* Effect.acquireRelease(
@@ -583,7 +582,7 @@ const stream = builder.stream.handler(async function* ({ input }) => {
 ### Error Handling
 - Always wrap external calls in `Effect.tryPromise`
 - Provide meaningful error messages with context
-- Use `CommonPluginErrors` in handlers for standard errors
+- Use `PluginErrors` in handlers for standard errors
 - Re-throw configuration errors after catching
 
 ### Testing
@@ -615,7 +614,7 @@ export const contract = oc.router({
   getData: oc.route({ method: 'GET', path: '/data' })
     .input(z.object({ id: z.string() }))
     .output(z.object({ data: DataSchema }))
-    .errors(CommonPluginErrors)
+    .errors(PluginErrors)
 });
 
 // service.ts

@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "every-plugin/effect";
+import { Context, Effect, Layer } from "effect";
 import type { BosConfigInput } from "everything-dev";
 import { mergeBosConfigWithExtends, resolveExtendsRef } from "everything-dev/config";
 import { decodeSignedDelegateAction, isPrivateKey, Near } from "near-kit";
@@ -185,7 +185,7 @@ export interface PreparedKvWrite {
   attachedDeposit: string;
 }
 
-export class RegistryService extends Context.Tag("registry/RegistryService")<
+export class RegistryService extends Context.Service<
   RegistryService,
   {
     listRegistryApps: (input: RegistryListInput) => Promise<{
@@ -222,7 +222,7 @@ export class RegistryService extends Context.Tag("registry/RegistryService")<
     kvPrepareWrite: (entries: KvWriteEntry[]) => PreparedKvWrite;
     kvRelayWrite: (signedDelegateActionPayload: string) => Promise<RegistryRelayResult>;
   }
->() {
+>()("registry/RegistryService") {
   static Live = Layer.effect(
     RegistryService,
     Effect.gen(function* () {
@@ -837,7 +837,11 @@ function readString(value: unknown) {
 }
 
 function buildOpenUrl(domain: string | null) {
-  return domain ? `https://${domain}` : null;
+  if (!domain) return null;
+  if (domain.endsWith(".localhost") || domain === "localhost" || domain === "127.0.0.1") {
+    return null;
+  }
+  return `https://${domain}`;
 }
 
 function sanitizeNullable(value: string | undefined) {

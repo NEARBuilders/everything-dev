@@ -109,7 +109,7 @@ describe("plugin UI runtime config", () => {
         apps: {
           name: "isolated-apps",
           production: "https://isolated-apps.test.dev",
-          routes: ["ui/src/routes/_layout/apps/**"],
+          routes: ["ui/src/routes/_layout/_public/apps/**"],
         },
       },
     });
@@ -130,7 +130,7 @@ describe("plugin UI runtime config", () => {
 
     expect(pluginRuntime?.apps.name).toBe("isolated-apps");
     expect(pluginRuntime?.apps.url).toBe("https://isolated-apps.test.dev");
-    expect(pluginRuntime?.apps.routes).toEqual(["ui/src/routes/_layout/apps/**"]);
+    expect(pluginRuntime?.apps.routes).toEqual(["ui/src/routes/_layout/_public/apps/**"]);
   });
 
   it("does not resolve remote local targets against the consumer root", async () => {

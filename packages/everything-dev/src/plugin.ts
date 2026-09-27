@@ -1,28 +1,34 @@
-import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
-import { Effect } from "effect";
-import { buildRuntimeConfig, detectLocalPackages, PortAllocatorLive } from "./app";
+import * as p from "@clack/prompts";
+import { Context, Effect, Layer } from "effect";
+import { buildScoped, buildScopedContext } from "every-plugin";
+import { type KeyPair, parseKey } from "near-kit";
+import { buildRuntimeConfig, probePortBindable } from "./app";
+import { openInBrowser, startDeviceLogin } from "./auth-login";
 import {
-  buildEveryPluginQuietly,
-  buildEverythingDevQuietly,
+  deleteSessionHandle,
+  nearCredentialsPath,
+  readSessionHandle,
+  removePublishedKeyFile,
+  type SessionCredential,
+  writeSessionHandle,
+} from "./auth-session";
+import {
   buildWorkspaceTargets,
   fileExists,
   getPluginRef,
   readJsonFile,
   selectWorkspaceTargets,
 } from "./build";
-import {
-  ensureEnvFile,
-  loadProjectEnv,
-  syncGeneratedInfra,
-  writeGeneratedInfra,
-} from "./cli/infra";
+import { buildCiInfraPlan, type CiInfraPlan } from "./cli/infra";
 import {
   buildInitPatterns,
   buildPluginRouteExclusions,
+  convertChildConfigToAppForm,
   copyFilteredFiles,
   detectGitRemoteUrl,
   fetchParentConfig,
@@ -37,15 +43,14 @@ import {
   stripOrphanedWorkspacesFromLockfile,
   writeInitSnapshot,
 } from "./cli/init";
+import { pruneUnusedUiFiles } from "./cli/prune";
 import { getStatus } from "./cli/status";
 import { syncTemplate } from "./cli/sync";
 import { upgradeTemplate } from "./cli/upgrade";
 import { generateCodeArtifacts } from "./code-artifacts";
 import {
-  buildRuntimePluginsForConfig,
   drainConfigWarnings,
   findConfigPath,
-  getHostDevelopmentPort,
   getProjectRoot,
   loadLocalConfig,
   loadResolvedConfig,
@@ -53,6 +58,7 @@ import {
   resumeWarnings,
   suppressWarnings,
 } from "./config";
+import type { LoginResult } from "./contract";
 import {
   type BosConfigResult,
   bosContract,
@@ -61,65 +67,58 @@ import {
   type PluginListResult,
 } from "./contract";
 import {
-  buildRegistryConfigUrl,
+  DatabaseBindings,
+  type DatabaseBindingsService,
+  DrizzleKit,
+  type DrizzleKitService,
+  makeDatabaseBindings,
+  makeDrizzleKitLive,
+} from "./db";
+import { readDevLatestLog, resolveDevLatestFile } from "./dev-logs";
+import {
+  bootstrapLayers,
+  type DevSessionData,
+  devBootstrap,
+  resolveProxyUrl,
+  type StartSummary,
+  startBootstrap,
+} from "./dev-program";
+import { makeProjectEnv, ProjectEnv, ProjectEnvLive } from "./env/project-env";
+import {
   fetchBosConfigFromFastKv,
   fetchRemotePluginManifest,
   getRegistryNamespaceForAccount,
   type PluginManifest,
   parseBosUrl,
 } from "./fastkv";
-import { planInfra } from "./infra/planner";
-import { preflightLocalInfra } from "./infra/preflight";
-import type { InfraPlan } from "./infra/types";
-import { computeSriHashForUrl, parseDeployLines } from "./integrity";
+import { materializeViaLayer } from "./infra/materializer";
+import { ownerOfPort } from "./infra/port-ownership";
 import { type BosEnv, mergeBosConfigWithExtends, resolveExtendsRef } from "./merge";
+import { checkFederationCompat } from "./mf";
 import {
   addFunctionCallAccessKey,
   deleteAccessKeys,
   ensureNearCli,
+  generateNearKeyPair,
   listPublishKeys,
 } from "./near-cli";
 import { getNetworkIdForAccount } from "./network";
-import { pruneDeadEffect, readRegistry, unregisterPid } from "./process-registry";
-import { extractPublishedUrl, publishToFastKv } from "./publish";
+import { applyPluginPublishUrl } from "./platform-deploy";
+import { killProcessGroupEscalating, reapGroup } from "./process-kill";
+import { isPidAlive, pruneDeadEffect, readRegistry, unregisterPid } from "./process-registry";
+import { timePhase } from "./progress";
+import { publishToFastKv } from "./publish";
+import { applyRegistrySections } from "./registry-use";
 import { createPlugin, z } from "./sdk";
-import {
-  type AppOrchestrator,
-  buildDescription,
-  buildServiceDescriptorMap,
-  buildServiceDescriptorMapFromPlan,
-  type ServiceDescriptor,
-} from "./service-descriptor";
 import { syncResolvedSharedDeps } from "./shared-deps";
-import type { BosConfig, BosConfigInput, ExtendsConfig, RuntimeConfig, SourceMode } from "./types";
+import type { BosConfig, BosConfigInput, ExtendsConfig, RuntimeConfig } from "./types";
 import { BosConfigSchema } from "./types";
 import { run } from "./utils/run";
 import { saveBosConfig } from "./utils/save-config";
 import { colors } from "./utils/theme";
 
-export interface DevSessionData {
-  orchestrator: AppOrchestrator;
-  services: Map<string, ServiceDescriptor>;
-  runtimeConfig: RuntimeConfig;
-}
-
-export interface StartSummary {
-  configSource: string;
-  configSourceHttp?: string;
-  account: string;
-  domain?: string;
-  modules: { host?: string; ui?: string; api?: string; auth?: string };
-  warnings: string[];
-}
-
-export type ProgressEvent = {
-  phase: string;
-  status: "running" | "done" | "error";
-  durationMs?: number;
-  message?: string;
-};
-
-export const pluginEvents = new EventEmitter();
+export type { DevSessionData, StartSummary } from "./dev-program";
+export { type ProgressEvent, pluginEvents } from "./progress";
 
 let pendingSession: DevSessionData | null = null;
 let pendingStartSummary: StartSummary | null = null;
@@ -133,46 +132,19 @@ export function consumeDevSession(): (DevSessionData & { summary?: StartSummary 
   return summary ? { ...data, summary } : data;
 }
 
-async function timePhase<T>(
-  timings: PhaseTiming[],
-  name: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  pluginEvents.emit("progress", { phase: name, status: "running" } satisfies ProgressEvent);
-  const startedAt = Date.now();
-  try {
-    const result = await fn();
-    timings.push({ name, durationMs: Date.now() - startedAt });
-    pluginEvents.emit("progress", {
-      phase: name,
-      status: "done",
-      durationMs: Date.now() - startedAt,
-    } satisfies ProgressEvent);
-    return result;
-  } catch (error) {
-    pluginEvents.emit("progress", {
-      phase: name,
-      status: "error",
-      durationMs: Date.now() - startedAt,
-    } satisfies ProgressEvent);
-    throw error;
-  }
-}
-
 const PUBLISH_FUNCTION_NAMES = ["__fastdata_kv"];
 
 type BosDeps = {
   bosConfig: BosConfig | null;
   runtimeConfig: RuntimeConfig | null;
   configDir: string;
+  databaseBindings: DatabaseBindingsService;
+  drizzleKit: DrizzleKitService;
 };
 
-type PluginAttachmentConfig = NonNullable<BosConfig["plugins"]>[string];
+class BosDepsTag extends Context.Service<BosDepsTag, BosDeps>()("bos/BosDeps") {}
 
-function parseSourceMode(value: string | undefined, defaultValue: SourceMode): SourceMode {
-  if (value === "local" || value === "remote") return value;
-  return defaultValue;
-}
+type PluginAttachmentConfig = NonNullable<BosConfig["plugins"]>[string];
 
 function buildConfigResult(
   bosConfig: BosConfigInput | BosConfig | null,
@@ -188,24 +160,6 @@ function buildConfigResult(
     remotes,
     full,
   };
-}
-
-function isValidProxyUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function resolveProxyUrl(bosConfig: BosConfig | null): string | null {
-  if (!bosConfig) return null;
-  const apiConfig = bosConfig.app.api;
-  if (!apiConfig) return null;
-  if (apiConfig.proxy && isValidProxyUrl(apiConfig.proxy)) return apiConfig.proxy;
-  if (apiConfig.production && isValidProxyUrl(apiConfig.production)) return apiConfig.production;
-  return null;
 }
 
 function sanitizePluginKey(value: string): string {
@@ -267,6 +221,7 @@ export async function resolveRemoteConfigChain(
   accountId: string,
   gatewayId: string,
   visited: Set<string>,
+  registry?: string,
 ): Promise<BosConfig> {
   const selfRef = `bos://${accountId}/${gatewayId}`;
   if (visited.has(selfRef)) {
@@ -276,7 +231,7 @@ export async function resolveRemoteConfigChain(
   const nextVisited = new Set(visited);
   nextVisited.add(selfRef);
 
-  const config = await fetchBosConfigFromFastKv<BosConfigInput>(selfRef);
+  const config = await fetchBosConfigFromFastKv<BosConfigInput>(selfRef, registry);
   const parentRef = config.extends
     ? resolveExtendsRef(config.extends as string | ExtendsConfig, "production")
     : undefined;
@@ -290,6 +245,7 @@ export async function resolveRemoteConfigChain(
       parentAccountId,
       parentGatewayId,
       nextVisited,
+      registry,
     );
     merged = mergeBosConfigWithExtends(parentResolved as BosConfigInput, config);
   }
@@ -300,14 +256,108 @@ export async function resolveRemoteConfigChain(
 async function fetchPublishedConfig(
   accountId: string,
   gatewayId: string,
+  registry?: string,
 ): Promise<BosConfig | null> {
   try {
-    return await resolveRemoteConfigChain(accountId, gatewayId, new Set());
+    return await resolveRemoteConfigChain(accountId, gatewayId, new Set(), registry);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("No config found")) {
       return null;
     }
     throw error;
+  }
+}
+
+function resolveLoginSiteUrl(
+  siteInput: string | undefined,
+  deps: { bosConfig: BosConfig | null; runtimeConfig: RuntimeConfig | null },
+  staging: boolean,
+): string {
+  if (siteInput) {
+    return siteInput.replace(/\/+$/, "");
+  }
+  if (staging) {
+    const stagingDomain = deps.bosConfig?.staging?.domain ?? deps.bosConfig?.domain;
+    return stagingDomain ? `https://${stagingDomain}` : (deps.runtimeConfig?.ui?.url ?? "");
+  }
+  const devUiUrl = deps.runtimeConfig?.ui?.url;
+  if (devUiUrl && /^https?:\/\/(localhost|127\.0\.0\.1)/.test(devUiUrl)) {
+    return devUiUrl.replace(/\/+$/, "");
+  }
+  const domain = deps.bosConfig?.domain;
+  return domain ? `https://${domain}` : "";
+}
+
+async function exportPublishKey(
+  account: string,
+  registry: string | undefined,
+): Promise<NonNullable<LoginResult["publishKey"]>> {
+  if (!account) {
+    throw new Error("bos.config.json has no account to export a publish key for");
+  }
+
+  await Effect.runPromise(ensureNearCli);
+
+  const network = getNetworkIdForAccount(account);
+  const contract = getRegistryNamespaceForAccount(account, registry);
+  await listPublishKeys({ account, contract, network });
+
+  const keyPair = generateNearKeyPair();
+  await addFunctionCallAccessKey({
+    account,
+    contract,
+    allowance: "1NEAR",
+    functionNames: PUBLISH_FUNCTION_NAMES,
+    network,
+    keyPair,
+  });
+
+  const { FileKeyStore } = await import("near-kit/keys/file");
+  const keyStore = new FileKeyStore("~/.near-credentials", network);
+  await keyStore.add(account, parseNearPrivateKey(keyPair.privateKey));
+  try {
+    const { statSync, chmodSync } = await import("node:fs");
+    const { homedir } = await import("node:os");
+    const credentialPath = join(
+      homedir(),
+      ".near-credentials",
+      network === "mainnet" ? "mainnet" : network,
+      `${account}.json`,
+    );
+    if (statSync(credentialPath).mode & 0o077) {
+      chmodSync(credentialPath, 0o600);
+    }
+  } catch {
+    // best-effort tightening; near-kit owns the write path
+  }
+
+  return {
+    publicKey: keyPair.publicKey,
+    network,
+    contract,
+    exportedTo: nearCredentialsPath(network, account),
+  };
+}
+
+function parseNearPrivateKey(privateKey: string): KeyPair {
+  return parseKey(privateKey) as KeyPair;
+}
+
+async function revokeApiKey(credential: SessionCredential): Promise<boolean> {
+  if (!credential.apiKey || !credential.siteUrl) return false;
+  try {
+    const response = await fetch(`${credential.siteUrl}/api/auth/api-key/delete`, {
+      method: "POST",
+      headers: {
+        "x-api-key": credential.apiKey,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ keyId: credential.apiKeyId }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 
@@ -317,18 +367,55 @@ export default createPlugin({
   }),
   secrets: z.object({}),
   contract: bosContract,
-  initialize: (config) =>
-    Effect.promise(async () => {
-      const configResult = await loadResolvedConfig({ path: config.variables.configPath });
-      return {
-        bosConfig: configResult?.config ?? null,
-        runtimeConfig: configResult?.runtime ?? null,
-        configDir: getProjectRoot(),
-      } satisfies BosDeps;
+  initialize: (config, _plugins) =>
+    Effect.gen(function* () {
+      const base = yield* Effect.promise(async () => {
+        const configResult = await loadResolvedConfig({
+          path: config.variables.configPath,
+        });
+        return {
+          bosConfig: configResult?.config ?? null,
+          runtimeConfig: configResult?.runtime ?? null,
+          configDir: getProjectRoot(),
+        };
+      });
+
+      const projectEnv = yield* buildScoped(ProjectEnv, ProjectEnvLive);
+
+      const services = yield* buildScopedContext(
+        Layer.mergeAll(
+          makeDatabaseBindings({
+            projectDir: base.configDir,
+            loadRuntimeConfig: async () =>
+              (await loadResolvedConfig({ cwd: base.configDir }))?.runtime ?? null,
+            loadEnv: () =>
+              projectEnv.load(base.configDir).pipe(
+                Effect.catchTag("EnvLoadError", (error) =>
+                  Effect.fail(
+                    new Error(
+                      `failed to load .env: ${error.cause instanceof Error ? error.cause.message : String(error.cause)}`,
+                    ),
+                  ),
+                ),
+                Effect.runPromise,
+              ),
+          }),
+          makeDrizzleKitLive({
+            projectDir: base.configDir,
+            onLog: (message) => p.log.info(message),
+          }),
+        ),
+      );
+
+      return Layer.succeed(BosDepsTag, {
+        ...base,
+        databaseBindings: Context.get(services, DatabaseBindings),
+        drizzleKit: Context.get(services, DrizzleKit),
+      } satisfies BosDeps);
     }),
-  shutdown: () => Effect.void,
-  createRouter: (deps, builder) => ({
-    config: builder.config.handler(async ({ input }) => {
+  createRouter: (builder) => ({
+    config: builder.config.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       if (input.full) {
         return buildConfigResult(deps.bosConfig, true);
       }
@@ -337,7 +424,49 @@ export default createPlugin({
       return buildConfigResult(localConfig?.config ?? null, false);
     }),
 
-    pluginAdd: builder.pluginAdd.handler(async ({ input }) => {
+    registryUse: builder.registryUse.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
+      const configPath = join(deps.configDir, "bos.config.json");
+      const normalizedFrom = input.from.startsWith("bos://") ? input.from : `bos://${input.from}`;
+
+      try {
+        const remote = await fetchBosConfigFromFastKv<Record<string, unknown>>(normalizedFrom);
+        const local = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+        const { config: merged, applied } = applyRegistrySections(
+          local as never,
+          remote as never,
+          input.sections,
+        );
+
+        if (input.dryRun) {
+          return {
+            status: "dry-run" as const,
+            from: normalizedFrom,
+            applied,
+            configPath,
+          };
+        }
+
+        writeFileSync(configPath, `${JSON.stringify(merged, null, 2)}\n`);
+
+        return {
+          status: "updated" as const,
+          from: normalizedFrom,
+          applied,
+          configPath,
+        };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          from: normalizedFrom,
+          applied: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
+
+    pluginAdd: builder.pluginAdd.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       if (!deps.bosConfig) {
         return {
           status: "error" as const,
@@ -354,7 +483,7 @@ export default createPlugin({
       );
       const existing = deps.bosConfig.plugins?.[key];
       const existingEntry = existing && typeof existing === "object" ? existing : {};
-      const nextPlugins = { ...(deps.bosConfig.plugins ?? {}) };
+      const nextPlugins = { ...deps.bosConfig.plugins };
 
       if (isBosRef) {
         nextPlugins[key] = {
@@ -395,7 +524,8 @@ export default createPlugin({
       };
     }),
 
-    pluginRemove: builder.pluginRemove.handler(async ({ input }) => {
+    pluginRemove: builder.pluginRemove.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       if (!deps.bosConfig) {
         return {
           status: "error" as const,
@@ -412,7 +542,7 @@ export default createPlugin({
         };
       }
 
-      const nextPlugins = { ...(deps.bosConfig.plugins ?? {}) };
+      const nextPlugins = { ...deps.bosConfig.plugins };
       delete nextPlugins[input.key];
       deps.bosConfig = {
         ...deps.bosConfig,
@@ -428,7 +558,8 @@ export default createPlugin({
       };
     }),
 
-    pluginList: builder.pluginList.handler(async () => {
+    pluginList: builder.pluginList.handler(async ({ context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       const plugins: PluginListResult["plugins"] = listPluginAttachments(deps.bosConfig);
       return {
         status: "listed" as const,
@@ -436,7 +567,8 @@ export default createPlugin({
       };
     }),
 
-    pluginPublish: builder.pluginPublish.handler(async ({ input }) => {
+    pluginPublish: builder.pluginPublish.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       if (!deps.bosConfig) {
         return {
           status: "error" as const,
@@ -479,9 +611,8 @@ export default createPlugin({
         name?: string;
         version?: string;
       }>(pkgPath);
-      const script = pkgJson.scripts?.deploy ? "deploy" : "build";
 
-      const { stdout, stderr, exitCode } = (await run("bun", ["run", script], {
+      const { stdout, stderr, exitCode } = (await run("bun", ["run", "build"], {
         cwd: localPath,
         capture: true,
       })) as { stdout: string; stderr: string; exitCode: number };
@@ -492,29 +623,42 @@ export default createPlugin({
         return {
           status: "error" as const,
           key: input.key,
-          error: `Publish failed with exit code ${exitCode}`,
+          error: `Build failed with exit code ${exitCode}`,
         };
       }
 
-      if (stdout.trim()) process.stdout.write(stdout);
-      if (stderr.trim()) process.stderr.write(stderr);
+      const account = deps.bosConfig.account;
+      const gateway = deps.bosConfig.domain;
+      if (!account || !gateway) {
+        return {
+          status: "error" as const,
+          key: input.key,
+          error: "bos.config.json must define account and domain to publish a plugin",
+        };
+      }
 
-      const output = `${stdout}\n${stderr}`;
-      const deployEntries = parseDeployLines(output);
-      const deployEntry = deployEntries.find(
-        (e) => e.urlField === `plugins.${input.key}.production`,
-      );
-
+      const rootConfigPath = join(deps.configDir, "bos.config.json");
       let publishedUrl: string | undefined;
-      let integrity: string | undefined;
-      if (deployEntry) {
-        publishedUrl = deployEntry.url;
-        integrity = deployEntry.integrity;
-      } else {
-        publishedUrl = extractPublishedUrl(output) ?? undefined;
-        integrity = publishedUrl
-          ? ((await computeSriHashForUrl(publishedUrl)) ?? undefined)
-          : undefined;
+      try {
+        const rootConfig = JSON.parse(readFileSync(rootConfigPath, "utf-8")) as Record<
+          string,
+          unknown
+        >;
+        const merged = applyPluginPublishUrl(rootConfig, {
+          origin: `https://${gateway}`,
+          account,
+          gateway,
+          key: input.key,
+        });
+        writeFileSync(rootConfigPath, `${JSON.stringify(merged, null, 2)}\n`);
+        const plugins = merged.plugins as Record<string, Record<string, unknown>> | undefined;
+        publishedUrl = plugins?.[input.key]?.production as string | undefined;
+        console.log(`   ✅ Updated bos.config.json: plugins.${input.key}.production`);
+      } catch (err) {
+        console.error(
+          `   ❌ Failed to update bos.config.json:`,
+          err instanceof Error ? err.message : err,
+        );
       }
 
       let manifest: PluginManifest | null = null;
@@ -530,35 +674,6 @@ export default createPlugin({
       const version = manifest?.plugin.version ?? pkgJson.version;
 
       if (publishedUrl) {
-        const rootConfigPath = join(deps.configDir, "bos.config.json");
-        try {
-          const rootConfig = JSON.parse(readFileSync(rootConfigPath, "utf-8")) as Record<
-            string,
-            unknown
-          >;
-          if (!rootConfig.plugins || typeof rootConfig.plugins !== "object") {
-            rootConfig.plugins = {};
-          }
-          const plugins = rootConfig.plugins as Record<string, unknown>;
-          if (!plugins[input.key] || typeof plugins[input.key] !== "object") {
-            plugins[input.key] = {};
-          }
-          const entry = plugins[input.key] as Record<string, unknown>;
-          entry.production = publishedUrl;
-          if (integrity) {
-            entry.integrity = integrity;
-          } else {
-            delete entry.integrity;
-          }
-          writeFileSync(rootConfigPath, `${JSON.stringify(rootConfig, null, 2)}\n`);
-          console.log(`   ✅ Updated bos.config.json: plugins.${input.key}.production`);
-        } catch (err) {
-          console.error(
-            `   ❌ Failed to update bos.config.json:`,
-            err instanceof Error ? err.message : err,
-          );
-        }
-
         await generateCodeArtifacts(deps.configDir, deps.bosConfig);
       }
 
@@ -566,401 +681,108 @@ export default createPlugin({
         status: "published" as const,
         key: input.key,
         path: localPath,
-        script,
+        script: "build",
         production: publishedUrl ?? attachmentRef?.production,
-        integrity: integrity ?? undefined,
         version: version ?? undefined,
       };
     }),
 
-    dev: builder.dev.handler(async ({ input }) => {
+    dev: builder.dev.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       const devTimings: PhaseTiming[] = [];
 
-      ensureEnvFile(deps.configDir);
-      loadProjectEnv(deps.configDir);
-
-      const localPackages = detectLocalPackages(
-        deps.bosConfig ?? undefined,
-        deps.runtimeConfig ?? undefined,
-      );
-
-      const hostSource: SourceMode = localPackages.includes("host")
-        ? parseSourceMode(input.host, "local")
-        : "remote";
-      const uiSource: SourceMode = localPackages.includes("ui")
-        ? parseSourceMode(input.ui, "local")
-        : "remote";
-      const apiSource: SourceMode = localPackages.includes("api")
-        ? parseSourceMode(input.api, "local")
-        : "remote";
-      const authSource: SourceMode = localPackages.includes("auth")
-        ? parseSourceMode(input.auth, "local")
-        : "remote";
-      const ssr = input.ssr ?? false;
-      const proxy = input.proxy ?? false;
-
-      const sharedSync = await timePhase(devTimings, "shared deps", () =>
-        syncResolvedSharedDeps({
-          configDir: deps.configDir,
-          hostMode: hostSource,
-          bosConfig: deps.bosConfig ?? undefined,
-          extendsChain: [],
-        }),
-      );
-      let configMayHaveChanged = false;
-      if (sharedSync.catalogChanged) {
-        await timePhase(devTimings, "install", () =>
-          run("bun", ["install"], { cwd: deps.configDir }),
-        );
-        configMayHaveChanged = true;
-      }
-      const shouldBuildPlugin =
-        (apiSource === "local" && !proxy) || localPackages.some((pkg) => pkg.startsWith("plugin:"));
-
-      await timePhase(devTimings, "build", async () => {
-        const buildTasks: Promise<void>[] = [buildEverythingDevQuietly(deps.configDir)];
-        if (shouldBuildPlugin) {
-          buildTasks.push(buildEveryPluginQuietly(deps.configDir));
-        }
-        await Promise.all(buildTasks);
-      });
-
-      let devExtendsChain: string[] | undefined;
-      if (configMayHaveChanged || input.remotePlugins !== undefined) {
-        const refreshed = await timePhase(devTimings, "resolve config", () =>
-          loadResolvedConfig({
-            cwd: deps.configDir,
-            remotePlugins: input.remotePlugins,
+      const outcome = await Effect.runPromise(
+        devBootstrap(deps, input, devTimings, { resolveProxyUrl }).pipe(
+          Effect.provide(bootstrapLayers),
+          Effect.catchTags({
+            DevConfigMissing: () => Effect.succeed({ failed: "No bos.config.json found" }),
+            DevProxyMissing: () =>
+              Effect.succeed({ failed: "No valid proxy URL configured in bos.config.json" }),
+            DevPreflightFailed: (error) =>
+              Effect.succeed({ failed: `Infra preflight failed: ${error.messages.join("; ")}` }),
           }),
-        );
-        deps.bosConfig = refreshed?.config ?? deps.bosConfig;
-        deps.runtimeConfig = refreshed?.runtime ?? deps.runtimeConfig;
-        devExtendsChain = refreshed?.source.extended;
-      }
-
-      if (!deps.bosConfig) {
-        return {
-          status: "error" as const,
-          description: "No bos.config.json found",
-          processes: [],
-          timings: devTimings,
-        };
-      }
-
-      if (proxy && !resolveProxyUrl(deps.bosConfig)) {
-        return {
-          status: "error" as const,
-          description: "No valid proxy URL configured in bos.config.json",
-          processes: [],
-          timings: devTimings,
-        };
-      }
-
-      suppressWarnings();
-      const developmentRuntime = await buildRuntimeConfig(deps.bosConfig, {
-        uiSource,
-        apiSource,
-        authSource,
-        hostSource,
-        env: "development",
-        plugins: deps.runtimeConfig?.plugins,
-      });
-      drainConfigWarnings();
-      resumeWarnings();
-
-      const plan: InfraPlan = await timePhase(devTimings, "ports", () =>
-        Effect.runPromise(
-          planInfra({
-            configDir: deps.configDir,
-            bosConfig: developmentRuntime,
-            cli: {
-              port: input.port,
-              apiPort: input.apiPort,
-              authPort: input.authPort,
-              uiPort: input.uiPort,
-              pluginPortStart: input.pluginPortStart,
-              ssr,
-              proxy,
-              hostSource,
-              uiSource,
-              apiSource,
-              authSource,
-              interactive: input.interactive,
-            },
-          }).pipe(Effect.provide(PortAllocatorLive)),
         ),
       );
 
-      const mergedEnv: Record<string, string> = { ...plan.envGenerated };
-      for (const [k, v] of Object.entries(process.env)) {
-        if (v != null && !(k in plan.envGenerated)) {
-          mergedEnv[k] = v;
-        }
-      }
-      const preflightFailures = await Effect.runPromise(
-        preflightLocalInfra(plan.envGenerated, mergedEnv),
-      );
-      if (preflightFailures.length > 0) {
-        const messages = preflightFailures.map((f) => f.error).join("; ");
+      if ("failed" in outcome) {
         return {
           status: "error" as const,
-          description: `Infra preflight failed: ${messages}`,
+          description: outcome.failed,
           processes: [],
           timings: devTimings,
         };
       }
 
-      const services = buildServiceDescriptorMapFromPlan(plan, { ssr, proxy });
-      writeGeneratedInfra(deps.configDir, plan.runtimeConfig);
-      ensureEnvFile(deps.configDir);
-      loadProjectEnv(deps.configDir);
-
-      const packages = [...plan.serviceDescriptors.keys()];
-      if (process.env.DEBUG === "true" || process.env.DEBUG === "1") {
-        console.error("[DEBUG dev] services keys:", packages.join(", "));
-      }
-      const apiSvc = services.get("api");
-      if (apiSvc?.proxy) {
-        const proxyUrl = resolveProxyUrl(deps.bosConfig);
-        if (proxyUrl) plan.orchestrator.env.API_PROXY = proxyUrl;
-      }
-
-      pendingSession = {
-        orchestrator: plan.orchestrator,
-        services,
-        runtimeConfig: plan.runtimeConfig,
-      };
-
-      await timePhase(devTimings, "generate artifacts", () =>
-        generateCodeArtifacts(deps.configDir, deps.bosConfig!, {
-          env: "development",
-          extendsChain: devExtendsChain,
-          runtimeConfig: plan.runtimeConfig,
-        }),
-      );
+      pendingSession = outcome.session;
 
       return {
         status: "started" as const,
-        description: buildDescription(services) || plan.description,
-        processes: packages,
+        description: outcome.description,
+        processes: outcome.processes,
         timings: devTimings,
       };
     }),
 
-    start: builder.start.handler(async ({ input }) => {
-      ensureEnvFile(deps.configDir);
-      loadProjectEnv(deps.configDir);
-
-      pluginEvents.emit("progress", { phase: "config", status: "running" } satisfies ProgressEvent);
-
-      const bosEnv = input.env ?? (process.env.BOS_ENV === "staging" ? "staging" : "production");
-      const account = input.account ?? process.env.BOS_ACCOUNT;
-      const domain = input.domain ?? process.env.BOS_GATEWAY;
-
-      let config: BosConfig | null = null;
-      let remoteConfig: BosConfig | null = null;
-
-      if (account && domain) {
-        try {
-          remoteConfig = await fetchPublishedConfig(account, domain);
-          if (remoteConfig) {
-            config = remoteConfig;
-          } else {
-            return {
-              status: "error" as const,
-              url: "",
-              error: `No config found at bos://${account}/${domain}. Verify the account and gateway are correct and the config has been published.\nExpected URL: ${buildRegistryConfigUrl(account, domain)}`,
-            };
-          }
-        } catch (error) {
+    start: builder.start.handler(async ({ input, context }) => {
+      const baseDeps = Context.get(context["effect/context"], BosDepsTag);
+      let deps = baseDeps;
+      if (input.configPath) {
+        const override = await loadResolvedConfig({ path: input.configPath });
+        if (!override?.config) {
           return {
             status: "error" as const,
             url: "",
-            error: `Failed to fetch config for bos://${account}/${domain}: ${error instanceof Error ? error.message : "Unknown error"}\nExpected URL: ${buildRegistryConfigUrl(account, domain)}`,
+            error: `No config found at ${input.configPath}`,
           };
         }
-      } else {
-        config = deps.bosConfig;
+        deps = { ...baseDeps, bosConfig: override.config };
       }
 
-      if (!config) {
+      const outcome = await Effect.runPromise(
+        startBootstrap(deps, input, { resolveProxyUrl, fetchPublishedConfig }).pipe(
+          Effect.provide(bootstrapLayers),
+          Effect.catchTags({
+            StartRemoteConfigMissing: (error) => Effect.succeed({ failed: error.message }),
+            StartFetchFailed: (error) => Effect.succeed({ failed: error.message }),
+            StartConfigMissing: () =>
+              Effect.succeed({
+                failed:
+                  "No configuration found. Provide --account and --gateway flags, or create a local bos.config.json.",
+              }),
+            InfraError: (error) => Effect.succeed({ failed: `${error.phase}: ${error.message}` }),
+            DevStepError: (error) =>
+              Effect.succeed({
+                failed: `${error.phase} failed: ${
+                  error.cause instanceof Error ? error.cause.message : String(error.cause)
+                }`,
+              }),
+          }),
+        ),
+      );
+
+      if ("failed" in outcome) {
         return {
           status: "error" as const,
           url: "",
-          error:
-            "No configuration found. Provide --account and --gateway flags, or create a local bos.config.json.",
+          error: outcome.failed,
         };
       }
 
-      // Apply runtime overrides from CLI flags / env vars
-      if (account) {
-        config = { ...config, account };
-      }
-      if (domain) {
-        config = { ...config, domain };
-      }
-
-      const port = input.port ?? getHostDevelopmentPort(config.app.host.development);
-      const isStaging = bosEnv === "staging";
-      const runtimePlugins = await buildRuntimePluginsForConfig(
-        config,
-        deps.configDir,
-        "production",
-      );
-      suppressWarnings();
-      const runtimeConfig = await buildRuntimeConfig(config, {
-        uiSource: "remote",
-        apiSource: "remote",
-        authSource: "remote",
-        hostSource: "remote",
-        env: "production",
-        plugins: runtimePlugins,
-      });
-      drainConfigWarnings();
-      resumeWarnings();
-
-      if (isStaging && config.staging?.domain) {
-        runtimeConfig.domain = config.staging.domain;
-      }
-
-      if (isStaging) {
-        runtimeConfig.env = "staging";
-      }
-
-      syncGeneratedInfra(deps.configDir, runtimeConfig);
-      ensureEnvFile(deps.configDir);
-      loadProjectEnv(deps.configDir);
-
-      pluginEvents.emit("progress", {
-        phase: "generate artifacts",
-        status: "running",
-      } satisfies ProgressEvent);
-      await generateCodeArtifacts(deps.configDir, config, {
-        env: "production",
-        runtimeConfig,
-      });
-      pluginEvents.emit("progress", {
-        phase: "generate artifacts",
-        status: "done",
-      } satisfies ProgressEvent);
-
-      // ── Production Readiness Validation ──
-      const productionEnv: Record<string, string> = {};
-      const warnings: string[] = [];
-
-      // Default CORS_ORIGIN to the configured domain if not set
-      if (!process.env.CORS_ORIGIN && config.domain) {
-        const effectiveDomain = isStaging
-          ? (config.staging?.domain ?? config.domain)
-          : config.domain;
-        const defaultOrigin = `https://${effectiveDomain}`;
-        productionEnv.CORS_ORIGIN = defaultOrigin;
-        warnings.push(`CORS_ORIGIN defaulting to ${defaultOrigin}`);
-      }
-
-      // Validate required secrets
-      const requiredSecrets = new Set<string>();
-      const missingSecrets: string[] = [];
-
-      if (runtimeConfig.host.secrets) {
-        for (const s of runtimeConfig.host.secrets) requiredSecrets.add(s);
-      }
-      if (runtimeConfig.auth?.secrets) {
-        for (const s of runtimeConfig.auth.secrets) requiredSecrets.add(s);
-      }
-      if (runtimeConfig.api?.secrets) {
-        for (const s of runtimeConfig.api.secrets) requiredSecrets.add(s);
-      }
-      for (const plugin of Object.values(runtimeConfig.plugins ?? {})) {
-        if (plugin.secrets) {
-          for (const s of plugin.secrets) requiredSecrets.add(s);
-        }
-      }
-
-      for (const secret of requiredSecrets) {
-        const value = process.env[secret];
-        if (!value || value.length === 0) {
-          missingSecrets.push(secret);
-        }
-      }
-
-      if (missingSecrets.length > 0) {
-        warnings.push(`Missing ${missingSecrets.length} secret(s): ${missingSecrets.join(", ")}`);
-      }
-
-      const stagingEnvVars: Record<string, string> = isStaging
-        ? { BOS_GATEWAY: config.staging?.domain ?? config.domain ?? "" }
-        : {};
-
-      const plan: InfraPlan = await Effect.runPromise(
-        planInfra({
-          configDir: deps.configDir,
-          bosConfig: runtimeConfig,
-          cli: {
-            port: input.port,
-            ssr: false,
-            proxy: false,
-            hostSource: "remote",
-            uiSource: "remote",
-            apiSource: "remote",
-            authSource: "remote",
-            interactive: input.interactive,
-          },
-        }).pipe(Effect.provide(PortAllocatorLive)),
-      );
-
-      const services = buildServiceDescriptorMap(plan.runtimeConfig);
-
-      const configSource = remoteConfig
-        ? `bos://${account}/${domain}`
-        : (findConfigPath() ?? "bos.config.json");
-
-      const configSourceHttp =
-        remoteConfig && account && domain ? buildRegistryConfigUrl(account, domain) : undefined;
-
-      const summary: StartSummary = {
-        configSource,
-        configSourceHttp,
-        account: config.account,
-        domain: config.domain ?? undefined,
-        modules: {
-          host: plan.runtimeConfig.host.remoteUrl ?? plan.runtimeConfig.host.url ?? "local",
-          ui: plan.runtimeConfig.ui.url ?? "local",
-          api: plan.runtimeConfig.api.url ?? "local",
-          auth: plan.runtimeConfig.auth?.url ?? undefined,
-        },
-        warnings,
-      };
-
-      const orchestrator: AppOrchestrator = {
-        packages: ["host"],
-        env: {
-          NODE_ENV: "production",
-          ...productionEnv,
-          ...stagingEnvVars,
-          ...plan.launch.env,
-        },
-        description: `${isStaging ? "Staging" : "Production"} Mode (${config.account})`,
-        port: plan.resolvedPorts.host ?? port,
-        interactive: input.interactive,
-        noLogs: true,
-      };
-
-      pendingSession = { orchestrator, services, runtimeConfig: plan.runtimeConfig };
-      pendingStartSummary = summary;
-
-      pluginEvents.emit("progress", { phase: "config", status: "done" } satisfies ProgressEvent);
+      pendingSession = outcome.session;
+      pendingStartSummary = outcome.summary;
 
       return {
         status: "running" as const,
-        url: plan.launch.hostUrl ?? `http://localhost:${plan.resolvedPorts.host ?? port}`,
+        url: outcome.url,
       };
     }),
 
-    build: builder.build.handler(async ({ input }) => {
+    build: builder.build.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       if (!deps.bosConfig) {
         return {
           status: "error" as const,
+          error: "No bos.config.json found",
           built: [],
           skipped: [],
         };
@@ -970,8 +792,13 @@ export default createPlugin({
 
       const targets = selectWorkspaceTargets(input.packages, deps.bosConfig);
       if (targets.length === 0) {
+        const allPackages = [
+          ...Object.keys(deps.bosConfig.app ?? {}),
+          ...Object.keys(deps.bosConfig.plugins ?? {}),
+        ];
         return {
           status: "error" as const,
+          error: `Unknown build target(s): ${input.packages} — valid targets: ${allPackages.join(", ") || "none"} (framework packages build via the prerequisite train: bun run build <target>)`,
           built: [],
           skipped: [],
         };
@@ -1005,6 +832,7 @@ export default createPlugin({
       if (built.length === 0) {
         return {
           status: "error" as const,
+          error: `Nothing to build — no local targets matched${skipped.length > 0 ? `: ${skipped.join(", ")}` : ""}`,
           built: [],
           skipped,
         };
@@ -1018,7 +846,8 @@ export default createPlugin({
       };
     }),
 
-    publish: builder.publish.handler(async ({ input }) => {
+    publish: builder.publish.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       if (!deps.bosConfig) {
         return {
           status: "error" as const,
@@ -1038,6 +867,8 @@ export default createPlugin({
         packages: input.packages,
         network: input.network,
         privateKey: input.privateKey,
+        wallet: input.wallet,
+        registry: input.registry,
       });
 
       if (result.publishConfig) {
@@ -1059,7 +890,8 @@ export default createPlugin({
       };
     }),
 
-    deploy: builder.deploy.handler(async ({ input }) => {
+    deploy: builder.deploy.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       if (!deps.bosConfig) {
         return {
           status: "error" as const,
@@ -1080,6 +912,7 @@ export default createPlugin({
         packages: input.packages,
         network: input.network,
         privateKey: input.privateKey,
+        registry: input.registry,
       });
 
       if (result.status === "error") {
@@ -1192,12 +1025,14 @@ export default createPlugin({
       };
     }),
 
-    keyPublish: builder.keyPublish.handler(async ({ input }) => {
+    keyPublish: builder.keyPublish.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       if (!deps.bosConfig) {
         return {
           status: "error" as const,
           account: "",
           network: "mainnet" as const,
+          env: input.env,
           contract: "",
           allowance: input.allowance,
           functionNames: PUBLISH_FUNCTION_NAMES,
@@ -1205,9 +1040,12 @@ export default createPlugin({
         };
       }
 
-      const account = deps.bosConfig.account;
+      const account =
+        input.env === "staging"
+          ? (deps.bosConfig.staging?.account ?? deps.bosConfig.account)
+          : deps.bosConfig.account;
       const network = getNetworkIdForAccount(account);
-      const contract = getRegistryNamespaceForAccount(account);
+      const contract = getRegistryNamespaceForAccount(account, input.registry);
       try {
         await Effect.runPromise(ensureNearCli);
 
@@ -1241,11 +1079,15 @@ export default createPlugin({
             try {
               await deleteAccessKeys(account, oldKeys, network);
               console.log(
-                `  ${colors.green("✓")} Removed ${oldKeys.length} old key${oldKeys.length > 1 ? "s" : ""}`,
+                `  ${colors.green("✓")} Removed ${oldKeys.length} old key${
+                  oldKeys.length > 1 ? "s" : ""
+                }`,
               );
             } catch {
               console.log(
-                `  ${colors.yellow("⚠")} Failed to remove old key${oldKeys.length > 1 ? "s" : ""} (new key still active)`,
+                `  ${colors.yellow("⚠")} Failed to remove old key${
+                  oldKeys.length > 1 ? "s" : ""
+                } (new key still active)`,
               );
             }
           } else {
@@ -1257,6 +1099,7 @@ export default createPlugin({
           status: "published" as const,
           account,
           network,
+          env: input.env,
           contract,
           allowance: input.allowance,
           functionNames: PUBLISH_FUNCTION_NAMES,
@@ -1268,9 +1111,140 @@ export default createPlugin({
           status: "error" as const,
           account,
           network,
+          env: input.env,
           contract,
           allowance: input.allowance,
           functionNames: PUBLISH_FUNCTION_NAMES,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }),
+
+    login: builder.login.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
+      const staging = input.env === "staging";
+      const account = staging
+        ? (deps.bosConfig?.staging?.account ?? deps.bosConfig?.account ?? "")
+        : (deps.bosConfig?.account ?? "");
+
+      try {
+        const siteUrl = resolveLoginSiteUrl(input.site, deps, staging);
+        const login = await startDeviceLogin({
+          siteUrl,
+          device: input.device,
+          account: account || undefined,
+          expiresIn: input.expiresIn,
+        });
+
+        console.log();
+        console.log(`  One-time code: ${colors.cyan(login.userCode)}`);
+        await openInBrowser(login.verificationUrl).catch((error: unknown) => {
+          console.log(colors.yellow(`  ⚠ ${(error as Error).message}`));
+        });
+        console.log();
+        console.log(`  Waiting for approval at ${colors.dim(login.verificationUrl)}…`);
+
+        const approval = await login.waitForApproval();
+
+        if (!approval.apiKey) {
+          return {
+            status: "error" as const,
+            siteUrl,
+            loginUrl: login.verificationUrl,
+            error: "Login approved but no CLI credential was created",
+          };
+        }
+
+        const expiresAt = new Date(Date.now() + input.expiresIn * 1000).toISOString();
+        writeSessionHandle(deps.configDir, {
+          version: 1,
+          credential: {
+            kind: "session",
+            apiKey: approval.apiKey.key,
+            apiKeyId: approval.apiKey.id,
+            accountId: approval.accountId,
+            label: input.device ?? siteUrl,
+            siteUrl,
+            createdAt: new Date().toISOString(),
+            expiresAt,
+          },
+          publishKey: null,
+          delegateKey: null,
+        });
+
+        let warning: string | null = null;
+        if (account && approval.accountId && approval.accountId !== account) {
+          warning = `Logged in as ${approval.accountId}, but bos.config.json account is ${account}. Publishes will use the configured account.`;
+        }
+
+        let publishKey: LoginResult["publishKey"] = null;
+        if (input.key) {
+          try {
+            publishKey = await exportPublishKey(account, input.registry);
+          } catch (error) {
+            warning = `Session stored, but publish-key export failed: ${
+              error instanceof Error ? error.message : "unknown error"
+            }`;
+          }
+        }
+
+        return {
+          status: "logged-in" as const,
+          siteUrl,
+          accountId: approval.accountId,
+          expiresAt,
+          loginUrl: login.verificationUrl,
+          publishKey,
+          warning,
+        };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          siteUrl: input.site ?? "",
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }),
+
+    logout: builder.logout.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
+      const configDir = input.configDir ?? deps.configDir;
+
+      try {
+        const session = readSessionHandle(configDir);
+        let revokedApiKey = false;
+        let removedPublishKey = false;
+        let warning: string | null = null;
+
+        if (session?.credential) {
+          revokedApiKey = await revokeApiKey(session.credential).catch(() => false);
+          if (!revokedApiKey) {
+            warning =
+              "Could not revoke the API key remotely — revoke it manually under Settings → API keys.";
+          }
+        }
+
+        if (session?.publishKey) {
+          const account = session.credential?.accountId ?? deps.bosConfig?.account ?? "";
+          removePublishedKeyFile(session.publishKey.network, account, session.publishKey.publicKey);
+          removedPublishKey = true;
+          warning = warning
+            ? `${warning} Re-run ${colors.cyan("bos login --key")} to re-export a publish key.`
+            : "Removed the exported publish key. Re-run bos login --key to re-export one.";
+        }
+
+        deleteSessionHandle(configDir);
+        return {
+          status: "logged-out" as const,
+          revokedApiKey,
+          removedPublishKey,
+          warning,
+        };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          revokedApiKey: false,
+          removedPublishKey: false,
           error: error instanceof Error ? error.message : "Unknown error",
         };
       }
@@ -1312,7 +1286,9 @@ export default createPlugin({
           }
         } catch (e) {
           console.warn(
-            `[init] Failed to fetch parent config from ${extendsAccount}/${extendsGateway}: ${e instanceof Error ? e.message : e}`,
+            `[init] Failed to fetch parent config from ${extendsAccount}/${extendsGateway}: ${
+              e instanceof Error ? e.message : e
+            }`,
           );
         }
 
@@ -1384,6 +1360,7 @@ export default createPlugin({
 
         try {
           let filesCopied: number;
+          let childBosConfig: BosConfigInput | null = null;
 
           if (isMinimalScaffold) {
             filesCopied = await timePhase(timings, "scaffold project", () =>
@@ -1416,6 +1393,10 @@ export default createPlugin({
                 staging: parentConfig?.staging,
               }),
             );
+
+            childBosConfig = await timePhase(timings, "authored config form", () =>
+              convertChildConfigToAppForm(targetDir),
+            );
           } else {
             const patterns = buildInitPatterns(overrides, plugins, pluginDirMap);
             const routeExclusions = overrides.includes("ui")
@@ -1447,6 +1428,16 @@ export default createPlugin({
               }),
             );
 
+            childBosConfig = await timePhase(timings, "authored config form", () =>
+              convertChildConfigToAppForm(targetDir),
+            );
+
+            if (overrides.includes("ui")) {
+              await timePhase(timings, "prune unused ui files", async () =>
+                pruneUnusedUiFiles(targetDir, { log: console.log }),
+              );
+            }
+
             await timePhase(timings, "write snapshot", () =>
               writeInitSnapshot(targetDir, extendsAccount, extendsGateway, sourceDir, patterns, {
                 overrides,
@@ -1464,6 +1455,9 @@ export default createPlugin({
             syncResolvedSharedDeps({
               configDir: targetDir,
               hostMode: "local",
+              bosConfig: childBosConfig
+                ? (childBosConfig as unknown as Record<string, unknown>)
+                : undefined,
             }),
           );
 
@@ -1473,15 +1467,21 @@ export default createPlugin({
           removeInitLockfile(lockfilePath);
 
           const initConfig = await timePhase(timings, "resolve config", () =>
-            loadResolvedConfig({ cwd: targetDir }),
+            loadResolvedConfig({ cwd: targetDir }).catch((error) => {
+              console.warn(
+                "[init] Skipping config resolution — the child has no node_modules yet; `bos dev` resolves after `bun install`.",
+                error instanceof Error ? error.message : error,
+              );
+              return null;
+            }),
           );
           if (initConfig?.runtime) {
             await timePhase(timings, "generate env/docker", async () => {
-              writeGeneratedInfra(targetDir, initConfig.runtime);
+              await materializeViaLayer(targetDir, initConfig.runtime);
             });
           }
           await timePhase(timings, "create env file", async () => {
-            ensureEnvFile(targetDir);
+            await Effect.runPromise(makeProjectEnv().ensureFile(targetDir));
           });
 
           if (!input.noInstall) {
@@ -1670,17 +1670,23 @@ export default createPlugin({
           if (existsSync(join(projectDir, "host", "src"))) {
             generated.push("host/src/lib/auth-types.gen.ts");
           }
-          for (const [key, _plugin] of pluginEntries) {
-            const pluginSrc = join(
-              projectDir,
-              "plugins",
-              key,
+          for (const [_key, plugin] of pluginEntries) {
+            const localPath = plugin.localPath;
+            if (!localPath) continue;
+            const pluginSrc = join(localPath, "src", "lib", "plugins-client.gen.ts");
+            if (existsSync(pluginSrc)) {
+              generated.push(relative(projectDir, pluginSrc));
+            }
+          }
+          if (refreshed.runtime.auth?.localPath) {
+            const authSrc = join(
+              refreshed.runtime.auth.localPath,
               "src",
               "lib",
               "plugins-client.gen.ts",
             );
-            if (existsSync(pluginSrc)) {
-              generated.push(`plugins/${key}/src/lib/plugins-client.gen.ts`);
+            if (existsSync(authSrc)) {
+              generated.push(relative(projectDir, authSrc));
             }
           }
 
@@ -1711,10 +1717,23 @@ export default createPlugin({
         if (existsSync(join(projectDir, "host", "src"))) {
           generated.push("host/src/lib/auth-types.gen.ts");
         }
-        for (const [key, _plugin] of Object.entries(refreshed.runtime.plugins ?? {})) {
-          const pluginSrc = join(projectDir, "plugins", key, "src", "lib", "plugins-client.gen.ts");
+        for (const [_key, plugin] of Object.entries(refreshed.runtime.plugins ?? {})) {
+          const localPath = plugin.localPath;
+          if (!localPath) continue;
+          const pluginSrc = join(localPath, "src", "lib", "plugins-client.gen.ts");
           if (existsSync(pluginSrc)) {
-            generated.push(`plugins/${key}/src/lib/plugins-client.gen.ts`);
+            generated.push(relative(projectDir, pluginSrc));
+          }
+        }
+        if (refreshed.runtime.auth?.localPath) {
+          const authSrc = join(
+            refreshed.runtime.auth.localPath,
+            "src",
+            "lib",
+            "plugins-client.gen.ts",
+          );
+          if (existsSync(authSrc)) {
+            generated.push(relative(projectDir, authSrc));
           }
         }
 
@@ -1755,43 +1774,212 @@ export default createPlugin({
       }
     }),
 
-    dbStudio: builder.dbStudio.handler(async ({ input }) => {
+    typecheck: builder.typecheck.handler(async ({ input }) => {
       try {
         const configPath = findConfigPath();
         if (!configPath) {
           return {
             status: "error" as const,
-            plugin: input.plugin,
-            source: "remote" as const,
-            section: "",
+            checked: [],
+            skipped: [],
+            results: [],
             error: "No bos.config.json found in current directory",
           };
         }
 
         const projectDir = resolve(dirname(configPath));
-        loadProjectEnv(projectDir);
         const refreshed = await loadResolvedConfig({ cwd: projectDir });
         if (!refreshed) {
           return {
             status: "error" as const,
-            plugin: input.plugin,
-            source: "remote" as const,
-            section: "",
+            checked: [],
+            skipped: [],
+            results: [],
             error: "Failed to load bos.config.json",
           };
         }
 
-        const { resolvePluginDbInfo } = await import("./cli/db-studio");
-        const info = resolvePluginDbInfo(input.plugin, refreshed.runtime, projectDir);
+        await generateCodeArtifacts(projectDir, refreshed.config, {
+          runtimeConfig: refreshed.runtime,
+        });
+
+        const runtime = refreshed.runtime;
+        type AppTarget = { source?: string; localPath?: string };
+        const workspaceEntries: Array<{
+          key: string;
+          label: string;
+          dir: string;
+        }> = [];
+        const skipped: Array<{ key: string; label: string }> = [];
+
+        const appTargets: Array<{
+          key: string;
+          label: string;
+          target: AppTarget | undefined;
+        }> = [
+          { key: "host", label: "host", target: runtime.host },
+          { key: "ui", label: "ui", target: runtime.ui },
+          { key: "api", label: "api", target: runtime.api },
+        ];
+        if (runtime.auth) {
+          appTargets.push({ key: "auth", label: "auth", target: runtime.auth });
+        }
+
+        for (const entry of appTargets) {
+          if (
+            entry.target?.source === "local" &&
+            entry.target.localPath &&
+            existsSync(join(entry.target.localPath, "tsconfig.json"))
+          ) {
+            workspaceEntries.push({
+              key: entry.key,
+              label: entry.label,
+              dir: entry.target.localPath,
+            });
+          } else {
+            skipped.push({ key: entry.key, label: entry.label });
+          }
+        }
+
+        for (const [key, plugin] of Object.entries(runtime.plugins ?? {})) {
+          const label = `plugins/${key}`;
+          if (
+            plugin.source === "local" &&
+            plugin.localPath &&
+            existsSync(join(plugin.localPath, "tsconfig.json"))
+          ) {
+            workspaceEntries.push({ key, label, dir: plugin.localPath });
+          } else {
+            skipped.push({ key, label });
+          }
+        }
+
+        const selected = selectWorkspaceTargets(input.packages, refreshed.config);
+        const targets =
+          input.packages === "all"
+            ? workspaceEntries
+            : workspaceEntries.filter((entry) => selected.includes(entry.key));
+        const skippedEntries =
+          input.packages === "all"
+            ? skipped
+            : skipped.filter((entry) => selected.includes(entry.key));
+
+        const checked: string[] = [];
+        const results: Array<{
+          workspace: string;
+          passed: boolean;
+          error?: string;
+        }> = [];
+
+        for (const entry of targets) {
+          const packageJsonPath = join(entry.dir, "package.json");
+          let args: string[] = ["run", "tsc", "--noEmit"];
+          if (existsSync(packageJsonPath)) {
+            try {
+              const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+                scripts?: Record<string, string>;
+              };
+              if (pkg.scripts?.typecheck) {
+                args = ["run", "typecheck"];
+              }
+            } catch {
+              // ignore unreadable package.json
+            }
+          }
+
+          console.log(`\n  ${colors.dim("Checking")} ${colors.cyan(entry.label)}`);
+          const child = spawnSync("bun", args, {
+            cwd: entry.dir,
+            stdio: "inherit",
+          });
+          const passed = child.status === 0;
+          checked.push(entry.label);
+          results.push({
+            workspace: entry.label,
+            passed,
+            error: passed ? undefined : `typecheck failed (exit code ${child.status ?? "n/a"})`,
+          });
+        }
 
         return {
           status: "success" as const,
-          plugin: info.key,
-          source: info.source,
-          section: info.section,
-          databaseSecret: info.databaseSecret,
-          databaseUrl: info.databaseUrl,
-          workspaceDir: info.workspaceDir,
+          checked,
+          skipped: skippedEntries.map((entry) => entry.label),
+          results,
+        };
+      } catch (error) {
+        return {
+          status: "error" as const,
+          checked: [],
+          skipped: [],
+          results: [],
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    }),
+
+    mfCheck: builder.mfCheck.handler(async ({ input }) => {
+      const configPath = findConfigPath();
+      if (!configPath) {
+        return {
+          status: "fail" as const,
+          hostVersion: null,
+          hostReachable: false,
+          hostReason: "No bos.config.json found",
+          remotes: [],
+        };
+      }
+
+      let bosConfig: BosConfig | null = null;
+      try {
+        bosConfig = JSON.parse(readFileSync(configPath, "utf-8")) as BosConfig;
+      } catch (e) {
+        return {
+          status: "fail" as const,
+          hostVersion: null,
+          hostReachable: false,
+          hostReason: e instanceof Error ? e.message : String(e),
+          remotes: [],
+        };
+      }
+
+      const report = await checkFederationCompat(bosConfig, {
+        timeoutMs: input.timeoutMs,
+      });
+      return {
+        status: report.ok ? ("ok" as const) : ("fail" as const),
+        hostVersion: report.hostVersion,
+        hostReachable: report.hostReachable,
+        hostReason: report.hostReason,
+        remotes: report.remotes,
+      };
+    }),
+
+    dbStudio: builder.dbStudio.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
+      const configPath = findConfigPath();
+      if (!configPath) {
+        return {
+          status: "error" as const,
+          plugin: input.plugin,
+          source: "remote" as const,
+          section: "",
+          error: "No bos.config.json found in current directory",
+        };
+      }
+
+      try {
+        const binding = await Effect.runPromise(deps.databaseBindings.forPluginKey(input.plugin));
+        await Effect.runPromise(deps.drizzleKit.studio(binding));
+
+        return {
+          status: "success" as const,
+          plugin: binding.key,
+          source: binding.source,
+          section: binding.section,
+          databaseSecret: binding.identity.secretName,
+          databaseUrl: binding.url,
+          workspaceDir: binding.identity.workspaceDir,
         };
       } catch (error) {
         return {
@@ -1804,7 +1992,8 @@ export default createPlugin({
       }
     }),
 
-    dbDoctor: builder.dbDoctor.handler(async ({ input }) => {
+    dbDoctor: builder.dbDoctor.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       try {
         const configPath = findConfigPath();
         if (!configPath) {
@@ -1819,34 +2008,14 @@ export default createPlugin({
             appliedHashCount: 0,
             expectedTables: [],
             missingTables: [],
-            error: "No bos.config.json",
+            error: "No bos.config.json found in current directory",
           };
         }
 
-        const projectDir = resolve(dirname(configPath));
-        loadProjectEnv(projectDir);
-        const refreshed = await loadResolvedConfig({ cwd: projectDir });
-        if (!refreshed) {
-          return {
-            status: "error" as const,
-            plugin: input.plugin,
-            slug: "",
-            journalTable: "",
-            journalSchema: "",
-            diagnosis: "error",
-            localMigrationCount: 0,
-            appliedHashCount: 0,
-            expectedTables: [],
-            missingTables: [],
-            error: "Failed to load config",
-          };
-        }
-
-        const { resolvePluginDbInfo } = await import("./cli/db-studio");
-        const info = resolvePluginDbInfo(input.plugin, refreshed.runtime, projectDir);
+        const binding = await Effect.runPromise(deps.databaseBindings.forPluginKey(input.plugin));
 
         const { diagnosePlugin } = await import("./cli/db-doctor");
-        const report = await diagnosePlugin(info);
+        const report = await diagnosePlugin(binding);
 
         return {
           status: "success" as const,
@@ -1869,7 +2038,8 @@ export default createPlugin({
       }
     }),
 
-    dbRepair: builder.dbRepair.handler(async ({ input }) => {
+    dbRepair: builder.dbRepair.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
       try {
         const configPath = findConfigPath();
         if (!configPath) {
@@ -1881,23 +2051,10 @@ export default createPlugin({
           };
         }
 
-        const projectDir = resolve(dirname(configPath));
-        loadProjectEnv(projectDir);
-        const refreshed = await loadResolvedConfig({ cwd: projectDir });
-        if (!refreshed) {
-          return {
-            status: "error" as const,
-            message: "Failed to load config",
-            diagnosis: null,
-            error: "Config load failed",
-          };
-        }
-
-        const { resolvePluginDbInfo } = await import("./cli/db-studio");
-        const info = resolvePluginDbInfo(input.plugin, refreshed.runtime, projectDir);
+        const binding = await Effect.runPromise(deps.databaseBindings.forPluginKey(input.plugin));
 
         const { repairPlugin } = await import("./cli/db-repair");
-        const result = await repairPlugin(info, input.mode ?? "history-reset");
+        const result = await repairPlugin(binding, input.mode ?? "history-reset", deps.drizzleKit);
 
         return {
           ...result,
@@ -1937,6 +2094,35 @@ export default createPlugin({
       }
     }),
 
+    logs: builder.logs.handler(async ({ input }) => {
+      try {
+        const configDir = getProjectRoot();
+        const text = await readDevLatestLog(configDir, { tail: input.tail });
+        const service = input.service;
+        const lines = text
+          .split("\n")
+          .filter((line) => line.length > 0)
+          .filter((line) => {
+            if (!service) return true;
+            const match = /\] \[([^\]]+)\] \[(?:OUT|ERR)\] /.exec(line);
+            return match?.[1] === service || match?.[1] === `plugin:${service}`;
+          });
+        return {
+          logFile: resolveDevLatestFile(configDir),
+          lines,
+        };
+      } catch (error) {
+        return {
+          logFile: "unknown",
+          lines: [
+            error instanceof Error
+              ? `Failed to read logs: ${error.message}`
+              : "Failed to read logs",
+          ],
+        };
+      }
+    }),
+
     ps: builder.ps.handler(async () => {
       try {
         const entries = await Effect.runPromise(pruneDeadEffect(readRegistry()));
@@ -1955,35 +2141,69 @@ export default createPlugin({
 
     kill: builder.kill.handler(async ({ input }) => {
       try {
-        const entries = await Effect.runPromise(pruneDeadEffect(readRegistry()));
         const configPath = findConfigPath();
         const targetConfigDir = input.all
           ? undefined
           : (input.configDir ?? (configPath ? resolve(dirname(configPath)) : undefined));
 
         const targets = targetConfigDir
-          ? entries.filter((entry) => entry.configDir === targetConfigDir)
-          : entries;
+          ? readRegistry().filter((entry) => entry.configDir === targetConfigDir)
+          : readRegistry();
 
         const killed: Array<{ pid: number; configDir: string }> = [];
         const skipped: Array<{ pid: number; reason: string }> = [];
 
         for (const entry of targets) {
-          try {
-            process.kill(entry.pid, input.signal === "SIGKILL" ? "SIGKILL" : "SIGTERM");
-            killed.push({ pid: entry.pid, configDir: entry.configDir });
-            unregisterPid(entry.pid);
-          } catch (err) {
-            const code = (err as NodeJS.ErrnoException).code;
-            if (code === "ESRCH") {
-              skipped.push({ pid: entry.pid, reason: "process already exited" });
-              unregisterPid(entry.pid);
-            } else {
-              skipped.push({
-                pid: entry.pid,
-                reason: (err as Error).message ?? "kill failed",
-              });
+          const wasAlive = isPidAlive(entry.pid);
+          if (wasAlive) {
+            await Effect.runPromise(
+              killProcessGroupEscalating(entry.pid, {
+                terminateMs: 5000,
+                signal: input.signal === "SIGKILL" ? "SIGKILL" : "SIGTERM",
+              }),
+            );
+          }
+
+          const reapedChildren: number[] = [];
+          for (const childPid of entry.childPids ?? []) {
+            if (isPidAlive(childPid)) {
+              reapGroup(childPid);
+              reapedChildren.push(childPid);
             }
+          }
+
+          const ports = Object.values(entry.ports ?? {}).filter(
+            (port) => Number.isFinite(port) && port > 0,
+          );
+          const stillBound: number[] = [];
+          for (const port of ports) {
+            let bindable = false;
+            for (let attempt = 0; attempt < 4; attempt++) {
+              bindable = await Effect.runPromise(probePortBindable(port));
+              if (bindable) break;
+              await new Promise((resolve) => setTimeout(resolve, 500));
+            }
+            if (!bindable) stillBound.push(port);
+          }
+
+          if (stillBound.length > 0) {
+            const owner = await Effect.runPromise(ownerOfPort(stillBound[0]));
+            skipped.push({
+              pid: entry.pid,
+              reason: `ports still bound after kill: ${stillBound.join(", ")}${
+                owner ? ` — held by pid ${owner.pid} (${owner.command})` : " — owner unknown"
+              }`,
+            });
+            continue;
+          }
+
+          unregisterPid(entry.pid);
+          killed.push({ pid: entry.pid, configDir: entry.configDir });
+          if (!wasAlive && reapedChildren.length > 0) {
+            skipped.push({
+              pid: entry.pid,
+              reason: `process already exited; reaped orphaned children ${reapedChildren.join(", ")}`,
+            });
           }
         }
 
@@ -2000,6 +2220,26 @@ export default createPlugin({
           error: error instanceof Error ? error.message : "Unknown error",
         };
       }
+    }),
+
+    infraExport: builder.infraExport.handler(async ({ input, context }) => {
+      const deps = Context.get(context["effect/context"], BosDepsTag);
+      const configDir = input.configDir ?? deps.configDir;
+      const ci = deps.runtimeConfig ? buildCiInfraPlan(deps.runtimeConfig) : null;
+      if (!ci) {
+        const refreshed = await loadResolvedConfig({ cwd: configDir });
+        if (!refreshed?.runtime) {
+          throw new Error("No resolved runtime config available for infra export");
+        }
+        deps.runtimeConfig = refreshed.runtime;
+        return buildCiInfraPlan(refreshed.runtime);
+      }
+      const result: CiInfraPlan & { account: string; gateway: string } = {
+        ...ci,
+        account: deps.bosConfig?.account ?? ci.account,
+        gateway: ci.gateway ?? deps.bosConfig?.domain ?? deps.bosConfig?.account ?? ci.account,
+      };
+      return result;
     }),
   }),
 });

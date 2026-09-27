@@ -1,8 +1,41 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { clearConfigCache, loadResolvedConfig } from "../../src/config";
+
+vi.mock("../../src/fastkv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/fastkv")>();
+  return {
+    ...actual,
+    fetchBosConfigFromFastKv: async () => {
+      throw new Error("[test] network disabled — stub fetchBosConfigFromFastKv");
+    },
+  };
+});
+
+vi.mock("../../src/api-contract", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/api-contract")>();
+  return {
+    ...actual,
+    fetchApiPluginManifest: async () => {
+      throw new Error("[test] network disabled — stub fetchApiPluginManifest");
+    },
+  };
+});
+
+vi.mock("../../src/http-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/http-client")>();
+  return {
+    ...actual,
+    fetchResponse: async () => {
+      throw new Error("[test] network disabled — stub fetchResponse");
+    },
+    fetchEff: (() => {
+      throw new Error("[test] network disabled — stub fetchEff");
+    }) as unknown as typeof actual.fetchEff,
+  };
+});
 
 describe("asComposableEntry handles undefined parent entries", () => {
   let testDir: string;

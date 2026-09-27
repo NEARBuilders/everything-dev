@@ -1,5 +1,4 @@
-import { Context, Layer } from "every-plugin/effect";
-
+import { Context, Layer } from "effect";
 export type NetworkId = "mainnet" | "testnet";
 
 export interface FastKvEntry {
@@ -24,6 +23,8 @@ const FASTKV_TIMEOUT_MS = 10_000;
 
 const DEFAULT_REGISTRY_NAMESPACE = "dev.everything.near";
 
+export { DEFAULT_REGISTRY_NAMESPACE };
+
 export interface RegistryConfig {
   namespace: string;
   relayAccountId?: string;
@@ -31,10 +32,9 @@ export interface RegistryConfig {
   relayNetwork?: NetworkId;
 }
 
-export class RegistryConfigService extends Context.Tag("registry/RegistryConfigService")<
-  RegistryConfigService,
-  RegistryConfig
->() {
+export class RegistryConfigService extends Context.Service<RegistryConfigService, RegistryConfig>()(
+  "registry/RegistryConfigService",
+) {
   static Live = (config: {
     namespace?: string;
     relayAccountId?: string;
@@ -42,10 +42,7 @@ export class RegistryConfigService extends Context.Tag("registry/RegistryConfigS
     relayNetwork?: NetworkId;
   }) =>
     Layer.succeed(RegistryConfigService, {
-      namespace:
-        config.namespace ??
-        process.env.REGISTRY_FASTKV_MAINNET_NAMESPACE ??
-        DEFAULT_REGISTRY_NAMESPACE,
+      namespace: config.namespace ?? DEFAULT_REGISTRY_NAMESPACE,
       relayAccountId: config.relayAccountId,
       relayPrivateKey: config.relayPrivateKey,
       relayNetwork: config.relayNetwork,
@@ -57,9 +54,7 @@ export function getNetworkIdForAccount(accountId: string): NetworkId {
 }
 
 export function getFastKvBaseUrlForNetwork(network: NetworkId): string {
-  return network === "testnet"
-    ? process.env.REGISTRY_FASTKV_TESTNET_URL || "https://kv.test.fastnear.com"
-    : process.env.REGISTRY_FASTKV_MAINNET_URL || "https://kv.main.fastnear.com";
+  return network === "testnet" ? "https://kv.test.fastnear.com" : "https://kv.main.fastnear.com";
 }
 
 export function getFastKvBaseUrlForAccount(accountId: string): string {
@@ -228,7 +223,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> 
       headers: {
         accept: "application/json",
         "content-type": "application/json",
-        ...(init?.headers ?? {}),
+        ...(init?.headers as Record<string, string> | undefined),
       },
       signal: controller.signal,
     });

@@ -12,20 +12,29 @@ describe("bos sync — framework-owned files", () => {
   });
 
   it("marks per-plugin lib files as framework-owned", () => {
-    expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/auth.ts")).toBe(true);
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/context.ts")).toBe(true);
-    expect(isFrameworkOwnedSyncFile("plugins/_template/src/lib/auth.ts")).toBe(true);
     expect(isFrameworkOwnedSyncFile("plugins/_template/src/lib/context.ts")).toBe(true);
+  });
+
+  it("marks agent workflow skills and docs as framework-owned", () => {
+    expect(isFrameworkOwnedSyncFile(".agents/skills/implement/SKILL.md")).toBe(true);
+    expect(isFrameworkOwnedSyncFile(".agents/skills/everything-dev-app/SKILL.md")).toBe(true);
+    expect(isFrameworkOwnedSyncFile(".agents/skills/tdd/agents/openai.yaml")).toBe(true);
+    expect(isFrameworkOwnedSyncFile("docs/agents/issue-tracker.md")).toBe(true);
+    expect(isFrameworkOwnedSyncFile("skills-lock.json")).toBe(true);
   });
 
   it("does not mark app-owned files as framework-owned", () => {
     expect(isFrameworkOwnedSyncFile("Dockerfile")).toBe(false);
     expect(isFrameworkOwnedSyncFile(".github/renovate.json")).toBe(false);
     expect(isFrameworkOwnedSyncFile(".opencode/skills/everything-dev/SKILL.md")).toBe(false);
-    expect(isFrameworkOwnedSyncFile("ui/src/routes/_layout/index.tsx")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("docs/custom-note.md")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/routes/_layout/_public/index.tsx")).toBe(false);
     expect(isFrameworkOwnedSyncFile("ui/src/components/user-nav.tsx")).toBe(false);
     expect(isFrameworkOwnedSyncFile("api/src/index.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("api/src/lib/auth.ts")).toBe(false);
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/index.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/auth.ts")).toBe(false);
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/auth-types.gen.ts")).toBe(false);
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/service.ts")).toBe(false);
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/other.ts")).toBe(false);
@@ -87,6 +96,61 @@ describe("bos sync — package.json merge", () => {
     expect(merged.workspaces.packages).toEqual(["ui", "api", "custom"]);
     expect(merged.workspaces.catalog.foo).toBe("^1.0.0");
     expect(merged.workspaces.catalog["everything-dev"]).toBe("^1.2.3");
+  });
+
+  it("filters root package scripts to the child script set when provided", () => {
+    const childScripts = {
+      dev: "bos dev",
+      build: "bos build",
+      typecheck: "bun run types:gen && bun run --cwd api typecheck",
+    };
+    const merged = mergePackageJson(
+      "package.json",
+      {
+        name: "my-app",
+        private: true,
+        scripts: {
+          dev: "custom dev",
+          custom: "custom script",
+        },
+      },
+      {
+        name: "monorepo",
+        scripts: {
+          dev: "node_modules/.bin/bos dev",
+          build: "node_modules/.bin/bos build",
+          "regression:start:backcompat": "bos dev --ui remote --api remote",
+          "test:regression:backcompat": "bun run test:regression:http:backcompat",
+        },
+      },
+      childScripts,
+    ) as {
+      name: string;
+      scripts: Record<string, string>;
+    };
+
+    expect(merged.name).toBe("my-app");
+    expect(merged.scripts.dev).toBe("bos dev");
+    expect(merged.scripts.build).toBe("bos build");
+    expect(merged.scripts.typecheck).toBe("bun run types:gen && bun run --cwd api typecheck");
+    expect(merged.scripts.custom).toBe("custom script");
+    expect(merged.scripts["regression:start:backcompat"]).toBeUndefined();
+    expect(merged.scripts["test:regression:backcompat"]).toBeUndefined();
+  });
+
+  it("ignores childScripts for non-root package.json", () => {
+    const childScripts = { dev: "bos dev" };
+    const merged = mergePackageJson(
+      "ui/package.json",
+      { name: "ui", scripts: { build: "custom build" } },
+      { name: "ui", scripts: { build: "bun run build:client" } },
+      childScripts,
+    ) as {
+      scripts: Record<string, string>;
+    };
+
+    expect(merged.scripts.build).toBe("bun run build:client");
+    expect(merged.scripts.dev).toBeUndefined();
   });
 
   it("preserves custom workspace package data while overwriting scaffold entries", () => {

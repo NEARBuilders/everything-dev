@@ -1,0 +1,17 @@
+{
+  "name": "@manifest-compose/generator",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "bin": {
+    "manifest-gen": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@manifest-compose/shared": "workspace:*",
+    "@tanstack/router-generator": "1.167.33",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3"
+  }
+}

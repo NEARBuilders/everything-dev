@@ -1,7 +1,7 @@
-import { CommonPluginErrors } from "every-plugin";
-import { eventIterator, oc } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
-
+import "@orpc/openapi/extensions/route";
+import { eventIterator, oc } from "@orpc/contract";
+import { PluginErrors } from "every-plugin";
+import { z } from "zod";
 // Define schemas for your data types
 export const testItemSchema = z.object({
   externalId: z.string().describe("Unique identifier for the test item"),
@@ -49,7 +49,7 @@ export const testContract = oc.router({
         item: testItemSchema,
       }),
     )
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Basic bulk fetch
   getBulk: oc
@@ -70,7 +70,7 @@ export const testContract = oc.router({
         items: z.array(testItemSchema),
       }),
     )
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Simple streaming
   simpleStream: oc
@@ -89,7 +89,7 @@ export const testContract = oc.router({
       }),
     )
     .output(eventIterator(streamEventSchema))
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Empty stream
   emptyStream: oc
@@ -107,7 +107,7 @@ export const testContract = oc.router({
       }),
     )
     .output(eventIterator(streamEventSchema))
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Consolidated error testing procedure
   throwError: oc
@@ -128,7 +128,7 @@ export const testContract = oc.router({
       }),
     )
     .output(z.object({ message: z.string() }))
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Config validation testing
   requiresSpecialConfig: oc
@@ -152,7 +152,7 @@ export const testContract = oc.router({
         userId: z.string().optional(),
       }),
     )
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Background producer streaming
   listenBackground: oc
@@ -179,7 +179,7 @@ export const testContract = oc.router({
       }),
     )
     .output(eventIterator(backgroundEventSchema))
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Utility to manually enqueue background events
   enqueueBackground: oc
@@ -201,7 +201,7 @@ export const testContract = oc.router({
         ok: z.boolean(),
       }),
     )
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Simple ping for testing client dispatch
   ping: oc
@@ -218,7 +218,7 @@ export const testContract = oc.router({
         timestamp: z.number(),
       }),
     )
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 
   // Variable serialization testing
   useClient: oc
@@ -243,7 +243,7 @@ export const testContract = oc.router({
         hasGetBaseUrlMethod: z.boolean(),
       }),
     )
-    .errors(CommonPluginErrors),
+    .errors(PluginErrors),
 });
 
 export type ContractType = typeof testContract;

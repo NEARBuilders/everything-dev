@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "BOS_CONFIG_PATH=../bos.config.json tsx server.ts",
     "build": "rsbuild build",
-    "deploy": "DEPLOY=true rsbuild build",
     "preview": "NODE_ENV=production BOS_CONFIG_PATH=../bos.config.json tsx server.ts",
     "test": "NODE_ENV=production BOS_CONFIG_PATH=../bos.config.json vitest run",
     "test:e2e": "BOS_CONFIG_PATH=../bos.config.json playwright test -c ./playwright.config.mjs",
@@ -19,6 +18,7 @@
     "@hono/node-server": "^2.0.1",
     "@modelcontextprotocol/server": "catalog:",
     "@module-federation/enhanced": "catalog:",
+    "@module-federation/runtime-tools": "catalog:",
     "@module-federation/node": "catalog:",
     "@module-federation/runtime-core": "catalog:",
     "@orpc/contract": "catalog:",
@@ -48,7 +48,6 @@
     "tsx": "^4.21.0",
     "typescript": "catalog:",
     "vite-tsconfig-paths": "^6.0.4",
-    "vitest": "catalog:",
-    "zephyr-rsbuild-plugin": "catalog:"
+    "vitest": "catalog:"
   }
 }

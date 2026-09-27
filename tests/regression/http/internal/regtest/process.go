@@ -1,17 +1,36 @@
 package regtest
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
 type Process struct {
 	Cmd     *exec.Cmd
 	BaseURL string
+	LogPath string
 	done    chan struct{}
+}
+
+// Done reports when the target process exits.
+func (p *Process) Done() <-chan struct{} { return p.done }
+
+func (p *Process) Stop() {
+	if p.Cmd == nil || p.Cmd.Process == nil {
+		return
+	}
+	p.Cmd.Process.Signal(os.Interrupt)
+	select {
+	case <-p.done:
+	case <-time.After(10 * time.Second):
+		p.Cmd.Process.Kill()
+		<-p.done
+	}
 }
 
 func Start(t interface{ Fatalf(string, ...any) }) *Process {
@@ -27,27 +46,24 @@ func Start(t interface{ Fatalf(string, ...any) }) *Process {
 		return nil
 	}
 
-	killStalePorts(workdir)
+	cfg := LoadConfig()
 
-	cmd := exec.Command("bun", "run", "regression:start:"+string(mode))
+	killStalePorts(cfg)
+
+	cmd := exec.Command("bun", "run", ScriptName())
 	cmd.Dir = workdir
-	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env,
-		"API_DATABASE_URL=postgres://everythingdev:everythingdev@127.0.0.1:5432/api_db",
-		"AUTH_DATABASE_URL=postgres://everythingdev:everythingdev@127.0.0.1:5433/auth_db",
-		"TEMPLATE_DATABASE_URL=postgres://everythingdev:everythingdev@127.0.0.1:5434/template_db",
-		"CORS_ORIGIN=http://localhost:4100",
-		"BETTER_AUTH_SECRET=regression-test-secret-do-not-use-in-production",
-		"CI=true",
-		"RATE_LIMIT_WINDOW_MS=1000",
-		"RATE_LIMIT_MAX=100",
-		"BODY_LIMIT_MAX=65536",
-	)
+	cmd.Env = buildTargetEnv(cfg)
 
-	logDir := filepath.Join(workdir, ".bos", "logs")
-	os.MkdirAll(logDir, 0755)
-	logFile := filepath.Join(logDir, "regression-"+string(mode)+".log")
-	f, err := os.Create(logFile)
+	logPath := filepath.Join(workdir, ".bos", "logs", "regression-"+string(mode)+".log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		if t != nil {
+			t.Fatalf("creating log dir: %v", err)
+		} else {
+			log.Printf("ERROR: creating log dir: %v", err)
+		}
+		return nil
+	}
+	f, err := os.Create(logPath)
 	if err != nil {
 		if t != nil {
 			t.Fatalf("creating log file: %v", err)
@@ -71,7 +87,8 @@ func Start(t interface{ Fatalf(string, ...any) }) *Process {
 
 	p := &Process{
 		Cmd:     cmd,
-		BaseURL: BaseURL(),
+		BaseURL: cfg.BaseURL,
+		LogPath: logPath,
 		done:    make(chan struct{}),
 	}
 
@@ -84,34 +101,85 @@ func Start(t interface{ Fatalf(string, ...any) }) *Process {
 	return p
 }
 
-func (p *Process) Stop() {
-	if p.Cmd == nil || p.Cmd.Process == nil {
+// buildTargetEnv layers derived defaults under the ambient environment:
+// anything already set (CI job env, developer shell) wins; the helper only
+// fills the gaps so the suite works with whatever the repo configures.
+func buildTargetEnv(cfg *Config) []string {
+	env := os.Environ()
+	setIfUnset := func(key, value string) {
+		if _, exists := lookupEnv(env, key); !exists {
+			env = append(env, key+"="+value)
+		}
+	}
+	for key, value := range cfg.DBURLs {
+		setIfUnset(key, value)
+	}
+	setIfUnset("CORS_ORIGIN", cfg.BaseURL)
+	setIfUnset("BETTER_AUTH_SECRET", cfg.AuthSecret)
+	setIfUnset("CI", "true")
+	setIfUnset("RATE_LIMIT_WINDOW_MS", "1000")
+	setIfUnset("RATE_LIMIT_MAX", "100")
+	setIfUnset("BODY_LIMIT_MAX", "65536")
+	return env
+}
+
+func lookupEnv(env []string, key string) (string, bool) {
+	for _, entry := range env {
+		if len(entry) > len(key)+1 && entry[:len(key)] == key && entry[len(key)] == '=' {
+			return entry[len(key)+1:], true
+		}
+	}
+	return "", false
+}
+
+// ResetPluginDatabases drops each local plugin's isolated schema
+// (plugin_<slug>) so every run starts from clean plugin state. The
+// drizzle_migrations journal lives inside the plugin schema, so one drop
+// fully resets it. Generic for whatever plugins bos.config.json declares.
+func ResetPluginDatabases() {
+	workdir, err := findRepoRoot()
+	if err != nil {
+		log.Printf("WARN: skipping plugin database reset (repo root not found): %v", err)
 		return
 	}
-	p.Cmd.Process.Signal(os.Interrupt)
-	select {
-	case <-p.done:
-	case <-time.After(10 * time.Second):
-		p.Cmd.Process.Kill()
-		<-p.done
+	cmd := exec.Command("bun", "tests/regression/lib/reset-plugin-dbs.mjs")
+	cmd.Dir = workdir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("WARN: plugin database reset failed: %v\n%s", err, tail(string(out), 2000))
+		return
 	}
+	log.Printf("Plugin databases reset: %s", tail(string(out), 500))
 }
 
-func ResetTemplateDatabase() {
-	cmd := exec.Command("docker", "exec", "dev.everything.near-postgres-template",
-		"psql", "-U", "everythingdev", "-d", "template_db",
-		"-c", "DROP TABLE IF EXISTS things, drizzle_migrations CASCADE")
-	if err := cmd.Run(); err != nil {
-		log.Printf("WARN: failed to reset template database (container may not be running): %v", err)
+// killStalePorts frees every port the target stack can bind. The list comes
+// from the repo-derived config (base service ports plus one or two plugin
+// ports per local plugin), so it tracks whatever bos.config.json declares.
+func killStalePorts(cfg *Config) {
+	ports := cfg.StalePorts
+	if len(ports) == 0 {
+		base, err := portOf(cfg.BaseURL)
+		if err != nil {
+			log.Printf("WARN: skipping stale-port cleanup (unparseable base URL %q): %v", cfg.BaseURL, err)
+			return
+		}
+		ports = []int{base, base + 1, base + 2, base + 3, base + 4, base + 10, base + 11}
 	}
-}
-
-func killStalePorts(workdir string) {
-	ports := []string{"4100", "4101", "4102", "4103", "4110", "4111"}
 	for _, port := range ports {
-		exec.Command("sh", "-c", "lsof -ti:"+port+" | xargs kill -9 2>/dev/null || true").Run()
+		exec.Command("sh", "-c", "lsof -ti:"+strconv.Itoa(port)+" | xargs kill -9 2>/dev/null || true").Run()
 	}
 	time.Sleep(500 * time.Millisecond)
+}
+
+func portOf(baseURL string) (int, error) {
+	var port int
+	if _, err := fmt.Sscanf(baseURL, "http://localhost:%d", &port); err == nil {
+		return port, nil
+	}
+	if _, err := fmt.Sscanf(baseURL, "http://127.0.0.1:%d", &port); err == nil {
+		return port, nil
+	}
+	return 0, fmt.Errorf("no port in %q", baseURL)
 }
 
 func findRepoRoot() (string, error) {

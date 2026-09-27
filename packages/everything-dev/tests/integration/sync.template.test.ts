@@ -1,9 +1,22 @@
+vi.mock("../../src/infra/materializer", async () => {
+  const actual = await vi.importActual<typeof import("../../src/infra/materializer")>(
+    "../../src/infra/materializer",
+  );
+  // Replace the orchestration helper with a no-op so the file-generation
+  // side-effects don't pollute the test's tempdir. The previous test mock
+  // targeted writeGeneratedInfra; this is the materializer-equivalent
+  // bypass at the orchestration entry point.
+  return {
+    ...actual,
+    materializeViaLayer: async () => {},
+  };
+});
+
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as infraModule from "../../src/cli/infra";
 import * as initModule from "../../src/cli/init";
 import {
   buildInitPatterns,
@@ -97,7 +110,6 @@ describe("syncTemplate", () => {
     });
     vi.spyOn(initModule, "runBunInstall").mockResolvedValue();
     vi.spyOn(initModule, "runTypesGen").mockResolvedValue();
-    vi.spyOn(infraModule, "writeGeneratedInfra").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -139,6 +151,28 @@ describe("syncTemplate", () => {
     expect(readFileSync(appOwnedPath, "utf-8")).toBe("component override\n");
   });
 
+  it("delivers extracted fallbacks when upgrading a child that does not have them", async () => {
+    const projectDir = await scaffoldProject(["ui"]);
+    tempDirs.push(projectDir);
+    const fallbacks = [
+      "ui/src/components/document-fallback.tsx",
+      "ui/src/components/root-error.tsx",
+      "ui/src/components/root-not-found.tsx",
+      "ui/src/components/router-error.tsx",
+    ];
+    for (const file of fallbacks) unlinkSync(join(projectDir, file));
+
+    const result = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+
+    expect(result.status).toBe("synced");
+    expect(result.added).toEqual(expect.arrayContaining(fallbacks));
+    for (const file of fallbacks) {
+      expect(readFileSync(join(projectDir, file), "utf-8")).toBe(
+        readFileSync(join(REPO_ROOT, file), "utf-8"),
+      );
+    }
+  });
+
   it("sync does not re-add plugin workspaces because it only manages framework-owned files", async () => {
     const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
     tempDirs.push(projectDir);
@@ -171,7 +205,7 @@ describe("syncTemplate", () => {
     config.title = "child app";
     config.repository = "https://github.com/example/child-app";
     config.plugins = {
-      ...(config.plugins ?? {}),
+      ...config.plugins,
       example: {
         development: "local:plugins/example",
       },
@@ -252,7 +286,7 @@ describe("syncTemplate", () => {
       scripts?: Record<string, string>;
     };
     packageJson.scripts = {
-      ...(packageJson.scripts ?? {}),
+      ...packageJson.scripts,
       custom: "bun run custom",
     };
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);

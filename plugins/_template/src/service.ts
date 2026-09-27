@@ -1,6 +1,5 @@
-import { Effect } from "every-plugin/effect";
-import type { z } from "every-plugin/zod";
-
+import { Effect } from "effect";
+import type { z } from "zod";
 // Import types from contract
 import type { ItemSchema, SearchResultSchema } from "./contract";
 
@@ -46,27 +45,20 @@ export class TemplateService {
     });
   }
 
-  search(query: string, limit: number) {
-    return Effect.gen(function* () {
-      // Simulate API call
-      yield* Effect.sleep("100 millis");
-
-      // Mock streaming search results
-      const generator: AsyncGenerator<SearchResult> = (async function* () {
-        for (let i = 0; i < limit; i++) {
-          yield {
-            item: {
-              id: `${query}-${i}`,
-              title: `${query} result ${i + 1}`,
-              createdAt: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString(),
-            },
-            score: Math.max(0.1, 1 - i * 0.1),
-          };
-        }
-      })();
-
-      return generator;
-    });
+  search(query: string, limit: number): AsyncGenerator<SearchResult> {
+    // Mock streaming search results
+    return (async function* () {
+      for (let i = 0; i < limit; i++) {
+        yield {
+          item: {
+            id: `${query}-${i}`,
+            title: `${query} result ${i + 1}`,
+            createdAt: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString(),
+          },
+          score: Math.max(0.1, 1 - i * 0.1),
+        };
+      }
+    })();
   }
 
   ping() {

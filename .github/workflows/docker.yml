@@ -8,17 +8,6 @@ on:
         required: false
         default: ""
         type: string
-  push:
-    branches: [main, staging]
-    paths:
-      - Dockerfile
-  workflow_call:
-    inputs:
-      ref:
-        description: "Git ref or SHA to build"
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: read
@@ -66,7 +55,6 @@ jobs:
         with:
           images: ghcr.io/${{ env.REPO }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=staging,enable=${{ github.ref == 'refs/heads/staging' }}
             type=ref,event=branch
             type=sha

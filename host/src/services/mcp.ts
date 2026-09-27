@@ -6,7 +6,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { OpenAPIGenerator } from "@orpc/openapi";
 import type { OpenAPIHandler } from "@orpc/openapi/fetch";
-import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
+import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import type { Context, Hono } from "hono";
 import type { AuthPluginContext, HonoEnv } from "../lib/auth";
 import { logger } from "../utils/logger";
@@ -35,18 +35,22 @@ export async function mountMcpRoute(
     apiRouter: unknown;
     apiHandler: OpenAPIHandler<any>;
     config: RuntimeConfig;
+    effectContext?: unknown;
   },
 ) {
-  const { apiRouter, apiHandler, config } = options;
+  const { apiRouter, apiHandler, config, effectContext } = options;
 
   const generator = new OpenAPIGenerator({
-    schemaConverters: [new ZodToJsonSchemaConverter()],
+    converters: [new ZodToJsonSchemaConverter()],
   });
 
   const spec = await generator.generate(apiRouter as any, {
-    info: {
-      title: `${config.title ?? config.account} API`,
-      version: "1.0.0",
+    version: "3.1.1",
+    base: {
+      info: {
+        title: `${config.title ?? config.account} API`,
+        version: "1.0.0",
+      },
     },
   });
 
@@ -55,6 +59,7 @@ export async function mountMcpRoute(
     version: "1.0.0",
   });
 
+  const registeredTools = new Set<string>();
   const paths = (spec as any).paths ?? {};
 
   for (const [path, methods] of Object.entries(paths)) {
@@ -67,6 +72,12 @@ export async function mountMcpRoute(
         (resp: any) => resp?.content && "text/event-stream" in resp.content,
       );
       if (hasSseResponse) continue;
+
+      if (registeredTools.has(operationId)) {
+        logger.warn(`[MCP] Skipping duplicate tool "${operationId}"`);
+        continue;
+      }
+      registeredTools.add(operationId);
 
       const methodUpper = method.toUpperCase();
       const isBodyMethod = ["POST", "PUT", "PATCH"].includes(methodUpper);
@@ -163,7 +174,7 @@ export async function mountMcpRoute(
           try {
             const result = await apiHandler.handle(req, {
               prefix: "/api",
-              context: store.context,
+              context: { ...store.context, "effect/context": effectContext },
             });
 
             if (!result.response) {

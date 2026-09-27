@@ -16,7 +16,7 @@
 Pass an optional Zod schema to `createAuthMiddleware` for runtime validation:
 
 ```ts
-import { z } from "every-plugin/zod";
+import { z } from "zod";
 
 const orgMetaSchema = z.object({ plan: z.enum(["free", "pro"]), seats: z.number() });
 const { requireOrganization } = createAuthMiddleware(builder, { orgMetaSchema });

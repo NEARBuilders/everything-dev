@@ -26,7 +26,7 @@ export interface FetchOptions {
   headers?: Record<string, string>;
   body?: BodyInit;
   redirect?: RequestRedirect;
-  timeout?: Duration.DurationInput;
+  timeout?: Duration.Input;
 }
 
 export interface FetchWithRetryOptions extends FetchOptions {
@@ -58,7 +58,7 @@ const fetchRawEff = (
 ): Effect.Effect<Response, FetchNetworkError | FetchTimeoutError> =>
   Effect.tryPromise({
     try: async () => {
-      const timeoutMs = Duration.toMillis(Duration.decode(options?.timeout ?? DEFAULT_TIMEOUT));
+      const timeoutMs = Duration.toMillis(options?.timeout ?? DEFAULT_TIMEOUT);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
@@ -101,8 +101,7 @@ const fetchEff = (url: string, options?: FetchOptions): Effect.Effect<Response, 
 // --- With retry ---
 
 const retrySchedule = Schedule.exponential(EXPONENTIAL_BASE).pipe(
-  Schedule.upTo(EXPONENTIAL_CAP),
-  Schedule.intersect(Schedule.recurs(DEFAULT_RETRIES)),
+  Schedule.upTo({ duration: EXPONENTIAL_CAP, times: DEFAULT_RETRIES }),
 );
 
 export const fetchWithRetryEff = (
@@ -116,8 +115,7 @@ export const fetchWithRetryEff = (
   const schedule =
     options?.retries !== undefined
       ? Schedule.exponential(EXPONENTIAL_BASE).pipe(
-          Schedule.upTo(EXPONENTIAL_CAP),
-          Schedule.intersect(Schedule.recurs(retries)),
+          Schedule.upTo({ duration: EXPONENTIAL_CAP, times: retries }),
         )
       : retrySchedule;
 

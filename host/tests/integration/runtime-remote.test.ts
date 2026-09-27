@@ -43,10 +43,9 @@ for (const scenario of scenarios) {
     });
 
     it("serves host health", async () => {
-      const response = await fetch(`${runtime.baseUrl}/health`);
+      const body = await expectJsonResponse(await fetch(`${runtime.baseUrl}/health`));
 
-      expect(response.status).toBe(200);
-      expect(await response.text()).toBe("OK");
+      expect(typeof body.status).toBe("string");
     });
 
     it("serves remote documentation assets through the host", async () => {

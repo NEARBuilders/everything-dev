@@ -1,6 +1,6 @@
+import { ORPCError } from "@orpc/server";
 import { and, count, desc, eq } from "drizzle-orm";
-import { Context, Effect, Layer } from "every-plugin/effect";
-import { ORPCError } from "every-plugin/orpc";
+import { Context, Effect, Layer } from "effect";
 import { DatabaseTag } from "../db/layer";
 import { things } from "../db/schema";
 
@@ -54,7 +54,7 @@ export function resolveType(payload: unknown): string {
   return "template.thing";
 }
 
-export class ThingsService extends Context.Tag("template/ThingsService")<
+export class ThingsService extends Context.Service<
   ThingsService,
   {
     createThing: (thingId: string, payload: unknown) => Effect.Effect<CreatedThing, ThingsError>;
@@ -65,7 +65,7 @@ export class ThingsService extends Context.Tag("template/ThingsService")<
 
     listThings: (input: ListThingsInput) => Effect.Effect<ListThingsResult, ThingsError>;
   }
->() {
+>()("template/ThingsService") {
   static Live = Layer.effect(
     ThingsService,
     Effect.gen(function* () {

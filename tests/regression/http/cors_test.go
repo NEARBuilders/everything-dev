@@ -25,7 +25,7 @@ func TestCORSRootMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatalf("creating request: %v", err)
 		}
-		req.Header.Set("Origin", "http://localhost:4100")
+		req.Header.Set("Origin", regtest.Origin())
 
 		resp, err := client.Do(req)
 		if err != nil {

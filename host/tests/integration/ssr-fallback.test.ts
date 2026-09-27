@@ -1,8 +1,11 @@
 import { createServer } from "node:http";
-import { Effect } from "every-plugin/effect";
+import { Cause, Effect, Exit } from "effect";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAvailablePort } from "../helpers/ports";
 
+const loadUiComposeModuleMock = vi.fn();
+const loadCoreUiRouteConfigMock = vi.fn();
+const loadUiRouteConfigMock = vi.fn();
 const loadRouterModuleMock = vi.fn();
 const resolveRequestRuntimeMock = vi.fn();
 
@@ -12,6 +15,9 @@ vi.mock("../../src/services/federation.server", async () => {
   );
   return {
     ...actual,
+    loadUiComposeModule: loadUiComposeModuleMock,
+    loadCoreUiRouteConfig: loadCoreUiRouteConfigMock,
+    loadUiRouteConfig: loadUiRouteConfigMock,
     loadRouterModule: loadRouterModuleMock,
   };
 });
@@ -28,6 +34,13 @@ vi.mock("../../src/services/tenant-runtime", async () => {
 
 const { FederationError } = await import("../../src/services/errors");
 const { runServer } = await import("../../src/program");
+const { resetUiComposeCache } = await import("../../src/services/ui-compose");
+
+const CORE_MANIFEST = {
+  name: "ui",
+  manifestVersion: 1,
+  routes: [{ id: "_public", isLayout: true, mount: "public", file: "_public.tsx" }],
+};
 
 function createBaseConfig(ssrUrl?: string) {
   return {
@@ -92,14 +105,68 @@ async function startStaticServer(routes: Record<string, { body: string; contentT
   };
 }
 
+const composeEngine = () => ({
+  constructTree: async (input: {
+    plugins: ReadonlyArray<{ key: string; mfName?: string }>;
+    resolve: (ref: { key: string }) => Promise<{ manifest: unknown }>;
+  }) => {
+    const resolved = [];
+    for (const ref of input.plugins) resolved.push(await input.resolve(ref));
+    const { digestOf } = await import("everything-dev/ui/manifest");
+    return {
+      rootRoute: { id: "composed-tree" },
+      routeTree: { id: "composed-tree" },
+      nav: { items: [] },
+      manifests: [CORE_MANIFEST],
+      digest: await digestOf({
+        plugins: input.plugins.map((p) => ({ key: p.key, mfName: p.mfName ?? p.key })),
+        manifests: resolved.map((r) => r.manifest),
+      }),
+    };
+  },
+});
+
+function mockCompositionSucceeds() {
+  loadUiComposeModuleMock.mockReturnValue(Effect.succeed(composeEngine()));
+  loadCoreUiRouteConfigMock.mockReturnValue(
+    Effect.succeed({ routeConfigLoaders: {}, rootMeta: undefined }),
+  );
+  loadRouterModuleMock.mockReturnValue(
+    Effect.succeed({
+      renderToStream: vi.fn().mockResolvedValue({
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                "<!DOCTYPE html><html><head><title>SSR</title></head><body></body></html>",
+              ),
+            );
+            controller.close();
+          },
+        }),
+        statusCode: 200,
+        headers: new Headers(),
+      }),
+      getRouteHead: vi.fn(),
+      createRouter: vi.fn(),
+    }),
+  );
+}
+
 describe("SSR fallback paths", () => {
   let assetServer: Awaited<ReturnType<typeof startStaticServer>>;
   let handle: ReturnType<typeof runServer>;
   let baseUrl: string;
+  let requestConfig: ReturnType<typeof createBaseConfig>;
   const envSnapshot = { ...process.env };
 
   beforeAll(async () => {
-    assetServer = await startStaticServer({});
+    assetServer = await startStaticServer({
+      "/ui/manifest.gen.json": {
+        body: JSON.stringify(CORE_MANIFEST),
+        contentType: "application/json",
+      },
+    });
 
     const port = await getAvailablePort();
     baseUrl = `http://127.0.0.1:${port}`;
@@ -109,18 +176,36 @@ describe("SSR fallback paths", () => {
     process.env.CSP_STRICT = "false";
     process.argv.push("--proxy");
 
-    const config = createBaseConfig(`${assetServer.baseUrl}/ui-ssr`);
+    mockCompositionSucceeds();
+
+    const base = createBaseConfig(`${assetServer.baseUrl}/ui-ssr`);
+    requestConfig = {
+      ...base,
+      ui: {
+        ...base.ui,
+        url: `${assetServer.baseUrl}/ui`,
+        entry: `${assetServer.baseUrl}/ui/mf-manifest.json`,
+        ssrUrl: `${assetServer.baseUrl}/ui-ssr`,
+      },
+      api: { ...base.api, proxy: assetServer.baseUrl },
+    } as ReturnType<typeof createBaseConfig>;
+
+    resolveRequestRuntimeMock.mockResolvedValue({
+      tenantAccountId: null,
+      gatewayId: "linktree.com",
+      ssrAllowed: true,
+      config: requestConfig,
+    });
+
     handle = runServer({
       config: {
-        ...config,
-        host: { ...config.host, url: baseUrl, entry: `${baseUrl}/mf-manifest.json` },
-        ui: {
-          ...config.ui,
-          url: `${assetServer.baseUrl}/ui`,
-          entry: `${assetServer.baseUrl}/ui/mf-manifest.json`,
-          ssrUrl: `${assetServer.baseUrl}/ui-ssr`,
+        ...requestConfig,
+        host: {
+          name: "host",
+          url: baseUrl,
+          entry: `${baseUrl}/mf-manifest.json`,
+          source: "remote",
         },
-        api: { ...config.api, proxy: assetServer.baseUrl },
       } as any,
     });
 
@@ -139,6 +224,9 @@ describe("SSR fallback paths", () => {
   });
 
   beforeEach(() => {
+    loadUiComposeModuleMock.mockReset();
+    loadCoreUiRouteConfigMock.mockReset();
+    loadUiRouteConfigMock.mockReset();
     loadRouterModuleMock.mockReset();
     resolveRequestRuntimeMock.mockReset();
 
@@ -146,76 +234,71 @@ describe("SSR fallback paths", () => {
       tenantAccountId: null,
       gatewayId: "linktree.com",
       ssrAllowed: true,
-      config: createBaseConfig(`${assetServer.baseUrl}/ui-ssr`),
+      config: requestConfig,
     });
   });
 
-  describe("loadRouterModule fails with FederationError", () => {
-    it("falls back to client shell with SSR unavailable message", async () => {
+  describe("composition fails", () => {
+    it("fails LOUD with 500 — never a silent wrong-tree render", async () => {
       const federationError = new FederationError({
         remoteName: "ui",
         remoteUrl: `${assetServer.baseUrl}/ui-ssr`,
         cause: new Error("An error has occurred"),
       });
 
-      loadRouterModuleMock.mockReturnValue(
+      loadUiComposeModuleMock.mockReturnValue(
         Effect.gen(function* () {
           return yield* Effect.fail(federationError);
         }),
       );
+      resetUiComposeCache();
 
       const response = await fetch(`${baseUrl}/`);
-      const html = await response.text();
 
-      expect(response.status).toBe(200);
-      expect(html).toContain("SSR unavailable");
-      expect(html).toContain("remoteEntry.js");
-      expect(html).toContain("window.__RUNTIME_CONFIG__");
+      expect(response.status).toBe(500);
+      expect(await response.text()).toBe("SSR composition failed");
+      expect(loadUiComposeModuleMock).toHaveBeenCalled();
     });
 
-    it("includes the FederationError cause message in the client shell fallback", async () => {
+    it("recovers on the next request after a transient composition failure", async () => {
       const federationError = new FederationError({
         remoteName: "ui",
         remoteUrl: `${assetServer.baseUrl}/ui-ssr`,
-        cause: new Error("Module not found: ui/Router"),
+        cause: new Error("Transient network error"),
       });
 
-      loadRouterModuleMock.mockReturnValue(
+      loadUiComposeModuleMock.mockReturnValueOnce(
         Effect.gen(function* () {
           return yield* Effect.fail(federationError);
         }),
       );
-
-      const response = await fetch(`${baseUrl}/`);
-      const html = await response.text();
-
-      expect(response.status).toBe(200);
-      expect(html).toContain("SSR unavailable");
-
-      const errorParagraphMatch = html.match(
-        /<p class="error">SSR unavailable, showing client app\.<\/p><p>(.*?)<\/p>/,
+      loadUiComposeModuleMock.mockReturnValueOnce(Effect.succeed(composeEngine()));
+      loadCoreUiRouteConfigMock.mockReturnValue(
+        Effect.succeed({ routeConfigLoaders: {}, rootMeta: undefined }),
       );
-      expect(errorParagraphMatch).not.toBeNull();
-      expect(errorParagraphMatch![1].length).toBeGreaterThan(0);
-    });
-
-    it("preserves FederationError context for logging", async () => {
-      const cause = new Error("An error has occurred");
-      const federationError = new FederationError({
-        remoteName: "ui",
-        remoteUrl: `${assetServer.baseUrl}/ui-ssr`,
-        cause,
-      });
-
       loadRouterModuleMock.mockReturnValue(
-        Effect.gen(function* () {
-          return yield* Effect.fail(federationError);
+        Effect.succeed({
+          renderToStream: vi.fn().mockResolvedValue({
+            stream: new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("<!DOCTYPE html><html></html>"));
+                controller.close();
+              },
+            }),
+            statusCode: 200,
+            headers: new Headers(),
+          }),
+          getRouteHead: vi.fn(),
+          createRouter: vi.fn(),
         }),
       );
+      resetUiComposeCache();
 
-      await fetch(`${baseUrl}/`);
+      const firstResponse = await fetch(`${baseUrl}/`);
+      expect(firstResponse.status).toBe(500);
 
-      expect(loadRouterModuleMock).toHaveBeenCalled();
+      const secondResponse = await fetch(`${baseUrl}/`);
+      expect(secondResponse.status).toBe(200);
     });
   });
 
@@ -239,6 +322,7 @@ describe("SSR fallback paths", () => {
 
   describe("renderToStream throws", () => {
     it("falls back to client shell with SSR unavailable message", async () => {
+      mockCompositionSucceeds();
       const failingModule = {
         renderToStream: vi.fn().mockRejectedValue(new Error("React render error")),
         getRouteHead: vi.fn().mockRejectedValue(new Error("head error")),
@@ -246,6 +330,7 @@ describe("SSR fallback paths", () => {
       };
 
       loadRouterModuleMock.mockReturnValue(Effect.succeed(failingModule));
+      resetUiComposeCache();
 
       const response = await fetch(`${baseUrl}/`);
       const html = await response.text();
@@ -257,55 +342,8 @@ describe("SSR fallback paths", () => {
     });
   });
 
-  describe("SSR succeeds after previous failure", () => {
-    it("recovers from a transient FederationError on the next request", async () => {
-      const federationError = new FederationError({
-        remoteName: "ui",
-        remoteUrl: `${assetServer.baseUrl}/ui-ssr`,
-        cause: new Error("Transient network error"),
-      });
-
-      loadRouterModuleMock.mockReturnValueOnce(
-        Effect.gen(function* () {
-          return yield* Effect.fail(federationError);
-        }),
-      );
-
-      const firstResponse = await fetch(`${baseUrl}/`);
-      const firstHtml = await firstResponse.text();
-      expect(firstResponse.status).toBe(200);
-      expect(firstHtml).toContain("SSR unavailable");
-
-      const stream = new ReadableStream({
-        start(controller) {
-          controller.enqueue(
-            new TextEncoder().encode(
-              '<!DOCTYPE html><html><head><title>SSR Page</title></head><body><div id="root">SSR Content</div></body></html>',
-            ),
-          );
-          controller.close();
-        },
-      });
-
-      const successModule = {
-        renderToStream: vi.fn().mockResolvedValue({
-          stream,
-          statusCode: 200,
-          headers: new Headers(),
-        }),
-        getRouteHead: vi.fn(),
-        createRouter: vi.fn(),
-      };
-
-      loadRouterModuleMock.mockReturnValueOnce(Effect.succeed(successModule));
-
-      const secondResponse = await fetch(`${baseUrl}/`);
-      expect(secondResponse.status).toBe(200);
-    });
-  });
-
   describe("FederationError message propagation bug", () => {
-    it("FederationError.message is empty when passed through Effect.either", async () => {
+    it("FederationError.message is empty when passed through runPromiseExit", async () => {
       const federationError = new FederationError({
         remoteName: "ui",
         remoteUrl: `${assetServer.baseUrl}/ui-ssr`,
@@ -316,11 +354,11 @@ describe("SSR fallback paths", () => {
       expect(federationError.remoteName).toBe("ui");
       expect(federationError.cause).toBeDefined();
 
-      const result = await Effect.runPromise(Effect.fail(federationError).pipe(Effect.either));
+      const result = await Effect.runPromiseExit(Effect.fail(federationError));
 
-      expect(result._tag).toBe("Left");
-      if (result._tag !== "Left") throw new Error("Expected Left");
-      const leftError = result.left as InstanceType<typeof FederationError>;
+      expect(Exit.isFailure(result)).toBe(true);
+      if (Exit.isSuccess(result)) throw new Error("Expected Left");
+      const leftError = Cause.squash(result.cause) as InstanceType<typeof FederationError>;
       expect(leftError._tag).toBe("FederationError");
 
       expect(leftError.message.length).toBeGreaterThan(0);

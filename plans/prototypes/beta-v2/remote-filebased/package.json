@@ -1,0 +1,26 @@
+{
+  "name": "remote-filebased",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "rsbuild dev",
+    "build": "rsbuild build",
+    "typecheck": "tsc --noEmit",
+    "gen": "tsr generate"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "1.157.16",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@module-federation/rsbuild-plugin": "^2.4.0",
+    "@rsbuild/core": "1.7.5",
+    "@rsbuild/plugin-react": "1.4.6",
+    "@tanstack/router-cli": "1.157.16",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
+  }
+}

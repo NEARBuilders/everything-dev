@@ -1,8 +1,9 @@
-import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { colors, divider, gradients } from "./theme";
 
-const require = createRequire(import.meta.url);
-const pkg = require("../../package.json") as { version: string };
+const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf-8")) as {
+  version: string;
+};
 
 const ASCII_BOS = `
   ██████╗  ██████╗ ███████╗

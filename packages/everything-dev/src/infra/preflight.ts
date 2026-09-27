@@ -18,12 +18,14 @@ export interface PreflightFailure {
 
 function parseLocalUrl(url: string): { host: string; port: number } | null {
   try {
-    const match = url.match(/:\/\/([^:/]+):(\d+)/);
-    if (!match) return null;
-    const host = match[1];
-    const port = Number.parseInt(match[2], 10);
-    if (Number.isNaN(port)) return null;
-    if (host !== "localhost" && host !== "127.0.0.1") return null;
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") return null;
+    const port = Number.parseInt(parsed.port, 10);
+    if (Number.isNaN(port)) {
+      const fallback = parsed.protocol === "redis:" ? 6379 : 5432;
+      return { host, port: fallback };
+    }
     return { host, port };
   } catch {
     return null;
@@ -31,7 +33,7 @@ function parseLocalUrl(url: string): { host: string; port: number } | null {
 }
 
 function checkTcpReachable(host: string, port: number, timeoutMs = 2000): Effect.Effect<boolean> {
-  return Effect.async<boolean>((resume) => {
+  return Effect.callback<boolean>((resume) => {
     const socket = createConnection({ host, port });
     const timer = setTimeout(() => {
       socket.destroy();
@@ -119,9 +121,11 @@ export function preflightLocalInfra(
           const ok = yield* checkPgConnection(target.url);
           if (ok) return null;
           const tcpOk = yield* checkTcpReachable(target.host, target.port);
-          const pluginContext = target.secret.endsWith("_DATABASE_URL")
-            ? ` The plugin for ${target.secret} runs inside the local host process, so this DB must be reachable. Run \`docker compose up -d --wait\` to start local Postgres/Redis.`
-            : "";
+          const appDb =
+            target.secret === "API_DATABASE_URL" || target.secret === "AUTH_DATABASE_URL";
+          const pluginContext = appDb
+            ? " Run `docker compose up -d --wait` to start local Postgres."
+            : ` The plugin for ${target.secret} runs inside the local host process, so this DB must be reachable. Run \`docker compose up -d --wait\` to start local Postgres.`;
           if (tcpOk) {
             return {
               secret: target.secret,

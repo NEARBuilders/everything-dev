@@ -1,18 +1,5 @@
-import { z } from "./zod";
-
-/**
- * Error pattern constants for categorizing infrastructure errors
- */
-export const ERROR_PATTERNS = {
-  CONNECTION_REFUSED: ["ECONNREFUSED"],
-  HOST_NOT_FOUND: ["ENOTFOUND", "EHOSTUNREACH"],
-  TIMEOUT: ["ETIMEDOUT", "ESOCKETTIMEDOUT", "timeout"],
-  CONNECTION_RESET: ["ECONNRESET", "EPIPE"],
-  PERMISSION: ["EACCES", "EPERM", "permission denied"],
-  AUTH: ["401", "unauthorized", "authentication failed"],
-  RATE_LIMITED: ["429", "too many requests", "rate limit"],
-  SERVICE_UNAVAILABLE: ["503", "service unavailable"],
-} as const;
+import { COMMON_ERROR_STATUS_MAP } from "@orpc/server";
+import { z } from "zod";
 
 /**
  * Common error schemas for plugin contracts.
@@ -128,10 +115,26 @@ export const PluginErrors = {
  */
 export const CommonPluginErrors = PluginErrors;
 
+/**
+ * Error-code -> HTTP-status map for handlers.
+ *
+ * oRPC v2 resolves statuses at the handler boundary via `errorStatusMap`
+ * (default `COMMON_ERROR_STATUS_MAP`, where TIMEOUT is 408). Providing a
+ * map REPLACES the default entirely, so the standard codes must be spread
+ * back in. These custom entries preserve the v1 wire behavior:
+ * TIMEOUT -> 504, CONNECTION_ERROR -> 502.
+ */
+export const PLUGIN_ERROR_STATUS_MAP: Record<string, number> = {
+  ...COMMON_ERROR_STATUS_MAP,
+  TIMEOUT: 504,
+  CONNECTION_ERROR: 502,
+} as const;
+
+export type { PluginLoadFailureInfo } from "./runtime/errors";
 export {
+  classifyPluginFailure,
   extractFromFiberFailure,
   formatORPCError,
-  isRetryableORPCCode,
   ModuleFederationError,
   PluginRuntimeError,
   toPluginRuntimeError,

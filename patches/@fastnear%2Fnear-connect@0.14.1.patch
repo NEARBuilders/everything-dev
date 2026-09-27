@@ -1,0 +1,84 @@
+diff --git a/build/NearConnector.d.ts b/build/NearConnector.d.ts
+index 95f7f81d20f2b388a973de8d9905a08e44ce55a8..9737efa3127185ab300d067c36f8efcc53161ef8 100644
+--- a/build/NearConnector.d.ts
++++ b/build/NearConnector.d.ts
+@@ -20,6 +20,7 @@ interface NearConnectorOptions {
+     events?: EventEmitter<EventMap>;
+     storage?: DataStorage;
+     logger?: Logger;
++    cspNonce?: string;
+     /**
+      * Footer branding for the wallet selector popup. Hidden by default. Provide a FooterBranding object to show it.
+      */
+@@ -45,6 +46,7 @@ export declare class NearConnector {
+     readonly events: EventEmitter<EventMap>;
+     readonly db: IndexedDB;
+     logger?: Logger;
++    cspNonce?: string;
+     wallets: NearWalletBase[];
+     manifest: {
+         wallets: WalletManifest[];
+diff --git a/build/NearConnector.js b/build/NearConnector.js
+index 871925688e95634663185d3725520abf1fde264d..12435ed4a864b553e3937d5636ec6b0a57d0174a 100644
+--- a/build/NearConnector.js
++++ b/build/NearConnector.js
+@@ -57,6 +57,7 @@ class NearConnector {
+         this.storage = options?.storage ?? new storage_1.LocalStorage();
+         this.events = options?.events ?? new events_1.EventEmitter();
+         this.logger = options?.logger;
++        this.cspNonce = options?.cspNonce;
+         this.network = options?.network ?? "mainnet";
+         this.walletConnect = options?.walletConnect;
+         // Fire-and-forget migration of pre-network-namespaced `selected-wallet`
+diff --git a/build/SandboxedWallet/code.js b/build/SandboxedWallet/code.js
+index 3ca7507c229f0f91e2c81447e9a3eecb0b414dab..27ef118502218bca5f56a67062f50b1cef6daf6a 100644
+--- a/build/SandboxedWallet/code.js
++++ b/build/SandboxedWallet/code.js
+@@ -6,6 +6,7 @@ async function getIframeCode(args) {
+     const providers = args.executor.connector.providers;
+     const manifest = args.executor.manifest;
+     const uuid = args.id;
++    const nonceAttr = args.cspNonce ? ` nonce="${String(args.cspNonce).replace(/[^A-Za-z0-9+/=]/g, "")}"` : "";
+     // Two-layer localStorage proxy strategy:
+     // 1. Text replacement (below): rewrites executor source at build time.
+     //    Handles the common case but misses bracket notation, Reflect, and
+@@ -109,7 +110,7 @@ async function getIframeCode(args) {
+       </style>
+ 
+ 
+-      <script>
++      <script${nonceAttr}>
+       window.addEventListener("error", function(event) {
+         var msg = event.message + (event.filename ? " at " + event.filename + ":" + event.lineno : "");
+         console.error("[near-connect iframe] error:", msg);
+@@ -129,7 +130,7 @@ async function getIframeCode(args) {
+       });
+       </script>
+ 
+-      <script>
++      <script${nonceAttr}>
+       // Fix fetch binding in sandboxed iframe — bundled code that aliases
+       // or destructures fetch loses the window context, causing
+       // "Failed to execute 'fetch' on 'Window': Illegal invocation".
+@@ -359,7 +360,7 @@ async function getIframeCode(args) {
+       });
+       </script>
+ 
+-      <script type="module">${code}</script>
++      <script type="module"${nonceAttr}>${code}</script>
+     </body>
+   </html>
+     `;
+diff --git a/build/SandboxedWallet/iframe.js b/build/SandboxedWallet/iframe.js
+index a540779ee9d78f57e9c0a50721648abaad3280b3..b8548a53da73a1fa7e513418792d8e508c48394c 100644
+--- a/build/SandboxedWallet/iframe.js
++++ b/build/SandboxedWallet/iframe.js
+@@ -48,7 +48,7 @@ class IframeExecutor {
+             iframeAllowedPersimissions.push("clipboard-write;");
+         this.iframe.allow = iframeAllowedPersimissions.join(" ");
+         this.iframe.setAttribute("sandbox", "allow-scripts");
+-        (0, code_1.default)({ id: this.origin, executor: this.executor, code }).then((code) => {
++        (0, code_1.default)({ id: this.origin, executor: this.executor, code, cspNonce: this.executor.connector.cspNonce }).then((code) => {
+             this.executor.connector.logger?.log(`Iframe code injected`);
+             this.iframe.srcdoc = code;
+         });

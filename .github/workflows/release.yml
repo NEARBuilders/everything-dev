@@ -1,8 +1,6 @@
 name: Release
 
 on:
-  repository_dispatch:
-    types: [ci-main-success]
   workflow_dispatch:
     inputs:
       force_release:
@@ -22,28 +20,27 @@ permissions:
   contents: write
   id-token: write
   pull-requests: write
-  packages: write
 
 jobs:
   release:
     name: Publish Packages
     runs-on: ubuntu-latest
     env:
-      TARGET_REF: ${{ inputs.ref != '' && inputs.ref || github.event.client_payload.sha || github.sha }}
+      TARGET_REF: ${{ inputs.ref != '' && inputs.ref || github.sha }}
     outputs:
       should_publish: ${{ steps.release_mode.outputs.should_publish }}
       target_ref: ${{ steps.target_ref.outputs.ref }}
       actually_published: ${{ steps.npm_publish.outputs.actually_published }}
     steps:
-      - name: Capture target ref
-        id: target_ref
-        run: echo "ref=${TARGET_REF}" >> "$GITHUB_OUTPUT"
-
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
         with:
           fetch-depth: 0
           ref: ${{ env.TARGET_REF }}
+
+      - name: Capture checked-out commit
+        id: target_ref
+        run: echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -55,9 +52,6 @@ jobs:
 
       - name: Build every-plugin
         run: bun run --cwd packages/every-plugin build
-
-      - name: Run postinstall
-        run: bun run postinstall
 
       - name: Create release PR when changesets are pending
         id: changesets
@@ -141,6 +135,7 @@ jobs:
         if: steps.release_mode.outputs.should_publish == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ steps.target_ref.outputs.ref }}
         run: |
           for release_dir in .release/*; do
             PKG_JSON="$release_dir/package.json"
@@ -169,41 +164,5 @@ jobs:
             gh release create "$TAG" \
               --title "$TAG" \
               --notes "$NOTES" \
-              --target main
+              --target "$RELEASE_COMMIT"
           done
-
-  docker:
-    name: Build and Push Docker Image
-    needs: release
-    if: needs.release.outputs.actually_published == 'true'
-    uses: ./.github/workflows/docker.yml
-    with:
-      ref: ${{ needs.release.outputs.target_ref }}
-    permissions:
-      contents: read
-      packages: write
-
-  notify-deploy:
-    name: Notify deploy
-    needs: [release, docker]
-    if: |
-      always() &&
-      needs.release.result == 'success' &&
-      needs.docker.result != 'failure'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Send repository dispatch
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for i in 1 2 3; do
-            if gh api repos/${{ github.repository }}/dispatches \
-              --method POST \
-              -f event_type=release-completed; then
-              exit 0
-            fi
-            sleep 5
-          done
-          exit 1

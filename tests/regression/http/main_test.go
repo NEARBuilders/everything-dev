@@ -12,7 +12,7 @@ import (
 var baseURL string
 
 func TestMain(m *testing.M) {
-	regtest.ResetTemplateDatabase()
+	regtest.ResetPluginDatabases()
 
 	log.Println("Starting regression test server...")
 	proc := regtest.Start(nil)
@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 	}
 	baseURL = proc.BaseURL
 	log.Printf("Base URL: %s", baseURL)
-	regtest.WaitForReady(nil, baseURL)
+	regtest.WaitForReady(nil, proc)
 
 	log.Println("Server ready, running tests...")
 	code := m.Run()

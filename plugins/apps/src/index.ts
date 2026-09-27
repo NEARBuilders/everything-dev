@@ -1,9 +1,9 @@
+import { ORPCError } from "@orpc/server";
+import { Context, Effect, Layer } from "effect";
 import { createPlugin } from "every-plugin";
-import { Effect, Layer } from "every-plugin/effect";
-import { ORPCError } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
+import { z } from "zod";
 import { contract } from "./contract";
-import type { AuthContext } from "./lib/auth";
+import type { AuthPluginContext as AuthContext } from "./lib/auth-types.gen";
 import { ContextSchema } from "./lib/context";
 import { RegistryConfigService } from "./services/fastkv";
 import { RegistryService } from "./services/registry";
@@ -23,7 +23,7 @@ export default createPlugin({
 
   contract,
 
-  initialize: (config, _plugins, tools) =>
+  initialize: (config) =>
     Effect.gen(function* () {
       const RegistryConfig = RegistryConfigService.Live({
         namespace: config.variables.registryNamespace,
@@ -32,17 +32,11 @@ export default createPlugin({
         relayNetwork: config.secrets.REGISTRY_RELAY_NETWORK,
       });
 
-      const RegistryServices = RegistryService.Live.pipe(Layer.provide(RegistryConfig));
-
-      const registryService = yield* tools.buildService(RegistryService, RegistryServices);
-
       yield* Effect.logInfo("[Registry] Services Initialized");
-      return { registryService };
+      return RegistryService.Live.pipe(Layer.provide(RegistryConfig));
     }),
 
-  shutdown: () => Effect.logInfo("[Registry] Shutdown"),
-
-  createRouter: (services, builder) => {
+  createRouter: (builder) => {
     const requireNearAccount = builder.middleware(async ({ context, next }) => {
       if (!context.near?.primaryAccountId) {
         throw new ORPCError("UNAUTHORIZED", {
@@ -63,19 +57,21 @@ export default createPlugin({
     });
 
     return {
-      listRegistryApps: builder.listRegistryApps.handler(async ({ input }) => {
-        return await services.registryService.listRegistryApps(input);
+      listRegistryApps: builder.listRegistryApps.handler(async ({ input, context }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        return await registryService.listRegistryApps(input);
       }),
 
-      getRegistryAppsByAccount: builder.getRegistryAppsByAccount.handler(async ({ input }) => {
-        return await services.registryService.getRegistryAppsByAccount(input.accountId);
-      }),
+      getRegistryAppsByAccount: builder.getRegistryAppsByAccount.handler(
+        async ({ input, context }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
+          return await registryService.getRegistryAppsByAccount(input.accountId);
+        },
+      ),
 
-      getRegistryApp: builder.getRegistryApp.handler(async ({ input, errors }) => {
-        const result = await services.registryService.getRegistryApp(
-          input.accountId,
-          input.gatewayId,
-        );
+      getRegistryApp: builder.getRegistryApp.handler(async ({ input, context, errors }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        const result = await registryService.getRegistryApp(input.accountId, input.gatewayId);
         if (!result) {
           throw errors.NOT_FOUND({
             message: "Published app not found",
@@ -89,40 +85,51 @@ export default createPlugin({
         return { data: result };
       }),
 
-      getRegistryAppByHost: builder.getRegistryAppByHost.handler(async ({ input, errors }) => {
-        const result = await services.registryService.getRegistryAppByHost(input.hostUrl);
-        if (!result) {
-          throw errors.NOT_FOUND({
-            message: "Published app not found for host",
-            data: {
-              resource: "published-app-host",
-              resourceId: input.hostUrl,
-            },
-          });
-        }
+      getRegistryAppByHost: builder.getRegistryAppByHost.handler(
+        async ({ input, context, errors }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
+          const result = await registryService.getRegistryAppByHost(input.hostUrl);
+          if (!result) {
+            throw errors.NOT_FOUND({
+              message: "Published app not found for host",
+              data: {
+                resource: "published-app-host",
+                resourceId: input.hostUrl,
+              },
+            });
+          }
 
-        return { data: result };
-      }),
-
-      getRegistryStatus: builder.getRegistryStatus.handler(async () => {
-        return services.registryService.getRegistryStatus();
-      }),
-
-      prepareRegistryMetadataWrite: builder.prepareRegistryMetadataWrite.handler(
-        async ({ input }) => {
-          return { data: services.registryService.prepareRegistryMetadataWrite(input) };
+          return { data: result };
         },
       ),
 
-      prepareRegistryConfigWrite: builder.prepareRegistryConfigWrite.handler(async ({ input }) => {
-        return { data: services.registryService.prepareRegistryConfigWrite(input) };
+      getRegistryStatus: builder.getRegistryStatus.handler(async ({ context }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        return registryService.getRegistryStatus();
       }),
+
+      prepareRegistryMetadataWrite: builder.prepareRegistryMetadataWrite.handler(
+        async ({ input, context }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
+          return {
+            data: registryService.prepareRegistryMetadataWrite(input),
+          };
+        },
+      ),
+
+      prepareRegistryConfigWrite: builder.prepareRegistryConfigWrite.handler(
+        async ({ input, context }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
+          return { data: registryService.prepareRegistryConfigWrite(input) };
+        },
+      ),
 
       relayRegistryMetadataWrite: builder.relayRegistryMetadataWrite
         .use(requireNearAccount)
         .handler(async ({ input, context, errors }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
           try {
-            const senderId = services.registryService.getRegistryRelaySender(input.payload);
+            const senderId = registryService.getRegistryRelaySender(input.payload);
 
             if (context.near?.primaryAccountId && senderId !== context.near?.primaryAccountId) {
               throw errors.FORBIDDEN({
@@ -131,7 +138,7 @@ export default createPlugin({
               });
             }
 
-            const result = await services.registryService.relayRegistryMetadataWrite(input.payload);
+            const result = await registryService.relayRegistryMetadataWrite(input.payload);
 
             return { data: result };
           } catch (error) {
@@ -146,8 +153,9 @@ export default createPlugin({
           }
         }),
 
-      kvGet: builder.kvGet.handler(async ({ input, errors }) => {
-        const value = await services.registryService.kvGet(input.path);
+      kvGet: builder.kvGet.handler(async ({ input, context, errors }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        const value = await registryService.kvGet(input.path);
         if (value == null) {
           throw errors.NOT_FOUND({
             message: "Key not found",
@@ -157,19 +165,22 @@ export default createPlugin({
         return { data: value };
       }),
 
-      kvList: builder.kvList.handler(async ({ input }) => {
-        return services.registryService.kvList(input);
+      kvList: builder.kvList.handler(async ({ input, context }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        return registryService.kvList(input);
       }),
 
-      kvPrepareWrite: builder.kvPrepareWrite.handler(async ({ input }) => {
-        return { data: services.registryService.kvPrepareWrite(input.entries) };
+      kvPrepareWrite: builder.kvPrepareWrite.handler(async ({ input, context }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        return { data: registryService.kvPrepareWrite(input.entries) };
       }),
 
       kvRelayWrite: builder.kvRelayWrite
         .use(requireNearAccount)
         .handler(async ({ input, context, errors }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
           try {
-            const senderId = services.registryService.getRegistryRelaySender(input.payload);
+            const senderId = registryService.getRegistryRelaySender(input.payload);
 
             if (context.near?.primaryAccountId && senderId !== context.near?.primaryAccountId) {
               throw errors.FORBIDDEN({
@@ -178,7 +189,7 @@ export default createPlugin({
               });
             }
 
-            const result = await services.registryService.kvRelayWrite(input.payload);
+            const result = await registryService.kvRelayWrite(input.payload);
 
             return { data: result };
           } catch (error) {

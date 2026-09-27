@@ -1,0 +1,5 @@
+---
+"everything-dev": minor
+---
+
+Static docker-compose — infra auto-provisioning removed. The committed `docker-compose.yml` (api 5432, auth 5433, api-test 5434, auth-test 5435; project-scoped volumes) is now a plain template file that `bos init` copies like `Dockerfile`/`railway.toml` — nothing in the CLI generates or rewrites it, and sync treats it as hand-managed (skipped if locally modified). `.env.example`/`.env.test` still render from the runtime's secrets, but database URLs are mapped by convention (auth secret → auth db, every other `*_DATABASE_URL` → the shared api db; test twins on 5434/5435) instead of crawling resolved-config secrets with origin/port maps. `bos infra export` (CI plan) emits the same conventional services. Dev port state no longer persists postgres/redis ports — only explicit `devPorts` pins (ADR 0012); `bos dev` still picks a free port when the conventional one is busy. Existing projects keep their current docker-compose.yml untouched (it is never overwritten again); adopting the static file is opt-in and renames containers/volumes, so copy old volume data first (migration snippet in the file header).

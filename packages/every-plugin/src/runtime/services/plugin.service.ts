@@ -1,23 +1,48 @@
-import { Effect, Exit, Layer, Scope } from "effect";
+import { Context, Effect, Exit, Layer, Scope } from "effect";
 import type {
   AnyPlugin,
   AnyPluginConstructor,
   InitializedPlugin,
+  LoadedPlugin,
+  PluginInstance,
   PluginRegistry,
   SecretsConfig,
 } from "../../types";
-import { ModuleFederationService } from "./module-federation.service";
-import { PluginLifecycleService } from "./plugin-lifecycle.service";
+import type { PluginRuntimeError } from "../errors";
+import { ModuleFederationServiceDefault } from "./module-federation.service";
+import { PluginLifecycleService, PluginLifecycleServiceDefault } from "./plugin-lifecycle.service";
 import {
   PluginLoaderService,
+  PluginLoaderServiceDefault,
   PluginMapTag,
   PluginRegistryTag,
-  RegistryService,
+  RegistryServiceDefault,
 } from "./plugin-loader.service";
-import { SecretsConfigTag, SecretsService } from "./secrets.service";
+import { SecretsConfigTag, SecretsServiceDefault } from "./secrets.service";
 
-export class PluginService extends Effect.Service<PluginService>()("PluginService", {
-  scoped: Effect.gen(function* () {
+export interface PluginServiceShape {
+  loadPlugin: (pluginId: string) => Effect.Effect<LoadedPlugin, PluginRuntimeError>;
+  instantiatePlugin: <T extends AnyPlugin>(
+    pluginId: string,
+    loadedPlugin: LoadedPlugin<T>,
+  ) => Effect.Effect<PluginInstance<T>, PluginRuntimeError>;
+  initializePlugin: <T extends AnyPlugin>(
+    pluginInstance: PluginInstance<T>,
+    config: any,
+    plugins?: Record<string, unknown>,
+  ) => Effect.Effect<InitializedPlugin<T>, PluginRuntimeError>;
+  registerPlugin: (plugin: InitializedPlugin<AnyPlugin>) => Effect.Effect<void>;
+  shutdownPlugin: (plugin: InitializedPlugin<AnyPlugin>) => Effect.Effect<void>;
+  cleanup: () => Effect.Effect<void>;
+}
+
+export class PluginService extends Context.Service<PluginService, PluginServiceShape>()(
+  "PluginService",
+) {}
+
+export const PluginServiceDefault = Layer.effect(
+  PluginService,
+  Effect.gen(function* () {
     const loader = yield* PluginLoaderService;
     const lifecycle = yield* PluginLifecycleService;
 
@@ -27,44 +52,37 @@ export class PluginService extends Effect.Service<PluginService>()("PluginServic
       initializePlugin: loader.initializePlugin,
       registerPlugin: (plugin: InitializedPlugin<AnyPlugin>) => lifecycle.register(plugin),
       shutdownPlugin: (plugin: InitializedPlugin<AnyPlugin>) =>
-        Effect.gen(function* () {
-          yield* plugin.plugin
-            .shutdown()
-            .pipe(
-              Effect.catchAll((error) =>
-                Effect.logWarning(`Failed to shutdown plugin ${plugin.plugin.id}`, error),
-              ),
-            );
-
-          yield* Scope.close(plugin.scope, Exit.succeed(undefined));
-
-          yield* lifecycle.unregister(plugin);
-        }),
+        Scope.close(plugin.scope, Exit.succeed(undefined)).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning(`Failed to shutdown plugin ${plugin.plugin.id}`, cause),
+          ),
+          Effect.ensuring(lifecycle.unregister(plugin)),
+        ),
       cleanup: lifecycle.cleanup,
     };
   }),
-}) {
-  static Live = (
-    registry: PluginRegistry,
-    secrets: SecretsConfig,
-    pluginMap: Record<string, AnyPluginConstructor> = {},
-  ) => {
-    const contextLayer = Layer.mergeAll(
-      Layer.succeed(PluginRegistryTag, registry),
-      Layer.succeed(SecretsConfigTag, secrets),
-      Layer.succeed(PluginMapTag, pluginMap),
-    );
+);
 
-    const servicesLayer = Layer.mergeAll(
-      ModuleFederationService.Default,
-      SecretsService.Default,
-      RegistryService.Default,
-      PluginLifecycleService.Default,
-    ).pipe(Layer.provide(contextLayer));
+export const PluginServiceLive = (
+  registry: PluginRegistry,
+  secrets: SecretsConfig,
+  pluginMap: Record<string, AnyPluginConstructor> = {},
+) => {
+  const contextLayer = Layer.mergeAll(
+    Layer.succeed(PluginRegistryTag, registry),
+    Layer.succeed(SecretsConfigTag, secrets),
+    Layer.succeed(PluginMapTag, pluginMap),
+  );
 
-    return PluginService.Default.pipe(
-      Layer.provide(PluginLoaderService.Default),
-      Layer.provide(servicesLayer),
-    );
-  };
-}
+  const servicesLayer = Layer.mergeAll(
+    ModuleFederationServiceDefault,
+    SecretsServiceDefault,
+    RegistryServiceDefault,
+    PluginLifecycleServiceDefault,
+  ).pipe(Layer.provide(contextLayer));
+
+  return PluginServiceDefault.pipe(
+    Layer.provide(PluginLoaderServiceDefault),
+    Layer.provide(servicesLayer),
+  );
+};

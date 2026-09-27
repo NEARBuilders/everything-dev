@@ -347,4 +347,65 @@ describe("process-registry", () => {
       rmSync(liveDir, { recursive: true, force: true });
     }
   });
+
+  it("pruneDead drops an entry whose recorded processStart no longer matches (PID reuse)", () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "bos-project-"));
+    try {
+      writeRegistry([
+        {
+          pid: process.pid,
+          configDir: projectDir,
+          role: "standalone",
+          ports: { host: 4100 },
+          startedAt: 0,
+          processStart: "proc:999999999",
+          description: "reused-pid",
+        },
+      ]);
+      expect(isPidAlive(process.pid)).toBe(true);
+      const pruned = pruneDead(readRegistry());
+      expect(pruned).toHaveLength(0);
+      expect(claimedPorts()).toEqual(new Set());
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it("pruneDead keeps an entry whose recorded processStart matches", () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "bos-project-"));
+    try {
+      registerStandalone({
+        pid: process.pid,
+        configDir: projectDir,
+        ports: { host: 4100 },
+        startedAt: Date.now(),
+        description: "live",
+      });
+      const [entry] = readRegistry();
+      expect(entry?.processStart).toBeDefined();
+      expect(pruneDead(readRegistry())).toHaveLength(1);
+      expect(claimedPorts().has(4100)).toBe(true);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it("pruneDead keeps unverifiable legacy entries (no processStart) alive-pid-gated", () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "bos-project-"));
+    try {
+      writeRegistry([
+        {
+          pid: process.pid,
+          configDir: projectDir,
+          role: "standalone",
+          ports: { host: 4100 },
+          startedAt: 0,
+          description: "legacy",
+        },
+      ]);
+      expect(pruneDead(readRegistry())).toHaveLength(1);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
 });

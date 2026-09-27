@@ -1,5 +1,5 @@
 import { getConnInfo } from "@hono/node-server/conninfo";
-import { Context, Effect, Layer } from "every-plugin/effect";
+import { Context, Effect, Layer } from "effect";
 import type { MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { NONCE, secureHeaders } from "hono/secure-headers";
@@ -13,6 +13,14 @@ export const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 300;
 export const BODY_LIMIT_MAX = Number(process.env.BODY_LIMIT_MAX) || 10 * 1024 * 1024;
 export const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS) || 30_000;
 
+const DEFAULT_MAX_BUNDLE_UPLOAD_BYTES = 64 * 1024 * 1024;
+
+export function bundleUploadBodyLimitBytes(): number {
+  const raw = Number(process.env.BOS_MAX_BUNDLE_UPLOAD_BYTES);
+  const decoded = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_BUNDLE_UPLOAD_BYTES;
+  return Math.ceil(decoded * 1.5);
+}
+
 export const STATIC_ASSET_PATTERN =
   /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|md|webmanifest|woff2?|ttf|eot|webp|avif|map|txt|xml)$/i;
 
@@ -20,7 +28,7 @@ export function getCspStrict(isDev: boolean): boolean {
   return process.env.CSP_STRICT === "false" ? false : !isDev;
 }
 
-export class SecurityMiddleware extends Context.Tag("host/SecurityMiddleware")<
+export class SecurityMiddleware extends Context.Service<
   SecurityMiddleware,
   {
     cors: MiddlewareHandler;
@@ -28,7 +36,7 @@ export class SecurityMiddleware extends Context.Tag("host/SecurityMiddleware")<
     rateLimit: MiddlewareHandler;
     csp: MiddlewareHandler;
   }
->() {
+>()("host/SecurityMiddleware") {
   static Live = Layer.effect(
     SecurityMiddleware,
     Effect.gen(function* () {
@@ -65,7 +73,8 @@ export class SecurityMiddleware extends Context.Tag("host/SecurityMiddleware")<
         }
 
         const host = c.req.header("host");
-        if (host && host.split(":")[0] === new URL(origin).hostname) {
+        const originUrl = URL.canParse(origin) ? new URL(origin) : null;
+        if (host && originUrl && host.split(":")[0] === originUrl.hostname) {
           return next();
         }
 
@@ -115,6 +124,9 @@ export class SecurityMiddleware extends Context.Tag("host/SecurityMiddleware")<
           if (p.url) return [new URL(p.url).origin];
           return [];
         }),
+        ...Object.values(config.plugins ?? {}).flatMap((p: RuntimePlugin) =>
+          p.ui?.url ? [new URL(p.ui.url).origin] : [],
+        ),
       ];
 
       const uniqueOrigins = [...new Set(remoteOrigins)];
@@ -153,7 +165,9 @@ export class SecurityMiddleware extends Context.Tag("host/SecurityMiddleware")<
             imgSrc: [
               "'self'",
               "data:",
-              ...(isDev ? ["http:"] : ["https:"]),
+              "https:",
+              ...(isDev ? ["http:"] : []),
+              ...uniqueOrigins,
               ...(uiConfig.url ? [new URL(uiConfig.url).origin] : []),
             ],
             connectSrc: [

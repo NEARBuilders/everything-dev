@@ -1,37 +1,40 @@
 import { expect, test } from "@playwright/test";
 import { collectErrors, expectNoHydrationFailure, waitForApp } from "../helpers/page-ready";
+import { injectCookies, seedRegressionThing } from "../helpers/seeded";
 
 test.describe("apiClient", () => {
   let pageErrors: string[];
 
-  test.beforeEach(async ({ page }) => {
-    pageErrors = collectErrors(page);
+  test.beforeAll(async () => {
+    await seedRegressionThing();
   });
 
-  test("apps page renders with registry data from apiClient", async ({ page }) => {
-    await page.goto("/apps", { waitUntil: "domcontentloaded" });
+  test.beforeEach(async ({ page }) => {
+    pageErrors = collectErrors(page);
+    await injectCookies(page);
+  });
+
+  test("things page renders plugin data from apiClient", async ({ page }) => {
+    await page.goto("/things", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
 
-    const heading = page.locator("h1");
-    await expect(heading).toContainText("Apps", { timeout: 30000 });
-
-    await expect(
-      page
-        .getByText("No published apps found.")
-        .or(page.locator('[class*="cursor-pointer"]'))
-        .first(),
-    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText("regression-plugin-test").first()).toBeVisible({
+      timeout: 30000,
+    });
 
     expectNoHydrationFailure(pageErrors);
   });
 
   test("no runtime crash when apiClient is used", async ({ page }) => {
-    await page.goto("/apps", { waitUntil: "domcontentloaded" });
+    await page.goto("/things", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
 
-    const heading = page.locator("h1");
-    await expect(heading).toContainText("Apps", { timeout: 30000 });
+    await expect(page.getByText("regression-plugin-test").first()).toBeVisible({
+      timeout: 30000,
+    });
+    await expect(page.locator("#root")).toBeAttached();
 
+    expect(pageErrors, "apiClient usage must not produce page errors").toEqual([]);
     expectNoHydrationFailure(pageErrors);
   });
 });

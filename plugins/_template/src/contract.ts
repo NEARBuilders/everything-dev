@@ -1,26 +1,23 @@
-import { eventIterator, oc } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
+import "@orpc/openapi/extensions/route";
+import { eventIterator, oc } from "@orpc/contract";
+import { z } from "zod";
 
-// Define specific errors thrown by this plugin
+// Define specific errors thrown by this plugin.
+// HTTP statuses are resolved centrally via PLUGIN_ERROR_STATUS_MAP.
 const Errors = {
   UNAUTHORIZED: {
-    status: 401,
     message: "User ID required",
   },
   FORBIDDEN: {
-    status: 403,
     message: "Operation not permitted",
   },
   NOT_FOUND: {
-    status: 404,
     message: "Failed to fetch item: Item not found",
   },
   CONFLICT: {
-    status: 409,
     message: "A thing with this ID already exists",
   },
   BAD_REQUEST: {
-    status: 400,
     message: "Bad request",
   },
 };
@@ -64,6 +61,13 @@ export const ThingSchema = z.object({
 
 export const CreatedThingSchema = ThingSchema.extend({
   action: z.string().describe("Action emitted for the creation, e.g. template.note.created"),
+});
+
+export const ThingEventSchema = z.object({
+  thingId: z.string().describe("Unique identifier for the affected thing"),
+  type: z.string().describe("Plugin-derived thing type"),
+  action: z.string().describe("Action that occurred, such as template.note.created"),
+  timestamp: z.string().datetime().describe("ISO 8601 timestamp when the event occurred"),
 });
 
 export const ListThingsSchema = z.object({
@@ -127,7 +131,7 @@ export const contract = oc.router({
   ping: oc
     .route({
       method: "GET",
-      path: "/ping",
+      path: "/things/ping",
       summary: "Health check",
       description: "Simple ping endpoint to verify the plugin is responding correctly.",
       tags: ["Health"],
@@ -204,7 +208,7 @@ export const contract = oc.router({
       }),
     )
     .output(CreatedThingSchema)
-    .errors({ CONFLICT: Errors.CONFLICT }),
+    .errors({ CONFLICT: Errors.CONFLICT, UNAUTHORIZED: Errors.UNAUTHORIZED }),
 
   getThing: oc
     .route({
@@ -245,6 +249,23 @@ export const contract = oc.router({
     )
     .output(ListThingsSchema),
 
+  subscribeThings: oc
+    .route({
+      method: "GET",
+      path: "/things/stream",
+      summary: "Subscribe to thing events",
+      description: "Streams thing creation and deletion events as they occur.",
+      tags: ["Things", "Streaming"],
+    })
+    .input(
+      z.object({
+        thingId: z.string().optional().describe("Only events for this thing"),
+        type: z.string().optional().describe("Only events for this thing type"),
+        action: z.string().optional().describe("Only events with this action"),
+      }),
+    )
+    .output(eventIterator(ThingEventSchema)),
+
   deleteThing: oc
     .route({
       method: "DELETE",
@@ -259,12 +280,15 @@ export const contract = oc.router({
       }),
     )
     .output(z.object({ success: z.literal(true) }))
-    .errors({ NOT_FOUND: { status: 404, message: "Thing not found" } }),
+    .errors({
+      NOT_FOUND: { status: 404, message: "Thing not found" },
+      UNAUTHORIZED: Errors.UNAUTHORIZED,
+    }),
 
   testError: oc
     .route({
       method: "GET",
-      path: "/errors",
+      path: "/things/errors",
       summary: "Trigger a specific error kind",
       description:
         "Regression-test helper that throws the requested error kind so the host error surface can be validated.",

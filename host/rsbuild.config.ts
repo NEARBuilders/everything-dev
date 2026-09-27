@@ -4,13 +4,10 @@ import path from "node:path";
 import { ModuleFederationPlugin } from "@module-federation/enhanced/rspack";
 import { defineConfig } from "@rsbuild/core";
 import { pluginReact } from "@rsbuild/plugin-react";
-import { computeSriHashForUrl, reportDeployResult } from "everything-dev/integrity";
-import { withZephyr } from "zephyr-rsbuild-plugin";
-
-const require = createRequire(import.meta.url);
+import { getPluginSharedDependencies } from "every-plugin/build/rspack";
 
 const __dirname = import.meta.dirname;
-const shouldDeploy = process.env.DEPLOY === "true";
+const require = createRequire(import.meta.url);
 
 const resolvedConfigPath = path.resolve(__dirname, "../.bos/bos.resolved-config.json");
 const rootBosConfigPath = path.resolve(__dirname, "../bos.config.json");
@@ -89,71 +86,10 @@ function collectPluginShared(): Record<string, Record<string, unknown>> {
   return shared;
 }
 
-let pluginPkg: {
-  version: string;
-  peerDependencies: {
-    effect: string;
-    zod: string;
-    "@orpc/contract": string;
-    "@orpc/client": string;
-    "@orpc/server": string;
-  };
-};
-try {
-  pluginPkg = JSON.parse(
-    fs.readFileSync(path.resolve(__dirname, "../packages/every-plugin/package.json"), "utf8"),
-  );
-} catch {
-  pluginPkg = require("every-plugin/package.json") as typeof pluginPkg;
-}
-
-function getInstalledVersion(pkg: string, fallback: string): string {
-  try {
-    let currentDir = path.dirname(require.resolve(pkg));
-    for (let i = 0; i < 5; i += 1) {
-      const packageJsonPath = path.join(currentDir, "package.json");
-      if (fs.existsSync(packageJsonPath)) {
-        return (JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as { version: string })
-          .version;
-      }
-      currentDir = path.dirname(currentDir);
-    }
-
-    throw new Error(`Could not resolve installed version for ${pkg}`);
-  } catch {
-    const match = fallback.match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/);
-    return match ? match[0] : fallback.replace(/^[\^~>=<\s]+/, "");
-  }
-}
-
-const SHARE_DEFAULTS = {
-  requiredVersion: false,
-  singleton: true,
-  strictVersion: false,
-  eager: false,
-  shareScope: "default",
-};
-
-const pluginShared = {
-  "every-plugin": { version: pluginPkg.version, ...SHARE_DEFAULTS },
-  effect: {
-    version: getInstalledVersion("effect", pluginPkg.peerDependencies.effect),
-    ...SHARE_DEFAULTS,
-  },
-  zod: { version: getInstalledVersion("zod", pluginPkg.peerDependencies.zod), ...SHARE_DEFAULTS },
-  "@orpc/contract": {
-    version: getInstalledVersion("@orpc/contract", pluginPkg.peerDependencies["@orpc/contract"]),
-    ...SHARE_DEFAULTS,
-  },
-  "@orpc/client": {
-    version: getInstalledVersion("@orpc/client", pluginPkg.peerDependencies["@orpc/client"]),
-    ...SHARE_DEFAULTS,
-  },
-  "@orpc/server": {
-    version: getInstalledVersion("@orpc/server", pluginPkg.peerDependencies["@orpc/server"]),
-    ...SHARE_DEFAULTS,
-  },
-};
+const everyPluginShared = getPluginSharedDependencies();
+const pluginShared: Record<string, Record<string, unknown>> = Object.fromEntries(
+  Object.entries(everyPluginShared).map(([name, config]) => [name, { ...config }]),
+);
 const shared = mergeSharedMaps(
   (bosConfig.app?.api as { shared?: Record<string, Record<string, unknown>> } | undefined)?.shared,
   (bosConfig.app?.auth as { shared?: Record<string, Record<string, unknown>> } | undefined)?.shared,
@@ -162,26 +98,6 @@ const shared = mergeSharedMaps(
 );
 
 const plugins = [pluginReact()];
-
-if (shouldDeploy) {
-  plugins.push(
-    withZephyr({
-      hooks: {
-        onDeployComplete: async (info: { url: string }) => {
-          console.log("🚀 Host Deployed:", info.url);
-          const integrity = await computeSriHashForUrl(info.url);
-          reportDeployResult({
-            url: info.url,
-            integrity,
-            bosConfigPath: rootBosConfigPath,
-            urlField: "app.host.production",
-            integrityField: "app.host.integrity",
-          });
-        },
-      },
-    }),
-  );
-}
 
 export default defineConfig({
   plugins,
@@ -216,6 +132,12 @@ export default defineConfig({
         level: "error",
       },
       stats: "errors-warnings",
+      ignoreWarnings: [
+        {
+          module: /node_modules[\\/]@module-federation/,
+          message: /Critical dependency/,
+        },
+      ],
       plugins: [
         new ModuleFederationPlugin({
           name: "host",

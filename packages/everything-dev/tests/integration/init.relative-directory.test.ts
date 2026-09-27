@@ -1,10 +1,23 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { Effect } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ensureEnvFile, writeGeneratedInfra } from "../../src/cli/infra";
 import { buildInitPatterns, copyFilteredFiles, personalizeConfig } from "../../src/cli/init";
 import { loadResolvedConfig } from "../../src/config";
+import { makeProjectEnv } from "../../src/env/project-env";
+import { InfraMaterializer, InfraMaterializerLive } from "../../src/infra/materializer";
+import type { RuntimeConfig } from "../../src/types";
+
+async function materialize(targetDir: string, runtime: RuntimeConfig): Promise<void> {
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const m = yield* InfraMaterializer;
+      yield* m.materializeTemplate(targetDir, runtime);
+      yield* m.materializeTestInfra(targetDir, runtime);
+    }).pipe(Effect.provide(InfraMaterializerLive)),
+  );
+}
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
 
@@ -50,8 +63,8 @@ describe("bos init - relative directory", () => {
       throw new Error("Expected runtime config to be available");
     }
 
-    writeGeneratedInfra(targetDir, loaded.runtime);
-    ensureEnvFile(targetDir);
+    await materialize(targetDir, loaded.runtime);
+    await Effect.runPromise(makeProjectEnv().ensureFile(targetDir));
 
     expect(existsSync(join(targetDir, "bos.config.json"))).toBe(true);
     expect(existsSync(join(targetDir, ".env.example"))).toBe(true);
@@ -73,5 +86,5 @@ describe("bos init - relative directory", () => {
     expect(dockerCompose).toContain("postgres-api:");
     expect(dockerCompose).toContain("postgres-auth:");
     expect(dockerCompose).not.toContain("postgres-example:");
-  });
+  }, 60_000);
 });

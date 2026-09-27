@@ -1,25 +1,29 @@
-import { Config, ConfigProvider, Context, Effect } from "every-plugin/effect";
+import { Config, Context, type Effect } from "effect";
 import type {
   ClientRuntimeConfig,
   RuntimeConfig,
   SharedConfig,
   SourceMode,
 } from "everything-dev/types";
+import type { ComposePayload } from "everything-dev/ui/manifest";
 import type { RuntimePlugin } from "../types";
 import { normalizeUrl } from "../utils/normalize";
 
 export type { ClientRuntimeConfig, RuntimeConfig, SharedConfig, SourceMode };
 
-export class ConfigService extends Context.Tag("host/ConfigService")<
-  ConfigService,
-  RuntimeConfig
->() {}
+export class ConfigService extends Context.Service<ConfigService, RuntimeConfig>()(
+  "host/ConfigService",
+) {}
 
-export function readCorsOrigins(): Effect.Effect<string[]> {
-  return Config.array(Config.string(), "CORS_ORIGIN").pipe(
-    Effect.map((arr) => arr.filter((s) => s.length > 0)),
-    Effect.catchAll(() => Effect.succeed([] as string[])),
-    Effect.withConfigProvider(ConfigProvider.fromEnv()),
+export function readCorsOrigins(): Effect.Effect<string[], Config.ConfigError> {
+  return Config.String("CORS_ORIGIN").pipe(
+    Config.withDefault(""),
+    Config.map((value) =>
+      value
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
+    ),
   );
 }
 
@@ -33,6 +37,16 @@ function getFallbackGatewayId(config: RuntimeConfig) {
   }
   return normalizeUrl(config.host?.url)?.replace(/^https?:\/\//, "") ?? "runtime";
 }
+
+/**
+ * Browser-facing base for a ui surface (ADR 0011): `publicUrl` declares the
+ * base browsers must load a remote from — the image-native runtime serves
+ * /bundles/<account>/<gateway>/<slot>/ same-origin while its server-side MF
+ * loading stays on the container-local `url`. Absent (dev stacks, published
+ * configs, tenant overrides) `url` is directly reachable and wins.
+ */
+const clientUiUrl = (ui: { url: string; publicUrl?: string | undefined }): string =>
+  ui.publicUrl ?? ui.url;
 
 export function resolveActiveRuntime(config: RuntimeConfig, request: Request) {
   const url = new URL(request.url);
@@ -52,6 +66,7 @@ export function buildRuntimeClientConfig(
   request: Request,
   activeRuntime: ActiveRuntimeState,
   authAvailable: boolean,
+  composePayload?: ComposePayload,
 ): RuntimeClientConfig {
   const requestUrl = new URL(request.url);
   const uiConfig = config.ui;
@@ -60,21 +75,26 @@ export function buildRuntimeClientConfig(
     throw new Error("UI config is required to build the runtime client config");
   }
 
+  const coreUiUrl = clientUiUrl(uiConfig);
+
   return {
     env: config.env,
     account: activeRuntime.accountId,
     networkId: config.account.endsWith(".testnet") ? "testnet" : "mainnet",
     hostUrl: requestUrl.origin,
-    assetsUrl: uiConfig.url,
+    assetsUrl: coreUiUrl,
     apiBase: "/api",
     rpcBase: "/api/rpc",
     authAvailable,
     repository: config.repository,
     ui: {
       name: uiConfig.name,
-      url: uiConfig.url,
-      entry: uiConfig.entry,
+      url: coreUiUrl,
+      entry: uiConfig.publicUrl
+        ? `${uiConfig.publicUrl.replace(/\/$/, "")}/mf-manifest.json`
+        : uiConfig.entry,
       integrity: uiConfig.integrity,
+      compose: composePayload,
     },
     api: config.api
       ? {
@@ -108,10 +128,14 @@ export function buildRuntimeClientConfig(
               ? {
                   ui: {
                     name: plugin.ui.name,
-                    url: plugin.ui.url,
-                    entry: plugin.ui.entry,
+                    url: clientUiUrl(plugin.ui),
+                    entry: plugin.ui.publicUrl
+                      ? `${plugin.ui.publicUrl.replace(/\/$/, "")}/mf-manifest.json`
+                      : plugin.ui.entry,
                     source: plugin.ui.source,
                     integrity: plugin.ui.integrity,
+                    ssrUrl: plugin.ui.ssrUrl,
+                    ssrIntegrity: plugin.ui.ssrIntegrity,
                   },
                 }
               : {}),

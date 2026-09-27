@@ -1,0 +1,5 @@
+---
+"everything-dev": patch
+---
+
+`bos kill` is now as disciplined as the session's own teardown: it escalates SIGTERM → 5s → SIGKILL on the process group (the old single-signal kill left anything that ignores SIGTERM — rspack watchers especially — alive forever), reaps orphaned child processes even when the session's own pid is already dead (a SIGKILLed orchestrator used to leave its whole detached tree unkillable by any `bos` command), verifies every claimed port is actually releasable before unregistering (reporting the surviving holder's pid and command when it isn't), and is idempotent. New `bos dev` sessions adopt the same way: at startup they reap orphaned children from dead same-project sessions before allocating ports, so a stale session can no longer poison the next run. Fixes a registry bug where unregistering a dead session's pid was a silent no-op (the entry stayed in `~/.cache/everything-dev/pids.json` forever). Adds an ownership probe (`lsof`-based) used in the port-still-bound reporting.

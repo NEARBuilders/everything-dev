@@ -1,8 +1,11 @@
-import { Command } from "@effect/platform";
-import type { ExitCode } from "@effect/platform/CommandExecutor";
-import { Deferred, Effect, Option, Ref, Stream } from "effect";
+import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
+import { Data, Deferred, Effect, Option, Ref, Stream } from "effect";
+import { stripAnsi } from "./dev-log-pipeline";
+import { ShellEnv } from "./env/project-env";
 import { patchManifestFetchForSsrPublicPath } from "./mf";
 import {
+  DevGeneratedEnv,
   DevRuntimeConfig,
   type ServiceDescriptor,
   ServiceDescriptorMap,
@@ -27,7 +30,7 @@ export interface ProcessHandle {
   pid: number | undefined;
   kill: Effect.Effect<void, unknown>;
   waitForReady: Effect.Effect<void, Error>;
-  waitForExit: Effect.Effect<ExitCode, unknown>;
+  waitForExit: Effect.Effect<number, unknown>;
 }
 
 export type ProcessStatus = "pending" | "starting" | "ready" | "error";
@@ -38,15 +41,8 @@ export interface ProcessState {
   port: number;
   message?: string;
   source?: "local" | "remote";
+  uiPort?: number;
 }
-
-const stripAnsi = (input: string): string => {
-  const ESC = String.fromCharCode(27);
-  const BEL = String.fromCharCode(7);
-  return input
-    .replace(new RegExp(`${ESC}\\][^${BEL}]*${BEL}`, "g"), "")
-    .replace(new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, "g"), "");
-};
 
 const probeHttpOk = (url: string, timeoutMs = 400) =>
   Effect.tryPromise({
@@ -68,26 +64,28 @@ const probeHttpOk = (url: string, timeoutMs = 400) =>
 const LOCAL_PROBE_DEADLINE_MS = 90_000;
 const LOCAL_PROBE_INTERVAL_MS = 200;
 
+const cleanExitSignals: Record<string, true> = { SIGTERM: true, SIGINT: true };
+
 const REMOTE_PROBE_TIMEOUT_MS = 5000;
 const REMOTE_PROBE_DEADLINE_MS = 60_000;
 const REMOTE_PROBE_BACKOFF_INITIAL_MS = 1000;
 const REMOTE_PROBE_BACKOFF_MAX_MS = 15_000;
 
-const detectStatus = (
+export const detectStatus = (
   line: string,
   descriptor: ServiceDescriptor,
 ): { status: ProcessStatus; isError: boolean } | null => {
   const cleanLine = stripAnsi(line);
   const errorPatterns = descriptor.errorPatterns ?? [];
   const readyPatterns = descriptor.readyPatterns ?? [];
-  for (const pattern of errorPatterns) {
-    if (pattern.test(cleanLine)) {
-      return { status: "error", isError: true };
-    }
-  }
   for (const pattern of readyPatterns) {
     if (pattern.test(cleanLine)) {
       return { status: "ready", isError: false };
+    }
+  }
+  for (const pattern of errorPatterns) {
+    if (pattern.test(cleanLine)) {
+      return { status: "error", isError: true };
     }
   }
   return null;
@@ -147,12 +145,32 @@ const patchConsole = (name: string, callbacks: ProcessCallbacks): (() => void) =
   };
 };
 
+export class HostRemoteUrlMissing extends Data.TaggedError("HostRemoteUrlMissing")<
+  Record<never, never>
+> {
+  get message() {
+    return "remoteUrl not provided on host descriptor";
+  }
+}
+
+export class HostModuleInvalid extends Data.TaggedError("HostModuleInvalid")<Record<never, never>> {
+  get message() {
+    return "Host module does not export runServer function";
+  }
+}
+
+export class LocalPathMissing extends Data.TaggedError("LocalPathMissing")<{ key: string }> {
+  get message() {
+    return `No localPath for local service: ${this.key}`;
+  }
+}
+
 const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallbacks) =>
   Effect.gen(function* () {
     const runtimeConfig = yield* DevRuntimeConfig;
     const remoteUrl = descriptor.remoteUrl;
     if (!remoteUrl) {
-      return yield* Effect.fail(new Error("remoteUrl not provided on host descriptor"));
+      return yield* new HostRemoteUrlMissing();
     }
 
     callbacks.onStatus(descriptor.key, "starting");
@@ -228,7 +246,7 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     });
 
     if (!hostModule?.runServer) {
-      return yield* Effect.fail(new Error("Host module does not export runServer function"));
+      return yield* new HostModuleInvalid();
     }
 
     callbacks.onLog(descriptor.key, "Starting server...");
@@ -250,7 +268,7 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
 
     return {
       name: descriptor.key,
-      pid: process.pid,
+      pid: undefined,
       kill: Effect.gen(function* () {
         callbacks.onLog(descriptor.key, "Shutting down remote host...");
         restoreConsole();
@@ -264,17 +282,72 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     } satisfies ProcessHandle;
   });
 
+/**
+ * Spawn env precedence, three tiers: values explicitly exported by the
+ * caller (shell / CI / regression harness — captured by the bootstrap
+ * program into the `ShellEnv` service before any `.env` loading) outrank the
+ * generated infra env, which outranks `.env`-file values inherited through
+ * `processEnv`. The service's resolved port is always authoritative.
+ */
+export function composeSpawnEnv(
+  processEnv: Record<string, string>,
+  generatedEnv: Record<string, string>,
+  port: number,
+  shellEnv: Record<string, string> = {},
+): Record<string, string> {
+  return {
+    ...processEnv,
+    ...mergeGeneratedOverFileEnv(generatedEnv, processEnv, shellEnv),
+    FORCE_COLOR: "1",
+    ...(port > 0 ? { PORT: String(port) } : {}),
+  };
+}
+
+/**
+ * Overlay the generated infra env (ports drift, so stale `.env` values must
+ * lose) while keeping every explicitly exported key from `shellEnv` intact.
+ * Keys absent from both are untouched.
+ *
+ * Exception (ADR 0012 / plan 038): the origin keys BASE_URL and CORS_ORIGIN
+ * are always generated-owned — a wrapper that sourced a stale `.env` must not
+ * win over the resolved host port, in the child env or on disk.
+ */
+const GENERATED_OWNED_KEYS = new Set(["BASE_URL", "CORS_ORIGIN"]);
+
+export function mergeGeneratedOverFileEnv(
+  generatedEnv: Record<string, string>,
+  processEnv: Record<string, string>,
+  shellEnv: Record<string, string> = {},
+): Record<string, string> {
+  const result: Record<string, string> = { ...processEnv };
+  for (const [key, value] of Object.entries(generatedEnv)) {
+    if (!GENERATED_OWNED_KEYS.has(key) && key in shellEnv) {
+      result[key] = shellEnv[key]!;
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallbacks) =>
   Effect.gen(function* () {
     const runtimeConfig = yield* DevRuntimeConfig;
 
     if (!descriptor.localPath) {
-      return yield* Effect.fail(new Error(`No localPath for local service: ${descriptor.key}`));
+      return yield* new LocalPathMissing({ key: descriptor.key });
     }
 
     const fullCwd = descriptor.localPath;
     const command = descriptor.command ?? "bun";
-    const args = descriptor.args ?? ["run", "dev"];
+    const baseArgs = descriptor.args ?? ["run", "dev"];
+    // Source-first local dev: bun runtime chains (bun run → bin scripts →
+    // bun children) inherit the conditions flag, so framework packages
+    // (`every-plugin`, `everything-dev`) resolve their `development` export
+    // condition — TS source — instead of a possibly stale dist. Node-based
+    // children (tsx, rsbuild/rspack bins) ignore bun flags and keep dist
+    // resolution except where they are TS-capable (see the host env below).
+    const args = command === "bun" ? ["--conditions=development", ...baseArgs] : baseArgs;
     const port = descriptor.port ?? descriptor.defaultPort;
     const name = descriptor.key;
 
@@ -283,20 +356,53 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
 
     callbacks.onStatus(name, "starting");
 
-    const envVars: Record<string, string> = {
-      ...(process.env as Record<string, string>),
-      FORCE_COLOR: "1",
-      ...(port > 0 ? { PORT: String(port) } : {}),
-    };
+    const generatedEnv = yield* DevGeneratedEnv;
+    const shellTier = yield* ShellEnv;
+    // The descriptor's env joins the generated tier — folding it in before
+    // composeSpawnEnv keeps the documented precedence (shell > generated >
+    // .env-file); assigning after would let it outrank the shell tier (and
+    // the generated-owned keys) silently.
+    const envVars = composeSpawnEnv(
+      process.env as Record<string, string>,
+      { ...generatedEnv, ...descriptor.env },
+      port,
+      shellTier,
+    );
 
     envVars.BOS_RUNTIME_CONFIG = JSON.stringify(runtimeConfig);
 
-    const cmd = Command.make(command, ...args).pipe(
-      Command.workingDirectory(fullCwd),
-      Command.env(envVars),
-    );
+    const cmd = spawn(command, args, {
+      cwd: fullCwd,
+      env: envVars,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+    });
 
-    const proc = yield* Command.start(cmd);
+    let lastExit: { code: number | null; signal: NodeJS.Signals | null } | null = null;
+    const exitCode = Effect.callback<number, Error>((resume) => {
+      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+        lastExit = { code, signal };
+        resume(Effect.succeed(code ?? (signal ? 1 : 0)));
+      };
+      const onError = (err: Error) => {
+        callbacks.onLog(name, `Spawn failed: ${err.message}`, true);
+        callbacks.onStatus(name, "error", `spawn failed: ${err.message}`);
+        resume(Effect.fail(err));
+      };
+      cmd.once("exit", onExit);
+      cmd.once("error", onError);
+      return Effect.sync(() => {
+        cmd.off("exit", onExit);
+        cmd.off("error", onError);
+      });
+    });
+
+    const describeExit = (exitCodeValue: number): string => {
+      if (lastExit?.code === null && lastExit.signal) return `signal: ${lastExit.signal}`;
+      return `exit code: ${exitCodeValue}`;
+    };
+    const isCleanSignalExit = (): boolean =>
+      lastExit?.code === null && lastExit.signal != null && lastExit.signal in cleanExitSignals;
 
     const markReady = Effect.gen(function* () {
       const currentStatus = yield* Ref.get(statusRef);
@@ -348,14 +454,32 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
       }),
     );
 
-    const pid = Number(proc.pid);
+    const pid = cmd.pid ?? undefined;
 
     yield* Effect.forkScoped(
       Effect.gen(function* () {
-        const exitCode = yield* proc.exitCode;
+        const exitCodeValue = yield* exitCode;
         const currentStatus = yield* Ref.get(statusRef);
-        if (currentStatus === "ready" || currentStatus === "error") return;
-        callbacks.onLog(name, `Process exited before ready (exit code: ${exitCode})`, true);
+        if (currentStatus === "ready" || currentStatus === "error") {
+          // Post-ready exits must stay visible — a silently dead child (OOM
+          // kill included) used to leave the stack answering with nothing.
+          // A SIGTERM/SIGINT-signalled exit is the polite-quit path, not a
+          // crash, so it logs as a plain shutdown line.
+          if (currentStatus === "ready") {
+            const detail = describeExit(exitCodeValue);
+            callbacks.onLog(name, `Process exited after ready (${detail})`, !isCleanSignalExit());
+            if (!isCleanSignalExit()) {
+              callbacks.onStatus(name, "error", `exited after ready (${detail})`);
+            }
+            yield* markError(`Process exited after ready: ${name}`);
+          }
+          return;
+        }
+        callbacks.onLog(
+          name,
+          `Process exited before ready (${describeExit(exitCodeValue)})`,
+          !isCleanSignalExit(),
+        );
         yield* markError(`Process exited before ready: ${name}`);
       }),
     );
@@ -368,47 +492,77 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
         const looksLikeError =
           isStderr &&
           /^(error|fail|fatal|exception|unhandled|reject)/i.test(cleanLine) &&
-          !/^\$/.test(cleanLine);
+          !cleanLine.startsWith("$");
         callbacks.onLog(name, line, looksLikeError);
 
         const currentStatus = yield* Ref.get(statusRef);
-        if (currentStatus === "ready" || currentStatus === "error") return;
+        if (currentStatus === "ready") return;
 
         const detected = detectStatus(line, descriptor);
         if (detected) {
           if (detected.status === "ready") {
             yield* markReady;
-          } else {
+          } else if (currentStatus !== "error") {
             yield* markError(`Process failed: ${name}`);
           }
         }
       });
 
-    yield* Effect.forkScoped(
-      Stream.runForEach((line: string) => handleLine(line, false))(
-        Stream.splitLines(Stream.decodeText(proc.stdout, "utf-8")),
-      ),
-    );
+    const stdoutStream = cmd.stdout
+      ? (Readable.toWeb(cmd.stdout) as unknown as ReadableStream<Uint8Array>)
+      : null;
+    const stderrStream = cmd.stderr
+      ? (Readable.toWeb(cmd.stderr) as unknown as ReadableStream<Uint8Array>)
+      : null;
 
-    yield* Effect.forkScoped(
-      Stream.runForEach((line: string) => handleLine(line, true))(
-        Stream.splitLines(Stream.decodeText(proc.stderr, "utf-8")),
-      ),
-    );
+    if (stdoutStream) {
+      yield* Effect.forkScoped(
+        Stream.runForEach((line: string) => handleLine(line, false))(
+          Stream.splitLines(
+            Stream.decodeText(
+              Stream.fromReadableStream({
+                evaluate: () => stdoutStream,
+                onError: (cause) => new Error(String(cause)),
+              }),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (stderrStream) {
+      yield* Effect.forkScoped(
+        Stream.runForEach((line: string) => handleLine(line, true))(
+          Stream.splitLines(
+            Stream.decodeText(
+              Stream.fromReadableStream({
+                evaluate: () => stderrStream,
+                onError: (cause) => new Error(String(cause)),
+              }),
+            ),
+          ),
+        ),
+      );
+    }
 
     return {
       name,
       pid,
       kill: Effect.gen(function* () {
-        const result = yield* proc.kill("SIGTERM").pipe(Effect.timeout("3 seconds"), Effect.option);
-        if (Option.isNone(result)) {
-          const pid = Number(proc.pid);
-          yield* Effect.try(() => process.kill(-pid, "SIGKILL")).pipe(Effect.ignore);
+        const groupPid = pid;
+        const groupSignal = (signal: NodeJS.Signals) =>
+          Effect.try(() => {
+            if (groupPid !== undefined) process.kill(-groupPid, signal);
+          }).pipe(Effect.ignore);
+        yield* groupSignal("SIGTERM");
+        const exited = yield* exitCode.pipe(Effect.timeout("3 seconds"), Effect.option);
+        if (Option.isNone(exited)) {
+          yield* groupSignal("SIGKILL");
           yield* Effect.sleep("250 millis");
         }
       }).pipe(Effect.ignore),
       waitForReady: Deferred.await(readyDeferred),
-      waitForExit: proc.exitCode,
+      waitForExit: exitCode,
     } satisfies ProcessHandle;
   });
 
@@ -534,6 +688,7 @@ export function getProcessStates(
           ? portOverride
           : (descriptor?.port ?? descriptor?.defaultPort ?? 0),
       source: descriptor?.source,
+      uiPort: descriptor?.uiPort,
     };
   });
 }

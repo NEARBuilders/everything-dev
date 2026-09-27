@@ -1,0 +1,23 @@
+{
+  "name": "tanstack-router-mf-override-prototype",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "workspaces": [
+    "host",
+    "remote-dashboard-api",
+    "remote-dashboard-ui",
+    "remote-landing",
+    "remote-tenant-dashboard-ui"
+  ],
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "verify": "pnpm --filter host verify",
+    "verify:resolver": "pnpm --filter host verify:resolver",
+    "verify:tenant": "pnpm --filter host verify:tenant",
+    "verify:api-injection": "pnpm --filter host verify:api-injection",
+    "verify:compose-shared": "pnpm --filter host verify:compose-shared",
+    "verify:browser": "pnpm --filter host verify:browser",
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm -r build"
+  }
+}

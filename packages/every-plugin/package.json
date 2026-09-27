@@ -10,6 +10,10 @@
   "types": "./dist/index.d.mts",
   "exports": {
     ".": {
+      "bun": {
+        "types": "./src/index.ts",
+        "import": "./src/index.ts"
+      },
       "development": {
         "types": "./src/index.ts",
         "import": "./src/index.ts"
@@ -19,6 +23,10 @@
       "require": "./dist/index.cjs"
     },
     "./runtime": {
+      "bun": {
+        "types": "./src/runtime/index.ts",
+        "import": "./src/runtime/index.ts"
+      },
       "development": {
         "types": "./src/runtime/index.ts",
         "import": "./src/runtime/index.ts"
@@ -28,6 +36,10 @@
       "require": "./dist/runtime/index.cjs"
     },
     "./testing": {
+      "bun": {
+        "types": "./src/testing/index.ts",
+        "import": "./src/testing/index.ts"
+      },
       "development": {
         "types": "./src/testing/index.ts",
         "import": "./src/testing/index.ts"
@@ -37,6 +49,10 @@
       "require": "./dist/testing/index.cjs"
     },
     "./normalize": {
+      "bun": {
+        "types": "./src/runtime/services/normalize.ts",
+        "import": "./src/runtime/services/normalize.ts"
+      },
       "development": {
         "types": "./src/runtime/services/normalize.ts",
         "import": "./src/runtime/services/normalize.ts"
@@ -45,52 +61,11 @@
       "import": "./dist/runtime/services/normalize.mjs",
       "require": "./dist/runtime/services/normalize.cjs"
     },
-    "./effect": {
-      "development": {
-        "types": "./src/effect.ts",
-        "import": "./src/effect.ts"
-      },
-      "types": "./dist/effect.d.mts",
-      "import": "./dist/effect.mjs",
-      "require": "./dist/effect.cjs"
-    },
-    "./zod": {
-      "development": {
-        "types": "./src/zod.ts",
-        "import": "./src/zod.ts"
-      },
-      "types": "./dist/zod.d.mts",
-      "import": "./dist/zod.mjs",
-      "require": "./dist/zod.cjs"
-    },
-    "./zod/v4/core": {
-      "development": {
-        "types": "./src/zod-core.ts",
-        "import": "./src/zod-core.ts"
-      },
-      "types": "./dist/zod-core.d.mts",
-      "import": "./dist/zod-core.mjs",
-      "require": "./dist/zod-core.cjs"
-    },
-    "./orpc": {
-      "development": {
-        "types": "./src/orpc.ts",
-        "import": "./src/orpc.ts"
-      },
-      "types": "./dist/orpc.d.mts",
-      "import": "./dist/orpc.mjs",
-      "require": "./dist/orpc.cjs"
-    },
-    "./orpc/openapi": {
-      "development": {
-        "types": "./src/orpc-openapi.ts",
-        "import": "./src/orpc-openapi.ts"
-      },
-      "types": "./dist/orpc-openapi.d.mts",
-      "import": "./dist/orpc-openapi.mjs",
-      "require": "./dist/orpc-openapi.cjs"
-    },
     "./errors": {
+      "bun": {
+        "types": "./src/errors.ts",
+        "import": "./src/errors.ts"
+      },
       "development": {
         "types": "./src/errors.ts",
         "import": "./src/errors.ts"
@@ -99,7 +74,24 @@
       "import": "./dist/errors.mjs",
       "require": "./dist/errors.cjs"
     },
+    "./remote-entry": {
+      "bun": {
+        "types": "./src/remote-entry.ts",
+        "import": "./src/remote-entry.ts"
+      },
+      "development": {
+        "types": "./src/remote-entry.ts",
+        "import": "./src/remote-entry.ts"
+      },
+      "types": "./dist/remote-entry.d.mts",
+      "import": "./dist/remote-entry.mjs",
+      "require": "./dist/remote-entry.cjs"
+    },
     "./types": {
+      "bun": {
+        "types": "./src/types.ts",
+        "import": "./src/types.ts"
+      },
       "development": {
         "types": "./src/types.ts",
         "import": "./src/types.ts"
@@ -109,22 +101,101 @@
       "require": "./dist/types.cjs"
     },
     "./build/rspack": {
+      "bun": {
+        "types": "./src/build/rspack/index.ts",
+        "import": "./src/build/rspack/index.ts"
+      },
       "development": {
         "types": "./src/build/rspack/index.ts",
         "import": "./src/build/rspack/index.ts"
       },
-      "types": {
-        "import": "./dist/build/rspack/index.d.mts",
-        "require": "./dist/build/rspack/index.d.cts"
-      },
+      "types": "./dist/build/rspack/index.d.mts",
       "import": "./dist/build/rspack/index.mjs",
       "require": "./dist/build/rspack/index.cjs"
     },
+    "./ui/manifest": {
+      "bun": {
+        "types": "./src/ui/manifest/index.ts",
+        "import": "./src/ui/manifest/index.ts"
+      },
+      "development": {
+        "types": "./src/ui/manifest/index.ts",
+        "import": "./src/ui/manifest/index.ts"
+      },
+      "types": {
+        "import": "./dist/ui/manifest/index.d.mts",
+        "require": "./dist/ui/manifest/index.d.cts"
+      },
+      "import": "./dist/ui/manifest/index.mjs",
+      "require": "./dist/ui/manifest/index.cjs"
+    },
+    "./ui/manifest-generator": {
+      "bun": {
+        "types": "./src/ui/manifest/generator.ts",
+        "import": "./src/ui/manifest/generator.ts"
+      },
+      "development": {
+        "types": "./src/ui/manifest/generator.ts",
+        "import": "./src/ui/manifest/generator.ts"
+      },
+      "types": {
+        "import": "./dist/ui/manifest/generator.d.mts",
+        "require": "./dist/ui/manifest/generator.d.cts"
+      },
+      "import": "./dist/ui/manifest/generator.mjs",
+      "require": "./dist/ui/manifest/generator.cjs"
+    },
+    "./ui/manifest/contract": {
+      "bun": {
+        "types": "./src/ui/manifest/contract.ts",
+        "import": "./src/ui/manifest/contract.ts"
+      },
+      "development": {
+        "types": "./src/ui/manifest/contract.ts",
+        "import": "./src/ui/manifest/contract.ts"
+      },
+      "types": {
+        "import": "./dist/ui/manifest/contract.d.mts",
+        "require": "./dist/ui/manifest/contract.d.cts"
+      },
+      "import": "./dist/ui/manifest/contract.mjs",
+      "require": "./dist/ui/manifest/contract.cjs"
+    },
+    "./build/ui": {
+      "bun": {
+        "types": "./src/build/ui/index.ts",
+        "import": "./src/build/ui/index.ts"
+      },
+      "development": {
+        "types": "./src/build/ui/index.ts",
+        "import": "./src/build/ui/index.ts"
+      },
+      "types": "./dist/build/ui/index.d.mts",
+      "import": "./dist/build/ui/index.mjs",
+      "require": "./dist/build/ui/index.cjs"
+    },
+    "./dev-serve": {
+      "bun": {
+        "types": "./src/dev/serve.ts",
+        "import": "./src/dev/serve.ts"
+      },
+      "development": {
+        "types": "./src/dev/serve.ts",
+        "import": "./src/dev/serve.ts"
+      },
+      "types": "./dist/serve.d.mts",
+      "import": "./dist/serve.mjs"
+    },
     "./package.json": "./package.json"
+  },
+  "bin": {
+    "every-plugin": "./bin/every-plugin.mjs",
+    "every-plugin-serve": "./bin/every-plugin-serve.mjs"
   },
   "files": [
     "dist",
     "src",
+    "bin",
     "skills",
     "!skills/_artifacts"
   ],
@@ -140,9 +211,17 @@
   },
   "peerDependencies": {
     "@rspack/core": "catalog:",
-    "typescript": "^5.9.3",
+    "@proj-airi/unplugin-drizzle-orm-migrations": "*",
+    "typescript": "^7.0.2",
     "effect": "catalog:",
     "zod": "catalog:",
+    "@rsbuild/core": "catalog:",
+    "@rsbuild/plugin-react": "catalog:",
+    "@module-federation/rsbuild-plugin": "catalog:",
+    "@tanstack/router-plugin": "catalog:",
+    "@tanstack/router-generator": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "react": "catalog:",
     "@orpc/contract": "catalog:",
     "@orpc/server": "catalog:",
     "@orpc/client": "catalog:",
@@ -151,17 +230,15 @@
     "@orpc/tanstack-query": "catalog:"
   },
   "devDependencies": {
-    "@effect/language-service": "^0.85.1",
-    "@effect/vitest": "^0.29.0",
-    "@orpc/client": "^1.13.4",
-    "@orpc/openapi": "^1.13.4",
+    "@effect/vitest": "4.0.0-rc.117",
+    "@orpc/client": "2.0.0-beta.35",
+    "@orpc/openapi": "2.0.0-beta.35",
     "@rspack/cli": "catalog:",
     "@tanstack/intent": "catalog:",
     "@types/bun": "^1.3.7",
     "@types/node": "^25.1.0",
     "@vitest/ui": "4.1.5",
     "bun-types": "^1.3.7",
-    "sirv": "^3.0.2",
     "tsdown": "^0.22.0",
     "vite-tsconfig-paths": "^6.0.5",
     "vitest": "^4.1.8"
@@ -170,9 +247,11 @@
     "@module-federation/enhanced": "catalog:",
     "@module-federation/node": "catalog:",
     "@module-federation/runtime-core": "catalog:",
+    "@module-federation/runtime-tools": "catalog:",
     "@orpc/contract": "catalog:",
-    "@orpc/experimental-publisher": "catalog:",
     "@orpc/server": "catalog:",
+    "@orpc/experimental-effect": "catalog:",
+    "@orpc/publisher": "catalog:",
     "@orpc/tanstack-query": "catalog:"
   },
   "keywords": [

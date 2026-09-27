@@ -7,7 +7,6 @@ export interface CliPorts {
   api?: number;
   auth?: number;
   ui?: number;
-  uiSsr?: number;
   pluginsStart?: number;
   plugins?: Record<string, { api?: number; ui?: number }>;
 }
@@ -17,10 +16,7 @@ export interface ResolvedPorts {
   api?: number;
   auth?: number;
   ui?: number;
-  uiSsr?: number;
   plugins: Record<string, { api?: number; ui?: number }>;
-  postgres: Record<string, number>;
-  redis: Record<string, number>;
 }
 
 export interface RuntimeLaunchSpec {
@@ -49,7 +45,6 @@ export interface InfraPlan {
   description: string;
   serviceDescriptors: Map<string, ServiceDescriptorPlan>;
   envGenerated: Record<string, string>;
-  composeModel: ComposeModelPlan;
   claims: ClaimRecord[];
   orchestrator: AppOrchestrator;
 }
@@ -62,18 +57,11 @@ export interface ServiceDescriptorPlan {
   localPath?: string;
 }
 
-export interface ComposeModelPlan {
-  databases: DatabasePlan[];
-  redis: RedisPlan[];
-}
-
 export interface DatabasePlan {
   secret: string;
   slug: string;
   port: number;
   dbName: string;
-  containerName: string;
-  volumeName: string;
   url: string;
 }
 
@@ -81,8 +69,6 @@ export interface RedisPlan {
   secret: string;
   slug: string;
   port: number;
-  containerName: string;
-  volumeName: string;
   url: string;
 }
 
@@ -92,7 +78,6 @@ export type InfraPhase =
   | "allocate-databases"
   | "claim"
   | "materialize-env"
-  | "materialize-compose"
   | "launch";
 
 export class InfraError extends Data.TaggedError("InfraError")<{

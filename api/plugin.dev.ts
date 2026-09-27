@@ -12,8 +12,12 @@ export default {
   pluginId: packageJson.name,
   port: Number(process.env.PORT) || 3001,
   config: {
-    variables: {},
+    variables: {
+      platformAccount: "audit.citynode.near",
+      gatewayDomains: "citynode.app,testnet.citynode.app",
+    },
     secrets: {
+      LUMA_CALENDAR_API_KEYS: process.env.LUMA_CALENDAR_API_KEYS || "",
       API_DATABASE_URL: process.env.API_DATABASE_URL || "pglite:.bos/api/:memory:",
     },
   } satisfies PluginConfigInput<typeof Plugin>,

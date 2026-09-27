@@ -392,7 +392,6 @@ export type ApiContract = BaseApiContract & {
 ### Regeneration Triggers
 
 Generated files are gitignored and auto-regenerated on:
-- `bun install` (via postinstall `bos types gen`)
 - `bun typecheck`
 - `bos dev` / `bos build`
 - `bos plugin add` / `bos plugin remove`
@@ -433,11 +432,11 @@ bos init myapp.everything.dev \
   --plugins apps,template
 ```
 
-This writes `bos.config.json` with `extends`, scaffolds the project, and generates types. The child's `postinstall` hook runs `bos types gen` automatically.
+This writes `bos.config.json` with `extends`, scaffolds the project, and generates types. Afterward, `bun typecheck`, `bos dev`, and `bos build` regenerate types on demand.
 
 ### What Can Be Overridden
 
-Child configs can override `app.ui` (custom UI CDN) and `plugins.<key>` (custom plugin URLs). The host's `ALLOW_OVERRIDE` env var controls which sections tenants can customize (`ui`, `plugins`, `plugins.<key>`).
+Child configs can override `app.ui` (custom UI CDN) and `plugins.<key>` (custom plugin URLs). Which sections a tenant can customize is controlled per-tenant by the `allow_ui_overrides` and `allow_backend_overrides` flags on the tenant record, resolved by the host from the API's `GET /tenants/bindings` endpoint (cached for 30s).
 
 See the `extends-config` skill for deep merge semantics, per-environment extends, and canonical field ordering.
 

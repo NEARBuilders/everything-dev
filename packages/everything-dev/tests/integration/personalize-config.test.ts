@@ -111,13 +111,14 @@ describe("personalizeConfig with real root config", () => {
 
     expect(existsSync(join(testDir, "plugins", "apps"))).toBe(true);
     expect(existsSync(join(testDir, "plugins", "example"))).toBe(false);
-    expect(existsSync(join(testDir, "plugins", "example"))).toBe(false);
-    expect(existsSync(join(testDir, "ui", "src", "routes", "_layout", "apps", "index.tsx"))).toBe(
-      true,
-    );
     expect(
-      existsSync(join(testDir, "ui", "src", "routes", "_layout", "_authenticated", "example.tsx")),
-    ).toBe(false);
+      existsSync(
+        join(testDir, "ui", "src", "routes", "_authenticated", "_dashboard", "things", "index.tsx"),
+      ),
+    ).toBe(true);
+    expect(existsSync(join(testDir, "ui", "src", "routes", "_authenticated", "example.tsx"))).toBe(
+      false,
+    );
 
     const config = JSON.parse(readFileSync(join(testDir, "bos.config.json"), "utf-8")) as {
       plugins?: Record<string, Record<string, unknown>>;
@@ -144,7 +145,7 @@ describe("personalizeConfig with real root config", () => {
     expect(pkg.dependencies?.["every-plugin"]).toBe("catalog:");
     expect(pkg.devDependencies?.["everything-dev"]).toBeUndefined();
     expect(pkg.devDependencies?.["every-plugin"]).toBeUndefined();
-    expect(pkg.scripts?.postinstall).toBe("node node_modules/.bin/bos types gen || true");
+    expect(pkg.scripts?.postinstall).toBeUndefined();
     expect(pkg.scripts?.["types:gen"]).toBe("node node_modules/.bin/bos types gen");
     expect(pkg.scripts?.bos).toBe("bos");
     expect(pkg.workspaces?.packages).toEqual(expect.arrayContaining(["ui", "api", "plugins/*"]));
@@ -187,7 +188,7 @@ describe("personalizeConfig with real root config", () => {
       app?: Record<string, unknown>;
     };
     existingConfig.app = {
-      ...(existingConfig.app ?? {}),
+      ...existingConfig.app,
       auth: {
         development: "local:plugins/auth",
         production: "https://auth.child.dev",

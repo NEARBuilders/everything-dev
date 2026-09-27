@@ -113,7 +113,7 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 	// Step 5: Sign out (needs Origin header for Better Auth)
 	t.Run("sign_out", func(t *testing.T) {
 		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/auth/sign-out", map[string]any{}, map[string]string{
-			"Origin": "http://localhost:4100",
+			"Origin": regtest.Origin(),
 		})
 		regtest.MustStatus(t, status, 200, body)
 	})

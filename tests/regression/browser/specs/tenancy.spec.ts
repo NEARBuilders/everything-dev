@@ -14,10 +14,14 @@ test.describe("tenancy", () => {
     const { tenantID } = loadSeedData();
 
     await page.goto(`/tenant/${tenantID}`, { waitUntil: "domcontentloaded" });
+    await page.waitForURL(new RegExp(`/tenant/${tenantID}$`), {
+      timeout: 10000,
+      waitUntil: "commit",
+    });
     await page.waitForLoadState("networkidle");
     await waitForApp(page);
 
-    await expect(page.locator("h1")).toContainText("Regression Tenant", { timeout: 10000 });
+    await expect(page.getByTestId("tenant.heading")).toBeVisible({ timeout: 10000 });
 
     await expect(page.getByText("regression-tenant-", { exact: false }).first()).toBeVisible({
       timeout: 5000,

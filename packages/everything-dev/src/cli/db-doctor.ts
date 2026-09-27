@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { extractExpectedTables, getMigrationStorage, pluginMigrationSlug } from "../db";
-import type { PluginDbInfo } from "./db-studio";
+import type { DatabaseBinding } from "../db";
+import { extractExpectedTables } from "../db";
 
 export interface DoctorReport {
   plugin: string;
@@ -52,25 +52,26 @@ function readLocalMigrations(workspaceDir: string): LocalMigration[] {
   });
 }
 
-export async function diagnosePlugin(info: PluginDbInfo): Promise<DoctorReport> {
+export async function diagnosePlugin(binding: DatabaseBinding): Promise<DoctorReport> {
   const { Pool } = await import("pg");
 
-  const slug = pluginMigrationSlug(info.key);
-  const storage = getMigrationStorage(slug);
-  const journalTable = storage.table;
-  const journalSchema = storage.schema;
+  const slug = binding.identity.slug;
+  const journalTable = binding.identity.journal.table;
+  const journalSchema = binding.identity.journal.schema;
   const journalRef = `"${journalSchema}"."${journalTable}"`;
 
-  const localMigrations = info.workspaceDir ? readLocalMigrations(info.workspaceDir) : [];
+  const localMigrations = binding.identity.workspaceDir
+    ? readLocalMigrations(binding.identity.workspaceDir)
+    : [];
 
   const expectedTables = extractExpectedTables(localMigrations);
   const localHashes = localMigrations.map((m) => m.hash).filter(Boolean);
   const migrationHashes = localHashes;
 
   const pool = new Pool({
-    connectionString: info.databaseUrl,
+    connectionString: binding.url,
     ssl:
-      info.databaseUrl.includes("localhost") || info.databaseUrl.includes("127.0.0.1")
+      binding.url.includes("localhost") || binding.url.includes("127.0.0.1")
         ? false
         : { rejectUnauthorized: false },
     max: 1,
@@ -121,16 +122,16 @@ export async function diagnosePlugin(info: PluginDbInfo): Promise<DoctorReport> 
       diagnosis = "drift-manual";
     }
 
-    const masked = info.databaseUrl.replace(/\/\/[^:]+:[^@]+@/, "//***:***@");
+    const masked = binding.url.replace(/\/\/[^:]+:[^@]+@/, "//***:***@");
 
     return {
-      plugin: info.key,
+      plugin: binding.key,
       slug,
       journalTable,
       journalSchema,
-      dbSecret: info.databaseSecret,
+      dbSecret: binding.identity.secretName,
       dbUrl: masked,
-      workspaceDir: info.workspaceDir,
+      workspaceDir: binding.identity.workspaceDir,
       localMigrationCount: localMigrations.length,
       appliedHashCount,
       expectedTables,
@@ -140,13 +141,13 @@ export async function diagnosePlugin(info: PluginDbInfo): Promise<DoctorReport> 
     };
   } catch (error) {
     return {
-      plugin: info.key,
+      plugin: binding.key,
       slug,
       journalTable,
       journalSchema,
-      dbSecret: info.databaseSecret,
-      dbUrl: info.databaseUrl.replace(/\/\/[^:]+:[^@]+@/, "//***:***@"),
-      workspaceDir: info.workspaceDir,
+      dbSecret: binding.identity.secretName,
+      dbUrl: binding.url.replace(/\/\/[^:]+:[^@]+@/, "//***:***@"),
+      workspaceDir: binding.identity.workspaceDir,
       localMigrationCount: localMigrations.length,
       appliedHashCount: 0,
       expectedTables,

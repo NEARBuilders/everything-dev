@@ -1,8 +1,8 @@
+import { oc } from "@orpc/contract";
+import { Effect, Layer } from "effect";
 import { createPlugin } from "every-plugin";
-import { Effect } from "every-plugin/effect";
-import { oc } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 // Define a simple test contract
 const testContract = oc.router({
@@ -37,12 +37,7 @@ describe("Context Schema", () => {
         sessionId: z.string().optional(),
       }),
       contract: testContract,
-      initialize: (config) =>
-        Effect.succeed({
-          client: { baseUrl: config.variables.baseUrl },
-          apiKey: config.secrets.apiKey,
-        }),
-      createRouter: (_deps, builder) => {
+      createRouter: (builder) => {
         const requireAuth = builder.middleware(async ({ context, next }) => {
           if (!context.userId) {
             throw new Error("UNAUTHORIZED: User ID required");
@@ -80,8 +75,8 @@ describe("Context Schema", () => {
         sessionId: z.string().optional(),
       }),
       contract: testContract,
-      initialize: (_config) => Effect.succeed({ initialized: true }),
-      createRouter: (_deps, builder) => ({
+      initialize: () => Effect.succeed(Layer.empty as never),
+      createRouter: (builder) => ({
         publicRoute: builder.publicRoute.handler(async () => ({ message: "test" })),
         protectedRoute: builder.protectedRoute.handler(async () => ({
           message: "test",

@@ -3,7 +3,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const FRAMEWORK_PACKAGES = ["everything-dev", "every-plugin"];
+const FRAMEWORK_PACKAGES = ["everything-dev", "every-plugin", "better-near-auth"];
 
 const rootDir = join(import.meta.dirname, "..");
 const rootPkgPath = join(rootDir, "package.json");

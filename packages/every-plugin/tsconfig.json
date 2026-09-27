@@ -6,16 +6,12 @@
     "paths": {
       "@/*": ["./src/*"],
       "every-plugin": ["./src/index.ts"],
-      "every-plugin/*": ["./src/*"],
-      "every-plugin/effect": ["./src/effect.ts"],
-      "every-plugin/zod": ["./src/zod.ts"],
-      "every-plugin/orpc": ["./src/orpc.ts"],
-      "every-plugin/orpc/openapi": ["./src/orpc-openapi.ts"],
       "every-plugin/normalize": ["./src/runtime/services/normalize.ts"],
       "every-plugin/testing": ["./src/testing/index.ts"],
       "every-plugin/runtime": ["./src/runtime/index.ts"],
       "every-plugin/errors": ["./src/errors.ts"],
-      "every-plugin/types": ["./src/types.ts"]
+      "every-plugin/types": ["./src/types.ts"],
+      "every-plugin/build/ui": ["./src/build/ui/index.ts"]
     }
   },
   "files": ["tests/types.d.ts"],

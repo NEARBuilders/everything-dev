@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   createWriteStream,
   existsSync,
@@ -9,18 +8,20 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { execa } from "execa";
 import { glob } from "glob";
+import { extract as tarExtract } from "tar";
 import {
   buildAuthContractStub,
   buildAuthExportStub,
   buildAuthTypesGenContent,
 } from "../auth-types-gen";
+import { loadAppDescriptorConfig } from "../config";
 import type { OverrideSection } from "../contract";
+import { serializeAppDescriptorSource } from "../descriptor/serialize";
 import { fetchBosConfigFromFastKv } from "../fastkv";
 import { fetchResponse } from "../http-client";
 import {
@@ -29,10 +30,9 @@ import {
 } from "../internal/manifest-normalizer";
 import type { BosConfig, BosConfigInput } from "../types";
 import { saveBosConfig } from "../utils/save-config";
+import { computeSnapshotHash as computeHash } from "../utils/snapshot-hash";
 import { writeSnapshot } from "./snapshot";
 import { getExtendsRef, parseBosRef, readJsonFile } from "./utils/helpers";
-
-const require = createRequire(import.meta.url);
 
 export const INIT_ROOT_PATTERNS = [
   "bos.config.json",
@@ -41,10 +41,14 @@ export const INIT_ROOT_PATTERNS = [
   ".gitignore",
   "biome.json",
   "bunfig.toml",
+  "docker-compose.yml",
   "Dockerfile",
   "railway.json",
   "railway.toml",
   "AGENTS.md",
+  ".agents/skills/**",
+  "skills-lock.json",
+  "docs/agents/**",
   ".changeset/config.json",
   ".changeset/README.md",
   "README.md",
@@ -78,7 +82,7 @@ function readWorkspaceCatalog(sourceDir: string): Record<string, string> {
   }
 
   const pkg = readJsonFile<{ workspaces?: { catalog?: Record<string, string> } }>(pkgPath);
-  return { ...(pkg.workspaces?.catalog ?? {}) };
+  return { ...pkg.workspaces?.catalog };
 }
 
 export async function resolveCatalogChainSource(opts: {
@@ -384,10 +388,7 @@ export async function downloadTarball(
 
   const extractDir = mkTmpDir("bos-init-extract-");
   try {
-    const tar = require("tar") as {
-      extract: (opts: { cwd: string; file: string; strip: number }) => Promise<void>;
-    };
-    await tar.extract({ cwd: extractDir, file: tarballPath, strip: 1 });
+    await tarExtract({ cwd: extractDir, file: tarballPath, strip: 1 });
   } catch {
     await execCommand("tar", ["-xzf", tarballPath, "--strip-components=1", "-C", extractDir]);
   }
@@ -473,6 +474,25 @@ function stripProductionFields(entry: Record<string, unknown>): void {
   delete entry.ssrIntegrity;
 }
 
+/**
+ * Scaffold the authored config as the TS form: the personalized
+ * bos.config.json materializes into an authored `bos.app.ts` descriptor and
+ * the JSON copy is removed — publish/sync still canonicalize to JSON for
+ * FastKV from the resolved config. Returns the config that was converted, so
+ * callers that need it (before the child has node_modules to import the
+ * descriptor) can pass it onward.
+ */
+export async function convertChildConfigToAppForm(
+  destination: string,
+): Promise<BosConfigInput | null> {
+  const configPath = join(destination, "bos.config.json");
+  if (!existsSync(configPath)) return null;
+  const config = JSON.parse(readFileSync(configPath, "utf-8")) as BosConfigInput;
+  writeFileSync(join(destination, "bos.app.ts"), serializeAppDescriptorSource(config));
+  rmSync(configPath);
+  return config;
+}
+
 function buildRootTypecheckScript(sections: {
   ui: boolean;
   api: boolean;
@@ -539,7 +559,6 @@ export function buildChildRootScripts(sections: {
     changeset: "changeset",
     version: "changeset version",
     release: "echo 'Packages versioned - app release handled by workflow'",
-    postinstall: "node node_modules/.bin/bos types gen || true",
     "types:gen": "node node_modules/.bin/bos types gen",
     bos: "bos",
   };
@@ -573,6 +592,8 @@ export function buildChildRootScripts(sections: {
       ? testTargets.join(" && ")
       : 'echo "No workspace directories configured"';
 
+  // Scripts key off the child's own override selection (what it runs locally),
+  // not off resolved-config secrets — a ui-only child gets none of these.
   if (sections.api || sections.host) {
     scripts["dev:postgres"] = "docker compose up -d --wait && bun run dev";
     scripts["dev:postgres:down"] = "docker compose down";
@@ -634,6 +655,105 @@ export async function personalizeConfig(
       )
       .map(([key]) => key),
   );
+
+  const jsonConfigPath = join(destination, "bos.config.json");
+  const appConfigPath = join(destination, "bos.app.ts");
+  const tsForm = !existsSync(jsonConfigPath) && existsSync(appConfigPath);
+
+  if (tsForm) {
+    const config = (await loadAppDescriptorConfig(appConfigPath)) as Record<string, unknown>;
+
+    config.extends = `bos://${opts.extendsAccount}/${opts.extendsGateway}`;
+
+    if (opts.account) {
+      config.account = opts.account;
+    }
+    if (opts.domain) {
+      config.domain = opts.domain;
+    }
+    if (opts.repository) {
+      config.repository = opts.repository;
+    } else {
+      delete config.repository;
+    }
+
+    const inheritableFields = ["title", "description", "testnet", "staging"] as const;
+    for (const field of inheritableFields) {
+      if (!(field in opts)) {
+        delete config[field];
+      }
+    }
+
+    if (config.app && typeof config.app === "object") {
+      const app = config.app as Record<string, unknown>;
+
+      for (const entryKey of Object.keys(app)) {
+        if (
+          !has(entryKey as OverrideSection) &&
+          (entryKey === "host" || entryKey === "ui" || entryKey === "api")
+        ) {
+          delete app[entryKey];
+          continue;
+        }
+        if (entryKey === "auth") {
+          delete app[entryKey];
+          continue;
+        }
+        const entry = app[entryKey];
+        if (entry && typeof entry === "object") {
+          stripProductionFields(entry as Record<string, unknown>);
+        }
+      }
+
+      if (preservedAuth !== undefined) {
+        app.auth = preservedAuth;
+      }
+
+      if (Object.keys(app).length === 0) {
+        delete config.app;
+      }
+    }
+
+    if (has("plugins")) {
+      if (config.plugins && typeof config.plugins === "object") {
+        const plugins = config.plugins as Record<string, unknown>;
+
+        if (opts.plugins !== undefined) {
+          for (const pluginKey of Object.keys(plugins)) {
+            if (!opts.plugins.includes(pluginKey)) {
+              delete plugins[pluginKey];
+            }
+          }
+        }
+
+        for (const pluginKey of Object.keys(plugins)) {
+          const plugin = plugins[pluginKey];
+          let pluginObj: Record<string, unknown>;
+
+          if (typeof plugin === "string") {
+            pluginObj = { extends: plugin };
+            plugins[pluginKey] = pluginObj;
+          } else if (plugin && typeof plugin === "object") {
+            pluginObj = { ...(plugin as Record<string, unknown>) };
+            plugins[pluginKey] = pluginObj;
+          } else {
+            continue;
+          }
+
+          stripProductionFields(pluginObj);
+        }
+
+        if (Object.keys(plugins).length === 0) {
+          config.plugins = {};
+        }
+      }
+    } else {
+      config.plugins = {};
+    }
+
+    writeFileSync(appConfigPath, serializeAppDescriptorSource(config as BosConfigInput));
+    return;
+  }
 
   const configPath = join(destination, "bos.config.json");
   if (existsSync(configPath)) {
@@ -775,6 +895,7 @@ export async function personalizeConfig(
     pkg.type = "module";
     delete pkg.module;
     delete pkg.peerDependencies;
+    delete pkg.patchedDependencies;
 
     if (pkg.workspaces && typeof pkg.workspaces === "object") {
       const ws = pkg.workspaces as { packages?: string[] };
@@ -894,6 +1015,30 @@ export async function personalizeConfig(
       mkdirSync(dirname(genContractPath), { recursive: true });
       writeFileSync(genContractPath, `export type ApiContract = Record<string, never>;\n`);
     }
+
+    const publicDir = join(destination, "ui", "public");
+    if (!existsSync(publicDir)) {
+      mkdirSync(publicDir, { recursive: true });
+    }
+
+    const llmsTxtPath = join(publicDir, "llms.txt");
+    if (!existsSync(llmsTxtPath)) {
+      const title = opts.title ?? opts.account ?? "app";
+      writeFileSync(llmsTxtPath, buildChildLlmsTxt(title));
+    }
+
+    const skillMdPath = join(publicDir, "skill.md");
+    if (!existsSync(skillMdPath)) {
+      const title = opts.title ?? opts.account ?? "app";
+      const repository = opts.repository ?? "";
+      writeFileSync(skillMdPath, buildChildSkillMd(title, repository));
+    }
+
+    for (const agentFilePath of [llmsTxtPath, skillMdPath]) {
+      const content = readFileSync(agentFilePath, "utf-8");
+      if (content.includes(WORKFLOW_SKILLS_MARKER)) continue;
+      writeFileSync(agentFilePath, `${content.replace(/\n*$/, "\n")}${WORKFLOW_SKILLS_NOTE}`);
+    }
   }
 
   if (has("api")) {
@@ -902,7 +1047,7 @@ export async function personalizeConfig(
       mkdirSync(dirname(pluginsClientGenPath), { recursive: true });
       writeFileSync(
         pluginsClientGenPath,
-        `import type { ContractRouterClient, AnyContractRouter } from "@orpc/contract";\ntype ClientFactory<C extends AnyContractRouter> = (context?: Record<string, unknown>) => ContractRouterClient<C>;\nexport type PluginsClient = Record<string, never>;\n`,
+        `import type { RouterContractClient, RouterContract } from "@orpc/contract";\ntype ClientFactory<C extends RouterContract> = (context?: Record<string, unknown>) => RouterContractClient<C>;\nexport type PluginsClient = Record<string, never>;\n`,
       );
     }
   }
@@ -1260,8 +1405,11 @@ export async function writeInitSnapshot(
     const src = join(sourceDir, filePath);
     const stat = lstatSync(src);
     if (!stat.isFile()) continue;
-    const content = readFileSync(src);
     const destPath = sourcePathToDestinationPath(filePath);
+    // Only snapshot what the scaffold actually delivered — files pruned
+    // after copy (e.g. unused ui sources) must not come back via bos sync.
+    if (!existsSync(join(destination, destPath))) continue;
+    const content = readFileSync(src);
     fileHashes[destPath] = computeHash(content);
   }
 
@@ -1269,10 +1417,6 @@ export async function writeInitSnapshot(
     parentRef: `bos://${extendsAccount}/${extendsGateway}`,
     files: fileHashes,
   });
-}
-
-function computeHash(data: Uint8Array): string {
-  return createHash("sha256").update(data).digest("hex").substring(0, 16);
 }
 
 function mkTmpDir(prefix: string): string {
@@ -1349,7 +1493,51 @@ bun run dev
 bos ps        # List running processes
 bos status    # Project health check
 bos info      # Show configuration
-\`\`\``);
+\`\`\`
+
+**Deploy:**
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/everything-dev-template?referralCode=MuB_vg&utm_medium=integration&utm_source=template&utm_campaign=generic)
+
+The Railway template deploys the everything.dev Docker image. Set these variables:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| \`BOS_ACCOUNT\` | The NEAR account that owns this app's published configuration on-chain | \`myapp.near\` |
+| \`BOS_GATEWAY\` | The core domain where this app is served | \`myapp.com\` |
+| \`BETTER_AUTH_SECRET\` | Secret for session encryption — generate with \`openssl rand -base64 32\` | (random) |
+
+**Self-deployed production:**
+
+You don't need to wait for a PR to merge and run through CI/CD. Publish your own config on-chain under your own NEAR account and run your own host instance, inheriting the base platform via \`extends\`.
+
+1. **Install near-cli-rs** (the \`bos\` CLI shells out to it for \`bos publish\` and \`bos key generate\`):
+   \`\`\`bash
+   curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/download/v0.23.5/near-cli-rs-installer.sh | sh
+   \`\`\`
+2. **Create a NEAR account** (testnet or mainnet). Named accounts can own subaccounts; implicit hex accounts cannot:
+   \`\`\`bash
+   near account create-account fund-my-account <your-account>.testnet use-faucet network-config testnet
+   \`\`\`
+3. **Generate a publish key** — a function-call key scoped to the FastKV registry contract:
+   \`\`\`bash
+   bos key generate
+   # Output: NEAR_PRIVATE_KEY=ed25519:...
+   \`\`\`
+   Add the key to your account via near-cli-rs, then set \`NEAR_PRIVATE_KEY\` in \`.env\` or CI secrets.
+4. **Update \`bos.config.json\`** — set \`account\` to your NEAR account, add \`extends\` to inherit the base platform, keep \`domain\` as the gateway:
+   \`\`\`json
+   { "extends": "bos://<parent-account>/<parent-gateway>", "account": "<your-account>.near", "domain": "<parent-gateway>" }
+   \`\`\`
+5. **Publish and deploy:**
+   \`\`\`bash
+   bos publish --deploy    # builds → writes deterministic bundle URLs → publishes config to FastKV at bos://<your-account>/<gateway>
+   \`\`\`
+6. **Deploy to Railway** (one-click template or \`railway up\`), set \`BOS_ACCOUNT\`, \`BOS_GATEWAY\` (same gateway as parent), and \`BETTER_AUTH_SECRET\`. Your Railway host fetches your config from FastKV and serves live.
+
+\`BOS_GATEWAY\` is the **FastKV lookup key**, not the DNS domain your Railway instance serves on. By keeping the same gateway while using your own \`BOS_ACCOUNT\`, your config lives at a separate FastKV path that \`extends\` the base runtime — you inherit the full platform and override only what you change.
+
+**Tenant creation** (for the admin wizard) is DAO-owned: connect a sputnik-dao account via the Trezu wallet in the admin wizard; the wizard publishes the tenant runtime config under \`bos://<dao-account>/<gateway>\`. No server-side subaccount keys are needed.`);
 
   const archLines = [
     "This is an everything.dev child project. Depending on your overrides, it may include:",
@@ -1483,6 +1671,41 @@ function MyComponent() {
 \`\`\``);
   }
 
+  parts.push(`## Workflow Skills
+
+This repo ships agent workflow skills in \`.agents/skills/\` — the ordered development flow (grill → spec → tickets → implement/tdd → code-review). Start \`/everything-dev-app\` to orient and pick the right next step; \`/ask-matt\` is the router if unsure.
+
+- \`/grill-with-docs\` — sharpen an idea by interview, leaving a paper trail in \`CONTEXT.md\` and ADRs
+- \`/to-spec\` / \`/to-tickets\` — turn a plan into a spec, then tracer-bullet tickets under \`.scratch/<feature>/issues/\`
+- \`/implement\` + \`/tdd\` — build a ticket test-first at pre-agreed seams
+- \`/code-review\` — two-axis review (Standards + Spec) of the diff since a fixed point
+- \`/diagnosing-bugs\` — diagnosis loop for hard bugs and performance regressions
+
+Run \`/setup-matt-pocock-skills\` once before first use. Tracker and triage conventions live in \`docs/agents/\`.`);
+
+  parts.push(`## Agent Communication Surface
+
+The host exposes several surfaces for programmatic agent access:
+
+| Surface | Endpoint | Auth | Use |
+|---------|----------|------|-----|
+| MCP | \`POST /api/mcp\` | \`x-api-key\` header or session cookie | MCP clients — auto-generated tools from OpenAPI spec, stateless Streamable HTTP transport |
+| REST/OpenAPI | \`GET/POST/... /api/{path}\` | \`x-api-key\` header or session cookie | Standard REST; Scalar docs at \`GET /api\`, spec at \`GET /api/spec.json\` |
+| oRPC RPC | \`POST /api/rpc/{procedure}\` | \`x-api-key\` header or session cookie | Typed JSON-RPC for all API procedures |
+| Plugin RPC | \`POST /api/rpc/{plugin}/{procedure}\` | \`x-api-key\` header or session cookie | Per-plugin RPC (e.g. \`/api/rpc/auth/getSession\`) |
+| MCP discovery | \`GET /.well-known/mcp.json\` | None | JSON descriptor with server name, endpoint, and auth scheme |
+
+### Authentication for agents
+
+1. Sign in with your NEAR wallet (SIWN) at the website.
+2. Navigate to **Settings → API Keys** at \`/settings/api-keys\`.
+3. Create a new key — the full secret (\`edk_...\`) is shown once. Copy it immediately.
+4. Pass it on every request: \`x-api-key: edk_your_key_here\`
+
+### Architecture note: remotes are code bundles
+
+Remotes in \`bos.config.json\` are **not hosted APIs** — they are code bundles loaded via Module Federation at runtime. The UI, API, auth, and plugins all run in the same host process. There is no remote server to call; everything is loaded in-process through Module Federation and \`every-plugin\`.`);
+
   parts.push(`## Troubleshooting
 
 **Process won't start:**
@@ -1548,5 +1771,133 @@ dist/
 docker-compose.yml
 *.gen.ts
 *.gen.tsx
+`;
+}
+
+const WORKFLOW_SKILLS_MARKER = "everything-dev-app";
+const WORKFLOW_SKILLS_NOTE = `
+
+## Workflow skills
+
+This repo ships agent workflow skills in \`.agents/skills/\` — the ordered development flow (grill → spec → tickets → implement/tdd → code-review). Start with \`/everything-dev-app\` to orient and pick the right next step. See \`AGENTS.md\` → Workflow Skills.
+`;
+
+export function buildChildLlmsTxt(title: string): string {
+  return `# ${title}
+
+> Application running on the everything.dev runtime.
+
+## Skills
+
+- [Skill](/skill.md): Agent-ready prompt for talking to, running, editing, and publishing this runtime.
+- Workflow skills (in the repo): \`.agents/skills/\` — start with \`everything-dev-app\` for the ordered development flow.
+
+## API
+
+- [OpenAPI docs](/api): Interactive API reference (Scalar)
+- [OpenAPI spec](/api/spec.json): Machine-readable OpenAPI JSON
+- [oRPC RPC](/api/rpc): Typed JSON-RPC endpoint for all API procedures
+- [Plugin RPC](/api/rpc/auth): Auth plugin RPC (session, NEAR SIWN, relay, API keys, organizations)
+
+## MCP
+
+- [MCP server](/api/mcp): Model Context Protocol server (Streamable HTTP, stateless). Auto-generates tools from the API's OpenAPI spec.
+- [MCP discovery](/.well-known/mcp.json): JSON descriptor with server name, endpoint URL, and auth scheme.
+
+## Auth
+
+Authenticate to the API using an API key:
+
+1. Sign in with your NEAR wallet (SIWN) at the website.
+2. Go to **Settings → API Keys** at \`/settings/api-keys\`.
+3. Create a key — the full secret (\`edk_...\`) is shown once.
+4. Pass it on every request: \`x-api-key: edk_your_key_here\`
+
+The \`x-api-key\` header works for \`/api/*\` (REST), \`/api/rpc/*\` (oRPC), and \`/api/mcp\` (MCP).
+
+## Source
+
+- [Repository](https://github.com/NEARBuilders/everything-dev): Clone and read \`AGENTS.md\` for full development instructions, TanStack Intent skills, and workflow guidance.
+`;
+}
+
+export function buildChildSkillMd(title: string, repository: string): string {
+  const repoLink = repository
+    ? `- [Repository](${repository}): Clone and read \`AGENTS.md\` for full development instructions.`
+    : `- Clone the repository and read \`AGENTS.md\` for full development instructions.`;
+
+  return `# ${title} skill
+
+Use this when you want an agent to run, edit, and publish **${title}** — an everything.dev app composed at runtime from \`bos.config.json\`.
+
+There are two ways to work with this app:
+
+1. **Talk to the app** — use the API via MCP or REST to read/write data without cloning anything.
+2. **Clone and modify** — clone the repository, run locally, edit code, and publish.
+
+## Mode 1: Talk to the app
+
+### MCP endpoint
+
+\`\`\`
+POST /api/mcp
+\`\`\`
+
+Transport: Streamable HTTP (stateless). Connect your MCP client to \`{origin}/api/mcp\` to discover all available tools automatically.
+
+### Authentication
+
+Use an **API key**:
+
+1. Sign in with your NEAR wallet at the website (SIWN).
+2. Navigate to **Settings → API Keys** at \`/settings/api-keys\`.
+3. Create a key — the full secret (\`edk_...\`) is shown once.
+4. Pass it on every request: \`x-api-key: edk_your_key_here\`
+
+### REST / OpenAPI
+
+- **API docs**: \`GET /api\`
+- **OpenAPI spec**: \`GET /api/spec.json\`
+- **oRPC RPC**: \`POST /api/rpc/{procedure}\`
+- **MCP discovery**: \`GET /.well-known/mcp.json\`
+
+## Mode 2: Clone and modify
+
+### TanStack Intent
+
+- Registry entry: \`https://tanstack.com/intent/registry/everything-dev\`
+- Load with TanStack Intent: \`npx @tanstack/intent@latest load everything-dev\`
+
+### Read AGENTS.md first
+
+After cloning, read **\`AGENTS.md\`** at the repo root. It contains operational guidance, TanStack Intent skills, and workflow instructions.
+
+### Workflow skills
+
+The repo ships agent workflow skills in \`.agents/skills/\` — start with \`everything-dev-app\` for the ordered development flow (grill → spec → tickets → implement/tdd → code-review).
+
+### Architecture note
+
+Remotes in \`bos.config.json\` are **not hosted APIs** — they are code bundles loaded via Module Federation at runtime. Everything runs in the same host process.
+
+### Run locally
+
+\`\`\`bash
+cp .env.example .env
+bun install
+docker compose up -d --wait
+bos dev
+\`\`\`
+
+### Publish
+
+\`\`\`bash
+bos build
+bos publish --deploy
+\`\`\`
+
+## Source
+
+${repoLink}
 `;
 }

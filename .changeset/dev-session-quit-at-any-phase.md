@@ -1,0 +1,5 @@
+---
+"everything-dev": patch
+---
+
+`bos dev`/`bos start` sessions can now be quit at any lifecycle phase. Previously a shutdown request during startup (services still starting, up to the ~120s readiness window) succeeded a deferred nothing observed and the 5-second force exit ran a no-op kill — orphaning every detached service child (the "zombie session squatting ports" class). The kill finalizer and emergency kill are now registered before the first child spawns and cover each handle incrementally as it spawns, and the startup phase races against shutdown so a quit request interrupts service startup, kills everything spawned so far, and exits cleanly (code 0). Also: remote-host sessions no longer list their own process as a child (a force exit used to SIGKILL the CLI itself, exit 137); unhandled defects now exit non-zero (previously `bos dev` always exited 0, so harnesses could not detect failure); and the 5-second force-exit timer is re-armed at finalizer entry so a large log export is no longer SIGKILLed mid-print.

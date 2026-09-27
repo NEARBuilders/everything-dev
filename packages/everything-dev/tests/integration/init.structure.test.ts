@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  buildChildAgentsMd,
   buildInitPatterns,
   buildPluginRouteExclusions,
   copyFilteredFiles,
@@ -111,8 +112,8 @@ describe("bos init — structure", () => {
 
       expect(existsSync(join(noPluginsDir, "plugins"))).toBe(false);
 
-      expect(existsSync(join(noPluginsDir, "ui/src/routes/_layout/apps"))).toBe(false);
-      expect(existsSync(join(noPluginsDir, "ui/src/routes/_layout/index.tsx"))).toBe(true);
+      expect(existsSync(join(noPluginsDir, "ui/src/routes/_public/apps"))).toBe(false);
+      expect(existsSync(join(noPluginsDir, "ui/src/routes/_public/index.tsx"))).toBe(true);
 
       const config = JSON.parse(readFileSync(join(noPluginsDir, "bos.config.json"), "utf-8"));
       expect(config.plugins).toEqual({});
@@ -278,5 +279,13 @@ describe("bos init — structure", () => {
     } finally {
       rmSync(uiOnlyDir, { recursive: true, force: true });
     }
+  });
+
+  it("generated AGENTS.md documents DAO-owned tenants, not legacy subaccount keys", () => {
+    const agentsMd = buildChildAgentsMd("", { overrides: ["ui", "api", "host"] });
+
+    expect(agentsMd).not.toContain("NEAR_SUB_ACCOUNT_PARENT_KEY");
+    expect(agentsMd).not.toContain("siwn.subAccount.parentAccount");
+    expect(agentsMd).toContain("sputnik-dao");
   });
 });

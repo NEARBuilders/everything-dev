@@ -2,7 +2,7 @@
 name: plugin-development
 description: Build every-plugin modules with oRPC contracts, Effect services, and Module Federation. Use when creating or modifying plugins under plugins/ or the _template scaffold.
 metadata:
-  sources: "src/plugin.ts,src/orpc.ts,src/errors.ts,src/zod.ts,src/types.ts"
+  sources: "src/plugin.ts,src/errors.ts,src/types.ts"
 ---
 
 # every-plugin Development
@@ -24,13 +24,13 @@ plugins/your-plugin/
 └── tsconfig.json
 ```
 
+Import `zod`, `effect`, and `@orpc/*` directly — the `every-plugin/zod`, `every-plugin/orpc`, and `every-plugin/effect` facade barrels no longer exist. The build pins zod via the workspace catalog, so version skew between plugin and framework is not a concern.
+
 ## Step 1: Define the Contract
 
-Import from `every-plugin` subpath exports — not from `@orpc/*` or `zod` directly:
-
 ```typescript
-import { eventIterator, oc } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
+import { eventIterator, oc } from "@orpc/contract";
+import { z } from "zod";
 
 const Errors = {
   UNAUTHORIZED: { status: 401, message: "Auth required" },
@@ -58,17 +58,17 @@ export type ContractType = typeof contract;
 ```
 
 Key points:
-- Always import `oc` from `every-plugin/orpc`, `z` from `every-plugin/zod`, `Effect` from `every-plugin/effect`
+- Import `oc`/`eventIterator` from `@orpc/contract`, `z` from `zod`, `Effect`/`Layer`/`Context` from `effect`
 - Use `eventIterator(schema)` for streaming responses
 - Define error objects with `status` + `message` and pass via `.errors()`
-- Use `CommonPluginErrors` from `every-plugin/errors` for standard UNAUTHORIZED/FORBIDDEN/NOT_FOUND/BAD_REQUEST
+- Use `PluginErrors` from `every-plugin/errors` for standard UNAUTHORIZED/FORBIDDEN/NOT_FOUND/BAD_REQUEST
 
 ## Step 2: Create the Service
 
 Plain TypeScript class with Effect error handling:
 
 ```typescript
-import { Effect } from "every-plugin/effect";
+import { Effect } from "effect";
 
 export class MyService {
   constructor(private baseUrl: string, private apiKey: string) {}
@@ -93,10 +93,10 @@ export class MyService {
 ## Step 3: Wire with createPlugin
 
 ```typescript
+import { ORPCError } from "@orpc/server";
+import { Effect, Layer } from "effect";
 import { createPlugin } from "every-plugin";
-import { Effect } from "every-plugin/effect";
-import { ORPCError } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
+import { z } from "zod";
 import { contract } from "./contract";
 import { MyService } from "./service";
 
@@ -109,34 +109,36 @@ export default createPlugin({
   }),
   contract,
 
-  initialize: (config, _plugins, tools) =>
+  initialize: (config, _plugins) =>
     Effect.gen(function* () {
       const service = new MyService(config.variables.baseUrl, config.secrets.apiKey);
       yield* service.ping();
-      return { service };
+
+      return Layer.succeed(MyServiceTag, service);
     }),
 
-  shutdown: () => Effect.void,
+  createRouter: (builder) => ({
+    getById: builder.getById.effect(function* ({ input, context, errors }) {
+      if (!context.userId) {
+        return yield* Effect.fail(errors.UNAUTHORIZED({ message: "Auth required" }));
+      }
+      const service = yield* MyServiceTag;
+      return yield* service.getById(input.id);
+    }),
 
-  createRouter: (deps, builder) => {
-    const { service } = deps;
-
-    const requireAuth = builder.middleware(async ({ context, next }) => {
-      if (!context.userId) throw new ORPCError("UNAUTHORIZED", { message: "Auth required" });
-      return next({ context: { ...context, userId: context.userId } });
-    });
-
-    return {
-      getById: builder.getById.use(requireAuth).handler(async ({ input, context }) => {
-        return await Effect.runPromise(service.getById(input.id));
-      }),
-      ping: builder.ping.handler(async () => {
-        return await Effect.runPromise(service.ping());
-      }),
-    };
-  },
+    ping: builder.ping.effect(function* () {
+      const service = yield* MyServiceTag;
+      return yield* service.ping();
+    }),
+  }),
 });
 ```
+
+Key points:
+- `initialize` returns an `Effect` producing a `Layer` — services built in it are provided to `.effect()` handlers via the plugin's lifecycle scope
+- Teardown lives in Layer finalizers — there is no `shutdown` option
+- Handlers access services with `yield* Tag` (Effect-native generators)
+- For streaming handlers (async generators), use `Context.get(context["effect/context"], Tag)`
 
 ## Plugin Composition (withPlugins)
 
@@ -148,9 +150,9 @@ import type { PluginsClient } from "./lib/plugins-types.gen";
 export default createPlugin.withPlugins<PluginsClient>()({
   variables: z.object({ demoMessage: z.string().optional() }),
   contract,
-  initialize: (config, plugins, _tools) =>
+  initialize: (config, plugins) =>
     Effect.sync(() => ({ plugins, demoMessage: config.variables.demoMessage ?? "not configured" })),
-  createRouter: (deps, builder) => ({
+  createRouter: (builder) => ({
     pluginDemo: builder.pluginDemo.handler(async () => {
       const status = await deps.plugins.registry().getRegistryStatus();
       return { apiVariable: deps.demoMessage, registryStatus: status };
@@ -165,17 +167,17 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
 ## Long-Lived Scoped Resources
 
-For database pools, caches, publisher channels, or any resource that should live for the plugin's lifetime, use `tools.buildService(tag, layer)` inside `initialize`:
+For database pools, caches, publisher channels, or any resource that should live for the plugin's lifetime, use `buildScoped(tag, layer)` inside `initialize` (or `buildScopedContext(layer)` for multi-service layers):
 
 ```typescript
-import { createPlugin } from "every-plugin";
-import { Effect, Layer } from "every-plugin/effect";
+import { Effect, Layer } from "effect";
+import { buildScoped, createPlugin } from "every-plugin";
 
 export default createPlugin({
   // ...
-  initialize: (config, _plugins, tools) =>
+  initialize: (config, _plugins) =>
     Effect.gen(function* () {
-      const repo = yield* tools.buildService(
+      const repo = yield* buildScoped(
         MyRepoTag,
         MyRepoLive.pipe(Layer.provide(DatabaseLive(config.secrets.MY_DATABASE_URL))),
       );
@@ -188,8 +190,18 @@ export default createPlugin({
 });
 ```
 
-`tools.buildService(tag, layer)` binds the layer's resources to the plugin's lifecycle scope.
+`buildScoped(tag, layer)` builds the layer with the plugin's lifecycle scope and resolves the service from the built context.
 Resources persist until the plugin shuts down and are automatically cleaned up during `runtime.shutdown()`.
+
+For layers that provide several services at once, use `buildScopedContext` and resolve each tag:
+
+```typescript
+const services = yield* buildScopedContext(
+  Layer.mergeAll(TenantsLive, NodesLive).pipe(Layer.provide(database)),
+);
+
+const tenants = Context.get(services, TenantsTag);
+```
 
 **Bad — creates a transient scope that closes immediately:**
 ```typescript
@@ -198,15 +210,14 @@ const svc = yield* Effect.provide(MyTag, MyLive.pipe(Layer.provide(DatabaseLive(
 
 **Good — resources persist for the plugin's lifetime:**
 ```typescript
-const svc = yield* tools.buildService(MyTag, MyLive.pipe(Layer.provide(DatabaseLive(url))))
+const svc = yield* buildScoped(MyTag, MyLive.pipe(Layer.provide(DatabaseLive(url))))
 ```
 
 Key rules:
-- Use `tools.buildService(...)` for any `Layer.scoped(...)` resource that should survive initialization
+- Use `buildScoped(...)` for any `Layer.scoped(...)` resource that should survive initialization
 - Plain class construction (new Service(...)) is still fine directly in `initialize`
-- `createRouter(deps)` receives whatever `initialize` returns — same mental model as before
+- Handlers access services via the injected oRPC context (`yield* Tag` in `.effect()` handlers), not from initialize's return value
 - Do not use `Effect.provide(Tag, Layer.scoped(...))` for persistent dependencies inside `initialize`
-- `tools` is provided by the framework and does not need to be imported
 
 ## Dev Server Config (plugin.dev.ts)
 
@@ -254,9 +265,8 @@ export default {
 
 ## Common Mistakes
 
-- Importing `oc` from `@orpc/contract` instead of `every-plugin/orpc` — will cause version mismatches in Module Federation
-- Importing `z` from `zod` instead of `every-plugin/zod` — may cause Vitest CJS/ESM interop issues; always use `every-plugin/zod`
+- Importing `z`/`oc`/`Effect` from `every-plugin/zod`, `every-plugin/orpc`, or `every-plugin/effect` — those facade barrels were deleted; import from `zod`, `@orpc/contract`, and `effect` directly
 - Forgetting `.errors(Errors)` on routes that can throw ORPCError — untyped errors
 - Using `Effect.runPromise` inside `Effect.gen` — use `yield*` instead for proper error channel
 - Putting business logic in `createRouter` — keep it in the service class, router is just glue
-- Using `Effect.provide(Tag, Layer.scoped(...))` inside `initialize` for long-lived resources — creates a transient scope that releases the resource immediately after initialization. Use `tools.buildService(Tag, Layer.scoped(...))` instead
+- Using `Effect.provide(Tag, Layer.scoped(...))` inside `initialize` for long-lived resources — creates a transient scope that releases the resource immediately after initialization. Use `buildScoped(Tag, Layer.scoped(...))` instead

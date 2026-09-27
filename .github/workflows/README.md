@@ -2,21 +2,21 @@
 
 ## Overview
 
-This repository uses the following production-facing workflows:
+This is a **downstream child project** — it deploys the app (UI, API, plugins) but not the host or framework packages. Those are deployed by the parent `everything.dev` repo.
+
+This repository uses the following workflows:
 
 - `CI` — lint, audit, typecheck, framework tests, and regression
-- `Docker` — Docker build and push, called by `Release` after npm publish or on `Dockerfile` changes
-- `Release` — changeset versioning and npm publish for framework packages
-- `Deploy` — app deploy (Zephyr CDN + FastKV config publish)
+- `Deploy` — config publish to FastKV + Railway image deploy (production, triggered directly by CI)
+- `Staging` — config publish to FastKV + Railway image deploy (staging/testnet, triggered by push to `staging` branch)
+- `Release` — changeset versioning and npm publish (manual only, for framework packages)
+- `Docker` — Docker build and push (manual or via Release only)
 
-The key design: `CI` is the validation workflow. On successful push to `main`, CI sends a `repository_dispatch` event that triggers `Release`. After `Release` (and `Docker`) complete, `Release` sends a `repository_dispatch` that triggers `Deploy`. This chain ensures:
+The key design: `CI` is the validation workflow. On a successful push to `main`, the `Deploy` workflow triggers automatically via `workflow_run` — no dispatch token, no notify job, and it checks out the exact SHA that CI validated (`workflow_run.head_sha`). No Release or Docker in between — this is a downstream project that only deploys its own app workspaces.
 
-- No skipped workflow runs (PR CI runs never trigger downstream workflows)
-- SHA is explicitly propagated end-to-end via `client_payload`
-- Deploy always runs after Docker finishes (no stale Railway redeploy)
-- Docker only builds when packages are actually published (not just versioned)
+`Staging` runs independently on push to the `staging` branch, deploying to testnet using `v1.citynode.testnet` as the signing account.
 
-`Docker` is called by `Release` via `workflow_call` — it only builds when packages are actually published (`actually_published=true`), so merging the "chore: version packages" PR alone does not trigger an image build.
+Host is never deployed from this repo — it's loaded from a remote URL at runtime via Module Federation.
 
 ## Workflows
 
@@ -28,88 +28,90 @@ The key design: `CI` is the validation workflow. On successful push to `main`, C
 
 **Jobs:**
 1. `detect-changes` — diffs against base to determine if `packages/everything-dev/` or `packages/every-plugin/` changed
-2. `lint-and-typecheck` — install, build, postinstall, audit, lint, typecheck
+2. `lint-and-typecheck` — install, build, audit, lint, typecheck
 3. `framework-tests` — runs `everything-dev` tests (only if `everything-dev` or `every-plugin` changed)
 4. `plugin-tests` — runs `every-plugin` tests (only if `every-plugin` changed)
 5. `regression` — full stack regression with Playwright + Go HTTP tests (needs `lint-and-typecheck`)
-6. `notify` — sends `repository_dispatch(ci-main-success)` with SHA (only on push to main, all jobs must pass)
 
 **Key design decisions:**
-- `Build every-plugin` runs before `postinstall` because `postinstall` triggers `types:gen` which needs `every-plugin` to be built first.
+- Generated types (`types:gen`) are produced on demand: `bun typecheck` chains `types:gen` first, `bos dev`/`bos build`/`bos publish` regenerate via `generateCodeArtifacts` — no postinstall hook exists (it was dead code under `ignore-scripts = true`).
 - `detect-changes` uses native `git diff` (no third-party action). For `workflow_dispatch`, all tests run unconditionally.
-- `notify` requires `actions: write` permission to call the dispatch API. It has a 3-retry backoff.
 - Playwright browsers are cached by `bun.lock` hash — cache hit only installs system deps (~10s), miss does full install (~60-90s).
-- `cancel-in-progress: true` is safe for CI — cancelled runs never send `repository_dispatch` (the `notify` job is blocked).
-- Skipped jobs in `needs` are non-blocking: `notify` runs if `framework-tests`/`plugin-tests` are skipped (no relevant changes), but won't run if any needed job failed.
+- `cancel-in-progress: true` is safe for CI — cancelled runs never trigger Deploy (the `workflow_run` gate requires `conclusion == 'success'`).
+- Skipped jobs in `needs` are non-blocking for the workflow result: `framework-tests`/`plugin-tests` may be skipped (no relevant changes) without failing CI.
+- Deploy reads its config from FastKV at runtime (`BOS_ACCOUNT`/`BOS_GATEWAY` on Railway), so nothing needs to be committed back after a deploy.
 
 ### Docker (`docker.yml`)
 
-**Trigger:** `workflow_call` from `Release` (only when `actually_published=true`), `push` to `main`/`staging` on `Dockerfile` changes, or `workflow_dispatch`.
+**Trigger:** `workflow_call` from `Release`, or `workflow_dispatch`.
 
-**Purpose:** Build and push the Docker image only when a release actually publishes packages, or when the Dockerfile itself changes.
+**Purpose:** Build and push the Docker image when a release actually publishes packages, or when manually triggered.
 
 **Behavior:**
 - Detects whether the repository has a `Dockerfile`
 - Skips the build steps entirely when no Dockerfile exists
-- Pushes `latest`, branch, and SHA tags to `ghcr.io`
+- Pushes branch and SHA tags to `ghcr.io` — no mutable `latest` pin; container tiers track the committed root `Dockerfile`
 
 ### Release (`release.yml`)
 
-**Trigger:** `repository_dispatch(ci-main-success)` from CI, or `workflow_dispatch`.
+**Trigger:** `workflow_dispatch` only (manual).
 
-**Purpose:** Consume changesets, create version PRs, and publish framework packages to npm.
+**Purpose:** Consume changesets, create version PRs, and publish framework packages to npm. This is manual in downstream projects — CI no longer triggers it automatically.
 
 **Lifecycle:**
 
 ```
 1. Developer creates changeset          →  bun run changeset
 2. Developer merges feature branch      →  Changesets land on main
-3. CI succeeds on main                   →  repository_dispatch triggers Release
-                                             Creates/updates "chore: version packages" PR
-4. Team merges Version Packages PR      →  CI triggers Release again
+3. CI succeeds on main                   →  workflow_run triggers Deploy directly
+                                             (Release is NOT triggered automatically)
+4. Developer manually triggers Release  →  Creates/updates "chore: version packages" PR
+5. Team merges Version Packages PR      →  CI triggers Release again via workflow_dispatch
                                              No changesets remain (hasChangesets=false)
-                                            ↓
-                                            npm publish --provenance --access public
-                                            (tracks actually_published output)
-                                            ↓
-                                            GitHub Releases created for each package
-                                            ↓
-                                            Docker build (only if actually_published=true)
-                                            ↓
-                                            repository_dispatch(release-completed) → Deploy
+                                             ↓
+                                             npm publish --provenance --access public
+                                             ↓
+                                             GitHub Releases created for each package
 ```
 
 **npm publishing uses OIDC trusted publishing** — no `NPM_TOKEN` secret needed. `NODE_AUTH_TOKEN` is set to empty string, and `npm publish --provenance` authenticates via the OIDC token provisioned by `id-token: write` permission and `actions/setup-node` with `registry-url`.
 
-**Docker gating:** The `docker` job only runs when `actually_published=true` (packages were actually published to npm, not just versioned). This prevents wasteful Docker builds after the "chore: version packages" merge when all versions were already published.
-
-**Deploy notification:** The `notify-deploy` job runs after both `release` and `docker` complete. It sends `repository_dispatch(release-completed)` with the SHA, triggering Deploy. When Docker is skipped (no publishing), `notify-deploy` still fires — Deploy is needed for Zephyr CDN even without a new Docker image.
-
 ### Deploy (`deploy.yml`)
 
-**Trigger:** `repository_dispatch(release-completed)` from Release, or `workflow_dispatch`.
+**Trigger:** `workflow_run` (CI completed successfully on `main`), or `workflow_dispatch`.
 
-**Purpose:** Build and deploy all workspaces to Zephyr CDN, publish `bos.config.json` to FastKV, and redeploy Railway.
+**Purpose:** Build app workspaces, write deterministic bundle URLs into `bos.config.json`, publish it to FastKV, and ship the Railway image (the image stages the artifacts and serves `/bundles/*` itself).
 
 **Behavior:**
-- Runs `bos publish --deploy` (Zephyr CDN deploy + FastKV publish)
-- Redeploys the Railway service (Docker image already built by Release)
-- Commits and pushes updated `bos.config.json` deployment URLs back to `main`
+- Runs `bos publish --deploy --packages local` (builds every locally-owned workspace)
+- Checks out the exact commit CI validated (`github.event.workflow_run.head_sha`)
+- Ships the Railway service with `railway up` (builds the image — the deployment artifact)
+- Does **not** commit anything back — the Railway host fetches the published config from FastKV (`bos start` resolves `BOS_ACCOUNT`/`BOS_GATEWAY`), so the repo copy of `bos.config.json` is the publish *input*, not the deploy output
 
-**Secrets:** `NEAR_PRIVATE_KEY` and `ZEPHYR_CI_TOKEN` come from repository secrets. NEAR for FastKV publish, Zephyr CI token for CDN deploy. If `ZEPHYR_CI_TOKEN` is not set, falls back to `ZEPHYR_AUTH_TOKEN` + `ZEPHYR_USER_EMAIL` (legacy server-token auth).
+**Secrets:** `NEAR_PRIVATE_KEY` comes from repository secrets (FastKV config publish). `RAILWAY_TOKEN` ships the image.
 
-**`cancel-in-progress: false`** — interrupting `bos publish --deploy` mid-flight could leave Zephyr CDN and FastKV in an inconsistent state. Queued deploys pick up the latest main when they run.
+**`cancel-in-progress: false`** — interrupting `bos publish --deploy` mid-flight could leave the FastKV config and the live image on different release trains. Queued deploys pick up the latest main when they run.
 
-## Child Project Flow
+## Downstream Project Flow
 
-Generated child repos use a simpler flow (no npm publish, no Docker):
+This repo is a downstream child project. The flow is simplified — no Release or Docker in the automatic path:
 
 ```
-CI → repository_dispatch(ci-main-success) → Release (version PR + GitHub releases)
-                                         → Deploy (Zephyr CDN + FastKV)
+main branch push → CI (lint, typecheck, regression)
+                 → workflow_run (success) → Deploy (FastKV config publish + Railway image)
+
+staging branch push → Staging (FastKV config publish + Railway image on testnet)
 ```
 
-Both Release and Deploy trigger from the same `ci-main-success` dispatch, running concurrently. No `release-completed` dispatch is needed.
+Release and Docker are manual-only (`workflow_dispatch`). When this repo is merged to the parent `everything.dev`, the parent's own workflows handle framework packages and host deployment.
+
+### Staging
+
+The `staging` branch deploys to testnet using `v1.citynode.testnet` as the signing account (configured via `staging.account` in `bos.config.json`). The `--env staging` flag on `bos publish` switches both the account and the gateway domain automatically.
+
+**Required GitHub secrets for staging:**
+- `NEAR_TESTNET_PRIVATE_KEY` — NEAR key for `v1.citynode.testnet`
+- `RAILWAY_STAGING_TOKEN` — Railway token scoped to the staging environment
 
 ## Docker Image Architecture
 
@@ -117,23 +119,31 @@ Docker images are built in `docker.yml`. The image uses a multi-stage build:
 
 ```
 Builder stage:
-  COPY . .                              # Full repo (including packages/)
-  RUN bun run scripts/resolve-workspace-refs.ts   # normalize framework refs for install
-  RUN bun install                       # Installs from npm + remaining workspaces
+  COPY manifests (package.jsons, bun.lock, bunfig.toml)   # first — deps cache independently
+  RUN --mount=type=cache bun install --frozen-lockfile --ignore-scripts
+  COPY . .                                    # Full repo
+  RUN bun run --cwd packages/every-plugin build
+  RUN bun run --cwd packages/everything-dev build
+  RUN bun run scripts/resolve-workspace-refs.ts  # normalize workspace refs
+
+Regression-builder stage:
+  RUN bun run scripts/regression/container-build.ts  # builds all workspaces,
+                                                     # stages .bos/bundles namespace layout
 
 Final stage:
-  COPY --from=builder node_modules      # Pre-installed deps (from npm)
-  COPY --from=builder bos.config.json   # Runtime config
-  COPY --from=builder package.json      # Start script
-  COPY --from=builder host/ api/ ui/ plugins/  # App code only
-  # packages/ is NOT copied — excluded from final image
+  COPY --from=prod-builder node_modules       # Pre-installed deps
+  COPY --from=prod-builder package.json bun.lock bunfig.toml
+  COPY --from=prod-builder bos.config.json    # Runtime config
+  COPY --from=prod-builder packages/everything-dev  # Framework CLI (bos)
+  COPY --from=prod-builder packages/every-plugin    # Plugin runtime
+  COPY --from=dist-builder .bos/bundles      # Image-native artifacts (BOS_BUNDLE_DIR)
 ```
 
 **Why this design:**
-- `packages/everything-dev` and `packages/every-plugin` are framework packages published to npm. The Docker image installs them from the registry, not from local source.
+- `packages/everything-dev` and `packages/every-plugin` are framework packages needed at runtime for the `bos` CLI and plugin runtime.
 - The normalize script rewrites `workspace:*` references to concrete package versions before install.
-- The final image excludes `packages/` source code, producing a smaller image.
-- The start command uses `bos` from `node_modules/.bin/bos` instead of `bun packages/everything-dev/cli.js`.
+- Workspace dists ship inside the image (`.bos/bundles/<account>/<gateway>/<workspace>/…`) and the host serves them same-origin from `/bundles/*` — the image IS the deployment (ADR 0011).
+- The start command uses `bos` from `node_modules/.bin/bos`.
 
 ## npm Trusted Publishing (OIDC)
 
@@ -156,9 +166,6 @@ npm packages are published using **Trusted Publishing** (OpenID Connect), which 
 | Variable | Where | Purpose |
 |----------|-------|---------|
 | `NEAR_PRIVATE_KEY` | Deploy | NEAR key for FastKV config publish |
-| `ZEPHYR_CI_TOKEN` | Deploy, Staging (as `ZE_CI_TOKEN`) | Zephyr Cloud CI token for CDN deploy (preferred) |
-| `ZEPHYR_AUTH_TOKEN` | Deploy, Staging (as `ZE_SECRET_TOKEN`) | Zephyr auth used as direct bearer token; `ZE_CI_TOKEN` fallback |
-| `ZEPHYR_USER_EMAIL` | Deploy, Staging (as `ZE_USER_EMAIL`) | Fallback Zephyr user email when `ZEPHYR_CI_TOKEN` is absent |
-| `GITHUB_TOKEN` | Release, Deploy, CI notify | Changesets PR creation, GitHub releases, repository_dispatch |
+| `GITHUB_TOKEN` | Release, Check Skills | Changesets PR creation, GitHub releases, skills review PRs |
 
-NEAR CLI is installed in a dedicated workflow step before publishing so Actions can apply the PATH update before `bos publish --deploy` runs.
+`bos publish` signs the FastKV registry transaction in-process via `near-kit` — no near-cli-rs install step is needed in CI. `NEAR_PRIVATE_KEY` (or `BOS_NEAR_PRIVATE_KEY`) is read directly from the environment; locally, `~/.near-credentials` also works.
