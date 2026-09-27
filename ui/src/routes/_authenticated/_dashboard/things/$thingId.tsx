@@ -6,13 +6,8 @@ import { useApiClient } from "@/app";
 import { Button, EmptyState, PageContainer } from "@/components";
 import { Skeleton } from "@/components/ui/skeleton";
 import { pageTitle } from "@/lib/page-title";
-import { invalidateThingAfterDelete, thingQueryKeys } from "./-thing-cache";
+import { invalidateThingAfterDelete } from "./-thing-cache";
 import { ThingBackLink, ThingDetailsView } from "./-thing-details-view";
-import { optimisticUpvoteCount } from "./-thing-votes";
-
-type ApiClient = ReturnType<typeof useApiClient>;
-type UpvoteCount = Awaited<ReturnType<ApiClient["votes"]["getUpvoteCount"]>>;
-type UserVote = Awaited<ReturnType<ApiClient["votes"]["getUserVote"]>>;
 
 export const Route = createFileRoute("/_authenticated/_dashboard/things/$thingId")({
   head: ({ params, match }) => ({
@@ -33,96 +28,10 @@ function ThingDetailsPage() {
   const { session } = Route.useRouteContext();
   const isAdmin = session?.user?.role === "admin";
 
-  const proposalQuery = useQuery({
-    queryKey: thingQueryKeys.proposal(thingId),
-    queryFn: async () => {
-      const result = await apiClient.proposals.getProposals({
-        pluginId: "template",
-        entityId: thingId,
-        limit: 1,
-      });
-      return result.data[0] ?? null;
-    },
-    refetchInterval: (query) => {
-      const proposal = query.state.data;
-      return proposal?.reviewStatus === "approved" && proposal.applyStatus === "applying"
-        ? 2_000
-        : false;
-    },
-  });
-
   const thingQuery = useQuery({
-    queryKey: thingQueryKeys.detail(thingId),
+    queryKey: ["thing", thingId],
     queryFn: () => apiClient.template.getThing({ thingId }),
-    enabled:
-      proposalQuery.isError ||
-      (proposalQuery.isSuccess &&
-        (!proposalQuery.data || proposalQuery.data.applyStatus === "applied")),
     retry: false,
-  });
-
-  const upvoteCountQueryKey = thingQueryKeys.upvoteCount(thingId);
-  const userVoteQueryKey = thingQueryKeys.userVote(thingId);
-
-  const upvoteCountQuery = useQuery({
-    queryKey: upvoteCountQueryKey,
-    queryFn: () => apiClient.votes.getUpvoteCount({ entityId: thingId }),
-    enabled: !!thingQuery.data,
-    staleTime: 15 * 1000,
-  });
-
-  const userVoteQuery = useQuery({
-    queryKey: userVoteQueryKey,
-    queryFn: () => apiClient.votes.getUserVote({ entityId: thingId }),
-    enabled: !!thingQuery.data,
-    staleTime: 15 * 1000,
-  });
-
-  const voteMutation = useMutation({
-    mutationFn: (nextHasUpvote: boolean) =>
-      nextHasUpvote
-        ? apiClient.votes.upvote({ entityId: thingId })
-        : apiClient.votes.downvote({ entityId: thingId }),
-    onMutate: async (nextHasUpvote) => {
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: upvoteCountQueryKey }),
-        queryClient.cancelQueries({ queryKey: userVoteQueryKey }),
-      ]);
-      const previousCount = queryClient.getQueryData<UpvoteCount>(upvoteCountQueryKey);
-      const previousUserVote = queryClient.getQueryData<UserVote>(userVoteQueryKey);
-      queryClient.setQueryData<UpvoteCount>(upvoteCountQueryKey, {
-        entityId: thingId,
-        totalCount: optimisticUpvoteCount(previousCount?.totalCount, nextHasUpvote),
-      });
-      queryClient.setQueryData<UserVote>(userVoteQueryKey, {
-        entityId: thingId,
-        hasUpvote: nextHasUpvote,
-      });
-      return { previousCount, previousUserVote };
-    },
-    onSuccess: (result, nextHasUpvote) => {
-      queryClient.setQueryData<UpvoteCount>(upvoteCountQueryKey, {
-        entityId: thingId,
-        totalCount: result.totalCount,
-      });
-      queryClient.setQueryData<UserVote>(userVoteQueryKey, {
-        entityId: thingId,
-        hasUpvote: nextHasUpvote,
-      });
-      toast.success(nextHasUpvote ? "Thing upvoted" : "Upvote removed");
-    },
-    onError: (error: Error, _nextHasUpvote, context) => {
-      queryClient.setQueryData(upvoteCountQueryKey, context?.previousCount);
-      queryClient.setQueryData(userVoteQueryKey, context?.previousUserVote);
-      toast.error(error.message || "Unable to update your vote");
-    },
-    onSettled: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: upvoteCountQueryKey }),
-        queryClient.invalidateQueries({ queryKey: userVoteQueryKey }),
-        queryClient.invalidateQueries({ queryKey: thingQueryKeys.upvoteCounts }),
-      ]);
-    },
   });
 
   const deleteMutation = useMutation({
@@ -140,11 +49,8 @@ function ThingDetailsPage() {
   });
 
   const thing = thingQuery.data;
-  const proposal = proposalQuery.data;
-  const isLoading =
-    (thingQuery.isLoading || proposalQuery.isLoading) && !thingQuery.data && !proposalQuery.data;
 
-  if (isLoading) {
+  if (thingQuery.isPending) {
     return (
       <PageContainer variant="default">
         <div className="flex flex-col gap-4">
@@ -157,7 +63,7 @@ function ThingDetailsPage() {
     );
   }
 
-  if (!thing && !proposal) {
+  if (!thing) {
     return (
       <PageContainer variant="default">
         <ThingBackLink canGoBack={canGoBack} onBack={() => router.history.back()} />
@@ -165,9 +71,9 @@ function ThingDetailsPage() {
           icon={CubeIcon}
           title="Thing not found"
           description={
-            proposalQuery.isError
-              ? `Proposal status could not be loaded: ${proposalQuery.error.message}`
-              : `No thing or proposal exists for ${thingId}.`
+            thingQuery.error
+              ? `Couldn't load ${thingId}: ${thingQuery.error.message}`
+              : `No thing exists for ${thingId}.`
           }
           action={
             <Button nativeButton={false} render={<Link to="/things" />}>
@@ -184,15 +90,9 @@ function ThingDetailsPage() {
       canGoBack={canGoBack}
       isAdmin={isAdmin}
       isDeletePending={deleteMutation.isPending}
-      isVoteLoading={upvoteCountQuery.isLoading || userVoteQuery.isLoading}
-      isVotePending={voteMutation.isPending}
-      proposal={proposal}
       thing={thing}
       thingId={thingId}
-      upvoteCount={upvoteCountQuery.data}
-      userVote={userVoteQuery.data}
       onBack={() => router.history.back()}
-      onVote={(nextHasUpvote) => voteMutation.mutate(nextHasUpvote)}
       onDelete={() => deleteMutation.mutate()}
     />
   );

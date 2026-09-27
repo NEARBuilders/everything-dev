@@ -16,7 +16,7 @@ import {
 } from "@/components";
 import { FieldGroup } from "@/components/ui/field";
 import { pageTitle } from "@/lib/page-title";
-import { invalidateThingAfterProposal } from "./-thing-cache";
+import { thingQueryKeys } from "./-thing-cache";
 import {
   DEFAULT_THING_PAYLOAD,
   formatThingPayload,
@@ -28,7 +28,7 @@ export const Route = createFileRoute("/_authenticated/_dashboard/things/new")({
   head: ({ match }) => ({
     meta: [
       { title: pageTitle("New Thing", match.context.runtimeConfig) },
-      { name: "description", content: "Submit a new thing for community review." },
+      { name: "description", content: "Add a new thing to the registry." },
     ],
   }),
   component: CreateThingPage,
@@ -47,25 +47,17 @@ function CreateThingPage() {
       if (!thingId.trim()) throw new Error("thingId is required");
       const parsed = parseThingPayload(payloadRaw);
       if (!parsed.ok) throw new Error("Invalid JSON payload");
-      return apiClient.proposals.propose({
-        pluginId: "template",
-        entityId: thingId.trim(),
+      return apiClient.template.createThing({
+        thingId: thingId.trim(),
         payload: parsed.value,
-        source: "things/new",
       });
     },
-    onSuccess: async ({ data: proposal }) => {
-      toast.success("Proposal submitted", {
-        description: "Your thing is pending admin review.",
-      });
-      try {
-        await invalidateThingAfterProposal(queryClient, proposal.entityId);
-      } catch {
-        toast.warning("Proposal submitted, but its review status could not refresh.");
-      }
+    onSuccess: async (thing) => {
+      toast.success("Thing created");
+      await queryClient.invalidateQueries({ queryKey: thingQueryKeys.list });
       void navigate({
         to: "/things/$thingId",
-        params: { thingId: proposal.entityId },
+        params: { thingId: thing.thingId },
       });
     },
     onError: (err: Error) => toast.error(err.message),
@@ -78,7 +70,7 @@ function CreateThingPage() {
     <PageContainer variant="narrow">
       <PageHeader
         title="New thing"
-        description="An admin reviews it before it goes live."
+        description="Stored directly in the registry."
         headerTestId="things.new.heading"
       />
 
@@ -141,7 +133,7 @@ function CreateThingPage() {
             <p className="text-sm text-destructive">
               {needsSignIn
                 ? "Your session has expired."
-                : submitError.message || "Unable to submit this proposal."}
+                : submitError.message || "Unable to create this thing."}
             </p>
             {needsSignIn && (
               <Link
@@ -161,7 +153,7 @@ function CreateThingPage() {
             disabled={submitMutation.isPending || !thingId.trim() || !payload.ok}
             data-testid="things-new-submit"
           >
-            {submitMutation.isPending ? "Submitting…" : "Submit for review"}
+            {submitMutation.isPending ? "Creating…" : "Create thing"}
           </Button>
           <Button variant="ghost" nativeButton={false} render={<Link to="/things" />}>
             Cancel

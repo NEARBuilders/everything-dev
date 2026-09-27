@@ -88,13 +88,7 @@ function AdminTenants() {
         header: "Name",
         cell: ({ row }) => (
           <div className="flex min-w-0 flex-col gap-0.5">
-            <Link
-              to="/tenant/$tenantId"
-              params={{ tenantId: slugByTenantId.get(row.original.id) ?? row.original.id }}
-              className="font-medium text-foreground hover:underline"
-            >
-              {row.original.name}
-            </Link>
+            <span className="font-medium text-foreground">{row.original.name}</span>
             <span className="font-mono text-xs text-muted-foreground">
               {slugByTenantId.get(row.original.id) ?? row.original.id.slice(0, 8)}
             </span>
@@ -236,16 +230,7 @@ function AdminTenants() {
             </div>
             <ItemGroup className="md:hidden" data-testid="admin-tenants-rows">
               {tenants.map((tenant) => (
-                <Item
-                  key={tenant.id}
-                  variant="outline"
-                  render={
-                    <Link
-                      to="/tenant/$tenantId"
-                      params={{ tenantId: slugByTenantId.get(tenant.id) ?? tenant.id }}
-                    />
-                  }
-                >
+                <Item key={tenant.id} variant="outline">
                   <ItemContent className="min-w-0">
                     <ItemTitle className="max-w-full">
                       <span className="min-w-0 truncate">{tenant.name}</span>

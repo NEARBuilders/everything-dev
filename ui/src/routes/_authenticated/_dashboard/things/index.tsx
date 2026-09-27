@@ -1,5 +1,4 @@
 import {
-  ArrowUpIcon,
   BroadcastIcon,
   CaretRightIcon,
   CubeIcon,
@@ -55,15 +54,7 @@ function ThingsIndexPage() {
   });
 
   const things = data?.data ?? EMPTY_THINGS;
-  const thingIds = useMemo(() => things.map((thing) => thing.thingId), [things]);
   const visibleThings = useMemo(() => filterThings(things, query), [things, query]);
-
-  const upvoteCountsQuery = useQuery({
-    queryKey: [...thingQueryKeys.upvoteCounts, thingIds],
-    queryFn: () => apiClient.votes.getUpvoteCounts({ entityIds: thingIds }),
-    enabled: thingIds.length > 0,
-    staleTime: 30 * 1000,
-  });
 
   const newThingButton = (
     <Button nativeButton={false} render={<Link to="/things/new" />} data-testid="things-new">
@@ -178,13 +169,6 @@ function ThingsIndexPage() {
                     <Badge variant="outline" className="hidden font-mono sm:inline-flex">
                       {thing.type}
                     </Badge>
-                    <span className="inline-flex min-w-10 items-center justify-end gap-1 text-sm text-muted-foreground tabular-nums">
-                      <ArrowUpIcon />
-                      {upvoteCountsQuery.isLoading
-                        ? "—"
-                        : (upvoteCountsQuery.data?.[thing.thingId]?.totalCount ?? 0)}
-                      <span className="sr-only">upvotes</span>
-                    </span>
                     <CaretRightIcon className="text-muted-foreground" />
                   </ItemActions>
                 </Item>

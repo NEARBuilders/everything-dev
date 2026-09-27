@@ -15,7 +15,9 @@ const configuredSiwn = bosConfig.app?.auth?.variables?.siwn;
 const mainnetRecipient =
   process.env.ACCOUNT || configuredSiwn?.recipients?.mainnet || bosConfig.account;
 const testnetRecipient =
-  process.env.TESTNET_ACCOUNT || configuredSiwn?.recipients?.testnet || bosConfig.staging?.account;
+  process.env.TESTNET_ACCOUNT ||
+  configuredSiwn?.recipients?.testnet ||
+  (bosConfig.staging as { account?: string } | undefined)?.account;
 
 export default {
   pluginId: packageJson.name,

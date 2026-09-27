@@ -1,12 +1,11 @@
 {
-  "account": "v1.citynode.near",
-  "domain": "citynode.app",
-  "title": "City Nodes",
-  "description": "Decentralized city nodes on NEAR — each city is a tenant with its own validator pool you can stake to.",
-  "repository": "https://github.com/NEARBuilders/citynode.app",
+  "account": "dev.everything.near",
+  "domain": "everything.dev",
+  "title": "everything.dev",
+  "description": "Open runtime for apps on NEAR, composed from published config and loaded through a shared host, UI, and API runtime.",
+  "repository": "https://github.com/nearbuilders/everything-dev",
   "staging": {
-    "domain": "testnet.citynode.app",
-    "account": "v1.citynode.testnet"
+    "domain": "dev.everything.dev"
   },
   "ci": {
     "railway": {
@@ -16,7 +15,7 @@
   "app": {
     "host": {
       "development": "local:host",
-      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/host/",
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/host/",
       "secrets": [
         "CORS_ORIGIN",
         "CSP_STRICT"
@@ -24,19 +23,18 @@
     },
     "ui": {
       "development": "local:ui",
-      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/ui/",
-      "ssr": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/ui/ssr/"
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/ui/",
+      "ssr": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/ui/ssr/"
     },
     "api": {
       "development": "local:api",
-      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/api/",
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/api/",
       "variables": {
-        "platformAccount": "v1.citynode.near",
-        "gatewayDomains": "citynode.app,testnet.citynode.app"
+        "platformAccount": "dev.everything.near",
+        "gatewayDomains": "everything.dev,dev.everything.dev"
       },
       "secrets": [
-        "API_DATABASE_URL",
-        "LUMA_CALENDAR_API_KEYS"
+        "API_DATABASE_URL"
       ]
     },
     "auth": {
@@ -46,7 +44,7 @@
         "name": "auth-ui",
         "development": "local:plugins/auth/ui"
       },
-      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/auth/",
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/auth/",
       "secrets": [
         "AUTH_DATABASE_URL",
         "BETTER_AUTH_SECRET",
@@ -63,17 +61,17 @@
       "variables": {
         "organizationMembershipLimit": 1000,
         "deviceLink": {
-          "clientId": "citynode-web"
+          "clientId": "everything-web"
         },
         "passkey": {
-          "rpID": "citynode.app",
-          "rpName": "City Nodes",
+          "rpID": "everything.dev",
+          "rpName": "everything.dev",
           "gatewayOrigins": {
             "mainnet": [
-              "https://citynode.app"
+              "https://everything.dev"
             ],
             "testnet": [
-              "https://testnet.citynode.app"
+              "https://dev.everything.dev"
             ]
           }
         },
@@ -83,13 +81,12 @@
         },
         "siwn": {
           "recipients": {
-            "mainnet": "v1.citynode.near",
-            "testnet": "v1.citynode.testnet"
+            "mainnet": "dev.everything.near",
+            "testnet": "dev.allthethings.testnet"
           },
           "relayer": {
             "mainnet": {
               "whitelistedContracts": [
-                "v1.citynode.near",
                 "dev.everything.near"
               ],
               "maxGasPerTransaction": "400000000000000",
@@ -97,7 +94,6 @@
             },
             "testnet": {
               "whitelistedContracts": [
-                "v1.citynode.testnet",
                 "dev.allthethings.testnet"
               ],
               "maxGasPerTransaction": "400000000000000",
@@ -129,29 +125,14 @@
       "secrets": [
         "TEMPLATE_DATABASE_URL"
       ],
-      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/template/"
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/template/"
     },
     "apps": {
       "development": "local:plugins/apps",
-      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/apps/"
-    },
-    "proposals": {
-      "development": "local:plugins/proposals",
+      "production": "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/apps/",
       "variables": {
-        "privatePluginIds": []
-      },
-      "secrets": [
-        "PROPOSALS_DATABASE_URL"
-      ],
-      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/proposals/"
-    },
-    "votes": {
-      "development": "local:plugins/votes",
-      "variables": {},
-      "secrets": [
-        "VOTES_DATABASE_URL"
-      ],
-      "production": "https://cdn.everything.dev/bundles/v1.citynode.near/citynode.app/votes/"
+        "registryNamespace": "dev.everything.near"
+      }
     }
   }
 }

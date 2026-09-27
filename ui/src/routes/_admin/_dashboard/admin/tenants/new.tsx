@@ -241,8 +241,6 @@ function NewTenantPage() {
         verifyMessage={verifyMessage}
         hostname={hostname}
         daoAccountId={daoConnection.daoAccountId}
-        createdTenantId={createdTenantId}
-        tenantSlug={slug}
         publishPending={deployPublish.isPending}
         allDone={stepper.steps.every((step) => step.state === "success")}
         onRecheck={() => void recheckPublish()}

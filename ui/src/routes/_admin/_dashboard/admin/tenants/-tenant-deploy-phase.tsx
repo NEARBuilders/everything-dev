@@ -1,5 +1,4 @@
 import { ArrowRightIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
 import { Button, PageHeader, type Step } from "@/components";
 import { ConnectDao } from "@/components/connect-dao";
 import { Spinner } from "@/components/ui/spinner";
@@ -12,8 +11,6 @@ export function TenantDeployPhase({
   verifyMessage,
   hostname,
   daoAccountId,
-  createdTenantId,
-  tenantSlug,
   publishPending,
   allDone,
   onRecheck,
@@ -25,8 +22,6 @@ export function TenantDeployPhase({
   verifyMessage: string | null;
   hostname: string;
   daoAccountId: string | null;
-  createdTenantId: string | null;
-  tenantSlug: string;
   publishPending: boolean;
   allDone: boolean;
   onRecheck: () => void;
@@ -41,9 +36,7 @@ export function TenantDeployPhase({
     verified: verifyState === "verified",
   });
   const live = verifyState === "verified";
-  const tenantLink = createdTenantId ? (
-    <Link to="/tenant/$tenantId" params={{ tenantId: tenantSlug || createdTenantId }} />
-  ) : null;
+  const tenantLink = null;
 
   return (
     <>

@@ -1,18 +1,12 @@
 import {
   BuildingsIcon,
   CaretRightIcon,
-  CoinsIcon,
-  CompassIcon,
   FingerprintIcon,
-  GearSixIcon,
   type Icon,
-  NetworkIcon,
-  RocketLaunchIcon,
   ShieldCheckIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import type { ReactElement } from "react";
 import { pluginPath } from "@/app";
 import { Button } from "@/components";
 import {
@@ -30,15 +24,10 @@ const STEP_ICONS: Record<NextStepId, Icon> = {
   "save-account": FingerprintIcon,
   "create-org": BuildingsIcon,
   "choose-org": UsersThreeIcon,
-  "start-community": RocketLaunchIcon,
-  "open-community": NetworkIcon,
-  "community-settings": GearSixIcon,
   admin: ShieldCheckIcon,
-  stake: CoinsIcon,
-  explore: CompassIcon,
 };
 
-function stepLink(step: NextStep, tenantId: string | null): ReactElement {
+function stepLink(step: NextStep): React.ReactElement {
   switch (step.id) {
     case "save-account":
       return <Link to={pluginPath("/settings/auth-methods")} />;
@@ -46,22 +35,12 @@ function stepLink(step: NextStep, tenantId: string | null): ReactElement {
       return <Link to="/orgs/new" />;
     case "choose-org":
       return <Link to="/orgs" />;
-    case "start-community":
-      return <Link to="/apply" />;
-    case "open-community":
-      return <Link to="/dashboard/node" />;
-    case "community-settings":
-      return <Link to="/tenant/$tenantId" params={{ tenantId: tenantId ?? "" }} />;
     case "admin":
       return <Link to="/admin" />;
-    case "stake":
-      return <Link to="/stake" />;
-    case "explore":
-      return <Link to="/explore" />;
   }
 }
 
-function FeaturedStep({ step, tenantId }: { step: NextStep; tenantId: string | null }) {
+function FeaturedStep({ step }: { step: NextStep }) {
   const StepIcon = STEP_ICONS[step.id];
   return (
     <Item variant="muted" data-testid={`home-step-${step.id}`}>
@@ -73,7 +52,7 @@ function FeaturedStep({ step, tenantId }: { step: NextStep; tenantId: string | n
         <ItemDescription>{step.description}</ItemDescription>
       </ItemContent>
       <ItemActions className="w-full sm:w-auto">
-        <Button className="w-full sm:w-auto" nativeButton={false} render={stepLink(step, tenantId)}>
+        <Button className="w-full sm:w-auto" nativeButton={false} render={stepLink(step)}>
           {step.actionLabel}
         </Button>
       </ItemActions>
@@ -81,10 +60,10 @@ function FeaturedStep({ step, tenantId }: { step: NextStep; tenantId: string | n
   );
 }
 
-function StepRow({ step, tenantId }: { step: NextStep; tenantId: string | null }) {
+function StepRow({ step }: { step: NextStep }) {
   const StepIcon = STEP_ICONS[step.id];
   return (
-    <Item variant="outline" render={stepLink(step, tenantId)} data-testid={`home-step-${step.id}`}>
+    <Item variant="outline" render={stepLink(step)} data-testid={`home-step-${step.id}`}>
       <ItemMedia variant="icon">
         <StepIcon />
       </ItemMedia>
@@ -99,23 +78,15 @@ function StepRow({ step, tenantId }: { step: NextStep; tenantId: string | null }
   );
 }
 
-export function NextStepsList({
-  steps,
-  tenantId,
-  primary,
-}: {
-  steps: NextStep[];
-  tenantId: string | null;
-  primary: boolean;
-}) {
+export function NextStepsList({ steps, primary }: { steps: NextStep[]; primary: boolean }) {
   const [first, ...rest] = steps;
   const featured = primary && first ? first : null;
   const rows = featured ? rest : steps;
   return (
     <ItemGroup data-testid="home-next-steps">
-      {featured && <FeaturedStep step={featured} tenantId={tenantId} />}
+      {featured && <FeaturedStep step={featured} />}
       {rows.map((step) => (
-        <StepRow key={step.id} step={step} tenantId={tenantId} />
+        <StepRow key={step.id} step={step} />
       ))}
     </ItemGroup>
   );

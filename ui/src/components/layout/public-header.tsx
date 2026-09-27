@@ -1,4 +1,4 @@
-import { BookOpenIcon, CoinsIcon, CompassIcon, ListIcon } from "@phosphor-icons/react";
+import { BookOpenIcon, ListIcon } from "@phosphor-icons/react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
@@ -11,11 +11,7 @@ import {
 import { ThemeToggle } from "./theme-toggle";
 import { UserNav } from "./user-nav";
 
-const PUBLIC_LINKS = [
-  { label: "Explore", to: "/explore", icon: CompassIcon, slug: "explore" },
-  { label: "Stake", to: "/stake", icon: CoinsIcon, slug: "stake" },
-  { label: "Docs", to: "/about", icon: BookOpenIcon, slug: "docs" },
-] as const;
+const PUBLIC_LINKS = [{ label: "Docs", to: "/about", icon: BookOpenIcon, slug: "docs" }] as const;
 
 interface PublicHeaderProps {
   focused?: boolean;
@@ -24,7 +20,6 @@ interface PublicHeaderProps {
 
 function isActive(pathname: string, to: string) {
   if (to === "/about") return pathname === "/about" || pathname === "/skill";
-  if (to === "/explore") return pathname === "/explore" || pathname.startsWith("/n/");
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
@@ -38,7 +33,7 @@ export function PublicHeader({ focused = false, showSignIn = true }: PublicHeade
       <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-2 px-4 sm:px-8">
         <Link
           to="/"
-          aria-label="CityNode home"
+          aria-label="everything.dev home"
           data-testid="public-header-home"
           className="mr-2 shrink-0 rounded-md sm:mr-6 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >

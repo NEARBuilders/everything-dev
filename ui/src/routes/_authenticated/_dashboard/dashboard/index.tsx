@@ -10,7 +10,6 @@ import {
 import { PageContainer, PageHeader, SectionHeader, Skeleton } from "@/components";
 import { type FeatureArea, isFeatureArea } from "@/lib/feature-areas";
 import { pageTitle } from "@/lib/page-title";
-import { tenantByOrgQueryOptions } from "@/lib/queries/tenants";
 import { useNearAccount } from "@/lib/use-near-account";
 import { IdentityCard } from "./-identity-card";
 import { type HomeInvitation, InvitationSteps } from "./-invitation-steps";
@@ -69,23 +68,13 @@ function Home() {
     },
     staleTime: 30 * 1000,
   });
-  const tenant = useQuery(tenantByOrgQueryOptions(apiClient, activeOrgId));
-  const authContext = useQuery({
-    queryKey: ["home-auth-context", activeOrgId],
-    queryFn: () => apiClient.auth.getContext().catch(() => null),
-    enabled: !!activeOrgId,
-    staleTime: 30 * 1000,
-  });
 
   const user = session?.user;
   const pending = (invitations.data ?? []).filter((invitation) => invitation.status === "pending");
   const orgs = organizations.data ?? [];
   const activeOrg = orgs.find((org) => org.id === activeOrgId) ?? null;
-  const orgRole = authContext.data?.organization?.member?.role;
   const isAdmin = user?.role === "admin";
-  const community = tenant.data ? { name: tenant.data.name, tenantId: tenant.data.id } : null;
-  const loading =
-    !user || organizations.isPending || (!!activeOrgId && tenant.isPending) || passkeys.isPending;
+  const loading = !user || organizations.isPending || passkeys.isPending;
 
   const steps = getNextSteps({
     isAnonymous: user?.isAnonymous ?? false,
@@ -93,8 +82,6 @@ function Home() {
     hasNear: !!nearAccountId,
     organizationCount: orgs.length,
     activeOrganizationName: activeOrg?.name ?? null,
-    community,
-    canManageCommunity: isAdmin || orgRole === "owner" || orgRole === "admin",
     isAdmin,
   });
 
@@ -125,11 +112,7 @@ function Home() {
                 <Skeleton className="h-16 w-full rounded-2xl" />
               </div>
             ) : (
-              <NextStepsList
-                steps={steps}
-                tenantId={community?.tenantId ?? null}
-                primary={pending.length === 0}
-              />
+              <NextStepsList steps={steps} primary={pending.length === 0} />
             )}
           </section>
         </div>

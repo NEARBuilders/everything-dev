@@ -5,8 +5,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import {
-  getAccount,
-  getActiveRuntime,
   type Organization,
   type SessionData,
   sessionQueryOptions,
@@ -19,13 +17,11 @@ import {
   PageContainer,
   Skeleton,
   Tabs,
-  TabsContent,
   TabsList,
   TabsTrigger,
 } from "@/components";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useSwitchOrganization } from "@/components/layout/use-switch-organization";
-import { useTeamWorkspace } from "@/components/layout/use-team-workspace";
 import { pageTitle } from "@/lib/page-title";
 import {
   ApiKeysTab,
@@ -34,8 +30,6 @@ import {
 } from "./-api-keys-tab";
 import { InvitationsTab } from "./-invitations-tab";
 import { MembersTab } from "./-members-tab";
-import { NodeConfigTab } from "./-node-config";
-import { OnboardingTab } from "./-onboarding-tab";
 import { useOrganizationApiKeyActions } from "./-organization-api-keys";
 import { OrganizationEditForm } from "./-organization-edit-form";
 import { useOrganizationInvitationActions } from "./-organization-invitations";
@@ -56,14 +50,7 @@ type MembersResponse = Awaited<ReturnType<AuthClientType["organization"]["listMe
 type MemberItem = NonNullable<MembersResponse["data"]>["members"][number];
 type InvitationItem = Awaited<ReturnType<ApiClientType["auth"]["listInvitations"]>>[number];
 
-const ORGANIZATION_TABS = [
-  "members",
-  "teams",
-  "invitations",
-  "onboard",
-  "apikeys",
-  "node-config",
-] as const;
+const ORGANIZATION_TABS = ["members", "teams", "invitations", "apikeys"] as const;
 
 type OrganizationTab = (typeof ORGANIZATION_TABS)[number];
 
@@ -114,9 +101,6 @@ function OrganizationDetail() {
   const { tab: requestedTab } = Route.useSearch();
   const auth = useAuthClient();
   const apiClient = useApiClient();
-  const { runtimeConfig } = Route.useRouteContext();
-  const gatewayId = getActiveRuntime(runtimeConfig)?.gatewayId ?? "";
-  const baseAccount = getAccount(runtimeConfig);
   const { data: session } = useQuery<SessionData | null>(sessionQueryOptions(auth));
   const { data: organizations = [], isLoading: isLoadingOrgs } = useQuery({
     queryKey: ["organizations"],
@@ -165,10 +149,6 @@ function OrganizationDetail() {
   const myMembership = members.find((member) => member.userId === session?.user?.id);
   const canManageMembers = myMembership?.role === "owner" || myMembership?.role === "admin";
   const isOwner = myMembership?.role === "owner";
-  const workspace = useTeamWorkspace(isActive).data;
-  const canOrganize =
-    canManageMembers ||
-    (isActive && (workspace?.teams ?? []).some((team) => team.areas.includes("events")));
   const pendingInvitationsCount = invitations.filter(
     (invitation) => invitation.status === "pending",
   ).length;
@@ -191,7 +171,7 @@ function OrganizationDetail() {
     (apiKey) => setCreatedApiKey(apiKey),
   );
   const { removeMemberMutation } = useOrganizationMemberActions(auth, orgId);
-  const activeTab = requestedTab === "onboard" && !canOrganize ? "members" : requestedTab;
+  const activeTab = requestedTab;
   const setActiveTab = (value: unknown) => {
     if (!isOrganizationTab(value) || value === activeTab) return;
     void navigate({ search: (prev) => ({ ...prev, tab: value }), replace: true });
@@ -277,16 +257,8 @@ function OrganizationDetail() {
             <TabsTrigger value="invitations" data-testid="orgs-tab-invitations">
               Invitations <TabCount value={pendingInvitationsCount} />
             </TabsTrigger>
-            {canOrganize && (
-              <TabsTrigger value="onboard" data-testid="orgs-tab-onboard">
-                Onboarding
-              </TabsTrigger>
-            )}
             <TabsTrigger value="apikeys" data-testid="orgs-tab-apikeys">
               API keys <TabCount value={apiKeys.length} />
-            </TabsTrigger>
-            <TabsTrigger value="node-config" data-testid="orgs-tab-node-config">
-              Community
             </TabsTrigger>
           </TabsList>
         </div>
@@ -342,7 +314,6 @@ function OrganizationDetail() {
           onResend={(invitation) => resendInvitationMutation.mutate(invitation)}
           teams={teamsState.teams}
         />
-        {canOrganize && <OnboardingTab apiClient={apiClient} canManage orgId={orgId} />}
         <ApiKeysTab
           apiKeys={apiKeys}
           canManageMembers={canManageMembers}
@@ -354,15 +325,6 @@ function OrganizationDetail() {
           onDelete={(keyId) => deleteApiKeyMutation.mutate(keyId)}
           onDismiss={() => setCreatedApiKey(null)}
         />
-        <TabsContent value="node-config" className="flex flex-col gap-6 pt-6">
-          <NodeConfigTab
-            orgId={orgId}
-            gatewayId={gatewayId}
-            baseAccount={baseAccount}
-            canManage={canManageMembers}
-            isPlatformAdmin={session?.user?.role === "admin"}
-          />
-        </TabsContent>
       </Tabs>
     </PageContainer>
   );

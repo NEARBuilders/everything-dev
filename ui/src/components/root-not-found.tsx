@@ -9,8 +9,8 @@ export function RootNotFound() {
       title="Page not found"
       body="This link may be old, or the page has moved."
       secondaryAction={
-        <Button variant="outline" nativeButton={false} render={<Link to="/explore" />}>
-          Explore communities
+        <Button variant="outline" nativeButton={false} render={<Link to="/about" />}>
+          About everything.dev
         </Button>
       }
     />

@@ -1,19 +1,16 @@
 import {
   BuildingsIcon,
   CaretRightIcon,
-  CheckCircleIcon,
   GasPumpIcon,
-  GavelIcon,
   GearIcon,
-  TreeStructureIcon,
   UsersIcon,
 } from "@phosphor-icons/react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, type LinkProps } from "@tanstack/react-router";
 import { cn } from "cn";
 import type { ComponentType, ReactNode } from "react";
 import { getAccount, useApiClient } from "@/app";
-import { Badge, Button, EmptyState, LocalDate, PageHeader, SectionHeader } from "@/components";
+import { LocalDate, PageHeader, SectionHeader } from "@/components";
 import {
   Item,
   ItemActions,
@@ -28,20 +25,9 @@ import { allNodesQueryOptions } from "@/lib/queries/nodes";
 import { tenantsQueryOptions } from "@/lib/queries/tenants";
 import { useNearAccount } from "@/lib/use-near-account";
 import { useRelayerInfoQuery } from "@/lib/use-relayer";
-import { formatNearFigure, ListSkeleton, StatFigure, StatGrid } from "./-admin-ui";
-import {
-  adminProposalListQueryOptions,
-  proposalTitle,
-  proposalTypeLabel,
-} from "./proposals/-proposal-review";
-
-const QUEUE_SIZE = 5;
+import { formatNearFigure, StatFigure, StatGrid } from "./-admin-ui";
 
 export const Route = createFileRoute("/_admin/_dashboard/admin/")({
-  loader: ({ context }) =>
-    context.queryClient.ensureInfiniteQueryData(
-      adminProposalListQueryOptions(context.apiClient, "pending"),
-    ),
   head: ({ match }) => ({
     meta: [{ title: pageTitle("Admin", match.context.runtimeConfig) }],
   }),
@@ -55,13 +41,10 @@ function AdminOverview() {
   const user = auth?.user ?? null;
   const walletAccount = useNearAccount();
 
-  const pendingQuery = useInfiniteQuery(adminProposalListQueryOptions(apiClient, "pending"));
   const nodesQuery = useQuery(allNodesQueryOptions(apiClient));
   const tenantsQuery = useQuery(tenantsQueryOptions(apiClient));
   const relayerQuery = useRelayerInfoQuery();
 
-  const pending = pendingQuery.data?.pages[0]?.data ?? [];
-  const pendingTotal = pendingQuery.data?.pages[0]?.meta.total;
   const relayer = relayerQuery.data;
 
   return (
@@ -69,12 +52,6 @@ function AdminOverview() {
       <PageHeader title="Admin" subtitle={platformAccount} headerTestId="admin.heading" />
 
       <StatGrid>
-        <StatFigure
-          label="Waiting for review"
-          value={pendingTotal ?? "—"}
-          tone={pendingTotal ? "attention" : "default"}
-          testId="admin.stat.pending-proposals"
-        />
         <StatFigure
           label="Communities"
           value={nodesQuery.data?.length ?? "—"}
@@ -95,90 +72,8 @@ function AdminOverview() {
       </StatGrid>
 
       <section className="flex flex-col gap-6">
-        <SectionHeader
-          title="Waiting for review"
-          sectionTestId="admin.section.queue"
-          action={
-            pendingTotal ? (
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link to="/admin/proposals" search={{ status: "pending" }} />}
-              >
-                See all {pendingTotal}
-              </Button>
-            ) : undefined
-          }
-        />
-        {pendingQuery.isLoading ? (
-          <ListSkeleton rows={3} />
-        ) : pendingQuery.isError ? (
-          <p role="alert" className="text-sm text-destructive">
-            Couldn't load proposals: {pendingQuery.error.message}
-          </p>
-        ) : pending.length === 0 ? (
-          <EmptyState
-            icon={CheckCircleIcon}
-            title="All caught up"
-            description="New community applications and submissions show up here."
-            className="py-10"
-          />
-        ) : (
-          <ItemGroup data-testid="admin-queue">
-            {pending.slice(0, QUEUE_SIZE).map((proposal) => (
-              <Item
-                key={proposal.id}
-                variant="outline"
-                render={
-                  <Link
-                    to="/admin/proposals/$proposalId"
-                    params={{ proposalId: proposal.id }}
-                    search={{ pluginId: proposal.pluginId, entityId: proposal.entityId }}
-                  />
-                }
-                data-testid={`admin-queue-item-${proposal.id}`}
-              >
-                <ItemMedia variant="icon">
-                  <GavelIcon />
-                </ItemMedia>
-                <ItemContent className="min-w-0">
-                  <ItemTitle className="max-w-full">
-                    <span className="min-w-0 truncate">{proposalTitle(proposal)}</span>
-                  </ItemTitle>
-                  <ItemDescription>
-                    {proposalTypeLabel(proposal.pluginId)} · submitted{" "}
-                    <LocalDate value={proposal.createdAt} format="relative" />
-                  </ItemDescription>
-                </ItemContent>
-                <ItemActions>
-                  <span className="hidden text-sm font-medium sm:inline">Review</span>
-                  <CaretRightIcon className="size-4 text-muted-foreground" />
-                </ItemActions>
-              </Item>
-            ))}
-          </ItemGroup>
-        )}
-      </section>
-
-      <section className="flex flex-col gap-6">
         <SectionHeader title="Manage" sectionTestId="admin.section.manage" />
         <ItemGroup>
-          <ManageRow
-            to="/admin/nodes"
-            icon={TreeStructureIcon}
-            title="Communities"
-            testId="admin.heading.nodes"
-            description="The community tree, validators and domains"
-          />
-          <ManageRow
-            to="/admin/proposals"
-            icon={GavelIcon}
-            title="Proposals"
-            testId="admin.heading.proposals"
-            description="Every application and decision"
-            badge={pendingTotal ? <Badge variant="warning">{pendingTotal} pending</Badge> : null}
-          />
           <ManageRow
             to="/admin/tenants"
             icon={BuildingsIcon}
