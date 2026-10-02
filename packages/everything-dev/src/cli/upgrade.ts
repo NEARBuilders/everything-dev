@@ -1209,7 +1209,7 @@ async function runMigrationPhase(
   await timePhase(timings, "sync shared deps", async () => {
     const configResult = await loadResolvedConfig({ cwd: projectDir });
     if (!configResult) {
-      throw new Error("No bos.config.json found in current directory");
+      throw new Error("No authored config (bos.app.ts or bos.config.json) found in current directory");
     }
 
     return syncResolvedSharedDeps({

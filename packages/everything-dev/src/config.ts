@@ -6,7 +6,7 @@ import { sanitizeContainerName } from "every-plugin/ui/manifest/contract";
 import { fetchApiPluginManifest } from "./api-contract";
 import { manifestPluginsToNodes } from "./dag";
 import { applyDevOverlay, resolveApp, toConfigInput } from "./descriptor/resolve";
-import { AppDescriptorSchema, type AppDescriptor } from "./descriptor/schema";
+import { type AppDescriptor, AppDescriptorSchema } from "./descriptor/schema";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import { fetchJsonOrNull } from "./http-client";
 import {
@@ -609,7 +609,7 @@ export function readGeneratedConfigFile(configDir: string): GeneratedConfigFile 
     if (!isPlainObject(raw)) return null;
     const { _resolved, ...configData } = raw;
     return {
-      meta: isPlainObject(_resolved) ? (_resolved as ResolvedConfigMeta) : undefined,
+      meta: isPlainObject(_resolved) ? (_resolved as unknown as ResolvedConfigMeta) : undefined,
       config: configData,
     };
   } catch {

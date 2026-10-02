@@ -1,11 +1,15 @@
-import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { readSessionHandle } from "./auth-session";
 import { buildWorkspaceTargets, resolveWorkspaceTarget, selectWorkspaceTargets } from "./build";
 import { resolveCdnDeployInputs } from "./cdn-deploy";
 import { generateCodeArtifacts } from "./code-artifacts";
-import { loadResolvedConfig } from "./config";
+import {
+  loadResolvedConfig,
+  readGeneratedConfigFile,
+  writeGeneratedConfigFile,
+  writeResolvedConfig,
+} from "./config";
 import type { WorkspaceDeployResult } from "./contract";
 import { ensureDelegateKey, submitRegistryWriteDelegated } from "./delegate-signer";
 import {
@@ -127,7 +131,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     return {
       status: "error",
       registryUrl: "",
-      error: "bos.config.json must define domain to publish",
+      error: "The config must define domain to publish",
     };
   }
 
@@ -148,9 +152,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
         status: "error",
         registryUrl,
         error:
-          (input.wallet
-            ? "--wallet requires"
-            : 'bos.config.json sets publish.auth = "session", but') +
+          (input.wallet ? "--wallet requires" : 'The config sets publish.auth = "session", but') +
           " no CLI session is stored in .bos/ for this project. Run bos login to create one.",
       };
     }
@@ -171,7 +173,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
         status: "error",
         registryUrl,
         error:
-          'bos.config.json sets publish.auth = "custody", but custody publish is not implemented yet (see NEARBuilders/everything-dev#291).',
+          'The config sets publish.auth = "custody", but custody publish is not implemented yet (see NEARBuilders/everything-dev#291).',
       };
     }
   }
@@ -256,15 +258,32 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
         built,
         skipped,
         deployResults,
-        error: "Failed to reload bos.config.json after build",
+        error: "Failed to reload the config after build",
       };
     }
 
     bosConfig = refreshed.config;
   }
 
-  const rawConfigPath = join(configDir, "bos.config.json");
-  const rawConfig = JSON.parse(readFileSync(rawConfigPath, "utf-8")) as BosConfigInput;
+  // The publish payload is the generated config (`.bos/bos.resolved-config.json`,
+  // ADR 0005) — authored composition plus the last deploy's bundle URLs. A
+  // first publish on a fresh checkout materializes it from the authored config.
+  let generated = readGeneratedConfigFile(configDir);
+  if (!generated) {
+    writeResolvedConfig(configDir, bosConfig, "production");
+    generated = readGeneratedConfigFile(configDir);
+    if (!generated) {
+      return {
+        status: "error",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        error: "Failed to generate the resolved config under .bos/",
+      };
+    }
+  }
+  const { meta: generatedMeta, config: rawConfig } = generated;
   let publishPayload: BosConfigInput = isStaging ? { ...rawConfig, domain: gateway } : rawConfig;
 
   // CDN deploy (ADR 0020): the resolution chain (env → bos login session →
@@ -341,9 +360,9 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
   }
 
   if (platformEntries.length > 0) {
-    const merged = applyDeployResults(rawConfig as Record<string, unknown>, platformEntries);
+    const merged = applyDeployResults(rawConfig, platformEntries);
     try {
-      writeFileSync(rawConfigPath, `${JSON.stringify(merged, null, 2)}\n`);
+      writeGeneratedConfigFile(configDir, merged, generatedMeta);
     } catch (error) {
       return {
         status: "error",
@@ -351,7 +370,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
         built,
         skipped,
         deployResults,
-        error: `Failed to write bundle URLs to bos.config.json: ${error instanceof Error ? error.message : error}`,
+        error: `Failed to write bundle URLs to the generated config: ${error instanceof Error ? error.message : error}`,
       };
     }
     publishPayload = (isStaging ? { ...merged, domain: gateway } : merged) as BosConfigInput;

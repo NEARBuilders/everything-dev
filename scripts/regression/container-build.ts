@@ -11,12 +11,33 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import {
+  loadResolvedConfig,
+  readAuthoredConfigInput,
+  writeResolvedConfig,
+} from "../../packages/everything-dev/src/config";
 import { prepareLocalProductionConfig } from "../../packages/everything-dev/src/local-prod-config";
 
 const root = process.cwd();
 const imageDir = path.join(root, ".bos", "regression", "image");
 
-const bosConfig = JSON.parse(readFileSync(path.join(root, "bos.config.json"), "utf8"));
+// Authored config (ADR 0005) — development refs name the local workspaces to
+// build; no extends resolution, so the Docker build stays offline.
+const authoredConfig = await readAuthoredConfigInput(root);
+if (!authoredConfig) {
+  throw new Error("No authored config (bos.app.ts) found for the container build");
+}
+const bosConfig = authoredConfig;
+
+// The generated config feeds the host dist build (rsbuild reads JSON). On a
+// deploy runner it already exists (publish writes it); generate locally so a
+// bare `docker build` works without a prior publish.
+const generatedPath = path.join(root, ".bos", "bos.resolved-config.json");
+if (!existsSync(generatedPath)) {
+  const resolved = await loadResolvedConfig({ cwd: root, env: "production" });
+  if (!resolved) throw new Error("Failed to resolve the authored config");
+  writeResolvedConfig(root, resolved.config, "production");
+}
 
 const localPlugins = Object.entries(bosConfig.plugins ?? {})
   .filter(
@@ -48,7 +69,9 @@ const build = () => {
   run("bun", ["run", "build:ssr"], "ui");
 
   console.log("[container-build] host dist…");
-  run("bun", ["run", "build"], "host", { BOS_CONFIG_PATH: path.join(root, "bos.config.json") });
+  run("bun", ["run", "build"], "host", {
+    BOS_CONFIG_PATH: path.join(root, ".bos", "bos.resolved-config.json"),
+  });
 
   console.log("[container-build] api remote…");
   run("bun", ["run", "build"], "api");

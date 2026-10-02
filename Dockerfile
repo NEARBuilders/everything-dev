@@ -25,9 +25,12 @@ FROM builder AS dist-builder
 RUN bun run scripts/regression/container-build.ts
 
 # ── Prod build: strip sources — the framework loads remotes at runtime ──
+# The authored descriptor (bos.app.ts / bos.dev.ts) goes too: the runtime
+# image bakes the generated config (dist-builder, ADR 0005) as the boot
+# fallback, and findConfigPath must not shadow it with the authored form.
 FROM builder AS prod-builder
 
-RUN rm -rf host api ui plugins
+RUN rm -rf host api ui plugins && rm -f bos.app.ts bos.dev.ts
 
 # Clean broken workspace symlinks and strip workspace entries from package.json
 RUN find node_modules -maxdepth 1 -type l ! -exec test -e {} \; -print -delete 2>/dev/null || true
@@ -48,7 +51,8 @@ COPY --from=dist-builder --chown=appuser:appgroup /app/node_modules ./node_modul
 COPY --from=dist-builder --chown=appuser:appgroup /app/package.json .
 COPY --from=dist-builder --chown=appuser:appgroup /app/bun.lock .
 COPY --from=dist-builder --chown=appuser:appgroup /app/bunfig.toml .
-COPY --from=dist-builder --chown=appuser:appgroup /app/bos.config.json ./
+# Generated config (ADR 0005) — baked as the bare-start boot fallback.
+COPY --from=dist-builder --chown=appuser:appgroup /app/.bos/bos.resolved-config.json ./bos.config.json
 COPY --from=dist-builder --chown=appuser:appgroup /app/packages/everything-dev ./packages/everything-dev
 COPY --from=dist-builder --chown=appuser:appgroup /app/packages/every-plugin ./packages/every-plugin
 COPY --from=dist-builder --chown=appuser:appgroup /app/packages/better-near-auth ./packages/better-near-auth
@@ -90,7 +94,8 @@ COPY --from=prod-builder --chown=appuser:appgroup /app/node_modules ./node_modul
 COPY --from=prod-builder --chown=appuser:appgroup /app/package.json .
 COPY --from=prod-builder --chown=appuser:appgroup /app/bun.lock .
 COPY --from=prod-builder --chown=appuser:appgroup /app/bunfig.toml .
-COPY --from=prod-builder --chown=appuser:appgroup /app/bos.config.json ./
+# Generated config (ADR 0005) — baked as the bare-start boot fallback.
+COPY --from=dist-builder --chown=appuser:appgroup /app/.bos/bos.resolved-config.json ./bos.config.json
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/everything-dev ./packages/everything-dev
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/every-plugin ./packages/every-plugin
 

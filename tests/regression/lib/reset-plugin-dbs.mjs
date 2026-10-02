@@ -37,8 +37,12 @@ function parsePostgresUrl(url) {
 
 export async function resetPluginDatabases({ repoRoot, env = process.env } = {}) {
   const root = repoRoot ?? findRepoRoot();
-  if (!root) throw new Error("bos.config.json not found in any parent directory");
-  const config = JSON.parse(fs.readFileSync(path.join(root, "bos.config.json"), "utf-8"));
+  if (!root) throw new Error("No authored config (bos.app.ts) found in any parent directory");
+  // Generated config first (ADR 0005); authored JSON as legacy fallback.
+  const generatedPath = path.join(root, ".bos", "bos.resolved-config.json");
+  const config = fs.existsSync(generatedPath)
+    ? JSON.parse(fs.readFileSync(generatedPath, "utf-8"))
+    : JSON.parse(fs.readFileSync(path.join(root, "bos.config.json"), "utf-8"));
   const resolved = computeRegressionEnv({ repoRoot: root, env });
 
   const targets = [];

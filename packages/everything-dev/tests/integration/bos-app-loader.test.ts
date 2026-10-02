@@ -79,13 +79,20 @@ describe("bos.app.ts resolution parity with bos.config.json", () => {
     expect(json!.source.path).toBe(join(fixtures, "json-child", "bos.config.json"));
   });
 
-  it("prefers bos.config.json when both forms coexist", async () => {
+  it("prefers bos.app.ts when both forms coexist", async () => {
     const dir = join(tmpdir(), "bos-app-both-forms");
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "bos.app.ts"),
-      `export default { name: "ts.near", account: "ts.near", domain: "ts.near" };
+      `export default {
+  name: "ts.near",
+  account: "ts.near",
+  domain: "ts.near",
+  host: { development: "local:host" },
+  ui: { development: "local:ui" },
+  api: { development: "local:api" },
+};
 `,
     );
     writeFileSync(join(dir, "base.json"), readFileSync(join(fixtures, "base.json"), "utf-8"));
@@ -98,8 +105,8 @@ describe("bos.app.ts resolution parity with bos.config.json", () => {
       }),
     );
     const result = await loadResolvedConfig({ cwd: dir, env: "development" });
-    expect(result!.config.account).toBe("json.near");
-    expect(result!.source.path).toBe(join(dir, "bos.config.json"));
+    expect(result!.config.account).toBe("ts.near");
+    expect(result!.source.path).toBe(join(dir, "bos.app.ts"));
   });
 });
 

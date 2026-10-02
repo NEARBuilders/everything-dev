@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -52,11 +52,15 @@ import {
   drainConfigWarnings,
   findConfigPath,
   getProjectRoot,
+  getResolvedConfigPath,
+  loadGeneratedResolvedConfig,
   loadLocalConfig,
   loadResolvedConfig,
+  readGeneratedConfigFile,
   resolveConfigComposableEntries,
   resumeWarnings,
   suppressWarnings,
+  writeGeneratedConfigFile,
 } from "./config";
 import type { LoginResult } from "./contract";
 import {
@@ -426,14 +430,23 @@ export default createPlugin({
 
     registryUse: builder.registryUse.handler(async ({ input, context }) => {
       const deps = Context.get(context["effect/context"], BosDepsTag);
-      const configPath = join(deps.configDir, "bos.config.json");
+      const generatedPath = getResolvedConfigPath(deps.configDir);
       const normalizedFrom = input.from.startsWith("bos://") ? input.from : `bos://${input.from}`;
 
       try {
         const remote = await fetchBosConfigFromFastKv<Record<string, unknown>>(normalizedFrom);
-        const local = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+        const local = readGeneratedConfigFile(deps.configDir);
+        if (!local) {
+          return {
+            status: "error" as const,
+            from: normalizedFrom,
+            applied: [],
+            error: "No generated config found under .bos/ — run bos dev or bos publish first",
+          };
+        }
+        const { meta, config } = local;
         const { config: merged, applied } = applyRegistrySections(
-          local as never,
+          config as never,
           remote as never,
           input.sections,
         );
@@ -443,17 +456,17 @@ export default createPlugin({
             status: "dry-run" as const,
             from: normalizedFrom,
             applied,
-            configPath,
+            configPath: generatedPath,
           };
         }
 
-        writeFileSync(configPath, `${JSON.stringify(merged, null, 2)}\n`);
+        writeGeneratedConfigFile(deps.configDir, merged as Record<string, unknown>, meta);
 
         return {
           status: "updated" as const,
           from: normalizedFrom,
           applied,
-          configPath,
+          configPath: generatedPath,
         };
       } catch (error) {
         return {
@@ -471,7 +484,7 @@ export default createPlugin({
         return {
           status: "error" as const,
           key: "",
-          error: "No bos.config.json found",
+          error: "No authored config (bos.app.ts or bos.config.json) found",
         };
       }
 
@@ -530,7 +543,7 @@ export default createPlugin({
         return {
           status: "error" as const,
           key: input.key,
-          error: "No bos.config.json found",
+          error: "No authored config (bos.app.ts or bos.config.json) found",
         };
       }
 
@@ -573,7 +586,7 @@ export default createPlugin({
         return {
           status: "error" as const,
           key: input.key,
-          error: "No bos.config.json found",
+          error: "No authored config (bos.app.ts or bos.config.json) found",
         };
       }
 
@@ -637,26 +650,23 @@ export default createPlugin({
         };
       }
 
-      const rootConfigPath = join(deps.configDir, "bos.config.json");
       let publishedUrl: string | undefined;
       try {
-        const rootConfig = JSON.parse(readFileSync(rootConfigPath, "utf-8")) as Record<
-          string,
-          unknown
-        >;
-        const merged = applyPluginPublishUrl(rootConfig, {
+        const local = readGeneratedConfigFile(deps.configDir);
+        if (!local) throw new Error("No generated config under .bos/ — run bos dev first");
+        const merged = applyPluginPublishUrl(local.config, {
           origin: `https://${gateway}`,
           account,
           gateway,
           key: input.key,
         });
-        writeFileSync(rootConfigPath, `${JSON.stringify(merged, null, 2)}\n`);
+        writeGeneratedConfigFile(deps.configDir, merged, local.meta);
         const plugins = merged.plugins as Record<string, Record<string, unknown>> | undefined;
         publishedUrl = plugins?.[input.key]?.production as string | undefined;
-        console.log(`   ✅ Updated bos.config.json: plugins.${input.key}.production`);
+        console.log(`   ✅ Updated generated config: plugins.${input.key}.production`);
       } catch (err) {
         console.error(
-          `   ❌ Failed to update bos.config.json:`,
+          `   ❌ Failed to update the generated config:`,
           err instanceof Error ? err.message : err,
         );
       }
@@ -695,7 +705,7 @@ export default createPlugin({
         devBootstrap(deps, input, devTimings, { resolveProxyUrl }).pipe(
           Effect.provide(bootstrapLayers),
           Effect.catchTags({
-            DevConfigMissing: () => Effect.succeed({ failed: "No bos.config.json found" }),
+            DevConfigMissing: () => Effect.succeed({ failed: "No authored config (bos.app.ts or bos.config.json) found" }),
             DevProxyMissing: () =>
               Effect.succeed({ failed: "No valid proxy URL configured in bos.config.json" }),
             DevPreflightFailed: (error) =>
@@ -782,7 +792,7 @@ export default createPlugin({
       if (!deps.bosConfig) {
         return {
           status: "error" as const,
-          error: "No bos.config.json found",
+          error: "No authored config (bos.app.ts or bos.config.json) found",
           built: [],
           skipped: [],
         };
@@ -852,7 +862,7 @@ export default createPlugin({
         return {
           status: "error" as const,
           registryUrl: "",
-          error: "No bos.config.json found",
+          error: "No authored config (bos.app.ts or bos.config.json) found",
         };
       }
 
@@ -897,7 +907,7 @@ export default createPlugin({
           status: "error" as const,
           registryUrl: "",
           redeployed: false,
-          error: "No bos.config.json found",
+          error: "No authored config (bos.app.ts or bos.config.json) found",
         };
       }
 
@@ -1036,7 +1046,7 @@ export default createPlugin({
           contract: "",
           allowance: input.allowance,
           functionNames: PUBLISH_FUNCTION_NAMES,
-          error: "No bos.config.json found",
+          error: "No authored config (bos.app.ts or bos.config.json) found",
         };
       }
 
@@ -1545,7 +1555,7 @@ export default createPlugin({
             updated: [],
             skipped: [],
             added: [],
-            error: "No bos.config.json found in current directory",
+            error: "No authored config (bos.app.ts or bos.config.json) found",
           };
         }
 
@@ -1578,7 +1588,7 @@ export default createPlugin({
           return {
             status: "error" as const,
             packages: [],
-            error: "No bos.config.json found in current directory",
+            error: "No authored config (bos.app.ts or bos.config.json) found",
           };
         }
 
@@ -1603,7 +1613,7 @@ export default createPlugin({
             fetched: [],
             skipped: [],
             failed: [],
-            error: "No bos.config.json found in current directory",
+            error: "No authored config (bos.app.ts or bos.config.json) found",
           };
         }
 
@@ -1783,7 +1793,7 @@ export default createPlugin({
             checked: [],
             skipped: [],
             results: [],
-            error: "No bos.config.json found in current directory",
+            error: "No authored config (bos.app.ts or bos.config.json) found",
           };
         }
 
@@ -1925,20 +1935,28 @@ export default createPlugin({
           status: "fail" as const,
           hostVersion: null,
           hostReachable: false,
-          hostReason: "No bos.config.json found",
+          hostReason: "No authored config (bos.app.ts or bos.config.json) found",
           remotes: [],
         };
       }
 
-      let bosConfig: BosConfig | null = null;
-      try {
-        bosConfig = JSON.parse(readFileSync(configPath, "utf-8")) as BosConfig;
-      } catch (e) {
+      const configDir = dirname(configPath);
+      let bosConfig: BosConfig | null = loadGeneratedResolvedConfig(configDir);
+      if (!bosConfig) {
+        try {
+          const loaded = await loadResolvedConfig({ cwd: configDir });
+          bosConfig = loaded?.config ?? null;
+        } catch {
+          bosConfig = null;
+        }
+      }
+      if (!bosConfig) {
         return {
           status: "fail" as const,
           hostVersion: null,
           hostReachable: false,
-          hostReason: e instanceof Error ? e.message : String(e),
+          hostReason:
+            "Failed to resolve config (authored config invalid and no generated config under .bos/)",
           remotes: [],
         };
       }
@@ -1964,7 +1982,7 @@ export default createPlugin({
           plugin: input.plugin,
           source: "remote" as const,
           section: "",
-          error: "No bos.config.json found in current directory",
+          error: "No authored config (bos.app.ts or bos.config.json) found",
         };
       }
 
@@ -2008,7 +2026,7 @@ export default createPlugin({
             appliedHashCount: 0,
             expectedTables: [],
             missingTables: [],
-            error: "No bos.config.json found in current directory",
+            error: "No authored config (bos.app.ts or bos.config.json) found",
           };
         }
 
@@ -2045,7 +2063,7 @@ export default createPlugin({
         if (!configPath) {
           return {
             status: "error" as const,
-            message: "No bos.config.json found",
+            message: "No authored config (bos.app.ts or bos.config.json) found",
             diagnosis: null,
             error: "No config",
           };
@@ -2078,7 +2096,7 @@ export default createPlugin({
             status: "error" as const,
             packages: [],
             envFile: "missing" as const,
-            error: "No bos.config.json found in current directory",
+            error: "No authored config (bos.app.ts or bos.config.json) found",
           };
         }
 

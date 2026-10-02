@@ -4,8 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { migrate as apiMigrate } from "../../../../api/src/db/migrate";
-import { migrate as proposalsMigrate } from "../../../../plugins/proposals/src/db/migrate";
-import { migrate as votesMigrate } from "../../../../plugins/votes/src/db/migrate";
+import { migrate as authMigrate } from "../../../../plugins/auth/src/db/migrate";
 import {
   type DatabaseError,
   isConcurrentDdlUniqueViolation,
@@ -63,8 +62,8 @@ describe("db migration runners (008 characterization)", () => {
     expect(rows.rows.map((r) => r.hash)).toEqual(["hash-mig_one", "hash-mig_two"]);
   });
 
-  it("partial overlap (the 25P2 bug): every runner — including votes/proposals via adapters — survives via savepoints", async () => {
-    const runners: readonly Runner[] = [apiMigrate, votesMigrate, proposalsMigrate];
+  it("partial overlap (the 25P2 bug): every runner — including auth via the shared adapter — survives via savepoints", async () => {
+    const runners: readonly Runner[] = [apiMigrate, authMigrate];
     for (const runner of runners) {
       const db = makeDb();
       await db.execute(sql.raw('CREATE TABLE "t_legacy" (id int)'));

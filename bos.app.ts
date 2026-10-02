@@ -20,10 +20,38 @@ export default App({
   host: { path: "host" },
   ui: UI({ path: "ui" }),
   api: API({ path: "api", variables: { gatewayDomains: "everything.dev,dev.everything.dev" } }),
-  auth: Plugin("auth").path("plugins/auth", { name: "@everything-dev/auth-plugin" }),
+  auth: Plugin("auth").path("plugins/auth", {
+    name: "@everything-dev/auth-plugin",
+    secrets: [
+      "AUTH_DATABASE_URL",
+      "BETTER_AUTH_SECRET",
+      "GITHUB_CLIENT_SECRET",
+      "GOOGLE_CLIENT_SECRET",
+      "FASTNEAR_API_KEY",
+      "TWILIO_ACCOUNT_SID",
+      "TWILIO_AUTH_TOKEN",
+      "TWILIO_PHONE_NUMBER",
+      "RESEND_API_KEY",
+      "NEAR_RELAYER_PRIVATE_KEY_MAINNET",
+      "NEAR_RELAYER_PRIVATE_KEY_TESTNET",
+    ],
+  }),
   plugins: {
     apps: Plugin("apps").path("plugins/apps", {
       variables: { registryNamespace: "dev.everything.near" },
+    }),
+    template: Plugin("template").path("plugins/_template", {
+      name: "@every-plugin/template",
+      secrets: ["TEMPLATE_DATABASE_URL"],
+    }),
+    ai: Plugin("ai").path("plugins/ai", {
+      name: "@everything-dev/ai-plugin",
+      variables: {
+        baseUrl: "https://api.openai.com/v1",
+        model: "gpt-4o-mini",
+      },
+      secrets: ["AI_API_KEY"],
+      ui: { name: "ai-ui", path: "plugins/ai/ui" },
     }),
   },
 });

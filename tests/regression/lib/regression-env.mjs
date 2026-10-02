@@ -11,6 +11,8 @@ const DEFAULT_BETTER_AUTH_SECRET = "regression-test-secret-do-not-use-in-product
 export function findRepoRoot(startDir = process.cwd()) {
   let current = path.resolve(startDir);
   for (;;) {
+    // Authored descriptor (ADR 0005) or the legacy generated JSON.
+    if (fs.existsSync(path.join(current, "bos.app.ts"))) return current;
     if (fs.existsSync(path.join(current, "bos.config.json"))) return current;
     const parent = path.dirname(current);
     if (parent === current) return null;
@@ -51,8 +53,14 @@ function defaultDevDatabaseUrl(secret, pgUser, pgPassword, pgHost) {
 
 export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
   const root = repoRoot ?? findRepoRoot();
-  if (!root) throw new Error("bos.config.json not found in any parent directory");
-  const config = JSON.parse(fs.readFileSync(path.join(root, "bos.config.json"), "utf-8"));
+  if (!root) throw new Error("No authored config (bos.app.ts) found in any parent directory");
+  // The generated config (`.bos/bos.resolved-config.json`, ADR 0005) carries
+  // the same shape the repo-root JSON used to; authored fallback for checkouts
+  // that never ran a bos command.
+  const generatedPath = path.join(root, ".bos", "bos.resolved-config.json");
+  const config = fs.existsSync(generatedPath)
+    ? JSON.parse(fs.readFileSync(generatedPath, "utf-8"))
+    : JSON.parse(fs.readFileSync(path.join(root, "bos.config.json"), "utf-8"));
   const fileEnv = readDotEnv(root);
   const testEnv = readDotEnv(root, ".env.test");
   const allowDevDb = env.REGRESSION_ALLOW_DEV_DB === "1";

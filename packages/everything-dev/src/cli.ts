@@ -558,7 +558,7 @@ async function main() {
 
     if (descriptor.key === "config") {
       if (!result.config) {
-        console.error("No bos.config.json found");
+        console.error("No authored config (bos.app.ts or bos.config.json) found");
         process.exit(1);
       }
 

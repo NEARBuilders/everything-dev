@@ -13,7 +13,7 @@ export async function loadTestRuntimeConfig(): Promise<RuntimeConfig> {
   const result = await loadResolvedConfig({ env: "development" });
 
   if (!result) {
-    throw new Error("No bos.config.json found for host tests");
+    throw new Error("No authored config (bos.app.ts) found for host tests");
   }
 
   const config = result.runtime;

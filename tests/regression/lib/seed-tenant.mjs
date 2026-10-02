@@ -32,7 +32,7 @@ export async function seedTenant(input) {
   } = input;
 
   const root = findRepoRoot();
-  if (!root) throw new Error("bos.config.json not found in any parent directory");
+  if (!root) throw new Error("No authored config (bos.app.ts) found in any parent directory");
   const resolved = computeRegressionEnv({ repoRoot: root });
   const url = resolved.dbUrls.API_DATABASE_URL;
   if (!url) throw new Error("API_DATABASE_URL is not configured for this workspace");
