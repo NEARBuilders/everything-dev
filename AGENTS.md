@@ -293,7 +293,7 @@ This is the parent **Module Federation monorepo** for `everything.dev`. The host
 ┌─────────────────────────────────────────────────────────┐
 │                    Host (Server)                        │
 │  - Hono.js + oRPC router                               │
-│  - Runtime config loader (bos.config.json)              │
+│  - Runtime config loader (authored bos.app.ts)          │
 │  - Module Federation host                               │
 │  - every-plugin runtime                                │
 └─────────────────────────────────────────────────────────┘
@@ -306,11 +306,11 @@ This is the parent **Module Federation monorepo** for `everything.dev`. The host
 └──────────────────┘ └──────────────────┘ └──────────────────┘
 ```
 
-The host loads UI and API at runtime from URLs in `bos.config.json`. In production today, the host still boots one base `RuntimeConfig` snapshot at startup, but it can resolve tenant-specific UI overrides per request while keeping the server core fixed.
+The host loads UI and API at runtime from URLs in the authored config (`bos.app.ts`), published to the FastKV registry by `bos publish`/`bos deploy`. In production today, the host still boots one base `RuntimeConfig` snapshot at startup, but it can resolve tenant-specific UI overrides per request while keeping the server core fixed.
 
 ### Runtime Config
 
-All runtime configuration lives in `bos.config.json`. The UI reads `window.__RUNTIME_CONFIG__` to get account, gateway, API base URL, etc. The host uses the same config to wire Module Federation remotes, auth, plugins, and SSR.
+Authored configuration lives in `bos.app.ts` (committed); the resolved `bos.config.json` is generated under `.bos/` and never committed. The UI reads `window.__RUNTIME_CONFIG__` to get account, gateway, API base URL, etc. The host uses the same config to wire Module Federation remotes, auth, plugins, and SSR.
 
 Use these helpers from `@/app`:
 - `getAppName()` — active runtime title (falls back to account)
@@ -440,12 +440,6 @@ One image, published by the root to GHCR; children never ship images. `BOS_BUNDL
 
 `BOS_GATEWAY` (`domain` in `bos.config.json`) is the **FastKV lookup key**, not the DNS domain your Railway instance serves on. By keeping `BOS_GATEWAY=citynode.app` while using your own `BOS_ACCOUNT`, your config lives at a separate FastKV path (`bos://<your-account>/citynode.app`) that `extends` the base runtime (`bos://v1.citynode.near/citynode.app`). You inherit the full platform — host, API, auth, plugins — and override only what you change. Your Railway URL is the ingress; point your own domain's DNS at it if you want a custom domain.
 
-**Setting up subaccount creation:**
-
-Tenants are no longer provisioned as platform-owned subaccounts. The admin
-wizard now connects to a sputnik-dao account via the Trezu wallet and publishes
-the tenant runtime config under `bos://<dao-account>/<gateway>`.
-
 **near-cli-rs quick reference:**
 
 | Command | Purpose |
@@ -478,8 +472,10 @@ The `bos` CLI wraps near-cli-rs for account and key management — you normally 
 - Follow existing patterns in neighboring files
 
 ### Adding API Endpoints
+App-level routes live in the slim `api/` plugin shell; feature routes live in
+their plugins. For the api shell:
 1. Define in `api/src/contract.ts` — the oRPC route definitions and Zod schemas
-2. Implement in `api/src/index.ts` — the `createRouter` function
+2. Implement in `api/src/index.ts` — the `createPlugin` router
 3. Use in UI via `apiClient` from `useApiClient()` in `@/app`
 
 **Handler convention (required for new routes):** write handlers as Effect-native
@@ -499,12 +495,13 @@ for the workaround pattern).
 ### Plugin Architecture
 
 Business logic is organized into independent plugins loaded via Module Federation. A plugin entry in `bos.config.json` can be **remote-only** (no `development: local:…` key) — the host/API consume it via `pluginsClient` and HTTP, and types resolve from the deployed manifest (see "Generated types" below). Plugin source does not need to live in this repo.
-- **`api/`** — Thin structural shell: ping, authHealth, error routes, middleware definitions
+- **`api/`** — Slim API shell scaffolded from the advanced starter: ping/error routes + DB layer
 - **`plugins/registry/`** — Registry/discovery, FastKV app metadata (local in dev)
 - **`plugins/_template/`** — Scaffold for creating new plugins
-- **Auth** — Extended remote plugin from `bos://auth.everything.near` (Better-Auth, NEAR SIWN, organizations, API keys)
-- **Proposals** — Remote-only plugin (production URL in `bos.config.json`); source lives in `NEARBuilders/nearbuilders.org`
-- **Votes** — Remote-only plugin (production URL in `bos.config.json`); source lives in `NEARBuilders/nearbuilders.org`
+- **`plugins/auth/`** — Local auth plugin (Better-Auth, NEAR SIWN, organizations, API keys, passkeys)
+- **`plugins/proposals/`** — Proposal lifecycle (local)
+- **`plugins/votes/`** — Voting feed (local)
+- **`plugins/ai/`** — OpenAI-compatible chat (local)
 
 Each plugin is self-contained with its own:
 - `contract.ts` — oRPC route definitions and Zod schemas
@@ -752,7 +749,7 @@ bun run db:studio # Open Drizzle Studio
 
 **Required files:**
 - `.env` - Secrets (see `.env.example`)
-- `bos.config.json` - Runtime configuration (committed)
+- `bos.app.ts` - Authored runtime configuration (committed)
 
 **Key ports:**
 - 3003 - UI dev server
