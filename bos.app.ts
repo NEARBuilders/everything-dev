@@ -45,6 +45,12 @@ export default App({
       name: "@every-plugin/template",
       secrets: ["TEMPLATE_DATABASE_URL"],
     }),
+    proposals: Plugin("proposals").path("plugins/proposals", {
+      secrets: ["PROPOSALS_DATABASE_URL"],
+    }),
+    votes: Plugin("votes").path("plugins/votes", {
+      secrets: ["VOTES_DATABASE_URL"],
+    }),
     ai: Plugin("ai").path("plugins/ai", {
       name: "@everything-dev/ai-plugin",
       variables: {
