@@ -5,7 +5,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import {
-  getAccount,
   type SessionData,
   sessionQueryOptions,
   useApiClient,
@@ -18,7 +17,6 @@ import {
   PageHeader,
   Skeleton,
   Tabs,
-  TabsContent,
   TabsList,
   TabsTrigger,
 } from "@/components";
@@ -102,7 +100,6 @@ function OrganizationDetail() {
   const { tab: requestedTab } = Route.useSearch();
   const auth = useAuthClient();
   const apiClient = useApiClient();
-  const { runtimeConfig } = Route.useRouteContext();
   const { data: session } = useQuery<SessionData | null>(sessionQueryOptions(auth));
   const { data: organizations = [], isLoading: isLoadingOrgs } = useQuery(
     organizationsQueryOptions(apiClient),

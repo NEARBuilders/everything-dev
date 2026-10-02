@@ -1,5 +1,4 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { getAccount } from "@/app";
 import { PageContainer } from "@/components";
 import { pageTitle } from "@/lib/page-title";
 

@@ -8,8 +8,6 @@ const base: NextStepsState = {
   hasRealEmail: true,
   organizationCount: 1,
   activeOrganizationName: "Harbor",
-  community: null,
-  canManageCommunity: false,
   isAdmin: false,
 };
 
@@ -25,11 +23,7 @@ describe("home next steps", () => {
   });
 
   it("sends a user without organizations to create one", () => {
-    expect(ids({ organizationCount: 0, activeOrganizationName: null })).toEqual([
-      "create-org",
-      "stake",
-      "explore",
-    ]);
+    expect(ids({ organizationCount: 0, activeOrganizationName: null })).toEqual(["create-org"]);
   });
 
   it("asks a member of several organizations to pick an active one", () => {
@@ -42,24 +36,12 @@ describe("home next steps", () => {
     expect(ids({ isAnonymous: true, hasRealEmail: false })).not.toContain("add-email");
   });
 
-  it("offers Start a community when the active organization has no community", () => {
-    expect(ids({})).toEqual(["start-community", "stake", "explore"]);
+  it("offers Things once an organization is active", () => {
+    expect(ids({})).toEqual(["open-things"]);
   });
 
-  it("opens My community once the organization runs one", () => {
-    expect(ids({ community: { name: "Harbor City", tenantId: "t1" } })).toEqual([
-      "open-community",
-      "stake",
-    ]);
-  });
-
-  it("adds Community settings for owners and the admin queue for admins", () => {
-    expect(
-      ids({
-        community: { name: "Harbor City", tenantId: "t1" },
-        canManageCommunity: true,
-        isAdmin: true,
-      }),
-    ).toEqual(["open-community", "community-settings", "admin", "stake"]);
+  it("adds the admin step for admins only", () => {
+    expect(ids({ isAdmin: true })).toEqual(["open-things", "admin"]);
+    expect(ids({ isAdmin: false })).not.toContain("admin");
   });
 });

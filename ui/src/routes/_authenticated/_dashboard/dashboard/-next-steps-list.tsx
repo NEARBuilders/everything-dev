@@ -1,7 +1,6 @@
 import {
   BuildingsIcon,
   CaretRightIcon,
-  CompassIcon,
   CubeIcon,
   EnvelopeIcon,
   FingerprintIcon,

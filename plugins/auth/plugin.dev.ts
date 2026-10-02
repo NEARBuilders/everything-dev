@@ -1,6 +1,8 @@
 import "dotenv/config";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { PluginConfigInput } from "every-plugin";
-import bosConfig from "../../bos.config.json" with { type: "json" };
+import packageJson from "./package.json" with { type: "json" };
 import type Plugin from "./src/index";
 
 function splitList(value?: string) {
@@ -10,13 +12,42 @@ function splitList(value?: string) {
     .filter(Boolean);
 }
 
-const configuredSiwn = bosConfig.app?.auth?.variables?.siwn;
+// Identity + authored siwn fallbacks come from the generated config under
+// .bos/ (ADR 0005) with the authored JSON as a legacy fallback.
+interface ProjectConfig {
+  account?: string;
+  staging?: { account?: string };
+  app?: {
+    auth?: {
+      variables?: {
+        siwn?: { recipients?: { mainnet?: string; testnet?: string } };
+      };
+    };
+  };
+}
+
+function readProjectConfig(): ProjectConfig | null {
+  for (const path of [
+    fileURLToPath(new URL("../../.bos/bos.resolved-config.json", import.meta.url)),
+    fileURLToPath(new URL("../../bos.config.json", import.meta.url)),
+  ]) {
+    try {
+      return JSON.parse(readFileSync(path, "utf-8")) as ProjectConfig;
+    } catch {}
+  }
+  return null;
+}
+
+const bosConfig = readProjectConfig();
+
+const configuredSiwn = bosConfig?.app?.auth?.variables?.siwn;
 const mainnetRecipient =
-  process.env.ACCOUNT || configuredSiwn?.recipients?.mainnet || bosConfig.account;
+  process.env.ACCOUNT || configuredSiwn?.recipients?.mainnet || bosConfig?.account;
 const testnetRecipient =
-  process.env.TESTNET_ACCOUNT || configuredSiwn?.recipients?.testnet || bosConfig.staging?.account;
+  process.env.TESTNET_ACCOUNT || configuredSiwn?.recipients?.testnet || bosConfig?.staging?.account;
 
 export default {
+  pluginId: packageJson.name,
   port: Number(process.env.PORT) || 3002,
   config: {
     variables: {
@@ -39,16 +70,10 @@ export default {
         from: "no-reply@example.com",
       },
       siwn: {
-        ...(testnetRecipient
-          ? {
-              recipients: {
-                mainnet: mainnetRecipient,
-                testnet: testnetRecipient,
-              },
-            }
-          : {
-              recipient: mainnetRecipient,
-            }),
+        recipients: {
+          mainnet: mainnetRecipient ?? "dev.everything.near",
+          testnet: testnetRecipient ?? "dev.everything.testnet",
+        },
         rpcUrl: process.env.NEAR_RPC_URL,
         relayer: {
           mainnet: {

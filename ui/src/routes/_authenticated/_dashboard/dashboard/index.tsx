@@ -48,7 +48,6 @@ function Home() {
   const auth = useAuthClient();
   const apiClient = useApiClient();
   const { restricted } = Route.useSearch();
-  const { runtimeConfig } = Route.useRouteContext();
   const { data: session } = useQuery<SessionData | null>(sessionQueryOptions(auth));
   const nearAccountId = useNearAccount();
   const activeOrgId = session?.session?.activeOrganizationId ?? "";

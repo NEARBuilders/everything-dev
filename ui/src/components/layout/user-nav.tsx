@@ -38,7 +38,6 @@ function UserNavContent({ showSignIn }: UserNavProps) {
   const {
     user,
     isSessionLoading,
-    nearAccountId,
     signOutMutation,
     avatarSrc,
     displayName,
@@ -65,7 +64,6 @@ function UserNavContent({ showSignIn }: UserNavProps) {
         </Avatar>
       </DropdownMenuTrigger>
       <UserNavMenuContent
-        nearAccountId={nearAccountId}
         avatarSrc={avatarSrc}
         displayName={displayName}
         handle={handle}

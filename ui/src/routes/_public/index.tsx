@@ -39,7 +39,7 @@ export const Route = createFileRoute("/_public/")({
 });
 
 function LandingPage() {
-  const { runtimeConfig } = Route.useRouteLoaderData("/_public/")!;
+  const { runtimeConfig } = Route.useLoaderData();
   const title = getAppName(runtimeConfig);
   const repository = getRepository(runtimeConfig);
 
