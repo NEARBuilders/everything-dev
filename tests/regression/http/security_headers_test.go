@@ -14,7 +14,7 @@ import (
 func TestSecurityHeaders(t *testing.T) {
 	client := regtest.NewCookieClient()
 
-	for _, path := range []string{"/", "/api/tenants"} {
+	for _, path := range []string{"/", "/api"} {
 		path := path
 		name := "csp_" + strings.Trim(path, "/")
 		t.Run(name, func(t *testing.T) {

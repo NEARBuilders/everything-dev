@@ -81,7 +81,7 @@ func TestInvalidErrorKindIsValidationError(t *testing.T) {
 
 func TestUnauthenticatedRouteReturnsJSONUnauthorized(t *testing.T) {
 	client := regtest.NewCookieClient()
-	status, _, body := regtest.GetRaw(t, client, baseURL+"/api/tenants")
+	status, _, body := regtest.GetRaw(t, client, baseURL+"/api/errors?kind=unauthorized")
 	regtest.MustStatus(t, status, 401, body)
 
 	var parsed struct {
