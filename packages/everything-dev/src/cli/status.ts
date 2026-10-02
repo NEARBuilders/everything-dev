@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { loadLocalConfig } from "../config";
 import type { StatusResult } from "../contract";
 import { fetchBosConfigFromFastKv } from "../fastkv";
 import { fetchJsonOrNull } from "../http-client";
+import { openResolution } from "../resolution/session";
 import { readInstalledFrameworkVersion, resolveFrameworkPackage } from "./framework-version";
 import { readSnapshot } from "./snapshot";
 
@@ -50,8 +50,8 @@ async function checkParentReachable(extendsRef: string | undefined): Promise<boo
 }
 
 export async function getStatus(projectDir: string): Promise<StatusResult> {
-  const local = await loadLocalConfig({ cwd: projectDir });
-  if (!local?.config) {
+  const session = await openResolution({ cwd: projectDir });
+  if (!session?.config) {
     return {
       status: "error",
       error: "No authored config found (bos.app.ts or bos.config.json)",
@@ -60,7 +60,7 @@ export async function getStatus(projectDir: string): Promise<StatusResult> {
     };
   }
 
-  const config = local.config as Record<string, unknown>;
+  const config = session.config as Record<string, unknown>;
 
   const packageNames = [...FRAMEWORK_PACKAGES];
   for (const name of CATALOG_TOOL_PACKAGES) {

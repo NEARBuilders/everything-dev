@@ -1,6 +1,6 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadGeneratedResolvedConfig, loadResolvedConfig } from "everything-dev/config";
 import type { BosConfig } from "everything-dev/types";
 import { runServer } from "../../src/program";
 import type { RuntimeConfig } from "../../src/services/config";
@@ -31,6 +31,7 @@ export interface RuntimeRemoteHost {
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.resolve(currentDir, "../../..");
+const bosConfigPath = path.join(workspaceRoot, "bos.config.json");
 
 loadHostTestEnv(workspaceRoot);
 
@@ -43,16 +44,8 @@ function toMfEntry(url: string) {
 }
 
 async function loadRawBosConfig(): Promise<BosConfig> {
-  // The generated config (`.bos/bos.resolved-config.json`, ADR 0005) carries
-  // the last deploy's production URLs — what the remote scenarios need.
-  // Authored fallback keeps the suite skipping cleanly on a fresh checkout.
-  const generated = loadGeneratedResolvedConfig(workspaceRoot);
-  if (generated) return generated;
-  const result = await loadResolvedConfig({ env: "production" });
-  if (!result) {
-    throw new Error("No authored config (bos.app.ts) found for host tests");
-  }
-  return result.config;
+  const raw = await readFile(bosConfigPath, "utf8");
+  return JSON.parse(raw) as BosConfig;
 }
 
 function getScenarioSkipReason(config: BosConfig, scenario: RuntimeRemoteScenarioName) {
@@ -61,22 +54,22 @@ function getScenarioSkipReason(config: BosConfig, scenario: RuntimeRemoteScenari
   const apiProduction = config.app?.api?.production;
 
   if (!config.account) {
-    return "Missing account in the generated config";
+    return "Missing account in bos.config.json";
   }
 
   if (!uiProduction) {
-    return "Missing app.ui.production in the generated config";
+    return "Missing app.ui.production in bos.config.json";
   }
 
   if (scenario !== "remote-proxy") {
     if (!apiProduction) {
-      return "Missing app.api.production in the generated config";
+      return "Missing app.api.production in bos.config.json";
     }
   }
 
   if (scenario === "remote-ssr") {
     if (!uiSsr) {
-      return "Missing app.ui.ssr in the generated config";
+      return "Missing app.ui.ssr in bos.config.json";
     }
   }
 
