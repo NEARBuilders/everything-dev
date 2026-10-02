@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { computeRegressionEnv } from "../../lib/regression-env.mjs";
-import { seedNode } from "../../lib/seed-tenant.mjs";
 import { waitForApp } from "./page-ready";
 
 interface CookieEntry {
@@ -20,8 +19,6 @@ interface SeedData {
   orgBID: string;
   orgAName: string;
   orgBName: string;
-  tenantID: string;
-  subdomain: string;
 }
 
 const COOKIES_PATH = ".bos/regression/cookies.json";
@@ -54,7 +51,7 @@ export async function seedRegressionThing() {
   const { baseUrl } = computeRegressionEnv();
   const cookies: CookieEntry[] = readJsonFile(COOKIES_PATH);
   const cookieHeader = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
-  const response = await fetch(`${baseUrl}/api/things`, {
+  const response = await fetch(`${baseUrl}/api/rpc/template/createThing`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie: cookieHeader },
     body: JSON.stringify({
@@ -79,17 +76,6 @@ export async function injectLogoutCookies(page: Page) {
 
 export function loadSeedData(): SeedData {
   return readJsonFile(SEED_PATH) as SeedData;
-}
-
-export async function seedDiscoveryNode(input?: { slug?: string; name?: string; kind?: string }) {
-  const { tenantID } = loadSeedData();
-  const unique = `${process.pid}-${Date.now().toString(36)}`;
-  return seedNode({
-    tenantId: tenantID,
-    slug: input?.slug ?? `explore-${unique}`,
-    name: input?.name ?? `Explore City ${unique}`,
-    kind: input?.kind ?? "city",
-  });
 }
 
 export function loadAdminSeedData(): AdminSeedData {

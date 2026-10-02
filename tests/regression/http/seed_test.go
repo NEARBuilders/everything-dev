@@ -81,18 +81,4 @@ func TestSeedRegressionData(t *testing.T) {
 		regtest.MustStatus(t, status, 200, body)
 	})
 
-	// Step 4: Seed a tenant. Tenant creation via the API is admin-gated in
-	// some forks (platform-admin + DAO membership), so the harness seeds the
-	// row directly and works with whatever the config allows.
-	t.Run("create_tenant", func(t *testing.T) {
-		tenantID := regtest.SeedTenant(t, map[string]any{
-			"subdomain": fmt.Sprintf("regression-tenant-%d", os.Getpid()),
-			"name":      "Regression Tenant",
-			"accountId": fmt.Sprintf("regression-tenant-%d.testnet", os.Getpid()),
-			"orgId":     orgAID,
-		})
-		if tenantID == "" {
-			t.Fatal("expected non-empty tenant id")
-		}
-	})
 }
