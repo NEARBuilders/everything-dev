@@ -107,12 +107,6 @@ async function hashNonce(nonce: Uint8Array): Promise<string> {
   return hex.encode(new Uint8Array(hashBuffer));
 }
 
-function deferToNextTick(fn: () => void): void {
-  const scheduler = (globalThis as { setImmediate?: (fn: () => void) => unknown }).setImmediate;
-  if (scheduler) scheduler(fn);
-  else setTimeout(fn, 0);
-}
-
 function deriveEmail(accountId: string, recipient: string): string {
   if (accountId.endsWith(".near")) {
     const localPart = accountId.slice(0, -5);
@@ -828,7 +822,7 @@ export const siwn = (options: SIWNPluginOptions) => {
         // Better-auth fires plugin `init` before the host calls `runMigrations()`,
         // so the `relayerKey` table may not exist yet. Defer to the next tick so the
         // findOne/create sees the migrated schema and the boot log shows a real accountId.
-        deferToNextTick(() => {
+        setImmediate(() => {
           ensureRelayer(ctx.adapter, ctx.secret, network).catch((err) => {
             console.error(
               `[siwn] Relayer init failed for ${network}: ${err instanceof Error ? err.message : String(err)}`,

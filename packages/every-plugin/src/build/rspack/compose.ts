@@ -29,9 +29,6 @@ const pluginRequire = createRequire(import.meta.url);
 export function findBosConfigPath(from: string = process.cwd()): string | null {
   let current = path.resolve(from);
   while (true) {
-    // Authored descriptor first (ADR 0005); generated/legacy JSON second.
-    const appCandidate = path.join(current, "bos.app.ts");
-    if (fs.existsSync(appCandidate)) return appCandidate;
     const candidate = path.join(current, "bos.config.json");
     if (fs.existsSync(candidate)) return candidate;
     const parent = path.dirname(current);

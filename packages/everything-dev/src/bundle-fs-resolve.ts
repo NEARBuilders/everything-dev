@@ -9,7 +9,6 @@ import {
   readBundleCache,
   writeBundleCache,
 } from "./bundle-cache";
-import { loadGeneratedResolvedConfig } from "./config";
 
 /**
  * Local-first bundle resolution (ADR 0011 amendment): a self-contained
@@ -259,13 +258,12 @@ export function installBundleFetchFromEnv(input: {
   const configPath = input.configPath;
   if (configPath) {
     try {
-      // TS-form projects (bos.app.ts) have no JSON to parse — the generated
-      // config under .bos/ carries the same identity fields (ADR 0005).
-      const parsed = configPath.endsWith(".json")
-        ? (JSON.parse(readFileSync(configPath, "utf8")) as { account?: string; domain?: string })
-        : loadGeneratedResolvedConfig(path.dirname(configPath));
-      configAccount = parsed?.account;
-      configGateway = parsed?.domain;
+      const parsed = JSON.parse(readFileSync(configPath, "utf8")) as {
+        account?: string;
+        domain?: string;
+      };
+      configAccount = parsed.account;
+      configGateway = parsed.domain;
     } catch {
       // unreadable config — identity may still come from the registry env
     }

@@ -16,16 +16,10 @@ const __dirname = import.meta.dirname;
 const require = createRequire(import.meta.url);
 
 const resolvedConfigPath = path.resolve(__dirname, "../.bos/bos.resolved-config.json");
-const configPath = process.env.BOS_CONFIG_PATH ?? resolvedConfigPath;
-
-// The generated config (ADR 0005) is written by `bos dev` / `bos build` /
-// `bos typecheck`. A bare host build before any bos command has no config —
-// fail with the recovery step instead of a raw ENOENT.
-if (!fs.existsSync(configPath)) {
-  throw new Error(
-    `No generated config at ${configPath} — run "bos dev" or "bun run build host" first (the build train writes it).`,
-  );
-}
+const rootBosConfigPath = path.resolve(__dirname, "../bos.config.json");
+const configPath =
+  process.env.BOS_CONFIG_PATH ??
+  (fs.existsSync(resolvedConfigPath) ? resolvedConfigPath : rootBosConfigPath);
 
 const bosConfigRaw = JSON.parse(fs.readFileSync(configPath, "utf8"));
 const bosConfig = bosConfigRaw._resolved

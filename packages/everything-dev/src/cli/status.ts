@@ -1,9 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { StatusResult } from "../contract";
 import { fetchBosConfigFromFastKv } from "../fastkv";
 import { fetchJsonOrNull } from "../http-client";
-import { openResolution } from "../resolution/session";
 import { readInstalledFrameworkVersion, resolveFrameworkPackage } from "./framework-version";
 import { readSnapshot } from "./snapshot";
 
@@ -50,17 +49,17 @@ async function checkParentReachable(extendsRef: string | undefined): Promise<boo
 }
 
 export async function getStatus(projectDir: string): Promise<StatusResult> {
-  const session = await openResolution({ cwd: projectDir });
-  if (!session?.config) {
+  const configPath = join(projectDir, "bos.config.json");
+  if (!existsSync(configPath)) {
     return {
       status: "error",
-      error: "No authored config found (bos.app.ts or bos.config.json)",
+      error: "No bos.config.json found in current directory",
       packages: [],
       envFile: "missing",
     };
   }
 
-  const config = session.config as Record<string, unknown>;
+  const config = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
 
   const packageNames = [...FRAMEWORK_PACKAGES];
   for (const name of CATALOG_TOOL_PACKAGES) {
