@@ -1,6 +1,6 @@
-# City Nodes
+# everything.dev
 
-> Decentralized city nodes on NEAR — each city is a tenant with its own validator pool you can stake to.
+> Open runtime for apps on NEAR — compose published plugins, own your runtime config, and extend the platform with your own deployments.
 
 ## Skills
 
@@ -24,17 +24,7 @@
 Authenticate to the API using an API key:
 
 1. Sign in with your NEAR wallet (SIWN) at the website.
-2. Go to **Settings → API Keys** at `/settings/api-keys`.
-3. Create a key — the full secret (`api_...`) is shown once.
-4. Pass it on every request: `x-api-key: api_your_key_here`
+2. Create a key at **Settings → API Keys** (`/settings/api-keys`).
+3. Pass it on every request: `x-api-key: api_...`
 
-The `x-api-key` header works for `/api/*` (REST), `/api/rpc/*` (oRPC), and `/api/mcp` (MCP).
-
-## Source
-
-- [Repository](https://github.com/NEARBuilders/citynode.app): Clone and read `AGENTS.md` for full development instructions, TanStack Intent skills, and workflow guidance.
-
-
-## Workflow skills
-
-This repo ships agent workflow skills in `.agents/skills/` — the ordered development flow (grill → spec → tickets → implement/tdd → code-review). Start with `/everything-dev-app` to orient and pick the right next step. See `AGENTS.md` → Workflow Skills.
+The `x-api-key` header works for all API surfaces (REST, oRPC RPC, plugin RPC, MCP).
