@@ -10,6 +10,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+export type StatusTone = "success" | "warning" | "destructive" | "secondary" | "outline";
+
+export function tenantStatusTone(status: string): StatusTone {
+  if (status === "active") return "success";
+  if (status === "suspended") return "destructive";
+  if (status === "pending" || status === "pending_deletion") return "warning";
+  return "outline";
+}
+
 export function humanize(value: string) {
   const text = value.replaceAll("_", " ");
   return text.charAt(0).toUpperCase() + text.slice(1);

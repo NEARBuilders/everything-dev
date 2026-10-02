@@ -64,7 +64,7 @@ export const Route = createFileRoute("/_public/about")({
   head: ({ match }) => ({
     meta: [
       { title: pageTitle("About", match.context.runtimeConfig) },
-      { name: "description", content: "What everything.dev is and how to build on it." },
+      { name: "description", content: "What CityNode is and how to build on it." },
     ],
   }),
   component: About,

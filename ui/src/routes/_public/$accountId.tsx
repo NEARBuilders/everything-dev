@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon, HouseIcon, UserIcon } from "@phosphor-icons/react";
+import { ArrowUpRightIcon, CompassIcon, UserIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { getSocialImageMeta } from "everything-dev/ui/metadata";
@@ -26,8 +26,8 @@ export const Route = createFileRoute("/_public/$accountId")({
     const accountId = params.accountId;
     const hostUrl = (loaderData?.hostUrl ?? "").replace(/\/$/, "");
     const siteUrl = hostUrl ? `${hostUrl}/${accountId}` : "";
-    const title = `${accountId} | everything.dev`;
-    const description = `${accountId}'s public profile on everything.dev.`;
+    const title = `${accountId} | CityNode`;
+    const description = `${accountId}'s public profile on CityNode.`;
 
     return {
       meta: [
@@ -128,9 +128,9 @@ function AccountProfileLayout() {
             </p>
           </div>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-            <Button variant="outline" nativeButton={false} render={<Link to="/" />}>
-              <HouseIcon />
-              everything.dev
+            <Button variant="outline" nativeButton={false} render={<Link to="/explore" />}>
+              <CompassIcon />
+              Explore communities
             </Button>
             <Button
               variant="ghost"

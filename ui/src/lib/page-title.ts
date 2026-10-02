@@ -5,6 +5,6 @@ export function pageTitle(
   label: string,
   runtimeConfig?: Partial<ClientRuntimeConfig> | null,
 ): string {
-  const appName = getAppName(runtimeConfig ?? undefined) || "everything.dev";
+  const appName = getAppName(runtimeConfig ?? undefined) || "CityNode";
   return label ? `${label} · ${appName}` : appName;
 }
