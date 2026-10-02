@@ -17,6 +17,7 @@ export default App({
   staging: { domain: "dev.everything.dev" },
   repository: "https://github.com/nearbuilders/everything-dev",
   ci: { railway: { service: "app" } },
+  cdn: { origin: "https://cdn.everything.dev" },
   host: { path: "host" },
   ui: UI({ path: "ui" }),
   api: API({ path: "api", variables: { gatewayDomains: "everything.dev,dev.everything.dev" } }),
@@ -37,7 +38,7 @@ export default App({
     ],
   }),
   plugins: {
-    apps: Plugin("apps").path("plugins/apps", {
+    registry: Plugin("registry").path("plugins/registry", {
       variables: { registryNamespace: "dev.everything.near" },
     }),
     template: Plugin("template").path("plugins/_template", {

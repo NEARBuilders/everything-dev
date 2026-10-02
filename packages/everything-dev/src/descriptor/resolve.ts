@@ -70,6 +70,7 @@ function attachmentToEntry(attachment: AttachmentRef): Record<string, unknown> {
                 ? { development: attachment.ui.development }
                 : {}),
             ...(attachment.ui.integrity ? { integrity: attachment.ui.integrity } : {}),
+            ...(attachment.ui.pin ? { pin: attachment.ui.pin } : {}),
           },
         }
       : {}),
@@ -88,6 +89,7 @@ export function toConfigInput(descriptor: AppDescriptor): BosConfigInput {
       "testnet",
       "staging",
       "ci",
+      "cdn",
       "publish",
     ]),
   };
@@ -251,7 +253,9 @@ export function configInputToDescriptor(input: BosConfigInput): AppDescriptor {
     "repository",
     "testnet",
     "staging",
+    "starter",
     "ci",
+    "cdn",
     "publish",
   ] as const) {
     if (source[field] !== undefined) descriptor[field] = source[field];
@@ -311,6 +315,7 @@ function entryToAttachment(key: string, entry: Record<string, unknown>): Record<
       ...(typeof ui.name === "string" ? { name: ui.name } : {}),
       ...(uiPath !== undefined ? { path: uiPath } : {}),
       ...(ui.integrity !== undefined ? { integrity: ui.integrity } : {}),
+      ...(ui.pin !== undefined ? { pin: ui.pin } : {}),
     };
   }
   return out;

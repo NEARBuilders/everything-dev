@@ -3,14 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { convertChildConfigToAppForm } from "../../src/cli/init";
-import { clearConfigCache, loadAppDescriptorConfig, loadResolvedConfig } from "../../src/config";
+import { loadAppDescriptorConfig, resetConfigPathCache } from "../../src/config";
 import { App } from "../../src/descriptor/constructors";
 import { configInputToDescriptor, toConfigInput } from "../../src/descriptor/resolve";
+import { openResolution } from "../../src/resolution/session";
 
 const fixtures = join(import.meta.dirname, "..", "fixtures", "bos-app-loader");
 
 afterEach(() => {
-  clearConfigCache();
+  resetConfigPathCache();
   rmSync(join(fixtures, "convert-scratch"), { recursive: true, force: true });
 });
 
@@ -62,11 +63,11 @@ describe("bos.app.ts materialization (loadAppDescriptorConfig)", () => {
 
 describe("bos.app.ts resolution parity with bos.config.json", () => {
   it("a TS-authored child resolves identically to the equivalent JSON child", async () => {
-    const ts = await loadResolvedConfig({
+    const ts = await openResolution({
       cwd: join(fixtures, "ts-child"),
       env: "development",
     });
-    const json = await loadResolvedConfig({
+    const json = await openResolution({
       cwd: join(fixtures, "json-child"),
       env: "development",
     });
@@ -75,24 +76,17 @@ describe("bos.app.ts resolution parity with bos.config.json", () => {
     // same resolved config…
     expect(ts!.config).toEqual(json!.config);
     // …same runtime projection (minus the load-source path)
-    expect(ts!.source.path).toBe(join(fixtures, "ts-child", "bos.app.ts"));
-    expect(json!.source.path).toBe(join(fixtures, "json-child", "bos.config.json"));
+    expect(ts!.path).toBe(join(fixtures, "ts-child", "bos.app.ts"));
+    expect(json!.path).toBe(join(fixtures, "json-child", "bos.config.json"));
   });
 
-  it("prefers bos.app.ts when both forms coexist", async () => {
+  it("prefers bos.config.json when both forms coexist", async () => {
     const dir = join(tmpdir(), "bos-app-both-forms");
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "bos.app.ts"),
-      `export default {
-  name: "ts.near",
-  account: "ts.near",
-  domain: "ts.near",
-  host: { development: "local:host" },
-  ui: { development: "local:ui" },
-  api: { development: "local:api" },
-};
+      `export default { name: "ts.near", account: "ts.near", domain: "ts.near" };
 `,
     );
     writeFileSync(join(dir, "base.json"), readFileSync(join(fixtures, "base.json"), "utf-8"));
@@ -104,9 +98,9 @@ describe("bos.app.ts resolution parity with bos.config.json", () => {
         domain: "json.near",
       }),
     );
-    const result = await loadResolvedConfig({ cwd: dir, env: "development" });
-    expect(result!.config.account).toBe("ts.near");
-    expect(result!.source.path).toBe(join(dir, "bos.app.ts"));
+    const result = await openResolution({ cwd: dir, env: "development" });
+    expect(result!.config.account).toBe("json.near");
+    expect(result!.path).toBe(join(dir, "bos.config.json"));
   });
 });
 

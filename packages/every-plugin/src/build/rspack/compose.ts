@@ -3,25 +3,16 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import type { Compiler, RspackPluginInstance } from "@rspack/core";
 import { FixMfDataUriPlugin } from "./fix-mf-data-uri-plugin";
-import {
-  EmitPluginManifest,
-  EveryPluginBuild,
-  type EveryPluginBuildOptions,
-  type PluginManifestEmitterOptions,
-} from "./plugin";
+import { EmitPluginManifest, EveryPluginBuild } from "./plugin";
 
-export interface EveryPluginComposedBuildOptions extends EveryPluginBuildOptions {
-  manifest?: PluginManifestEmitterOptions;
-}
-
-export class EveryPluginComposedBuild implements RspackPluginInstance {
+class EveryPluginComposedBuild implements RspackPluginInstance {
   name = "EveryPluginComposedBuild";
 
-  constructor(private readonly options: EveryPluginComposedBuildOptions = {}) {}
+  constructor(private readonly dts: boolean = false) {}
 
   apply(compiler: Compiler) {
-    new EmitPluginManifest(this.options.manifest ?? {}).apply(compiler);
-    new EveryPluginBuild({ dts: this.options.dts }).apply(compiler);
+    new EmitPluginManifest().apply(compiler);
+    new EveryPluginBuild({ dts: this.dts }).apply(compiler);
     new FixMfDataUriPlugin().apply(compiler);
   }
 }
@@ -68,7 +59,7 @@ export interface PluginBaseConfig {
 
 export function createPluginBaseConfig(options: PluginBaseConfigOptions = {}): PluginBaseConfig {
   const shouldDeploy = process.env.DEPLOY === "true";
-  const plugins: unknown[] = [new EveryPluginComposedBuild({ dts: false })];
+  const plugins: unknown[] = [new EveryPluginComposedBuild(false)];
 
   if (options.drizzle !== false) {
     const drizzlePlugin = loadDrizzleMigrationsPlugin();

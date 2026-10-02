@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
-import { Context, Effect, Layer } from "effect";
+import { Clock, Context, DateTime, Effect, Layer, Schedule } from "effect";
 import type { Database } from "../db";
 import { DatabaseTag } from "../db/layer";
 import {
@@ -22,6 +22,7 @@ import type {
 } from "../discovery-contract";
 import type { AuthPluginContext as AuthContext } from "../lib/auth-types.gen";
 import { toOrpcError } from "../lib/errors";
+import { type GeocodeService, GeocodeTag, shouldGeocodeProfile } from "./discovery-geocode";
 import { createLumaCalendars } from "./discovery-luma";
 import { nodeKindOf } from "./nodes";
 
@@ -31,13 +32,13 @@ function canonicalActivityUrl(value: string) {
   const url = new URL(value);
   url.hash = "";
   if (["lu.ma", "www.lu.ma", "www.luma.com"].includes(url.hostname)) url.hostname = "luma.com";
-  for (const key of [...url.searchParams.keys()])
+  for (const key of url.searchParams.keys())
     if (key.startsWith("utm_") || key === "fbclid") url.searchParams.delete(key);
   url.searchParams.sort();
   return url.toString();
 }
 
-function createDiscovery(db: Database, lumaKeys: string) {
+function createDiscovery(db: Database, lumaKeys: string, geocode: GeocodeService) {
   const luma = createLumaCalendars(lumaKeys);
 
   const query = <T>(run: () => Promise<T>): DiscoveryEffect<T> =>
@@ -137,7 +138,7 @@ function createDiscovery(db: Database, lumaKeys: string) {
         !activity ||
         activity.status === "draft" ||
         activity.luma?.available === false ||
-        Date.parse(activity.publishedAt) > Date.now() ||
+        Date.parse(activity.publishedAt) > (yield* Clock.currentTimeMillis) ||
         !(yield* eligibleProfile(activity.ownerNodeId))
       ) {
         return null;
@@ -155,7 +156,7 @@ function createDiscovery(db: Database, lumaKeys: string) {
     nodeId?: string;
   }) {
     return Effect.gen(function* () {
-      yield* Effect.forkDetach(syncDueLuma());
+      yield* Effect.forkDetach(syncDueLuma);
       const rows = yield* eligibleProfiles(input.nodeId ? [input.nodeId] : undefined);
       const activityRows = yield* query(() =>
         db
@@ -193,19 +194,19 @@ function createDiscovery(db: Database, lumaKeys: string) {
           group.push(activity);
           byNode.set(id, group);
         }
+      const now = yield* Clock.currentTimeMillis;
       const features = yield* query(() =>
         db
           .select()
           .from(discoveryFeatures)
           .where(
             and(
-              gte(discoveryFeatures.expiresAt, new Date(Date.now())),
+              gte(discoveryFeatures.expiresAt, DateTime.toDateUtc(DateTime.makeUnsafe(now))),
               input.nodeId ? eq(discoveryFeatures.nodeId, input.nodeId) : undefined,
             ),
           ),
       );
       const featureLabels = new Map(features.map((f) => [f.nodeId, f.label]));
-      const now = Date.now();
       const day = 86_400_000;
       return rows
         .filter(
@@ -486,17 +487,24 @@ function createDiscovery(db: Database, lumaKeys: string) {
   }
 
   let syncing = false;
-  function syncDueLuma(): DiscoveryEffect<void> {
+  const syncDueLuma: DiscoveryEffect<void> = Effect.suspend(() => {
     if (syncing) return Effect.void;
     syncing = true;
     return Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
       const due = yield* query(() =>
         db
           .select()
           .from(discoveryLumaConnections)
-          .where(lt(discoveryLumaConnections.nextAttemptAt, new Date(Date.now()))),
+          .where(
+            lt(
+              discoveryLumaConnections.nextAttemptAt,
+              DateTime.toDateUtc(DateTime.makeUnsafe(now)),
+            ),
+          ),
       );
       for (const connection of due) {
+        const retryAt = yield* Clock.currentTimeMillis;
         yield* syncLuma(connection).pipe(
           Effect.catch(() =>
             query(() =>
@@ -505,7 +513,7 @@ function createDiscovery(db: Database, lumaKeys: string) {
                 .set({
                   error:
                     "Luma is temporarily unavailable. Showing the last saved events; we’ll retry automatically.",
-                  nextAttemptAt: new Date(Date.now() + 5 * 60_000),
+                  nextAttemptAt: DateTime.toDateUtc(DateTime.makeUnsafe(retryAt + 5 * 60_000)),
                 })
                 .where(
                   and(
@@ -518,7 +526,7 @@ function createDiscovery(db: Database, lumaKeys: string) {
         );
       }
     }).pipe(Effect.ensuring(Effect.sync(() => (syncing = false))));
-  }
+  });
 
   return {
     list: (input: {
@@ -605,11 +613,16 @@ function createDiscovery(db: Database, lumaKeys: string) {
           );
           if (curators.length) return { accepted: false };
         }
-        const now = Date.now();
+        const now = yield* Clock.currentTimeMillis;
         yield* query(() =>
           db
             .delete(discoveryMeasurements)
-            .where(lt(discoveryMeasurements.createdAt, new Date(now - 28 * 86400000))),
+            .where(
+              lt(
+                discoveryMeasurements.createdAt,
+                DateTime.toDateUtc(DateTime.makeUnsafe(now - 28 * 86400000)),
+              ),
+            ),
         );
         if (input.kind !== "visit") {
           const [visit] = yield* query(() =>
@@ -661,7 +674,10 @@ function createDiscovery(db: Database, lumaKeys: string) {
     metrics: (context: AuthContext) =>
       Effect.gen(function* () {
         yield* requireCurator(context);
-        const since = gte(discoveryMeasurements.createdAt, new Date(Date.now() - 28 * 86400000));
+        const since = gte(
+          discoveryMeasurements.createdAt,
+          DateTime.toDateUtc(DateTime.makeUnsafe((yield* Clock.currentTimeMillis) - 28 * 86400000)),
+        );
         const [totals] = yield* query(() =>
           db
             .select({
@@ -730,7 +746,7 @@ function createDiscovery(db: Database, lumaKeys: string) {
     feature: (input: { nodeId: string; label: string; expiresAt: string }, context: AuthContext) =>
       Effect.gen(function* () {
         yield* requireCurator(context);
-        if (Date.parse(input.expiresAt) > Date.now() + 90 * 86400000) {
+        if (Date.parse(input.expiresAt) > (yield* Clock.currentTimeMillis) + 90 * 86400000) {
           return yield* Effect.fail(
             new ORPCError("BAD_REQUEST", { message: "Feature expiry must be within 90 days" }),
           );
@@ -738,7 +754,10 @@ function createDiscovery(db: Database, lumaKeys: string) {
         if (!(yield* eligibleProfile(input.nodeId))) {
           return yield* Effect.fail(new ORPCError("NOT_FOUND"));
         }
-        const data = { ...input, expiresAt: new Date(input.expiresAt) };
+        const data = {
+          ...input,
+          expiresAt: DateTime.toDateUtc(DateTime.makeUnsafe(input.expiresAt)),
+        };
         yield* query(() =>
           db
             .insert(discoveryFeatures)
@@ -885,7 +904,7 @@ function createDiscovery(db: Database, lumaKeys: string) {
       }),
     activity: (id: string) =>
       Effect.gen(function* () {
-        yield* Effect.forkDetach(syncDueLuma());
+        yield* Effect.forkDetach(syncDueLuma);
         return yield* publicActivity(id);
       }),
     get: (nodeId: string) =>
@@ -904,21 +923,72 @@ function createDiscovery(db: Database, lumaKeys: string) {
     saveProfile: (input: DiscoveryProfile, context: AuthContext) =>
       Effect.gen(function* () {
         yield* authorize(input.nodeId, context);
+        const [existing] = yield* query(() =>
+          db.select().from(discoveryProfiles).where(eq(discoveryProfiles.nodeId, input.nodeId)),
+        );
+        const previous = existing?.data;
+        const geocodedLocation =
+          input.geocodedLocation !== undefined
+            ? input.geocodedLocation
+            : (previous?.geocodedLocation ?? null);
+        let next: DiscoveryProfile = {
+          ...input,
+          geocodedLocation,
+          geocodeHint: null,
+        };
+        if (!next.location.trim()) {
+          next = {
+            ...next,
+            latitude: null,
+            longitude: null,
+            geocodedLocation: null,
+            geocodeHint: null,
+          };
+        } else if (
+          shouldGeocodeProfile({
+            location: next.location,
+            latitude: next.latitude,
+            longitude: next.longitude,
+            geocodedLocation,
+          })
+        ) {
+          const geocoded = yield* geocode.geocode(next.location);
+          if (geocoded.ok) {
+            next = {
+              ...next,
+              latitude: geocoded.latitude,
+              longitude: geocoded.longitude,
+              geocodedLocation: next.location.trim(),
+              geocodeHint: null,
+            };
+          } else {
+            next = {
+              ...next,
+              latitude: null,
+              longitude: null,
+              geocodedLocation: null,
+              geocodeHint:
+                geocoded.reason === "not_found"
+                  ? "Couldn't place that location on the map. Try a clearer city or venue name."
+                  : "Map lookup is unavailable right now. Your profile was saved without a pin.",
+            };
+          }
+        }
         yield* query(() =>
           db.transaction(async (tx) => {
             await tx
               .insert(discoveryProfiles)
-              .values({ nodeId: input.nodeId, data: input })
-              .onConflictDoUpdate({ target: discoveryProfiles.nodeId, set: { data: input } });
+              .values({ nodeId: next.nodeId, data: next })
+              .onConflictDoUpdate({ target: discoveryProfiles.nodeId, set: { data: next } });
             await tx.insert(discoveryHistory).values({
-              nodeId: input.nodeId,
-              targetId: input.nodeId,
+              nodeId: next.nodeId,
+              targetId: next.nodeId,
               actorId: context.userId!,
-              action: input.published ? "profile published" : "profile saved as draft",
+              action: next.published ? "profile published" : "profile saved as draft",
             });
           }),
         );
-        return input;
+        return next;
       }),
   };
 }
@@ -930,14 +1000,9 @@ export const DiscoveryLive = (lumaKeys = "") =>
   Layer.effect(
     DiscoveryTag,
     Effect.gen(function* () {
-      const service = createDiscovery(yield* DatabaseTag, lumaKeys);
-      yield* Effect.acquireRelease(
-        Effect.sync(() =>
-          setInterval(() => {
-            void Effect.runPromise(service.syncDueLuma()).catch(() => {});
-          }, 60_000),
-        ),
-        (timer) => Effect.sync(() => clearInterval(timer)),
+      const service = createDiscovery(yield* DatabaseTag, lumaKeys, yield* GeocodeTag);
+      yield* Effect.forkScoped(
+        service.syncDueLuma.pipe(Effect.ignore, Effect.repeat(Schedule.spaced("60 seconds"))),
       );
       return service;
     }),

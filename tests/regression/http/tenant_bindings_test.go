@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -97,6 +98,11 @@ func TestTenantBindingsReflectAllowFlags(t *testing.T) {
 		}
 		if result.ID == "" {
 			t.Fatal("expected non-empty org id")
+		}
+		cmd := exec.Command("bun", "tests/regression/lib/approve-test-organizations.ts", result.ID)
+		cmd.Dir = regtest.RepoRoot()
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("approving organization fixture: %v\n%s", err, output)
 		}
 
 		status, _, body = regtest.PostJSON(t, client, baseURL+"/api/auth/organization/set-active", map[string]string{

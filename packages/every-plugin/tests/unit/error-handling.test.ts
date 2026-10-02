@@ -2,6 +2,7 @@ import { ORPCError } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import {
   classifyPluginFailure,
+  formatORPCError,
   ModuleFederationError,
   PluginRuntimeError,
   toPluginRuntimeError,
@@ -9,6 +10,31 @@ import {
 } from "../../src/runtime/errors";
 
 describe("Error Handling Utilities", () => {
+  describe("formatORPCError", () => {
+    it("formats unknown errors with message and stack instead of returning null", () => {
+      const error = new Error("storage backend exploded");
+      const formatted = formatORPCError(error);
+      expect(formatted).not.toBeNull();
+      expect(formatted).toContain("storage backend exploded");
+      expect(formatted).toContain("Unhandled error");
+      expect(formatted).toMatch(/at /);
+    });
+
+    it("returns null for falsy errors", () => {
+      expect(formatORPCError(null)).toBeNull();
+      expect(formatORPCError(undefined)).toBeNull();
+    });
+
+    it("formats ORPC errors with code and message", () => {
+      const formatted = formatORPCError(
+        new ORPCError("CONNECTION_ERROR", { message: "Bundle storage failed for ui/x.js" }),
+      );
+      expect(formatted).not.toBeNull();
+      expect(formatted).toContain("Bundle storage failed for ui/x.js");
+      expect(formatted).toContain("CONNECTION_ERROR");
+    });
+  });
+
   describe("toPluginRuntimeError", () => {
     it("should extract message from Error instance", () => {
       const error = new Error("Test error message");

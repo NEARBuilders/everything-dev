@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { useAuthClient } from "@/app";
+import { tenantQueryKeys } from "@/lib/queries/tenants";
 import {
   createWorkspaceSynchronization,
   reportWorkspaceRefreshError,
@@ -12,7 +13,8 @@ export function useSwitchOrganization() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const synchronization = createWorkspaceSynchronization({ auth, queryClient, router });
-  const refresh = () => synchronization.synchronize({ queryKeys: [["organizations"]] });
+  const refresh = () =>
+    synchronization.synchronize({ queryKeys: [["organizations"], tenantQueryKeys.all] });
   const reportError = (error: Error) => {
     if (reportWorkspaceRefreshError(error, refresh, reportError)) return;
     toast.error(error.message || "Failed to switch organization");

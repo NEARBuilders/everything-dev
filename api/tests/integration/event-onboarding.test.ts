@@ -42,7 +42,7 @@ const authStub = {
         eventName: input.eventName,
         teamId: "event-team",
         role: "member",
-        maxUses: input.maxUses ?? 50,
+        maxUses: input.maxUses ?? 300,
         usedCount: 0,
         expiresAt: input.expiresAt,
         revokedAt: null,
@@ -103,7 +103,7 @@ async function seedEventOnNodeWithoutOrganization() {
   const schemaName = `plugin_${slug}`;
   const driver = await createDatabaseDriver(`pglite:${databaseDir}`, schemaName);
   try {
-    const { migrations } = await Effect.runPromise(loadMigrations());
+    const { migrations } = await Effect.runPromise(loadMigrations);
     await Effect.runPromise(migrate(driver.db, migrations, getMigrationStorage(slug), schemaName));
     const [tenant] = await driver.db
       .insert(tenants)

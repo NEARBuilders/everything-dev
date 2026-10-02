@@ -28,6 +28,10 @@ bos dev                 # Typical: remote host (auto-detected), local UI + API
 bos dev --api remote    # Isolate UI work
 ```
 
+## Internationalization
+
+The main UI and auth UI share locale state across their Module Federation bundles. See [the i18n contributor guide](../docs/i18n.md) before adding messages or locales.
+
 ## Configuration
 
 `bos.config.json` only needs the UI runtime URLs and package metadata. Build-time module exposes stay in `ui/rsbuild.config.ts`.

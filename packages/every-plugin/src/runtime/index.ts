@@ -3,6 +3,7 @@ import "@orpc/openapi/extensions/route";
 
 import { createRouterClient } from "@orpc/server";
 import { Cause, Effect, Exit, ManagedRuntime, Option } from "effect";
+import { DEV_ENTRY_FILENAME } from "../build/artifact-names";
 import type {
   AnyPlugin,
   AnyPluginConstructor,
@@ -242,7 +243,7 @@ export class PluginRuntime<R = RegisteredPlugins> {
   async shutdown(): Promise<void> {
     const effect = Effect.gen(function* () {
       const pluginService = yield* PluginService;
-      yield* pluginService.cleanup();
+      yield* pluginService.cleanup;
     });
     try {
       await this.runPromise(effect);
@@ -271,21 +272,13 @@ export class PluginRuntime<R = RegisteredPlugins> {
         const pluginResult = yield* Effect.tryPromise({
           try: () => cachedPlugin,
           catch: (error) => error,
-        }).pipe(Effect.catch(() => Effect.succeed(null)));
+        }).pipe(Effect.orElseSucceed(() => null));
 
         if (pluginResult) {
-          yield* pluginService
-            .shutdownPlugin(pluginResult)
-            .pipe(
-              Effect.catch((error) =>
-                Effect.logWarning(`Failed to shutdown evicted plugin ${pluginId}`, error),
-              ),
-            );
+          yield* pluginService.shutdownPlugin(pluginResult);
         }
       }
-    }).pipe(
-      Effect.catch((error) => Effect.logWarning(`Plugin eviction failed for ${pluginId}`, error)),
-    );
+    });
 
     return this.runPromise(effect);
   }
@@ -298,7 +291,7 @@ export class PluginRuntime<R = RegisteredPlugins> {
 function normalizeRemoteUrl(url: string): string {
   if (!url) return url;
   if (url.endsWith(".js") || url.endsWith(".json")) return url;
-  return `${url.endsWith("/") ? url.slice(0, -1) : url}/remoteEntry.js`;
+  return `${url.endsWith("/") ? url.slice(0, -1) : url}/${DEV_ENTRY_FILENAME}`;
 }
 
 /**

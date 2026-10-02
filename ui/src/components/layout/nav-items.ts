@@ -2,14 +2,20 @@ import {
   BankIcon,
   BuildingsIcon,
   ChartBarIcon,
+  CoinsIcon,
   CompassIcon,
   CubeIcon,
+  HammerIcon,
   HouseIcon,
+  InfoIcon,
   LightningIcon,
+  ListChecksIcon,
   NetworkIcon,
   PlusCircleIcon,
+  ScrollIcon,
   ShieldIcon,
   SparkleIcon,
+  TreeStructureIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
 import type { FeatureArea } from "@/lib/feature-areas";
@@ -60,6 +66,27 @@ const ADMIN_CHILDREN: SidebarItem[] = [
     roleRequired: "admin",
   },
   {
+    icon: NetworkIcon,
+    label: "Communities",
+    slug: "admin-nodes",
+    to: "/admin/nodes",
+    roleRequired: "admin",
+  },
+  {
+    icon: ScrollIcon,
+    label: "Proposals",
+    slug: "admin-proposals",
+    to: "/admin/proposals",
+    roleRequired: "admin",
+  },
+  {
+    icon: TreeStructureIcon,
+    label: "Sites",
+    slug: "admin-tenants",
+    to: "/admin/tenants",
+    roleRequired: "admin",
+  },
+  {
     icon: LightningIcon,
     label: "Relayer",
     slug: "admin-relayer",
@@ -88,6 +115,50 @@ export function buildNavItems(context: NavContext = {}): SidebarItem[] {
       section: "main",
     },
     {
+      icon: CompassIcon,
+      label: "Explore",
+      slug: "explore",
+      to: "/explore",
+      activePrefixes: ["/explore", "/n/", "/activity/"],
+      roleRequired: "anon",
+      section: "main",
+    },
+    {
+      icon: CoinsIcon,
+      label: "Stake",
+      slug: "stake",
+      to: "/stake",
+      roleRequired: "anon",
+      area: "stake",
+      section: "main",
+    },
+    {
+      icon: HammerIcon,
+      label: "Build",
+      slug: "build",
+      to: "/build",
+      roleRequired: "anon",
+      section: "main",
+    },
+    {
+      icon: InfoIcon,
+      label: "About",
+      slug: "about",
+      to: "/about",
+      roleRequired: "anon",
+      section: "main",
+    },
+    {
+      icon: NetworkIcon,
+      label: "My community",
+      slug: "my-node",
+      to: "/dashboard/node",
+      activePrefixes: ["/dashboard/node", "/nodes/", "/tenant/"],
+      roleRequired: "member",
+      area: "node-operations",
+      section: "organization",
+    },
+    {
       icon: BuildingsIcon,
       label: "Organization",
       slug: "orgs",
@@ -105,6 +176,18 @@ export function buildNavItems(context: NavContext = {}): SidebarItem[] {
       area: "things",
       section: "organization",
     },
+    ...(context.canCurate || context.isAdmin
+      ? [
+          {
+            icon: ListChecksIcon,
+            label: "Directory",
+            slug: "discover",
+            to: "/discover",
+            roleRequired: "member" as const,
+            section: "manage" as const,
+          },
+        ]
+      : []),
     {
       icon: ShieldIcon,
       label: "Admin",
@@ -184,6 +267,67 @@ export function filterSidebarByArea(
     const children = item.children
       .map(visible)
       .filter((child): child is SidebarItem => child !== null);
+    return { ...item, children };
+  };
+  return items.map(visible).filter((item): item is SidebarItem => item !== null);
+}
+
+export interface ManifestRoute {
+  id: string;
+  parentId?: string;
+  path?: string;
+  isLayout?: boolean;
+  isIndex?: boolean;
+}
+
+/**
+ * Absolute URL paths a shipped route tree actually serves, from the
+ * generated manifest's parent-relative `path` fields (layouts are pathless;
+ * parentId chains accumulate; trailing-slash index paths normalize).
+ */
+export function routePathsFromManifest(routes: ManifestRoute[]): Set<string> {
+  const byId = new Map(routes.map((route) => [route.id, route]));
+  const absolute = new Map<string, string>();
+  const resolve = (route: ManifestRoute): string => {
+    const cached = absolute.get(route.id);
+    if (cached) return cached;
+    let path = route.path ?? "/";
+    const parent = route.parentId ? byId.get(route.parentId) : undefined;
+    if (parent) {
+      const parentPath = resolve(parent);
+      if (parentPath !== "/") path = `${parentPath}${path}`;
+    }
+    const normalized = path.length > 1 ? path.replace(/\/+$/, "") : "/";
+    absolute.set(route.id, normalized);
+    return normalized;
+  };
+  return new Set(
+    routes
+      .filter((route) => !route.isLayout && route.path)
+      .map(resolve)
+      .filter((p) => p !== "/"),
+  );
+}
+
+/**
+ * Keep only items whose target route shipped. Children are pruned
+ * recursively; parents whose children all drop disappear. An empty path set
+ * is treated as "route manifest not available yet" and disables filtering.
+ */
+export function filterSidebarByRoutes(
+  items: SidebarItem[],
+  paths: ReadonlySet<string>,
+): SidebarItem[] {
+  if (paths.size === 0) return items;
+  const resolves = (item: SidebarItem): boolean =>
+    paths.has(item.to) || (item.activePrefixes ?? []).some((prefix) => paths.has(prefix));
+  const visible = (item: SidebarItem): SidebarItem | null => {
+    if (!resolves(item)) return null;
+    if (!item.children) return item;
+    const children = item.children
+      .map(visible)
+      .filter((child): child is SidebarItem => child !== null);
+    if (children.length === 0) return null;
     return { ...item, children };
   };
   return items.map(visible).filter((item): item is SidebarItem => item !== null);

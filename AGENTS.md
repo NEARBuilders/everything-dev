@@ -230,11 +230,11 @@ This document provides operational guidance for AI agents working in the parent 
 
 **Start Development:**
 ```bash
-cp .env.example .env   # First time only
 bun install
-docker compose up -d --wait   # Start local Postgres (api_db:5432, auth_db:5433)
 bun run dev
 
+# bos dev creates .env from .env.example on first run (with a generated BETTER_AUTH_SECRET)
+# and auto-starts docker compose when the DB preflight finds local Postgres down.
 # Or combined: bun run dev:postgres  ==  docker compose up -d --wait && bun run dev
 
 # Pin individual service ports (explicitly-passed flags are pinned; unset services derive from the base; only explicit choices persist in .bos/infra-state.json — see ADR 0012)
@@ -249,7 +249,7 @@ bos dev --port 3100 --api-port 3101 --ui-port 3103 --auth-port 3102 --plugin-por
 
 **Dev/test isolation:** a committed `.env.test` (generated alongside `.env.example` and `docker-compose.yml` by `bos dev`) maps every `*_DATABASE_URL` and `BETTER_AUTH_SECRET` to the test databases. Test suites load `.env.test` instead of `.env`: the regression stack (`tests/regression/lib/start-stack.mjs`) injects it into spawned stacks, `tests/regression/lib/regression-env.mjs` resolves it with fail-fast guards that refuse to run against dev URLs or the dev auth secret (override deliberately with `REGRESSION_ALLOW_DEV_DB=1`), and api unit/integration tests pin to in-memory pglite unless `TEST_DATABASE=postgres` opts into `.env.test`. Start the test databases with `bun run test:db:up` (or `bun run test:db:reset` for a clean slate).
 
-The API and plugins auto-apply migrations on boot, so `bun db:migrate` is optional (use it to migrate without starting the dev server). `bun run dev` runs `bos dev`'s preflight, which probes the localhost DB ports and exits with a clear `docker compose up -d --wait` hint if Postgres isn't up.
+The API and plugins auto-apply migrations on boot, so `bun db:migrate` is optional (use it to migrate without starting the dev server). `bun run dev` runs `bos dev`'s preflight, which probes the localhost DB ports and — when every failure is a down local service, `docker-compose.yml` exists, docker is reachable, and it is not a test-mode stack — starts the compose services itself (`docker compose up -d --wait`) and re-probes once before failing. Test-mode stacks (`NODE_ENV=test` / `BOS_TEST=1` / `BOS_NO_PERSIST_PORTS=1`) never auto-start compose. Bootstrap-phase INFO logs (e.g. `[env] ... updated` port-drift lines) are suppressed on the console by default — pass `--log-level info` (or set `BOS_LOG_LEVEL` / `DEBUG=1`) to see them; warnings and errors always print.
 
 Port allocation is atomic block allocation (ADR 0012): the layout derives deterministically from one base port (`--port N` → api N+1, auth N+2, ui N+3, plugins N+10+), the whole block is validated before anything spawns, and only explicitly-passed port flags persist to `.bos/infra-state.json` under `devPorts` (drift is never persisted — a busy block moves +100 with a prominent notice naming the holders, and restarts re-try the preferred base). Explicitly-passed flags are pinned: if that exact port is occupied, allocation fails loudly instead of silently moving. `bos kill` escalates SIGTERM → 5s → SIGKILL, reaps orphaned children of dead sessions, and verifies ports actually freed; new sessions adopt-and-reap orphaned children from dead same-project sessions at boot. Test-spawned stacks never persist ports (`BOS_NO_PERSIST_PORTS=1`, plus `NODE_ENV=test` / `BOS_TEST=1` are honored), so test runs can never repin your dev ports.
 `CORS_ORIGIN` in `.env.example` is derived from the actual resolved host port in development.
@@ -259,20 +259,20 @@ A global PID registry at `~/.cache/everything-dev/pids.json` tracks running `bos
 ```bash
 bun run build          # bos build — all workspaces (staleness-checked prerequisites first)
 bun run build ui       # bos build ui — one target + fresh prerequisites
-bun run deploy         # bos build --deploy — the deploy train (also runs on merge, via CI)
+bun run deploy         # bos deploy — the full deploy train (also runs on merge, via CI)
 ```
 `bun run build <targets>` quietly (re)builds the framework prerequisites (`every-plugin`, `everything-dev`, `better-near-auth` — staleness-checked, cheap no-ops when fresh) before any target, so targets always bundle fresh dists. Raw per-workspace builds (`cd ui && bun run build`) bypass the prerequisite train and are unsupported — use the train.
 
 Two resolution rules keep this safe (ADR 0018): **bundler-configuration code resolves from source** — `every-plugin/build/ui` and `every-plugin/build/rspack` (the generated plugin configs' factories) resolve `src` in every condition, so the config chain cannot go stale; **shipped code resolves from dist** — runtime subpaths (`everything-dev/ui/auth`, `db`, …) resolve built dists, whose freshness the prerequisite train guarantees.
 
-**Dev overlays (`bos.dev.ts`):** authored config lives in `bos.app.ts` (published); dev-only overrides live in `bos.dev.ts` (optional, child-wins merged over the resolved config when the environment is development, **never published** — same role as `.env` vs `.env.example` at the config level). Each unit gets the pair; `plugin.dev.ts` is the legacy name being retired (see `.scratch/quiet-dev-session/issues/15` and `16`).
+**Dev overlays (`bos.dev.ts`):** authored config lives in `bos.app.ts` (published); dev-only overrides live in `bos.dev.ts` (optional, child-wins merged over the resolved config when the environment is development, **never published** — same role as `.env` vs `.env.example` at the config level). Each unit gets the pair; `plugin.dev.ts` is the legacy name being retired (see `.scratch/app-model` — SPEC decision 3's strict layout and the strict cut in closed/02; dev-overlay consumption in issues/06-07).
 
 **Sync and Publish:**
 ```bash
 bos sync              # Pull updates from published config/template state
 bos upgrade           # Check for new versions, update, then sync
-bos publish           # Publish config to the FastKV registry
-bos publish --deploy  # Build/deploy all workspaces, then publish
+bos publish           # Re-publish bos.config.json to the FastKV registry (config-only, no build)
+bos deploy            # Full train: preflight → build → upload bundles → publish config → image → Railway
 ```
 
 **Check Status:**
@@ -415,15 +415,17 @@ One image, published by the root to GHCR; children never ship images. `BOS_BUNDL
    ```
    Keep `domain` as `citynode.app` (the gateway). See "Same gateway, own account" below.
 
-5. **Publish your config on-chain:**
+5. **Deploy:**
    ```bash
-   bos publish --deploy
-   # builds workspaces → uploads your own workspaces to the base storage
-   # (POST /api/storage/bundles, account-pinned) → writes bundle URLs at the
-   # CDN origin (cdn.everything.dev) → publishes bos.config.json to FastKV at
-   # bos://<your-account>/citynode.app
+   bos deploy
+   # preflight (fail fast on config/signing/storage credentials) → build →
+   # upload your workspaces to the base storage (POST /api/storage/bundles,
+   # account-pinned) → write bundle URLs at the CDN origin (cdn.everything.dev)
+   # → publish bos.config.json to FastKV at bos://<your-account>/citynode.app
+   # → build + push the runtime image and deploy it to Railway when configured
    ```
-   No image build, no Dockerfile, no CDN provider account — the base runtime stores and serves your bytes; you inherit host/api/auth logic from the base's own bundles. Set `BOS_STORAGE_API_KEY` (Settings → API Keys) for the upload; session auth via `bos login` also works. See ADR 0020 for the storage design. (Until the base's storage is provisioned, `bos publish` keeps the image-native gateway URLs — the flip is the `BOS_BUNDLE_CDN_ORIGIN`/`BOS_STORAGE_ORIGIN` env pair.)
+   No CDN provider account — the base runtime stores and serves your bytes; you inherit host/api/auth logic from the base's own bundles. Upload credentials come from `BOS_STORAGE_API_KEY` or a `bos login` session (mint once with `bos login --key`, then put the printed key in GitHub repo secrets as `BOS_STORAGE_API_KEY` for CI; the device-flow session works for interactive deploys). See ADR 0020 for the storage design. (Without a CDN origin the deploy stays image-native and writes gateway URLs — the flip is the `BOS_BUNDLE_CDN_ORIGIN`/`BOS_STORAGE_ORIGIN` env pair.)
+   The runtime image leg resolves the image name from `ci.image` in `bos.config.json` → `BOS_IMAGE` env → derived from `repository` (`ghcr.io/<owner>/<repo>`); it only runs when docker is available. The first `bos deploy` populates the R2 bucket for the first time — the committed `cdn.everything.dev` bundle URLs become true only once that run completes.
 
 6. **Run the universal image** — pull `ghcr.io/nearbuilders/everything-dev` (Railway: one-click template or `railway up`; the deploy train deploys the pushed SHA tag). No image build of your own — ever. Set these environment variables on your instance:
    | Variable | Value |
@@ -498,7 +500,7 @@ for the workaround pattern).
 
 Business logic is organized into independent plugins loaded via Module Federation. A plugin entry in `bos.config.json` can be **remote-only** (no `development: local:…` key) — the host/API consume it via `pluginsClient` and HTTP, and types resolve from the deployed manifest (see "Generated types" below). Plugin source does not need to live in this repo.
 - **`api/`** — Thin structural shell: ping, authHealth, error routes, middleware definitions
-- **`plugins/apps/`** — Registry/discovery, FastKV app metadata (local in dev)
+- **`plugins/registry/`** — Registry/discovery, FastKV app metadata (local in dev)
 - **`plugins/_template/`** — Scaffold for creating new plugins
 - **Auth** — Extended remote plugin from `bos://auth.everything.near` (Better-Auth, NEAR SIWN, organizations, API keys)
 - **Proposals** — Remote-only plugin (production URL in `bos.config.json`); source lives in `NEARBuilders/nearbuilders.org`
@@ -547,7 +549,7 @@ This repo is the parent platform, not a generated child project.
 **Release flow:**
 - CI is the validation workflow. On successful push to `main`, the Deploy workflow triggers automatically via `workflow_run` and checks out the exact SHA CI validated.
 - `release.yml` is manual (`workflow_dispatch`): it consumes changesets, creates the `chore: version packages` PR when pending, and publishes to npm when no changesets remain.
-- `deploy.yml` runs `bos publish --deploy` (uploads workspace dists + writes deterministic bundle URLs + publishes `bos.config.json` to FastKV), builds the `runtime` image stage and pushes it to GHCR by SHA tag, and deploys the pushed image to Railway (pull-only, `RAILWAY_DOCKERFILE_PATH` thin `FROM` — ADR 0021). Nothing is committed back — the runtime fetches the published config from FastKV.
+- `deploy.yml` runs `bun run bos deploy` — the single command runs the whole train: preflight (config/signing/storage credentials, fail fast before any build), workspace builds, bundle upload to the R2-backed storage, FastKV publish with read-back confirmation, the `runtime` image stage pushed to GHCR by SHA + `latest` tags (`ci.image` in `bos.config.json`), and a pull-only Railway deploy pinned to the pushed digest (generated thin `FROM <image>@sha256:<digest>` Dockerfile — ADR 0021). Nothing is committed back — the runtime fetches the published config from FastKV.
 - Generated child repos use a simpler flow: both Release and Deploy trigger directly from CI success via `workflow_run` (no npm publish, no Docker).
 
 **Create changeset:**
@@ -673,7 +675,7 @@ Two sponsorship models share the same funded account. The **Sponsor** is the eph
 
 **Relayer (fallback, NEP-366):** the auth plugin's `siwn({ relayer: ... })` block is **ephemeral mode** — the rich-object shape with `whitelistedContracts`, `maxGasPerTransaction`, and `maxDepositPerTransaction` but no `accountId` / `privateKey`. On first startup the server generates an ED25519 keypair per network, derives an implicit hex account from the public key, and encrypts the private key with `BETTER_AUTH_SECRET` (HKDF-SHA256 → AES-256-GCM) into the `relayerKey` table. Same keypair recovers on every restart. **Fund that account with NEAR** — it pays gas both for relayed delegates and for Session Gas Key top-ups; the `/admin/relayer` page surfaces the funding banner. `NEAR_RELAYER_PRIVATE_KEY` is vestigial in ephemeral mode and is omitted from `.env.example`; only reintroduce (plus explicit `relayer: { accountId, privateKey }`) when moving to `RelayerExplicitConfig`. The mode is observable at runtime: `getRelayerInfo()` returns `{ accountId, mode: "ephemeral", publicKey, balance, enabled }`.
 
-**Protocol rules (gas keys):** a gas key cannot sign NEP-366 delegate actions, and `WithdrawFromGasKey` is refused inside a delegate — the two paths never compose. Deleting a gas key **burns** any remaining balance (`DeleteKey` refuses above 1 NEAR), so drain with `WithdrawFromGasKey` before deleting. The wallet connector is `@fastnear/near-connect` (fork of `@hot-labs/near-connect`) — it can express gas-key actions; `@hot-labs` 0.11.4 cannot. The legacy sub-account relayer-FCAK config (`addRelayerFCAK`/`relayerFCAK`) has been removed; session gas keys are the only key-sponsorship mechanism.
+**Protocol rules (gas keys):** a gas key cannot sign NEP-366 delegate actions, and `WithdrawFromGasKey` is refused inside a delegate — the two paths never compose. Deleting a gas key **burns** any remaining balance (`DeleteKey` refuses above 1 NEAR), so drain with `WithdrawFromGasKey` before deleting. The wallet connector is `@hot-labs/near-connect`, installed from the gas-key-capable fork `elliotBraem/near-connect#v0.12.0-fork.2` (replaces the `@fastnear/near-connect` swap, which required a tracked CSP patch — that patch is gone). The legacy sub-account relayer-FCAK config (`addRelayerFCAK`/`relayerFCAK`) has been removed; session gas keys are the only key-sponsorship mechanism.
 
 To switch to `RelayerExplicitConfig`, replace the rich-object shape with `relayer: { accountId: "relayer.<your-domain>.near", privateKey: process.env.RELAYER_PRIVATE_KEY, whitelistedContracts: [...], maxGasPerTransaction: "...", maxDepositPerTransaction: "0" }` and re-add the env var. The ephemeral key in the `relayerKey` table is ignored once an explicit key is provided.
 
@@ -737,7 +739,7 @@ See `tests/regression/browser/specs/admin.spec.ts` and `settings-api-keys.spec.t
 
 **Plugin fails to load with `ModuleFederationError` / `__webpack_modules__[e].call`:**
 - The plugin's deployed `mf-manifest.json` reports a `metaData.pluginVersion` older than the host's. Each plugin bundle is built against a specific `@module-federation/runtime`; the host and each plugin must agree on that version, and the plugin's bundle must provide every `shared[]` dependency the host requires (`requiredVersion: ^X.Y.Z`).
-- Run `bos mf check` to see which plugin is behind. Redeploy it via `cd plugins/<key> && bos plugin publish <key>` (or `bos publish --deploy --packages local` from the repo root), then re-run `bos mf check`.
+- Run `bos mf check` to see which plugin is behind. Redeploy it via `cd plugins/<key> && bos plugin publish <key>` (runs the same train as `bos deploy` scoped to the one plugin: preflight → build → upload → version-manifest pin → FastKV publish; or `bos deploy` from the repo root), then re-run `bos mf check`.
 - See `packages/everything-dev/skills/publish-sync` (Federation runtime compatibility section) for the full failure mode and recovery workflow.
 
 **Database issues:**
@@ -772,8 +774,8 @@ The host exposes several surfaces for programmatic agent access:
 
 1. Sign in with your NEAR wallet (SIWN) at the website.
 2. Navigate to **Settings → API Keys** at `/settings/api-keys`.
-3. Create a new key — the full secret (`edk_...`) is shown once. Copy it immediately.
-4. Pass it on every request: `x-api-key: edk_your_key_here`
+3. Create a new key — the full secret (`api_...`) is shown once. Copy it immediately.
+4. Pass it on every request: `x-api-key: api_your_key_here`
 
 The `x-api-key` header works for all API surfaces. The session middleware resolves the key via Better-Auth `getContext()`, populating `context.apiKey` with `{ id, name, permissions }`.
 

@@ -7,10 +7,9 @@ This is a **downstream child project** — it deploys the app (UI, API, plugins)
 This repository uses the following workflows:
 
 - `CI` — lint, audit, typecheck, framework tests, and regression
-- `Deploy` — config publish to FastKV + Railway image deploy (production, triggered directly by CI)
-- `Staging` — config publish to FastKV + Railway image deploy (staging/testnet, triggered by push to `staging` branch)
+- `Deploy` — the full deploy train via `bos deploy` (build → bundle upload → FastKV publish → GHCR image push → Railway, production, triggered directly by CI)
+- `Staging` — the same train against testnet (`--env staging`, triggered by push to `staging` branch)
 - `Release` — changeset versioning and npm publish (manual only, for framework packages)
-- `Docker` — Docker build and push (manual or via Release only)
 
 The key design: `CI` is the validation workflow. On a successful push to `main`, the `Deploy` workflow triggers automatically via `workflow_run` — no dispatch token, no notify job, and it checks out the exact SHA that CI validated (`workflow_run.head_sha`). No Release or Docker in between — this is a downstream project that only deploys its own app workspaces.
 
@@ -41,17 +40,6 @@ Host is never deployed from this repo — it's loaded from a remote URL at runti
 - Skipped jobs in `needs` are non-blocking for the workflow result: `framework-tests`/`plugin-tests` may be skipped (no relevant changes) without failing CI.
 - Deploy reads its config from FastKV at runtime (`BOS_ACCOUNT`/`BOS_GATEWAY` on Railway), so nothing needs to be committed back after a deploy.
 
-### Docker (`docker.yml`)
-
-**Trigger:** `workflow_call` from `Release`, or `workflow_dispatch`.
-
-**Purpose:** Build and push the Docker image when a release actually publishes packages, or when manually triggered.
-
-**Behavior:**
-- Detects whether the repository has a `Dockerfile`
-- Skips the build steps entirely when no Dockerfile exists
-- Pushes branch and SHA tags to `ghcr.io` — no mutable `latest` pin; container tiers track the committed root `Dockerfile`
-
 ### Release (`release.yml`)
 
 **Trigger:** `workflow_dispatch` only (manual).
@@ -80,17 +68,17 @@ Host is never deployed from this repo — it's loaded from a remote URL at runti
 
 **Trigger:** `workflow_run` (CI completed successfully on `main`), or `workflow_dispatch`.
 
-**Purpose:** Build app workspaces, write deterministic bundle URLs into `bos.config.json`, publish it to FastKV, and ship the Railway image (the image stages the artifacts and serves `/bundles/*` itself).
+**Purpose:** Run the full deploy train with one command (`bun run bos deploy`): preflight (fail fast on config/signing/storage credentials before any build), staleness-checked prerequisite builds + workspace builds, bundle upload to the R2-backed storage at `cdn.everything.dev`, FastKV publish with read-back confirmation, `runtime`-stage image build pushed to GHCR by SHA + `latest` tags, and a pull-only Railway deploy pinned to the pushed digest (generated thin `FROM <image>@sha256:<digest>` Dockerfile — Railway never rebuilds, ADR 0021).
 
 **Behavior:**
-- Runs `bos publish --deploy --packages local` (builds every locally-owned workspace)
+- Runs `bun run bos deploy` — the CLI handles every leg; missing legs (no `ci.image`, no docker, no `RAILWAY_TOKEN`) degrade gracefully with a notice
 - Checks out the exact commit CI validated (`github.event.workflow_run.head_sha`)
-- Ships the Railway service with `railway up` (builds the image — the deployment artifact)
+- Keeps the mf-check retry loop and the remote smoke test as workflow-level verification
 - Does **not** commit anything back — the Railway host fetches the published config from FastKV (`bos start` resolves `BOS_ACCOUNT`/`BOS_GATEWAY`), so the repo copy of `bos.config.json` is the publish *input*, not the deploy output
 
-**Secrets:** `NEAR_PRIVATE_KEY` comes from repository secrets (FastKV config publish). `RAILWAY_TOKEN` ships the image.
+**Secrets:** `NEAR_PRIVATE_KEY` (FastKV config publish), `BOS_STORAGE_API_KEY` (bundle upload — mint once with `bos login --key`), `RAILWAY_TOKEN` (Railway deploy). GHCR push needs `packages: write`.
 
-**`cancel-in-progress: false`** — interrupting `bos publish --deploy` mid-flight could leave the FastKV config and the live image on different release trains. Queued deploys pick up the latest main when they run.
+**`cancel-in-progress: false`** — interrupting the deploy mid-flight could leave the FastKV config and the live image on different release trains. Queued deploys pick up the latest main when they run.
 
 ## Downstream Project Flow
 
@@ -107,7 +95,7 @@ Release and Docker are manual-only (`workflow_dispatch`). When this repo is merg
 
 ### Staging
 
-The `staging` branch deploys to testnet using `v1.citynode.testnet` as the signing account (configured via `staging.account` in `bos.config.json`). The `--env staging` flag on `bos publish` switches both the account and the gateway domain automatically.
+The `staging` branch deploys to testnet using `v1.citynode.testnet` as the signing account (configured via `staging.account` in `bos.config.json`). The `--env staging` flag on `bos deploy` switches both the account and the gateway domain automatically.
 
 **Required GitHub secrets for staging:**
 - `NEAR_TESTNET_PRIVATE_KEY` — NEAR key for `v1.citynode.testnet`
@@ -115,7 +103,7 @@ The `staging` branch deploys to testnet using `v1.citynode.testnet` as the signi
 
 ## Docker Image Architecture
 
-Docker images are built in `docker.yml`. The image uses a multi-stage build:
+Docker images are built by the `bos deploy` CLI itself (the image leg): `docker build --target runtime` tagged with the short SHA and `latest`, pushed to `ghcr.io` (`ci.image` in `bos.config.json`, derived from `repository`). The image uses a multi-stage build:
 
 ```
 Builder stage:
@@ -166,6 +154,7 @@ npm packages are published using **Trusted Publishing** (OpenID Connect), which 
 | Variable | Where | Purpose |
 |----------|-------|---------|
 | `NEAR_PRIVATE_KEY` | Deploy | NEAR key for FastKV config publish |
+| `BOS_STORAGE_API_KEY` | Deploy | Bundle upload to the R2-backed storage (mint with `bos login --key`) |
 | `GITHUB_TOKEN` | Release, Check Skills | Changesets PR creation, GitHub releases, skills review PRs |
 
 `bos publish` signs the FastKV registry transaction in-process via `near-kit` — no near-cli-rs install step is needed in CI. `NEAR_PRIVATE_KEY` (or `BOS_NEAR_PRIVATE_KEY`) is read directly from the environment; locally, `~/.near-credentials` also works.

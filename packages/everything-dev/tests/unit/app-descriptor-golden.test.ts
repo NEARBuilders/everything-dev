@@ -3,7 +3,7 @@ import everythingDevApp from "../../../../bos.app";
 import { App, Plugin } from "../../src/descriptor/constructors";
 import { resolveApp } from "../../src/descriptor/resolve";
 
-const PIPELINE_FIELDS = ["production", "integrity", "ssr", "ssrIntegrity"] as const;
+const PIPELINE_FIELDS = ["production", "integrity", "ssr", "ssrIntegrity", "pin"] as const;
 
 function stripPipeline(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripPipeline);
@@ -104,6 +104,6 @@ describe("descriptor golden fixture — bos.app.ts ↔ bos.config.json", () => {
     const child = exampleChildApp();
     delete (child as Record<string, unknown>).plugins;
     const resolved = resolveApp("example.app", { "example.app": child });
-    expect(resolved.plugins?.apps).toMatchObject({ development: "local:plugins/apps" });
+    expect(resolved.plugins?.registry).toMatchObject({ development: "local:plugins/registry" });
   });
 });

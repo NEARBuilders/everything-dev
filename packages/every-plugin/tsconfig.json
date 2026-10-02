@@ -7,7 +7,6 @@
       "@/*": ["./src/*"],
       "every-plugin": ["./src/index.ts"],
       "every-plugin/normalize": ["./src/runtime/services/normalize.ts"],
-      "every-plugin/testing": ["./src/testing/index.ts"],
       "every-plugin/runtime": ["./src/runtime/index.ts"],
       "every-plugin/errors": ["./src/errors.ts"],
       "every-plugin/types": ["./src/types.ts"],

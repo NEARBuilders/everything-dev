@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { isExplicitDaoMember } from "@/services/dao";
-import { daoContext, getPluginClient, orgContext, teardown } from "../setup";
+import { authedContext, daoContext, getPluginClient, orgContext, teardown } from "../setup";
 
 vi.mock("@/services/dao", () => ({
   verifyDaoMembership: vi.fn(() =>
@@ -22,6 +22,24 @@ describe("Tenant + Node + Binding wizard flow", () => {
 
   afterAll(async () => {
     await teardown();
+  });
+
+  it.each([
+    "pending",
+    "rejected",
+  ])("blocks direct tenant creation with a %s organization", async (status) => {
+    const ctx = daoContext("unapproved-user", `unapproved-${status}`, "unapproved-user.near");
+    const organization = ctx.organization as { organization: Record<string, unknown> };
+    organization.organization.status = status;
+    const client = await getPluginClient(ctx);
+    await expect(
+      client.createTenant({ name: "Unapproved tenant", accountId: `unapproved-${status}.near` }),
+    ).rejects.toThrow("approval");
+    expect(
+      (await client.listTenants()).some(
+        (tenant) => tenant.accountId === `unapproved-${status}.near`,
+      ),
+    ).toBe(false);
   });
 
   describe("full chain: createTenant → createNode → createBinding", () => {
@@ -342,6 +360,94 @@ describe("Tenant + Node + Binding wizard flow", () => {
       const apps = await publicClient.listTenantApps();
       const rows = apps.filter((app) => app.accountId === "discovery-multi.example.near");
       expect(rows).toHaveLength(1);
+    });
+  });
+
+  describe("stake community scoping", () => {
+    const organizations = [
+      { id: "org-stake-scope-a", role: "owner" },
+      { id: "org-stake-scope-b", role: "member" },
+    ];
+    const accounts = {
+      active: "stake-scope-active.example.near",
+      connected: "stake-scope-connected.example.near",
+      unrelated: "stake-scope-unrelated.example.near",
+    };
+
+    beforeAll(async () => {
+      const fixtures = [
+        {
+          userId: "stake-scope-owner-a",
+          organizationId: organizations[0]!.id,
+          accountId: accounts.active,
+          slug: "stake-scope-active",
+        },
+        {
+          userId: "stake-scope-owner-b",
+          organizationId: organizations[1]!.id,
+          accountId: accounts.connected,
+          slug: "stake-scope-connected",
+        },
+        {
+          userId: "stake-scope-owner-c",
+          organizationId: "org-stake-scope-c",
+          accountId: accounts.unrelated,
+          slug: "stake-scope-unrelated",
+        },
+      ];
+
+      for (const fixture of fixtures) {
+        const client = await getPluginClient(
+          daoContext(fixture.userId, fixture.organizationId, `${fixture.slug}.near`),
+        );
+        const tenant = await client.createTenant({
+          name: fixture.slug,
+          accountId: fixture.accountId,
+          status: "active",
+        });
+        await client.createNode({
+          kind: "community",
+          slug: fixture.slug,
+          name: fixture.slug,
+          parentId: null,
+          tenantId: tenant.id,
+        });
+      }
+    });
+
+    it("keeps the full directory for anonymous visitors", async () => {
+      const client = await getPluginClient();
+      const results = await client.listStakeCommunities();
+      const resultAccounts = new Set(results.map((result) => result.accountId));
+
+      expect(resultAccounts.has(accounts.active)).toBe(true);
+      expect(resultAccounts.has(accounts.connected)).toBe(true);
+      expect(resultAccounts.has(accounts.unrelated)).toBe(true);
+    });
+
+    it("returns only the active organization's community", async () => {
+      const client = await getPluginClient({
+        ...orgContext("stake-scope-member", organizations[0]!.id),
+        organizations,
+      });
+      const results = await client.listStakeCommunities();
+
+      expect(results.map((result) => result.accountId)).toEqual([accounts.active]);
+      expect(results[0]?.node?.id).toEqual(expect.any(String));
+    });
+
+    it("falls back to every connected organization when none is active", async () => {
+      const client = await getPluginClient({
+        ...authedContext("stake-scope-member"),
+        organization: { activeOrganizationId: null },
+        organizations,
+      });
+      const results = await client.listStakeCommunities();
+
+      expect(results.map((result) => result.accountId).sort()).toEqual(
+        [accounts.active, accounts.connected].sort(),
+      );
+      expect(results.some((result) => result.accountId === accounts.unrelated)).toBe(false);
     });
   });
 });

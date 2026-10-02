@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { resolveTxt } from "node:dns/promises";
 import { ORPCError } from "@orpc/server";
 import { and, eq, inArray, not, notLike, or } from "drizzle-orm";
-import { Context, Effect, Layer } from "effect";
+import { Context, DateTime, Effect, Layer } from "effect";
 import { DatabaseTag } from "../db/layer";
 import {
   domainBindings as domainBindingsTable,
@@ -64,7 +64,7 @@ export interface TenantAppRecord {
   status: TenantStatus;
   ownerKind: TenantOwnerKind;
   hostname: string | null;
-  node: { slug: string; kind: string | null; name: string } | null;
+  node: { id: string; slug: string; kind: string | null; name: string } | null;
   createdAt: string;
 }
 
@@ -110,11 +110,11 @@ export interface ApplyNodeProposalInput {
 }
 
 export interface TenantsService {
-  listAllTenants(): TenantEffect<TenantRecord[]>;
+  listAllTenants: TenantEffect<TenantRecord[]>;
   listTenantsByOrgIds(orgIds: string[]): TenantEffect<TenantRecord[]>;
   listTenantsByOwnerUserId(ownerUserId: string): TenantEffect<TenantRecord[]>;
-  listTenantApps(): TenantEffect<TenantAppRecord[]>;
-  listBindings(): TenantEffect<TenantBinding[]>;
+  listTenantApps(organizationIds?: readonly string[]): TenantEffect<TenantAppRecord[]>;
+  listBindings: TenantEffect<TenantBinding[]>;
   listBindingsForTenant(tenantId: string): TenantEffect<TenantBindingRecord[]>;
   createBinding(input: CreateBindingInput): TenantEffect<TenantBindingRecord>;
   spawnTenant(input: SpawnTenantInput): TenantEffect<SpawnTenantResult>;
@@ -208,11 +208,9 @@ export const TenantsLive = Layer.effect(
       Effect.tryPromise({ try: run, catch: toOrpcError });
 
     const service: TenantsService = {
-      listAllTenants: () =>
-        Effect.gen(function* () {
-          const rows = yield* query(() => db.select().from(tenantsTable));
-          return rows.map(toTenantRecord);
-        }),
+      listAllTenants: query(() => db.select().from(tenantsTable)).pipe(
+        Effect.map((rows) => rows.map(toTenantRecord)),
+      ),
 
       listTenantsByOwnerUserId: (ownerUserId) =>
         Effect.gen(function* () {
@@ -231,8 +229,13 @@ export const TenantsLive = Layer.effect(
           return rows.map(toTenantRecord);
         }),
 
-      listTenantApps: () =>
+      listTenantApps: (organizationIds) =>
         Effect.gen(function* () {
+          if (organizationIds?.length === 0) return [];
+          const conditions = [eq(tenantsTable.status, "active")];
+          if (organizationIds) {
+            conditions.push(inArray(tenantsTable.orgId, organizationIds));
+          }
           const rows = yield* query(() =>
             db
               .select({
@@ -242,6 +245,7 @@ export const TenantsLive = Layer.effect(
                 ownerKind: tenantsTable.ownerKind,
                 createdAt: tenantsTable.createdAt,
                 hostname: domainBindingsTable.hostname,
+                nodeId: nodesTable.id,
                 nodeSlug: nodesTable.slug,
                 nodeMetadata: nodesTable.metadata,
                 nodeName: nodesTable.name,
@@ -255,7 +259,7 @@ export const TenantsLive = Layer.effect(
                 ),
               )
               .leftJoin(nodesTable, eq(nodesTable.tenantId, tenantsTable.id))
-              .where(eq(tenantsTable.status, "active")),
+              .where(and(...conditions)),
           );
 
           const seen = new Set<string>();
@@ -270,8 +274,9 @@ export const TenantsLive = Layer.effect(
               ownerKind: (row.ownerKind ?? "platform") as TenantOwnerKind,
               hostname: row.hostname ?? null,
               node:
-                row.nodeSlug && row.nodeName
+                row.nodeId && row.nodeSlug && row.nodeName
                   ? {
+                      id: row.nodeId,
                       slug: row.nodeSlug,
                       kind: nodeKindOf(row.nodeMetadata),
                       name: row.nodeName,
@@ -284,29 +289,26 @@ export const TenantsLive = Layer.effect(
           return apps;
         }),
 
-      listBindings: () =>
-        Effect.gen(function* () {
-          return yield* query(() =>
-            db
-              .select({
-                hostname: domainBindingsTable.hostname,
-                tenantId: domainBindingsTable.tenantId,
-                accountId: tenantsTable.accountId,
-                allowUiOverrides: tenantsTable.allowUiOverrides,
-                allowBackendOverrides: tenantsTable.allowBackendOverrides,
-                allowSsr: tenantsTable.allowSsr,
-                status: tenantsTable.status,
-              })
-              .from(domainBindingsTable)
-              .innerJoin(tenantsTable, eq(domainBindingsTable.tenantId, tenantsTable.id))
-              .where(
-                or(
-                  eq(domainBindingsTable.isVerified, true),
-                  notLike(domainBindingsTable.hostname, "%.%"),
-                ),
-              ),
-          );
-        }),
+      listBindings: query(() =>
+        db
+          .select({
+            hostname: domainBindingsTable.hostname,
+            tenantId: domainBindingsTable.tenantId,
+            accountId: tenantsTable.accountId,
+            allowUiOverrides: tenantsTable.allowUiOverrides,
+            allowBackendOverrides: tenantsTable.allowBackendOverrides,
+            allowSsr: tenantsTable.allowSsr,
+            status: tenantsTable.status,
+          })
+          .from(domainBindingsTable)
+          .innerJoin(tenantsTable, eq(domainBindingsTable.tenantId, tenantsTable.id))
+          .where(
+            or(
+              eq(domainBindingsTable.isVerified, true),
+              notLike(domainBindingsTable.hostname, "%.%"),
+            ),
+          ),
+      ),
 
       listBindingsForTenant: (tenantId) =>
         Effect.gen(function* () {
@@ -336,6 +338,7 @@ export const TenantsLive = Layer.effect(
 
           const autoVerified =
             !input.hostname.includes(".") || isGatewayZoneHostname(input.hostname);
+          const verifiedAt = autoVerified ? yield* DateTime.nowAsDate : null;
           const rows = yield* Effect.tryPromise({
             try: () =>
               db
@@ -345,7 +348,7 @@ export const TenantsLive = Layer.effect(
                   hostname: input.hostname,
                   isPrimary: input.isPrimary ?? false,
                   isVerified: autoVerified,
-                  verifiedAt: autoVerified ? new Date() : null,
+                  verifiedAt,
                   verificationToken: generateVerificationToken(),
                 })
                 .returning(),

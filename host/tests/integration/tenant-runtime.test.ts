@@ -1,13 +1,15 @@
+import type { ResolutionIo } from "everything-dev/resolution";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfig } from "../../src/services/config";
 
-const loadRemoteConfigMock = vi.fn();
 const buildRuntimeConfigMock = vi.fn();
 const verifySriForUrlMock = vi.fn();
+const fetchBosConfigMock = vi.fn();
 
-vi.mock("everything-dev/config", async () => {
+vi.mock("everything-dev/config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("everything-dev/config")>();
   return {
-    loadRemoteConfig: loadRemoteConfigMock,
+    ...actual,
     buildRuntimeConfig: buildRuntimeConfigMock,
   };
 });
@@ -21,6 +23,49 @@ const { clearTenantRuntimeCaches, resolveRequestRuntime } = await import(
 );
 
 import type { BindingResolver } from "../../src/services/binding-resolver";
+
+let remoteConfigs: Record<string, unknown> = {};
+
+function setRemoteConfigs(...entries: Array<Record<string, unknown>>) {
+  remoteConfigs = {};
+  for (const entry of entries) {
+    remoteConfigs[`bos://${entry.account}/${entry.domain}`] = entry;
+  }
+}
+
+function createInMemoryIo(): ResolutionIo {
+  return {
+    fetchBosConfig: async (bosUrl: string) => {
+      fetchBosConfigMock(bosUrl);
+      const config = remoteConfigs[bosUrl];
+      if (!config) {
+        throw new Error(`No config found for ${bosUrl}`);
+      }
+      return config;
+    },
+  };
+}
+
+const ROOT_CONFIG = {
+  account: "linktree.near",
+  domain: "linktree.com",
+  app: {
+    host: { development: "local:host", production: "https://host.example.com" },
+    ui: { name: "ui", production: "https://cdn.example.com/base-ui" },
+    api: { name: "api", production: "https://api.example.com" },
+  },
+};
+
+const ALICE_CONFIG = {
+  extends: "bos://linktree.near/linktree.com",
+  account: "alice.linktree.near",
+  domain: "linktree.com",
+  app: {
+    host: { development: "local:host", production: "https://host.example.com" },
+    ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
+    api: { name: "api", production: "https://api.example.com" },
+  },
+};
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -121,6 +166,7 @@ describe("resolveRequestRuntime", () => {
     vi.clearAllMocks();
     clearTenantRuntimeCaches();
     verifySriForUrlMock.mockResolvedValue(undefined);
+    remoteConfigs = {};
   });
 
   it("returns the base runtime on the bare domain", async () => {
@@ -128,29 +174,16 @@ describe("resolveRequestRuntime", () => {
 
     const result = await resolveRequestRuntime(baseConfig, new Request("https://linktree.com/"), {
       bindingResolver: createMockBindingResolver(),
+      io: createInMemoryIo(),
     });
 
     expect(result.config).toBe(baseConfig);
     expect(result.tenantAccountId).toBeNull();
-    expect(loadRemoteConfigMock).not.toHaveBeenCalled();
+    expect(fetchBosConfigMock).not.toHaveBeenCalled();
   });
 
   it("resolves the tenant account for a hostname via the binding resolver", async () => {
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
-      },
-      config: {
-        account: "alice.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
-          api: { name: "api", production: "https://api.example.com" },
-        },
-      },
-      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
-    });
+    setRemoteConfigs(ROOT_CONFIG, ALICE_CONFIG);
 
     buildRuntimeConfigMock.mockResolvedValue({
       ...createBaseRuntimeConfig(),
@@ -171,34 +204,24 @@ describe("resolveRequestRuntime", () => {
           hostname: "alice.linktree.com",
           allowUiOverrides: true,
         }),
+        io: createInMemoryIo(),
       },
     );
 
     expect(result.tenantAccountId).toBe("alice.linktree.near");
-    expect(loadRemoteConfigMock).toHaveBeenCalledWith(
-      "bos://alice.linktree.near/linktree.com",
-      "production",
-    );
+    expect(fetchBosConfigMock).toHaveBeenCalledWith("bos://alice.linktree.near/linktree.com");
   });
 
   it("resolves nested tenant hostnames via the binding resolver", async () => {
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://chicago.alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
+    setRemoteConfigs(ROOT_CONFIG, {
+      extends: "bos://linktree.near/linktree.com",
+      account: "chicago.alice.linktree.near",
+      domain: "linktree.com",
+      app: {
+        host: { development: "local:host", production: "https://host.example.com" },
+        ui: { name: "ui", production: "https://cdn.example.com/chicago-ui" },
+        api: { name: "api", production: "https://api.example.com" },
       },
-      config: {
-        account: "chicago.alice.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/chicago-ui" },
-          api: { name: "api", production: "https://api.example.com" },
-        },
-      },
-      extendsChain: [
-        "bos://chicago.alice.linktree.near/linktree.com",
-        "bos://linktree.near/linktree.com",
-      ],
     });
 
     buildRuntimeConfigMock.mockResolvedValue({
@@ -220,41 +243,45 @@ describe("resolveRequestRuntime", () => {
           hostname: "chicago.alice.linktree.com",
           allowUiOverrides: true,
         }),
+        io: createInMemoryIo(),
       },
     );
 
     expect(result.tenantAccountId).toBe("chicago.alice.linktree.near");
-    expect(loadRemoteConfigMock).toHaveBeenCalledWith(
+    expect(fetchBosConfigMock).toHaveBeenCalledWith(
       "bos://chicago.alice.linktree.near/linktree.com",
-      "production",
     );
   });
 
   it("requires the tenant config to extend the base runtime", async () => {
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://somewhere-else.near/linktree.com",
+    setRemoteConfigs(
+      {
+        account: "somewhere-else.near",
+        domain: "linktree.com",
+        app: {
+          host: { development: "local:host", production: "https://host.example.com" },
+          ui: { name: "ui", production: "https://cdn.example.com/elsewhere-ui" },
+          api: { name: "api", production: "https://api.example.com" },
+        },
       },
-      config: {
+      {
+        extends: "bos://somewhere-else.near/linktree.com",
         account: "alice.linktree.near",
+        domain: "linktree.com",
         app: {
           host: { development: "local:host", production: "https://host.example.com" },
           ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
           api: { name: "api", production: "https://api.example.com" },
         },
       },
-      extendsChain: [
-        "bos://alice.linktree.near/linktree.com",
-        "bos://somewhere-else.near/linktree.com",
-      ],
-    });
+    );
 
     buildRuntimeConfigMock.mockResolvedValue(createBaseRuntimeConfig());
 
     await expect(
       resolveRequestRuntime(createBaseRuntimeConfig(), new Request("https://alice.linktree.com/"), {
         bindingResolver: createMockBindingResolver({ hostname: "alice.linktree.com" }),
+        io: createInMemoryIo(),
       }),
     ).rejects.toThrow("must extend bos://linktree.near/linktree.com");
   });
@@ -266,9 +293,10 @@ describe("resolveRequestRuntime", () => {
           hostname: "alice.linktree.com",
           status: "suspended",
         }),
+        io: createInMemoryIo(),
       }),
     ).rejects.toMatchObject({ status: 503, message: "Tenant is suspended" });
-    expect(loadRemoteConfigMock).not.toHaveBeenCalled();
+    expect(fetchBosConfigMock).not.toHaveBeenCalled();
   });
 
   it("rejects a pending_deletion tenant with 410 based on the binding status", async () => {
@@ -278,31 +306,20 @@ describe("resolveRequestRuntime", () => {
           hostname: "alice.linktree.com",
           status: "pending_deletion",
         }),
+        io: createInMemoryIo(),
       }),
     ).rejects.toMatchObject({ status: 410, message: "Tenant has been deleted" });
-    expect(loadRemoteConfigMock).not.toHaveBeenCalled();
+    expect(fetchBosConfigMock).not.toHaveBeenCalled();
   });
 
   it("applies a tenant UI override and allows SSR when the binding enables both", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
-      },
-      config: {
-        account: "alice.linktree.near",
-        title: "Alice",
-        description: "Alice links",
-        repository: "https://github.com/example/alice",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
-          api: { name: "api", production: "https://api.example.com" },
-        },
-      },
-      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
+    setRemoteConfigs(ROOT_CONFIG, {
+      ...ALICE_CONFIG,
+      title: "Alice",
+      description: "Alice links",
+      repository: "https://github.com/example/alice",
     });
 
     buildRuntimeConfigMock.mockResolvedValue({
@@ -330,6 +347,7 @@ describe("resolveRequestRuntime", () => {
           allowUiOverrides: true,
           allowSsr: true,
         }),
+        io: createInMemoryIo(),
       },
     );
 
@@ -341,26 +359,22 @@ describe("resolveRequestRuntime", () => {
     expect(verifySriForUrlMock).toHaveBeenCalledWith(
       "https://cdn.example.com/alice-ui",
       "sha384-alice",
+      undefined,
     );
   });
 
   it("disables SSR when the binding does not allow it", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://bob.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
+    setRemoteConfigs(ROOT_CONFIG, {
+      extends: "bos://linktree.near/linktree.com",
+      account: "bob.linktree.near",
+      domain: "linktree.com",
+      app: {
+        host: { development: "local:host", production: "https://host.example.com" },
+        ui: { name: "ui", production: "https://cdn.example.com/bob-ui" },
+        api: { name: "api", production: "https://api.example.com" },
       },
-      config: {
-        account: "bob.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/bob-ui" },
-          api: { name: "api", production: "https://api.example.com" },
-        },
-      },
-      extendsChain: ["bos://bob.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
     buildRuntimeConfigMock.mockResolvedValue({
@@ -385,6 +399,7 @@ describe("resolveRequestRuntime", () => {
           allowUiOverrides: true,
           allowSsr: false,
         }),
+        io: createInMemoryIo(),
       },
     );
 
@@ -396,24 +411,19 @@ describe("resolveRequestRuntime", () => {
   it("disables SSR for SSR-enabled bindings when ssrIntegrity is missing", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
-      },
-      config: {
-        account: "alice.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: {
-            name: "ui",
-            production: "https://cdn.example.com/alice-ui",
-            ssr: "https://cdn.example.com/alice-ui-ssr",
-          },
-          api: { name: "api", production: "https://api.example.com" },
+    setRemoteConfigs(ROOT_CONFIG, {
+      extends: "bos://linktree.near/linktree.com",
+      account: "alice.linktree.near",
+      domain: "linktree.com",
+      app: {
+        host: { development: "local:host", production: "https://host.example.com" },
+        ui: {
+          name: "ui",
+          production: "https://cdn.example.com/alice-ui",
+          ssr: "https://cdn.example.com/alice-ui-ssr",
         },
+        api: { name: "api", production: "https://api.example.com" },
       },
-      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
     buildRuntimeConfigMock.mockResolvedValue({
@@ -438,6 +448,7 @@ describe("resolveRequestRuntime", () => {
           allowUiOverrides: true,
           allowSsr: true,
         }),
+        io: createInMemoryIo(),
       },
     );
 
@@ -449,21 +460,7 @@ describe("resolveRequestRuntime", () => {
   it("disables SSR for SSR-enabled bindings when ssrUrl is missing", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
-      },
-      config: {
-        account: "alice.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
-          api: { name: "api", production: "https://api.example.com" },
-        },
-      },
-      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
-    });
+    setRemoteConfigs(ROOT_CONFIG, ALICE_CONFIG);
 
     buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
@@ -486,6 +483,7 @@ describe("resolveRequestRuntime", () => {
           allowUiOverrides: true,
           allowSsr: true,
         }),
+        io: createInMemoryIo(),
       },
     );
 
@@ -497,25 +495,20 @@ describe("resolveRequestRuntime", () => {
   it("allows SSR when the binding enables SSR and both ssrUrl and ssrIntegrity are present", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
-      },
-      config: {
-        account: "alice.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: {
-            name: "ui",
-            production: "https://cdn.example.com/alice-ui",
-            ssr: "https://cdn.example.com/alice-ui-ssr",
-            ssrIntegrity: "sha384-alice-ssr",
-          },
-          api: { name: "api", production: "https://api.example.com" },
+    setRemoteConfigs(ROOT_CONFIG, {
+      extends: "bos://linktree.near/linktree.com",
+      account: "alice.linktree.near",
+      domain: "linktree.com",
+      app: {
+        host: { development: "local:host", production: "https://host.example.com" },
+        ui: {
+          name: "ui",
+          production: "https://cdn.example.com/alice-ui",
+          ssr: "https://cdn.example.com/alice-ui-ssr",
+          ssrIntegrity: "sha384-alice-ssr",
         },
+        api: { name: "api", production: "https://api.example.com" },
       },
-      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
     buildRuntimeConfigMock.mockResolvedValue({
@@ -541,6 +534,7 @@ describe("resolveRequestRuntime", () => {
           allowUiOverrides: true,
           allowSsr: true,
         }),
+        io: createInMemoryIo(),
       },
     );
 
@@ -552,36 +546,33 @@ describe("resolveRequestRuntime", () => {
   it("applies existing plugin UI overrides when backend overrides are allowed", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
+    setRemoteConfigs(ROOT_CONFIG, {
+      extends: "bos://linktree.near/linktree.com",
+      account: "alice.linktree.near",
+      domain: "linktree.com",
+      app: {
+        host: { development: "local:host", production: "https://host.example.com" },
+        ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
+        api: { name: "api", production: "https://api.example.com" },
       },
-      config: {
-        account: "alice.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
-          api: { name: "api", production: "https://api.example.com" },
-        },
-        plugins: {
-          apps: {
-            production: "https://plugins.example.com/alice-apps",
-            ui: {
-              production: "https://plugins.example.com/alice-apps-ui",
-              integrity: "sha384-apps-alice",
-            },
+      plugins: {
+        apps: {
+          production: "https://plugins.example.com/alice-apps",
+          ui: {
+            name: "alice-apps-ui",
+            production: "https://plugins.example.com/alice-apps-ui",
+            integrity: "sha384-apps-alice",
           },
-          ignored: {
-            production: "https://plugins.example.com/ignored",
-            ui: {
-              production: "https://plugins.example.com/ignored-ui",
-              integrity: "sha384-ignored",
-            },
+        },
+        ignored: {
+          production: "https://plugins.example.com/ignored",
+          ui: {
+            name: "ignored-ui",
+            production: "https://plugins.example.com/ignored-ui",
+            integrity: "sha384-ignored",
           },
         },
       },
-      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
     });
 
     buildRuntimeConfigMock.mockResolvedValue({
@@ -631,6 +622,7 @@ describe("resolveRequestRuntime", () => {
           allowSsr: true,
           allowBackendOverrides: true,
         }),
+        io: createInMemoryIo(),
       },
     );
 
@@ -639,6 +631,7 @@ describe("resolveRequestRuntime", () => {
     expect(verifySriForUrlMock).toHaveBeenCalledWith(
       "https://plugins.example.com/alice-apps-ui",
       "sha384-apps-alice",
+      undefined,
     );
   });
 
@@ -651,24 +644,7 @@ describe("resolveRequestRuntime", () => {
     try {
       const baseConfig = createBaseRuntimeConfig();
 
-      loadRemoteConfigMock.mockResolvedValue({
-        source: "bos://alice.linktree.near/linktree.com",
-        rawConfig: {
-          extends: "bos://linktree.near/linktree.com",
-        },
-        config: {
-          account: "alice.linktree.near",
-          app: {
-            host: { development: "local:host", production: "https://host.example.com" },
-            ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
-            api: { name: "api", production: "https://api.example.com" },
-          },
-        },
-        extendsChain: [
-          "bos://alice.linktree.near/linktree.com",
-          "bos://linktree.near/linktree.com",
-        ],
-      });
+      setRemoteConfigs(ROOT_CONFIG, ALICE_CONFIG);
 
       buildRuntimeConfigMock.mockResolvedValue({
         ...baseConfig,
@@ -683,12 +659,14 @@ describe("resolveRequestRuntime", () => {
         },
       });
 
+      const io = createInMemoryIo();
       await resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/"), {
         bindingResolver: createMockBindingResolver({
           hostname: "alice.linktree.com",
           allowUiOverrides: true,
           allowSsr: true,
         }),
+        io,
       });
 
       const refresh = createDeferred<void>();
@@ -703,6 +681,7 @@ describe("resolveRequestRuntime", () => {
             allowUiOverrides: true,
             allowSsr: true,
           }),
+          io,
         }),
       ).resolves.toMatchObject({ tenantAccountId: "alice.linktree.near" });
       expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
@@ -715,6 +694,7 @@ describe("resolveRequestRuntime", () => {
             allowUiOverrides: true,
             allowSsr: true,
           }),
+          io,
         }),
       ).resolves.toMatchObject({ tenantAccountId: "alice.linktree.near" });
       expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
@@ -734,6 +714,7 @@ describe("resolveRequestRuntime", () => {
               allowUiOverrides: true,
               allowSsr: true,
             }),
+            io,
           }),
         ).rejects.toThrow("Integrity check failed");
         expect(verifySriForUrlMock).toHaveBeenCalledTimes(3);
@@ -745,6 +726,7 @@ describe("resolveRequestRuntime", () => {
               allowUiOverrides: true,
               allowSsr: true,
             }),
+            io,
           }),
         ).resolves.toMatchObject({ tenantAccountId: "alice.linktree.near" });
         expect(verifySriForUrlMock).toHaveBeenCalledTimes(4);
@@ -760,24 +742,7 @@ describe("resolveRequestRuntime", () => {
     try {
       const baseConfig = createBaseRuntimeConfig();
 
-      loadRemoteConfigMock.mockResolvedValue({
-        source: "bos://alice.linktree.near/linktree.com",
-        rawConfig: {
-          extends: "bos://linktree.near/linktree.com",
-        },
-        config: {
-          account: "alice.linktree.near",
-          app: {
-            host: { development: "local:host", production: "https://host.example.com" },
-            ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
-            api: { name: "api", production: "https://api.example.com" },
-          },
-        },
-        extendsChain: [
-          "bos://alice.linktree.near/linktree.com",
-          "bos://linktree.near/linktree.com",
-        ],
-      });
+      setRemoteConfigs(ROOT_CONFIG, ALICE_CONFIG);
 
       buildRuntimeConfigMock.mockResolvedValue({
         ...baseConfig,
@@ -792,12 +757,14 @@ describe("resolveRequestRuntime", () => {
         },
       });
 
+      const io = createInMemoryIo();
       await resolveRequestRuntime(baseConfig, new Request("https://alice.linktree.com/"), {
         bindingResolver: createMockBindingResolver({
           hostname: "alice.linktree.com",
           allowUiOverrides: true,
           allowSsr: true,
         }),
+        io,
       });
 
       const refresh = createDeferred<void>();
@@ -815,6 +782,7 @@ describe("resolveRequestRuntime", () => {
             allowUiOverrides: true,
             allowSsr: true,
           }),
+          io,
         },
       ).then(() => {
         settled = true;
@@ -834,21 +802,7 @@ describe("resolveRequestRuntime", () => {
   it("gates SSR per tenant based on the binding allowSsr flag", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
-      },
-      config: {
-        account: "alice.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
-          api: { name: "api", production: "https://api.example.com" },
-        },
-      },
-      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
-    });
+    setRemoteConfigs(ROOT_CONFIG, ALICE_CONFIG);
 
     buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
@@ -872,6 +826,7 @@ describe("resolveRequestRuntime", () => {
           allowUiOverrides: true,
           allowSsr: false,
         }),
+        io: createInMemoryIo(),
       },
     );
     expect(blocked.ssrAllowed).toBe(false);
@@ -886,6 +841,7 @@ describe("resolveRequestRuntime", () => {
           allowUiOverrides: true,
           allowSsr: true,
         }),
+        io: createInMemoryIo(),
       },
     );
     expect(allowed.ssrAllowed).toBe(true);
@@ -895,21 +851,7 @@ describe("resolveRequestRuntime", () => {
   it("does not apply tenant UI overrides when the binding disallows them", async () => {
     const baseConfig = createBaseRuntimeConfig();
 
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
-      },
-      config: {
-        account: "alice.linktree.near",
-        app: {
-          host: { development: "local:host", production: "https://host.example.com" },
-          ui: { name: "ui", production: "https://cdn.example.com/alice-ui" },
-          api: { name: "api", production: "https://api.example.com" },
-        },
-      },
-      extendsChain: ["bos://alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
-    });
+    setRemoteConfigs(ROOT_CONFIG, ALICE_CONFIG);
 
     buildRuntimeConfigMock.mockResolvedValue({
       ...baseConfig,
@@ -930,6 +872,7 @@ describe("resolveRequestRuntime", () => {
           hostname: "alice.linktree.com",
           allowUiOverrides: false,
         }),
+        io: createInMemoryIo(),
       },
     );
 

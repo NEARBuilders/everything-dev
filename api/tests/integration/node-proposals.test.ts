@@ -14,11 +14,32 @@ vi.mock("@/services/dao", () => ({
 const adminContext = {
   ...authedContext("node-proposal-admin", "admin"),
   near: { primaryAccountId: "node-proposal-admin.near" },
+  organization: {
+    activeOrganizationId: "unrelated-pending-org",
+    organization: { id: "unrelated-pending-org", status: "pending" },
+  },
 };
 
 describe("node proposal application", () => {
   beforeAll(async () => {
-    await getPluginClient();
+    await getPluginClient(undefined, {
+      auth: {
+        client: () => ({
+          getOrganizationForAdmin: async ({ organizationId }: { organizationId: string }) =>
+            organizationId === "absent-org"
+              ? null
+              : {
+                  id: organizationId,
+                  status: organizationId.startsWith("pending")
+                    ? "pending"
+                    : organizationId.startsWith("rejected")
+                      ? "rejected"
+                      : "active",
+                },
+        }),
+        router: {},
+      },
+    } as never);
   }, 30_000);
 
   afterAll(async () => {
@@ -87,6 +108,47 @@ describe("node proposal application", () => {
         hostname: "unauthorized-country.citynode.app",
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it.each([
+    "pending",
+    "rejected",
+  ])("does not link a %s organization to a tenant", async (status) => {
+    const admin = await getPluginClient(adminContext);
+    await expect(
+      admin.applyNodeProposal({
+        kind: "country",
+        name: "Gated org",
+        slug: `${status}-org`,
+        parentId: null,
+        orgId: `${status}-org`,
+        motivation: "Test the organization approval gate.",
+        accountId: `${status}-org.near`,
+        submitterAccountId: "proposal-applicant.near",
+        hostname: `${status}-org.citynode.app`,
+      }),
+    ).rejects.toThrow("approval");
+    expect((await admin.listTenants()).some((tenant) => tenant.orgId === `${status}-org`)).toBe(
+      false,
+    );
+  });
+
+  it("does not provision a tenant when the proposal organization no longer exists", async () => {
+    const admin = await getPluginClient(adminContext);
+    await expect(
+      admin.applyNodeProposal({
+        kind: "country",
+        name: "Missing organization",
+        slug: "absent-org",
+        parentId: null,
+        orgId: "absent-org",
+        motivation: "Test organization lookup before provisioning.",
+        accountId: "absent-org.near",
+        submitterAccountId: "proposal-applicant.near",
+        hostname: "absent-org.citynode.app",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect((await admin.listTenants()).some((tenant) => tenant.orgId === "absent-org")).toBe(false);
   });
 
   it("rejects proposals whose applicant is not a member of the tenant DAO", async () => {

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { Effect } from "effect";
+import { Clock, Effect } from "effect";
 import { PortAllocator, type PortBlockEntry } from "../app";
 import {
   buildConventionalDatabases,
@@ -167,17 +167,17 @@ function allocateServices(
     const allocation = yield* allocator.acquireBlock({ base, step: BLOCK_STEP, entries });
 
     if (allocation.base !== base) {
-      console.error(
+      yield* Effect.logError(
         `[Dev] Preferred port block starting at ${base} is occupied — using ${allocation.base} (this run only; restarts will retry ${base})`,
       );
       for (const conflict of allocation.conflicts.slice(0, 6)) {
         if (conflict.claimed) {
-          console.error(
+          yield* Effect.logError(
             `[Dev]   port ${conflict.port} (${conflict.key}) — live bos session (registry claim)`,
           );
         } else {
           const owner = yield* ownerOfPort(conflict.port);
-          console.error(
+          yield* Effect.logError(
             `[Dev]   port ${conflict.port} (${conflict.key}) — ${
               owner ? `pid ${owner.pid} (${owner.command})` : "foreign holder (lsof unavailable)"
             }`,
@@ -223,7 +223,7 @@ function allocateServices(
       pid: process.pid,
       configDir,
       ports: claimPorts,
-      startedAt: Date.now(),
+      startedAt: yield* Clock.currentTimeMillis,
     };
 
     return { ports: resolved, claims: [claim], devPortsState };

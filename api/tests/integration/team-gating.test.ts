@@ -124,3 +124,54 @@ describe("team area gating on node operations", () => {
     await expect(client.getNode({ nodeId: node.id })).resolves.toMatchObject({ id: node.id });
   });
 });
+
+describe("team area gating on setNodeBulletin", () => {
+  it("allows a team member whose active team is granted node-operations", async () => {
+    const node = await seedNode();
+    const client = await getPluginClient(teamContext("ops-member", { areas: ["node-operations"] }));
+
+    await expect(
+      client.setNodeBulletin({ nodeId: node.id, bulletin: "More features coming soon." }),
+    ).resolves.toMatchObject({ metadata: { bulletin: "More features coming soon." } });
+  });
+
+  it("rejects a team member whose active team lacks node-operations", async () => {
+    const node = await seedNode();
+    const client = await getPluginClient(teamContext("finance-member", { areas: ["finance"] }));
+
+    await expect(
+      client.setNodeBulletin({ nodeId: node.id, bulletin: "Nope" }),
+    ).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      data: { requiredPermissions: ["node-operations"], action: "switch-team" },
+    });
+  });
+
+  it("rejects users without an active organization", async () => {
+    const node = await seedNode();
+    const client = await getPluginClient(authedContext("orgless-user"));
+
+    await expect(
+      client.setNodeBulletin({ nodeId: node.id, bulletin: "Nope" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("merges into metadata instead of replacing it, unlike updateNode", async () => {
+    const node = await seedNode();
+    const owner = await getPluginClient(teamContext("bulletin-owner", { orgRole: "owner" }));
+
+    await owner.updateNode({ nodeId: node.id, metadata: { poolAccountId: "pool.poolv1.near" } });
+    const withBulletin = await owner.setNodeBulletin({
+      nodeId: node.id,
+      bulletin: "More features coming soon.",
+    });
+    expect(withBulletin.metadata).toMatchObject({
+      poolAccountId: "pool.poolv1.near",
+      bulletin: "More features coming soon.",
+    });
+
+    const cleared = await owner.setNodeBulletin({ nodeId: node.id, bulletin: null });
+    expect(cleared.metadata).toMatchObject({ poolAccountId: "pool.poolv1.near" });
+    expect(cleared.metadata.bulletin).toBeUndefined();
+  });
+});

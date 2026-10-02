@@ -1,6 +1,6 @@
 import type { ContractedRouter } from "@orpc/server";
 import { ORPCError } from "@orpc/server";
-import { Context, Effect, Layer } from "effect";
+import { Cause, Context, DateTime, Effect, Exit, Layer } from "effect";
 import { buildScopedContext, createPlugin } from "every-plugin";
 import { createAuthMiddleware } from "everything-dev/api";
 import { suppressPgQueryQueueDeprecation } from "everything-dev/db";
@@ -13,6 +13,7 @@ import type { PluginsClient } from "./lib/plugins-types.gen";
 import { verifyDaoMembership } from "./services/dao";
 import type { DiscoveryService } from "./services/discovery";
 import { DiscoveryLive, DiscoveryTag } from "./services/discovery";
+import { GeocodeLive } from "./services/discovery-geocode";
 import type { NodeEffect, NodeRecord, NodesService } from "./services/nodes";
 import { NodesLive, NodesTag } from "./services/nodes";
 import {
@@ -246,6 +247,14 @@ export default createPlugin.withPlugins<PluginsClient>()({
       .describe(
         "Comma-separated domains whose subdomains the platform controls (auto-verified bindings)",
       ),
+    domain: z
+      .string()
+      .default("localhost")
+      .describe("Runtime domain used to identify outbound geocode requests"),
+    repository: z
+      .string()
+      .default("")
+      .describe("Repository URL included in the Nominatim User-Agent"),
   }),
 
   secrets: z.object({
@@ -269,12 +278,19 @@ export default createPlugin.withPlugins<PluginsClient>()({
           TenantsLive,
           NodesLive,
           ValidatorsLive,
-          DiscoveryLive(config.secrets.LUMA_CALENDAR_API_KEYS),
+          DiscoveryLive(config.secrets.LUMA_CALENDAR_API_KEYS).pipe(
+            Layer.provide(
+              GeocodeLive({
+                domain: config.variables.domain,
+                repository: config.variables.repository,
+              }),
+            ),
+          ),
           StorageLive,
         ).pipe(Layer.provide(database), Layer.provide(TenantsConfigLive(gatewayDomains))),
       );
 
-      console.log("[API] Services Initialized");
+      yield* Effect.log("[API] Services Initialized");
 
       return Layer.mergeAll(
         Layer.succeed(ApiServices, {
@@ -291,6 +307,33 @@ export default createPlugin.withPlugins<PluginsClient>()({
     const { requireAuth, requireAdmin, requireOrganization, requireOrgRole } =
       createAuthMiddleware<AuthContext>(builder);
     const requireNodeOperations = createRequireTeamArea(builder)("node-operations");
+    const resolveProposalOrganization = builder.middleware(
+      async ({ context, next }, input: { orgId: string }) => {
+        const authPlugin = plugins.auth;
+        if (!authPlugin) {
+          throw new ORPCError("INTERNAL_SERVER_ERROR", {
+            message: "The auth plugin is not available",
+          });
+        }
+        const organization = await authPlugin
+          .client({ reqHeaders: Object.fromEntries(new Headers(context.reqHeaders).entries()) })
+          .getOrganizationForAdmin({ organizationId: input.orgId });
+        const organizationContext: NonNullable<AuthContext["organization"]> = {
+          activeOrganizationId: organization?.id ?? null,
+          organization,
+          member: null,
+          isPersonal: false,
+          hasOrganization: !!organization,
+          teams: [],
+          activeTeamId: null,
+        };
+        return next({
+          context: {
+            organization: organizationContext,
+          },
+        });
+      },
+    );
 
     const router = {
       trackDiscovery: builder.trackDiscovery.effect(function* ({ input, context }) {
@@ -413,6 +456,9 @@ export default createPlugin.withPlugins<PluginsClient>()({
         const auth = authPlugin.client({
           reqHeaders: Object.fromEntries(new Headers(context.reqHeaders).entries()),
         });
+        const expiresAt = input.expiresAt
+          ? DateTime.toDateUtc(DateTime.makeUnsafe(input.expiresAt))
+          : DateTime.toDateUtc(DateTime.makeUnsafe(Date.parse(endsAt) + ONBOARDING_GRACE_MS));
         return yield* Effect.tryPromise<
           z.infer<typeof EventOnboardingCodeSchema>,
           ORPCError<string, unknown>
@@ -423,9 +469,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
               eventId: event.id,
               eventName: event.title,
               ...(input.maxUses ? { maxUses: input.maxUses } : {}),
-              expiresAt: input.expiresAt
-                ? new Date(input.expiresAt)
-                : new Date(Date.parse(endsAt) + ONBOARDING_GRACE_MS),
+              expiresAt,
             }),
           catch: (error) =>
             error instanceof ORPCError
@@ -459,7 +503,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
       listTenants: builder.listTenants.use(requireAuth).effect(function* ({ context }) {
         const services = yield* ApiServices;
         if (context.user?.role === "admin") {
-          return yield* services.tenants.listAllTenants();
+          return yield* services.tenants.listAllTenants;
         }
         const ownerTenants = yield* services.tenants.listTenantsByOwnerUserId(context.user.id);
         const orgId = context.organization?.activeOrganizationId;
@@ -614,7 +658,9 @@ export default createPlugin.withPlugins<PluginsClient>()({
       resolveTenant: builder.resolveTenant.effect(function* ({ input }) {
         const services = yield* ApiServices;
         const tenant = yield* services.tenants.resolveTenantByAccountId(input.accountId);
-        return tenant ?? null;
+        if (!tenant) return null;
+        const { ownerUserId: _ownerUserId, ...publicTenant } = tenant;
+        return publicTenant;
       }),
 
       resolveTenantByOrgId: builder.resolveTenantByOrgId.effect(function* ({ input, errors }) {
@@ -628,12 +674,13 @@ export default createPlugin.withPlugins<PluginsClient>()({
             }),
           );
         }
-        return tenant;
+        const { ownerUserId: _ownerUserId, ...publicTenant } = tenant;
+        return publicTenant;
       }),
 
       listTenantBindings: builder.listTenantBindings.effect(function* () {
         const services = yield* ApiServices;
-        return yield* services.tenants.listBindings();
+        return yield* services.tenants.listBindings;
       }),
 
       listTenantApps: builder.listTenantApps.effect(function* () {
@@ -641,11 +688,24 @@ export default createPlugin.withPlugins<PluginsClient>()({
         return yield* services.tenants.listTenantApps();
       }),
 
+      listStakeCommunities: builder.listStakeCommunities.effect(function* ({ context }) {
+        const services = yield* ApiServices;
+        if (!context.user || context.user.isAnonymous === true) {
+          return yield* services.tenants.listTenantApps();
+        }
+        const activeOrganizationId = context.organization?.activeOrganizationId;
+        const organizationIds = activeOrganizationId
+          ? [activeOrganizationId]
+          : (context.organizations ?? []).map((organization) => organization.id);
+        return yield* services.tenants.listTenantApps(organizationIds);
+      }),
+
       listTenantBindingsForTenant: builder.listTenantBindingsForTenant
         .use(requireAuth)
-        .effect(function* ({ input }) {
+        .effect(function* ({ input, context }) {
           const services = yield* ApiServices;
-          return yield* services.tenants.listBindingsForTenant(input.tenantId);
+          const tenant = yield* authorizedTenant(services, input, context);
+          return yield* services.tenants.listBindingsForTenant(tenant.id);
         }),
 
       createBinding: builder.createBinding.use(requireAuth).effect(function* ({ input, context }) {
@@ -687,7 +747,9 @@ export default createPlugin.withPlugins<PluginsClient>()({
       resolveBindingByHostname: builder.resolveBindingByHostname.effect(function* ({ input }) {
         const services = yield* ApiServices;
         const binding = yield* services.tenants.resolveBindingByHostname(input.hostname);
-        return binding ?? null;
+        if (!binding) return null;
+        const { verificationToken: _verificationToken, ...publicBinding } = binding;
+        return publicBinding;
       }),
 
       bindingPreflight: builder.bindingPreflight.use(requireAuth).effect(function* ({ input }) {
@@ -704,38 +766,42 @@ export default createPlugin.withPlugins<PluginsClient>()({
         };
       }),
 
-      applyNodeProposal: builder.applyNodeProposal.use(requireAdmin).effect(function* ({ input }) {
-        const services = yield* ApiServices;
-        yield* validateAccountId(input.accountId);
-        yield* validateAccountId(input.submitterAccountId);
-        if (input.poolAccountId) yield* validateAccountId(input.poolAccountId);
-        yield* validateHostname(input.hostname);
-        const result = yield* verifyDaoMembership({
-          daoAccountId: input.accountId,
-          memberAccountId: input.submitterAccountId,
-        });
-        if (!result.isMember) {
-          return yield* Effect.fail(
-            new ORPCError("FORBIDDEN", {
-              message: `${input.submitterAccountId} is not a member of ${input.accountId} — add it under the DAO's members at https://trezu.app/${input.accountId}/members`,
-              data: {
-                daoAccountId: input.accountId,
-                submitterAccountId: input.submitterAccountId,
-              },
-            }),
-          );
-        }
-        return yield* services.tenants.applyNodeProposal({
-          kind: input.kind,
-          name: input.name,
-          slug: input.slug,
-          parentId: input.parentId,
-          orgId: input.orgId,
-          accountId: input.accountId,
-          hostname: input.hostname.toLowerCase(),
-          ...(input.poolAccountId ? { poolAccountId: input.poolAccountId } : {}),
-        });
-      }),
+      applyNodeProposal: builder.applyNodeProposal
+        .use(requireAdmin)
+        .use(resolveProposalOrganization)
+        .use(requireOrganization)
+        .effect(function* ({ input }) {
+          const services = yield* ApiServices;
+          yield* validateAccountId(input.accountId);
+          yield* validateAccountId(input.submitterAccountId);
+          if (input.poolAccountId) yield* validateAccountId(input.poolAccountId);
+          yield* validateHostname(input.hostname);
+          const result = yield* verifyDaoMembership({
+            daoAccountId: input.accountId,
+            memberAccountId: input.submitterAccountId,
+          });
+          if (!result.isMember) {
+            return yield* Effect.fail(
+              new ORPCError("FORBIDDEN", {
+                message: `${input.submitterAccountId} is not a member of ${input.accountId} — add it under the DAO's members at https://trezu.app/${input.accountId}/members`,
+                data: {
+                  daoAccountId: input.accountId,
+                  submitterAccountId: input.submitterAccountId,
+                },
+              }),
+            );
+          }
+          return yield* services.tenants.applyNodeProposal({
+            kind: input.kind,
+            name: input.name,
+            slug: input.slug,
+            parentId: input.parentId,
+            orgId: input.orgId,
+            accountId: input.accountId,
+            hostname: input.hostname.toLowerCase(),
+            ...(input.poolAccountId ? { poolAccountId: input.poolAccountId } : {}),
+          });
+        }),
 
       listNodes: builder.listNodes.effect(function* ({ input }) {
         const services = yield* ApiServices;
@@ -838,6 +904,19 @@ export default createPlugin.withPlugins<PluginsClient>()({
           });
         }),
 
+      setNodeBulletin: builder.setNodeBulletin
+        .use(requireAuth)
+        .use(requireNodeOperations)
+        .effect(function* ({ input, context }) {
+          const services = yield* ApiServices;
+          const node = yield* resolveNodeForAccess(services, input.nodeId);
+          yield* authorizeNodeAccess(services, node, context, {
+            adminBypassOrg: true,
+            resource: "node",
+          });
+          return yield* services.nodes.setBulletin(input.nodeId, input.bulletin);
+        }),
+
       deleteNode: builder.deleteNode
         .use(requireAuth)
         .use(requireOrgRole("admin"))
@@ -863,7 +942,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
       listRootNodes: builder.listRootNodes.effect(function* () {
         const services = yield* ApiServices;
-        return yield* services.nodes.listRootNodes();
+        return yield* services.nodes.listRootNodes;
       }),
 
       listChildren: builder.listChildren.effect(function* ({ input }) {
@@ -1157,18 +1236,52 @@ export default createPlugin.withPlugins<PluginsClient>()({
           );
         }
 
-        const integrity: Record<string, string> = {};
-        for (const file of decoded) {
-          yield* services.storage.put({
-            key: buildBundleKey(input.account, input.gateway, input.workspace, file.objectPath),
-            bytes: file.bytes,
-            contentType: bundleContentType(file.name),
-            cacheControl: bundleCacheControl(file.name),
-          });
-          integrity[file.objectPath] = computeObjectIntegrity(file.bytes);
-        }
+        // Bounded pool: 736 sequential PUTs are minutes of pure round-trip
+        // latency; 4-way concurrency cuts wall time ~4x with no extra memory
+        // (all file bytes are already decoded in memory).
+        const integrityEntries = yield* Effect.forEach(
+          decoded,
+          (file) =>
+            Effect.gen(function* () {
+              // Exit + squash: the storage layer's put is typed never-error
+              // (Effect.promise rejections are defects) — this catches both
+              // defects and typed failures so the cause reaches the client
+              // as a CONNECTION_ERROR instead of a bare INTERNAL_SERVER_ERROR.
+              const put = yield* Effect.exit(
+                services.storage.put({
+                  key: buildBundleKey(
+                    input.account,
+                    input.gateway,
+                    input.workspace,
+                    file.objectPath,
+                  ),
+                  bytes: file.bytes,
+                  contentType: bundleContentType(file.name),
+                  cacheControl: bundleCacheControl(file.name),
+                }),
+              );
+              if (Exit.isFailure(put)) {
+                const cause = Cause.squash(put.cause);
+                return yield* Effect.fail(
+                  errors.CONNECTION_ERROR({
+                    message: `Bundle storage failed for ${file.objectPath}: ${
+                      cause instanceof Error ? cause.message : String(cause)
+                    }`,
+                    data: {
+                      errorCode: "STORAGE_PUT_FAILED",
+                      suggestion:
+                        "Check BOS_STORAGE_* (R2/MinIO) credentials and reachability on the API host",
+                    },
+                  }),
+                );
+              }
+              return [file.objectPath, computeObjectIntegrity(file.bytes)] as const;
+            }),
+          { concurrency: 4 },
+        );
+        const integrity = Object.fromEntries(integrityEntries);
 
-        return { stored: decoded.length, totalBytes, integrity };
+        return { stored: decoded.length, totalBytes, integrity, storage: services.storage.backend };
       }),
     };
 

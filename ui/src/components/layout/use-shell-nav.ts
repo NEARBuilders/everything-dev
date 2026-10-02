@@ -1,16 +1,24 @@
 import { useQuery } from "@tanstack/react-query";
 import { useApiClient } from "@/app";
 import { resolveTeamWorkspace } from "@/lib/team-workspace";
+import manifestJson from "@/manifest.gen.json" with { type: "json" };
 import {
   appendPluginSidebarItems,
   buildNavItems,
   filterSidebarByArea,
   filterSidebarByRole,
+  filterSidebarByRoutes,
   getUserRole,
+  type ManifestRoute,
   pluginNavToSidebar,
+  routePathsFromManifest,
 } from "./nav-items";
 import { useIdentity } from "./use-identity";
 import { useTeamWorkspace } from "./use-team-workspace";
+
+const shippedRoutePaths = routePathsFromManifest(
+  (manifestJson as { routes: ManifestRoute[] }).routes,
+);
 
 export function useCanCurate(enabled: boolean) {
   const api = useApiClient();
@@ -42,8 +50,9 @@ export function useShellNav(
     canCurate,
     isAdmin,
   });
+  const withRoutes = filterSidebarByRoutes(builtin, shippedRoutePaths);
   const withPlugins = pluginNav?.items?.length
-    ? appendPluginSidebarItems(builtin, pluginNavToSidebar(pluginNav.items))
-    : builtin;
+    ? appendPluginSidebarItems(withRoutes, pluginNavToSidebar(pluginNav.items))
+    : withRoutes;
   return filterSidebarByArea(filterSidebarByRole(withPlugins, role), workspace.allowedAreas);
 }

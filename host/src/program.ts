@@ -1,6 +1,18 @@
 import { serve } from "@hono/node-server";
-import { Cause, Effect, Exit, Fiber, FiberHandle, Layer, ManagedRuntime } from "effect";
+import {
+  Cause,
+  Clock,
+  Config,
+  Effect,
+  Exit,
+  Fiber,
+  FiberHandle,
+  Layer,
+  ManagedRuntime,
+  Option,
+} from "effect";
 import { suppressPgQueryQueueDeprecation } from "everything-dev/db";
+import { slotPins } from "everything-dev/fingerprint";
 import { type Context, Hono } from "hono";
 import type { AuthVariables } from "./lib/auth";
 import { getCspStrict, SecurityMiddleware } from "./middleware/security";
@@ -10,11 +22,13 @@ import type { HealthLoadingState } from "./routes/health";
 import { createSsrFallbackHandler } from "./routes/ssr";
 import { createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { ConfigService, type RuntimeConfig } from "./services/config";
-import { resetFederationInstance } from "./services/federation.server";
-import { startIntegrityMonitor } from "./services/integrity-monitor";
+import { FederationLifecycle } from "./services/federation.server";
 import { closeMcpServer } from "./services/mcp";
 import { PluginsService } from "./services/plugins";
-import { composeUi, isSsrAvailable } from "./services/ui-compose";
+import { deploymentFingerprint, RuntimeSnapshot } from "./services/runtime-snapshot";
+import { SnapshotCoordinator } from "./services/snapshot-coordinator";
+import { SnapshotWatch, watchIntervalMs } from "./services/snapshot-watch";
+import { composeUi, isSsrAvailable, type UiComposeCacheState } from "./services/ui-compose";
 import { extractErrorDetails } from "./utils/errors";
 import { logger } from "./utils/logger";
 
@@ -30,15 +44,25 @@ interface CompositionHealth {
   selfProbe?: { status: "pending" | "passed" | "failed"; error?: string };
 }
 
+/**
+ * One serving state for boot and requests: requests capture ONE snapshot
+ * state (config + both serving caches) and a swap flips readers atomically
+ * (C7); boot composition warms the snapshot's own compose cache, so the boot
+ * work is never re-done. Boot composition is awaited before /health
+ * registers, so "composing" never reaches a response — and if it somehow
+ * could, the honest answer is degraded, not ready.
+ */
 export const createStartServer = (onReady?: () => void) =>
   Effect.gen(function* () {
-    const port = Number(process.env.PORT) || 3000;
-    const isDev = process.env.NODE_ENV !== "production";
+    const port = yield* Config.Number("PORT").pipe(Config.withDefault(3000));
+    const nodeEnv = yield* Config.String("NODE_ENV").pipe(Config.withDefault("development"));
+    const isDev = nodeEnv !== "production";
     const CSP_STRICT = getCspStrict(isDev);
 
     const config = yield* ConfigService;
     const plugins = yield* PluginsService;
     const security = yield* SecurityMiddleware;
+    yield* FederationLifecycle;
     const apiProxyMode = Boolean(config.api?.proxy);
 
     const ssrEnabled = isSsrAvailable(config);
@@ -46,6 +70,11 @@ export const createStartServer = (onReady?: () => void) =>
       ? { status: "composing" }
       : { status: "disabled" };
 
+    const snapshot = yield* RuntimeSnapshot;
+    const effectContext = yield* Effect.context();
+    const getBaseConfig = async () =>
+      (await Effect.runPromiseWith(effectContext)(snapshot.get)).config;
+    const getServingState = () => Effect.runPromiseWith(effectContext)(snapshot.get);
     const app = new Hono<HonoEnv>();
 
     app.onError((err: unknown, c: Context<HonoEnv>) => {
@@ -67,7 +96,8 @@ export const createStartServer = (onReady?: () => void) =>
     app.use("*", security.csp);
 
     if (ssrEnabled) {
-      const boot = yield* Effect.exit(composeUi(config));
+      const bootState = yield* snapshot.get;
+      const boot = yield* Effect.exit(composeUi(config, bootState.composeState));
       if (Exit.isFailure(boot)) {
         const cause = Cause.squash(boot.cause);
         compositionHealth.status = "failed";
@@ -86,9 +116,6 @@ export const createStartServer = (onReady?: () => void) =>
 
     app.get("/health", (c: Context<HonoEnv>) => {
       const apiReady = apiProxyMode || Boolean(plugins.api?.router && plugins.status.available);
-      // composeUi is awaited before /health registers, so "composing" never
-      // reaches a response — and if it somehow could, the honest answer is
-      // degraded, not ready.
       const composeOk = !ssrEnabled || compositionHealth.status === "ready";
       const probeFailed = compositionHealth.selfProbe?.status === "failed";
       return c.json(
@@ -106,6 +133,24 @@ export const createStartServer = (onReady?: () => void) =>
         compositionHealth.status === "failed" ? 503 : 200,
       );
     });
+
+    app.get("/.well-known/version", (c: Context<HonoEnv>) =>
+      c.json(
+        Effect.runPromiseWith(effectContext)(
+          Effect.gen(function* () {
+            const state = yield* snapshot.get;
+            const watch = yield* Effect.serviceOption(SnapshotWatch);
+            const lastOutcome = Option.isSome(watch) ? watch.value.lastOutcome : undefined;
+            return {
+              fingerprint: state.config.deploymentFingerprint ?? state.fingerprint,
+              slots: state.pointer ? slotPins(state.pointer as never) : {},
+              ...(lastOutcome !== undefined ? { watch: { lastOutcome } } : {}),
+            };
+          }),
+        ),
+        { headers: { "cache-control": "public, max-age=30" } },
+      ),
+    );
 
     app.get("/.well-known/mcp.json", (c: Context<HonoEnv>) => {
       const url = new URL(c.req.url);
@@ -126,13 +171,13 @@ export const createStartServer = (onReady?: () => void) =>
 
     const loadingState: HealthLoadingState = {
       status: "ready",
-      startTime: Date.now(),
+      startTime: yield* Clock.currentTimeMillis,
       milestones: [],
       error: null,
       ssrEnabled,
     };
 
-    app.on(["GET", "HEAD"], "*", createStaticAssetProxyHandler(config));
+    app.on(["GET", "HEAD"], "*", createStaticAssetProxyHandler(config, getBaseConfig));
 
     const sessionMiddleware = createSessionMiddleware(plugins);
 
@@ -153,7 +198,7 @@ export const createStartServer = (onReady?: () => void) =>
 
     app.use("/*", sessionMiddleware);
 
-    app.get("*", createSsrFallbackHandler(config, plugins, CSP_STRICT));
+    app.get("*", createSsrFallbackHandler(config, plugins, CSP_STRICT, getServingState));
 
     const startHttpServer = () => {
       const hostname = process.env.HOST || "0.0.0.0";
@@ -236,6 +281,8 @@ export interface ServerInput {
   config: RuntimeConfig;
   port?: number;
   env?: Record<string, string>;
+  /** Explicit server-scoped cache, primarily for integration fixtures. */
+  composeCache?: UiComposeCacheState;
 }
 
 export interface ServerHandle {
@@ -252,11 +299,24 @@ export const runServer = (input: ServerInput): ServerHandle => {
       process.env[key] = value;
     }
   }
+  input.config.deploymentFingerprint = deploymentFingerprint(input.config);
   const ConfigLive = Layer.succeed(ConfigService, input.config);
   const AppLive = Layer.provideMerge(PluginsService.Live, ConfigLive);
-  const ServerLive = Layer.provideMerge(SecurityMiddleware.Live, AppLive);
-
-  const stopMonitor = startIntegrityMonitor(input.config);
+  const SnapshotLive = RuntimeSnapshot.layer(
+    input.composeCache ? { composeState: input.composeCache } : undefined,
+  ).pipe(Layer.provide(ConfigLive));
+  const CoordinatorLive = SnapshotCoordinator.layer.pipe(Layer.provide(SnapshotLive));
+  const WatchLive = SnapshotWatch.layer(watchIntervalMs()).pipe(
+    Layer.provide(CoordinatorLive),
+    Layer.provide(SnapshotLive),
+    Layer.provide(ConfigLive),
+  );
+  const ServerLive = Layer.mergeAll(
+    Layer.provideMerge(SecurityMiddleware.Live, AppLive),
+    FederationLifecycle.layer,
+    Layer.provideMerge(CoordinatorLive, SnapshotLive),
+    WatchLive,
+  );
 
   const runtime = ManagedRuntime.make(ServerLive);
   let programFiber: Fiber.Fiber<void, unknown> | null = null;
@@ -281,7 +341,6 @@ export const runServer = (input: ServerInput): ServerHandle => {
 
   const shutdown = async () => {
     logger.info("[Server] Shutting down...");
-    stopMonitor();
 
     if (programFiber) {
       await Effect.runPromise(
@@ -293,7 +352,6 @@ export const runServer = (input: ServerInput): ServerHandle => {
     }
 
     await runtime.dispose();
-    resetFederationInstance();
     logger.info("[Server] Shutdown complete");
   };
 

@@ -37,6 +37,16 @@ const mark = (message: string) => {
   if (import.meta.env.DEV) console.log(`[Hydrate] ${message}`);
 };
 
+function isAbsoluteHttpUrl(value: string | undefined): value is string {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export interface CoreHydrateOptions {
   /**
    * Loads the app's generated core route config — the only app-specific
@@ -47,29 +57,70 @@ export interface CoreHydrateOptions {
   config?: ClientRuntimeConfig;
 }
 
+interface ComposedTree {
+  routeTree: unknown;
+  nav: NavManifest;
+  /** `true` when plugin composition failed and only the core tree is usable. */
+  degraded: boolean;
+}
+
 /**
  * Manifest composition: reconstruct the server's tree from the payload — the
  * same manifests, the same MF names, the same construction code. Digest
  * parity proves the SSR'd tree and this tree are identical before hydrate;
- * any failure falls back to the core-only tree so hydration never regresses.
+ * any failure degrades to the core-only tree (still a real route tree — the
+ * page must render, just without plugin routes) rather than leaving the
+ * router without a tree.
  */
 async function composeFromPayload(
   runtimeConfig: ClientRuntimeConfig,
   coreRouteConfig: RouteConfigModule,
-): Promise<{ routeTree: unknown; nav: NavManifest } | undefined> {
+): Promise<ComposedTree | undefined> {
   const payload = runtimeConfig.ui?.compose;
   if (!payload?.remotes) return undefined;
 
+  const parsed = ComposePayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    mark(`compose payload malformed: ${parsed.error.message}`);
+    return undefined;
+  }
+  const { manifests } = parsed.data;
+
+  const coreUiName = runtimeConfig.ui?.name ?? CORE_UI_PLUGIN_KEY;
+
+  // The core-only tree is the degradation target for every failure below —
+  // the payload's core manifest plus the app's own route config, no remotes.
+  const composeCoreOnly = async (): Promise<ComposedTree | undefined> => {
+    try {
+      const coreManifest = manifests.find((m) => m.name === CORE_UI_PLUGIN_KEY);
+      if (!coreManifest) return undefined;
+      const tree = await constructTree({
+        name: "core-fallback",
+        plugins: [{ key: coreManifest.name, mfName: coreUiName }],
+        resolve: async (ref) => ({
+          key: ref.key,
+          manifest: coreManifest,
+          routeConfig: coreRouteConfig,
+        }),
+        rootOptions: coreRouteConfig.rootMeta,
+      });
+      mark(
+        `core-only tree constructed: ${tree.manifests.length} source(s), ${tree.nav.items.length} nav item(s)`,
+      );
+      return { routeTree: tree.rootRoute, nav: tree.nav, degraded: true };
+    } catch (error) {
+      console.error("[Hydrate] Core-only fallback failed:", error);
+      mark(`CORE-ONLY FALLBACK ERROR: ${(error as Error).message}`);
+      return undefined;
+    }
+  };
+
   try {
-    const [{ registerRemotes, loadRemote }] = await Promise.all([
-      import("@module-federation/enhanced/runtime"),
-    ]);
+    const { registerRemotes, loadRemote } = await import("@module-federation/enhanced/runtime");
 
     mark(`compose payload: digest ${payload.digest}, ${payload.remotes.length} remote(s)`);
 
-    const { manifests } = ComposePayloadSchema.parse(payload);
     const manifestByKey = new Map(manifests.map((m) => [m.name, m]));
-    const coreUiName = runtimeConfig.ui?.name ?? CORE_UI_PLUGIN_KEY;
 
     registerRemotes(
       payload.remotes.map((remote) => ({
@@ -78,8 +129,14 @@ async function composeFromPayload(
         // Manifest-driven registration: the manifest carries the remote's
         // true container identity (its build-time package name), which the
         // plain remoteEntry URL cannot resolve — the entry script's global
-        // name doesn't match the registered name.
-        entry: remote.entry.replace(/\/?remoteEntry\.js$/, "/mf-manifest.json"),
+        // name doesn't match the registered name. Versioned deploys carry
+        // the (hashed) manifest URL in the payload; legacy payloads derive
+        // it by stripping the fixed entry name. Only absolute URLs qualify —
+        // a relative manifestUrl would resolve against the page origin and
+        // register the wrong container.
+        entry: isAbsoluteHttpUrl(remote.manifestUrl)
+          ? remote.manifestUrl
+          : remote.entry.replace(/\/?remoteEntry\.js$/, "/mf-manifest.json"),
       })),
     );
     for (const remote of payload.remotes) {
@@ -121,17 +178,17 @@ async function composeFromPayload(
         `[Hydrate] Compose digest mismatch (client ${tree.digest} vs server ${payload.digest}); core-only fallback`,
       );
       mark(`DIGEST PARITY FAILURE server=${payload.digest} client=${tree.digest}`);
-      return undefined;
+      return composeCoreOnly();
     }
 
     mark(
       `tree constructed: ${tree.manifests.length} source(s), ${tree.nav.items.length} nav item(s)`,
     );
-    return { routeTree: tree.rootRoute, nav: tree.nav };
+    return { routeTree: tree.rootRoute, nav: tree.nav, degraded: false };
   } catch (error) {
     console.error("[Hydrate] Client compose failed; core-only fallback:", error);
     mark(`CLIENT COMPOSE ERROR: ${(error as Error).message}`);
-    return undefined;
+    return composeCoreOnly();
   }
 }
 
@@ -197,11 +254,11 @@ export async function hydrate(options: CoreHydrateOptions) {
       },
     });
 
-    // A server-rendered page whose compose fell back to core-only would
+    // A server-rendered page whose compose degraded to core-only would
     // hydrate a DIFFERENT tree than the HTML contains — a guaranteed React
     // hydration failure. Client-render cleanly instead; hydration is only
     // safe when the composed tree is the one the server rendered.
-    const canHydrate = isServerRendered() && Boolean(composed);
+    const canHydrate = isServerRendered() && Boolean(composed) && !composed!.degraded;
 
     if (canHydrate) {
       const { hydrateRoot } = await import("react-dom/client");

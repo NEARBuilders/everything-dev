@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Clock, Effect } from "effect";
 import { isPidAlive } from "./process-registry";
 
 export interface KillEscalationOptions {
@@ -23,9 +23,11 @@ const groupKill = (pid: number, signal: NodeJS.Signals): void => {
 
 const waitGone = (pid: number, timeoutMs: number): Effect.Effect<boolean> =>
   Effect.gen(function* () {
-    const deadline = Date.now() + timeoutMs;
+    const started = yield* Clock.currentTimeMillis;
+    const deadline = started + timeoutMs;
     while (isPidAlive(pid)) {
-      if (Date.now() >= deadline) return false;
+      const now = yield* Clock.currentTimeMillis;
+      if (now >= deadline) return false;
       yield* Effect.sleep(POLL_INTERVAL_MS);
     }
     return true;

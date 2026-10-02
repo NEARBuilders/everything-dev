@@ -175,10 +175,11 @@ describe("publishToFastKv publish.auth guard", () => {
     writeFileSync(join(configDir, "bos.config.json"), JSON.stringify(bosConfig, null, 2));
 
     fetchBosConfigFromFastKvMock.mockReset();
-    // isConfigAlreadyPublished → miss, then the confirmation loop reads the raw on-disk config
+    // preflight reachability read → miss, isConfigAlreadyPublished → miss,
+    // then the confirmation loop reads the raw on-disk config
     fetchBosConfigFromFastKvMock.mockImplementation(async () => {
       const calls = fetchBosConfigFromFastKvMock.mock.calls.length;
-      if (calls === 1) return null;
+      if (calls <= 2) return null;
       return JSON.parse(readFileSync(join(configDir, "bos.config.json"), "utf-8")) as BosConfig;
     });
 

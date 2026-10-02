@@ -34,7 +34,7 @@ vi.mock("../../src/services/tenant-runtime", async () => {
 
 const { FederationError } = await import("../../src/services/errors");
 const { runServer } = await import("../../src/program");
-const { resetUiComposeCache } = await import("../../src/services/ui-compose");
+const { createUiComposeCacheState } = await import("../../src/services/ui-compose");
 
 const CORE_MANIFEST = {
   name: "ui",
@@ -61,9 +61,11 @@ function createBaseConfig(ssrUrl?: string) {
       name: "ui",
       url: "http://127.0.0.1:0/ui",
       entry: "http://127.0.0.1:0/ui/mf-manifest.json",
+      entryUrl: "http://127.0.0.1:0/ui/remoteEntry.aaa.js",
       source: "remote",
       integrity: "sha384-base",
       ssrUrl,
+      ssrEntryUrl: ssrUrl ? `${ssrUrl.replace(/\/$/, "")}/remoteEntry.server.aaa.js` : undefined,
     },
     api: {
       name: "api",
@@ -158,7 +160,13 @@ describe("SSR fallback paths", () => {
   let handle: ReturnType<typeof runServer>;
   let baseUrl: string;
   let requestConfig: ReturnType<typeof createBaseConfig>;
+  const composeCache = createUiComposeCacheState();
   const envSnapshot = { ...process.env };
+
+  const clearComposeFixtureCache = () => {
+    composeCache.remoteManifests.clear();
+    composeCache.variants.clear();
+  };
 
   beforeAll(async () => {
     assetServer = await startStaticServer({
@@ -198,6 +206,7 @@ describe("SSR fallback paths", () => {
     });
 
     handle = runServer({
+      composeCache,
       config: {
         ...requestConfig,
         host: {
@@ -246,12 +255,8 @@ describe("SSR fallback paths", () => {
         cause: new Error("An error has occurred"),
       });
 
-      loadUiComposeModuleMock.mockReturnValue(
-        Effect.gen(function* () {
-          return yield* Effect.fail(federationError);
-        }),
-      );
-      resetUiComposeCache();
+      loadUiComposeModuleMock.mockReturnValue(federationError);
+      clearComposeFixtureCache();
 
       const response = await fetch(`${baseUrl}/`);
 
@@ -267,11 +272,7 @@ describe("SSR fallback paths", () => {
         cause: new Error("Transient network error"),
       });
 
-      loadUiComposeModuleMock.mockReturnValueOnce(
-        Effect.gen(function* () {
-          return yield* Effect.fail(federationError);
-        }),
-      );
+      loadUiComposeModuleMock.mockReturnValueOnce(federationError);
       loadUiComposeModuleMock.mockReturnValueOnce(Effect.succeed(composeEngine()));
       loadCoreUiRouteConfigMock.mockReturnValue(
         Effect.succeed({ routeConfigLoaders: {}, rootMeta: undefined }),
@@ -292,7 +293,7 @@ describe("SSR fallback paths", () => {
           createRouter: vi.fn(),
         }),
       );
-      resetUiComposeCache();
+      clearComposeFixtureCache();
 
       const firstResponse = await fetch(`${baseUrl}/`);
       expect(firstResponse.status).toBe(500);
@@ -316,7 +317,7 @@ describe("SSR fallback paths", () => {
 
       expect(response.status).toBe(200);
       expect(html).toContain("Loading...");
-      expect(html).toContain("remoteEntry.js");
+      expect(html).toContain("remoteEntry.aaa.js");
     });
   });
 
@@ -330,7 +331,7 @@ describe("SSR fallback paths", () => {
       };
 
       loadRouterModuleMock.mockReturnValue(Effect.succeed(failingModule));
-      resetUiComposeCache();
+      clearComposeFixtureCache();
 
       const response = await fetch(`${baseUrl}/`);
       const html = await response.text();
@@ -338,7 +339,7 @@ describe("SSR fallback paths", () => {
       expect(response.status).toBe(200);
       expect(html).toContain("SSR unavailable");
       expect(html).toContain("React render error");
-      expect(html).toContain("remoteEntry.js");
+      expect(html).toContain("remoteEntry.aaa.js");
     });
   });
 

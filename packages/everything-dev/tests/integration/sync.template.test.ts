@@ -26,7 +26,7 @@ import {
 } from "../../src/cli/init";
 import { readSnapshot } from "../../src/cli/snapshot";
 import { syncTemplate } from "../../src/cli/sync";
-import * as configModule from "../../src/config";
+import * as sessionModule from "../../src/resolution/session";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
 const ROOT_CONFIG = JSON.parse(readFileSync(join(REPO_ROOT, "bos.config.json"), "utf-8")) as {
@@ -102,7 +102,7 @@ describe("syncTemplate", () => {
       parentConfig: ROOT_CONFIG as never,
       cleanup: async () => {},
     });
-    vi.spyOn(configModule, "loadResolvedConfig").mockImplementation(async ({ cwd }) => {
+    vi.spyOn(sessionModule, "openResolution").mockImplementation(async ({ cwd }) => {
       if (cwd === REPO_ROOT) {
         return { runtime: { plugins: runtimePluginsFromRoot() } } as never;
       }
@@ -123,7 +123,7 @@ describe("syncTemplate", () => {
   });
 
   it("updates framework-owned files and leaves non-framework files alone", async () => {
-    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
+    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
     tempDirs.push(projectDir);
 
     const frameworkOwnedPath = join(projectDir, "ui", "src", "lib", "api.ts");
@@ -174,10 +174,10 @@ describe("syncTemplate", () => {
   });
 
   it("sync does not re-add plugin workspaces because it only manages framework-owned files", async () => {
-    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
+    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
     tempDirs.push(projectDir);
 
-    const selectedPluginPackage = join(projectDir, "plugins", "apps", "package.json");
+    const selectedPluginPackage = join(projectDir, "plugins", "registry", "package.json");
     unlinkSync(selectedPluginPackage);
 
     const result = await syncTemplate(projectDir, {
@@ -186,12 +186,12 @@ describe("syncTemplate", () => {
     });
 
     expect(result.status).toBe("dry-run");
-    expect(result.added).not.toContain("plugins/apps/package.json");
+    expect(result.added).not.toContain("plugins/registry/package.json");
     expect(result.added).not.toContain("plugins/example/package.json");
   });
 
   it("preserves child root metadata and prunes stale local plugin entries during sync", async () => {
-    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
+    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
     tempDirs.push(projectDir);
 
     const configPath = join(projectDir, "bos.config.json");
@@ -229,7 +229,7 @@ describe("syncTemplate", () => {
     expect(syncedConfig.title).toBe("child app");
     expect(syncedConfig.repository).toBe("https://github.com/example/child-app");
     expect(syncedConfig.description).toBeUndefined();
-    expect(Object.keys(syncedConfig.plugins ?? {})).toEqual(["apps"]);
+    expect(Object.keys(syncedConfig.plugins ?? {})).toEqual(["registry"]);
   });
 
   it("syncs GitHub workflow files from .github/templates for child projects", async () => {

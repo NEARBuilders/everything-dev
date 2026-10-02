@@ -12,8 +12,9 @@ describe("request origin validation", () => {
     const config = await loadTestRuntimeConfig();
     const middleware = await Effect.runPromise(
       SecurityMiddleware.pipe(
-        Effect.provide(SecurityMiddleware.Live),
-        Effect.provide(Layer.succeed(ConfigService, config)),
+        Effect.provide(
+          SecurityMiddleware.Live.pipe(Layer.provide(Layer.succeed(ConfigService, config))),
+        ),
       ),
     );
     app = new Hono();

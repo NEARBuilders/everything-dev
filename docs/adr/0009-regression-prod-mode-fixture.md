@@ -1,6 +1,15 @@
 # ADR 0009: Regression stacks run production mode against locally built artifacts
 
-Date: 2026-09-23 · Status: accepted (amended 2026-09-23 — Dockerfile fixture) · Supersedes: none
+Date: 2026-09-23 · Status: accepted (amended 2026-09-23 — Dockerfile fixture; amended 2026-10-01 — the `prepareLocalProductionConfig` localhost-rewrite helper is retired, see below) · Supersedes: none
+
+> **2026-10-01 amendment:** the `prepareLocalProductionConfig` origin-rewrite
+> helper (a production-env config pointed at localhost static servers, with
+> integrity hashes dropped) never had a production caller — regression prod
+> stacks boot through the deployment image (`start-container.mjs`) and dev
+> fixtures through `bos dev`. The helper is deleted; version-manifest pins
+> (ADR 0020) are the only production slot shape. The `bos start` config-source
+> decision (`resolveStartConfigSource` / `isRegistryStart`) survives in
+> `everything-dev/start-config-source`.
 
 ## Context
 

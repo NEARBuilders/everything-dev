@@ -1,13 +1,13 @@
-import { Deferred, Effect, Exit } from "effect";
+import { Clock, DateTime, Deferred, Effect, Exit, Layer } from "effect";
 import { probePortBindable } from "./app";
 import {
   createDevRenderer,
   type DevProcessState,
   type DevRendererHandle,
 } from "./components/dev-render";
-import { getProjectRoot } from "./config";
 import { createLogPipeline, type LogEvent, resolveLogLevel } from "./dev-log-pipeline";
 import { createDevLogger, formatLogLine } from "./dev-logs";
+import { getProcessEnv } from "./env/process-env";
 import { ShellEnvLive } from "./env/project-env";
 import { ownerOfPort } from "./infra/port-ownership";
 import {
@@ -96,11 +96,11 @@ export interface DevSessionControls {
 }
 
 export const runDevSession = (
+  configDir: string,
   orchestrator: AppOrchestrator,
   onShutdownReady?: (controls: DevSessionControls) => void,
 ) =>
   Effect.gen(function* () {
-    const configDir = getProjectRoot();
     adoptOrphanedChildren(configDir);
     const services = yield* ServiceDescriptorMap;
     const runtimeConfig = yield* DevRuntimeConfig;
@@ -111,13 +111,14 @@ export const runDevSession = (
       orchestrator.port,
     );
 
-    if (process.env.DEBUG === "true" || process.env.DEBUG === "1") {
-      console.error("[DEBUG session] orchestrator.packages:", orchestrator.packages.join(", "));
-      console.error("[DEBUG session] orderedPackages:", orderedPackages.join(", "));
-      console.error("[DEBUG session] services keys:", [...services.keys()].join(", "));
-      console.error(
-        "[DEBUG session] initialProcesses:",
-        initialProcesses.map((p) => `${p.name}=${p.source}`).join(", "),
+    if (getProcessEnv("DEBUG") === "true" || getProcessEnv("DEBUG") === "1") {
+      yield* Effect.logError(
+        `[DEBUG session] orchestrator.packages: ${orchestrator.packages.join(", ")}`,
+      );
+      yield* Effect.logError(`[DEBUG session] orderedPackages: ${orderedPackages.join(", ")}`);
+      yield* Effect.logError(`[DEBUG session] services keys: ${[...services.keys()].join(", ")}`);
+      yield* Effect.logError(
+        `[DEBUG session] initialProcesses: ${initialProcesses.map((p) => `${p.name}=${p.source}`).join(", ")}`,
       );
     }
 
@@ -127,9 +128,10 @@ export const runDevSession = (
 
     const shutdown = yield* Deferred.make<void>();
 
+    const effectContext = yield* Effect.context();
     const controls: DevSessionControls = {
       requestShutdown: () => {
-        void Effect.runPromise(Deferred.succeed(shutdown, undefined));
+        void Effect.runPromiseWith(effectContext)(Deferred.succeed(shutdown, undefined));
       },
       emergencyKill: () => {},
       requestShutdownEscalating: () => {},
@@ -140,7 +142,7 @@ export const runDevSession = (
 
     onShutdownReady?.(controls);
 
-    const isWorkspaceChild = process.env.BOS_WORKSPACE_CHILD === "1";
+    const isWorkspaceChild = getProcessEnv("BOS_WORKSPACE_CHILD") === "1";
     let ownedPorts: number[] = [];
     if (!isWorkspaceChild) {
       const regPorts: Record<string, number> = {};
@@ -163,7 +165,7 @@ export const runDevSession = (
         pid: process.pid,
         configDir,
         ports: regPorts,
-        startedAt: Date.now(),
+        startedAt: yield* Clock.currentTimeMillis,
         description: orchestrator.description,
       });
       ownedPorts = Object.values(regPorts);
@@ -238,7 +240,7 @@ export const runDevSession = (
           const bindable = yield* probePortBindable(port);
           if (!bindable) {
             const owner = yield* ownerOfPort(port);
-            console.error(
+            yield* Effect.logError(
               `[Dev] Port ${port} still bound after teardown${
                 owner
                   ? ` — pid ${owner.pid} (${owner.command})`
@@ -249,11 +251,13 @@ export const runDevSession = (
         }
 
         if (!isWorkspaceChild) {
-          try {
-            unregisterPid(process.pid);
-          } catch {
-            // best-effort; pruneDead cleans stale entries on next ps/kill
-          }
+          yield* Effect.sync(() => {
+            try {
+              unregisterPid(process.pid);
+            } catch {
+              // best-effort; pruneDead cleans stale entries on next ps/kill
+            }
+          });
         }
 
         pipeline.flush();
@@ -261,21 +265,23 @@ export const runDevSession = (
         view?.unmount();
 
         if (shouldExportLogs) {
-          console.log("\n");
-          console.log("═".repeat(70));
-          console.log(`  SESSION LOGS: ${orchestrator.description}`);
-          console.log(`  Started: ${new Date(allLogs[0]?.timestamp || Date.now()).toISOString()}`);
-          console.log(`  Filtered entries: ${allLogs.length} (level: ${logLevel})`);
-          console.log("═".repeat(70));
-          console.log("");
+          const now = yield* Clock.currentTimeMillis;
+          const startedMs = allLogs[0]?.timestamp || now;
+          yield* Effect.log("");
+          yield* Effect.log("═".repeat(70));
+          yield* Effect.log(`  SESSION LOGS: ${orchestrator.description}`);
+          yield* Effect.log(`  Started: ${DateTime.formatIso(DateTime.makeUnsafe(startedMs))}`);
+          yield* Effect.log(`  Filtered entries: ${allLogs.length} (level: ${logLevel})`);
+          yield* Effect.log("═".repeat(70));
+          yield* Effect.log("");
           for (const event of allLogs) {
-            console.log(formatLogLine(event));
+            yield* Effect.log(formatLogLine(event));
           }
-          console.log("");
-          console.log("═".repeat(70));
-          console.log(`  Full logs saved to: ${logger.logFile}`);
-          console.log("═".repeat(70));
-          console.log("");
+          yield* Effect.log("");
+          yield* Effect.log("═".repeat(70));
+          yield* Effect.log(`  Full logs saved to: ${logger.logFile}`);
+          yield* Effect.log("═".repeat(70));
+          yield* Effect.log("");
         }
       }),
     );
@@ -293,14 +299,15 @@ export const runDevSession = (
             callbacks.onStatus(pkg, "error");
           }),
         ),
-        Effect.catch(() =>
-          Effect.succeed({
-            name: pkg,
-            pid: undefined,
-            kill: Effect.void,
-            waitForReady: Effect.void,
-            waitForExit: Effect.never,
-          } satisfies ProcessHandle),
+        Effect.orElseSucceed(
+          () =>
+            ({
+              name: pkg,
+              pid: undefined,
+              kill: Effect.void,
+              waitForReady: Effect.void,
+              waitForExit: Effect.never,
+            }) satisfies ProcessHandle,
         ),
       );
     };
@@ -365,17 +372,20 @@ export const runDevSession = (
       .filter((pid) => Number.isFinite(pid) && pid > 1 && pid !== process.pid);
 
     if (!isWorkspaceChild && childPids.length > 0) {
-      try {
-        updateChildPids(process.pid, childPids);
-      } catch {
-        // best-effort; registry hygiene is non-critical for the running session
-      }
+      yield* Effect.sync(() => {
+        try {
+          updateChildPids(process.pid, childPids);
+        } catch {
+          // best-effort; registry hygiene is non-critical for the running session
+        }
+      });
     }
 
     yield* Deferred.await(shutdown);
   });
 
 const runApp = (
+  configDir: string,
   orchestrator: AppOrchestrator,
   services: Map<string, ServiceDescriptor>,
   runtimeConfig: RuntimeConfig,
@@ -423,7 +433,7 @@ const runApp = (
   const handleSignal = requestShutdownEscalating;
 
   const program = Effect.scoped(
-    runDevSession(orchestrator, (sessionControls) => {
+    runDevSession(configDir, orchestrator, (sessionControls) => {
       controls = sessionControls;
       sessionControls.requestShutdownEscalating = requestShutdownEscalating;
       sessionControls.rearmForceExitTimer = () => {
@@ -434,14 +444,18 @@ const runApp = (
       sessionControls.forceExit = forceExit;
     }),
   ).pipe(
-    Effect.provide(ServiceDescriptorMapLive(services)),
-    Effect.provide(DevRuntimeConfigLive(runtimeConfig)),
-    Effect.provide(DevGeneratedEnvLive(envGenerated)),
-    Effect.provide(ShellEnvLive(shellEnv)),
+    Effect.provide(
+      Layer.mergeAll(
+        ServiceDescriptorMapLive(services),
+        DevRuntimeConfigLive(runtimeConfig),
+        DevGeneratedEnvLive(envGenerated),
+        ShellEnvLive(shellEnv),
+      ),
+    ),
     Effect.catchDefect((defect) =>
-      Effect.sync(() => {
-        console.error("[Dev] Unhandled defect in orchestrator:", defect);
-      }).pipe(Effect.andThen(Effect.die(defect))),
+      Effect.logError("[Dev] Unhandled defect in orchestrator:", defect).pipe(
+        Effect.andThen(Effect.die(defect)),
+      ),
     ),
   );
 

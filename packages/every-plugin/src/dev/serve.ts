@@ -4,9 +4,10 @@ import http from "node:http";
 import path from "node:path";
 import { Effect } from "effect";
 import sirv from "sirv";
+import { DEV_ENTRY_FILENAME } from "../build/artifact-names";
 import { ensureGeneratedRspackConfig } from "../build/rspack/generated-config";
 import { getPluginInfo, loadDevConfig } from "../build/rspack/utils";
-import { ensureGeneratedUiRsbuildConfig } from "../build/ui/generated-config";
+import { ensureGeneratedUiRsbuildConfig, pluginLayoutKey } from "../build/ui/generated-config";
 import { PLUGIN_ERROR_STATUS_MAP } from "../errors";
 import { loadRemoteWithRetry } from "../remote-entry";
 import { killChildEscalating, watchParentDeath } from "./watch-kill";
@@ -57,7 +58,7 @@ const collectSiblingRemotes = (runtimeConfig: any, pluginId: string) => {
     if (!dep || dep.source !== "local" || !dep.url) continue;
     if (depId === pluginId) continue;
     const base = dep.url.replace(/\/$/, "");
-    siblings[depId] = { remote: `${base}/remoteEntry.js` };
+    siblings[depId] = { remote: `${base}/${DEV_ENTRY_FILENAME}` };
   }
 
   return { siblings, dependsOn };
@@ -103,13 +104,25 @@ export interface PluginDevServerHandle {
   close: () => Promise<void>;
 }
 
+/**
+ * The dev server's plugin id — the workspace's npm package name, the same
+ * value the host passes as `runtimeId`. Both initialize sites must agree:
+ * `registerRemote` derives the MF remote name from it, and the plugin's
+ * database layer derives its migration slug from it, so a pre-normalized
+ * remote name here would migrate into a different schema than the host
+ * expects. plugin.dev.ts no longer carries a pluginId field.
+ */
+export const resolveDevPluginId = (cwd: string): string => getPluginInfo(cwd).name;
+
 export async function startPluginDevServer(
   options: PluginDevServeOptions = {},
 ): Promise<PluginDevServerHandle> {
+  process.env.BOS_DEV_SERVER = "1";
   const cwd = options.cwd ?? process.cwd();
   const pluginInfo = getPluginInfo(cwd);
   const devConfig = loadDevConfig(path.join(cwd, "plugin.dev.ts"));
-  const pluginId = devConfig?.pluginId || pluginInfo.normalizedName;
+  const pluginId = resolveDevPluginId(cwd);
+  const compositionKey = pluginLayoutKey(cwd) ?? pluginId;
   const port = options.port ?? (Number(process.env.PORT) || devConfig?.port || 3999);
   const rpcPrefix = normalizePrefix(devConfig?.prefix);
   const rpcBase = `/api/rpc${rpcPrefix}`;
@@ -163,7 +176,7 @@ export async function startPluginDevServer(
     await runOnce("rsbuild", ["build", "--config", uiConfig]);
     const uiDistDir =
       path.basename(cwd) === "ui" ? path.join(cwd, "dist") : path.join(cwd, "ui", "dist");
-    if (!fs.existsSync(path.join(uiDistDir, "remoteEntry.js"))) {
+    if (!fs.existsSync(path.join(uiDistDir, DEV_ENTRY_FILENAME))) {
       console.error(
         `❌ UI dist is missing at ${uiDistDir} — the ui static server would serve 404s for every asset (build output layout mismatch?)`,
       );
@@ -326,17 +339,20 @@ export async function startPluginDevServer(
 
   const load = async () => {
     try {
-      const { createPluginRuntime } = await import("every-plugin");
+      // Import framework internals directly. A package self-import can resolve
+      // the published entry while this source-first dev server is running,
+      // which leaves the runtime exports unavailable on Windows.
+      const { createPluginRuntime } = await import("../runtime");
       const { RPCHandler } = await import("@orpc/server/fetch");
       const { OpenAPIHandler } = await import("@orpc/openapi/fetch");
       const { OpenAPIGenerator } = await import("@orpc/openapi");
       const { OpenAPIReferenceHandlerPlugin } = await import("@orpc/openapi/plugins");
       const { ZodToJsonSchemaConverter } = await import("@orpc/zod");
       const { onError } = await import("@orpc/server");
-      const { formatORPCError } = await import("every-plugin/errors");
+      const { formatORPCError } = await import("../errors");
 
       const runtimeConfig = readRuntimeConfigFromEnv();
-      const { siblings, dependsOn } = collectSiblingRemotes(runtimeConfig, pluginId);
+      const { siblings, dependsOn } = collectSiblingRemotes(runtimeConfig, compositionKey);
 
       if (dependsOn.length > 0) {
         console.log(`🔗 Loading sibling plugin(s): ${dependsOn.join(", ")}`);
@@ -344,7 +360,7 @@ export async function startPluginDevServer(
 
       const registry: Record<string, { remote: string }> = {
         [pluginId]: {
-          remote: `http://localhost:${port}/remoteEntry.js`,
+          remote: `http://localhost:${port}/${DEV_ENTRY_FILENAME}`,
         },
         ...siblings,
       };

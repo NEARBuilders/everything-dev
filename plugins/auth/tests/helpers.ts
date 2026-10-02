@@ -1,6 +1,9 @@
+import "@orpc/experimental-effect/extensions/effect";
+import { call, implement } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
 import { type AuthConfig, createAuthInstance } from "../src/auth-instance";
+import { contract, type InferInput } from "../src/contract";
 import { createDatabaseDriver } from "../src/db";
 import { loadMigrations, migrate } from "../src/db/migrate";
 import * as schema from "../src/db/schema";
@@ -9,6 +12,10 @@ import { createInvitationHandlers } from "../src/handlers/invitations";
 import { createMemberHandlers } from "../src/handlers/members";
 import { createNearHandlers } from "../src/handlers/near";
 import { createOnboardingHandlers } from "../src/handlers/onboarding";
+import {
+  createOrganizationRequestHandlers,
+  type OrganizationRequestContext,
+} from "../src/handlers/organization-requests";
 import { createOrganizationHandlers } from "../src/handlers/organizations";
 import { createSessionHandlers } from "../src/handlers/session";
 import { createTeamHandlers } from "../src/handlers/teams";
@@ -24,7 +31,7 @@ process.env.BETTER_AUTH_SECRET =
 
 export async function createTestServices(configOverrides?: Partial<AuthConfig>) {
   const driver = await createDatabaseDriver(TEST_DB_URL);
-  const { migrations } = await Effect.runPromise(loadMigrations());
+  const { migrations } = await Effect.runPromise(loadMigrations);
   if (migrations.length > 0) {
     await Effect.runPromise(migrate(driver.db, migrations));
   }
@@ -147,6 +154,10 @@ export async function createTestOrg(
   };
 
   const memberId = result.members[0]?.id ?? "";
+  await services.db
+    .update(schema.organization)
+    .set({ status: "active" })
+    .where(eq(schema.organization.id, result.id));
 
   return { id: result.id, name: result.name, slug: result.slug, memberId };
 }
@@ -201,6 +212,7 @@ type HandlerFn<R = unknown> = (opts: {
 }) => Promise<R> | R;
 
 type MockRoute = {
+  effect: (fn: (opts: any) => Generator<any, any, any>) => HandlerFn;
   use: (mw: MiddlewareFn) => { handler: <R>(h: HandlerFn<R>) => HandlerFn<R> };
   handler: <R>(h: HandlerFn<R>) => HandlerFn<R>;
 };
@@ -212,6 +224,12 @@ interface MockBuilder {
 
 function createMockBuilder(): MockBuilder {
   const routeProxy: MockRoute = {
+    effect: (fn) => (opts) =>
+      Effect.runPromise(
+        Effect.gen(() => fn(opts)).pipe(
+          Effect.provideContext(opts.context["effect/context"] as Context.Context<any>),
+        ),
+      ),
     use: (mw: MiddlewareFn) => ({
       handler:
         <R>(handler: HandlerFn<R>): HandlerFn<R> =>
@@ -244,6 +262,11 @@ export function createTestHandlers(services: PluginServices) {
   const builder = createMockBuilder();
   const requireAuth = createRequireAuth(builder);
   const effectContext = Context.make(AuthServicesTag, services);
+  const requestBuilder = implement(contract).$context<OrganizationRequestContext>();
+  const requestHandlers = createOrganizationRequestHandlers(
+    requestBuilder,
+    createRequireAuth(requestBuilder),
+  );
 
   const withEffectContext =
     <R>(fn: HandlerFn<R>): HandlerFn<R> =>
@@ -264,6 +287,19 @@ export function createTestHandlers(services: PluginServices) {
   return {
     session: wrap(createSessionHandlers(builder)),
     organizations: wrap(createOrganizationHandlers(builder, requireAuth)),
+    organizationRequests: {
+      listOrganizationRequests: (opts: { context: { reqHeaders?: Record<string, string> } }) =>
+        call(requestHandlers.listOrganizationRequests, undefined, {
+          context: { ...opts.context, "effect/context": effectContext },
+        }),
+      reviewOrganization: (opts: {
+        input: InferInput<"reviewOrganization">;
+        context: { reqHeaders?: Record<string, string> };
+      }) =>
+        call(requestHandlers.reviewOrganization, opts.input, {
+          context: { ...opts.context, "effect/context": effectContext },
+        }),
+    },
     members: wrap(createMemberHandlers(builder, requireAuth)),
     invitations: wrap(createInvitationHandlers(builder, requireAuth)),
     apiKeys: wrap(createApiKeyHandlers(builder, requireAuth)),

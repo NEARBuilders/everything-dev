@@ -1,5 +1,5 @@
-import { Effect } from "effect";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect, ManagedRuntime } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfig } from "../../src/services/config";
 
 const loadRemoteMock = vi.fn();
@@ -22,12 +22,26 @@ vi.mock("everything-dev/integrity", () => ({
   verifySriForUrl: verifySriForUrlMock,
 }));
 
-const { loadRouterModule, loadUiComposeModule, loadUiRouteConfig, resetFederationInstance } =
+const { FederationLifecycle, loadRouterModule, loadUiComposeModule, loadUiRouteConfig } =
   await import("../../src/services/federation.server");
+
+let disposeLifecycle: (() => Promise<void>) | undefined;
+
+async function startFederationLifecycle() {
+  const runtime = ManagedRuntime.make(FederationLifecycle.layer);
+  await runtime.runPromise(FederationLifecycle);
+  disposeLifecycle = () => runtime.dispose();
+}
+
+afterEach(async () => {
+  await disposeLifecycle?.();
+  disposeLifecycle = undefined;
+});
 
 function createRuntimeConfig(options?: {
   source?: "local" | "remote";
   ssrIntegrity?: string;
+  ssrEntryUrl?: string;
 }): RuntimeConfig {
   return {
     env: "production",
@@ -47,6 +61,7 @@ function createRuntimeConfig(options?: {
       integrity: "sha384-ui",
       ssrUrl: "https://cdn.example.com/ui-ssr",
       ssrIntegrity: options?.ssrIntegrity,
+      ssrEntryUrl: options?.ssrEntryUrl,
     },
     api: {
       name: "api",
@@ -58,13 +73,13 @@ function createRuntimeConfig(options?: {
 }
 
 describe("loadRouterModule cache", () => {
-  beforeEach(() => {
-    resetFederationInstance();
+  beforeEach(async () => {
+    await startFederationLifecycle();
     vi.clearAllMocks();
     verifySriForUrlMock.mockResolvedValue(undefined);
   });
 
-  it("reloads the router module when SSR integrity changes at the same url", async () => {
+  it("reloads the router module when the deployed SSR coordinates change", async () => {
     const routerOne = {
       default: { renderToStream: vi.fn(), getRouteHead: vi.fn(), createRouter: vi.fn() },
     };
@@ -74,10 +89,20 @@ describe("loadRouterModule cache", () => {
     loadRemoteMock.mockResolvedValueOnce(routerOne).mockResolvedValueOnce(routerTwo);
 
     const first = await Effect.runPromise(
-      loadRouterModule(createRuntimeConfig({ ssrIntegrity: "sha384-ssr-a" })),
+      loadRouterModule(
+        createRuntimeConfig({
+          ssrIntegrity: "sha384-ssr-a",
+          ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+        }),
+      ),
     );
     const second = await Effect.runPromise(
-      loadRouterModule(createRuntimeConfig({ ssrIntegrity: "sha384-ssr-b" })),
+      loadRouterModule(
+        createRuntimeConfig({
+          ssrIntegrity: "sha384-ssr-b",
+          ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
+        }),
+      ),
     );
 
     expect(first).toBe(routerOne.default);
@@ -86,19 +111,19 @@ describe("loadRouterModule cache", () => {
     expect(registerRemotesMock).toHaveBeenCalledWith([
       {
         name: "ui",
-        entry: "https://cdn.example.com/ui-ssr/remoteEntry.server.js?v=sha384-ssr-b",
+        entry: "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
         alias: "ui",
       },
     ]);
     expect(verifySriForUrlMock).toHaveBeenNthCalledWith(
       1,
-      "https://cdn.example.com/ui-ssr/remoteEntry.server.js?v=sha384-ssr-a",
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
       "sha384-ssr-a",
       { resolveEntryUrl: false },
     );
     expect(verifySriForUrlMock).toHaveBeenNthCalledWith(
       2,
-      "https://cdn.example.com/ui-ssr/remoteEntry.server.js?v=sha384-ssr-b",
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
       "sha384-ssr-b",
       { resolveEntryUrl: false },
     );
@@ -110,11 +135,18 @@ describe("loadRouterModule cache", () => {
     };
     loadRemoteMock.mockResolvedValue(router);
 
-    const first = await Effect.runPromise(
-      loadRouterModule(createRuntimeConfig({ ssrIntegrity: "sha384-ssr-a" })),
-    );
+    const config = createRuntimeConfig({
+      ssrIntegrity: "sha384-ssr-a",
+      ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+    });
+    const first = await Effect.runPromise(loadRouterModule(config));
     const second = await Effect.runPromise(
-      loadRouterModule(createRuntimeConfig({ ssrIntegrity: "sha384-ssr-a" })),
+      loadRouterModule(
+        createRuntimeConfig({
+          ssrIntegrity: "sha384-ssr-a",
+          ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+        }),
+      ),
     );
 
     expect(first).toBe(router.default);
@@ -127,7 +159,7 @@ describe("loadRouterModule cache", () => {
     const localConfig = createRuntimeConfig({ source: "local" });
     (localConfig.ui as { ssrUrl?: string }).ssrUrl = undefined;
     await expect(Effect.runPromise(loadRouterModule(localConfig))).rejects.toThrow(
-      /SSR URL not configured/,
+      /no SSR entry URL/,
     );
     expect(createInstanceMock).not.toHaveBeenCalled();
   });
@@ -141,8 +173,20 @@ describe("loadRouterModule cache", () => {
     };
     loadRemoteMock.mockResolvedValueOnce(routerOne).mockResolvedValueOnce(routerTwo);
 
-    const first = await Effect.runPromise(loadRouterModule(createRuntimeConfig()));
-    const second = await Effect.runPromise(loadRouterModule(createRuntimeConfig()));
+    const first = await Effect.runPromise(
+      loadRouterModule(
+        createRuntimeConfig({
+          ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+        }),
+      ),
+    );
+    const second = await Effect.runPromise(
+      loadRouterModule(
+        createRuntimeConfig({
+          ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+        }),
+      ),
+    );
 
     expect(first).toBe(routerOne.default);
     expect(second).toBe(routerTwo.default);
@@ -157,7 +201,10 @@ describe("loadRouterModule cache", () => {
     };
     loadRemoteMock.mockResolvedValue(router);
 
-    const config = createRuntimeConfig({ ssrIntegrity: "sha384-ssr-a" });
+    const config = createRuntimeConfig({
+      ssrIntegrity: "sha384-ssr-a",
+      ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+    });
     await Effect.runPromise(loadRouterModule(config));
     await Effect.runPromise(loadRouterModule({ ...config }));
     await Effect.runPromise(
@@ -172,7 +219,10 @@ describe("loadRouterModule cache", () => {
   it("keeps the failing promise cached so a downed remote is probed once per window", async () => {
     loadRemoteMock.mockRejectedValue(new Error("remote down"));
 
-    const config = createRuntimeConfig({ ssrIntegrity: "sha384-ssr-a" });
+    const config = createRuntimeConfig({
+      ssrIntegrity: "sha384-ssr-a",
+      ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+    });
 
     await expect(Effect.runPromise(loadRouterModule(config))).rejects.toThrow();
 
@@ -187,8 +237,8 @@ describe("loadRouterModule cache", () => {
 });
 
 describe("ui expose loads (routeConfig / compose)", () => {
-  beforeEach(() => {
-    resetFederationInstance();
+  beforeEach(async () => {
+    await startFederationLifecycle();
     vi.clearAllMocks();
     verifySriForUrlMock.mockResolvedValue(undefined);
   });
@@ -207,7 +257,7 @@ describe("ui expose loads (routeConfig / compose)", () => {
     loadRemoteMock.mockResolvedValue(routeConfig);
 
     const loaded = await Effect.runPromise(
-      loadUiRouteConfig(uiEntry({ ssrUrl: "http://localhost:4113" })),
+      loadUiRouteConfig(uiEntry({ ssrUrl: "http://localhost:4113" }), "development"),
     );
 
     expect(loaded).toBe(routeConfig);
@@ -226,7 +276,7 @@ describe("ui expose loads (routeConfig / compose)", () => {
     loadRemoteMock.mockResolvedValue(composeModule);
 
     const loaded = await Effect.runPromise(
-      loadUiComposeModule(uiEntry({ ssrUrl: "http://localhost:4113" })),
+      loadUiComposeModule(uiEntry({ ssrUrl: "http://localhost:4113" }), "development"),
     );
 
     expect(loaded).toBe(composeModule);
@@ -235,7 +285,7 @@ describe("ui expose loads (routeConfig / compose)", () => {
 
   it("rejects a ui surface without an SSR entry URL with an actionable error", async () => {
     await expect(
-      Effect.runPromise(loadUiRouteConfig(uiEntry({ localPath: "/x/plugins/y" }))),
+      Effect.runPromise(loadUiRouteConfig(uiEntry({ localPath: "/x/plugins/y" }), "development")),
     ).rejects.toThrow(/no SSR entry URL/);
     expect(createInstanceMock).not.toHaveBeenCalled();
   });

@@ -1,8 +1,8 @@
 import Plugin from "@/index";
-import pluginDevConfig from "../plugin.dev";
+import packageJson from "../package.json" with { type: "json" };
 
 declare module "every-plugin" {
   interface RegisteredPlugins {
-    [pluginDevConfig.pluginId]: typeof Plugin;
+    [packageJson.name]: typeof Plugin;
   }
 }

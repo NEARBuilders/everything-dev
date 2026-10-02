@@ -238,18 +238,6 @@ export type UsePluginResult<K extends keyof R, R = RegisteredPlugins> =
     : VerifyPluginBinding<K, R>;
 
 /**
- * Runtime options
- */
-export interface RuntimeOptions {
-  isolation?: "strict" | "shared" | "none";
-  memoryLimit?: string;
-  concurrency?: number;
-  resourceTimeout?: string;
-  debug?: boolean;
-  metrics?: boolean;
-}
-
-/**
  * Extract registry type from runtime instance or use type directly
  * This allows EveryPlugin.Infer to work with both:
  * - typeof runtime (extracts registry from PluginRuntime<R> via __registryType)
@@ -292,5 +280,4 @@ export interface PluginRuntimeConfig<
 > {
   registry: R;
   secrets?: SecretsConfig;
-  options?: RuntimeOptions;
 }

@@ -17,6 +17,7 @@
 
 - [MCP server](/api/mcp): Model Context Protocol server (Streamable HTTP, stateless). Auto-generates tools from the API's OpenAPI spec. Connect your MCP client to discover and call all API operations.
 - [MCP discovery](/.well-known/mcp.json): JSON descriptor with server name, endpoint URL, and auth scheme.
+- [Version](/.well-known/version): deployed snapshot fingerprint, per-slot version-manifest pins, and the last watch-tick outcome — self-serve deploy state for agents.
 
 ## Auth
 
@@ -24,8 +25,8 @@ Authenticate to the API using an API key:
 
 1. Sign in with your NEAR wallet (SIWN) at the website.
 2. Go to **Settings → API Keys** at `/settings/api-keys`.
-3. Create a key — the full secret (`edk_...`) is shown once.
-4. Pass it on every request: `x-api-key: edk_your_key_here`
+3. Create a key — the full secret (`api_...`) is shown once.
+4. Pass it on every request: `x-api-key: api_your_key_here`
 
 The `x-api-key` header works for `/api/*` (REST), `/api/rpc/*` (oRPC), and `/api/mcp` (MCP).
 

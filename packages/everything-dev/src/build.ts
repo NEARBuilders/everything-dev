@@ -214,9 +214,9 @@ export async function buildWorkspaceTargets(opts: {
   // Bundler-config factories resolve from src (not dist), so the config chain
   // itself cannot go stale. No-ops when fresh (isWorkspaceDistStale).
   const buildTasks: Promise<unknown>[] = [
-    buildEverythingDevQuietly(opts.configDir, forceRebuild),
-    buildBetterNearAuthQuietly(opts.configDir, forceRebuild),
-    buildEveryPluginQuietly(opts.configDir, forceRebuild),
+    buildPackageQuietly(opts.configDir, "everything-dev", forceRebuild),
+    buildPackageQuietly(opts.configDir, "better-near-auth", forceRebuild),
+    buildPackageQuietly(opts.configDir, "every-plugin", forceRebuild),
   ];
   await Promise.all(buildTasks);
 
@@ -296,57 +296,41 @@ export async function buildWorkspaceTargets(opts: {
   return { built, skipped, deployResults: opts.deploy ? deployResults : undefined };
 }
 
-export async function buildEveryPluginQuietly(cwd: string, force = false) {
-  const packageDir = `${cwd}/packages/every-plugin`;
-  const packageExists = await fileExists(`${packageDir}/package.json`);
-  if (!packageExists) {
-    return;
-  }
-
-  if (!force && !(await isWorkspaceDistStale(packageDir, "dist/build/rspack/plugin.mjs"))) {
-    return;
-  }
-
-  const result = (await run("bun", ["run", "--cwd", "packages/every-plugin", "build"], {
-    cwd,
-    capture: true,
-  })) as { stdout: string; stderr: string; exitCode: number };
-
-  if (result.exitCode === 0) {
-    return;
-  }
-
-  if (result.stdout.trim()) {
-    process.stdout.write(result.stdout);
-  }
-
-  if (result.stderr.trim()) {
-    process.stderr.write(result.stderr);
-  }
-
-  throw new Error(
-    `bun run --cwd packages/every-plugin build failed with exit code ${result.exitCode}`,
-  );
+interface QuietBuildSpec {
+  distEntry: string;
 }
 
-export async function buildBetterNearAuthQuietly(cwd: string, force = false) {
-  const packageDir = `${cwd}/packages/better-near-auth`;
+const quietBuildPackages = {
+  "every-plugin": { distEntry: "dist/build/rspack/plugin.mjs" },
+  "better-near-auth": { distEntry: "dist/index.js" },
+  "everything-dev": { distEntry: "dist/index.mjs" },
+} satisfies Record<string, QuietBuildSpec>;
+
+export type QuietBuildPackage = keyof typeof quietBuildPackages;
+
+export async function buildPackageQuietly(
+  cwd: string,
+  packageName: QuietBuildPackage,
+  force = false,
+): Promise<boolean> {
+  const { distEntry } = quietBuildPackages[packageName];
+  const packageDir = `${cwd}/packages/${packageName}`;
   const packageExists = await fileExists(`${packageDir}/package.json`);
   if (!packageExists) {
-    return;
+    return false;
   }
 
-  if (!force && !(await isWorkspaceDistStale(packageDir, "dist/index.js"))) {
-    return;
+  if (!force && !(await isWorkspaceDistStale(packageDir, distEntry))) {
+    return false;
   }
 
-  const result = (await run("bun", ["run", "--cwd", "packages/better-near-auth", "build"], {
+  const result = (await run("bun", ["run", "--cwd", `packages/${packageName}`, "build"], {
     cwd,
     capture: true,
   })) as { stdout: string; stderr: string; exitCode: number };
 
   if (result.exitCode === 0) {
-    return;
+    return true;
   }
 
   if (result.stdout.trim()) {
@@ -358,7 +342,7 @@ export async function buildBetterNearAuthQuietly(cwd: string, force = false) {
   }
 
   throw new Error(
-    `bun run --cwd packages/better-near-auth build failed with exit code ${result.exitCode}`,
+    `bun run --cwd packages/${packageName} build failed with exit code ${result.exitCode}`,
   );
 }
 
@@ -397,37 +381,4 @@ export async function isWorkspaceDistStale(
     stat(join(packageDir, "package.json")).then((s) => s.mtimeMs),
   ]);
   return Math.max(srcMtime, pkgMtime) > distMtime;
-}
-
-export async function buildEverythingDevQuietly(cwd: string, force = false): Promise<boolean> {
-  const packageDir = `${cwd}/packages/everything-dev`;
-  const packageExists = await fileExists(`${packageDir}/package.json`);
-  if (!packageExists) {
-    return false;
-  }
-
-  if (!force && !(await isWorkspaceDistStale(packageDir, "dist/index.mjs"))) {
-    return false;
-  }
-
-  const result = (await run("bun", ["run", "--cwd", "packages/everything-dev", "build"], {
-    cwd,
-    capture: true,
-  })) as { stdout: string; stderr: string; exitCode: number };
-
-  if (result.exitCode === 0) {
-    return true;
-  }
-
-  if (result.stdout.trim()) {
-    process.stdout.write(result.stdout);
-  }
-
-  if (result.stderr.trim()) {
-    process.stderr.write(result.stderr);
-  }
-
-  throw new Error(
-    `bun run --cwd packages/everything-dev build failed with exit code ${result.exitCode}`,
-  );
 }

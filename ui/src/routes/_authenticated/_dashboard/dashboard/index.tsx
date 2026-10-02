@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   type Passkey,
   type SessionData,
@@ -7,9 +9,21 @@ import {
   useApiClient,
   useAuthClient,
 } from "@/app";
-import { PageContainer, PageHeader, SectionHeader, Skeleton } from "@/components";
+import {
+  AddEmailDialog,
+  Bulletin,
+  PageContainer,
+  PageHeader,
+  SectionHeader,
+  Skeleton,
+} from "@/components";
+import { consumeAddEmailPromptPending } from "@/lib/add-email-prompt";
 import { type FeatureArea, isFeatureArea } from "@/lib/feature-areas";
 import { pageTitle } from "@/lib/page-title";
+import { tenantNodesQueryOptions } from "@/lib/queries/nodes";
+import { organizationsQueryOptions } from "@/lib/queries/organizations";
+import { tenantByOrgQueryOptions } from "@/lib/queries/tenants";
+import { isSyntheticEmail } from "@/lib/synthetic-email";
 import { useNearAccount } from "@/lib/use-near-account";
 import { IdentityCard } from "./-identity-card";
 import { type HomeInvitation, InvitationSteps } from "./-invitation-steps";
@@ -37,6 +51,7 @@ function Home() {
   const auth = useAuthClient();
   const apiClient = useApiClient();
   const { restricted } = Route.useSearch();
+  const { runtimeConfig } = Route.useRouteContext();
   const { data: session } = useQuery<SessionData | null>(sessionQueryOptions(auth));
   const nearAccountId = useNearAccount();
   const activeOrgId = session?.session?.activeOrganizationId ?? "";
@@ -49,14 +64,7 @@ function Home() {
     },
     staleTime: 60 * 1000,
   });
-  const organizations = useQuery({
-    queryKey: ["organizations"],
-    queryFn: async () => {
-      const { data } = await auth.organization.list();
-      return data || [];
-    },
-    staleTime: 30 * 1000,
-  });
+  const organizations = useQuery(organizationsQueryOptions(apiClient));
   const invitations = useQuery({
     queryKey: ["user-invitations"],
     queryFn: async (): Promise<HomeInvitation[]> => {
@@ -68,22 +76,56 @@ function Home() {
     },
     staleTime: 30 * 1000,
   });
+  const tenant = useQuery(tenantByOrgQueryOptions(apiClient, activeOrgId));
+  const nodes = useQuery({
+    ...tenantNodesQueryOptions(apiClient, tenant.data?.id ?? ""),
+    enabled: !!tenant.data?.id,
+  });
+  const authContext = useQuery({
+    queryKey: ["home-auth-context", activeOrgId],
+    queryFn: () => apiClient.auth.getContext().catch(() => null),
+    enabled: !!activeOrgId,
+    staleTime: 30 * 1000,
+  });
+
+  const bulletin = nodes.data?.[0]?.metadata?.bulletin;
 
   const user = session?.user;
   const pending = (invitations.data ?? []).filter((invitation) => invitation.status === "pending");
   const orgs = organizations.data ?? [];
   const activeOrg = orgs.find((org) => org.id === activeOrgId) ?? null;
+  const orgRole = authContext.data?.organization?.member?.role;
   const isAdmin = user?.role === "admin";
-  const loading = !user || organizations.isPending || passkeys.isPending;
+  const community = tenant.data ? { name: tenant.data.name, tenantId: tenant.data.id } : null;
+  const loading =
+    !user || organizations.isPending || (!!activeOrgId && tenant.isPending) || passkeys.isPending;
 
+  const hasRealEmail = !isSyntheticEmail(user?.email);
   const steps = getNextSteps({
     isAnonymous: user?.isAnonymous ?? false,
     hasPasskey: (passkeys.data?.length ?? 0) > 0,
     hasNear: !!nearAccountId,
+    hasRealEmail,
     organizationCount: orgs.length,
     activeOrganizationName: activeOrg?.name ?? null,
+    community,
+    canManageCommunity: isAdmin || orgRole === "owner" || orgRole === "admin",
     isAdmin,
   });
+
+  const [addEmailOpen, setAddEmailOpen] = useState(false);
+
+  useEffect(() => {
+    if (loading || !user || user.isAnonymous || hasRealEmail) return;
+    if (!consumeAddEmailPromptPending()) return;
+    toast.info("Add your email so you can sign in from another device.", {
+      duration: Infinity,
+      action: {
+        label: "Add email",
+        onClick: () => setAddEmailOpen(true),
+      },
+    });
+  }, [loading, user, hasRealEmail]);
 
   const firstName = user?.isAnonymous ? null : user?.name?.split(" ")[0];
 
@@ -97,6 +139,9 @@ function Home() {
       />
       <div className="grid grid-cols-1 gap-12 lg:grid-cols-3">
         <div className="flex min-w-0 flex-col gap-12 lg:col-span-2">
+          {typeof bulletin === "string" && bulletin.trim() && (
+            <Bulletin content={bulletin} runtimeConfig={runtimeConfig} />
+          )}
           {pending.length > 0 && (
             <section className="flex flex-col gap-6">
               <SectionHeader title="Invitations" />
@@ -112,7 +157,12 @@ function Home() {
                 <Skeleton className="h-16 w-full rounded-2xl" />
               </div>
             ) : (
-              <NextStepsList steps={steps} primary={pending.length === 0} />
+              <NextStepsList
+                steps={steps}
+                tenantId={community?.tenantId ?? null}
+                primary={pending.length === 0}
+                onAddEmail={() => setAddEmailOpen(true)}
+              />
             )}
           </section>
         </div>
@@ -122,12 +172,14 @@ function Home() {
               user={user}
               nearAccountId={nearAccountId}
               passkeyCount={passkeys.data?.length ?? 0}
+              onAddEmail={() => setAddEmailOpen(true)}
             />
           ) : (
             <Skeleton className="h-56 w-full rounded-2xl" />
           )}
         </aside>
       </div>
+      <AddEmailDialog open={addEmailOpen} onOpenChange={setAddEmailOpen} />
     </PageContainer>
   );
 }

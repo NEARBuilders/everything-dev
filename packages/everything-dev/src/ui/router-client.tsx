@@ -35,8 +35,15 @@ export function createRouter<
   const history = opts.history ?? createBrowserHistory();
   const cspNonce = opts.context.cspNonce;
 
+  const routeTree = opts.routeTree ?? opts.defaultRouteTree;
+  if (!routeTree) {
+    throw new Error(
+      "createRouter: no route tree — compose failed and no core-only fallback was constructed",
+    );
+  }
+
   const router = createTanStackRouter({
-    routeTree: (opts.routeTree ?? opts.defaultRouteTree) as TRouteTree,
+    routeTree: routeTree as TRouteTree,
     history,
     basepath: opts.basepath ?? opts.context.runtimeConfig?.runtime?.runtimeBasePath ?? "/",
     context: {

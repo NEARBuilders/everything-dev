@@ -69,4 +69,7 @@ export const PORT_POOL = {
 
 // Export test server URL for use in tests
 export const TEST_SERVER_URL = `http://localhost:${TEST_PORT}`;
-export const TEST_REMOTE_ENTRY_URL = `${TEST_SERVER_URL}/remoteEntry.js`;
+/** The fixture's fixed-name discovery contract — the MF runtime registers
+ * remotes by manifest (`type: "manifest"`) and resolves the hashed entry
+ * itself. Entry files are content-hashed; the manifest is the stable name. */
+export const TEST_PLUGIN_MANIFEST_URL = `${TEST_SERVER_URL}/mf-manifest.json`;

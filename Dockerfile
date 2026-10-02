@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM oven/bun:1.3.14-alpine AS builder
+FROM oven/bun:1.4.2-alpine AS builder
 WORKDIR /app
 
 # NOTE: do NOT split this into a manifests-first COPY + install. Bun's frozen
@@ -40,7 +40,7 @@ RUN node -e "const p=require('./package.json');p.workspaces.packages=p.workspace
 # Serves the staged dists on container-local static servers and boots the
 # production host over a baked local config (--config-path). Built explicitly
 # with `docker build --target regression` — not the deployment artifact.
-FROM oven/bun:1.3.14-alpine AS regression
+FROM oven/bun:1.4.2-alpine AS regression
 WORKDIR /app
 
 RUN apk add --no-cache curl
@@ -83,7 +83,7 @@ ENTRYPOINT ["bun", "run", "scripts/regression/container-entrypoint.mjs"]
 # (ADR 0020: all bundle distribution lives on the CDN — the image keeps the
 # boot role). One container = the whole start stack; only the host port is
 # mapped. Databases and secrets arrive via env at `docker run`.
-FROM oven/bun:1.3.14-alpine AS runtime
+FROM oven/bun:1.4.2-alpine AS runtime
 WORKDIR /app
 
 RUN apk add --no-cache curl

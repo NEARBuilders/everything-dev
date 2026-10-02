@@ -36,11 +36,7 @@ const MISSING_ID = "00000000-0000-0000-0000-000000000000";
 const { run: runService, squashError: squashServiceError } = createServiceHarness<
   TenantsService,
   TenantsTag
->(
-  Effect.gen(function* () {
-    return yield* TenantsTag;
-  }),
-);
+>(TenantsTag);
 
 const baseInput = {
   name: "Acme Corp",
@@ -287,7 +283,7 @@ describe("TenantsService — domain bindings", () => {
     );
     await runService(layer, (svc) => svc.createBinding({ tenantId: tenant.id, hostname: "b" }));
 
-    const bindings = await runService(layer, (svc) => svc.listBindings());
+    const bindings = await runService(layer, (svc) => svc.listBindings);
     expect(bindings).toHaveLength(2);
     expect(bindings.find((b) => b.hostname === "a")).toMatchObject({
       tenantId: tenant.id,
@@ -326,7 +322,7 @@ describe("TenantsService — domain bindings", () => {
       svc.createBinding({ tenantId: tenant.id, hostname: "acme.com" }),
     );
 
-    expect(await runService(layer, (svc) => svc.listBindings())).toEqual([]);
+    expect(await runService(layer, (svc) => svc.listBindings)).toEqual([]);
     vi.mocked(resolveTxt).mockResolvedValue([
       ["unrelated-record"],
       ["everything-verify=", binding.verificationToken],
@@ -337,7 +333,7 @@ describe("TenantsService — domain bindings", () => {
     expect(verified.isVerified).toBe(true);
     expect(verified.verifiedAt).toEqual(expect.any(String));
     expect(resolveTxt).toHaveBeenCalledWith("acme.com");
-    expect(await runService(layer, (svc) => svc.listBindings())).toMatchObject([
+    expect(await runService(layer, (svc) => svc.listBindings)).toMatchObject([
       { hostname: "acme.com" },
     ]);
   });
@@ -365,7 +361,7 @@ describe("TenantsService — domain bindings", () => {
     expect(
       await runService(layer, (svc) => svc.resolveBindingByHostname("acme.com")),
     ).toMatchObject({ isVerified: false, verifiedAt: null });
-    expect(await runService(layer, (svc) => svc.listBindings())).toEqual([]);
+    expect(await runService(layer, (svc) => svc.listBindings)).toEqual([]);
   });
 
   it("activates a platform alias without querying DNS", async () => {
@@ -377,7 +373,7 @@ describe("TenantsService — domain bindings", () => {
     expect(binding.isVerified).toBe(true);
     await runService(layer, (svc) => svc.verifyCustomDomain(tenant.id, binding.id));
     expect(resolveTxt).not.toHaveBeenCalled();
-    expect(await runService(layer, (svc) => svc.listBindings())).toMatchObject([
+    expect(await runService(layer, (svc) => svc.listBindings)).toMatchObject([
       { hostname: "chicago" },
     ]);
   });
@@ -399,7 +395,7 @@ describe("TenantsService — domain bindings", () => {
     ).not.toBeNull();
     await runService(layer, (svc) => svc.deleteBinding(tenant.id, binding.id));
     expect(await runService(layer, (svc) => svc.resolveBindingByHostname("chicago"))).toBeNull();
-    expect(await runService(layer, (svc) => svc.listBindings())).toEqual([]);
+    expect(await runService(layer, (svc) => svc.listBindings)).toEqual([]);
     expect(
       await squashServiceError(layer, (svc) => svc.deleteBinding(tenant.id, binding.id)),
     ).toMatchObject({ code: "NOT_FOUND" });

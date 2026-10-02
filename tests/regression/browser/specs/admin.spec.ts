@@ -87,6 +87,7 @@ test.describe("admin", () => {
       waitUntil: "commit",
     });
     await expect(page.getByText(name, { exact: false }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("orgs-request-status")).toContainText("Pending approval");
 
     expectNoHydrationFailure(pageErrors);
   });

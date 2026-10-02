@@ -6,6 +6,8 @@ export const tenantQueryKeys = {
   lists: () => [...tenantQueryKeys.all, "list"] as const,
   list: () => [...tenantQueryKeys.lists(), "all"] as const,
   apps: () => [...tenantQueryKeys.lists(), "apps"] as const,
+  stakeCommunities: (scope: string) =>
+    [...tenantQueryKeys.lists(), "stake-communities", scope] as const,
   organizationIds: (organizationIds: readonly string[]) =>
     [...tenantQueryKeys.lists(), "organizations", organizationIds] as const,
   details: () => [...tenantQueryKeys.all, "detail"] as const,
@@ -56,6 +58,14 @@ export function tenantAppsQueryOptions(apiClient: ApiClient) {
   return queryOptions({
     queryKey: tenantQueryKeys.apps(),
     queryFn: () => apiClient.listTenantApps(),
+    staleTime: 30 * 1000,
+  });
+}
+
+export function stakeCommunitiesQueryOptions(apiClient: ApiClient, scope: string) {
+  return queryOptions({
+    queryKey: tenantQueryKeys.stakeCommunities(scope),
+    queryFn: () => apiClient.listStakeCommunities(),
     staleTime: 30 * 1000,
   });
 }

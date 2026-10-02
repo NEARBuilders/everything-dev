@@ -15,6 +15,8 @@ export default {
     variables: {
       platformAccount: "audit.citynode.near",
       gatewayDomains: "citynode.app,testnet.citynode.app",
+      domain: "citynode.app",
+      repository: "https://github.com/NEARBuilders/citynode.app",
     },
     secrets: {
       LUMA_CALENDAR_API_KEYS: process.env.LUMA_CALENDAR_API_KEYS || "",

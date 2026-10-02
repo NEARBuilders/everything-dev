@@ -18,12 +18,17 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldLabel, FieldSeparator } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import type { LoginTranslator } from "@/i18n/catalogs";
+import { LoginLanguageSelector } from "@/i18n/language-selector";
+import { LoginI18nProvider, useLoginTranslation } from "@/i18n/runtime";
+import { markAddEmailPromptPending } from "@/lib/add-email-prompt";
 import { useIsDesktop } from "@/lib/use-client";
 import { useNetworkId } from "@/lib/use-network-id";
 import { PairPanel } from "../-pair-panel";
 
 type SearchParams = {
   redirect?: string;
+  method?: "phone";
 };
 
 type View = "sign-in" | "create" | "phone";
@@ -47,15 +52,16 @@ function sanitizeRedirect(url: unknown): string {
 
 const STAKE_PATH = /^\/stake(\/|\?|#|$)/;
 
-function signInDescription(redirectTo: string): string {
-  if (STAKE_PATH.test(redirectTo)) return "Sign in to stake with a CityNode community.";
-  return "Welcome back. Pick how you want to sign in.";
+function signInDescription(redirectTo: string, t: LoginTranslator): string {
+  if (STAKE_PATH.test(redirectTo)) return t("auth.login.subtitle.stake");
+  return t("auth.login.subtitle");
 }
 
 export const Route = createFileRoute("/_public/login/")({
   ssr: false,
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     redirect: sanitizeRedirect(search.redirect),
+    method: search.method === "phone" ? ("phone" as const) : undefined,
   }),
   beforeLoad: async ({ context, search }) => {
     const { queryClient, authClient } = context;
@@ -69,27 +75,40 @@ export const Route = createFileRoute("/_public/login/")({
 
 type AuthError = { code?: string; message?: string } | Error;
 
-function handleError(error: AuthError) {
+function handleError(error: AuthError, t: LoginTranslator) {
   const code = "code" in error ? error.code : undefined;
-  const message = "message" in error ? error.message : "Failed to sign in";
-  if (code === "UNAUTHORIZED_NONCE_REPLAY") toast.error("Sign-in already used");
-  else if (code === "UNAUTHORIZED_INVALID_SIGNATURE") toast.error("Invalid signature");
-  else if (code === "SIGNER_NOT_AVAILABLE") toast.error("NEAR wallet not available");
-  else if (code === "RECIPIENT_MISMATCH") toast.error("Sign-in configuration error");
-  else if (code === "UNAUTHORIZED_INVALID_NONCE") toast.error("Session expired, please try again");
-  else toast.error(message || "Failed to sign in");
+  if (code === "UNAUTHORIZED_NONCE_REPLAY") toast.error(t("auth.login.error.used"));
+  else if (code === "UNAUTHORIZED_INVALID_SIGNATURE") {
+    toast.error(t("auth.login.error.signature"));
+  } else if (code === "SIGNER_NOT_AVAILABLE") {
+    toast.error(t("auth.login.error.walletUnavailable"));
+  } else if (code === "RECIPIENT_MISMATCH") {
+    toast.error(t("auth.login.error.configuration"));
+  } else if (code === "UNAUTHORIZED_INVALID_NONCE") {
+    toast.error(t("auth.login.error.expired"));
+  } else toast.error(t("auth.login.error.generic"));
 }
 
 function LoginPage() {
+  return (
+    <LoginI18nProvider>
+      <LoginPageContent />
+    </LoginI18nProvider>
+  );
+}
+
+function LoginPageContent() {
   const navigate = useNavigate();
   const auth = useAuthClient();
   const queryClient = useQueryClient();
+  const t = useLoginTranslation();
   const redirectTo = sanitizeRedirect(Route.useSearch().redirect);
+  const wantsPhone = Route.useSearch().method === "phone";
   const banned = useRouterState({ select: (state) => state.location.hash === "banned" });
   const networkId = useNetworkId();
   const isDesktop = useIsDesktop();
 
-  const [view, setView] = useState<View>("sign-in");
+  const [view, setView] = useState<View>(wantsPhone && isDesktop ? "phone" : "sign-in");
   const [pending, setPending] = useState<"passkey" | "near" | "create" | null>(null);
   const [detectedAccount, setDetectedAccount] = useState<string | null>(null);
   const [passkeyMissing, setPasskeyMissing] = useState(false);
@@ -107,7 +126,9 @@ function LoginPage() {
     await refreshSessionCache(auth, queryClient);
     await navigate({ href: redirectTo, replace: true });
   };
-  const onAutofillSignIn = useEffectEvent(() => void handleSuccess("Signed in with passkey"));
+  const onAutofillSignIn = useEffectEvent(
+    () => void handleSuccess(t("auth.login.success.passkey")),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -128,16 +149,16 @@ function LoginPage() {
       await auth.signIn.near({
         onSuccess: async () => {
           setPending(null);
-          await handleSuccess("Signed in with NEAR");
+          await handleSuccess(t("auth.login.success.near"));
         },
         onError: (error: { code?: string; message?: string }) => {
           setPending(null);
-          handleError(error);
+          handleError(error, t);
         },
       });
     } catch {
       setPending(null);
-      toast.error("Failed to connect your NEAR wallet");
+      toast.error(t("auth.login.error.nearConnect"));
     }
   };
 
@@ -147,7 +168,7 @@ function LoginPage() {
     await signInWithPasskey(auth, {
       onSuccess: async () => {
         setPending(null);
-        await handleSuccess("Signed in with passkey");
+        await handleSuccess(t("auth.login.success.passkey"));
       },
       onError: () => {
         setPending(null);
@@ -162,7 +183,8 @@ function LoginPage() {
     await createAccountWithPasskey(auth, {
       onSuccess: async () => {
         setPending(null);
-        await handleSuccess("Welcome to CityNode");
+        markAddEmailPromptPending();
+        await handleSuccess(t("auth.login.success.create"));
       },
       onError: (error) => {
         setPending(null);
@@ -189,7 +211,9 @@ function LoginPage() {
           <WalletIcon data-icon="inline-start" />
         )}
         <span className="min-w-0 truncate">
-          {detectedAccount ? `Continue as ${detectedAccount}` : "Continue with NEAR"}
+          {detectedAccount
+            ? t("auth.login.near.continueAs", { account: detectedAccount })
+            : t("auth.login.near.action")}
         </span>
       </Button>
       {detectedAccount && (
@@ -201,7 +225,7 @@ function LoginPage() {
           disabled={pending !== null}
           data-testid="login.switch-wallet-button"
         >
-          Use another wallet
+          {t("auth.login.near.useAnother")}
         </Button>
       )}
     </div>
@@ -211,9 +235,10 @@ function LoginPage() {
     return (
       <AuthPanel
         icon={<DeviceMobileIcon />}
-        title="Sign in with your phone"
+        toolbar={<LoginLanguageSelector />}
+        title={t("auth.login.phone.title")}
         titleTestId="login.heading"
-        description="Scan with a phone that's signed in to CityNode."
+        description={t("auth.login.phone.subtitle")}
       >
         <PairPanel redirect={redirectTo} onClose={() => setView("sign-in")} />
       </AuthPanel>
@@ -224,16 +249,17 @@ function LoginPage() {
     return (
       <AuthPanel
         icon={<UserPlusIcon />}
-        title="Create your account"
+        toolbar={<LoginLanguageSelector />}
+        title={t("auth.login.create.title")}
         titleTestId="login.heading"
         description={
           isPasskeyWalletAvailable(networkId)
-            ? "One passkey on this device. We set up a NEAR wallet for you — no seed phrase."
-            : "One passkey on this device. No password to remember."
+            ? t("auth.login.create.subtitle.wallet")
+            : t("auth.login.create.subtitle.default")
         }
         footer={
           <>
-            <span>Already have an account?</span>
+            <span>{t("auth.login.create.existing")}</span>
             <Button
               type="button"
               variant="link"
@@ -241,7 +267,7 @@ function LoginPage() {
               onClick={() => setView("sign-in")}
               data-testid="login.signin-link"
             >
-              Sign in
+              {t("auth.login.signIn")}
             </Button>
           </>
         }
@@ -260,12 +286,12 @@ function LoginPage() {
             ) : (
               <FingerprintIcon data-icon="inline-start" />
             )}
-            Create account with passkey
+            {t("auth.login.create.action")}
           </Button>
           {unsupported && (
             <div className="flex flex-col gap-4" data-testid="login.unsupported-authenticator">
               <p className="text-center text-sm text-muted-foreground">
-                This device can't create a supported passkey. Use a NEAR wallet instead.
+                {t("auth.login.create.unsupported")}
               </p>
               {nearButton}
             </div>
@@ -277,12 +303,13 @@ function LoginPage() {
 
   return (
     <AuthPanel
-      title="Sign in to CityNode"
+      toolbar={<LoginLanguageSelector />}
+      title={t("auth.login.title")}
       titleTestId="login.heading"
-      description={signInDescription(redirectTo)}
+      description={signInDescription(redirectTo, t)}
       footer={
         <>
-          <span>New here?</span>
+          <span>{t("auth.login.create.new")}</span>
           <Button
             type="button"
             variant="link"
@@ -290,28 +317,28 @@ function LoginPage() {
             onClick={() => setView("create")}
             data-testid="login.create-account-link"
           >
-            Create an account
+            {t("auth.login.create.link")}
           </Button>
         </>
       }
     >
       {banned && (
         <p className="text-center text-sm text-destructive" data-testid="login.banned">
-          This account has been suspended.
+          {t("auth.login.suspended")}
         </p>
       )}
       <div className="flex flex-col gap-3">
         {passkeyAutofill && (
           <Field>
             <FieldLabel htmlFor="login-passkey-autofill" className="sr-only">
-              Saved passkey
+              {t("auth.login.passkey.savedLabel")}
             </FieldLabel>
             <Input
               id="login-passkey-autofill"
               type="text"
               name="username"
               autoComplete="username webauthn"
-              placeholder="Choose a saved passkey"
+              placeholder={t("auth.login.passkey.savedPlaceholder")}
               data-testid="login.passkey-autofill"
             />
           </Field>
@@ -329,19 +356,20 @@ function LoginPage() {
           ) : (
             <FingerprintIcon data-icon="inline-start" />
           )}
-          {pending === "passkey" ? "Waiting for passkey…" : "Sign in with passkey"}
+          {pending === "passkey" ? t("auth.login.passkey.pending") : t("auth.login.passkey.action")}
         </Button>
         {passkeyMissing && (
           <p
             className="text-center text-sm text-muted-foreground"
             data-testid="login.no-passkey-hint"
           >
-            No passkey on this device?{" "}
-            {isDesktop ? "Use your phone or a NEAR wallet." : "Use a NEAR wallet."}
+            {isDesktop
+              ? t("auth.login.passkey.missingDesktop")
+              : t("auth.login.passkey.missingMobile")}
           </p>
         )}
       </div>
-      <FieldSeparator>or</FieldSeparator>
+      <FieldSeparator>{t("auth.login.separator")}</FieldSeparator>
       <div className="flex flex-col gap-3">
         {nearButton}
         {isDesktop && (
@@ -355,7 +383,7 @@ function LoginPage() {
             data-testid="login.device-button"
           >
             <DeviceMobileIcon data-icon="inline-start" />
-            Sign in with your phone
+            {t("auth.login.phone.action")}
           </Button>
         )}
       </div>

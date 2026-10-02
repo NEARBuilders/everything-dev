@@ -30,8 +30,10 @@ test.describe("SSR compose", () => {
     };
     const authRemote = config.ui?.compose?.remotes?.find((remote) => remote.key === "auth");
     expect(authRemote, "compose payload must include the auth remote (key: auth)").toBeTruthy();
+    // Dev stacks serve the fixed dev entry; pinned (start) stacks serve the
+    // content-hashed entry derived from the slot's version manifest.
     expect(authRemote?.entry, "auth remote must point at a remoteEntry").toMatch(
-      /\/remoteEntry\.js$/,
+      /\/remoteEntry(\.[a-f0-9]+)?\.js$/,
     );
   });
 

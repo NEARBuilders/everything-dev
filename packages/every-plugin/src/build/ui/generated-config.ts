@@ -44,6 +44,21 @@ export default createUiRsbuildConfig({
 }
 
 /**
+ * Canonical config-layout derivation: the composition key for a plugin
+ * workspace — the `<key>` of the `plugins/<key>` directory relative to the
+ * nearest `bos.config.json`. The dev server and the generated ui config
+ * both key off this; no consumer keeps a private copy.
+ */
+export function pluginLayoutKey(cwd: string): string | null {
+  const bosConfigPath = findBosConfigPath(cwd);
+  const relativeWorkspace = bosConfigPath
+    ? path.relative(path.dirname(bosConfigPath), cwd)
+    : undefined;
+  const [workspaceGroup, layoutKey] = relativeWorkspace?.split(path.sep) ?? [];
+  return workspaceGroup === "plugins" && layoutKey ? layoutKey : null;
+}
+
+/**
  * Synthesize the rsbuild config for a folder-form ui source (the plugin
  * build contract, not per-plugin config — mirrors the rspack generated
  * config). Returns the config file path, or null when the workspace has no
@@ -51,18 +66,10 @@ export default createUiRsbuildConfig({
  */
 export function ensureGeneratedUiRsbuildConfig(cwd: string): string | null {
   if (!hasFolderFormUi(cwd)) return null;
-  const bosConfigPath = findBosConfigPath(cwd);
   const outDir = path.join(cwd, GENERATED_CONFIG_DIR);
   fs.mkdirSync(outDir, { recursive: true });
   const outPath = path.join(outDir, GENERATED_UI_CONFIG);
-  // Canonical plugin key: the config-layout id (plugins/<id>) — the same key
-  // the runtime config and composition use. plugin.dev.ts's pluginId is the
-  // npm name, which does not match the composition keying.
-  const layoutKey =
-    bosConfigPath && path.relative(path.dirname(bosConfigPath), cwd).startsWith("plugins/")
-      ? path.relative(path.dirname(bosConfigPath), cwd).split(path.sep)[1]?.split(path.sep)[0]
-      : undefined;
-  const pluginId = layoutKey ?? getPluginInfo(cwd).normalizedName;
+  const pluginId = pluginLayoutKey(cwd) ?? getPluginInfo(cwd).normalizedName;
   const next = generatedUiConfig(pluginId);
   if (!fs.existsSync(outPath) || fs.readFileSync(outPath, "utf8") !== next) {
     fs.writeFileSync(outPath, next);

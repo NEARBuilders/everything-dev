@@ -5,8 +5,11 @@ const base: NextStepsState = {
   isAnonymous: false,
   hasPasskey: true,
   hasNear: false,
+  hasRealEmail: true,
   organizationCount: 1,
   activeOrganizationName: "Harbor",
+  community: null,
+  canManageCommunity: false,
   isAdmin: false,
 };
 
@@ -22,18 +25,41 @@ describe("home next steps", () => {
   });
 
   it("sends a user without organizations to create one", () => {
-    expect(ids({ organizationCount: 0, activeOrganizationName: null })).toEqual(["create-org"]);
+    expect(ids({ organizationCount: 0, activeOrganizationName: null })).toEqual([
+      "create-org",
+      "stake",
+      "explore",
+    ]);
   });
 
   it("asks a member of several organizations to pick an active one", () => {
     expect(ids({ organizationCount: 2, activeOrganizationName: null })[0]).toBe("choose-org");
   });
 
-  it("stays quiet once the user has an active organization", () => {
-    expect(ids({})).toEqual([]);
+  it("nudges a signed-in user without a real email to add one", () => {
+    expect(ids({ hasRealEmail: false })).toContain("add-email");
+    expect(ids({ hasRealEmail: true })).not.toContain("add-email");
+    expect(ids({ isAnonymous: true, hasRealEmail: false })).not.toContain("add-email");
   });
 
-  it("adds the admin queue for admins", () => {
-    expect(ids({ isAdmin: true })).toEqual(["admin"]);
+  it("offers Start a community when the active organization has no community", () => {
+    expect(ids({})).toEqual(["start-community", "stake", "explore"]);
+  });
+
+  it("opens My community once the organization runs one", () => {
+    expect(ids({ community: { name: "Harbor City", tenantId: "t1" } })).toEqual([
+      "open-community",
+      "stake",
+    ]);
+  });
+
+  it("adds Community settings for owners and the admin queue for admins", () => {
+    expect(
+      ids({
+        community: { name: "Harbor City", tenantId: "t1" },
+        canManageCommunity: true,
+        isAdmin: true,
+      }),
+    ).toEqual(["open-community", "community-settings", "admin", "stake"]);
   });
 });

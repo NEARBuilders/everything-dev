@@ -10,7 +10,7 @@ import {
 import { AuthServicesTag, type PluginServices } from "../service-types";
 import { createHeaders, getActiveOrganizationId, parseTeamAreas, safeAuthApi } from "../utils";
 
-const DEFAULT_MAX_USES = 50;
+const DEFAULT_MAX_USES = 300;
 const DEFAULT_EXPIRES_IN_HOURS = 24;
 const EVENTS_AREA = "events";
 
@@ -48,6 +48,12 @@ async function requireOrganizerContext(
     inputOrganizationId ?? getActiveOrganizationId(sessionData?.session) ?? null;
   if (!userId || !organizationId) {
     throw new ORPCError("BAD_REQUEST", { message: "No organization selected" });
+  }
+  const organization = await services.db.query.organization.findFirst({
+    where: eq(schema.organization.id, organizationId),
+  });
+  if (organization?.status !== "active") {
+    throw new ORPCError("FORBIDDEN", { message: "Organization requires platform-admin approval" });
   }
   const result = await safeAuthApi(() =>
     services.auth.api.getActiveMemberRole({
@@ -375,6 +381,11 @@ export function createOnboardingHandlers(builder: any, requireAuth: any) {
           where: eq(schema.organization.id, codeRow.organizationId),
         });
         const organizationName = organization?.name ?? "";
+        if (organization?.status !== "active") {
+          throw new ORPCError("FORBIDDEN", {
+            message: "Organization requires platform-admin approval",
+          });
+        }
 
         if (codeRow.revokedAt) {
           throw new ORPCError("FORBIDDEN", { message: "This onboarding code was revoked" });
@@ -395,6 +406,10 @@ export function createOnboardingHandlers(builder: any, requireAuth: any) {
           ),
         });
         if (already) {
+          await services.db
+            .update(schema.session)
+            .set({ activeOrganizationId: codeRow.organizationId })
+            .where(eq(schema.session.id, sessionData.session.id));
           return {
             success: true,
             alreadyRedeemed: true,

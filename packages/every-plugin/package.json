@@ -22,44 +22,31 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     },
-    "./runtime": {
+    "./identity": {
       "bun": {
-        "types": "./src/runtime/index.ts",
-        "import": "./src/runtime/index.ts"
+        "types": "./src/identity.ts",
+        "import": "./src/identity.ts"
       },
       "development": {
-        "types": "./src/runtime/index.ts",
-        "import": "./src/runtime/index.ts"
+        "types": "./src/identity.ts",
+        "import": "./src/identity.ts"
       },
-      "types": "./dist/runtime/index.d.mts",
-      "import": "./dist/runtime/index.mjs",
-      "require": "./dist/runtime/index.cjs"
+      "types": "./dist/identity.d.mts",
+      "import": "./dist/identity.mjs",
+      "require": "./dist/identity.cjs"
     },
-    "./testing": {
+    "./types": {
       "bun": {
-        "types": "./src/testing/index.ts",
-        "import": "./src/testing/index.ts"
+        "types": "./src/types.ts",
+        "import": "./src/types.ts"
       },
       "development": {
-        "types": "./src/testing/index.ts",
-        "import": "./src/testing/index.ts"
+        "types": "./src/types.ts",
+        "import": "./src/types.ts"
       },
-      "types": "./dist/testing/index.d.mts",
-      "import": "./dist/testing/index.mjs",
-      "require": "./dist/testing/index.cjs"
-    },
-    "./normalize": {
-      "bun": {
-        "types": "./src/runtime/services/normalize.ts",
-        "import": "./src/runtime/services/normalize.ts"
-      },
-      "development": {
-        "types": "./src/runtime/services/normalize.ts",
-        "import": "./src/runtime/services/normalize.ts"
-      },
-      "types": "./dist/runtime/services/normalize.d.mts",
-      "import": "./dist/runtime/services/normalize.mjs",
-      "require": "./dist/runtime/services/normalize.cjs"
+      "types": "./dist/types.d.mts",
+      "import": "./dist/types.mjs",
+      "require": "./dist/types.cjs"
     },
     "./errors": {
       "bun": {
@@ -87,18 +74,44 @@
       "import": "./dist/remote-entry.mjs",
       "require": "./dist/remote-entry.cjs"
     },
-    "./types": {
+    "./runtime": {
       "bun": {
-        "types": "./src/types.ts",
-        "import": "./src/types.ts"
+        "types": "./src/runtime/index.ts",
+        "import": "./src/runtime/index.ts"
       },
       "development": {
-        "types": "./src/types.ts",
-        "import": "./src/types.ts"
+        "types": "./src/runtime/index.ts",
+        "import": "./src/runtime/index.ts"
       },
-      "types": "./dist/types.d.mts",
-      "import": "./dist/types.mjs",
-      "require": "./dist/types.cjs"
+      "types": "./dist/runtime/index.d.mts",
+      "import": "./dist/runtime/index.mjs",
+      "require": "./dist/runtime/index.cjs"
+    },
+    "./normalize": {
+      "bun": {
+        "types": "./src/runtime/services/normalize.ts",
+        "import": "./src/runtime/services/normalize.ts"
+      },
+      "development": {
+        "types": "./src/runtime/services/normalize.ts",
+        "import": "./src/runtime/services/normalize.ts"
+      },
+      "types": "./dist/runtime/services/normalize.d.mts",
+      "import": "./dist/runtime/services/normalize.mjs",
+      "require": "./dist/runtime/services/normalize.cjs"
+    },
+    "./shared-deps-spec": {
+      "bun": {
+        "types": "./src/shared-deps-spec.ts",
+        "import": "./src/shared-deps-spec.ts"
+      },
+      "development": {
+        "types": "./src/shared-deps-spec.ts",
+        "import": "./src/shared-deps-spec.ts"
+      },
+      "types": "./dist/shared-deps-spec.d.mts",
+      "import": "./dist/shared-deps-spec.mjs",
+      "require": "./dist/shared-deps-spec.cjs"
     },
     "./build/rspack": {
       "bun": {
@@ -113,6 +126,32 @@
       "import": "./dist/build/rspack/index.mjs",
       "require": "./dist/build/rspack/index.cjs"
     },
+    "./build/artifact-names": {
+      "bun": {
+        "types": "./src/build/artifact-names.ts",
+        "import": "./src/build/artifact-names.ts"
+      },
+      "development": {
+        "types": "./src/build/artifact-names.ts",
+        "import": "./src/build/artifact-names.ts"
+      },
+      "types": "./dist/build/artifact-names.d.mts",
+      "import": "./dist/build/artifact-names.mjs",
+      "require": "./dist/build/artifact-names.cjs"
+    },
+    "./version-manifest": {
+      "bun": {
+        "types": "./src/version-manifest.ts",
+        "import": "./src/version-manifest.ts"
+      },
+      "development": {
+        "types": "./src/version-manifest.ts",
+        "import": "./src/version-manifest.ts"
+      },
+      "types": "./dist/version-manifest.d.mts",
+      "import": "./dist/version-manifest.mjs",
+      "require": "./dist/version-manifest.cjs"
+    },
     "./ui/manifest": {
       "bun": {
         "types": "./src/ui/manifest/index.ts",
@@ -122,10 +161,7 @@
         "types": "./src/ui/manifest/index.ts",
         "import": "./src/ui/manifest/index.ts"
       },
-      "types": {
-        "import": "./dist/ui/manifest/index.d.mts",
-        "require": "./dist/ui/manifest/index.d.cts"
-      },
+      "types": "./dist/ui/manifest/index.d.mts",
       "import": "./dist/ui/manifest/index.mjs",
       "require": "./dist/ui/manifest/index.cjs"
     },
@@ -138,10 +174,7 @@
         "types": "./src/ui/manifest/generator.ts",
         "import": "./src/ui/manifest/generator.ts"
       },
-      "types": {
-        "import": "./dist/ui/manifest/generator.d.mts",
-        "require": "./dist/ui/manifest/generator.d.cts"
-      },
+      "types": "./dist/ui/manifest/generator.d.mts",
       "import": "./dist/ui/manifest/generator.mjs",
       "require": "./dist/ui/manifest/generator.cjs"
     },
@@ -154,10 +187,7 @@
         "types": "./src/ui/manifest/contract.ts",
         "import": "./src/ui/manifest/contract.ts"
       },
-      "types": {
-        "import": "./dist/ui/manifest/contract.d.mts",
-        "require": "./dist/ui/manifest/contract.d.cts"
-      },
+      "types": "./dist/ui/manifest/contract.d.mts",
       "import": "./dist/ui/manifest/contract.mjs",
       "require": "./dist/ui/manifest/contract.cjs"
     },
@@ -183,8 +213,8 @@
         "types": "./src/dev/serve.ts",
         "import": "./src/dev/serve.ts"
       },
-      "types": "./dist/serve.d.mts",
-      "import": "./dist/serve.mjs"
+      "types": "./dist/dev/serve.d.mts",
+      "import": "./dist/dev/serve.mjs"
     },
     "./package.json": "./package.json"
   },
@@ -201,6 +231,8 @@
   ],
   "scripts": {
     "build": "tsdown",
+    "exports:sync": "bun scripts/sync-exports.ts",
+    "exports:check": "bun scripts/sync-exports.ts --check",
     "build:test": "cd tests/fixtures/test-plugin && bun run build",
     "test": "vitest run --config vitest.config.ts",
     "test:unit": "vitest run --config vitest.config.ts",

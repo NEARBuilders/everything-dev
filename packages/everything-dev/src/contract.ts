@@ -1,7 +1,13 @@
 import "@orpc/openapi/extensions/route";
 import * as z from "zod";
+import type { DevSessionData, StartSummary } from "./dev-session-data";
 import { oc } from "./sdk";
-import { BosConfigInputSchema, BosConfigSchema, SourceModeSchema } from "./types";
+import {
+  BosConfigInputSchema,
+  BosConfigSchema,
+  SourceModeSchema,
+  StarterLevelSchema,
+} from "./types";
 
 export const PhaseTimingSchema = z.object({
   name: z.string(),
@@ -30,6 +36,7 @@ export const DevResultSchema = z.object({
   description: z.string(),
   processes: z.array(z.string()),
   timings: z.array(PhaseTimingSchema).optional(),
+  session: z.custom<DevSessionData>().optional(),
 });
 
 export const StartOptionsSchema = z.object({
@@ -46,6 +53,8 @@ export const StartResultSchema = z.object({
   status: z.enum(["running", "error"]),
   url: z.string(),
   error: z.string().optional(),
+  session: z.custom<DevSessionData>().optional(),
+  summary: z.custom<StartSummary>().optional(),
 });
 
 export const BuildOptionsSchema = z.object({
@@ -56,7 +65,6 @@ export const BuildOptionsSchema = z.object({
       "Comma-separated keys, 'all' (default), or 'local' (only this repo's local plugins hosted via 'local:…')",
     ),
   force: z.boolean().default(false),
-  deploy: z.boolean().default(false),
 });
 
 export const BuildResultSchema = z.object({
@@ -64,7 +72,6 @@ export const BuildResultSchema = z.object({
   error: z.string().optional(),
   built: z.array(z.string()),
   skipped: z.array(z.string()).optional(),
-  deployed: z.boolean().optional(),
 });
 
 export const ConfigOptionsSchema = z.object({
@@ -146,10 +153,9 @@ export const PluginPublishResultSchema = z.object({
   status: z.enum(["published", "error"]),
   key: z.string(),
   path: z.string().optional(),
-  script: z.string().optional(),
   production: z.string().optional(),
-  integrity: z.string().optional(),
   version: z.string().optional(),
+  fingerprint: z.string().optional(),
   error: z.string().optional(),
 });
 
@@ -162,15 +168,8 @@ export const WorkspaceDeployResultSchema = z.object({
 });
 
 export const PublishOptionsSchema = z.object({
-  deploy: z.boolean().default(false),
   dryRun: z.boolean().default(false),
   verbose: z.boolean().default(false),
-  packages: z
-    .string()
-    .default("all")
-    .describe(
-      "Comma-separated keys, 'all' (default), or 'local' (only this repo's local plugins hosted via 'local:…')",
-    ),
   network: z.enum(["mainnet", "testnet"]).optional(),
   privateKey: z.string().optional(),
   wallet: z.boolean().default(false),
@@ -178,10 +177,49 @@ export const PublishOptionsSchema = z.object({
   registry: z.string().optional(),
 });
 
+export const RollbackOptionsSchema = z.object({
+  listOnly: z.boolean().default(false),
+  version: z.string().optional(),
+  previous: z.boolean().default(false),
+  force: z.boolean().default(false),
+  limit: z.number().int().min(1).max(200).default(20),
+  dryRun: z.boolean().default(false),
+  verbose: z.boolean().default(false),
+  network: z.enum(["mainnet", "testnet"]).optional(),
+  privateKey: z.string().optional(),
+  wallet: z.boolean().default(false),
+  env: z.enum(["production", "staging"]).default("production"),
+  registry: z.string().optional(),
+});
+
+export const RollbackHistoryEntrySchema = z.object({
+  blockHeight: z.number(),
+  blockTimestamp: z.string(),
+  txHash: z.string().optional(),
+  summary: z.string(),
+});
+
+export const RollbackSlotCheckSchema = z.object({
+  slot: z.string(),
+  ok: z.boolean(),
+  reason: z.string().optional(),
+});
+
+export const RollbackResultSchema = z.object({
+  status: z.enum(["published", "error", "dry-run", "list"]),
+  registryUrl: z.string(),
+  txHash: z.string().optional(),
+  error: z.string().optional(),
+  history: z.array(RollbackHistoryEntrySchema).optional(),
+  verification: z.array(RollbackSlotCheckSchema).optional(),
+});
+
 export const PublishResultSchema = z.object({
   status: z.enum(["published", "error", "dry-run"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
+  fingerprint: z.string().optional(),
+  slotPins: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
   built: z.array(z.string()).optional(),
   skipped: z.array(z.string()).optional(),
@@ -189,6 +227,7 @@ export const PublishResultSchema = z.object({
 });
 
 export const DeployOptionsSchema = z.object({
+  statusList: z.boolean().default(false),
   env: z.enum(["production", "staging"]).default("production"),
   build: z.boolean().default(true),
   dryRun: z.boolean().default(false),
@@ -205,13 +244,24 @@ export const DeployOptionsSchema = z.object({
   registry: z.string().optional(),
 });
 
+export const DeployManifestListEntrySchema = z.object({
+  key: z.string(),
+  blockHeight: z.number(),
+  blockTimestamp: z.string(),
+  txHash: z.string().optional(),
+  publishedAt: z.string().optional(),
+});
+
 export const DeployResultSchema = z.object({
-  status: z.enum(["deployed", "published", "error", "dry-run"]),
+  status: z.enum(["deployed", "published", "error", "dry-run", "list"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
+  fingerprint: z.string().optional(),
+  slotPins: z.record(z.string(), z.string()).optional(),
+  history: z.array(DeployManifestListEntrySchema).optional(),
   built: z.array(z.string()).optional(),
   skipped: z.array(z.string()).optional(),
-  redeployed: z.boolean(),
+  image: z.string().optional(),
   service: z.string().optional(),
   error: z.string().optional(),
   deployResults: z.array(WorkspaceDeployResultSchema).optional(),
@@ -241,6 +291,7 @@ export const KeyPublishOptionsSchema = z.object({
     ),
   env: z.enum(["production", "staging"]).default("production"),
   registry: z.string().optional(),
+  removeOldKeys: z.boolean().optional(),
 });
 
 export const KeyPublishResultSchema = z.object({
@@ -314,6 +365,7 @@ export const InitOptionsSchema = z.object({
   source: z.string().optional(),
   plugins: z.array(z.string()).optional(),
   overrides: z.array(OverrideSectionSchema).optional(),
+  level: StarterLevelSchema.optional(),
   noInteractive: z.boolean().default(false),
   noInstall: z.boolean().default(false),
 });
@@ -375,8 +427,16 @@ export const UpgradeResultSchema = z.object({
   error: z.string().optional(),
 });
 
+export const DeployedVersionStatusSchema = z.object({
+  publishedFingerprint: z.string(),
+  servedFingerprint: z.string().optional(),
+  inSync: z.boolean(),
+  error: z.string().optional(),
+});
+
 export const StatusResultSchema = z.object({
   status: z.enum(["ok", "error"]),
+  deployedVersion: DeployedVersionStatusSchema.optional(),
   extends: z.string().optional(),
   account: z.string().optional(),
   domain: z.string().optional(),
@@ -595,6 +655,7 @@ export const commandOptionSchemas = {
   pluginRemove: PluginRemoveOptionsSchema,
   pluginPublish: PluginPublishOptionsSchema,
   publish: PublishOptionsSchema,
+  rollback: RollbackOptionsSchema,
   deploy: DeployOptionsSchema,
   keyPublish: KeyPublishOptionsSchema,
   login: LoginOptionsSchema,
@@ -647,6 +708,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/publish" })
     .input(PublishOptionsSchema)
     .output(PublishResultSchema),
+  rollback: oc
+    .route({ method: "POST", path: "/rollback" })
+    .input(RollbackOptionsSchema)
+    .output(RollbackResultSchema),
   deploy: oc
     .route({ method: "POST", path: "/deploy" })
     .input(DeployOptionsSchema)

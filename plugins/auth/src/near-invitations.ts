@@ -83,6 +83,12 @@ async function findClaimableInvitation(db: Database, invitationId: string, userI
   if (!invitation?.nearAccountId) {
     throw new APIError("BAD_REQUEST", { message: "Wallet invitation not found" });
   }
+  const organization = await db.query.organization.findFirst({
+    where: eq(schema.organization.id, invitation.organizationId),
+  });
+  if (organization?.status !== "active") {
+    throw new APIError("FORBIDDEN", { message: "Organization requires platform-admin approval" });
+  }
   if (!isNearNetwork(invitation.nearNetwork)) {
     throw new APIError("BAD_REQUEST", {
       message:

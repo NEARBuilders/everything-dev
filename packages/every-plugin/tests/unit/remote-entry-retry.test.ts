@@ -20,9 +20,9 @@ const poisonEntryCache = (remoteUrl: string) => {
   (globalThis as Record<string, unknown>).__GLOBAL_LOADING_REMOTE_ENTRY__ = globalLoading;
 };
 
-// The readiness poll fetches the real URL; tests stub `load`, so keep the
-// poll's budget at zero to never touch the network.
-const READINESS_NEVER = { readinessTimeoutMs: 1 };
+// The readiness poll fetches the real URL; tests stub `load`, so skip the
+// poll entirely (0 = no cold-compile wait).
+const READINESS_NEVER = { readinessTimeoutMs: 0 };
 
 describe("loadRemoteWithRetry", () => {
   beforeEach(() => {

@@ -344,6 +344,8 @@ node_modules/.federation
 /CONTEXT.md
 /CONTEXT-MAP.md
 /plans/**/*.md
+# Sprint tickets are first-class and reviewed via PR.
+!plans/deploy-agents-rebuild/**/*.md
 # Prototype source files (plans/prototypes/ has its own .gitignore for dist/, node_modules/)
 !plans/prototypes/**/*.css
 !plans/prototypes/**/*.gen.ts

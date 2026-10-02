@@ -1,0 +1,57 @@
+{
+  "name": "api",
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./contract": {
+      "types": "./src/contract.ts",
+      "default": "./src/contract.ts"
+    }
+  },
+  "peerDependencies": {
+    "typescript": "catalog:"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "catalog:",
+    "@orpc/contract": "catalog:",
+    "@orpc/server": "catalog:",
+    "drizzle-kit": "catalog:",
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:",
+    "every-plugin": "catalog:",
+    "pg": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@module-federation/node": "catalog:",
+    "@module-federation/runtime-tools": "catalog:",
+    "@proj-airi/unplugin-drizzle-orm-migrations": "^0.1.4",
+    "@rspack/cli": "catalog:",
+    "@rspack/core": "catalog:",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
+    "dotenv": "^17.2.3",
+    "everything-dev": "catalog:",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "catalog:"
+  },
+  "scripts": {
+    "build": "every-plugin build",
+    "dev": "every-plugin dev",
+    "test": "vitest run --root . --pool=forks",
+    "test:watch": "vitest --root .",
+    "coverage": "vitest run --root . --coverage",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  }
+}

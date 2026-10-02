@@ -65,16 +65,14 @@ export const SecretsServiceDefault = Layer.effect(
       hydrateSecrets: <T>(config: T) =>
         Effect.gen(function* () {
           const parseResult = configSchema.parse(config);
-          try {
-            return hydrateValue(parseResult) as T;
-          } catch (error) {
-            return yield* Effect.fail(
+          return yield* Effect.try({
+            try: () => hydrateValue(parseResult) as T,
+            catch: (error) =>
               new PluginRuntimeError({
                 operation: "hydrate-secrets",
                 cause: error instanceof Error ? error : new Error(String(error)),
               }),
-            );
-          }
+          });
         }),
     };
   }),

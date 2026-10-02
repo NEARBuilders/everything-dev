@@ -22,6 +22,7 @@ describe("preflight credentialed URL parsing", () => {
     expect(failures.length).toBe(1);
     expect(failures[0]?.secret).toBe("CACHE_REDIS_URL");
     expect(failures[0]?.error).toContain("nothing is listening");
+    expect(failures[0]?.tcpReachable).toBe(false);
   }, 20000);
 
   it("skips non-local URLs", async () => {
@@ -36,6 +37,7 @@ describe("preflight credentialed URL parsing", () => {
     const failures = await Effect.runPromise(preflightLocalInfra(env));
     expect(failures.length).toBe(1);
     expect(failures[0]?.error).toContain("docker compose up -d --wait");
+    expect(failures[0]?.tcpReachable).toBe(false);
   }, 20000);
 });
 

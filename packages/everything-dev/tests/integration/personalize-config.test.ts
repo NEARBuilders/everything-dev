@@ -106,10 +106,10 @@ describe("personalizeConfig with real root config", () => {
   });
 
   it("filters plugin config and workspaces to the selected plugin set", async () => {
-    const testDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
+    const testDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
     tempDirs.push(testDir);
 
-    expect(existsSync(join(testDir, "plugins", "apps"))).toBe(true);
+    expect(existsSync(join(testDir, "plugins", "registry"))).toBe(true);
     expect(existsSync(join(testDir, "plugins", "example"))).toBe(false);
     expect(
       existsSync(
@@ -124,14 +124,14 @@ describe("personalizeConfig with real root config", () => {
       plugins?: Record<string, Record<string, unknown>>;
     };
 
-    expect(Object.keys(config.plugins ?? {})).toEqual(["apps"]);
-    expect(config.plugins?.apps?.development).toBe("local:plugins/apps");
-    expect(config.plugins?.apps?.production).toBeUndefined();
-    expect(config.plugins?.apps?.integrity).toBeUndefined();
+    expect(Object.keys(config.plugins ?? {})).toEqual(["registry"]);
+    expect(config.plugins?.registry?.development).toBe("local:plugins/registry");
+    expect(config.plugins?.registry?.production).toBeUndefined();
+    expect(config.plugins?.registry?.integrity).toBeUndefined();
   });
 
   it("rewrites package metadata to the child workspace shape", async () => {
-    const testDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
+    const testDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
     tempDirs.push(testDir);
 
     const pkg = JSON.parse(readFileSync(join(testDir, "package.json"), "utf-8")) as {
@@ -150,7 +150,7 @@ describe("personalizeConfig with real root config", () => {
     expect(pkg.scripts?.bos).toBe("bos");
     expect(pkg.workspaces?.packages).toEqual(expect.arrayContaining(["ui", "api", "plugins/*"]));
     expect(pkg.workspaces?.packages).toHaveLength(3);
-    expect(pkg.workspaces?.packages).not.toContain("plugins/apps");
+    expect(pkg.workspaces?.packages).not.toContain("plugins/registry");
     expect(pkg.workspaces?.packages).not.toContain("host");
     expect(pkg.workspaces?.packages).not.toContain("packages/everything-dev");
     expect(pkg.workspaces?.catalog?.["everything-dev"]).toBe(

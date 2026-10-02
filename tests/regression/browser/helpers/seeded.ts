@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { computeRegressionEnv } from "../../lib/regression-env.mjs";
+import { seedNode } from "../../lib/seed-tenant.mjs";
 import { waitForApp } from "./page-ready";
 
 interface CookieEntry {
@@ -78,6 +79,17 @@ export async function injectLogoutCookies(page: Page) {
 
 export function loadSeedData(): SeedData {
   return readJsonFile(SEED_PATH) as SeedData;
+}
+
+export async function seedDiscoveryNode(input?: { slug?: string; name?: string; kind?: string }) {
+  const { tenantID } = loadSeedData();
+  const unique = `${process.pid}-${Date.now().toString(36)}`;
+  return seedNode({
+    tenantId: tenantID,
+    slug: input?.slug ?? `explore-${unique}`,
+    name: input?.name ?? `Explore City ${unique}`,
+    kind: input?.kind ?? "city",
+  });
 }
 
 export function loadAdminSeedData(): AdminSeedData {

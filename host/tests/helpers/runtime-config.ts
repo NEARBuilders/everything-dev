@@ -1,4 +1,4 @@
-import { loadResolvedConfig } from "everything-dev/config";
+import { openResolution } from "everything-dev/resolution";
 import type { ClientRuntimeConfig } from "everything-dev/types";
 import type { RenderOptionsWithApi, RouterContext } from "everything-dev/ui/types";
 import type { RuntimeConfig } from "@/types";
@@ -10,14 +10,14 @@ export async function loadTestRuntimeConfig(): Promise<RuntimeConfig> {
   // runs NODE_ENV=production (production-mode host code paths) — without the
   // explicit env, production config resolution would point the fixture at the
   // deployed origin and make beforeAll hooks fetch it live.
-  const result = await loadResolvedConfig({ env: "development" });
+  const session = await openResolution({ env: "development" });
 
-  if (!result) {
-    throw new Error("No authored config (bos.app.ts) found for host tests");
+  if (!session?.config || !session.runtime) {
+    throw new Error("No bos.config.json found for host tests");
   }
 
-  const config = result.runtime;
-  const rawUi = result.config.app.ui;
+  const config = session.runtime;
+  const rawUi = session.config.app.ui;
 
   if (!config.ui.url && rawUi.production) {
     config.ui.url = rawUi.production.replace(/\/$/, "");

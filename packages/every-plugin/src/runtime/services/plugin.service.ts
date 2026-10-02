@@ -33,7 +33,7 @@ export interface PluginServiceShape {
   ) => Effect.Effect<InitializedPlugin<T>, PluginRuntimeError>;
   registerPlugin: (plugin: InitializedPlugin<AnyPlugin>) => Effect.Effect<void>;
   shutdownPlugin: (plugin: InitializedPlugin<AnyPlugin>) => Effect.Effect<void>;
-  cleanup: () => Effect.Effect<void>;
+  cleanup: Effect.Effect<void>;
 }
 
 export class PluginService extends Context.Service<PluginService, PluginServiceShape>()(

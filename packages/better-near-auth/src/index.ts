@@ -147,12 +147,17 @@ async function verifySignedMessage(
       nonce: payload.nonce,
     });
   }
-  return signedMessage.publicKey.startsWith("ml-dsa-65:")
-    ? verifyMlDsa65Nep413Signature(signedMessage as never, payload, {
-        near,
-        maxAge: 15 * 60 * 1000,
-      })
-    : verifyNep413Signature(signedMessage as never, payload, { near, maxAge: 15 * 60 * 1000 });
+  const verify = (candidate: Nep413Payload) =>
+    signedMessage.publicKey.startsWith("ml-dsa-65:")
+      ? verifyMlDsa65Nep413Signature(signedMessage as never, candidate, {
+          near,
+          maxAge: 15 * 60 * 1000,
+        })
+      : verifyNep413Signature(signedMessage as never, candidate, { near, maxAge: 15 * 60 * 1000 });
+  if (await verify(payload)) return true;
+  if (!payload.callbackUrl) return false;
+  const { callbackUrl: _omitted, ...withoutCallbackUrl } = payload;
+  return verify(withoutCallbackUrl);
 }
 
 function nearAccountKey(account: Pick<NearAccount, "accountId" | "network">): string {

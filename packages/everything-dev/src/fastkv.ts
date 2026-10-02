@@ -127,6 +127,105 @@ export async function fetchBosConfigFromFastKv<T>(bosUrl: string, registry?: str
   return value as T;
 }
 
+export interface ConfigHistoryEntry {
+  blockHeight: number;
+  blockTimestampNs: string;
+  txHash?: string;
+  value: unknown;
+}
+
+interface FastKvHistoryEntry {
+  block_height?: number;
+  block_timestamp?: string | number;
+  tx_hash?: string;
+  value?: unknown;
+}
+
+interface FastKvHistoryResponse {
+  entries?: Array<FastKvHistoryEntry | null>;
+}
+
+const FASTKV_HISTORY_MAX_LIMIT = 200;
+
+/**
+ * Publish history for the registry config key (atomic-deploys 11): the
+ * exact-key variant of FastData's history endpoint, newest-first. The API
+ * caps a page at 200 rows; a config key's write history fits well inside
+ * that, so a single request is the whole story (the limit param is clamped).
+ */
+export async function fetchConfigHistory(opts: {
+  accountId: string;
+  gatewayId: string;
+  registry?: string;
+  limit?: number;
+}): Promise<ConfigHistoryEntry[]> {
+  const key = encodeURIComponent(getRegistryConfigKey(opts.accountId, opts.gatewayId));
+  const limit = Math.max(1, Math.min(opts.limit ?? 20, FASTKV_HISTORY_MAX_LIMIT));
+  const url = `${getFastKvBaseUrlForAccount(opts.accountId)}/v0/history/${encodeURIComponent(getRegistryNamespaceForAccount(opts.accountId, opts.registry))}/${encodeURIComponent(opts.accountId)}/${key}?limit=${limit}`;
+  const payload = await fetchJson<FastKvHistoryResponse>(url);
+  const entries = (payload?.entries ?? []).filter(Boolean) as FastKvHistoryEntry[];
+
+  return entries
+    .map((entry) => ({
+      blockHeight: entry.block_height ?? 0,
+      blockTimestampNs: String(entry.block_timestamp ?? ""),
+      ...(entry.tx_hash ? { txHash: entry.tx_hash } : {}),
+      value:
+        typeof entry.value === "string" && entry.value.length > 0
+          ? (JSON.parse(entry.value) as unknown)
+          : entry.value,
+    }))
+    .sort((a, b) => b.blockHeight - a.blockHeight);
+}
+
+export interface DeployManifestEntry {
+  key: string;
+  blockHeight: number;
+  blockTimestampNs: string;
+  value: unknown;
+}
+
+/**
+ * The per-deploy audit trail (atomic-deploys 03/12): every publish writes
+ * `apps/<account>/<gateway>/manifests/<ts>.json` atomically with the pointer
+ * swap — this lists that key family newest-first via the history-by-prefix
+ * endpoint.
+ */
+export async function fetchDeployManifests(opts: {
+  accountId: string;
+  gatewayId: string;
+  registry?: string;
+  limit?: number;
+}): Promise<DeployManifestEntry[]> {
+  const keyPrefix = encodeURIComponent(
+    `${getRegistryConfigKey(opts.accountId, opts.gatewayId).replace(/bos\.config\.json$/, "")}manifests/`,
+  );
+  const url = `${getFastKvBaseUrlForAccount(opts.accountId)}/v0/history/${encodeURIComponent(getRegistryNamespaceForAccount(opts.accountId, opts.registry))}/${encodeURIComponent(opts.accountId)}`;
+  const payload = await fetchJson<FastKvHistoryResponse>(url, {
+    method: "POST",
+    body: JSON.stringify({
+      key_prefix: decodeURIComponent(keyPrefix),
+      asc: false,
+      limit: Math.max(1, Math.min(opts.limit ?? 20, FASTKV_HISTORY_MAX_LIMIT)),
+    }),
+  });
+  const entries = (payload?.entries ?? []).filter(Boolean) as Array<
+    FastKvHistoryEntry & { key?: string }
+  >;
+
+  return entries
+    .map((entry) => ({
+      key: entry.key ?? "",
+      blockHeight: entry.block_height ?? 0,
+      blockTimestampNs: String(entry.block_timestamp ?? ""),
+      value:
+        typeof entry.value === "string" && entry.value.length > 0
+          ? (JSON.parse(entry.value) as unknown)
+          : entry.value,
+    }))
+    .sort((a, b) => b.blockHeight - a.blockHeight);
+}
+
 export interface PluginManifest {
   schemaVersion: number;
   kind: string;

@@ -26,6 +26,7 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item";
+import { isSyntheticEmail } from "@/lib/synthetic-email";
 
 export function SecurityTab({ user }: { user: { email?: string; isAnonymous?: boolean | null } }) {
   const auth = useAuthClient();
@@ -86,7 +87,7 @@ export function SecurityTab({ user }: { user: { email?: string; isAnonymous?: bo
     changePasswordMutation.mutate();
   };
 
-  const hasPassword = !!user.email && !user.isAnonymous;
+  const hasPassword = !!user.email && !user.isAnonymous && !isSyntheticEmail(user.email);
 
   return (
     <section className="flex flex-col gap-6">

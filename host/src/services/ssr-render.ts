@@ -10,9 +10,17 @@ import {
   resolveActiveRuntime,
 } from "./config";
 import { createPluginsClient, type PluginResult } from "./plugins";
+import { type ClientConfigCacheState, createClientConfigCacheState } from "./serving-caches";
 import { getTenantRuntimeErrorResponse, resolveRequestRuntime } from "./tenant-runtime";
 import { enforceCacheLimit, pruneExpiredEntries } from "./ttl-cache";
-import { type ComposedUi, composeClientPayload, composeUi, isSsrAvailable } from "./ui-compose";
+import {
+  type ComposedUi,
+  composeClientPayload,
+  composeUi,
+  createUiComposeCacheState,
+  isSsrAvailable,
+  type UiComposeCacheState,
+} from "./ui-compose";
 
 /**
  * One seam from request to stream: tenant resolution, manifest composition,
@@ -32,7 +40,20 @@ import { type ComposedUi, composeClientPayload, composeUi, isSsrAvailable } from
 
 export interface SsrRenderDeps {
   config: RuntimeConfig;
+  /** per-request serving capture (atomic-deploys 06, C7): when present, the
+   * request captures ONE snapshot state — config + both serving caches — and
+   * composes through it, so a swap under traffic flips readers atomically;
+   * in-flight requests keep the state they captured (shadow-flip, no drain) */
+  getServingState?: () => Promise<ServingSnapshot>;
   plugins: PluginResult;
+}
+
+/** The serving surface a request composes through — structurally the
+ * RuntimeSnapshotState (config + caches move together). */
+export interface ServingSnapshot {
+  config: RuntimeConfig;
+  composeState: UiComposeCacheState;
+  clientConfigState: ClientConfigCacheState;
 }
 
 export interface SsrRenderRequestContext {
@@ -45,33 +66,29 @@ export interface SsrRenderRequestContext {
 
 export { isSsrAvailable };
 
-interface CachedClientConfig {
-  expiresAt: number;
-  value: ClientRuntimeConfig;
-}
-
 const CLIENT_CONFIG_TTL_MS = 30_000;
 const MAX_CLIENT_CONFIG_CACHE_SIZE = 512;
-
-const clientConfigCache = new Map<string, CachedClientConfig>();
 
 /**
  * The client runtime payload only varies with tenant identity, request
  * origin, auth availability, and the composed digest — rebuild it once per
  * window instead of once per request.
  */
-function buildClientConfigCached(inputs: {
-  effectiveConfig: RuntimeConfig;
-  request: Request;
-  tenantAccountId: string | null;
-  authAvailable: boolean;
-  composePayload: ComposePayload;
-}): ClientRuntimeConfig {
+function buildClientConfigCached(
+  inputs: {
+    effectiveConfig: RuntimeConfig;
+    request: Request;
+    tenantAccountId: string | null;
+    authAvailable: boolean;
+    composePayload: ComposePayload;
+  },
+  cache: ClientConfigCacheState,
+): ClientRuntimeConfig {
   const now = Date.now();
-  pruneExpiredEntries(clientConfigCache, now);
+  pruneExpiredEntries(cache.entries, now);
   const origin = new URL(inputs.request.url).origin;
   const cacheKey = `${inputs.tenantAccountId ?? "base"}::${origin}::${inputs.authAvailable}::${inputs.composePayload.digest}`;
-  const cached = clientConfigCache.get(cacheKey);
+  const cached = cache.entries.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     return cached.value;
   }
@@ -83,8 +100,8 @@ function buildClientConfigCached(inputs: {
     inputs.authAvailable,
     inputs.composePayload,
   );
-  clientConfigCache.set(cacheKey, { value, expiresAt: now + CLIENT_CONFIG_TTL_MS });
-  enforceCacheLimit(clientConfigCache, MAX_CLIENT_CONFIG_CACHE_SIZE);
+  cache.entries.set(cacheKey, { value, expiresAt: now + CLIENT_CONFIG_TTL_MS });
+  enforceCacheLimit(cache.entries, MAX_CLIENT_CONFIG_CACHE_SIZE);
   return value;
 }
 
@@ -98,14 +115,28 @@ function textResponse(message: string, status: number, requestId?: string) {
   });
 }
 
+/**
+ * One capture per request: when `getServingState` is provided, config and both
+ * serving caches ride the same snapshot state, so a swap can never split them
+ * across a request. Loader API calls get a 15s deadline — a wedged plugin
+ * endpoint rejects into the route's error boundary and closes the stream
+ * instead of suspending it forever.
+ */
 export function createSsrRender(deps: SsrRenderDeps) {
+  const fallbackComposeCache = createUiComposeCacheState();
+  const fallbackClientConfigCache = createClientConfigCacheState();
   return async (request: Request, ctx: SsrRenderRequestContext): Promise<Response> => {
     const pathname = new URL(request.url).pathname;
     const requestId = crypto.randomUUID().slice(0, 8);
 
+    const serving = deps.getServingState ? await deps.getServingState() : undefined;
+    const composeCache = serving?.composeState ?? fallbackComposeCache;
+    const clientConfigCache = serving?.clientConfigState ?? fallbackClientConfigCache;
+
     let resolved: Awaited<ReturnType<typeof resolveRequestRuntime>>;
     try {
-      resolved = await resolveRequestRuntime(deps.config, request, {
+      const baseConfig = serving?.config ?? deps.config;
+      resolved = await resolveRequestRuntime(baseConfig, request, {
         verification: "blocking",
       });
     } catch (error) {
@@ -120,8 +151,9 @@ export function createSsrRender(deps: SsrRenderDeps) {
       const activeRuntime = resolveActiveRuntime(effectiveConfig, request);
       let composePayload: ComposePayload | undefined;
       try {
-        composePayload = (await Effect.runPromise(composeClientPayload(effectiveConfig)))
-          ?.clientPayload;
+        composePayload = (
+          await Effect.runPromise(composeClientPayload(effectiveConfig, composeCache))
+        )?.clientPayload;
       } catch (error) {
         logger.warn(
           `[SSR] ${requestId} Client compose payload failed for ${pathname} — serving the core-only shell:`,
@@ -147,27 +179,27 @@ export function createSsrRender(deps: SsrRenderDeps) {
 
     let composed: ComposedUi;
     try {
-      composed = await Effect.runPromise(composeUi(effectiveConfig));
+      composed = await Effect.runPromise(composeUi(effectiveConfig, composeCache));
     } catch (error) {
       logger.error(`[SSR] ${requestId} Manifest composition failed for ${pathname}:`, error);
       return textResponse("SSR composition failed", 500, requestId);
     }
 
-    const runtimeConfig = buildClientConfigCached({
-      effectiveConfig,
-      request,
-      tenantAccountId: resolved.tenantAccountId,
-      authAvailable: deps.plugins.auth !== null,
-      composePayload: composed.clientPayload,
-    });
+    const runtimeConfig = buildClientConfigCached(
+      {
+        effectiveConfig,
+        request,
+        tenantAccountId: resolved.tenantAccountId,
+        authAvailable: deps.plugins.auth !== null,
+        composePayload: composed.clientPayload,
+      },
+      clientConfigCache,
+    );
 
     const ssrRouterModule: RouterModule = composed.routerModule;
 
     try {
       const ssrApiClient = createPluginsClient(deps.plugins, ctx.pluginContext, {
-        // Loader API calls get a deadline: a wedged plugin endpoint rejects
-        // into the route's error boundary and closes the stream instead of
-        // suspending it forever.
         callTimeoutMs: 15_000,
       });
 

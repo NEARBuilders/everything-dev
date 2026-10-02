@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { installBundleFetchFromEnv } from "everything-dev/bundle-fs-resolve";
 import { runServerBlocking } from "./src/program";
 import type { RuntimeConfig } from "./src/services/config";
 
@@ -27,5 +28,10 @@ try {
   console.error("Failed to parse BOS_RUNTIME_CONFIG:", e);
   process.exit(1);
 }
+
+// The host shares the CLI's outbound bundle-fetch tier (bundle-fs-resolve):
+// own-namespace staged reads + the stale-if-error cache. Installed before the
+// server boots so SSR container loads and any config fetches route through it.
+installBundleFetchFromEnv({ configPath: process.env.BOS_CONFIG_PATH ?? null });
 
 runServerBlocking({ config });

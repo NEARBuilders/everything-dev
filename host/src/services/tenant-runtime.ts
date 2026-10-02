@@ -1,5 +1,12 @@
-import { buildRuntimeConfig, loadRemoteConfig, type RuntimeConfig } from "everything-dev/config";
+import {
+  BosConfigSchema,
+  buildRuntimeConfig,
+  type RuntimeConfig,
+  resolveConfigComposableEntries,
+} from "everything-dev/config";
 import { verifySriForUrl } from "everything-dev/integrity";
+import { type ResolutionIo, walkExtendsChain } from "everything-dev/resolution";
+import type { BosConfig, BosConfigInput } from "everything-dev/types";
 import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
 import { resolveDomain } from "../utils/normalize";
@@ -14,17 +21,24 @@ const VERIFICATION_TTL_MS = 5 * 60_000;
 const MAX_REMOTE_CONFIG_CACHE_SIZE = 256;
 const MAX_VERIFICATION_CACHE_SIZE = 512;
 
-type BosEnv = "development" | "production" | "staging";
 type IntegrityVerificationMode = "blocking" | "stale-while-revalidate";
 
 interface ResolveRequestRuntimeOptions {
   verification?: IntegrityVerificationMode;
   bindingResolver?: BindingResolver;
+  io?: ResolutionIo;
+}
+
+interface RemoteTenantConfig {
+  rawConfig: BosConfigInput;
+  config: BosConfig;
+  source: string;
+  extendsChain: string[];
 }
 
 interface CachedRemoteConfig {
   expiresAt: number;
-  value: Promise<Awaited<ReturnType<typeof loadRemoteConfig>>>;
+  value: Promise<RemoteTenantConfig>;
 }
 
 interface CachedVerification {
@@ -93,7 +107,34 @@ export function clearTenantRuntimeCaches() {
   clearBindingResolverCache();
 }
 
-function getRemoteConfigCached(bosUrl: string, env: BosEnv) {
+async function loadRemoteTenantConfig(
+  bosUrl: string,
+  io?: ResolutionIo,
+): Promise<RemoteTenantConfig> {
+  let rawConfig: BosConfigInput | undefined;
+  const { chain, config: merged } = await walkExtendsChain(bosUrl, {
+    env: "production",
+    io,
+    visit: async (link) => {
+      if (!rawConfig) {
+        rawConfig = link.config;
+      }
+    },
+  });
+  const config = await resolveConfigComposableEntries(
+    BosConfigSchema.parse(merged),
+    process.cwd(),
+    "production",
+  );
+  return {
+    rawConfig: rawConfig ?? merged,
+    config,
+    source: bosUrl,
+    extendsChain: chain,
+  };
+}
+
+function getRemoteConfigCached(bosUrl: string, io?: ResolutionIo) {
   const now = Date.now();
   pruneExpiredCacheEntries(remoteConfigCache, now);
   const cached = remoteConfigCache.get(bosUrl);
@@ -102,7 +143,7 @@ function getRemoteConfigCached(bosUrl: string, env: BosEnv) {
     return cached.value;
   }
 
-  const value = loadRemoteConfig(bosUrl, env).catch((error) => {
+  const value = loadRemoteTenantConfig(bosUrl, io).catch((error) => {
     remoteConfigCache.delete(bosUrl);
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes(`No config found for ${bosUrl}`)) {
@@ -126,8 +167,9 @@ function createVerificationPromise(
   url: string,
   integrity: string,
   label: string,
+  options?: { resolveEntryUrl?: boolean },
 ) {
-  const verification = verifySriForUrl(url, integrity).catch((error) => {
+  const verification = verifySriForUrl(url, integrity, options).catch((error) => {
     const cached = verifiedUiCache.get(cacheKey);
     if (cached?.value === verification || cached?.refreshing === verification) {
       verifiedUiCache.delete(cacheKey);
@@ -144,12 +186,13 @@ function scheduleVerificationRefresh(
   url: string,
   integrity: string,
   label: string,
+  options?: { resolveEntryUrl?: boolean },
 ) {
   if (cached.refreshing) {
     return cached.refreshing;
   }
 
-  const refresh = createVerificationPromise(cacheKey, url, integrity, label);
+  const refresh = createVerificationPromise(cacheKey, url, integrity, label, options);
 
   cached.refreshing = refresh;
   void refresh
@@ -176,6 +219,7 @@ async function verifyIntegrity(
   integrity: string,
   label: string,
   mode: IntegrityVerificationMode,
+  options?: { resolveEntryUrl?: boolean },
 ) {
   const cacheKey = `${url}::${integrity}`;
   const now = Date.now();
@@ -186,7 +230,7 @@ async function verifyIntegrity(
   }
 
   if (!cached) {
-    const value = createVerificationPromise(cacheKey, url, integrity, label);
+    const value = createVerificationPromise(cacheKey, url, integrity, label, options);
     verifiedUiCache.set(cacheKey, {
       value,
       expiresAt: now + VERIFICATION_TTL_MS,
@@ -203,11 +247,13 @@ async function verifyIntegrity(
   }
 
   if (mode === "stale-while-revalidate") {
-    void scheduleVerificationRefresh(cacheKey, cached, url, integrity, label).catch(() => {});
+    void scheduleVerificationRefresh(cacheKey, cached, url, integrity, label, options).catch(
+      () => {},
+    );
     return cached.value;
   }
 
-  const refresh = scheduleVerificationRefresh(cacheKey, cached, url, integrity, label);
+  const refresh = scheduleVerificationRefresh(cacheKey, cached, url, integrity, label, options);
   await refresh;
 
   const entry = verifiedUiCache.get(cacheKey);
@@ -224,6 +270,19 @@ async function verifyUiIntegrity(config: RuntimeConfig, mode: IntegrityVerificat
       "Tenant UI overrides must define app.ui.production and app.ui.integrity",
       404,
     );
+  }
+
+  if (config.ui.entryUrl) {
+    // pin-derived: the runtime integrity IS the entry SRI — verify the hashed
+    // entry bytes directly (fixed-name resolution would 404 on hashed dists)
+    await verifyIntegrity(
+      config.ui.entryUrl,
+      config.ui.integrity,
+      `tenant UI ${config.ui.entryUrl}`,
+      mode,
+      { resolveEntryUrl: false },
+    );
+    return;
   }
 
   await verifyIntegrity(config.ui.url, config.ui.integrity, `tenant UI ${config.ui.url}`, mode);
@@ -246,6 +305,17 @@ async function verifyPluginUiIntegrity(
       `Tenant plugin override for ${pluginKey} must define plugins.${pluginKey}.ui.integrity`,
       404,
     );
+  }
+
+  if (plugin.ui.entryUrl) {
+    await verifyIntegrity(
+      plugin.ui.entryUrl,
+      plugin.ui.integrity,
+      `tenant plugin UI ${pluginKey} ${plugin.ui.entryUrl}`,
+      mode,
+      { resolveEntryUrl: false },
+    );
+    return;
   }
 
   await verifyIntegrity(
@@ -338,7 +408,7 @@ export async function resolveRequestRuntime(
   }
 
   const bosUrl = `bos://${tenantAccountId}/${gatewayId}`;
-  const remoteConfig = await getRemoteConfigCached(bosUrl, "production");
+  const remoteConfig = await getRemoteConfigCached(bosUrl, options?.io);
   const baseBosUrl = `bos://${baseConfig.account}/${gatewayId}`;
 
   if (!remoteConfig.extendsChain.includes(baseBosUrl)) {
@@ -387,7 +457,7 @@ export async function resolveRequestRuntime(
   }
 
   const ssrAllowed =
-    Boolean(effectiveConfig.ui.ssrUrl) &&
+    (Boolean(effectiveConfig.ui.ssrEntryUrl) || Boolean(effectiveConfig.ui.ssrUrl)) &&
     Boolean(effectiveConfig.ui.ssrIntegrity) &&
     binding.allowSsr;
 
@@ -400,6 +470,7 @@ export async function resolveRequestRuntime(
             ...effectiveConfig.ui,
             ssrUrl: undefined,
             ssrIntegrity: undefined,
+            ssrEntryUrl: undefined,
           },
         },
     tenantAccountId,

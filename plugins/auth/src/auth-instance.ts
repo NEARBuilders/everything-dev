@@ -18,8 +18,9 @@ import {
   ownerAc,
 } from "better-auth/plugins/organization/access";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "better-near-auth";
-import { gt } from "drizzle-orm";
+import { eq, gt } from "drizzle-orm";
 import { BOS_CLI_CLIENT_ID, deviceLink } from "./device-link";
+import { organizationApproval } from "./organization-approval";
 import {
   createPasskeySignUpUser,
   passkeyAuthenticatorSelection,
@@ -31,6 +32,7 @@ import {
 const orgStatements = {
   ...defaultStatements,
   apiKey: ["create", "read", "update", "delete"],
+  email: ["read"],
 } as const;
 
 const orgAc = createAccessControl(orgStatements);
@@ -39,10 +41,12 @@ const orgRoles = {
   owner: orgAc.newRole({
     ...ownerAc.statements,
     apiKey: ["create", "read", "update", "delete"],
+    email: ["read"],
   }),
   admin: orgAc.newRole({
     ...adminAc.statements,
     apiKey: ["create", "read", "update", "delete"],
+    email: ["read"],
   }),
   member: orgAc.newRole({
     ...memberAc.statements,
@@ -61,6 +65,7 @@ import {
   normalizeNearAccountId,
 } from "./near-invitations";
 import { createOrganizationMembershipPolicy } from "./organization-membership-policy";
+import { setEmail } from "./set-email";
 
 export function isRecipientsConfig(config: SIWNPluginOptions): config is SIWNPluginOptions & {
   recipients: { mainnet: string; testnet: string };
@@ -294,6 +299,11 @@ export function createAuthInstance(
     trustedOrigins: config.trustedOrigins?.length ? config.trustedOrigins : undefined,
     secret: config.secret,
     baseURL: config.baseUrl,
+    user: {
+      additionalFields: {
+        locale: { type: "string", required: false, input: true },
+      },
+    },
     // better-auth's core limiter defaults to enabled in production with a
     // single shared per-path bucket when no client IP is resolvable — the
     // regression container's whole /api/auth/* traffic shares one bucket and
@@ -339,6 +349,8 @@ export function createAuthInstance(
         },
       }),
       passkeySignUp({ network }),
+      setEmail(),
+      organizationApproval(db),
       organization({
         ac: orgAc,
         roles: orgRoles,
@@ -349,6 +361,13 @@ export function createAuthInstance(
           allowRemovingAllTeams: true,
         },
         schema: {
+          organization: {
+            additionalFields: {
+              status: { type: "string", required: false, input: false, defaultValue: "active" },
+              requestedBy: { type: "string", required: false, input: false },
+              rejectionReason: { type: "string", required: false, input: false },
+            },
+          },
           team: {
             additionalFields: {
               metadata: { type: "string", required: false, input: true },
@@ -362,7 +381,15 @@ export function createAuthInstance(
           },
         },
         organizationHooks: {
-          beforeCreateInvitation: async ({ invitation }) => {
+          beforeCreateOrganization: async ({ user }) => ({
+            data: { status: "pending", requestedBy: user.id, rejectionReason: null },
+          }),
+          beforeCreateInvitation: async ({ invitation, organization }) => {
+            if (organization.status !== "active") {
+              throw new APIError("FORBIDDEN", {
+                message: "Organization requires platform-admin approval",
+              });
+            }
             const accountId =
               typeof invitation.nearAccountId === "string" ? invitation.nearAccountId : undefined;
             const suppliedNetwork = invitation.nearNetwork;
@@ -408,6 +435,14 @@ export function createAuthInstance(
             return undefined;
           },
           beforeAcceptInvitation: async ({ invitation }) => {
+            const organization = await db.query.organization.findFirst({
+              where: eq(schema.organization.id, invitation.organizationId),
+            });
+            if (organization?.status !== "active") {
+              throw new APIError("FORBIDDEN", {
+                message: "Organization requires platform-admin approval",
+              });
+            }
             if (isNearInvitation(invitation)) {
               throw new APIError("BAD_REQUEST", {
                 message:
@@ -478,22 +513,6 @@ export function createAuthInstance(
           emailConfig?.from,
         );
       },
-    },
-    emailVerification: {
-      sendVerificationEmail: async ({ user, url }) => {
-        await sendEmail(
-          {
-            to: user.email,
-            subject: "Verify your email address",
-            text: `Click the link to verify your email: ${url}`,
-          },
-          emailApiKey,
-          emailConfig?.from,
-        );
-      },
-      sendOnSignUp: true,
-      sendOnSignIn: true,
-      autoSignInAfterVerification: true,
     },
     databaseHooks: {
       user: {

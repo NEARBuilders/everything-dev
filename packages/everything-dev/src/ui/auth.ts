@@ -113,7 +113,11 @@ export function createAuthClient(options: CreateAuthClientOptions = {}) {
       ...(options.headers ? { headers: options.headers } : {}),
     },
     plugins: [
-      inferAdditionalFields<any>(),
+      inferAdditionalFields({
+        user: {
+          locale: { type: "string", required: false, input: true },
+        },
+      }),
       siwnClient(nearAuthConfig),
       adminClient(),
       anonymousClient(),

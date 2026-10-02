@@ -16,6 +16,8 @@ export const profileSchema = z
     longitude: z.number().min(-180).max(180).nullable(),
     channels: z.array(z.object({ label: z.string().trim().min(1).max(80), url: webUrl })).max(10),
     published: z.boolean(),
+    geocodedLocation: z.string().trim().max(120).nullable().optional(),
+    geocodeHint: z.string().trim().max(200).nullable().optional(),
   })
   .refine(
     (p) => (p.latitude === null) === (p.longitude === null),

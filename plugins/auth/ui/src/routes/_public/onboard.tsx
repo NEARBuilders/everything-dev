@@ -1,4 +1,11 @@
-import { CheckCircleIcon, DesktopIcon, TicketIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import {
+  CheckCircleIcon,
+  CheckIcon,
+  CopyIcon,
+  DesktopIcon,
+  TicketIcon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { refreshSessionCache, sessionQueryOptions, useAuthClient } from "everything-dev/ui/auth";
@@ -7,7 +14,14 @@ import { toast } from "sonner";
 import { AuthPanel } from "@/components/auth-panel";
 import { StepProgress } from "@/components/step-progress";
 import { Button } from "@/components/ui/button";
-import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
 import { Spinner } from "@/components/ui/spinner";
 import { getGatewayOrigin } from "@/lib/gateway-origin";
 import { DisplayNameStep } from "./-display-name-step";
@@ -36,6 +50,12 @@ export const Route = createFileRoute("/_public/onboard")({
 
 type Redeemed = { organizationName: string; eventName: string };
 
+const PASSKEY_DEFAULT_NAME = "Passkey user";
+
+function hasChosenName(accountCreated: boolean, name: string | undefined | null): boolean {
+  return !accountCreated && !!name && name !== PASSKEY_DEFAULT_NAME;
+}
+
 function OnboardPage() {
   const auth = useAuthClient();
   const queryClient = useQueryClient();
@@ -53,8 +73,20 @@ function OnboardPage() {
   const [accountCreated, setAccountCreated] = useState(false);
   const [redeemed, setRedeemed] = useState<Redeemed | null>(null);
   const [nameDone, setNameDone] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
   const redeemingRef = useRef(false);
+
+  const copyPairLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setLinkCopied(true);
+      toast.success("Link copied — open it on your computer");
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      toast.error("Couldn't copy the link");
+    }
+  };
 
   useEffect(() => {
     if (!session?.user || !code || redeemingRef.current || redeemed || redeemError) return;
@@ -80,7 +112,7 @@ function OnboardPage() {
       </span>
     );
 
-    if (!nameDone) {
+    if (!nameDone && !hasChosenName(accountCreated, session?.user.name)) {
       return (
         <AuthPanel
           icon={<CheckCircleIcon />}
@@ -97,14 +129,25 @@ function OnboardPage() {
       );
     }
 
-    const gatewayHost = new URL(getGatewayOrigin(runtimeConfig)).host;
+    const gatewayOrigin = getGatewayOrigin(runtimeConfig);
+    const gatewayHost = new URL(gatewayOrigin).host;
+    const pairUrl = `${gatewayOrigin}/login?method=phone`;
     return (
       <AuthPanel
         icon={<CheckCircleIcon />}
-        title="You're all set"
+        title="Ready to start building?"
         titleTestId="onboard.heading"
         description={joinedLine}
       >
+        <Button
+          size="lg"
+          className="w-full"
+          nativeButton={false}
+          render={<Link to="/build" />}
+          data-testid="onboard.build-button"
+        >
+          Get build prompts
+        </Button>
         <Item variant="muted" data-testid="onboard.continue-on-computer">
           <ItemMedia variant="icon">
             <DesktopIcon />
@@ -112,13 +155,26 @@ function OnboardPage() {
           <ItemContent>
             <ItemTitle>Continue on your computer</ItemTitle>
             <ItemDescription>
-              Open{" "}
+              On your computer, open{" "}
               <span className="font-mono text-foreground" data-testid="onboard.gateway-origin">
-                {gatewayHost}
-              </span>
-              , pick "Sign in with your phone" and scan the code.
+                {gatewayHost}/login?method=phone
+              </span>{" "}
+              — a QR code appears. Scan it with this phone's camera and tap Approve.
             </ItemDescription>
           </ItemContent>
+          <ItemActions className="w-full sm:w-auto">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => void copyPairLink(pairUrl)}
+              data-testid="onboard.continue-copy-link"
+            >
+              {linkCopied ? <CheckIcon /> : <CopyIcon />}
+              {linkCopied ? "Copied" : "Copy link"}
+            </Button>
+          </ItemActions>
         </Item>
         <Button
           size="lg"

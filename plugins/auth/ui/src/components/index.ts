@@ -1,3 +1,4 @@
+export { AddEmailDialog } from "./add-email-dialog";
 export { AuthPanel } from "./auth-panel";
 export { ConfirmDialog } from "./confirm-dialog";
 export { EmptyState } from "./empty-state";

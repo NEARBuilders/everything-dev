@@ -3,7 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { ModuleFederationPlugin } from "@module-federation/enhanced/rspack";
 import type { Compiler, RspackPluginInstance } from "@rspack/core";
+import {
+  DEV_ENTRY_FILENAME,
+  findHashedEntry,
+  isBuildInvocation,
+  uiEntryFilename,
+} from "../artifact-names";
 import { CONTRACT_TYPES_FILE, generateContractTypes } from "../contract-types";
+import { BuildReportPlugin } from "./build-report-plugin";
 import { buildSharedDependencies } from "./module-federation";
 import { getPluginInfo } from "./utils";
 
@@ -11,15 +18,9 @@ export interface EveryPluginBuildOptions {
   dts?: boolean;
 }
 
-export interface AdditionalExport {
-  srcPath: string;
-  exportNames: string[];
-}
-
 export interface PluginManifestEmitterOptions {
   manifestFileName?: string;
   contractFileName?: string;
-  additionalExports?: AdditionalExport[];
 }
 
 export class EmitPluginManifest implements RspackPluginInstance {
@@ -82,6 +83,7 @@ export class EmitPluginManifest implements RspackPluginInstance {
         }
 
         const contractSha256 = crypto.createHash("sha256").update(contractTypes).digest("hex");
+        const hashedEntry = findHashedEntry(Object.keys(compilation.assets), "remoteEntry");
         const manifest: Record<string, unknown> = {
           schemaVersion: 1,
           kind: "every-plugin/manifest",
@@ -90,7 +92,7 @@ export class EmitPluginManifest implements RspackPluginInstance {
             version: pluginInfo.version,
           },
           runtime: {
-            remoteEntry: "./remoteEntry.js",
+            remoteEntry: `./${hashedEntry ?? DEV_ENTRY_FILENAME}`,
           },
           contract: {
             kind: "orpc",
@@ -102,37 +104,6 @@ export class EmitPluginManifest implements RspackPluginInstance {
             },
           },
         };
-
-        const additionalExportsEntries: Array<{ path: string; exports: string[]; sha256: string }> =
-          [];
-
-        if (this.options.additionalExports?.length) {
-          for (const additional of this.options.additionalExports) {
-            const sourcePath = path.join(context, "types", additional.srcPath);
-            const content = await tryReadFile(sourcePath);
-            if (!content) {
-              console.warn(
-                `[EmitPluginManifest] Additional export file not found at ${sourcePath}. Skipping.`,
-              );
-              continue;
-            }
-            const sha256 = crypto.createHash("sha256").update(content).digest("hex");
-            const distPath = `./types/${additional.srcPath}`;
-            additionalExportsEntries.push({
-              path: distPath,
-              exports: additional.exportNames,
-              sha256,
-            });
-
-            if (rawSource) {
-              compilation.emitAsset(`types/${additional.srcPath}`, new rawSource(content));
-            }
-          }
-
-          if (additionalExportsEntries.length > 0) {
-            manifest.additionalExports = additionalExportsEntries;
-          }
-        }
 
         if (rawSource) {
           compilation.emitAsset(
@@ -158,7 +129,7 @@ export class EveryPluginBuild implements RspackPluginInstance {
 
     new ModuleFederationPlugin({
       name: pluginInfo.normalizedName,
-      filename: "remoteEntry.js",
+      filename: uiEntryFilename({ isBuild: isBuildInvocation() }),
       dts: this.options.dts !== false,
       manifest: {},
       runtimePlugins: [require.resolve("@module-federation/node/runtimePlugin")],
@@ -169,6 +140,8 @@ export class EveryPluginBuild implements RspackPluginInstance {
       shared: buildSharedDependencies(pluginInfo),
       shareStrategy: "version-first",
     }).apply(compiler);
+
+    new BuildReportPlugin().apply(compiler);
 
     if (this.options.dts === false) {
       compiler.options.plugins = (compiler.options.plugins ?? []).filter(
@@ -220,13 +193,12 @@ export class EveryPluginBuild implements RspackPluginInstance {
     }
     compiler.options.resolve.extensions = ["...", ".tsx", ".ts"];
     // Source-first for local flows: resolve framework packages through the
-    // `development` export condition (TS source) unless this is a deploy
-    // build — publish/deploy set DEPLOY=true and keep the dist-first
-    // snapshot that ships. (NODE_ENV is unusable as the gate here: the
-    // rspack CLI defaults it to "production" for every `build` invocation,
-    // including local dev watch.) byDependency entries inherit the root
-    // conditions via "...", so dropping the strip lets esm/cjs deps pick up
-    // `development` too.
+    // `development` export condition (TS source) unless DEPLOY=true — the
+    // manual dist-first switch deploy-identical builds opt into. (NODE_ENV
+    // is unusable as the gate here: the rspack CLI defaults it to
+    // "production" for every `build` invocation, including local dev watch.)
+    // byDependency entries inherit the root conditions via "...", so
+    // dropping the strip lets esm/cjs deps pick up `development` too.
     const sourceFirst = process.env.DEPLOY !== "true";
     compiler.options.resolve.conditionNames = [
       ...(sourceFirst ? ["development"] : []),

@@ -29,6 +29,7 @@ export async function seedTenant(input) {
     allowUiOverrides = true,
     allowBackendOverrides = false,
     allowSsr = false,
+    ownerKind = "platform",
   } = input;
 
   const root = findRepoRoot();
@@ -83,7 +84,7 @@ export async function seedTenant(input) {
         orgId,
         name,
         "active",
-        "platform",
+        ownerKind,
         allowUiOverrides,
         allowBackendOverrides,
         allowSsr,
@@ -94,6 +95,56 @@ export async function seedTenant(input) {
       [randomId(), id, subdomain, `regression-${randomId()}`],
     );
     return { id, subdomain, accountId, orgId, reused: false };
+  } finally {
+    await client.end();
+  }
+}
+
+export async function seedNode(input) {
+  const { tenantId, slug, name, kind = "city", parentId = null } = input;
+  if (!tenantId) throw new Error("seedNode requires tenantId");
+  if (!slug) throw new Error("seedNode requires slug");
+  if (!name) throw new Error("seedNode requires name");
+
+  const root = findRepoRoot();
+  if (!root) throw new Error("bos.config.json not found in any parent directory");
+  const resolved = computeRegressionEnv({ repoRoot: root });
+  const url = resolved.dbUrls.API_DATABASE_URL;
+  if (!url) throw new Error("API_DATABASE_URL is not configured for this workspace");
+  const target = parsePostgresUrl(url);
+
+  const client = new pg.Client({
+    host: target.host,
+    port: target.port,
+    user: target.user,
+    password: target.password,
+    database: target.database,
+  });
+  await client.connect();
+  try {
+    const located = await client.query(
+      "SELECT table_schema FROM information_schema.tables WHERE table_name = 'nodes' AND table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY table_schema LIMIT 1",
+    );
+    const schema = located.rows[0]?.table_schema;
+    if (!schema) throw new Error("nodes table not found in api database — did API migrations run?");
+    await client.query(`SET search_path TO "${schema}", public`);
+
+    const existing = await client.query(
+      parentId
+        ? "SELECT id FROM nodes WHERE parent_id = $1 AND slug = $2 LIMIT 1"
+        : "SELECT id FROM nodes WHERE parent_id IS NULL AND slug = $1 LIMIT 1",
+      parentId ? [parentId, slug] : [slug],
+    );
+    if (existing.rows.length > 0) {
+      return { id: existing.rows[0].id, slug, name, tenantId, reused: true };
+    }
+
+    const id = randomId();
+    await client.query(
+      "INSERT INTO nodes (id, slug, name, parent_id, tenant_id, metadata) VALUES ($1, $2, $3, $4, $5, $6::jsonb)",
+      [id, slug, name, parentId, tenantId, JSON.stringify({ kind })],
+    );
+    return { id, slug, name, tenantId, reused: false };
   } finally {
     await client.end();
   }

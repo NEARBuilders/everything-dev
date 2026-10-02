@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { DateTime, Effect } from "effect";
 import type { z } from "zod";
 // Import types from contract
 import type { ItemSchema, SearchResultSchema } from "./contract";
@@ -21,10 +21,10 @@ export class TemplateService {
     const { baseUrl, timeout } = this;
     return Effect.gen(function* () {
       yield* Effect.logInfo(`[TemplateService] Fetching from ${baseUrl} with timeout ${timeout}ms`);
+      const createdAt = DateTime.formatIso(yield* DateTime.now);
 
       return yield* Effect.tryPromise({
         try: async () => {
-          // Simulate API call
           await new Promise((resolve) => setTimeout(resolve, 50));
 
           if (id === "not-found") {
@@ -34,7 +34,7 @@ export class TemplateService {
           return {
             id,
             title: `Item ${id}`,
-            createdAt: new Date().toISOString(),
+            createdAt,
           } satisfies Item;
         },
         catch: (error: unknown) =>
@@ -46,7 +46,6 @@ export class TemplateService {
   }
 
   search(query: string, limit: number): AsyncGenerator<SearchResult> {
-    // Mock streaming search results
     return (async function* () {
       for (let i = 0; i < limit; i++) {
         yield {
@@ -61,17 +60,11 @@ export class TemplateService {
     })();
   }
 
-  ping() {
-    return Effect.tryPromise({
-      try: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        return {
-          status: "ok" as const,
-          timestamp: new Date().toISOString(),
-        };
-      },
-      catch: (error: unknown) =>
-        new Error(`Health check failed: ${error instanceof Error ? error.message : String(error)}`),
-    });
-  }
+  readonly ping = Effect.gen(function* () {
+    yield* Effect.sleep("10 millis");
+    return {
+      status: "ok" as const,
+      timestamp: DateTime.formatIso(yield* DateTime.now),
+    };
+  });
 }

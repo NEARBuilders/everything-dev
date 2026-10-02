@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { expect, type Page, test } from "@playwright/test";
 import { computeRegressionEnv } from "../../lib/regression-env.mjs";
 import { collectErrors, expectNoHydrationFailure, waitForApp } from "../helpers/page-ready";
@@ -78,6 +79,9 @@ async function seedTeamMember() {
       slug: `team-workspace-${suffix}`,
     })
   ).json();
+  execFileSync("bun", ["tests/regression/lib/approve-test-organizations.ts", org.id], {
+    timeout: FETCH_TIMEOUT_MS,
+  });
   const team = await (
     await authFetch("/organization/create-team", ownerCookie, {
       name: "Stake Desk",
@@ -132,6 +136,9 @@ test.describe("team workspace", () => {
         slug: `workspace-refresh-${suffix}`,
       })
     ).json();
+    execFileSync("bun", ["tests/regression/lib/approve-test-organizations.ts", org.id], {
+      timeout: FETCH_TIMEOUT_MS,
+    });
     const team = await (
       await authFetch("/organization/create-team", ownerCookie, {
         name: "Finance",

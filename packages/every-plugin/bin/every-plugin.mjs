@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { fileURLToPath } from "node:url";
+
 const [cmd, ...args] = process.argv.slice(2);
 
 const usage = () => console.log("Usage: every-plugin <dev|types|build|deploy|preview> [args…]");
@@ -17,7 +19,7 @@ if (cmd === "dev" && process.env.EVERY_PLUGIN_DEV_CONDITIONS !== "1") {
   const { spawnSync } = await import("node:child_process");
   const result = spawnSync(
     process.execPath,
-    ["--conditions=development", new URL(import.meta.url).pathname, ...process.argv.slice(2)],
+    ["--conditions=development", fileURLToPath(import.meta.url), ...process.argv.slice(2)],
     { stdio: "inherit", env: { ...process.env, EVERY_PLUGIN_DEV_CONDITIONS: "1" } },
   );
   process.exit(result.status ?? 0);

@@ -56,6 +56,7 @@ export function createSessionHandlers(builder: any) {
               image: u.image ?? null,
               role: u.role ?? null,
               isAnonymous: (u as any).isAnonymous ?? null,
+              locale: (u as any).locale ?? null,
             }
           : null,
       };
@@ -247,6 +248,7 @@ export function createSessionHandlers(builder: any) {
           name: string;
           slug: string;
           logo: string | null | undefined;
+          status: string;
           metadata?: Record<string, unknown>;
         } | null,
         member: null as { id: string; role: string } | null,
@@ -268,7 +270,7 @@ export function createSessionHandlers(builder: any) {
           where: eq(schema.organization.id, resolvedOrganizationId),
         });
 
-        if (org) {
+        if (org?.status === "active") {
           organizationContext = {
             activeOrganizationId: resolvedOrganizationId,
             organization: {
@@ -276,6 +278,7 @@ export function createSessionHandlers(builder: any) {
               name: org.name,
               slug: org.slug,
               logo: org.logo,
+              status: org.status,
               metadata: tryJsonParse<Record<string, unknown>>(org.metadata),
             },
             member: null,
@@ -292,7 +295,7 @@ export function createSessionHandlers(builder: any) {
         });
 
         for (const m of memberships) {
-          if (m.organization) {
+          if (m.organization?.status === "active") {
             organizations.push({
               id: m.organization.id,
               role: m.role,
@@ -307,7 +310,7 @@ export function createSessionHandlers(builder: any) {
         if (activeOrgId) {
           const activeMembership = memberships.find((m) => m.organization?.id === activeOrgId);
 
-          if (activeMembership?.organization) {
+          if (activeMembership?.organization?.status === "active") {
             const org = activeMembership.organization;
             const teams = await listMemberTeams(services.db, user.id, org.id);
             const sessionTeamId = getActiveTeamId(session?.session);
@@ -318,6 +321,7 @@ export function createSessionHandlers(builder: any) {
                 name: org.name,
                 slug: org.slug,
                 logo: org.logo,
+                status: org.status,
                 metadata: tryJsonParse<Record<string, unknown>>(org.metadata),
               },
               member: {
@@ -346,6 +350,7 @@ export function createSessionHandlers(builder: any) {
                 image: principal.user.image ?? null,
                 role: principal.user.role ?? null,
                 isAnonymous: principal.user.isAnonymous ?? null,
+                locale: principal.user.locale ?? null,
               },
             }
           : principal.type === "organization"
@@ -366,6 +371,7 @@ export function createSessionHandlers(builder: any) {
               image: user.image ?? null,
               role: user.role ?? null,
               isAnonymous: user.isAnonymous ?? null,
+              locale: user.locale ?? null,
             }
           : null,
         userId: user?.id ?? null,

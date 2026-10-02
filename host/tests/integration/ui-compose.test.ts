@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildRuntimeClientConfig,
@@ -27,13 +27,10 @@ vi.mock("../../src/services/federation.server", async (importOriginal) => {
   };
 });
 
-const {
-  composeUi,
-  composeClientPayload,
-  resetUiComposeCache,
-  resetRemoteManifestCache,
-  uiSources,
-} = await import("../../src/services/ui-compose");
+const { composeUi, composeClientPayload, createUiComposeCacheState, uiSources } = await import(
+  "../../src/services/ui-compose"
+);
+const { FederationLifecycle } = await import("../../src/services/federation.server");
 
 const CORE_MANIFEST = {
   name: "ui",
@@ -86,10 +83,12 @@ function createBaseRuntimeConfig(): RuntimeConfig {
       name: "ui",
       url: "https://cdn.example.com/base-ui",
       entry: "https://cdn.example.com/base-ui/mf-manifest.json",
+      entryUrl: "https://cdn.example.com/base-ui/remoteEntry.aaa.js",
       source: "remote",
       integrity: "sha384-base",
       ssrUrl: "https://cdn.example.com/base-ui-ssr",
       ssrIntegrity: "sha384-base-ssr",
+      ssrEntryUrl: "https://cdn.example.com/base-ui-ssr/remoteEntry.server.aaa.js",
     },
   } as RuntimeConfig;
 }
@@ -106,9 +105,12 @@ function configWithPlugin(): RuntimeConfig {
         name: "auth-ui",
         url: "https://cdn.example.com/auth-ui",
         entry: "https://cdn.example.com/auth-ui/mf-manifest.json",
+        browserManifestUrl: "https://cdn.example.com/auth-ui/mf-manifest.json",
+        entryUrl: "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
         source: "remote",
         ssrUrl: "https://cdn.example.com/auth-ui-ssr",
         ssrIntegrity: "sha384-a",
+        ssrEntryUrl: "https://cdn.example.com/auth-ui-ssr/remoteEntry.server.aaa.js",
       },
     } as never,
   };
@@ -153,10 +155,20 @@ const cdnAwareFetch = async (url: unknown) => {
 };
 
 const fetchMock = vi.fn(cdnAwareFetch);
+let cache = createUiComposeCacheState();
+let disposeFederation: (() => Promise<void>) | undefined;
 
-beforeEach(() => {
+const compose = (config: RuntimeConfig) => Effect.runPromise(composeUi(config, cache));
+const composeExit = (config: RuntimeConfig) => Effect.runPromiseExit(composeUi(config, cache));
+const composeClient = (config: RuntimeConfig) =>
+  Effect.runPromise(composeClientPayload(config, cache));
+
+beforeEach(async () => {
   vi.clearAllMocks();
-  resetUiComposeCache();
+  cache = createUiComposeCacheState();
+  const lifecycle = ManagedRuntime.make(FederationLifecycle.layer);
+  await lifecycle.runPromise(FederationLifecycle);
+  disposeFederation = () => lifecycle.dispose();
   fetchMock.mockImplementation(cdnAwareFetch);
   vi.stubGlobal("fetch", fetchMock);
   federationMocks.loadUiComposeModule.mockImplementation(() =>
@@ -167,8 +179,10 @@ beforeEach(() => {
   federationMocks.loadRouterModule.mockImplementation(() => Effect.succeed(ROUTER_MODULE));
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals();
+  await disposeFederation?.();
+  disposeFederation = undefined;
 });
 
 describe("uiSources", () => {
@@ -177,7 +191,7 @@ describe("uiSources", () => {
     expect(sources.map((source) => source.key)).toEqual(["auth", "ui"]);
     expect(sources.map((source) => source.mfName)).toEqual(["auth-ui", "ui"]);
     expect(sources.find((source) => source.key === "auth")?.webEntry).toBe(
-      "https://cdn.example.com/auth-ui/remoteEntry.js",
+      "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
     );
     expect(sources.find((source) => source.key === "ui")?.manifestUrl).toBe(
       "https://cdn.example.com/base-ui/manifest.gen.json",
@@ -187,13 +201,24 @@ describe("uiSources", () => {
   it("is empty of plugins when none declare ui", () => {
     expect(uiSources(createBaseRuntimeConfig()).map((source) => source.key)).toEqual(["ui"]);
   });
+
+  it("skips plugin ui sources with no production URL", () => {
+    const config = configWithPlugin();
+    config.plugins!.auth!.ui = {
+      name: "auth-ui",
+      url: "",
+      entry: "",
+      source: "remote",
+    };
+    expect(uiSources(config).map((source) => source.key)).toEqual(["ui"]);
+  });
 });
 
 describe("composeUi", () => {
   it("composes core + plugin manifests through the core engine, digest-cached", async () => {
     const config = configWithPlugin();
-    const first = await Effect.runPromise(composeUi(config));
-    const second = await Effect.runPromise(composeUi(config));
+    const first = await compose(config);
+    const second = await compose(config);
 
     expect(first.routeTree).toEqual({ id: "composed-tree" });
     expect(first.routerModule).toBe(ROUTER_MODULE);
@@ -222,7 +247,7 @@ describe("composeUi", () => {
 
   it("manifest content changes invalidate the cached variant", async () => {
     const config = configWithPlugin();
-    const first = await Effect.runPromise(composeUi(config));
+    const first = await compose(config);
 
     const changed = {
       ...AUTH_MANIFEST,
@@ -236,9 +261,9 @@ describe("composeUi", () => {
       return { ok: true, status: 200, json: async () => CORE_MANIFEST };
     });
 
-    resetRemoteManifestCache();
+    cache.remoteManifests.clear();
 
-    const second = await Effect.runPromise(composeUi(config));
+    const second = await compose(config);
     expect(second.digest).not.toBe(first.digest);
     expect(second).not.toBe(first);
     expect(construct).toHaveBeenCalledTimes(2);
@@ -246,11 +271,11 @@ describe("composeUi", () => {
 
   it("deployment-only changes (integrity bumps) keep the hydration digest but recompose the variant", async () => {
     const config = configWithPlugin();
-    const first = await Effect.runPromise(composeUi(config));
+    const first = await compose(config);
 
     const bumped = structuredClone(config);
     (bumped.plugins!.auth!.ui as { ssrIntegrity: string }).ssrIntegrity = "sha384-rebuilt";
-    const second = await Effect.runPromise(composeUi(bumped));
+    const second = await compose(bumped);
 
     expect(second.digest).toBe(first.digest);
     expect(second).not.toBe(first);
@@ -258,13 +283,51 @@ describe("composeUi", () => {
   });
 
   it("builds the client payload with plugin web entries and embedded manifests", async () => {
-    const variant = await Effect.runPromise(composeUi(configWithPlugin()));
+    const variant = await compose(configWithPlugin());
 
     expect(variant.clientPayload.digest).toBe(variant.digest);
     expect(variant.clientPayload.remotes).toEqual([
-      { key: "auth", name: "auth-ui", entry: "https://cdn.example.com/auth-ui/remoteEntry.js" },
+      {
+        key: "auth",
+        name: "auth-ui",
+        entry: "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
+        manifestUrl: "https://cdn.example.com/auth-ui/mf-manifest.json",
+      },
     ]);
     expect(variant.clientPayload.manifests).toEqual([AUTH_MANIFEST, CORE_MANIFEST]);
+  });
+
+  it("local plugin ui slots carry no manifestUrl — a relative entry resolves against the page origin and registers the wrong container", async () => {
+    const config = configWithPlugin();
+    // a local plugin ui slot only exists in development (dev targets resolve
+    // only there) — and the fixed-name fallback is the dev contract
+    config.env = "development";
+    config.plugins!.auth!.ui = {
+      name: "auth-ui",
+      url: "http://localhost:4111",
+      entry: "/mf-manifest.json",
+      source: "local",
+      ssrUrl: "http://localhost:4111/ssr",
+    } as never;
+
+    fetchMock.mockImplementation(async (url: unknown) => {
+      const target = String(url);
+      if (target === "http://localhost:4111/manifest.gen.json") {
+        return { ok: true, status: 200, json: async () => AUTH_MANIFEST };
+      }
+      return { ok: true, status: 200, json: async () => CORE_MANIFEST };
+    });
+    cache.remoteManifests.clear();
+
+    const client = await composeClient(config);
+
+    expect(client?.clientPayload.remotes).toEqual([
+      {
+        key: "auth",
+        name: "auth-ui",
+        entry: "http://localhost:4111/remoteEntry.js",
+      },
+    ]);
   });
 
   it("local dev composes through the same MF loaders via the local dist container", async () => {
@@ -289,11 +352,12 @@ describe("composeUi", () => {
 
     const config = {
       ...configWithPlugin(),
+      env: "development",
       ui: { ...createBaseRuntimeConfig().ui, source: "local", localPath: coreFixture },
     } as RuntimeConfig;
     config.plugins!.auth!.ui!.localPath = authFixture;
 
-    const variant = await Effect.runPromise(composeUi(config));
+    const variant = await compose(config);
 
     expect(federationMocks.loadUiComposeModule).toHaveBeenCalledTimes(1);
     expect(federationMocks.loadCoreUiRouteConfig).toHaveBeenCalledTimes(1);
@@ -311,7 +375,11 @@ describe("composeUi", () => {
 
     expect(variant.routerModule).toBe(ROUTER_MODULE);
     expect(variant.clientPayload.remotes).toEqual([
-      { key: "auth", name: "auth-ui", entry: "https://cdn.example.com/auth-ui/remoteEntry.js" },
+      {
+        key: "auth",
+        name: "auth-ui",
+        entry: "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
+      },
     ]);
 
     await rm(localRoot, { recursive: true, force: true });
@@ -319,14 +387,14 @@ describe("composeUi", () => {
 
   it("fails loudly when a manifest cannot be fetched", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
-    const result = await Effect.runPromiseExit(composeUi(configWithPlugin()));
+    const result = await composeExit(configWithPlugin());
     expect(Exit.isFailure(result)).toBe(true);
     expect(construct).not.toHaveBeenCalled();
   });
 
   it("the client config embeds the compose payload verbatim", async () => {
     const config = configWithPlugin();
-    const variant = await Effect.runPromise(composeUi(config));
+    const variant = await compose(config);
     const request = new Request("https://linktree.com/");
     const clientConfig = buildRuntimeClientConfig(
       config,
@@ -342,23 +410,28 @@ describe("composeUi", () => {
 describe("composeClientPayload", () => {
   it("mirrors the SSR variant's client payload and digest exactly", async () => {
     const config = configWithPlugin();
-    const variant = await Effect.runPromise(composeUi(config));
-    const client = await Effect.runPromise(composeClientPayload(config));
+    const variant = await compose(config);
+    const client = await composeClient(config);
 
     expect(client).toEqual({ digest: variant.digest, clientPayload: variant.clientPayload });
     expect(client?.clientPayload.remotes).toEqual([
-      { key: "auth", name: "auth-ui", entry: "https://cdn.example.com/auth-ui/remoteEntry.js" },
+      {
+        key: "auth",
+        name: "auth-ui",
+        entry: "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
+        manifestUrl: "https://cdn.example.com/auth-ui/mf-manifest.json",
+      },
     ]);
     expect(client?.clientPayload.manifests).toEqual([AUTH_MANIFEST, CORE_MANIFEST]);
   });
 
   it("returns undefined when no plugin declares a ui — the bundled core-only tree is already complete", async () => {
-    const client = await Effect.runPromise(composeClientPayload(createBaseRuntimeConfig()));
+    const client = await composeClient(createBaseRuntimeConfig());
     expect(client).toBeUndefined();
   });
 
   it("builds the payload without touching any MF loader or the construction engine", async () => {
-    await Effect.runPromise(composeClientPayload(configWithPlugin()));
+    await composeClient(configWithPlugin());
 
     expect(federationMocks.loadUiComposeModule).not.toHaveBeenCalled();
     expect(federationMocks.loadCoreUiRouteConfig).not.toHaveBeenCalled();
@@ -369,8 +442,8 @@ describe("composeClientPayload", () => {
 
   it("fails when a manifest cannot be fetched (no silent plugin loss)", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
-    resetRemoteManifestCache();
-    const result = await Effect.runPromiseExit(composeClientPayload(configWithPlugin()));
+    cache.remoteManifests.clear();
+    const result = await Effect.runPromiseExit(composeClientPayload(configWithPlugin(), cache));
     expect(Exit.isFailure(result)).toBe(true);
   });
 });

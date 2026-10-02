@@ -19,7 +19,7 @@ import { RowMenu } from "./-row-menu";
 
 export interface InvitationRowInvitation {
   id: string;
-  email: string;
+  email: string | null;
   nearAccountId?: string | null;
   nearNetwork?: "mainnet" | "testnet" | null;
   role: string | null;
@@ -44,7 +44,7 @@ export function InvitationRow({
   isCancelling?: boolean;
 }) {
   const needsReissue = !!invitation.nearAccountId && !invitation.nearNetwork;
-  const identifier = invitation.nearAccountId ?? invitation.email;
+  const identifier = invitation.nearAccountId ?? invitation.email ?? "email invitation";
   const canResend = !!onResend && !needsReissue;
 
   return (

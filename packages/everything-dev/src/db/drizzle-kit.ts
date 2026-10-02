@@ -156,15 +156,13 @@ export const makeDrizzleKitLive = (options: DrizzleKitOptions): Layer.Layer<Driz
         }
 
         if (binding.source === "local") {
-          return yield* Effect.fail(
-            new DrizzleKitError({
-              command: "studio",
-              message:
-                `No drizzle.config.ts found in ${binding.identity.workspaceDir ?? binding.key}. ` +
-                `Run 'drizzle-kit init' first in the plugin workspace.`,
-              exitCode: undefined,
-            }),
-          );
+          return yield* new DrizzleKitError({
+            command: "studio",
+            message:
+              `No drizzle.config.ts found in ${binding.identity.workspaceDir ?? binding.key}. ` +
+              `Run 'drizzle-kit init' first in the plugin workspace.`,
+            exitCode: undefined,
+          });
         }
 
         options.onLog?.(`Introspecting database schema for ${binding.key}...`);

@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import type { LoginMessageId } from "@/i18n/catalogs";
+import { useLoginTranslation } from "@/i18n/runtime";
 import { offerPasskeyOnThisDevice } from "@/lib/passkey-offer";
 
 const DEVICE_LINK_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
@@ -25,9 +27,10 @@ export function PairPanel({ redirect, onClose }: { redirect: string; onClose: ()
   const auth = useAuthClient();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const t = useLoginTranslation();
   const [link, setLink] = useState<DeviceLink | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState<string | null>(null);
+  const [failed, setFailed] = useState<LoginMessageId | null>(null);
   const [claimed, setClaimed] = useState(false);
   const canceledRef = useRef(false);
 
@@ -39,7 +42,7 @@ export function PairPanel({ redirect, onClose }: { redirect: string; onClose: ()
       .then(({ data, error }: { data: Record<string, unknown> | null; error: unknown }) => {
         if (!active) return;
         if (error || !data) {
-          setFailed("Could not start device pairing");
+          setFailed("auth.login.pair.startFailed");
           return;
         }
         const record = data as {
@@ -87,22 +90,22 @@ export function PairPanel({ redirect, onClose }: { redirect: string; onClose: ()
           body: { token, client_id: getDeviceLinkClientId() },
         });
         if (claim.error) {
-          setFailed("Failed to complete sign-in");
+          setFailed("auth.login.pair.completeFailed");
           return;
         }
         await refreshSessionCache(auth, queryClient);
-        toast.success("Signed in");
+        toast.success(t("auth.login.pair.success"));
         await navigate({ href: redirect, replace: true });
         offerPasskeyOnThisDevice(auth);
         return;
       }
       const err = (error as TokenError)?.error;
       if (err === "expired_token") {
-        setFailed("This code expired. Start again to get a new one.");
+        setFailed("auth.login.pair.expired");
         return;
       }
       if (err === "access_denied") {
-        setFailed("Sign-in was denied on your phone.");
+        setFailed("auth.login.pair.denied");
         return;
       }
       if (err === "slow_down") {
@@ -114,19 +117,19 @@ export function PairPanel({ redirect, onClose }: { redirect: string; onClose: ()
     return () => {
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [auth, link, claimed, navigate, queryClient, redirect]);
+  }, [auth, link, claimed, navigate, queryClient, redirect, t]);
 
   return (
     <div className="flex flex-col items-center gap-6">
       <div className="rounded-3xl border border-border bg-card p-4" data-testid="device.qr">
         {qrDataUrl ? (
-          <img src={qrDataUrl} alt="Scan with your phone to sign in" className="size-56" />
+          <img src={qrDataUrl} alt={t("auth.login.pair.imageAlt")} className="size-56" />
         ) : (
           <Skeleton className="size-56" />
         )}
       </div>
       <div className="flex flex-col items-center gap-1">
-        <span className="text-sm text-muted-foreground">Or enter this code on your phone</span>
+        <span className="text-sm text-muted-foreground">{t("auth.login.pair.instructions")}</span>
         <span
           className="font-mono text-2xl font-semibold tracking-widest text-foreground"
           data-testid="device.user-code"
@@ -136,7 +139,7 @@ export function PairPanel({ redirect, onClose }: { redirect: string; onClose: ()
       </div>
       {failed ? (
         <p className="text-center text-sm text-destructive" data-testid="device.error">
-          {failed}
+          {t(failed)}
         </p>
       ) : (
         <p
@@ -144,12 +147,12 @@ export function PairPanel({ redirect, onClose }: { redirect: string; onClose: ()
           data-testid="device.status"
         >
           <Spinner />
-          {claimed ? "Signing in…" : "Waiting for your phone…"}
+          {claimed ? t("auth.login.pair.signingIn") : t("auth.login.pair.waiting")}
         </p>
       )}
       <Button type="button" variant="ghost" onClick={onClose} data-testid="device.cancel-button">
         <ArrowLeftIcon data-icon="inline-start" />
-        Other ways to sign in
+        {t("auth.login.pair.cancel")}
       </Button>
     </div>
   );

@@ -32,17 +32,17 @@ afterEach(() => {
 
 describe("readCorsOrigins", () => {
   it("returns an empty list when CORS_ORIGIN is unset", async () => {
-    expect(await runWithFreshEnv(readCorsOrigins())).toEqual([]);
+    expect(await runWithFreshEnv(readCorsOrigins)).toEqual([]);
   });
 
   it("splits, trims, and filters a comma-separated CORS_ORIGIN", async () => {
     process.env.CORS_ORIGIN = " https://a.test ,https://b.test, ,";
-    expect(await runWithFreshEnv(readCorsOrigins())).toEqual(["https://a.test", "https://b.test"]);
+    expect(await runWithFreshEnv(readCorsOrigins)).toEqual(["https://a.test", "https://b.test"]);
   });
 
   it("treats an empty CORS_ORIGIN as unset", async () => {
     process.env.CORS_ORIGIN = "";
-    expect(await runWithFreshEnv(readCorsOrigins())).toEqual([]);
+    expect(await runWithFreshEnv(readCorsOrigins)).toEqual([]);
   });
 });
 

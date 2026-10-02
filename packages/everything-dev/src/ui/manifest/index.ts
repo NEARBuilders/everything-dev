@@ -6,3 +6,4 @@
  */
 
 export * from "every-plugin/ui/manifest";
+export * from "../slot";

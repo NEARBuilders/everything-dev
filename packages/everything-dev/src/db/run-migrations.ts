@@ -423,7 +423,7 @@ export function detectDrift(
       try: () => readAppliedHashesIn(db, ref),
       catch: (cause) =>
         new DatabaseError({ stage: "migration", migrationTag: "read-applied", cause }),
-    }).pipe(Effect.catch(() => Effect.succeed(new Set<string>())));
+    }).pipe(Effect.orElseSucceed(() => new Set<string>()));
     const appliedCount = appliedHashes.size;
 
     if (expectedTables.length === 0) {
@@ -441,7 +441,7 @@ export function detectDrift(
       try: () => existingTablesIn(db, expectedTables, schemaName),
       catch: (cause) =>
         new DatabaseError({ stage: "migration", migrationTag: "preflight-table-check", cause }),
-    }).pipe(Effect.catch(() => Effect.succeed(new Set<string>())));
+    }).pipe(Effect.orElseSucceed(() => new Set<string>()));
     const missingTables = expectedTables.filter((t) => !existing.has(t));
 
     if (appliedCount === 0 && missingTables.length === 0) {

@@ -209,6 +209,7 @@ cd tests/regression && go test ./http/ -v
 - `/skill.md`
 - `/llms.txt`
 - `/.well-known/mcp.json`
+- `/.well-known/version` — deployed fingerprint + per-slot pins + last watch-tick outcome
 - `/api` (OpenAPI docs)
 - `/api/spec.json` (OpenAPI spec)
 - `/api/mcp` (MCP server)

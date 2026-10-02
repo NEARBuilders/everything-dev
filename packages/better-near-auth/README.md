@@ -13,7 +13,7 @@
 
 </div>
 
-This [Better Auth](https://better-auth.com) plugin enables secure authentication via NEAR wallets following [NEP-413](https://github.com/near/NEPs/blob/master/neps/nep-0413.md) and adds a built-in [NEP-366](https://github.com/near/NEPs/blob/master/neps/nep-0366.md) delegate action relayer so authenticated users can call on-chain contracts gaslessly. It uses [near-kit](https://github.com/elliotBraem/near-kit) for RPC queries and transaction broadcasting, and [@fastnear/near-connect](https://github.com/fastnear/near-connect) for wallet connection.
+This [Better Auth](https://better-auth.com) plugin enables secure authentication via NEAR wallets following [NEP-413](https://github.com/near/NEPs/blob/master/neps/nep-0413.md) and adds a built-in [NEP-366](https://github.com/near/NEPs/blob/master/neps/nep-0366.md) delegate action relayer so authenticated users can call on-chain contracts gaslessly. It uses [near-kit](https://github.com/elliotBraem/near-kit) for RPC queries and transaction broadcasting, and [@hot-labs/near-connect](https://github.com/elliotBraem/near-connect) for wallet connection.
 
 ## Features
 
@@ -492,6 +492,6 @@ pnpm test
 - [NEP-413 Specification](https://github.com/near/NEPs/blob/master/neps/nep-0413.md)
 - [NEP-366 Delegate Actions](https://github.com/near/NEPs/blob/master/neps/nep-0366.md)
 - [near-kit](https://github.com/elliotBraem/near-kit)
-- [@fastnear/near-connect](https://github.com/fastnear/near-connect)
+- [@hot-labs/near-connect](https://github.com/elliotBraem/near-connect)
 - [Example Implementation](https://better-near-auth.near.page)
 - [Contributing Guide](./CONTRIBUTING.md)

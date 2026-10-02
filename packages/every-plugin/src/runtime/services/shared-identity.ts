@@ -1,4 +1,4 @@
-import { isEffectCriticalSharedDep } from "../../build/shared-deps";
+import { isEffectCriticalSharedDep } from "../../shared-deps-spec";
 
 interface IdentityManifest {
   metaData?: { pluginVersion?: string };

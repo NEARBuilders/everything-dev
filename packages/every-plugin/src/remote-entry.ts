@@ -71,7 +71,8 @@ export interface PluginLoadRetryOptions<T> {
   timeoutMs?: number;
   /**
    * Budget for the readiness poll (cold-compile wait) — defaults to the
-   * retry budget, preserving the historical behavior.
+   * retry budget, preserving the historical behavior. Pass `0` to skip the
+   * poll (useful when the caller stubs `load` and does not need network).
    */
   readinessTimeoutMs?: number;
   /**
@@ -138,15 +139,19 @@ export const loadRemoteWithRetry = <T>(
     );
   };
 
+  const loadWithRetry = Effect.tryPromise({ try: load, catch: (error) => error }).pipe(
+    Effect.tapError((error) => Effect.sync(() => reportFailure(error))),
+    Effect.retry({ schedule, while: (error) => classifyPluginFailure(error).retryable }),
+  );
+
+  // readinessTimeoutMs: 0 skips the cold-compile poll (tests stub `load` and
+  // must not race a 1ms wall-clock window against the event loop).
+  if (readinessTimeout === 0) {
+    return loadWithRetry;
+  }
+
   return Effect.tryPromise({
     try: () => waitForRemoteEntryReady(label, remoteUrl, readinessTimeout),
     catch: (error) => error,
-  }).pipe(
-    Effect.flatMap(() =>
-      Effect.tryPromise({ try: load, catch: (error) => error }).pipe(
-        Effect.tapError((error) => Effect.sync(() => reportFailure(error))),
-        Effect.retry({ schedule, while: (error) => classifyPluginFailure(error).retryable }),
-      ),
-    ),
-  );
+  }).pipe(Effect.flatMap(() => loadWithRetry));
 };

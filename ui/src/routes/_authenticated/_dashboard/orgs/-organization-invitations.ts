@@ -50,7 +50,9 @@ export function useOrganizationInvitationActions(apiClient: ApiClient, orgId: st
               nearAccountId: invitation.nearAccountId,
               nearNetwork: invitation.nearNetwork ?? undefined,
             }
-          : { email: invitation.email }),
+          : invitation.email
+            ? { email: invitation.email }
+            : {}),
         ...(invitation.teamId ? { teamId: invitation.teamId } : {}),
         resend: true,
       });

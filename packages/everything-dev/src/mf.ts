@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { isEffectCriticalSharedDep } from "every-plugin/build/rspack";
+import { readBundleCache, writeBundleCache } from "./bundle-cache";
 import { computeSriHash, type IntegrityRegistry } from "./integrity";
 import type { BosConfig, BosPluginRef } from "./types";
 
@@ -43,6 +44,7 @@ export function patchManifestFetchForSsrPublicPath(mf: FederationInstance): void
 export function installIntegrityFetchHook(
   mf: FederationInstance,
   registry: IntegrityRegistry,
+  options?: { cacheDir?: string },
 ): void {
   if (!mf || !(mf as any).loaderHook?.lifecycle?.fetch?.on) {
     console.warn("[SRI] MF lifecycle fetch hook not available, skipping integrity-in-pipeline");
@@ -62,6 +64,20 @@ export function installIntegrityFetchHook(
       const computed = computeSriHash(buffer);
 
       if (computed !== expectedHash) {
+        // ticket 09 (atomic-deploys): an SRI mismatch is treated like an
+        // origin failure — the last-known-good bytes (which satisfied the
+        // same pin when cached) serve instead, and the corrupted bytes are
+        // never written into the cache.
+        const cached = await readBundleCache(url as string, { cacheDir: options?.cacheDir });
+        if (cached && computeSriHash(Buffer.from(cached)) === expectedHash) {
+          console.warn(
+            `[SRI] Origin bytes failed verification for ${url} — serving last-known-good from the bundle cache`,
+          );
+          return new Response(cached.slice().buffer, {
+            status: 200,
+            headers: { "x-bundle-cache": "stale" },
+          });
+        }
         console.error(
           `[SRI] Integrity check failed in MF fetch pipeline for ${url}\n  Expected: ${expectedHash}\n  Computed: ${computed}`,
         );
@@ -71,7 +87,13 @@ export function installIntegrityFetchHook(
         });
       }
 
-      console.log(`[SRI] Integrity verified in pipeline for ${url}`);
+      // verified: pin-checked write-through
+      await writeBundleCache(url as string, new Uint8Array(buffer), {
+        cacheDir: options?.cacheDir,
+      }).catch(() => {
+        // write-through is best-effort
+      });
+
       return new Response(buffer, {
         status: res.status,
         statusText: res.statusText,
@@ -111,7 +133,7 @@ export async function registerRemote(opts: {
   const inferType = (): "manifest" | "script" => {
     if (opts.type) return opts.type;
     if (opts.entry.endsWith("/mf-manifest.json")) return "manifest";
-    if (opts.entry.endsWith("/remoteEntry.js")) return "script";
+    if (/\/remoteEntry(\.[a-f0-9]{8,})?\.js$/.test(opts.entry)) return "script";
     return typeof window === "undefined" ? "script" : "manifest";
   };
 

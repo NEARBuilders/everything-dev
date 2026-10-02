@@ -24,6 +24,7 @@ export const validatorRole = pgEnum("validator_role", ["official", "community"])
 export interface NodeMetadata {
   kind?: string;
   poolAccountId?: string;
+  bulletin?: string;
   [key: string]: unknown;
 }
 

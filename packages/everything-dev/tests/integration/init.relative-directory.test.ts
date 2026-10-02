@@ -2,12 +2,35 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Effect } from "effect";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildInitPatterns, copyFilteredFiles, personalizeConfig } from "../../src/cli/init";
-import { loadResolvedConfig } from "../../src/config";
 import { makeProjectEnv } from "../../src/env/project-env";
 import { InfraMaterializer, InfraMaterializerLive } from "../../src/infra/materializer";
+import { openResolution } from "../../src/resolution/session";
 import type { RuntimeConfig } from "../../src/types";
+
+vi.mock("../../src/fastkv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/fastkv")>();
+  return {
+    ...actual,
+    fetchBosConfigFromFastKv: async <T>() => {
+      const parentConfig = JSON.parse(
+        readFileSync(join(import.meta.dirname, "../../../../bos.config.json"), "utf-8"),
+      );
+      return parentConfig as T;
+    },
+  };
+});
+vi.mock("../../src/http-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/http-client")>();
+  return {
+    ...actual,
+    fetchResponse: async () => {
+      throw new Error("network disabled in test");
+    },
+    fetchJsonOrNull: async () => null,
+  };
+});
 
 async function materialize(targetDir: string, runtime: RuntimeConfig): Promise<void> {
   await Effect.runPromise(
@@ -34,9 +57,10 @@ describe("bos init - relative directory", () => {
   afterAll(() => {
     process.chdir(previousCwd);
     rmSync(workingDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
   });
 
-  it("loads config and generates infra when the target directory starts as relative", async () => {
+  it("generates infra files when the target directory starts as relative", async () => {
     const relativeDir = "testing.com";
     const targetDir = resolve(relativeDir);
     const patterns = buildInitPatterns(["ui", "api"]);
@@ -55,15 +79,15 @@ describe("bos init - relative directory", () => {
       workspaceOpts: { sourceDir: REPO_ROOT },
     });
 
-    const loaded = await loadResolvedConfig({ cwd: targetDir });
-    expect(loaded?.config.account).toBe("testing.near");
-    expect(loaded?.config.domain).toBe("testing.com");
+    const session = await openResolution({ cwd: targetDir });
+    expect(session?.config.account).toBe("testing.near");
+    expect(session?.config.domain).toBe("testing.com");
 
-    if (!loaded?.runtime) {
+    if (!session?.runtime) {
       throw new Error("Expected runtime config to be available");
     }
 
-    await materialize(targetDir, loaded.runtime);
+    await materialize(targetDir, session.runtime);
     await Effect.runPromise(makeProjectEnv().ensureFile(targetDir));
 
     expect(existsSync(join(targetDir, "bos.config.json"))).toBe(true);
@@ -84,7 +108,8 @@ describe("bos init - relative directory", () => {
     expect(envExample).not.toContain("PROJECTS_DATABASE_URL=");
 
     expect(dockerCompose).toContain("postgres-api:");
-    expect(dockerCompose).toContain("postgres-auth:");
+    expect(dockerCompose).toContain("postgres-api-test:");
+    expect(dockerCompose).not.toContain("postgres-auth:");
     expect(dockerCompose).not.toContain("postgres-example:");
   }, 60_000);
 });

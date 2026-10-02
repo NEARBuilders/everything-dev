@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { glob } from "glob";
-import { loadAppDescriptorConfig, loadResolvedConfig } from "../config";
+import { loadAppDescriptorConfig } from "../config";
 import type { SyncOptions, SyncResult } from "../contract";
 import { materializeViaLayer } from "../infra/materializer";
 import {
@@ -9,6 +9,7 @@ import {
   mergeBosConfigWithTemplate,
   resolveExtendsRef,
 } from "../merge";
+import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { computeSnapshotHash as computeHash } from "../utils/snapshot-hash";
 import {
@@ -669,7 +670,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       hostMode: "local",
     });
 
-    const syncedConfig = await loadResolvedConfig({ cwd: projectDir });
+    const syncedConfig = await openResolution({ cwd: projectDir });
     if (syncedConfig?.runtime) {
       await materializeViaLayer(projectDir, syncedConfig.runtime!);
     }

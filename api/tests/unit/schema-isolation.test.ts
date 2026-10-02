@@ -50,7 +50,7 @@ describe("schema isolation", () => {
     const dir = freshDir("schema-iso-2-");
     await withDriver(`pglite:${dir}`, "plugin_api", async (db) => {
       const storage = getMigrationStorage("api");
-      const { migrations } = await Effect.runPromise(loadMigrations());
+      const { migrations } = await Effect.runPromise(loadMigrations);
       await Effect.runPromise(migrate(db, migrations, storage, "plugin_api"));
 
       const publicResult = await db.execute(sql`
@@ -73,7 +73,7 @@ describe("schema isolation", () => {
     const dir = freshDir("schema-iso-3-");
     await withDriver(`pglite:${dir}`, "plugin_api", async (db) => {
       const storage = getMigrationStorage("api");
-      const { migrations } = await Effect.runPromise(loadMigrations());
+      const { migrations } = await Effect.runPromise(loadMigrations);
       await Effect.runPromise(migrate(db, migrations, storage, "plugin_api"));
 
       const drift = await Effect.runPromise(detectDrift(db, migrations, storage, "plugin_api"));
@@ -86,7 +86,7 @@ describe("schema isolation", () => {
     const dirA = freshDir("schema-iso-4a-");
     const dirB = freshDir("schema-iso-4b-");
     const storage = getMigrationStorage("api");
-    const { migrations } = await Effect.runPromise(loadMigrations());
+    const { migrations } = await Effect.runPromise(loadMigrations);
 
     await withDriver(`pglite:${dirA}`, "plugin_api", async (dbA) => {
       await Effect.runPromise(migrate(dbA, migrations, storage, "plugin_api"));
@@ -115,7 +115,7 @@ describe("schema isolation", () => {
   it("isDuplicateObjectError: migration with pre-existing types does not crash", async () => {
     const dir = freshDir("schema-iso-6-");
     const storage = getMigrationStorage("api");
-    const { migrations } = await Effect.runPromise(loadMigrations());
+    const { migrations } = await Effect.runPromise(loadMigrations);
 
     await withDriver(`pglite:${dir}`, "plugin_api", async (db) => {
       await Effect.runPromise(migrate(db, migrations, storage, "plugin_api"));

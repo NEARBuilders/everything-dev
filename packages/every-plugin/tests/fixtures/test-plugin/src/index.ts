@@ -1,6 +1,6 @@
 import { MemoryPublisher } from "@orpc/publisher/memory";
 import { ORPCError } from "@orpc/server";
-import { Context, Effect, Layer } from "effect";
+import { Clock, Context, Effect, Layer } from "effect";
 import { createPlugin } from "every-plugin";
 import { z } from "zod";
 import { TestClient } from "./client";
@@ -89,14 +89,15 @@ export const TestPlugin = createPlugin({
               const event = {
                 id: `bg-${i}`,
                 index: i,
-                timestamp: Date.now(),
+                timestamp: yield* Clock.currentTimeMillis,
               };
 
               yield* Effect.tryPromise(() => publisher.publish("background-updates", event)).pipe(
-                Effect.catch((error) => {
-                  console.log(`[TestPlugin] Publish failed for event ${i}:`, error);
-                  return Effect.void;
-                }),
+                Effect.catch((error) =>
+                  Effect.log(`[TestPlugin] Publish failed for event ${i}: ${String(error)}`).pipe(
+                    Effect.asVoid,
+                  ),
+                ),
               );
 
               yield* Effect.tryPromise(
@@ -106,7 +107,7 @@ export const TestPlugin = createPlugin({
                   ),
               );
             }
-            console.log(`[TestPlugin] Background producer completed after ${i} events`);
+            yield* Effect.log(`[TestPlugin] Background producer completed after ${i} events`);
           }),
         );
       }
@@ -226,7 +227,7 @@ export const TestPlugin = createPlugin({
         const event = {
           id: input.id || `manual-${Date.now()}`,
           index: -1, // Manual events use -1 to distinguish from auto-generated
-          timestamp: Date.now(),
+          timestamp: yield* Clock.currentTimeMillis,
         };
 
         yield* Effect.promise(() => publisher.publish("background-updates", event));

@@ -98,6 +98,82 @@ it("preserves multiple nodes per tenant and validates confirmed coordinates", as
   ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 });
 
+it("derives coordinates from location via Nominatim and skips when already geocoded", async () => {
+  const realFetch = globalThis.fetch;
+  const fetchMock = vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const url = String(input);
+    if (!url.includes("nominatim.openstreetmap.org")) {
+      return realFetch(input, init);
+    }
+    if (url.includes("Unavailable-")) {
+      return new Response("[]", { status: 503, headers: { "Content-Type": "application/json" } });
+    }
+    return Response.json([{ lat: "24.86", lon: "67.01" }]);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const { node, editor, publicClient } = await fixture();
+  const uniqueLocation = `Karachi-${node.id.slice(0, 8)}`;
+  const saved = await editor.saveDiscoveryProfile({
+    nodeId: node.id,
+    ...profile,
+    location: uniqueLocation,
+    latitude: null,
+    longitude: null,
+    geocodedLocation: null,
+  });
+  expect(saved).toMatchObject({
+    latitude: 24.86,
+    longitude: 67.01,
+    geocodedLocation: uniqueLocation,
+    geocodeHint: null,
+  });
+  expect(await publicClient.getDiscoveryNode({ nodeId: node.id })).toMatchObject({
+    latitude: 24.86,
+    longitude: 67.01,
+  });
+  expect(fetchMock.mock.calls.some(([input]) => String(input).includes("nominatim"))).toBe(true);
+  const nominatimCall = fetchMock.mock.calls.find(([input]) => String(input).includes("nominatim"));
+  expect(nominatimCall?.[1]?.headers).toMatchObject({
+    "User-Agent": expect.stringContaining("citynode.app/discovery-geocode"),
+  });
+
+  const nominatimCallsBeforeSkip = fetchMock.mock.calls.filter(([input]) =>
+    String(input).includes("nominatim"),
+  ).length;
+  const skipped = await editor.saveDiscoveryProfile({
+    nodeId: node.id,
+    ...profile,
+    location: uniqueLocation,
+    latitude: 24.86,
+    longitude: 67.01,
+    geocodedLocation: uniqueLocation,
+  });
+  expect(skipped).toMatchObject({
+    latitude: 24.86,
+    longitude: 67.01,
+    geocodedLocation: uniqueLocation,
+  });
+  expect(
+    fetchMock.mock.calls.filter(([input]) => String(input).includes("nominatim")),
+  ).toHaveLength(nominatimCallsBeforeSkip);
+
+  const failed = await editor.saveDiscoveryProfile({
+    nodeId: node.id,
+    ...profile,
+    location: `Unavailable-${node.id.slice(0, 8)}`,
+    latitude: null,
+    longitude: null,
+    geocodedLocation: null,
+  });
+  expect(failed).toMatchObject({
+    latitude: null,
+    longitude: null,
+    geocodeHint: expect.stringContaining("Map lookup is unavailable"),
+  });
+  vi.unstubAllGlobals();
+});
+
 it("publishes attributed activity, shares events and removes cancelled evidence", async () => {
   const { node, editor, publicClient } = await fixture();
   const other = await fixture();

@@ -4,6 +4,7 @@ import { pluginPath } from "@/app";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useAppTranslation } from "@/i18n/runtime";
 import { useIdentity } from "./use-identity";
 import { UserNavMenuContent } from "./user-nav-menu";
 
@@ -20,18 +21,20 @@ export function UserNav({ showSignIn = true }: UserNavProps) {
 }
 
 export function SignInButton() {
+  const t = useAppTranslation();
   return (
     <Button
       nativeButton={false}
       render={<Link to={pluginPath("/login")} />}
       data-testid="public-header-signin"
     >
-      Sign in
+      {t("nav.signIn")}
     </Button>
   );
 }
 
 function UserNavContent({ showSignIn }: UserNavProps) {
+  const t = useAppTranslation();
   const {
     user,
     isSessionLoading,
@@ -54,7 +57,7 @@ function UserNavContent({ showSignIn }: UserNavProps) {
         aria-label={displayName}
         data-testid="account-menu"
         render={<Button variant="ghost" size="icon" />}
-        title="Account"
+        title={t("nav.account")}
       >
         <Avatar>
           {avatarSrc ? <AvatarImage src={avatarSrc} alt="" /> : null}

@@ -8,6 +8,8 @@ import * as Effect from "effect/Effect";
 // everything.dev base; a sovereign base overrides it via env.
 export const BUNDLE_CDN_DOMAIN = process.env.BOS_BUNDLE_CDN_DOMAIN ?? "cdn.everything.dev";
 
+const bucketName = process.env.BOS_STORAGE_BUCKET ?? "everything-bundles";
+
 export default Alchemy.Stack(
   "CityNodeInfra",
   {
@@ -16,7 +18,6 @@ export default Alchemy.Stack(
   },
   Effect.gen(function* () {
     const { accountId } = yield* Cloudflare.CloudflareEnvironment;
-    const bucketName = process.env.BOS_STORAGE_BUCKET ?? "everything-bundles";
 
     const bucket = yield* Cloudflare.R2.Bucket("Bundles", {
       name: bucketName,

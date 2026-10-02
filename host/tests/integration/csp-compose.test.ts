@@ -101,8 +101,9 @@ describe("CSP compose regression", () => {
     beforeAll(async () => {
       const middleware = await Effect.runPromise(
         SecurityMiddleware.pipe(
-          Effect.provide(SecurityMiddleware.Live),
-          Effect.provide(Layer.succeed(ConfigService, config)),
+          Effect.provide(
+            SecurityMiddleware.Live.pipe(Layer.provide(Layer.succeed(ConfigService, config))),
+          ),
         ),
       );
       const app = new Hono();

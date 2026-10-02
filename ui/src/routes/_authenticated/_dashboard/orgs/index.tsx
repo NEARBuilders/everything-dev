@@ -2,13 +2,7 @@ import { BankIcon, EnvelopeSimpleIcon, PlusIcon, WalletIcon } from "@phosphor-ic
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
-import {
-  type Organization,
-  type SessionData,
-  sessionQueryOptions,
-  useApiClient,
-  useAuthClient,
-} from "@/app";
+import { type SessionData, sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import {
   Badge,
   Button,
@@ -31,6 +25,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { pageTitle } from "@/lib/page-title";
+import { organizationsQueryOptions } from "@/lib/queries/organizations";
 import { tenantOrganizationIdsQueryOptions } from "@/lib/queries/tenants";
 import { OrgAvatar, roleLabel } from "./-org-avatar";
 import { orgMembersQueryKey } from "./-organization-query-keys";
@@ -51,14 +46,7 @@ export const Route = createFileRoute("/_authenticated/_dashboard/orgs/")({
   }),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(sessionQueryOptions(context.authClient));
-    await context.queryClient.ensureQueryData({
-      queryKey: ["organizations"],
-      queryFn: async () => {
-        const { data } = await context.authClient.organization.list();
-        return (data || []) as Organization[];
-      },
-      staleTime: 30 * 1000,
-    });
+    await context.queryClient.ensureQueryData(organizationsQueryOptions(context.apiClient));
     await context.queryClient.ensureQueryData({
       queryKey: ["user-invitations"],
       queryFn: async (): Promise<UserInvitationItem[]> => {
@@ -79,14 +67,7 @@ function OrganizationsList() {
   const apiClient = useApiClient();
   const router = useRouter();
   const { data: session } = useQuery<SessionData | null>(sessionQueryOptions(auth));
-  const { data: organizations, isLoading } = useQuery({
-    queryKey: ["organizations"],
-    queryFn: async () => {
-      const { data } = await auth.organization.list();
-      return (data || []) as Organization[];
-    },
-    staleTime: 30 * 1000,
-  });
+  const { data: organizations, isLoading } = useQuery(organizationsQueryOptions(apiClient));
 
   const { data: userInvitations = [] } = useQuery({
     queryKey: ["user-invitations"],
@@ -273,17 +254,44 @@ function OrganizationsList() {
                     </Link>
                     <div className="flex flex-wrap gap-1.5">
                       {myRole && <Badge variant="secondary">{roleLabel(myRole)}</Badge>}
+                      {org.status === "pending" && (
+                        <Badge variant="warning" data-testid="orgs-pending">
+                          Pending approval
+                        </Badge>
+                      )}
+                      {org.status === "rejected" && (
+                        <Badge variant="destructive" data-testid="orgs-rejected">
+                          Rejected
+                        </Badge>
+                      )}
                       {isActive && <Badge variant="success">Active</Badge>}
                       {isPersonal && <Badge variant="outline">Personal</Badge>}
                       {tenantOrgIds.has(org.id) && <Badge variant="outline">Community</Badge>}
                     </div>
+                    {org.status === "rejected" && (
+                      <p
+                        className="text-sm text-muted-foreground"
+                        data-testid="orgs-rejection-reason"
+                      >
+                        {org.rejectionReason}
+                      </p>
+                    )}
                     <div className="mt-auto flex items-center justify-between gap-3">
                       <span className="text-sm text-muted-foreground">
                         {members
                           ? `${members.length} member${members.length === 1 ? "" : "s"}`
                           : " "}
                       </span>
-                      {isActive ? (
+                      {org.status !== "active" ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          nativeButton={false}
+                          render={<Link to="/orgs/$slug" params={{ slug: org.slug }} />}
+                        >
+                          View request
+                        </Button>
+                      ) : isActive ? (
                         <Button
                           variant="ghost"
                           size="sm"

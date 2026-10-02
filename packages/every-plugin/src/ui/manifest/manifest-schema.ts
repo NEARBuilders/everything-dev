@@ -59,6 +59,9 @@ export const ComposeRemoteSchema = z.object({
   key: z.string(),
   name: z.string(),
   entry: z.string(),
+  /** the remote's (hashed) browser-manifest URL — preferred over deriving
+   * one from `entry` by stripping the legacy fixed entry name */
+  manifestUrl: z.string().optional(),
 });
 
 export const ComposePayloadSchema = z.object({

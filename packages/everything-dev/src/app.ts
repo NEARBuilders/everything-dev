@@ -2,14 +2,10 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { Context, Data, Effect, Layer } from "effect";
-import {
-  buildRuntimeConfig as configBuildRuntimeConfig,
-  getProjectRoot,
-  resolveLocalDevelopmentPath,
-} from "./config";
+import { resolveLocalDevelopmentPath } from "./config";
 import { claimedPorts } from "./process-registry";
 import type { AppOrchestrator } from "./service-descriptor";
-import type { BosConfig, RuntimeConfig, RuntimePluginConfig } from "./types";
+import type { BosConfig, RuntimeConfig } from "./types";
 
 export type { AppOrchestrator };
 
@@ -60,9 +56,10 @@ export class PortAllocator extends Context.Service<
 export function detectLocalPackages(
   bosConfig?: BosConfig,
   runtimeConfig?: RuntimeConfig,
+  root: string = process.cwd(),
 ): string[] {
   const packages: string[] = [];
-  const configDir = getProjectRoot();
+  const configDir = root;
 
   const uiLocalPath =
     runtimeConfig?.ui.localPath ??
@@ -106,27 +103,8 @@ export function detectLocalPackages(
   return packages;
 }
 
-export async function buildRuntimeConfig(
-  bosConfig: BosConfig,
-  options: {
-    hostSource?: "local" | "remote";
-    uiSource?: "local" | "remote";
-    apiSource?: "local" | "remote";
-    authSource?: "local" | "remote";
-    proxy?: string;
-    env?: "development" | "production";
-    plugins?: Record<string, RuntimePluginConfig>;
-  },
-): Promise<RuntimeConfig> {
-  return configBuildRuntimeConfig(bosConfig, getProjectRoot(), options.env ?? "development", {
-    hostSource: options.hostSource,
-    uiSource: options.uiSource,
-    apiSource: options.apiSource,
-    authSource: options.authSource,
-    proxy: options.proxy,
-    plugins: options.plugins,
-  });
-}
+const scheduleTimeout = (ms: number, fn: () => void): ReturnType<typeof setTimeout> =>
+  setTimeout(fn, ms);
 
 export function probePortBindable(port: number): Effect.Effect<boolean> {
   return Effect.callback<boolean>((resume) => {
@@ -146,7 +124,7 @@ export function probePortBindable(port: number): Effect.Effect<boolean> {
 
     server.listen(port, "127.0.0.1");
 
-    const timer = setTimeout(() => {
+    const timer = scheduleTimeout(PROBE_TIMEOUT_MS, () => {
       server.removeAllListeners();
       try {
         server.close();
@@ -154,7 +132,7 @@ export function probePortBindable(port: number): Effect.Effect<boolean> {
         // ignore
       }
       resume(Effect.succeed(false));
-    }, PROBE_TIMEOUT_MS);
+    });
 
     server.once("listening", () => clearTimeout(timer));
     server.once("error", () => clearTimeout(timer));

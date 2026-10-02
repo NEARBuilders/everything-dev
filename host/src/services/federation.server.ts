@@ -1,21 +1,25 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { createInstance } from "@module-federation/enhanced/runtime";
-import { Effect, Schedule, Semaphore } from "effect";
+import { Context, Effect, Layer, Schedule, Semaphore } from "effect";
+import type { BosEnv } from "everything-dev/config";
 import { verifySriForUrl } from "everything-dev/integrity";
 import {
   type ConstructedTree,
   type ConstructInput,
+  type EntrySlot,
+  entryUrls,
   type RouteConfigModule,
   UI_EXPOSES,
   UI_REMOTE_SERVER_ENTRY_FILENAME,
 } from "everything-dev/ui/manifest";
 import type { RouterModule } from "../types";
-import { logger } from "../utils/logger";
 import type { RuntimeConfig } from "./config";
 import { ExposeModuleMissing, FederationError } from "./errors";
 import { type LocalDistServer, startLocalDistServer } from "./local-dist-server";
 import { enforceCacheLimit, pruneExpiredEntries as pruneExpiredCacheEntries } from "./ttl-cache";
+
+const runFetch = (url: string, init?: RequestInit): Promise<Response> => fetch(url, init);
 
 export type { RouterModule };
 
@@ -98,13 +102,14 @@ function removeInstanceRemotes(instance: ModuleFederationInstance, remoteName?: 
         remoteHandler?: { removeRemote?: (remote: unknown) => void };
       }
     ).remoteHandler;
-    for (const remote of [...instance.options.remotes]) {
-      if (remoteName === undefined || remote.name === remoteName) {
-        handler?.removeRemote?.(remote);
-      }
+    const targets = instance.options.remotes.filter(
+      (remote) => remoteName === undefined || remote.name === remoteName,
+    );
+    for (const remote of targets) {
+      handler?.removeRemote?.(remote);
     }
-  } catch (error) {
-    logger.debug(`[Federation] removeRemote(${remoteName ?? "*"}) failed:`, error);
+  } catch {
+    /* noop */
   }
 }
 
@@ -139,20 +144,37 @@ function initializeShareScope(mf: ModuleFederationInstance): Effect.Effect<void,
   );
 }
 
-export function resetFederationInstance() {
-  routerModuleCache.clear();
-  verifiedSsrEntryCache.clear();
-  uiExposeCache.clear();
-  for (const server of localDistServers.values()) {
-    void server.stop();
-  }
-  localDistServers.clear();
-  if (compositionInstance) {
-    removeInstanceRemotes(compositionInstance);
-  }
-  compositionInstance = null;
-  compositionRemoteEntries.clear();
-  loadedEntryByRemote.clear();
+function disposeFederationResources(): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    routerModuleCache.clear();
+    verifiedSsrEntryCache.clear();
+    uiExposeCache.clear();
+    yield* Effect.forEach(
+      [...localDistServers.values()],
+      (server) => Effect.tryPromise(() => server.stop()).pipe(Effect.catch(() => Effect.void)),
+      { discard: true },
+    );
+    localDistServers.clear();
+    if (compositionInstance) {
+      removeInstanceRemotes(compositionInstance);
+    }
+    compositionInstance = null;
+    compositionRemoteEntries.clear();
+    loadedEntryByRemote.clear();
+  });
+}
+
+/** Ties federation state and local dist servers to the host runtime scope. */
+export class FederationLifecycle extends Context.Service<FederationLifecycle, undefined>()(
+  "host/FederationLifecycle",
+) {
+  static readonly layer = Layer.effect(
+    FederationLifecycle,
+    Effect.gen(function* () {
+      yield* Effect.addFinalizer(() => disposeFederationResources());
+      return FederationLifecycle.of(undefined);
+    }),
+  );
 }
 
 const localDistServers = new Map<string, LocalDistServer>();
@@ -168,7 +190,7 @@ const LOCAL_CONTAINER_READY_TIMEOUT_MS = 120_000;
 export async function localUiRemoteEntry(source: {
   name: string;
   localRoot: string;
-}): Promise<UiRemoteEntry> {
+}): Promise<EntrySlot> {
   let server = localDistServers.get(source.localRoot);
   if (!server) {
     server = await startLocalDistServer(path.join(source.localRoot, "dist"));
@@ -186,22 +208,48 @@ export async function localUiRemoteEntry(source: {
   };
 }
 
-export async function waitForLocalContainer(entry: UiRemoteEntry): Promise<void> {
-  const containerUrl = ssrEntryUrlOf(entry);
-  const deadline = Date.now() + LOCAL_CONTAINER_READY_TIMEOUT_MS;
-  let announced = false;
-  while (Date.now() < deadline) {
-    const res = await fetch(containerUrl).catch(() => null);
-    const body = await res?.text().catch(() => "");
-    if (res?.ok && !/not found|<(!doctype|html)/i.test((body ?? "").slice(0, 64))) return;
-    if (!announced) {
-      announced = true;
-      console.log(`⏳ waiting for ${entry.name} to compile (SSR container not ready)…`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, LOCAL_CONTAINER_READY_POLL_MS));
+export const waitForLocalContainer = Effect.fn("waitForLocalContainer")(function* (
+  entry: EntrySlot,
+  env: BosEnv,
+): Effect.fn.Return<void, Error> {
+  const containerUrl = entryUrls(entry, env).ssr;
+  if (!containerUrl) {
+    return yield* Effect.fail(
+      new Error(`${entry.name} SSR container has no entry URL — no local dist server`),
+    );
   }
-  throw new Error(`${entry.name} SSR container never became ready at ${containerUrl}`);
-}
+  let announced = false;
+  const check = Effect.tryPromise({
+    try: async (signal) => {
+      const res = await runFetch(containerUrl, { signal });
+      const body = await res.text();
+      return res.ok && !/not found|<(!doctype|html)/i.test(body.slice(0, 64));
+    },
+    catch: () => false,
+  }).pipe(
+    Effect.orElseSucceed(() => false),
+    Effect.tap((ready) =>
+      !ready && !announced
+        ? Effect.gen(function* () {
+            announced = true;
+            yield* Effect.log(`⏳ waiting for ${entry.name} to compile (SSR container not ready)…`);
+          })
+        : Effect.void,
+    ),
+  );
+  const ready = yield* Effect.repeat(check, {
+    schedule: Schedule.spaced(`${LOCAL_CONTAINER_READY_POLL_MS} millis`),
+    until: (isReady) => isReady,
+  }).pipe(
+    Effect.timeout(`${LOCAL_CONTAINER_READY_TIMEOUT_MS} millis`),
+    Effect.catchTag("TimeoutError", () => Effect.succeed(false)),
+  );
+  if (!ready) {
+    return yield* Effect.fail(
+      new Error(`${entry.name} SSR container never became ready at ${containerUrl}`),
+    );
+  }
+});
 
 export function resolveLocalRoot(localPath: string): string {
   return path.resolve(process.cwd(), localPath);
@@ -236,25 +284,6 @@ async function verifySsrEntryIntegrity(entryUrl: string, expectedIntegrity: stri
   return verification;
 }
 
-function getSsrEntryUrl(config: RuntimeConfig) {
-  const ssrUrl = config.ui.ssrUrl;
-  if (!ssrUrl) {
-    throw new FederationError({
-      remoteName: config.ui.name,
-      cause: new Error(
-        "SSR URL not configured in production. Set app.ui.ssr in bos.config.json to enable SSR.",
-      ),
-    });
-  }
-
-  const entryUrl = `${ssrUrl.replace(/\/$/, "")}/${UI_REMOTE_SERVER_ENTRY_FILENAME}`;
-  if (config.ui.ssrIntegrity) {
-    return `${entryUrl}?v=${encodeURIComponent(config.ui.ssrIntegrity)}`;
-  }
-
-  return entryUrl;
-}
-
 const retrySchedule = Schedule.addDelay(Schedule.recurs(5), () => Effect.succeed(500));
 
 interface RemoteModuleLoad<T> {
@@ -284,8 +313,8 @@ interface RemoteModuleLoad<T> {
 function bypassCompositionModuleCache(mf: ModuleFederationInstance, remoteName: string): void {
   try {
     (mf as unknown as { moduleCache?: Map<string, unknown> }).moduleCache?.delete(remoteName);
-  } catch (error) {
-    logger.debug(`[Federation] bypassCompositionModuleCache(${remoteName}) failed:`, error);
+  } catch {
+    /* noop */
   }
 }
 
@@ -355,40 +384,6 @@ function loadRemoteExpose<T>(params: RemoteModuleLoad<T>): Promise<T> {
   return value;
 }
 
-/**
- * A ui source's deployment identity on the SSR side: the MF container name
- * plus its server entry. Local dev sources import from disk instead.
- */
-export interface UiRemoteEntry {
-  name: string;
-  ssrUrl?: string;
-  ssrIntegrity?: string;
-  /** Source workspace of the ui surface (local dev target only). */
-  localPath?: string;
-  /** Dev-only freshness token — the built container's mtime. Cache-busts rebuilds. */
-  containerVersion?: string;
-}
-
-function ssrEntryUrlOf(entry: UiRemoteEntry): string {
-  if (!entry.ssrUrl) {
-    throw new FederationError({
-      remoteName: entry.name,
-      remoteUrl: entry.localPath,
-      cause: new Error(
-        `Ui source "${entry.name}" has no SSR entry URL — set the ui ssr field in production, or run the dev stack with --ssr`,
-      ),
-    });
-  }
-  const entryUrl = `${entry.ssrUrl.replace(/\/$/, "")}/${UI_REMOTE_SERVER_ENTRY_FILENAME}`;
-  if (entry.ssrIntegrity) {
-    return `${entryUrl}?v=${encodeURIComponent(entry.ssrIntegrity)}`;
-  }
-  if (entry.containerVersion) {
-    return `${entryUrl}?v=${encodeURIComponent(entry.containerVersion)}`;
-  }
-  return entryUrl;
-}
-
 function verifyEntryIntegrity(params: {
   remoteName: string;
   remoteUrl?: string;
@@ -409,7 +404,7 @@ function verifyEntryIntegrity(params: {
   });
 }
 
-function verifyUiEntry(entry: UiRemoteEntry, entryUrl: string) {
+function verifyUiEntry(entry: EntrySlot, entryUrl: string) {
   return verifyEntryIntegrity({
     remoteName: entry.name,
     remoteUrl: entry.ssrUrl,
@@ -418,15 +413,30 @@ function verifyUiEntry(entry: UiRemoteEntry, entryUrl: string) {
   });
 }
 
+function requireSsrEntryUrl(entry: EntrySlot, env: BosEnv): string {
+  const ssr = entryUrls(entry, env).ssr;
+  if (!ssr) {
+    throw new FederationError({
+      remoteName: entry.name,
+      remoteUrl: entry.localPath ?? entry.ssrUrl,
+      cause: new Error(
+        `Ui source "${entry.name}" has no SSR entry URL — set the ui ssr field in production, or run the dev stack with --ssr`,
+      ),
+    });
+  }
+  return ssr;
+}
+
 function loadUiExpose<T>(params: {
-  entry: UiRemoteEntry;
+  entry: EntrySlot;
+  env: BosEnv;
   expose: string;
   unwrapDefault: boolean;
   timeoutLabel: string;
 }) {
-  const { entry, expose, unwrapDefault, timeoutLabel } = params;
+  const { entry, env, expose, unwrapDefault, timeoutLabel } = params;
   return Effect.gen(function* () {
-    const entryUrl = ssrEntryUrlOf(entry);
+    const entryUrl = requireSsrEntryUrl(entry, env);
     yield* verifyUiEntry(entry, entryUrl);
     const cacheKey = `${entry.name}::${entryUrl}::${entry.ssrIntegrity ?? "no-integrity"}::${expose}`;
     return yield* Effect.tryPromise({
@@ -454,18 +464,18 @@ function loadUiExpose<T>(params: {
 }
 
 /** A plugin ui's generated import map (`./routeConfig` expose) for host construction. */
-export const loadUiRouteConfig = (entry: UiRemoteEntry) =>
+export const loadUiRouteConfig = (entry: EntrySlot, env: BosEnv) =>
   loadUiExpose<RouteConfigModule>({
     entry,
+    env,
     expose: UI_EXPOSES.routeConfig,
     unwrapDefault: false,
     timeoutLabel: "Ui routeConfig",
   }).pipe(
-    Effect.flatMap((module) => {
-      if (module?.routeConfigLoaders && typeof module.routeConfigLoaders === "object") {
-        return Effect.succeed(module);
-      }
-      return Effect.fail(
+    Effect.filterOrFail(
+      (module) =>
+        Boolean(module?.routeConfigLoaders && typeof module.routeConfigLoaders === "object"),
+      () =>
         new FederationError({
           remoteName: entry.name,
           remoteUrl: entry.ssrUrl,
@@ -473,8 +483,7 @@ export const loadUiRouteConfig = (entry: UiRemoteEntry) =>
             `routeConfig expose resolved without routeConfigLoaders — the built container name likely does not match the registered remote name "${entry.name}"`,
           ),
         }),
-      );
-    }),
+    ),
   );
 
 export interface ComposeModule {
@@ -482,27 +491,29 @@ export interface ComposeModule {
 }
 
 /** The core ui's construction engine (`./compose` expose) — executes inside the core's module graph. */
-export const loadUiComposeModule = (entry: UiRemoteEntry) =>
+export const loadUiComposeModule = (entry: EntrySlot, env: BosEnv) =>
   loadUiExpose<ComposeModule>({
     entry,
+    env,
     expose: UI_EXPOSES.compose,
     unwrapDefault: false,
     timeoutLabel: "Ui compose",
   });
 
 /** The core ui's generated import map (`./routeConfig` expose). */
-export const loadCoreUiRouteConfig = (entry: UiRemoteEntry) =>
+export const loadCoreUiRouteConfig = (entry: EntrySlot, env: BosEnv) =>
   loadUiExpose<RouteConfigModule>({
     entry,
+    env,
     expose: UI_EXPOSES.routeConfig,
     unwrapDefault: false,
     timeoutLabel: "Ui routeConfig",
   });
 
-export const loadRouterModule = (config: RuntimeConfig, localEntry?: UiRemoteEntry) =>
+export const loadRouterModule = (config: RuntimeConfig, localEntry?: EntrySlot) =>
   Effect.gen(function* () {
     const useCache = shouldCacheRouterModule(config) && !localEntry;
-    const ssrEntryUrl = localEntry ? ssrEntryUrlOf(localEntry) : getSsrEntryUrl(config);
+    const ssrEntryUrl = requireSsrEntryUrl(localEntry ?? config.ui, config.env);
     const ssrIntegrity = localEntry ? localEntry.ssrIntegrity : config.ui.ssrIntegrity;
 
     if (ssrIntegrity) {

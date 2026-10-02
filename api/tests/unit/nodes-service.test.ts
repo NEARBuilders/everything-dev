@@ -308,7 +308,7 @@ describe("NodesService", () => {
       }),
     );
 
-    const roots = await runService(layer, ({ nodes }) => nodes.listRootNodes());
+    const roots = await runService(layer, ({ nodes }) => nodes.listRootNodes);
     expect(roots.map((n) => n.slug)).toEqual(["usa"]);
   });
 
@@ -514,6 +514,47 @@ describe("NodesService", () => {
       (await runService(layer, ({ nodes }) => nodes.resolveBySlug("springfield", secondParent.id)))
         ?.id,
     ).toBe(secondChild.id);
+  });
+
+  it("setBulletin merges into metadata without clobbering other keys", async () => {
+    const layer = freshLayer();
+    const tenantId = await runService(layer, ({ tenants }) => seedTenant(tenants));
+
+    const node = await runService(layer, ({ nodes }) =>
+      nodes.spawn({
+        kind: "city",
+        slug: "chicago",
+        name: "Chicago",
+        parentId: null,
+        tenantId,
+        metadata: { poolAccountId: "chicago-pool.poolv1.near" },
+      }),
+    );
+
+    const withBulletin = await runService(layer, ({ nodes }) =>
+      nodes.setBulletin(node.id, "More features are coming soon."),
+    );
+    expect(withBulletin.metadata).toEqual({
+      kind: "city",
+      poolAccountId: "chicago-pool.poolv1.near",
+      bulletin: "More features are coming soon.",
+    });
+
+    const cleared = await runService(layer, ({ nodes }) => nodes.setBulletin(node.id, null));
+    expect(cleared.metadata).toEqual({
+      kind: "city",
+      poolAccountId: "chicago-pool.poolv1.near",
+    });
+  });
+
+  it("setBulletin fails with NOT_FOUND for a missing node", async () => {
+    const layer = freshLayer();
+
+    const error = await squashServiceError(layer, ({ nodes }) =>
+      nodes.setBulletin(MISSING_ID, "hi"),
+    );
+    expect(error).toBeInstanceOf(ORPCError);
+    expect((error as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
   });
 
   it("list filters by kind and parentId", async () => {

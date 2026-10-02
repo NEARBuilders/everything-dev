@@ -90,7 +90,7 @@
   "devDependencies": {
     "@changesets/changelog-github": "^0.6.0",
     "@changesets/cli": "^2.30.0",
-    "@fastnear/near-connect": "^0.14.1",
+    "@hot-labs/near-connect": "catalog:",
     "@tanstack/intent": "^0.0.40",
     "@types/bun": "latest",
     "@types/node": "^25.0.9",

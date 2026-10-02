@@ -27,6 +27,7 @@ export const user = pgTable("user", {
   isAnonymous: boolean("is_anonymous").default(false),
   phoneNumber: text("phone_number").unique(),
   phoneNumberVerified: boolean("phone_number_verified"),
+  locale: text("locale"),
 });
 
 export const session = pgTable(
@@ -134,6 +135,9 @@ export const organization = pgTable(
     logo: text("logo"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull(),
     metadata: text("metadata"),
+    status: text("status").$type<"active" | "pending" | "rejected">().default("active").notNull(),
+    requestedBy: text("requested_by").references(() => user.id, { onDelete: "set null" }),
+    rejectionReason: text("rejection_reason"),
   },
   (table) => [uniqueIndex("organization_slug_uidx").on(table.slug)],
 );

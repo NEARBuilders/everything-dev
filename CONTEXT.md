@@ -20,6 +20,14 @@ _Avoid_: available rewards (product label for this same quantity), total staked,
 NEAR already compounded into Node DAO Stake. Not a separately held balance.
 _Avoid_: reward balance, pending rewards
 
+**SlotResolver**:
+The host's entry-URL seam (`entryUrls` in `everything-dev/ui/slot`) — one pure derivation from a stamped config slot (`EntrySlot`) to the URLs each surface loads: `web` (browser entry — bustered fixed name in development, pin-derived hashed outside it), `ssr` (server container entry; undefined when the slot has no SSR coordinates), and `browserManifest` (the pin-derived hashed mf-manifest, structurally absent for local slots — atomic-deploys 08). Surfaces resolve lazily and throw loudly outside development naming slot + surface; buster arithmetic (integrity for web, ssrIntegrity→containerVersion for the server) lives inside the module, never at call sites.
+_Avoid_: resolveEntryUrlForEnv (the deleted per-surface helper), remoteEntryUrlOf/ssrEntryUrlOf/getSsrEntryUrl (the deleted per-site wrappers), buster at the call site
+
+**Quiet build**:
+The prerequisite dist builder in `everything-dev/build` — one function (`buildPackageQuietly`) over the three framework packages (every-plugin, better-near-auth, everything-dev), each identified by its staleness-check dist entry. Skips when the dist is fresh, rebuilds captured-output-quietly, and fails loudly on nonzero exit; used by `bos build`'s train and the `bos dev` boot build.
+_Avoid_: buildEverythingDevQuietly/buildEveryPluginQuietly/buildBetterNearAuthQuietly (the deleted triplication), force-rebuild as the default path
+
 ## Organization access
 
 **Team**:

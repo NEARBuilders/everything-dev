@@ -24,7 +24,7 @@ export const DatabaseLive = (url: string) =>
 
       const pluginId = yield* PluginIdTag;
       const storage = getMigrationStorage(pluginMigrationSlug(pluginId));
-      const { migrations, source } = yield* loadMigrations();
+      const { migrations, source } = yield* loadMigrations;
 
       if (migrations.length === 0) {
         yield* Effect.logWarning(
