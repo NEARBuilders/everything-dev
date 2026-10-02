@@ -46,15 +46,17 @@ function LandingPage() {
   return (
     <PageContainer variant="wide" className="gap-20 sm:gap-24">
       <section className="flex max-w-3xl flex-col gap-6 pt-4 sm:pt-10">
-        <h1 className="text-5xl font-semibold text-balance text-foreground sm:text-6xl">
-          {title}
-        </h1>
+        <h1 className="text-5xl font-semibold text-balance text-foreground sm:text-6xl">{title}</h1>
         <p className="max-w-xl text-lg text-muted-foreground">
           Open runtime for apps on NEAR — compose published plugins, own your runtime config, and
           extend the platform with your own deployments.
         </p>
         <div className="flex flex-col gap-3 sm:flex-row">
-          <Button size="lg" nativeButton={false} render={<Link to="/about" data-testid="landing-about" />}>
+          <Button
+            size="lg"
+            nativeButton={false}
+            render={<Link to="/about" data-testid="landing-about" />}
+          >
             Learn more
             <ArrowRightIcon />
           </Button>

@@ -4,12 +4,7 @@ import { createFileRoute, Link, stripSearchParams, useRouter } from "@tanstack/r
 import { useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
-import {
-  type SessionData,
-  sessionQueryOptions,
-  useApiClient,
-  useAuthClient,
-} from "@/app";
+import { type SessionData, sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import {
   Button,
   EmptyState,
@@ -51,12 +46,7 @@ type MembersResponse = Awaited<ReturnType<AuthClientType["organization"]["listMe
 type MemberItem = NonNullable<MembersResponse["data"]>["members"][number];
 type InvitationItem = Awaited<ReturnType<ApiClientType["auth"]["listInvitations"]>>[number];
 
-const ORGANIZATION_TABS = [
-  "members",
-  "teams",
-  "invitations",
-  "apikeys",
-] as const;
+const ORGANIZATION_TABS = ["members", "teams", "invitations", "apikeys"] as const;
 
 type OrganizationTab = (typeof ORGANIZATION_TABS)[number];
 

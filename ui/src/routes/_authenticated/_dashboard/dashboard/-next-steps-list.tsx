@@ -4,8 +4,8 @@ import {
   CubeIcon,
   EnvelopeIcon,
   FingerprintIcon,
-  ShieldCheckIcon,
   type Icon,
+  ShieldCheckIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";

@@ -9,13 +9,7 @@ import {
   useApiClient,
   useAuthClient,
 } from "@/app";
-import {
-  AddEmailDialog,
-  PageContainer,
-  PageHeader,
-  SectionHeader,
-  Skeleton,
-} from "@/components";
+import { AddEmailDialog, PageContainer, PageHeader, SectionHeader, Skeleton } from "@/components";
 import { consumeAddEmailPromptPending } from "@/lib/add-email-prompt";
 import { type FeatureArea, isFeatureArea } from "@/lib/feature-areas";
 import { pageTitle } from "@/lib/page-title";

@@ -12,8 +12,7 @@ export function useSwitchOrganization() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const synchronization = createWorkspaceSynchronization({ auth, queryClient, router });
-  const refresh = () =>
-    synchronization.synchronize({ queryKeys: [["organizations"]] });
+  const refresh = () => synchronization.synchronize({ queryKeys: [["organizations"]] });
   const reportError = (error: Error) => {
     if (reportWorkspaceRefreshError(error, refresh, reportError)) return;
     toast.error(error.message || "Failed to switch organization");

@@ -1,4 +1,4 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageHeader, SectionHeader } from "@/components";
 import { VersionCard } from "@/components/version-card";
 import { pageTitle } from "@/lib/page-title";
