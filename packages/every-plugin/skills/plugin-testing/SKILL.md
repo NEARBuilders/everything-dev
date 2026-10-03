@@ -2,7 +2,7 @@
 name: plugin-testing
 description: Test every-plugin modules with vitest and the plugin runtime. Use when writing or modifying plugin tests under plugins/*/src/__tests__/ or plugins/*/tests/.
 metadata:
-  sources: "src/testing/index.ts,src/runtime/index.ts"
+  sources: "src/index.ts,src/runtime/index.ts"
 ---
 
 # every-plugin Testing

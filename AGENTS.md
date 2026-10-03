@@ -337,7 +337,7 @@ Current fixed-core host rules:
 - tenant SSR is gated per-tenant by the `allowSsr` column on the tenant record; the host's BindingResolver reads permissions from the API's `GET /tenants/bindings` endpoint (cached for 30s)
 - nested label routing and account-relative tenant derivation are the intended architecture direction, but not the complete resolver behavior today
 
-For full per-request host/plugin/auth/api swapping, see `plans/` for design docs.
+For full per-request host/plugin/auth/api swapping, see `docs/plans/` for design docs.
 
 ## Development Workflow
 
@@ -605,7 +605,7 @@ Parent-owned workspace tsconfigs (`host/`, `packages/*`) extend the root `tsconf
 - **`baseUrl` is removed in TS 7** — never use it; `paths` entries resolve relative to the tsconfig file.
 - **Emitting configs** (`outDir`/`emitDeclarationOnly`) must set an explicit `rootDir` — TS 7 no longer infers the common source directory — and an explicit `types`. Emitting configs must not use `paths` that point at sibling workspaces' **sources** (pulls files outside `rootDir`); resolve sibling packages through their `exports` map / built declarations instead. Source-mapped `paths` are only allowed in `noEmit` typecheck configs.
 - **Known local nuisance** — building `packages/every-plugin` regenerates stray `src/**/*.d.ts`(+`.map`) files beside the sources (tsdown outDir quirk). They are untracked build artifacts: never commit them; delete them (`git clean`-style) if `bun lint` starts failing on them. Root fix tracked as a follow-up to the tsdown config.
-- `plans/prototypes/*` pin their own TypeScript 5 and are exempt.
+- `docs/plans/prototypes/*` pin their own TypeScript 5 and are exempt.
 
 ## Common Patterns
 
@@ -666,7 +666,7 @@ const appName = getActiveRuntime(runtimeConfig)?.title ?? getAccount(runtimeConf
 
 ### Gasless writes: session gas keys first, relayer fallback
 
-Two sponsorship models share the same funded account. The **Sponsor** is the ephemeral relayer account in its funding role; the **relayer** is the same account's NEP-366 role. See ADR 0017 (`docs/adr/0017-session-gas-keys.md`) and the "Gasless transactions" vocabulary in `CONTEXT.md`.
+Two sponsorship models share the same funded account. The **Sponsor** is the ephemeral relayer account in its funding role; the **relayer** is the same account's NEP-366 role. See ADR 0017 (`docs/adr/0017-session-gas-keys.md`) and the "Gasless transactions" vocabulary in `GLOSSARY.md`.
 
 **Session Gas Keys (primary, NEP-611):** when the connected wallet advertises `features.gasKeys` (Meteor verified on testnet), the user opts in via the `EnableGaslessWrites` affordance; the wallet signs a one-time Bootstrap `AddKey` with `gasKeyInfo` that installs a `GasKeyFunctionCall` key scoped to the FastKV namespace's `__fastdata_kv` method on the user's account. The Sponsor funds it via `TransferToGasKey` (`POST /near/gas-key/fund`), which verifies the on-chain key scope and balance against the top-up threshold and enforces a per-user lifetime cap before signing. The browser signs platform writes locally (`authClient.near.sendWithGasKey`) on rotating nonce Lanes — no relayer on the hot path. Config: `sessionGasKey` block (dual-network) beside `relayer` in `bos.config.json → app.auth.variables.siwn`. Key material lives in browser IndexedDB per `network:account` — nothing server-side; a cleared cache re-Bootstraps a new key (old keys are recorded in `fundedGasKey` rows for later cleanup).
 
@@ -801,13 +801,13 @@ Five canonical triage roles map to labels of the same name (`needs-triage`, `nee
 
 ### Domain docs
 
-Multi-context: root `CONTEXT-MAP.md` pointing to per-context `CONTEXT.md` files, with `docs/adr/` at the root for system-wide decisions. See `docs/agents/domain.md`.
+Single-context: root `GLOSSARY.md` (domain vocabulary) plus `docs/adr/` for system-wide decisions. Implementation plans and prototypes live in `docs/plans/`. See `docs/agents/domain.md`.
 
 ### Workflow skills
 
 This repo includes ~35 Matt Pocock workflow skills in `.agents/skills/`. These are general-purpose agent skills for TDD, code review, bug diagnosis, planning, and more. Run `/setup-matt-pocock-skills` before first use to configure the issue tracker, triage labels, and domain doc layout. Key skills:
 
-- `/grill-with-docs` — sharpen an idea by interview, leaving a paper trail in `CONTEXT.md` and ADRs
+- `/grill-with-docs` — sharpen an idea by interview, leaving a paper trail in `GLOSSARY.md` and ADRs
 - `/implement` — build a piece of work based on a spec or ticket, driving TDD internally
 - `/code-review` — two-axis review (Standards + Spec) of the diff since a fixed point
 - `/tdd` — test-driven development, red-green-refactor

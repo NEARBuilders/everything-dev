@@ -11,7 +11,7 @@ description: >
 metadata:
   type: core
   library: better-near-auth
-  library_version: "1.8.3"
+  library_version: "1.10.2"
 sources:
   - "elliotBraem/better-near-auth:src/index.ts"
   - "elliotBraem/better-near-auth:src/types.ts"

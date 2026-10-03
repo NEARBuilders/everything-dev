@@ -56,7 +56,7 @@
       "!!**/env.d.ts",
       "!!**/virtual-modules.d.ts",
       "!!bos.config.json",
-      "!!plans",
+      "!!docs/plans",
       "!!.agents"
     ],
     "ignoreUnknown": true

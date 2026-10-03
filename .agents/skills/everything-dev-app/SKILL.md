@@ -13,7 +13,7 @@ Read `AGENTS.md` first — it has the run, deploy, and architecture guidance for
 
 Work in this order. Each step names the skill that owns it. `/ask-matt` is the router if you are unsure where you are.
 
-1. **Sharpen the idea** — `/grill-with-docs` interviews until the design is sound, leaving a paper trail in `CONTEXT.md` and `docs/adr/`. For pure decisions without docs, `/grilling`. For handing a plan to a future session, `/to-spec`.
+1. **Sharpen the idea** — `/grill-with-docs` interviews until the design is sound, leaving a paper trail in `GLOSSARY.md` and `docs/adr/`. For pure decisions without docs, `/grilling`. For handing a plan to a future session, `/to-spec`.
 2. **Chart the work** — `/to-tickets` breaks the spec into tracer-bullet tickets (vertical slices, each demoable, each declaring blocking edges) under `.scratch/<feature>/issues/`. For huge, foggy efforts, `/wayfinder` instead.
 3. **Work the frontier** — pick any ticket whose blockers are done. `/implement` builds it, driving `/tdd` at pre-agreed seams. `/diagnosing-bugs` is the loop for hard bugs and performance regressions.
 4. **Review** — `/code-review` audits the diff since a fixed point on two axes: Standards (this repo's documented conventions) and Spec (what the ticket asked for).
@@ -23,7 +23,7 @@ Work in this order. Each step names the skill that owns it. `/ask-matt` is the r
 
 - `docs/agents/issue-tracker.md` — tracker conventions (local `.scratch/<feature>/issues/` + GitHub when published)
 - `docs/agents/triage-labels.md` — the five canonical triage roles
-- `docs/agents/domain.md` — domain doc layout (CONTEXT.md / ADRs)
+- `docs/agents/domain.md` — domain doc layout (GLOSSARY.md / ADRs)
 - `AGENTS.md` — run, deploy, architecture, and style rules for this repo
 
 ## Investigate narrowly

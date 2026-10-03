@@ -2,7 +2,7 @@
 name: plugin-client
 description: Connect to and consume deployed everything.dev plugins from an external app, child project, or script. Use when creating API/auth clients, reading runtime config, authenticating with API keys or sessions, or calling plugin routes programmatically.
 metadata:
-  sources: "ui/src/lib/api.ts,ui/src/lib/auth.ts,ui/src/app.ts,everything-dev/src/ui/runtime.ts,everything-dev/src/types.ts,host/src/program.ts,host/src/services/auth.ts,api/src/lib/auth.ts"
+  sources: "ui/src/lib/api.ts,ui/src/lib/auth.ts,ui/src/app.ts,everything-dev/src/ui/runtime.ts,everything-dev/src/types.ts,host/src/program.ts,host/src/services/auth.ts,packages/everything-dev/src/api/auth-middleware.ts"
 ---
 
 # Plugin Client — Consuming everything.dev APIs

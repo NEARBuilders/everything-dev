@@ -3,7 +3,7 @@
 Date: 2026-09-21
 Status: Accepted
 
-Depends on: ADR 0007 (runtime composition SSR model). Builds on: [beta-v2 prototype](../../plans/prototypes/beta-v2/) (grafting — superseded by this ADR), [beta-v2-override prototype](../../plans/prototypes/beta-v2-override/) (config-swap composition — retained), plan 023 (typed mount contract — demoted to build-time validation), [plan 033](../../advisor-plans/done/033-manifest-compose-prototype.md) (prototype gate), [plan 034](../../advisor-plans/done/034-manifest-composition-rework.md) (the rework).
+Depends on: ADR 0007 (runtime composition SSR model). Builds on: [beta-v2 prototype](../plans/prototypes/beta-v2/) (grafting — superseded by this ADR), [beta-v2-override prototype](../plans/prototypes/beta-v2-override/) (config-swap composition — retained), plan 023 (typed mount contract — demoted to build-time validation), [plan 033](../plans/done/033-manifest-compose-prototype.md) (prototype gate), [plan 034](../plans/done/034-manifest-composition-rework.md) (the rework).
 
 ## Context
 

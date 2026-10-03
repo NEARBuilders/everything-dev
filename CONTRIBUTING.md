@@ -24,7 +24,7 @@ That's it — on first run `bos dev` creates `.env` from `.env.example` (with a 
 
 Visit http://localhost:3003 (UI), http://localhost:3001 (API), and http://localhost:3002 (Auth).
 
-**Need more details?** See [README.md](./README.md) for architecture overview and [LLM.txt](./LLM.txt) for technical deep-dive.
+**Need more details?** See [README.md](./README.md) for architecture overview and [AGENTS.md](./AGENTS.md) for the full operational guide (architecture, dev workflow, plugin architecture, testing, deployment).
 
 ## Development Workflow
 
@@ -41,13 +41,14 @@ Business logic lives in independent plugins. A plugin entry in `bos.config.json`
 
 - **`plugins/registry/`** — Registry/discovery, FastKV app metadata (local in dev)
 - **`plugins/_template/`** — Scaffold for new plugins
-- **Auth** — Extended remote plugin from `bos://auth.everything.near` (Better-Auth, NEAR SIWN, organizations, API keys)
-- **Proposals** — Remote-only plugin (production URL in `bos.config.json`); source lives in `NEARBuilders/nearbuilders.org`
-- **Votes** — Remote-only plugin (production URL in `bos.config.json`); source lives in `NEARBuilders/nearbuilders.org`
+- **`plugins/auth/`** — Better-Auth, NEAR SIWN, organizations, API keys, passkeys (local)
+- **`plugins/proposals/`** — Proposal lifecycle (local)
+- **`plugins/votes/`** — Voting feed (local)
+- **`plugins/ai/`** — OpenAI-compatible chat (local)
 
-Each plugin has its own `contract.ts`, `index.ts`, `rspack.config.js`, and `package.json`. Routes are namespaced in the UI: `apiClient.apps.*()`, `apiClient.proposals.*()`, etc.
+Each plugin has its own `contract.ts`, `index.ts`, and generated rspack config, and `package.json`. Routes are namespaced in the UI: `apiClient.registry.*()`, `apiClient.proposals.*()`, etc.
 
-The `api/` package is a thin structural shell with only health/ping routes and shared auth middleware. It can compose across plugins in-process via `createPlugin.withPlugins<PluginsClient>()` — the API receives typed client factories for all other plugins and calls their routers directly without HTTP roundtrips.
+The `api/` package is a slim shell (ping/error routes + DB layer). It composes across plugins in-process via `createPlugin.withPlugins<PluginsClient>()` — the API receives typed client factories for all other plugins and calls their routers directly without HTTP roundtrips.
 
 Plugin and API variables are configured in `bos.config.json`:
 - API variables: `app.api.variables` → `config.variables` in `initialize`
@@ -68,10 +69,9 @@ Secrets go in `.env` (see [.env.example](./.env.example) for required variables)
 
 ### Project Documentation
 
-- **[AGENTS.md](./AGENTS.md)** - Operational guide for AI agents
+- **[AGENTS.md](./AGENTS.md)** - Operational guide for AI agents (and the deepest technical doc in the repo — start here for architecture, workflows, and conventions)
+- **[GLOSSARY.md](./GLOSSARY.md)** - Domain vocabulary
 - **[README.md](./README.md)** - Architecture, tech stack, and quick start
-- **[LLM.txt](./LLM.txt)** - Technical guide for LLMs and developers
-- **[api/README.md](./api/README.md)** - API plugin documentation
 - **[ui/README.md](./ui/README.md)** - Frontend documentation
 - **[host/README.md](./host/README.md)** - Server host documentation
 
@@ -190,12 +190,8 @@ Added new endpoint for user profiles
 - Ensure type safety (no `any` types unless absolutely necessary)
 - Write descriptive commit messages
 - Add tests for new features
-- Use semantic Tailwind classes (see LLM.txt for style guide)
+- Use semantic Tailwind classes (see AGENTS.md for style rules)
 - No code comments in implementation (code should be self-documenting)
-
-### Translations
-
-See [docs/i18n.md](./docs/i18n.md) for the locale architecture, message conventions, formatting rules, and the steps for adding a language.
 
 ### Linting
 
@@ -218,9 +214,8 @@ Use [GitHub Issues](https://github.com/NEARBuilders/everything-dev/issues) with:
 
 ## Getting Help
 
-- Check [AGENTS.md](./AGENTS.md) for agent operational guidance
+- Check [AGENTS.md](./AGENTS.md) for the operational guide and agent conventions
 - Check the [README](./README.md) for architecture and setup
-- Read the [LLM.txt](./LLM.txt) for technical details
 - Review workspace READMEs for specific documentation
 - Ask questions in GitHub Issues or Discussions
 

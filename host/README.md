@@ -38,7 +38,7 @@ On top of that fixed server core, the host now supports request-scoped tenant UI
 - tenant config must extend the base BOS runtime
 - tenant requests may override UI-facing remotes and sidebar metadata without changing the server core
 
-For full host/plugin/auth/api hot-swap, see `plans/` for design docs. That is still a larger future design than the fixed-core tenant mode implemented now.
+For full host/plugin/auth/api hot-swap, see `docs/plans/` for design docs. That is still a larger future design than the fixed-core tenant mode implemented now.
 
 ## Development
 

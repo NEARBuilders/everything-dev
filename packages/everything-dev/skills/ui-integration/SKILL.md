@@ -2,7 +2,7 @@
 name: ui-integration
 description: Route creation, API client usage, auth client, SSR hydration, sidebar system, and the @/app module surface. Use when adding new UI routes, fetching data from the API, implementing auth flows, or customizing sidebar navigation.
 metadata:
-  sources: "ui/src/app.ts,ui/src/lib/api.ts,ui/src/lib/auth.ts,ui/src/router.tsx,ui/src/router.server.tsx,ui/src/hydrate.tsx,ui/src/routes/__root.tsx,ui/src/routes/_layout.tsx,ui/src/routes/_layout/_authenticated.tsx"
+  sources: "ui/src/app.ts,ui/src/lib/api.ts,ui/src/lib/auth.ts,ui/src/router.tsx,ui/src/router.server.tsx,ui/src/hydrate.tsx,ui/src/routes/__root.tsx,ui/src/routes/_authenticated.tsx"
 ---
 
 # UI Integration

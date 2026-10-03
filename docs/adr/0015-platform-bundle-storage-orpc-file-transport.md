@@ -6,7 +6,7 @@ Supersedes: the storage half of PR #58 (Cloudflare-R2-via-alchemy provider, clos
 
 ## Context
 
-Plan 029 (`advisor-plans/done/029-platform-cdn.md`) adds a `deploy.cdn: "platform"` provider so `bos publish --deploy` can upload Module Federation bundles to the platform API and tenants need no Zephyr/Cloudflare account. This forced a composition decision: where do binary upload/serve routes live, given the host mounts plugins only via oRPC (RPC + OpenAPI handlers)?
+Plan 029 (`docs/plans/done/029-platform-cdn.md`) adds a `deploy.cdn: "platform"` provider so `bos publish --deploy` can upload Module Federation bundles to the platform API and tenants need no Zephyr/Cloudflare account. This forced a composition decision: where do binary upload/serve routes live, given the host mounts plugins only via oRPC (RPC + OpenAPI handlers)?
 
 Three options were considered:
 
@@ -37,7 +37,7 @@ Verified against the installed oRPC beta.35 (not just current docs): the runtime
 - **One trust model.** Uploads authenticate exactly like the relay path. When the caller carries a NEAR principal (SIWN session), uploads are pinned to that account server-side; API-key uploads are bounded by the platform-wide ceilings, consistent with how `x-api-key` works across the API surface.
 - **The key layout is the contract**: `bundles/<account>/<gateway>/<workspace>/<path>` — plan 032 stores tenant *config* in FastKV and *bundles* here; keep it stable.
 - **R2 (or any object store) drops in behind `BundleStorage`** (`api/src/services/storage.ts`) without touching routes, host, or CLI. Platform-owned credentials only, never tenant-visible.
-- **Follow-up generalization**: plan 035 (`advisor-plans/035-derived-openapi-mounts.md`, renumbered from the original branch-plan 033) — derive extra HTTP mounts from contract metadata so the `/bundles` mount stops being hardcoded.
+- **Follow-up generalization**: plan 035 (`docs/plans/035-derived-openapi-mounts.md`, renumbered from the original branch-plan 033) — derive extra HTTP mounts from contract metadata so the `/bundles` mount stops being hardcoded.
 - **Trade-off accepted**: bundle assets appear in the OpenAPI/Scalar/MCP surfaces (read-only GETs, tagged `Storage`), and binary responses ride the oRPC serializer rather than a raw static handler — negligible at current scale.
 - **Handler convention**: storage route handlers are Effect-native `.effect()` generators accessing the service via `yield* StorageTag` (template pattern, `plugins/_template/src/index.ts`) — `StorageTag` is exposed from `initialize`'s returned layer alongside `ApiServices`. Inline auth inside the generator (`Effect.fail(errors.UNAUTHORIZED(...))` with the required `apiKeyProvided` data) follows the template; the shared `requireAuthOrApiKey` from `api/src/lib/auth.ts` is not used because its `DecoratedMiddleware` typing does not compose with the `.use()` builder (zero working call sites repo-wide — the proposals plugin carries a local copy for the same reason; consolidation is plan 007).
 - **Seam deviation from plan 029, recorded**: under the platform provider, workspace `scripts.deploy` (the `withPluginDeploy`/Zephyr hook) is skipped entirely and `bos publish` uploads each workspace's `dist/` artifacts itself, writing `production`/`integrity` via the batch `applyDeployResults` variant instead of the per-route `reportDeployResult`. The one-liner property of workspace deploy scripts holds vacuously (zephyr keeps the hook; platform bypasses it). Revisit if platform providers ever need per-workspace deploy hooks.
