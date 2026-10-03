@@ -232,7 +232,15 @@ const resolveManifestsAndDigest = (
     });
     const digest = yield* Effect.tryPromise(() =>
       digestOf({
-        plugins: sources.map((source) => ({ key: source.key, mfName: source.mfName })),
+        plugins: sources.map((source, i) => ({
+          // Composition identity is the manifest's build-time container
+          // name — the identity the client derives from the payload's
+          // manifests (hydrate builds refs as key: manifest.name). Source
+          // config labels are deployment detail and must not enter the
+          // digest.
+          key: manifests[i]?.name ?? source.key,
+          mfName: source.mfName,
+        })),
         manifests,
       }),
     );
@@ -245,14 +253,20 @@ const clientPayloadOf = (
   digest: string,
 ): ComposePayload => ({
   digest,
-  remotes: sources
-    .filter((source) => source.key !== CORE_UI_KEY && source.webEntry)
-    .map((source) => ({
-      key: source.key,
-      name: source.mfName,
-      entry: source.webEntry!,
-      ...(source.browserManifestUrl ? { manifestUrl: source.browserManifestUrl } : {}),
-    })),
+  remotes: sources.flatMap((source, i) => {
+    if (source.key === CORE_UI_KEY || !source.webEntry) return [];
+    return [
+      {
+        // The client matches remotes to manifests by `key === manifest.name`;
+        // a source's `key` (config label) often differs from the manifest's
+        // build-time container name (derived from the package name).
+        key: manifests[i]?.name ?? source.key,
+        name: source.mfName,
+        entry: source.webEntry,
+        ...(source.browserManifestUrl ? { manifestUrl: source.browserManifestUrl } : {}),
+      },
+    ];
+  }),
   manifests,
 });
 
@@ -294,7 +308,10 @@ export const composeUi = (
     const core = sources.find((source) => source.key === CORE_UI_KEY)!;
 
     const { manifests, digest } = yield* resolveManifestsAndDigest(sources, cache);
-    const manifestByKey = new Map(sources.map((source, i) => [source.key, manifests[i]!]));
+    const manifestByName = new Map(manifests.map((manifest) => [manifest.name, manifest]));
+    const manifestNameByKey = new Map(
+      sources.map((source, i) => [source.key, manifests[i]!.name] as const),
+    );
 
     const variantKey = `${digest}::${variantFingerprint(sources)}`;
     const isDev = sources.some((source) => source.localRoot);
@@ -323,29 +340,33 @@ export const composeUi = (
     compose = composeModule.constructTree;
     coreRouteConfig = routeConfig;
 
-    const routeConfigBySource = new Map<string, RouteConfigModule>([
-      [CORE_UI_KEY, coreRouteConfig],
+    const routeConfigByName = new Map<string, RouteConfigModule>([
+      [manifestNameByKey.get(CORE_UI_KEY) ?? CORE_UI_KEY, coreRouteConfig],
     ]);
     for (const source of sources) {
       if (source.key === CORE_UI_KEY) continue;
+      const name = manifestNameByKey.get(source.key) ?? source.key;
       if (source.localRoot) {
         const localEntry = yield* Effect.tryPromise(() =>
           localUiRemoteEntry({ name: source.mfName, localRoot: source.localRoot! }),
         );
         yield* waitForLocalContainer(localEntry, config.env);
-        routeConfigBySource.set(source.key, yield* loadUiRouteConfig(localEntry, config.env));
+        routeConfigByName.set(name, yield* loadUiRouteConfig(localEntry, config.env));
       } else if (source.remote) {
-        routeConfigBySource.set(source.key, yield* loadUiRouteConfig(source.remote, config.env));
+        routeConfigByName.set(name, yield* loadUiRouteConfig(source.remote, config.env));
       }
     }
 
     const constructed = yield* Effect.tryPromise(() =>
       compose({
         name: "server",
-        plugins: sources.map((source) => ({ key: source.key, mfName: source.mfName })),
+        plugins: sources.map((source, i) => ({
+          key: manifests[i]?.name ?? source.key,
+          mfName: source.mfName,
+        })),
         resolve: async (ref: { key: string }) => {
-          const manifest = manifestByKey.get(ref.key);
-          const routeConfig = routeConfigBySource.get(ref.key);
+          const manifest = manifestByName.get(ref.key);
+          const routeConfig = routeConfigByName.get(ref.key);
           if (!manifest || !routeConfig) {
             throw new Error(`composition source "${ref.key}" is not fully resolved`);
           }

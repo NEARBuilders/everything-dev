@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "BOS_CONFIG_PATH=../bos.config.json tsx server.ts",
+    "dev": "tsx server.ts",
     "build": "rsbuild build",
     "preview": "NODE_ENV=production BOS_CONFIG_PATH=../bos.config.json tsx server.ts",
     "test": "NODE_ENV=production BOS_CONFIG_PATH=../bos.config.json vitest run",

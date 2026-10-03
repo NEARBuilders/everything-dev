@@ -14,6 +14,8 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import path from "node:path";
 import { containerName } from "every-plugin/identity";
 import { composeVersionManifest } from "every-plugin/version-manifest";
+import { writeResolvedConfig } from "../../packages/everything-dev/src/config";
+import { openResolution } from "../../packages/everything-dev/src/resolution/session";
 
 /**
  * Local production fixture rewriting (ADR 0009): a section named in the plan
@@ -195,7 +197,19 @@ function prepareLocalProductionConfig(
 const root = process.cwd();
 const imageDir = path.join(root, ".bos", "regression", "image");
 
-const bosConfig = JSON.parse(readFileSync(path.join(root, "bos.config.json"), "utf8"));
+// The v2 config model has no root bos.config.json — resolve the authored
+// descriptor (bos.app.ts) in-process and write the generated resolved config
+// the Dockerfile bakes into the image. Development resolution mirrors the
+// old source of truth (the config `bos dev` wrote); the fixture rewriting
+// below pins the production slot shapes.
+const resolutionEnv = "development";
+const session = await openResolution({ cwd: root, env: resolutionEnv });
+if (!session?.config) {
+  throw new Error("[container-build] config resolution returned no config");
+}
+const bosConfig = session.config;
+const resolvedConfigPath = path.join(root, ".bos", "bos.resolved-config.json");
+writeResolvedConfig(root, bosConfig, resolutionEnv, [...session.chain]);
 
 const localPlugins = Object.entries(bosConfig.plugins ?? {})
   .filter(
@@ -227,7 +241,7 @@ const build = () => {
   run("bun", ["run", "build:ssr"], "ui");
 
   console.log("[container-build] host dist…");
-  run("bun", ["run", "build"], "host", { BOS_CONFIG_PATH: path.join(root, "bos.config.json") });
+  run("bun", ["run", "build"], "host", { BOS_CONFIG_PATH: resolvedConfigPath });
 
   console.log("[container-build] api remote…");
   run("bun", ["run", "build"], "api");

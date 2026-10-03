@@ -2,7 +2,6 @@ package regression
 
 import (
 	"encoding/json"
-	"net/url"
 	"testing"
 
 	"everything.dev/regression/http/internal/regtest"
@@ -148,8 +147,9 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 
 	// Step 7: Read thing back via public API
 	t.Run("read_thing_back", func(t *testing.T) {
-		data := url.QueryEscape(`{"json":{"thingId":"` + createdThingID + `"}}`)
-		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/rpc/template/getThing?data="+data)
+		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/rpc/template/getThing", map[string]any{
+			"json": map[string]any{"thingId": createdThingID},
+		}, nil)
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {

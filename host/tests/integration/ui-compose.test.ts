@@ -47,8 +47,11 @@ const CORE_MANIFEST = {
   ],
 };
 
+// The built manifest's container name derives from the plugin package name —
+// never the config label ("auth") the host uses for sources. The payload and
+// digest identity must key by this, not the label.
 const AUTH_MANIFEST = {
-  name: "auth",
+  name: "_everything_dev_auth_plugin",
   manifestVersion: 1,
   routes: [
     { id: "_public/login", path: "/login", file: "_public/login.tsx" },
@@ -230,16 +233,16 @@ describe("composeUi", () => {
       rootOptions: unknown;
     };
     expect(constructInput.plugins).toEqual([
-      { key: "auth", mfName: "auth-ui" },
+      { key: "_everything_dev_auth_plugin", mfName: "auth-ui" },
       { key: "ui", mfName: "ui" },
     ]);
     expect(constructInput.rootOptions).toBe(CORE_ROUTE_CONFIG.rootMeta);
 
     const resolvedAuth = await (
       construct.mock.calls[0]![0] as { resolve: (ref: { key: string }) => Promise<unknown> }
-    ).resolve({ key: "auth" });
+    ).resolve({ key: "_everything_dev_auth_plugin" });
     expect(resolvedAuth).toMatchObject({
-      key: "auth",
+      key: "_everything_dev_auth_plugin",
       manifest: AUTH_MANIFEST,
       routeConfig: AUTH_ROUTE_CONFIG,
     });
@@ -288,7 +291,7 @@ describe("composeUi", () => {
     expect(variant.clientPayload.digest).toBe(variant.digest);
     expect(variant.clientPayload.remotes).toEqual([
       {
-        key: "auth",
+        key: "_everything_dev_auth_plugin",
         name: "auth-ui",
         entry: "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
         manifestUrl: "https://cdn.example.com/auth-ui/mf-manifest.json",
@@ -323,7 +326,7 @@ describe("composeUi", () => {
 
     expect(client?.clientPayload.remotes).toEqual([
       {
-        key: "auth",
+        key: "_everything_dev_auth_plugin",
         name: "auth-ui",
         entry: "http://localhost:4111/remoteEntry.js",
       },
@@ -376,7 +379,7 @@ describe("composeUi", () => {
     expect(variant.routerModule).toBe(ROUTER_MODULE);
     expect(variant.clientPayload.remotes).toEqual([
       {
-        key: "auth",
+        key: "auth-ui",
         name: "auth-ui",
         entry: "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
       },
@@ -416,7 +419,7 @@ describe("composeClientPayload", () => {
     expect(client).toEqual({ digest: variant.digest, clientPayload: variant.clientPayload });
     expect(client?.clientPayload.remotes).toEqual([
       {
-        key: "auth",
+        key: "_everything_dev_auth_plugin",
         name: "auth-ui",
         entry: "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
         manifestUrl: "https://cdn.example.com/auth-ui/mf-manifest.json",
