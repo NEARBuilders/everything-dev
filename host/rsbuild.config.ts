@@ -17,9 +17,7 @@ const require = createRequire(import.meta.url);
 
 const resolvedConfigPath = path.resolve(__dirname, "../.bos/bos.resolved-config.json");
 const rootBosConfigPath = path.resolve(__dirname, "../bos.config.json");
-const configPath =
-  process.env.BOS_CONFIG_PATH ??
-  (fs.existsSync(resolvedConfigPath) ? resolvedConfigPath : rootBosConfigPath);
+const configPath = fs.existsSync(resolvedConfigPath) ? resolvedConfigPath : rootBosConfigPath;
 
 const bosConfigRaw = JSON.parse(fs.readFileSync(configPath, "utf8"));
 const bosConfig = bosConfigRaw._resolved

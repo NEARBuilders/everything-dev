@@ -27,6 +27,7 @@ Format: context → decision → consequences, one file per decision.
 | [0019](./0019-migration-serialization-advisory-lock.md) | Migrations serialize on a journal-scoped Postgres advisory transaction lock | Accepted |
 | [0020](./0020-child-bundle-storage-r2.md) | Child bundle storage — R2-backed CDN distribution for all namespaces | Accepted |
 | [0021](./0021-universal-runtime-image.md) | Universal runtime image — one image, identity-selected tiers | Accepted |
+| [0022](./0022-two-roots-app-and-workspace.md) | Two roots — the self-contained app root and the workspace frame | Accepted |
 
 
 Skipped numbers: 0006 exists; there are no gaps otherwise. 0015–0018 were

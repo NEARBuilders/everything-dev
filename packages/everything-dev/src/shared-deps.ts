@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { loadAppDescriptorConfig } from "./config";
 import { type BosEnv, isPlainObject, type ResolvedConfigMeta, rebuildOrderedConfig } from "./merge";
 import { type SharedDepConfig, SharedDepMapSchema } from "./types";
+import { findWorkspaceRoot } from "./workspace";
 
 async function loadBosConfigForSharedDeps(
   configDir: string,
@@ -219,7 +220,10 @@ export async function syncResolvedSharedDeps(opts: {
 }): Promise<SharedDepsSyncResult> {
   const bosConfigPath = join(opts.configDir, "bos.config.json");
   const resolvedConfigPath = join(opts.configDir, ".bos", "bos.resolved-config.json");
-  const packageJsonPath = join(opts.configDir, "package.json");
+  const packageJsonPath = join(
+    findWorkspaceRoot(opts.configDir)?.dir ?? opts.configDir,
+    "package.json",
+  );
   const generatedPath = join(opts.configDir, ".bos", "generated", "shared-deps.json");
 
   const bosConfig: unknown =

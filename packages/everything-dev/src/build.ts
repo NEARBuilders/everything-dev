@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { access, readdir, readFile, stat } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 import { formatDuration } from "./cli/timing";
@@ -10,6 +10,7 @@ import type { BosConfig, BosPluginRef, RuntimeConfig } from "./types";
 import { run } from "./utils/run";
 import { padRight } from "./utils/string";
 import { colors, icons } from "./utils/theme";
+import { ensureFreshDeps, findWorkspaceRoot } from "./workspace";
 
 const buildCommands: Record<string, { cmd: string; args: string[] }> = {
   host: { cmd: "bun", args: ["run", "build"] },
@@ -204,21 +205,25 @@ export async function buildWorkspaceTargets(opts: {
     extendsChain: [],
   });
   if (sharedSync.catalogChanged) {
-    await run("bun", ["install"], { cwd: opts.configDir });
+    await run("bun", ["install"], {
+      cwd: findWorkspaceRoot(opts.configDir)?.dir ?? opts.configDir,
+    });
   }
 
-  const forceRebuild = opts.deploy;
-  // Unconditional prerequisite train: every-plugin's dist is a runtime shared
-  // dep of server plugin builds, everything-dev's dist is bundled into ui/api
-  // code (ui/auth, db) — both must be fresh before any target builds.
-  // Bundler-config factories resolve from src (not dist), so the config chain
-  // itself cannot go stale. No-ops when fresh (isWorkspaceDistStale).
-  const buildTasks: Promise<unknown>[] = [
-    buildPackageQuietly(opts.configDir, "everything-dev", forceRebuild),
-    buildPackageQuietly(opts.configDir, "better-near-auth", forceRebuild),
-    buildPackageQuietly(opts.configDir, "every-plugin", forceRebuild),
-  ];
-  await Promise.all(buildTasks);
+  // Prerequisite train: every target's local workspace deps get fresh dists
+  // before the target builds (runtime subpaths resolve from dist — ADR 0018;
+  // bundler-config factories resolve from src, so the config chain cannot go
+  // stale). Fresh members no-op; failures are loud.
+  const depsReport = await ensureFreshDeps(
+    opts.configDir,
+    existing.map((entry) => entry.path),
+    { force: opts.deploy },
+  );
+  if (depsReport.rebuilt.length > 0) {
+    console.log(
+      `  ${colors.dim(`prerequisites: rebuilt ${depsReport.rebuilt.map((member) => member.name).join(", ")}`)}`,
+    );
+  }
 
   const env: Record<string, string> = {
     ...process.env,
@@ -294,91 +299,4 @@ export async function buildWorkspaceTargets(opts: {
   }
 
   return { built, skipped, deployResults: opts.deploy ? deployResults : undefined };
-}
-
-interface QuietBuildSpec {
-  distEntry: string;
-}
-
-const quietBuildPackages = {
-  "every-plugin": { distEntry: "dist/build/rspack/plugin.mjs" },
-  "better-near-auth": { distEntry: "dist/index.js" },
-  "everything-dev": { distEntry: "dist/index.mjs" },
-} satisfies Record<string, QuietBuildSpec>;
-
-export type QuietBuildPackage = keyof typeof quietBuildPackages;
-
-export async function buildPackageQuietly(
-  cwd: string,
-  packageName: QuietBuildPackage,
-  force = false,
-): Promise<boolean> {
-  const { distEntry } = quietBuildPackages[packageName];
-  const packageDir = `${cwd}/packages/${packageName}`;
-  const packageExists = await fileExists(`${packageDir}/package.json`);
-  if (!packageExists) {
-    return false;
-  }
-
-  if (!force && !(await isWorkspaceDistStale(packageDir, distEntry))) {
-    return false;
-  }
-
-  const result = (await run("bun", ["run", "--cwd", `packages/${packageName}`, "build"], {
-    cwd,
-    capture: true,
-  })) as { stdout: string; stderr: string; exitCode: number };
-
-  if (result.exitCode === 0) {
-    return true;
-  }
-
-  if (result.stdout.trim()) {
-    process.stdout.write(result.stdout);
-  }
-
-  if (result.stderr.trim()) {
-    process.stderr.write(result.stderr);
-  }
-
-  throw new Error(
-    `bun run --cwd packages/${packageName} build failed with exit code ${result.exitCode}`,
-  );
-}
-
-async function newestSourceMtimeMs(dir: string): Promise<number> {
-  let newest = 0;
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.name === "node_modules" || entry.name === "dist") continue;
-    const fullPath = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      newest = Math.max(newest, await newestSourceMtimeMs(fullPath));
-    } else {
-      newest = Math.max(newest, (await stat(fullPath)).mtimeMs);
-    }
-  }
-  return newest;
-}
-
-/**
- * Decide whether a workspace's dist bundle predates its sources.
- *
- * rspack-built services resolve workspace packages (e.g. `everything-dev/db`)
- * via their `dist` exports, so a stale dist silently ships old code to dev
- * servers. Compares the dist entry's mtime against the newest source file
- * and package.json mtime.
- */
-export async function isWorkspaceDistStale(
-  packageDir: string,
-  distEntry: string,
-): Promise<boolean> {
-  const distPath = join(packageDir, distEntry);
-  if (!existsSync(distPath)) return true;
-  const [distMtime, srcMtime, pkgMtime] = await Promise.all([
-    stat(distPath).then((s) => s.mtimeMs),
-    newestSourceMtimeMs(join(packageDir, "src")),
-    stat(join(packageDir, "package.json")).then((s) => s.mtimeMs),
-  ]);
-  return Math.max(srcMtime, pkgMtime) > distMtime;
 }
