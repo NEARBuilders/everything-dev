@@ -19,7 +19,7 @@ import {
   buildAuthExportStub,
   buildAuthTypesGenContent,
 } from "../auth-types-gen";
-import { loadAppDescriptorConfig } from "../config";
+import { findConfigPath, isAppDescriptorPath, loadAppDescriptorConfig } from "../config";
 import type { OverrideSection } from "../contract";
 import { serializeAppDescriptorSource } from "../descriptor/serialize";
 import { fetchBosConfigFromFastKv } from "../fastkv";
@@ -91,7 +91,7 @@ export async function resolveCatalogChainSource(opts: {
   sourceDir?: string;
 }): Promise<CatalogChainSource> {
   const entry = opts.sourceDir
-    ? join(resolve(opts.sourceDir), "bos.config.json")
+    ? (findConfigPath(resolve(opts.sourceDir)) ?? join(resolve(opts.sourceDir), "bos.config.json"))
     : `bos://${opts.extendsAccount}/${opts.extendsGateway}`;
   const catalogs: Record<string, string>[] = [];
   const cleanups: Array<() => Promise<void>> = [];
@@ -136,12 +136,15 @@ export async function resolveSourceDir(opts: {
 }): Promise<SourceResult> {
   if (opts.source) {
     const sourceDir = resolve(opts.source);
-    if (!existsSync(join(sourceDir, "bos.config.json"))) {
-      throw new Error(`No bos.config.json found in source directory: ${sourceDir}`);
+    const configPath = findConfigPath(sourceDir);
+    if (!configPath) {
+      throw new Error(
+        `No authored config (bos.app.ts or bos.config.json) found in source directory: ${sourceDir}`,
+      );
     }
-    const parentConfig = JSON.parse(
-      readFileSync(join(sourceDir, "bos.config.json"), "utf-8"),
-    ) as BosConfig;
+    const parentConfig = isAppDescriptorPath(configPath)
+      ? ((await loadAppDescriptorConfig(configPath)) as BosConfig)
+      : (JSON.parse(readFileSync(configPath, "utf-8")) as BosConfig);
     return { sourceDir, parentConfig, cleanup: async () => {} };
   }
 

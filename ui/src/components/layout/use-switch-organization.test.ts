@@ -75,7 +75,7 @@ describe("organization switching", () => {
       { throwOnError: true },
     );
     expect(harness.invalidateQueries).toHaveBeenNthCalledWith(
-      3,
+      2,
       { queryKey: ["team-workspace"], refetchType: "active" },
       { throwOnError: true },
     );
@@ -86,7 +86,7 @@ describe("organization switching", () => {
     expect(harness.invalidateRouter).toHaveBeenCalledOnce();
   });
 
-  it("refetches tenant data scoped to the newly active organization", async () => {
+  it("refetches organization data scoped to the newly active organization", async () => {
     harness.getSession.mockResolvedValue({
       data: { session: { activeOrganizationId: "org-2" }, user: { id: "user-1" } },
       error: null,
@@ -97,7 +97,7 @@ describe("organization switching", () => {
     await harness.options?.onSuccess();
 
     expect(harness.invalidateQueries).toHaveBeenCalledWith(
-      { queryKey: ["tenants"], refetchType: "active" },
+      { queryKey: ["organizations"], refetchType: "active" },
       { throwOnError: true },
     );
   });

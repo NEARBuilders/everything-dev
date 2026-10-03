@@ -48,6 +48,8 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   "ui/src/entry.ts",
   "ui/src/globals.d.ts",
   "ui/src/hydrate.tsx",
+  "ui/src/providers/index.tsx",
+  "ui/src/hooks/index.ts",
   "ui/src/lib/api.ts",
   "ui/src/lib/auth.ts",
   "ui/src/router.server.tsx",

@@ -4,12 +4,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildInitPatterns, copyFilteredFiles, personalizeConfig } from "../../src/cli/init";
 import { loadManifestNormalizationSpec } from "../../src/internal/manifest-normalizer";
+import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
-const ROOT_CONFIG = JSON.parse(readFileSync(join(REPO_ROOT, "bos.config.json"), "utf-8")) as {
-  app?: { api?: { name?: string }; auth?: { shared?: Record<string, unknown> } };
-  plugins?: Record<string, { routes?: string[] }>;
-};
+const ROOT_CONFIG = await loadParentConfigFixture();
 const MANIFEST_SPEC = loadManifestNormalizationSpec(REPO_ROOT);
 
 function pluginRoutesFromRoot(): Record<string, string[]> {
@@ -31,6 +29,11 @@ async function scaffoldProject(
     plugins,
     pluginRoutes,
   });
+
+  writeChildConfigFixture(
+    testDir,
+    overrides.filter((o) => o !== "plugins") as Array<"host" | "ui" | "api">,
+  );
 
   await personalizeConfig(testDir, {
     extendsAccount: "dev.everything.near",

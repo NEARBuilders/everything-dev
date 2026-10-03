@@ -265,9 +265,11 @@ function dispatchEntry(request: ResolutionRequest | undefined, cwd: string): Ent
   }
 
   if (request?.sourceDir) {
-    const configPath = join(resolve(request.sourceDir), "bos.config.json");
+    const sourceRoot = resolve(request.sourceDir);
+    const configPath = findConfigPath(sourceRoot);
+    if (!configPath) return null;
     const baseDir = dirname(configPath);
-    return { entry: configPath, baseDir, root: baseDir, path: configPath, remote: false };
+    return { entry: configPath, baseDir, root: sourceRoot, path: configPath, remote: false };
   }
 
   const configPath = findConfigPath(cwd);

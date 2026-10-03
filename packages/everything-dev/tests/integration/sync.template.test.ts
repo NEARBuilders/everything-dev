@@ -27,9 +27,10 @@ import {
 import { readSnapshot } from "../../src/cli/snapshot";
 import { syncTemplate } from "../../src/cli/sync";
 import * as sessionModule from "../../src/resolution/session";
+import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
-const ROOT_CONFIG = JSON.parse(readFileSync(join(REPO_ROOT, "bos.config.json"), "utf-8")) as {
+const ROOT_CONFIG = (await loadParentConfigFixture()) as {
   plugins?: Record<string, { routes?: string[] }>;
 };
 
@@ -65,6 +66,11 @@ async function scaffoldProject(
     plugins,
     pluginRoutes,
   });
+
+  writeChildConfigFixture(
+    projectDir,
+    overrides.filter((o) => o !== "plugins") as Array<"host" | "ui" | "api">,
+  );
 
   await personalizeConfig(projectDir, {
     extendsAccount: "dev.everything.near",

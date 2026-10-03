@@ -33,9 +33,19 @@ export default App({
       "TWILIO_AUTH_TOKEN",
       "TWILIO_PHONE_NUMBER",
       "RESEND_API_KEY",
-      "NEAR_RELAYER_PRIVATE_KEY_MAINNET",
-      "NEAR_RELAYER_PRIVATE_KEY_TESTNET",
     ],
+    variables: {
+      organizationMembershipLimit: 1000,
+      deviceLink: { clientId: "everything-dev-web" },
+      passkey: { rpID: "everything.dev", rpName: "everything.dev" },
+      socialProviders: { github: {}, google: {} },
+      siwn: {
+        recipients: {
+          mainnet: "dev.everything.near",
+          testnet: "dev.everything.testnet",
+        },
+      },
+    },
   }),
   plugins: {
     registry: Plugin("registry").path("plugins/registry", {

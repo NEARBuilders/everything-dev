@@ -26,47 +26,18 @@ function flattenSlugs(items: SidebarItem[]): string[] {
 }
 
 describe("sidebar navigation", () => {
-  it("orders the sidebar as Home, Explore, Stake, Build, About, My community, Organization, Things, Directory, Admin", () => {
+  it("orders the sidebar as Home, About, Organization, Things, Admin", () => {
     const labels = filterSidebarByRole(buildNavItems({ isAdmin: true }), "admin").map(
       (item) => item.label,
     );
-    expect(labels).toEqual([
-      "Home",
-      "Explore",
-      "Stake",
-      "Build",
-      "About",
-      "My community",
-      "Organization",
-      "Things",
-      "Directory",
-      "Admin",
-    ]);
+    expect(labels).toEqual(["Home", "About", "Organization", "Things", "Admin"]);
   });
 
   it("keeps the test ids the browser specs rely on", () => {
     const slugs = flattenSlugs(filterSidebarByRole(buildNavItems({ isAdmin: true }), "admin"));
     expect(slugs).toEqual(
-      expect.arrayContaining([
-        "dashboard",
-        "explore",
-        "stake",
-        "build",
-        "about",
-        "my-node",
-        "orgs",
-        "things",
-        "discover",
-        "admin",
-      ]),
+      expect.arrayContaining(["dashboard", "about", "orgs", "things", "admin"]),
     );
-  });
-
-  it("shows Directory only to curators and admins", () => {
-    const member = (canCurate: boolean) =>
-      filterSidebarByRole(buildNavItems({ canCurate }), "member").map((item) => item.to);
-    expect(member(false)).not.toContain("/discover");
-    expect(member(true)).toContain("/discover");
   });
 
   it("links Organization to the active organization, falling back to the list", () => {
@@ -76,18 +47,10 @@ describe("sidebar navigation", () => {
     expect(orgTo(null)).toBe("/orgs");
   });
 
-  it("keeps My community a single link; its sections live in the page tabs", () => {
-    const myCommunity = buildNavItems({}).find((item) => navSlug(item) === "my-node");
-    expect(myCommunity?.to).toBe("/dashboard/node");
-    expect(myCommunity?.children).toBeUndefined();
-    expect(isNavItemActive(myCommunity ?? { to: "" }, "/nodes/abc/content")).toBe(true);
-    expect(isNavItemActive(myCommunity ?? { to: "" }, "/tenant/t1")).toBe(true);
-  });
-
   it("hides Admin from members", () => {
     expect(flattenPaths(filterSidebarByRole(NAV_ITEMS, "member"))).not.toContain("/admin");
     expect(flattenPaths(filterSidebarByRole(NAV_ITEMS, "admin"))).toEqual(
-      expect.arrayContaining(["/admin", "/admin/nodes", "/admin/relayer", "/admin/system"]),
+      expect.arrayContaining(["/admin", "/admin/system"]),
     );
   });
 
@@ -129,42 +92,31 @@ describe("route-aware filtering", () => {
   });
 
   it("keeps every item when all routes shipped", () => {
-    const full = new Set(
-      flattenPaths(buildNavItems({ isAdmin: true, canCurate: true })).map((to) => to),
-    );
-    full.add("/admin/system");
-    const filtered = filterSidebarByRoutes(buildNavItems({ isAdmin: true, canCurate: true }), full);
+    const full = new Set(flattenPaths(buildNavItems({ isAdmin: true })).map((to) => to));
+    const filtered = filterSidebarByRoutes(buildNavItems({ isAdmin: true }), full);
     expect(filtered.map((item) => item.to)).toEqual(
-      buildNavItems({ isAdmin: true, canCurate: true }).map((item) => item.to),
+      buildNavItems({ isAdmin: true }).map((item) => item.to),
     );
   });
 
   it("reduces to the public shell for a simple-level child", () => {
-    const simpleChildPaths = new Set(["/", "/about", "/build", "/login", "/skill"]);
-    const filtered = filterSidebarByRoutes(
-      buildNavItems({ isAdmin: true, canCurate: true }),
-      simpleChildPaths,
-    );
-    expect(filtered.map((item) => item.to)).toEqual(["/build", "/about"]);
+    const simpleChildPaths = new Set(["/", "/about", "/login", "/skill"]);
+    const filtered = filterSidebarByRoutes(buildNavItems({ isAdmin: true }), simpleChildPaths);
+    expect(filtered.map((item) => item.to)).toEqual(["/about"]);
   });
 
-  it("drops product routes and their admin children for an advanced-level child", () => {
+  it("drops unshipped routes and their admin children for an advanced-level child", () => {
     const advancedChildPaths = new Set([
       "/dashboard",
       "/about",
-      "/build",
       "/orgs",
       "/things",
       "/admin",
       "/admin/system",
     ]);
-    const filtered = filterSidebarByRoutes(
-      buildNavItems({ isAdmin: true, canCurate: true }),
-      advancedChildPaths,
-    );
+    const filtered = filterSidebarByRoutes(buildNavItems({ isAdmin: true }), advancedChildPaths);
     expect(filtered.map((item) => item.to)).toEqual([
       "/dashboard",
-      "/build",
       "/about",
       "/orgs",
       "/things",
@@ -175,7 +127,7 @@ describe("route-aware filtering", () => {
   });
 
   it("matches the organization item through its activePrefix when the link is org-scoped", () => {
-    const paths = new Set(["/dashboard", "/orgs", "/about", "/build"]);
+    const paths = new Set(["/dashboard", "/orgs", "/about"]);
     const items = buildNavItems({ activeOrgSlug: "acme" });
     expect(filterSidebarByRoutes(items, paths).map((item) => item.to)).toContain("/orgs/acme");
   });
@@ -205,24 +157,18 @@ describe("route-aware filtering", () => {
 });
 
 describe("active state", () => {
-  it("matches Home exactly so My community is not also Home", () => {
+  it("matches Home exactly so nested dashboard paths are not also Home", () => {
     const home = { to: "/dashboard", exact: true };
     expect(isNavItemActive(home, "/dashboard")).toBe(true);
-    expect(isNavItemActive(home, "/dashboard/node")).toBe(false);
+    expect(isNavItemActive(home, "/dashboard/nested")).toBe(false);
   });
 
-  it("treats public community pages as Explore", () => {
-    const explore = { to: "/explore", activePrefixes: ["/explore", "/n/", "/activity/"] };
-    expect(isNavItemActive(explore, "/n/brooklyn")).toBe(true);
-    expect(isNavItemActive(explore, "/stake")).toBe(false);
-  });
-
-  it("tells Events & profile and Onboarding apart by tab", () => {
-    const events = { to: "/nodes/n1/content", search: { tab: "events" } };
-    const onboarding = { to: "/nodes/n1/content", search: { tab: "onboarding" } };
-    expect(isNavItemActive(events, "/nodes/n1/content", {})).toBe(true);
-    expect(isNavItemActive(onboarding, "/nodes/n1/content", {})).toBe(false);
-    expect(isNavItemActive(onboarding, "/nodes/n1/content", { tab: "onboarding" })).toBe(true);
+  it("tells tabbed pages apart by search", () => {
+    const events = { to: "/n1/content", search: { tab: "events" } };
+    const onboarding = { to: "/n1/content", search: { tab: "onboarding" } };
+    expect(isNavItemActive(events, "/n1/content", {})).toBe(true);
+    expect(isNavItemActive(onboarding, "/n1/content", {})).toBe(false);
+    expect(isNavItemActive(onboarding, "/n1/content", { tab: "onboarding" })).toBe(true);
   });
 });
 
@@ -232,10 +178,8 @@ describe("team area navigation", () => {
       filterSidebarByArea(filterSidebarByRole(NAV_ITEMS, "member"), ["stake"]),
     );
 
-    expect(paths).toEqual(expect.arrayContaining(["/explore", "/dashboard", "/stake", "/orgs"]));
-    expect(paths).not.toContain("/dashboard/node");
+    expect(paths).toEqual(expect.arrayContaining(["/dashboard", "/about", "/orgs"]));
     expect(paths).not.toContain("/things");
-    expect(paths).not.toContain("/things/new");
   });
 
   it("leaves navigation untouched when unrestricted", () => {
@@ -250,46 +194,14 @@ describe("breadcrumbs", () => {
 
   it("names pages instead of echoing path segments", () => {
     expect(labels("/dashboard")).toEqual(["Home"]);
-    expect(labels("/discover")).toEqual(["Directory"]);
-    expect(labels("/dashboard/node/proposals")).toEqual(["My community", "Proposals"]);
-    expect(labels("/nodes/abc/content")).toEqual(["My community", "Events & profile"]);
-    expect(
-      crumbsFor("/nodes/abc/content", { tab: "onboarding" }).map((crumb) => crumb.label),
-    ).toEqual(["My community", "Onboarding"]);
-    expect(labels("/tenant/t1")).toEqual(["My community", "Community settings"]);
     expect(labels("/settings/api-keys")).toEqual(["Settings", "API keys"]);
-    expect(labels("/admin/tenants/new")).toEqual(["Admin", "Sites", "New site"]);
-    expect(labels("/apply")).toEqual(["Start a community"]);
+    expect(labels("/admin/system")).toEqual(["Admin", "System"]);
   });
 
   it("uses the organization name when it is known", () => {
     expect(
       crumbsFor("/orgs/acme", { orgName: (slug) => (slug === "acme" ? "Acme Co" : undefined) }),
     ).toEqual([{ label: "Organizations", to: "/orgs" }, { label: "Acme Co" }]);
-  });
-
-  it("names focused form and detail pages under their parent", () => {
-    expect(crumbsFor("/nodes/abc/events/new")).toEqual([
-      { label: "My community", to: "/dashboard/node" },
-      { label: "Events & profile", to: "/nodes/abc/content" },
-      { label: "New event" },
-    ]);
-    expect(labels("/nodes/abc/events/e1/edit")).toEqual([
-      "My community",
-      "Events & profile",
-      "Edit event",
-    ]);
-    expect(crumbsFor("/dashboard/node/proposals/p1")).toEqual([
-      { label: "My community", to: "/dashboard/node" },
-      { label: "Proposals", to: "/dashboard/node/proposals" },
-      { label: "Proposal" },
-    ]);
-    expect(crumbsFor("/admin/nodes/n1/edit")).toEqual([
-      { label: "Admin", to: "/admin" },
-      { label: "Communities", to: "/admin/nodes" },
-      { label: "Community", to: "/admin/nodes/n1" },
-      { label: "Edit community" },
-    ]);
   });
 
   it("links parent crumbs", () => {

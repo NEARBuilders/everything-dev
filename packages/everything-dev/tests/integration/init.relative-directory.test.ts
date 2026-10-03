@@ -8,16 +8,14 @@ import { makeProjectEnv } from "../../src/env/project-env";
 import { InfraMaterializer, InfraMaterializerLive } from "../../src/infra/materializer";
 import { openResolution } from "../../src/resolution/session";
 import type { RuntimeConfig } from "../../src/types";
+import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
 vi.mock("../../src/fastkv", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/fastkv")>();
   return {
     ...actual,
     fetchBosConfigFromFastKv: async <T>() => {
-      const parentConfig = JSON.parse(
-        readFileSync(join(import.meta.dirname, "../../../../bos.config.json"), "utf-8"),
-      );
-      return parentConfig as T;
+      return (await loadParentConfigFixture()) as T;
     },
   };
 });
@@ -69,6 +67,7 @@ describe("bos init - relative directory", () => {
       overrides: ["ui", "api"],
       plugins: [],
     });
+    writeChildConfigFixture(targetDir, ["ui", "api"], {});
     await personalizeConfig(targetDir, {
       extendsAccount: "dev.everything.near",
       extendsGateway: "everything.dev",
@@ -97,13 +96,11 @@ describe("bos init - relative directory", () => {
     const envExample = readFileSync(join(targetDir, ".env.example"), "utf-8");
     const dockerCompose = readFileSync(join(targetDir, "docker-compose.yml"), "utf-8");
 
+    // Auth env materializes when the auth workspace is present in the child
+    // (composed inits); the ui/api-only scaffold carries the api + host vars.
     expect(envExample).toContain(
       "API_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5432/api_db",
     );
-    expect(envExample).toContain(
-      "AUTH_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5433/auth_db",
-    );
-    expect(envExample).toContain("BETTER_AUTH_SECRET=");
     expect(envExample).toContain("CORS_ORIGIN=http://localhost:3000");
     expect(envExample).not.toContain("PROJECTS_DATABASE_URL=");
 

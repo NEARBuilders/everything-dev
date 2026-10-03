@@ -319,6 +319,7 @@ export interface BosConfigInput {
     production?: string;
     account?: string;
   };
+  staging?: BosStaging;
   development?: string;
   production?: string;
   integrity?: string;

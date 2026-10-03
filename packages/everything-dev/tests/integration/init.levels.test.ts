@@ -12,15 +12,10 @@ import {
   writeInitSnapshot,
 } from "../../src/cli/init";
 import { readSnapshot } from "../../src/cli/snapshot";
+import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
-const ROOT_CONFIG = JSON.parse(readFileSync(join(REPO_ROOT, "bos.config.json"), "utf-8")) as {
-  starter?: {
-    exclude?: string[];
-    levels?: Record<string, { include?: string[]; exclude?: string[] }>;
-  };
-  plugins?: Record<string, { routes?: string[] }>;
-};
+const ROOT_CONFIG = await loadParentConfigFixture();
 
 async function scaffoldProject(opts: {
   overrides: Array<"ui" | "api" | "host" | "plugins">;
@@ -41,6 +36,11 @@ async function scaffoldProject(opts: {
     plugins: opts.plugins,
     ignore: [...routeExclusions, ...starterExclusions],
   });
+
+  writeChildConfigFixture(
+    projectDir,
+    opts.overrides.filter((o) => o !== "plugins") as Array<"host" | "ui" | "api">,
+  );
 
   await personalizeConfig(projectDir, {
     extendsAccount: "dev.everything.near",

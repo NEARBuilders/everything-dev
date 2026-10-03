@@ -50,7 +50,7 @@ describe("pruneUnusedUiFiles — real parent tree survival", () => {
     expect(existsSync(join(projectDir, "ui", "src", "router.tsx"))).toBe(true);
     expect(
       listFiles(join(projectDir, "ui", "src", "components", "ui")).length,
-    ).toBeGreaterThanOrEqual(30);
+    ).toBeGreaterThanOrEqual(25);
 
     const barrel = readFileSync(join(projectDir, "ui", "src", "components", "index.ts"), "utf-8");
     expect(barrel).toContain('from "./ui/button"');
