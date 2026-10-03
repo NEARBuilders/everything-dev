@@ -53,7 +53,15 @@ describe("init api shell", () => {
     }
 
     expect(listDir(join(projectDir, "api", "src", "services"))).toEqual([]);
-    expect(listDir(join(projectDir, "api", "src", "db", "migrations"))).toEqual([]);
+    // The starter ships exactly the first drizzle migration — the build's
+    // drizzle unplugin requires the journal, and no domain migrations leak in.
+    const migrations = listDir(join(projectDir, "api", "src", "db", "migrations"));
+    expect(migrations).toHaveLength(2);
+    expect(migrations.some((entry) => /^0000_.*\.sql$/.test(entry))).toBe(true);
+    expect(migrations).toContain("meta");
+    expect(
+      existsSync(join(projectDir, "api", "src", "db", "migrations", "meta", "_journal.json")),
+    ).toBe(true);
     expect(existsSync(join(projectDir, "api", "src", "discovery-contract.ts"))).toBe(false);
     expect(existsSync(join(projectDir, "api", "src", "feature-areas.ts"))).toBe(false);
     expect(existsSync(join(projectDir, "api", "src", "team-access-policy.ts"))).toBe(false);

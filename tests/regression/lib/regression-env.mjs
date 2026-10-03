@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,42 @@ export function findRepoRoot(startDir = process.cwd()) {
     if (parent === current) return null;
     current = parent;
   }
+}
+
+function readGeneratedConfig(repoRoot) {
+  const generatedPath = path.join(repoRoot, ".bos", "bos.resolved-config.json");
+  if (!fs.existsSync(generatedPath)) return null;
+  return JSON.parse(fs.readFileSync(generatedPath, "utf-8"));
+}
+
+/**
+ * Resolved-config loader for regression helpers (ADR 0005): the generated
+ * file under `.bos/` is the publish input, the committed root JSON is the
+ * legacy fallback, and checkouts that never ran a bos command get the
+ * generated file written by the CLI resolution on demand.
+ */
+export function loadRegressionConfig(repoRoot) {
+  const generated = readGeneratedConfig(repoRoot);
+  if (generated) return generated;
+  if (fs.existsSync(path.join(repoRoot, "bos.config.json"))) {
+    return JSON.parse(fs.readFileSync(path.join(repoRoot, "bos.config.json"), "utf-8"));
+  }
+
+  const result = spawnSync(
+    "bun",
+    ["--conditions=development", "packages/everything-dev/src/cli.ts", "types", "gen"],
+    { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      `Failed to resolve the authored config (bos types gen exited ${result.status}):\n${result.stderr ?? ""}`,
+    );
+  }
+  const resolved = readGeneratedConfig(repoRoot);
+  if (!resolved) {
+    throw new Error("bos types gen succeeded but .bos/bos.resolved-config.json was not written");
+  }
+  return resolved;
 }
 
 export function readDotEnv(repoRoot, fileName = ".env") {
@@ -54,13 +91,7 @@ function defaultDevDatabaseUrl(secret, pgUser, pgPassword, pgHost) {
 export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
   const root = repoRoot ?? findRepoRoot();
   if (!root) throw new Error("No authored config (bos.app.ts) found in any parent directory");
-  // The generated config (`.bos/bos.resolved-config.json`, ADR 0005) carries
-  // the same shape the repo-root JSON used to; authored fallback for checkouts
-  // that never ran a bos command.
-  const generatedPath = path.join(root, ".bos", "bos.resolved-config.json");
-  const config = fs.existsSync(generatedPath)
-    ? JSON.parse(fs.readFileSync(generatedPath, "utf-8"))
-    : JSON.parse(fs.readFileSync(path.join(root, "bos.config.json"), "utf-8"));
+  const config = loadRegressionConfig(root);
   const fileEnv = readDotEnv(root);
   const testEnv = readDotEnv(root, ".env.test");
   const allowDevDb = env.REGRESSION_ALLOW_DEV_DB === "1";
