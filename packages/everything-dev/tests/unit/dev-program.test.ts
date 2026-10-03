@@ -25,11 +25,11 @@ vi.mock("../../src/shared-deps", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/build", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/build")>();
+vi.mock("../../src/workspace", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/workspace")>();
   return {
     ...actual,
-    buildPackageQuietly: vi.fn(async () => false),
+    ensureFreshDeps: vi.fn(async () => ({ rebuilt: [], fresh: [] })),
   };
 });
 
