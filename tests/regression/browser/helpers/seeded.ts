@@ -55,8 +55,10 @@ export async function seedRegressionThing() {
     method: "POST",
     headers: { "content-type": "application/json", cookie: cookieHeader },
     body: JSON.stringify({
-      thingId: "regression-plugin-test",
-      payload: { kind: "regression", source: "plugin-passthrough" },
+      json: {
+        thingId: "regression-plugin-test",
+        payload: { kind: "regression", source: "plugin-passthrough" },
+      },
     }),
   });
   if (!response.ok && response.status !== 409) {

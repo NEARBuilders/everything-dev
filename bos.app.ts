@@ -20,7 +20,11 @@ export default App({
   cdn: { origin: "https://cdn.everything.dev" },
   host: { path: "host" },
   ui: UI({ path: "ui" }),
-  api: API({ path: "api", variables: { gatewayDomains: "everything.dev,dev.everything.dev" } }),
+  api: API({
+    path: "api",
+    variables: { gatewayDomains: "everything.dev,dev.everything.dev" },
+    secrets: ["API_DATABASE_URL"],
+  }),
   auth: Plugin("auth").path("plugins/auth", {
     name: "@everything-dev/auth-plugin",
     ui: { name: "auth-ui", path: "plugins/auth/ui" },

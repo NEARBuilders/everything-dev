@@ -42,7 +42,7 @@ export function loadRegressionConfig(repoRoot) {
 
   const result = spawnSync(
     "bun",
-    [path.join(repoRoot, "tests/regression/lib/resolve-config.mjs")],
+    ["--conditions=development", path.join(repoRoot, "tests/regression/lib/resolve-config.mjs")],
     { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
   );
   if (result.status !== 0) {

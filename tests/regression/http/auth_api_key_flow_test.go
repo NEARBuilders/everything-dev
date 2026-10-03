@@ -2,6 +2,7 @@ package regression
 
 import (
 	"encoding/json"
+	"net/url"
 	"testing"
 
 	"everything.dev/regression/http/internal/regtest"
@@ -13,8 +14,10 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 	// Step 1: Unauthenticated create should fail
 	t.Run("unauthenticated_create_fails", func(t *testing.T) {
 		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/rpc/template/createThing", map[string]any{
-			"thingId": "regression-unauth",
-			"payload": map[string]string{"kind": "regression"},
+			"json": map[string]any{
+				"thingId": "regression-unauth",
+				"payload": map[string]string{"kind": "regression"},
+			},
 		}, nil)
 		regtest.MustStatus(t, status, 401, body)
 	})
@@ -81,33 +84,38 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 	var createdThingID string
 	t.Run("create_thing_with_session", func(t *testing.T) {
 		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/rpc/template/createThing", map[string]any{
-			"thingId": "regression-session",
-			"payload": map[string]string{
-				"kind":   "regression",
-				"source": "session",
+			"json": map[string]any{
+				"thingId": "regression-session",
+				"payload": map[string]string{
+					"kind":   "regression",
+					"source": "session",
+				},
 			},
 		}, nil)
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {
-			ThingID  string `json:"thingId"`
-			Type     string `json:"type"`
-			Action   string `json:"action"`
+			JSON struct {
+				ThingID string `json:"thingId"`
+				Type    string `json:"type"`
+				Action  string `json:"action"`
+			} `json:"json"`
 		}
 		if err := json.Unmarshal([]byte(body), &result); err != nil {
 			t.Fatalf("decoding thing response: %v\nBody: %s", err, body)
 		}
+		thing := result.JSON
 
-		if result.ThingID == "" {
+		if thing.ThingID == "" {
 			t.Fatal("expected non-empty thingId")
 		}
-		if result.Type != "template.regression" {
-			t.Fatalf("expected type 'template.regression', got %q", result.Type)
+		if thing.Type != "template.regression" {
+			t.Fatalf("expected type 'template.regression', got %q", thing.Type)
 		}
-		if result.Action != "template.regression.created" {
-			t.Fatalf("expected action 'template.regression.created', got %q", result.Action)
+		if thing.Action != "template.regression.created" {
+			t.Fatalf("expected action 'template.regression.created', got %q", thing.Action)
 		}
-		createdThingID = result.ThingID
+		createdThingID = thing.ThingID
 	})
 
 	// Step 5: Sign out (needs Origin header for Better Auth)
@@ -140,22 +148,25 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 
 	// Step 7: Read thing back via public API
 	t.Run("read_thing_back", func(t *testing.T) {
-		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/rpc/template/getThing?thingId="+createdThingID)
+		data := url.QueryEscape(`{"json":{"thingId":"` + createdThingID + `"}}`)
+		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/rpc/template/getThing?data="+data)
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {
-			ThingID string `json:"thingId"`
-			Type    string `json:"type"`
+			JSON struct {
+				ThingID string `json:"thingId"`
+				Type    string `json:"type"`
+			} `json:"json"`
 		}
 		if err := json.Unmarshal([]byte(body), &result); err != nil {
 			t.Fatalf("decoding thing response: %v\nBody: %s", err, body)
 		}
 
-		if result.ThingID != createdThingID {
-			t.Fatalf("expected thingId %q, got %q", createdThingID, result.ThingID)
+		if result.JSON.ThingID != createdThingID {
+			t.Fatalf("expected thingId %q, got %q", createdThingID, result.JSON.ThingID)
 		}
-		if result.Type != "template.regression" {
-			t.Fatalf("expected type 'template.regression', got %q", result.Type)
+		if result.JSON.Type != "template.regression" {
+			t.Fatalf("expected type 'template.regression', got %q", result.JSON.Type)
 		}
 	})
 }

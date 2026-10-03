@@ -2,6 +2,7 @@ package regression
 
 import (
 	"encoding/json"
+	"net/url"
 	"testing"
 
 	"everything.dev/regression/http/internal/regtest"
@@ -19,51 +20,58 @@ func TestPluginPassthrough(t *testing.T) {
 	var thingID string
 	t.Run("create_thing", func(t *testing.T) {
 		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/rpc/template/createThing", map[string]any{
-			"thingId": "regression-plugin-test",
-			"payload": map[string]string{
-				"kind":   "regression",
-				"source": "plugin-passthrough",
+			"json": map[string]any{
+				"thingId": "regression-plugin-test",
+				"payload": map[string]string{
+					"kind":   "regression",
+					"source": "plugin-passthrough",
+				},
 			},
 		}, nil)
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {
-			ThingID string `json:"thingId"`
-			Type    string `json:"type"`
-			Action  string `json:"action"`
+			JSON struct {
+				ThingID string `json:"thingId"`
+				Type    string `json:"type"`
+				Action  string `json:"action"`
+			} `json:"json"`
 		}
 		if err := json.Unmarshal([]byte(body), &result); err != nil {
 			t.Fatalf("decoding thing response: %v\nBody: %s", err, body)
 		}
 
-		if result.ThingID == "" {
+		if result.JSON.ThingID == "" {
 			t.Fatal("expected non-empty thingId")
 		}
-		if result.Type == "" {
+		if result.JSON.Type == "" {
 			t.Fatal("expected non-empty type")
 		}
-		if result.Action == "" {
+		if result.JSON.Action == "" {
 			t.Fatal("expected non-empty action")
 		}
-		thingID = result.ThingID
+		thingID = result.JSON.ThingID
 	})
 
 	t.Run("read_thing_back", func(t *testing.T) {
-		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/rpc/template/getThing?thingId="+thingID)
+		data := url.QueryEscape(`{"json":{"thingId":"` + thingID + `"}}`)
+		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/rpc/template/getThing?data="+data)
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {
-			ThingID string `json:"thingId"`
-			Type    string `json:"type"`
+			JSON struct {
+				ThingID string `json:"thingId"`
+				Type    string `json:"type"`
+			} `json:"json"`
 		}
 		if err := json.Unmarshal([]byte(body), &result); err != nil {
 			t.Fatalf("decoding thing response: %v\nBody: %s", err, body)
 		}
 
-		if result.ThingID != thingID {
-			t.Fatalf("expected thingId %q, got %q", thingID, result.ThingID)
+		if result.JSON.ThingID != thingID {
+			t.Fatalf("expected thingId %q, got %q", thingID, result.JSON.ThingID)
 		}
-		if result.Type == "" {
+		if result.JSON.Type == "" {
 			t.Fatal("expected non-empty type")
 		}
 	})
