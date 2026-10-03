@@ -20,16 +20,26 @@ test.describe("SSR compose", () => {
     expect(html, "SSR must embed a compose payload").toContain('"compose"');
 
     // The embedded runtime config carries the compose payload — assert the
-    // auth remote by KEY, not by its MF container name (the built remote
-    // registers under the sanitized package name, e.g.
-    // `_everything_dev_auth_plugin`, which is an implementation detail).
+    // auth remote through the payload's own identity: each remote's key must
+    // match one of the embedded manifest names (the composition identity),
+    // never a config label, which is an implementation detail.
     const configMatch = html.match(/window\.__RUNTIME_CONFIG__=(\{.*?\});\s*function __hydrate/s);
     expect(configMatch, "runtime config must be embedded for hydration").toBeTruthy();
     const config = JSON.parse(configMatch![1]) as {
-      ui?: { compose?: { remotes?: Array<{ key: string; entry?: string }> } };
+      ui?: {
+        compose?: {
+          remotes?: Array<{ key: string; entry?: string }>;
+          manifests?: Array<{ name: string }>;
+        };
+      };
     };
-    const authRemote = config.ui?.compose?.remotes?.find((remote) => remote.key === "auth");
-    expect(authRemote, "compose payload must include the auth remote (key: auth)").toBeTruthy();
+    const manifestNames = new Set((config.ui?.compose?.manifests ?? []).map((m) => m.name));
+    const authRemote = config.ui?.compose?.remotes?.find((remote) => manifestNames.has(remote.key));
+    expect(
+      authRemote,
+      "compose payload must include a remote keyed by a manifest name",
+    ).toBeTruthy();
+    expect(manifestNames.size, "payload must embed both core and auth manifests").toBe(2);
     // Dev stacks serve the fixed dev entry; pinned (start) stacks serve the
     // content-hashed entry derived from the slot's version manifest.
     expect(authRemote?.entry, "auth remote must point at a remoteEntry").toMatch(

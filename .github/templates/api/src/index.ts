@@ -1,5 +1,5 @@
 import { ORPCError } from "@orpc/server";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { createPlugin } from "every-plugin";
 import { z } from "zod";
 import { contract } from "./contract";

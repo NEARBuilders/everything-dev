@@ -30,22 +30,32 @@ test.describe("CSR compose", () => {
       const config = (
         window as {
           __RUNTIME_CONFIG__?: {
-            ui?: { compose?: { remotes?: Array<{ key: string; entry: string }> } };
+            ui?: {
+              compose?: {
+                remotes?: Array<{ key: string; entry: string }>;
+                manifests?: Array<{ name: string }>;
+              };
+            };
           };
         }
       ).__RUNTIME_CONFIG__;
       return config?.ui?.compose ?? null;
     });
     expect(compose, "CSR shell must carry a compose payload").toBeTruthy();
-    const authRemote = compose!.remotes?.find((remote) => remote.key === "auth");
-    expect(authRemote, "auth ui remote must be in the payload").toBeTruthy();
+    // Remotes are keyed by their manifest's composition name — assert the
+    // plugin remote through the payload's own identity (manifest agreement),
+    // not a config label.
+    const pluginRemote = compose!.remotes?.find((remote) =>
+      (compose!.manifests ?? []).some((manifest) => manifest.name === remote.key),
+    );
+    expect(pluginRemote, "auth ui remote must be in the payload").toBeTruthy();
 
     // The runtime registers the remote via its mf-manifest.json (the entry
     // URL's remoteEntry[.hash].js is rewritten to it in hydrate) — that
     // manifest fetch is the exact point the client compose previously failed.
     // The hash segment is optional: dev stacks serve the fixed dev entry,
     // pinned (start) stacks serve the content-hashed entry.
-    const manifestUrl = authRemote!.entry.replace(
+    const manifestUrl = pluginRemote!.entry.replace(
       /\/?remoteEntry(\.[a-f0-9]+)?\.js$/,
       "/mf-manifest.json",
     );
@@ -53,7 +63,7 @@ test.describe("CSR compose", () => {
       const response = await fetch(url, { method: "GET" });
       return response.status;
     }, manifestUrl);
-    expect(entryStatus, `auth mf-manifest at ${manifestUrl}`).toBe(200);
+    expect(entryStatus, `plugin mf-manifest at ${manifestUrl}`).toBe(200);
 
     // The tree was constructed from core + auth manifests (2 sources). The
     // progress array is the reliable signal: mark() only console-logs in DEV

@@ -26,11 +26,18 @@ export interface PluginBaseConfigOptions {
 
 const pluginRequire = createRequire(import.meta.url);
 
+/** Config filenames that mark a project root, nearest-first. Authored
+ * descriptor projects (the platform) carry bos.app.ts; generated child
+ * projects carry bos.config.json. */
+const CONFIG_FILENAMES = ["bos.config.json", "bos.app.ts"] as const;
+
 export function findBosConfigPath(from: string = process.cwd()): string | null {
   let current = path.resolve(from);
   while (true) {
-    const candidate = path.join(current, "bos.config.json");
-    if (fs.existsSync(candidate)) return candidate;
+    for (const filename of CONFIG_FILENAMES) {
+      const candidate = path.join(current, filename);
+      if (fs.existsSync(candidate)) return candidate;
+    }
     const parent = path.dirname(current);
     if (parent === current) return null;
     current = parent;

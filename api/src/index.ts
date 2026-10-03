@@ -1,12 +1,13 @@
 import { ORPCError } from "@orpc/server";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { createPlugin } from "every-plugin";
 import { z } from "zod";
 import { contract } from "./contract";
 import { DatabaseLive } from "./db/layer";
 import { ContextSchema } from "./lib/context";
+import type { PluginsClient } from "./lib/plugins-types.gen";
 
-export default createPlugin({
+export default createPlugin.withPlugins<PluginsClient>()({
   variables: z.object({}),
 
   secrets: z.object({
@@ -26,8 +27,8 @@ export default createPlugin({
       return DatabaseLive(config.secrets.API_DATABASE_URL);
     }),
 
-  createRouter: (builder) => {
-    return {
+  createRouter: (builder, plugins) => {
+    const router = {
       ping: builder.ping.handler(async () => ({
         status: "ok",
         timestamp: new Date().toISOString(),
@@ -58,5 +59,13 @@ export default createPlugin({
         }
       }),
     };
+
+    const templateRouter = (plugins as Record<string, { router?: unknown } | undefined>).template
+      ?.router;
+    if (templateRouter) {
+      (router as Record<string, unknown>).things = templateRouter;
+    }
+
+    return router;
   },
 });

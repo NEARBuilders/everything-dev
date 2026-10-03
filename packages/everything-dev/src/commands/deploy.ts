@@ -12,7 +12,6 @@ import {
   hasDocker,
   resolveImageRef,
 } from "../image-deploy";
-import type { BosEnv } from "../merge";
 import { publishToFastKv } from "../publish";
 import { openResolution } from "../resolution/session";
 import { buildRollbackPayload, summarizeSlotPins, verifyRollbackSnapshot } from "../rollback";

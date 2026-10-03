@@ -84,4 +84,23 @@ describe("pluginLayoutKey", () => {
     tempDirs.push(orphan);
     expect(pluginLayoutKey(orphan)).toBeNull();
   });
+
+  it("derives the layout key through an authored bos.app.ts descriptor root", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "every-plugin-layout-key-"));
+    tempDirs.push(root);
+    const workspace = path.join(root, "plugins", "auth");
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.writeFileSync(path.join(root, "bos.app.ts"), "export default {};");
+    expect(pluginLayoutKey(workspace)).toBe("auth");
+  });
+
+  it("prefers bos.config.json over bos.app.ts in the same directory", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "every-plugin-layout-key-"));
+    tempDirs.push(root);
+    const workspace = path.join(root, "plugins", "auth");
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.writeFileSync(path.join(root, "bos.app.ts"), "export default {};");
+    fs.writeFileSync(path.join(root, "bos.config.json"), "{}");
+    expect(pluginLayoutKey(workspace)).toBe("auth");
+  });
 });
