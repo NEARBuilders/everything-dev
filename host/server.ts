@@ -32,6 +32,6 @@ try {
 // The host shares the CLI's outbound bundle-fetch tier (bundle-fs-resolve):
 // own-namespace staged reads + the stale-if-error cache. Installed before the
 // server boots so SSR container loads and any config fetches route through it.
-installBundleFetchFromEnv({ configPath: process.env.BOS_CONFIG_PATH ?? null });
+installBundleFetchFromEnv({});
 
 runServerBlocking({ config });

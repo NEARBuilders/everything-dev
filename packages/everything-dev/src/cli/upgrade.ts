@@ -8,6 +8,7 @@ import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../contract";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { saveBosConfig } from "../utils/save-config";
+import { findWorkspaceRoot } from "../workspace";
 import { readInstalledFrameworkVersion } from "./framework-version";
 import {
   buildChildRootScripts,
@@ -75,8 +76,12 @@ function extractSemver(value: string | undefined): string | null {
   return match?.[0] ?? null;
 }
 
+function workspaceDirOf(projectDir: string): string {
+  return findWorkspaceRoot(projectDir)?.dir ?? projectDir;
+}
+
 function readRootPackageJson(projectDir: string): Record<string, unknown> {
-  return readJsonFile<Record<string, unknown>>(join(projectDir, "package.json"));
+  return readJsonFile<Record<string, unknown>>(join(workspaceDirOf(projectDir), "package.json"));
 }
 
 function readRootCatalogEntry(projectDir: string, packageName: string): string | undefined {
@@ -241,7 +246,7 @@ function syncRootCatalogWithParent(
   projectDir: string,
   parentCatalog: Record<string, string>,
 ): boolean {
-  const pkgPath = join(projectDir, "package.json");
+  const pkgPath = join(workspaceDirOf(projectDir), "package.json");
   const pkg = readJsonFile<Record<string, unknown>>(pkgPath);
   let modified = syncPackageObjectCatalogRefs(pkg, Object.keys(parentCatalog));
 
@@ -740,7 +745,8 @@ function setCatalogRef(field: Record<string, string> | undefined, packageName: s
 }
 
 async function findWorkspacePackageJsons(projectDir: string): Promise<string[]> {
-  const rootPkgPath = join(projectDir, "package.json");
+  const workspaceDir = workspaceDirOf(projectDir);
+  const rootPkgPath = join(workspaceDir, "package.json");
   if (!existsSync(rootPkgPath)) return [];
 
   const rootPkg = JSON.parse(readFileSync(rootPkgPath, "utf-8")) as Record<string, unknown>;
@@ -757,9 +763,9 @@ async function findWorkspacePackageJsons(projectDir: string): Promise<string[]> 
 
   const pkgPaths: string[] = [];
   for (const pattern of patterns) {
-    const matches = await glob(pattern, { cwd: projectDir, dot: false, absolute: false });
+    const matches = await glob(pattern, { cwd: workspaceDir, dot: false, absolute: false });
     for (const match of matches) {
-      const pkgPath = join(projectDir, match, "package.json");
+      const pkgPath = join(workspaceDir, match, "package.json");
       if (existsSync(pkgPath) && statSync(pkgPath).isFile()) {
         pkgPaths.push(pkgPath);
       }
@@ -771,7 +777,7 @@ async function findWorkspacePackageJsons(projectDir: string): Promise<string[]> 
 
 export async function migrateChildRootPackageJson(projectDir: string): Promise<boolean> {
   const configPath = join(projectDir, "bos.config.json");
-  const pkgPath = join(projectDir, "package.json");
+  const pkgPath = join(workspaceDirOf(projectDir), "package.json");
   if (!existsSync(configPath) || !existsSync(pkgPath)) {
     return false;
   }
@@ -1275,7 +1281,7 @@ export async function upgradeTemplate(
   options: UpgradeOptions,
 ): Promise<UpgradeResult> {
   const timings: PhaseTiming[] = [];
-  const pkgPath = join(projectDir, "package.json");
+  const pkgPath = join(workspaceDirOf(projectDir), "package.json");
   if (!existsSync(pkgPath)) {
     return {
       status: "error",
@@ -1386,13 +1392,15 @@ export async function upgradeTemplate(
   const needsInstall = (hasUpdates || hasCatalogUpdates) && !options.noInstall;
 
   if (needsInstall) {
-    await timePhase(timings, "install dependencies", () => runBunInstallForUpgrade(projectDir));
+    await timePhase(timings, "install dependencies", () =>
+      runBunInstallForUpgrade(workspaceDirOf(projectDir)),
+    );
   }
 
   // If we installed new framework packages, re-exec from the new package so migrations
   // run with the latest code instead of the old cached modules.
   if (needsInstall && hasFrameworkUpdates) {
-    const bosPath = join(projectDir, "node_modules", ".bin", "bos");
+    const bosPath = join(workspaceDirOf(projectDir), "node_modules", ".bin", "bos");
     const childArgs = [
       "upgrade",
       "--migrations-only",

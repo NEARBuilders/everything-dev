@@ -11,8 +11,7 @@ repos
 
 # Plans, scratch space, agent/IDE config — not needed in any image
 .scratch
-advisor-plans
-plans
+docs/plans
 .agents
 .opencode
 .cursor

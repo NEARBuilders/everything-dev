@@ -15,7 +15,7 @@ This repo now has one config *generator* per concern and several config *surface
 | script surface | human-authored | per-workspace `package.json` (reduced by ADR 0003) |
 | production URLs/integrity | pipeline-written | `bos.config.json` (written back by `reportDeployResult`) |
 
-`plans/beta-v2/composable.md` already commits to the destination: `App()` returns a pure typed descriptor, `bos dev` / `bos publish` import it, published JSON is auto-generated, alchemy owns deploy. This ADR extends that plan to absorb the **build-tooling** surfaces it did not yet cover, so that what remains human-authored is a single `app.ts` per repo.
+`docs/plans/beta-v2/composable.md` already commits to the destination: `App()` returns a pure typed descriptor, `bos dev` / `bos publish` import it, published JSON is auto-generated, alchemy owns deploy. This ADR extends that plan to absorb the **build-tooling** surfaces it did not yet cover, so that what remains human-authored is a single `app.ts` per repo.
 
 ## Target
 
@@ -63,5 +63,5 @@ const deployWorkspace = (ref: WorkspaceRef) => Effect.gen(function* () {
 ## Consequences
 
 - Sync-owned files shrink to `app.ts` (+ per-workspace package.json basics); `bos sync` concentrates on one authored shape.
-- Large orchestrator work is required in `everything-dev/src/cli` (init/sync/upgrade/publish/types-gen must read+generate from `app.ts`) — this is beta-v2 trunk work, tracked in the wayfinder ticket referenced from `plans/beta-v2/overview.md`, not bundled with ADRs 0002-0004.
-- The UI grafting plan (route grafting, mount points) composes *at runtime* and is orthogonal to the build surface; it is unaffected except that plugin web bundles will adopt the same composed stack when their build config is added (per `plans/beta-v2/ui.md`).
+- Large orchestrator work is required in `everything-dev/src/cli` (init/sync/upgrade/publish/types-gen must read+generate from `app.ts`) — this is beta-v2 trunk work, tracked in the wayfinder ticket referenced from `docs/plans/beta-v2/overview.md`, not bundled with ADRs 0002-0004.
+- The UI grafting plan (route grafting, mount points) composes *at runtime* and is orthogonal to the build surface; it is unaffected except that plugin web bundles will adopt the same composed stack when their build config is added (per `docs/plans/beta-v2/ui.md`).

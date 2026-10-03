@@ -2,7 +2,7 @@
 name: plugin-development
 description: Build, register, and deploy plugins within everything.dev. Covers the _template scaffold, contract/service/index pattern, database setup with Drizzle, bos.config.json registration, plugin UI/sidebar, and CLI workflow. Use when creating new plugins, adding database-backed routes, or deploying plugins to production.
 metadata:
-  sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,plugins/_template/rspack.config.js,plugins/_template/plugin.dev.ts,plugins/_template/src/db/schema.ts,plugins/_template/src/db/layer.ts,api/src/db/index.ts,api/src/db/migrator.ts,packages/every-plugin/src/plugin.ts"
+  sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,packages/every-plugin/src/build/rspack,plugins/_template/plugin.dev.ts,plugins/_template/src/db/schema.ts,plugins/_template/src/db/layer.ts,api/src/db/index.ts,api/src/db/migrate.ts,packages/every-plugin/src/plugin.ts"
 ---
 
 # Plugin Development

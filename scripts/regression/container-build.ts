@@ -208,7 +208,6 @@ if (!session?.config) {
   throw new Error("[container-build] config resolution returned no config");
 }
 const bosConfig = session.config;
-const resolvedConfigPath = path.join(root, ".bos", "bos.resolved-config.json");
 writeResolvedConfig(root, bosConfig, resolutionEnv, [...session.chain]);
 
 const localPlugins = Object.entries(bosConfig.plugins ?? {})
@@ -241,7 +240,7 @@ const build = () => {
   run("bun", ["run", "build:ssr"], "ui");
 
   console.log("[container-build] host dist…");
-  run("bun", ["run", "build"], "host", { BOS_CONFIG_PATH: resolvedConfigPath });
+  run("bun", ["run", "build"], "host");
 
   console.log("[container-build] api remote…");
   run("bun", ["run", "build"], "api");

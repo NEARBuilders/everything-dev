@@ -1784,7 +1784,7 @@ function MyComponent() {
 
 This repo ships agent workflow skills in \`.agents/skills/\` — the ordered development flow (grill → spec → tickets → implement/tdd → code-review). Start \`/everything-dev-app\` to orient and pick the right next step; \`/ask-matt\` is the router if unsure.
 
-- \`/grill-with-docs\` — sharpen an idea by interview, leaving a paper trail in \`CONTEXT.md\` and ADRs
+- \`/grill-with-docs\` — sharpen an idea by interview, leaving a paper trail in \`GLOSSARY.md\` and ADRs
 - \`/to-spec\` / \`/to-tickets\` — turn a plan into a spec, then tracer-bullet tickets under \`.scratch/<feature>/issues/\`
 - \`/implement\` + \`/tdd\` — build a ticket test-first at pre-agreed seams
 - \`/code-review\` — two-axis review (Standards + Spec) of the diff since a fixed point

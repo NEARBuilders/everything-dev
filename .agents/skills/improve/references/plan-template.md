@@ -8,7 +8,7 @@ Three properties make a plan executable by a weaker model:
 2. **Verification gates** — every step ends with a command and its expected result. The executor never has to *judge* whether it succeeded.
 3. **Hard boundaries and escape hatches** — explicit out-of-scope list, and "STOP and report" conditions instead of letting the model improvise when reality doesn't match the plan.
 
-File naming: `plans/NNN-short-slug.md`, numbered in recommended execution order.
+File naming: `docs/plans/NNN-short-slug.md`, numbered in recommended execution order.
 
 ---
 
@@ -21,7 +21,7 @@ File naming: `plans/NNN-short-slug.md`, numbered in recommended execution order.
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
 > report — do not improvise. When done, update the status row for this plan
-> in `plans/README.md` — unless a reviewer dispatched you and told you they
+> in `docs/plans/README.md` — unless a reviewer dispatched you and told you they
 > maintain the index.
 >
 > **Drift check (run first)**: `git diff --stat <planned-at SHA>..HEAD -- <in-scope paths>`
@@ -34,7 +34,7 @@ File naming: `plans/NNN-short-slug.md`, numbered in recommended execution order.
 - **Priority**: P1 | P2 | P3
 - **Effort**: S | M | L
 - **Risk**: LOW | MED | HIGH
-- **Depends on**: plans/NNN-*.md (or "none")
+- **Depends on**: docs/plans/NNN-*.md (or "none")
 - **Category**: bug | security | perf | tests | tech-debt | migration | dx | docs | direction
 - **Planned at**: commit `<short SHA>`, <YYYY-MM-DD>
 - **Issue**: <GitHub issue URL — only when published via `--issues`; omit otherwise>
@@ -57,7 +57,7 @@ The facts the executor needs, inlined — never "as discussed" or "see audit":
   "Error handling follows the Result pattern — see `src/lib/result.ts` and its
   use in `src/users/api.ts:40-60`. Match it."
 - Any documented vocabulary or design constraints the plan must honor, inlined
-  from the intent/design docs found in recon: the relevant `CONTEXT.md` terms
+  from the intent/design docs found in recon: the relevant `GLOSSARY.md` terms
   the executor should use in names and comments, the `DESIGN.md` tokens/components
   to reuse, or the ADR whose decision this work must stay consistent with. Quote
   the specific lines — the executor has not read those docs.
@@ -133,7 +133,7 @@ Machine-checkable. ALL must hold:
 - [ ] `pnpm test` exits 0; new tests for <X> exist and pass
 - [ ] `grep -rn "<old pattern>" src/` returns no matches
 - [ ] No files outside the in-scope list are modified (`git status`)
-- [ ] `plans/README.md` status row updated
+- [ ] `docs/plans/README.md` status row updated
 
 ## STOP conditions
 
@@ -157,7 +157,7 @@ For the human/agent who owns this code after the change lands:
 
 ---
 
-## Index file: `plans/README.md`
+## Index file: `docs/plans/README.md`
 
 Written once by the advisor after all plans, updated by executors:
 
