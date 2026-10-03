@@ -92,7 +92,10 @@ export async function proxyStaticAssetRequest(req: Request, targetBase: string):
   return response;
 }
 
-export function createStaticAssetProxyHandler(config: RuntimeConfig) {
+export function createStaticAssetProxyHandler(
+  config: RuntimeConfig,
+  getBaseConfig?: () => Promise<RuntimeConfig>,
+) {
   return async (c: Context<HonoEnv>, next: () => Promise<void>) => {
     const { pathname } = new URL(c.req.url);
 
@@ -112,7 +115,8 @@ export function createStaticAssetProxyHandler(config: RuntimeConfig) {
     }
 
     try {
-      const runtime = await resolveRequestRuntime(config, c.req.raw, {
+      const baseConfig = getBaseConfig ? await getBaseConfig() : config;
+      const runtime = await resolveRequestRuntime(baseConfig, c.req.raw, {
         verification: "stale-while-revalidate",
       });
       return await proxyStaticAssetRequest(c.req.raw, runtime.config.ui.url);

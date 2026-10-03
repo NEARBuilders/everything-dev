@@ -1,6 +1,5 @@
 import { BuildingsIcon, CheckIcon, PlusIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import type { Organization } from "@/app";
 import {
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -8,6 +7,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import type { Organization } from "@/lib/queries/organizations";
 import { OrgMark } from "./org-mark";
 import { useSwitchOrganization } from "./use-switch-organization";
 
@@ -45,11 +45,14 @@ export function OrgSwitcherMenuContent({
           <DropdownMenuItem
             key={org.id}
             onClick={() => handleSwitch(org.id)}
-            disabled={switchOrg.isPending}
+            disabled={switchOrg.isPending || org.status !== "active"}
             data-testid={`org-switcher-item-${org.id}`}
           >
             {itemVariant === "iconTile" && <OrgMark name={org.name} size="sm" />}
             <span className="min-w-0 flex-1 truncate">{org.name}</span>
+            {org.status !== "active" && (
+              <span className="text-xs text-muted-foreground">{org.status}</span>
+            )}
             {org.id === activeOrgId && <CheckIcon className="text-muted-foreground" />}
           </DropdownMenuItem>
         ))}

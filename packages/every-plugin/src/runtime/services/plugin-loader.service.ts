@@ -51,13 +51,11 @@ export const RegistryServiceDefault = Layer.effect(
           const entry = registry[pluginId];
 
           if (!entry) {
-            return yield* Effect.fail(
-              new PluginRuntimeError({
-                pluginId,
-                operation: "validate-plugin-id",
-                cause: new Error(`Plugin ${pluginId} not found in registry`),
-              }),
-            );
+            return yield* new PluginRuntimeError({
+              pluginId,
+              operation: "validate-plugin-id",
+              cause: new Error(`Plugin ${pluginId} not found in registry`),
+            });
           }
 
           if ("module" in entry) {
@@ -133,13 +131,11 @@ export const PluginLoaderServiceDefault = Layer.effect(
 
           const url = entry.metadata.remoteUrl;
           if (!url) {
-            return yield* Effect.fail(
-              new PluginRuntimeError({
-                pluginId,
-                operation: "load-plugin",
-                cause: new Error(`Plugin ${pluginId} has no module or remote URL configured`),
-              }),
-            );
+            return yield* new PluginRuntimeError({
+              pluginId,
+              operation: "load-plugin",
+              cause: new Error(`Plugin ${pluginId} has no module or remote URL configured`),
+            });
           }
 
           const resolvedUrl = resolveUrl(url);

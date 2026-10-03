@@ -56,7 +56,7 @@ function expectedTablesOf(migration) {
 export async function migrateTestDatabase({ migrationsDir, databaseUrl, schemaName, repoRoot }) {
   if (!databaseUrl) throw new Error("[migrate-test-db] databaseUrl is required");
   const root = repoRoot ?? findRepoRoot();
-  if (!root) throw new Error("bos.config.json not found in any parent directory");
+  if (!root) throw new Error("No authored config (bos.app.ts) found in any parent directory");
 
   const migrations = loadMigrationsFromDisk(resolve(root, migrationsDir));
   if (migrations.length === 0) return 0;

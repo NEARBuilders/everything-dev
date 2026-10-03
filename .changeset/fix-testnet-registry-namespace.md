@@ -1,6 +1,6 @@
 ---
 "everything-dev": patch
-"@everything-dev/apps-plugin": patch
+"@everything-dev/registry-plugin": patch
 ---
 
 Fix testnet FastKV registry namespace defaulting to mainnet account

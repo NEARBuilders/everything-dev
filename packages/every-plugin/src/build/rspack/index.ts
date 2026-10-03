@@ -3,17 +3,15 @@ export {
   isEffectCriticalSharedDep,
   type SharedDependencies,
   type SharedDependencyConfig,
-} from "../shared-deps";
+} from "../../shared-deps-spec";
+export { BuildReportPlugin } from "./build-report-plugin";
 export {
   createPluginBaseConfig,
-  EveryPluginComposedBuild,
-  type EveryPluginComposedBuildOptions,
   type PluginBaseConfig,
   type PluginBaseConfigOptions,
 } from "./compose";
 export { FixMfDataUriPlugin } from "./fix-mf-data-uri-plugin";
 export {
-  type AdditionalExport,
   EmitPluginManifest,
   EveryPluginBuild,
   type EveryPluginBuildOptions,

@@ -16,6 +16,8 @@ const harness = vi.hoisted(() => ({
   createAccountWithPasskey: vi.fn(),
   signInWithPasskey: vi.fn(),
   refreshSessionCache: vi.fn(),
+  deviceCode: vi.fn(),
+  deviceToken: vi.fn(),
 }));
 
 vi.mock("everything-dev/ui/auth", () => ({
@@ -26,11 +28,19 @@ vi.mock("everything-dev/ui/auth", () => ({
   isPasskeyAutofillAvailable: async () => false,
   isUnsupportedAuthenticatorError: (error: { code?: string }) =>
     error.code === "PASSKEY_UNSUPPORTED_AUTHENTICATOR",
-  useAuthClient: () => ({ near: { detectNearAccount: async () => null } }),
+  getDeviceLinkClientId: () => "test-client",
+  useAuthClient: () => ({
+    near: { detectNearAccount: async () => null },
+    device: { code: harness.deviceCode, token: harness.deviceToken },
+  }),
 }));
 
 vi.mock("better-near-auth/client", () => ({ isPasskeyWalletAvailable: () => true }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("qrcode", () => {
+  const toDataURL = vi.fn(async () => "data:image/png;base64,fake");
+  return { default: { toDataURL }, toDataURL };
+});
 
 function renderLogin(initialEntry = "/login?redirect=%2Forgs") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -141,5 +151,39 @@ describe("login page", () => {
     await screen.findByTestId("login.heading");
     expect(screen.queryByTestId("login.device-button")).toBeNull();
     expect(screen.getByTestId("near.signin-button")).toBeTruthy();
+  });
+
+  it("opens the pairing QR directly from the ?method=phone deep link", async () => {
+    harness.deviceCode.mockResolvedValue({
+      data: {
+        device_code: "dc-1",
+        user_code: "ABCD-2345",
+        verification_uri: "/login/device",
+        verification_uri_complete: "/login/device?user_code=ABCD-2345",
+        interval: 5,
+      },
+      error: null,
+    });
+    harness.deviceToken.mockResolvedValue({ data: null, error: null });
+
+    renderLogin("/login?method=phone");
+
+    expect((await screen.findByTestId("login.heading")).textContent).toBe(
+      "Sign in with your phone",
+    );
+    expect(screen.getByTestId("device.user-code").textContent).toBe("ABCD-2345");
+  });
+
+  it("ignores the ?method=phone deep link on mobile", async () => {
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    renderLogin("/login?method=phone");
+
+    expect((await screen.findByTestId("login.heading")).textContent).toBe("Sign in to CityNode");
+    expect(screen.queryByTestId("device.user-code")).toBeNull();
   });
 });

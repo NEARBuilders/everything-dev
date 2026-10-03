@@ -27,7 +27,7 @@ export const DatabaseLive = (url: string) =>
       );
 
       const storage = getMigrationStorage(slug);
-      const { migrations, source } = yield* loadMigrations();
+      const { migrations, source } = yield* loadMigrations;
 
       if (migrations.length === 0) {
         yield* Effect.logWarning(
@@ -56,33 +56,29 @@ export const DatabaseLive = (url: string) =>
           yield* Effect.logWarning(
             `[Database] Run \`bos db doctor ${storage.slug}\` to diagnose and \`bos db repair ${storage.slug}\` to fix.`,
           );
-          return yield* Effect.fail(
-            new DatabaseError({
-              stage: "migration",
-              migrationTag: "drift-safe-repair",
-              cause: new Error(
-                `Migration journal has ${drift.appliedHashes} applied hashes but all ${drift.expectedTables.length} expected table(s) are missing. ` +
-                  `Run \`bos db repair ${storage.slug}\` to reset the migration history and reapply migrations. ` +
-                  `Missing tables: ${drift.missingTables.join(", ")}`,
-              ),
-            }),
-          );
+          return yield* new DatabaseError({
+            stage: "migration",
+            migrationTag: "drift-safe-repair",
+            cause: new Error(
+              `Migration journal has ${drift.appliedHashes} applied hashes but all ${drift.expectedTables.length} expected table(s) are missing. ` +
+                `Run \`bos db repair ${storage.slug}\` to reset the migration history and reapply migrations. ` +
+                `Missing tables: ${drift.missingTables.join(", ")}`,
+            ),
+          });
         }
         if (drift.status === "drift-manual") {
           yield* Effect.logWarning(
             `[Database] ⚠️ Partial migration drift detected: ${drift.missingTables.length}/${drift.expectedTables.length} expected table(s) missing.`,
           );
-          return yield* Effect.fail(
-            new DatabaseError({
-              stage: "migration",
-              migrationTag: "drift-manual",
-              cause: new Error(
-                `Partial schema drift — ${drift.missingTables.length}/${drift.expectedTables.length} expected table(s) are missing. ` +
-                  `Run \`bos db doctor ${storage.slug}\` for details. Manual intervention required. ` +
-                  `Missing tables: ${drift.missingTables.join(", ")}`,
-              ),
-            }),
-          );
+          return yield* new DatabaseError({
+            stage: "migration",
+            migrationTag: "drift-manual",
+            cause: new Error(
+              `Partial schema drift — ${drift.missingTables.length}/${drift.expectedTables.length} expected table(s) are missing. ` +
+                `Run \`bos db doctor ${storage.slug}\` for details. Manual intervention required. ` +
+                `Missing tables: ${drift.missingTables.join(", ")}`,
+            ),
+          });
         }
       }
 

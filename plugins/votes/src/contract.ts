@@ -1,0 +1,121 @@
+import "@orpc/openapi/extensions/route";
+import { eventIterator, oc } from "@orpc/contract";
+import { BAD_REQUEST, NOT_FOUND, UNAUTHORIZED } from "every-plugin/errors";
+import { z } from "zod";
+export const VoteEventSchema = z.object({
+  type: z.enum(["upvote", "downvote"]),
+  entityId: z.string(),
+  userId: z.string(),
+  timestamp: z.string(),
+  totalCount: z.number().int().nonnegative(),
+});
+
+export const contract = oc.router({
+  upvote: oc
+    .route({ method: "POST", path: "/v1/upvotes" })
+    .input(z.object({ entityId: z.string() }))
+    .output(
+      z.object({
+        entityId: z.string(),
+        userId: z.string(),
+        totalCount: z.number().int().nonnegative(),
+      }),
+    )
+    .errors({ UNAUTHORIZED, BAD_REQUEST }),
+
+  downvote: oc
+    .route({ method: "DELETE", path: "/v1/upvotes/{entityId}" })
+    .input(z.object({ entityId: z.string() }))
+    .output(
+      z.object({
+        entityId: z.string(),
+        totalCount: z.number().int().nonnegative(),
+      }),
+    )
+    .errors({ UNAUTHORIZED, NOT_FOUND }),
+
+  getUpvoteCount: oc
+    .route({ method: "GET", path: "/v1/upvotes/{entityId}/count" })
+    .input(z.object({ entityId: z.string() }))
+    .output(
+      z.object({
+        entityId: z.string(),
+        totalCount: z.number().int().nonnegative(),
+      }),
+    ),
+
+  getUserVote: oc
+    .route({ method: "GET", path: "/v1/upvotes/{entityId}/me" })
+    .input(z.object({ entityId: z.string() }))
+    .output(
+      z.object({
+        entityId: z.string(),
+        hasUpvote: z.boolean(),
+      }),
+    )
+    .errors({ UNAUTHORIZED }),
+
+  getUserVotes: oc
+    .route({ method: "POST", path: "/v1/upvotes/me/batch" })
+    .input(z.object({ entityIds: z.array(z.string()).min(1).max(100) }))
+    .output(
+      z.record(
+        z.string(),
+        z.object({
+          entityId: z.string(),
+          hasUpvote: z.boolean(),
+        }),
+      ),
+    )
+    .errors({ UNAUTHORIZED }),
+
+  getUpvoteCounts: oc
+    .route({ method: "POST", path: "/v1/upvotes/counts" })
+    .input(z.object({ entityIds: z.array(z.string()).min(1).max(100) }))
+    .output(
+      z.record(
+        z.string(),
+        z.object({
+          entityId: z.string(),
+          totalCount: z.number().int().nonnegative(),
+        }),
+      ),
+    ),
+
+  getUpvoteFeed: oc
+    .route({
+      method: "GET",
+      path: "/v1/upvotes/feed",
+      summary: "Feed of recent upvotes (auth required)",
+    })
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(100).optional(),
+        cursor: z.string().optional(),
+      }),
+    )
+    .output(
+      z.object({
+        data: z.array(
+          z.object({
+            id: z.string(),
+            entityId: z.string(),
+            channel: z.string().describe("Hashed vote channel, not a user identifier"),
+            createdAt: z.iso.datetime(),
+          }),
+        ),
+        meta: z.object({
+          total: z.number().int().nonnegative(),
+          hasMore: z.boolean(),
+          nextCursor: z.string().nullable(),
+        }),
+      }),
+    )
+    .errors({ UNAUTHORIZED }),
+
+  subscribe: oc
+    .route({ method: "GET", path: "/v1/upvotes/stream" })
+    .output(eventIterator(VoteEventSchema)),
+});
+
+export type ContractType = typeof contract;

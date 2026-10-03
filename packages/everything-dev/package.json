@@ -36,6 +36,15 @@
       "import": "./dist/descriptor/index.mjs",
       "require": "./dist/descriptor/index.cjs"
     },
+    "./resolution": {
+      "development": {
+        "types": "./src/resolution/session.ts",
+        "import": "./src/resolution/session.ts"
+      },
+      "types": "./dist/resolution/session.d.mts",
+      "import": "./dist/resolution/session.mjs",
+      "require": "./dist/resolution/session.cjs"
+    },
     "./config": {
       "development": {
         "types": "./src/config.ts",
@@ -62,6 +71,25 @@
       "types": "./dist/bundle-cache.d.mts",
       "import": "./dist/bundle-cache.mjs",
       "require": "./dist/bundle-cache.cjs"
+    },
+    "./fingerprint": {
+      "types": "./src/fingerprint.ts",
+      "import": "./src/fingerprint.ts",
+      "require": "./src/fingerprint.ts"
+    },
+    "./version-manifest-resolve": {
+      "types": "./src/version-manifest-resolve.ts",
+      "import": "./src/version-manifest-resolve.ts",
+      "require": "./src/version-manifest-resolve.ts"
+    },
+    "./bundle-fs-resolve": {
+      "development": {
+        "types": "./src/bundle-fs-resolve.ts",
+        "import": "./src/bundle-fs-resolve.ts"
+      },
+      "types": "./dist/bundle-fs-resolve.d.mts",
+      "import": "./dist/bundle-fs-resolve.mjs",
+      "require": "./dist/bundle-fs-resolve.cjs"
     },
     "./fastkv": {
       "development": {
@@ -170,6 +198,15 @@
       "types": "./dist/ui/head.d.mts",
       "import": "./dist/ui/head.mjs",
       "require": "./dist/ui/head.cjs"
+    },
+    "./ui/i18n": {
+      "development": {
+        "types": "./src/ui/i18n.tsx",
+        "import": "./src/ui/i18n.tsx"
+      },
+      "types": "./dist/ui/i18n.d.mts",
+      "import": "./dist/ui/i18n.mjs",
+      "require": "./dist/ui/i18n.cjs"
     },
     "./ui/metadata": {
       "development": {
@@ -306,6 +343,10 @@
       "types": "./dist/db/index.d.mts",
       "import": "./dist/db/index.mjs",
       "require": "./dist/db/index.cjs"
+    },
+    "./ui/version-check": {
+      "types": "./src/ui/version-check.ts",
+      "import": "./src/ui/version-check.ts"
     }
   },
   "files": [
@@ -353,6 +394,8 @@
     "zod": "catalog:"
   },
   "peerDependencies": {
+    "@lingui/core": "catalog:",
+    "@lingui/react": "catalog:",
     "@better-auth/api-key": "catalog:",
     "@better-auth/passkey": "catalog:",
     "@orpc/client": "catalog:",
@@ -367,6 +410,12 @@
     "zod": "catalog:"
   },
   "peerDependenciesMeta": {
+    "@lingui/core": {
+      "optional": true
+    },
+    "@lingui/react": {
+      "optional": true
+    },
     "@better-auth/api-key": {
       "optional": true
     },
@@ -399,6 +448,8 @@
     }
   },
   "devDependencies": {
+    "@lingui/core": "catalog:",
+    "@lingui/react": "catalog:",
     "@better-auth/api-key": "catalog:",
     "@better-auth/passkey": "catalog:",
     "@module-federation/rsbuild-plugin": "catalog:",

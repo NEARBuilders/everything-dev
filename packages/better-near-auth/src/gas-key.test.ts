@@ -65,7 +65,7 @@ vi.mock("near-kit", () => ({
   InMemoryKeyStore: vi.fn(),
 }));
 
-vi.mock("@fastnear/near-connect", () => ({
+vi.mock("@hot-labs/near-connect", () => ({
   NearConnector: vi.fn().mockImplementation(function (
     this: unknown,
     { network }: { network: string },

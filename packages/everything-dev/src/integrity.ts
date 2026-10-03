@@ -164,23 +164,34 @@ function extractIntegrityHashes(config: Record<string, unknown>): Map<string, st
   const app = config.app as Record<string, Record<string, unknown>> | undefined;
   const plugins = config.plugins as Record<string, Record<string, unknown>> | undefined;
 
-  if (app) {
-    for (const [, entry] of Object.entries(app)) {
-      if (entry?.integrity && entry?.production) {
-        hashes.set(resolveEntryUrl(entry.production as string), entry.integrity as string);
-      }
-    }
-  }
-
-  if (plugins) {
-    for (const [, entry] of Object.entries(plugins)) {
-      if (entry?.integrity && entry?.production) {
-        hashes.set(resolveEntryUrl(entry.production as string), entry.integrity as string);
-      }
-    }
+  for (const entry of [...Object.values(app ?? {}), ...Object.values(plugins ?? {})]) {
+    if (!entry) continue;
+    const slotHash = slotHashOf(entry);
+    if (slotHash) hashes.set(slotHash.key, slotHash.hash);
   }
 
   return hashes;
+}
+
+/**
+ * The integrity anchor a slot contributes to local↔chain attestation: pinned
+ * slots anchor at the pinned manifest document (the pin's SRI), unpinned
+ * slots at their fixed-name entry (the direct entry SRI).
+ */
+function slotHashOf(entry: Record<string, unknown>): { key: string; hash: string } | null {
+  const production = entry.production;
+  if (typeof production !== "string") return null;
+  const pin = entry.pin as { manifest?: unknown; integrity?: unknown } | undefined;
+  if (pin && typeof pin.manifest === "string" && typeof pin.integrity === "string") {
+    return {
+      key: `${production.replace(/\/$/, "")}/${pin.manifest.replace(/^\//, "")}`,
+      hash: pin.integrity,
+    };
+  }
+  if (typeof entry.integrity === "string") {
+    return { key: resolveEntryUrl(production), hash: entry.integrity };
+  }
+  return null;
 }
 
 export async function verifyConfigAgainstChain(
@@ -226,6 +237,12 @@ export interface DeployResultEntry {
   integrity?: string;
   urlField: string;
   integrityField?: string;
+  /** A plain pipeline-state value (e.g. the built MF container name). */
+  value?: string;
+  valueField?: string;
+  /** Dotted paths deleted after applying this entry — clears stale
+   * pipeline-state fields (e.g. the retired flat `manifest` pointer). */
+  removeFields?: string[];
 }
 
 function setNestedPath(obj: Record<string, unknown>, dottedPath: string, value: unknown): void {
@@ -265,6 +282,12 @@ export function applyDeployResults(
       } else {
         deleteNestedPath(merged, result.integrityField);
       }
+    }
+    if (result.valueField && result.value !== undefined && result.value !== null) {
+      setNestedPath(merged, result.valueField, result.value);
+    }
+    for (const field of result.removeFields ?? []) {
+      deleteNestedPath(merged, field);
     }
   }
   return merged;

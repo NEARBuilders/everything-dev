@@ -5,6 +5,7 @@ const base: NextStepsState = {
   isAnonymous: false,
   hasPasskey: true,
   hasNear: false,
+  hasRealEmail: true,
   organizationCount: 1,
   activeOrganizationName: "Harbor",
   isAdmin: false,
@@ -29,11 +30,18 @@ describe("home next steps", () => {
     expect(ids({ organizationCount: 2, activeOrganizationName: null })[0]).toBe("choose-org");
   });
 
-  it("stays quiet once the user has an active organization", () => {
-    expect(ids({})).toEqual([]);
+  it("nudges a signed-in user without a real email to add one", () => {
+    expect(ids({ hasRealEmail: false })).toContain("add-email");
+    expect(ids({ hasRealEmail: true })).not.toContain("add-email");
+    expect(ids({ isAnonymous: true, hasRealEmail: false })).not.toContain("add-email");
   });
 
-  it("adds the admin queue for admins", () => {
-    expect(ids({ isAdmin: true })).toEqual(["admin"]);
+  it("offers Things once an organization is active", () => {
+    expect(ids({})).toEqual(["open-things"]);
+  });
+
+  it("adds the admin step for admins only", () => {
+    expect(ids({ isAdmin: true })).toEqual(["open-things", "admin"]);
+    expect(ids({ isAdmin: false })).not.toContain("admin");
   });
 });

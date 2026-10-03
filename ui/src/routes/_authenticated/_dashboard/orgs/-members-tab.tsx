@@ -1,4 +1,4 @@
-import { UserPlusIcon, UsersIcon } from "@phosphor-icons/react";
+import { DownloadSimpleIcon, UserPlusIcon, UsersIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Button, ConfirmDialog, EmptyState, SectionHeader, TabsContent } from "@/components";
 import { ItemGroup, ItemSeparator } from "@/components/ui/item";
@@ -6,15 +6,21 @@ import { type MemberCardMember, MemberRow, memberDisplayName } from "./-member-c
 
 export function MembersTab({
   canManageMembers,
+  canExportEmails,
+  isExportingEmails,
   isRemoving,
   members,
+  onExportEmails,
   onInvite,
   onRemove,
   sessionUserId,
 }: {
   canManageMembers: boolean;
+  canExportEmails?: boolean;
+  isExportingEmails?: boolean;
   isRemoving: boolean;
   members: MemberCardMember[];
+  onExportEmails?: () => void;
   onInvite?: () => void;
   onRemove: (member: MemberCardMember) => void;
   sessionUserId: string | undefined;
@@ -26,12 +32,31 @@ export function MembersTab({
       <SectionHeader
         title="Members"
         action={
-          canManageMembers && onInvite ? (
-            <Button variant="outline" size="sm" onClick={onInvite} data-testid="org-members-invite">
-              <UserPlusIcon />
-              Invite people
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {canExportEmails && onExportEmails ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onExportEmails}
+                disabled={isExportingEmails}
+                data-testid="org-members-export-emails"
+              >
+                <DownloadSimpleIcon />
+                Export emails
+              </Button>
+            ) : null}
+            {canManageMembers && onInvite ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onInvite}
+                data-testid="org-members-invite"
+              >
+                <UserPlusIcon />
+                Invite people
+              </Button>
+            ) : null}
+          </div>
         }
       />
       {members.length > 0 ? (

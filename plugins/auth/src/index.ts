@@ -14,6 +14,7 @@ import { createInvitationHandlers } from "./handlers/invitations";
 import { createMemberHandlers } from "./handlers/members";
 import { createNearHandlers } from "./handlers/near";
 import { createOnboardingHandlers } from "./handlers/onboarding";
+import { createOrganizationRequestHandlers } from "./handlers/organization-requests";
 import { createOrganizationHandlers } from "./handlers/organizations";
 import { createSessionHandlers } from "./handlers/session";
 import { createTeamHandlers } from "./handlers/teams";
@@ -48,7 +49,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         email: { resend: config.secrets.RESEND_API_KEY },
       });
 
-      console.log("[Auth] Better Auth instance created");
+      yield* Effect.log("[Auth] Better Auth instance created");
 
       return Layer.mergeAll(
         Layer.succeed(AuthServicesTag, {
@@ -71,6 +72,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
     return {
       ...createSessionHandlers(builder),
       ...createOrganizationHandlers(builder, requireAuth),
+      ...createOrganizationRequestHandlers(builder, requireAuth),
       ...createMemberHandlers(builder, requireAuth),
       ...createInvitationHandlers(builder, requireAuth),
       ...createApiKeyHandlers(builder, requireAuth),

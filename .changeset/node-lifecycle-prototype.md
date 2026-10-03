@@ -1,7 +1,7 @@
 ---
 "ui": minor
 "host": patch
-"@everything-dev/apps-plugin": patch
+"@everything-dev/registry-plugin": patch
 ---
 
 Rework the node lifecycle prototype at `/prototype-staking-poc` into a signer-aware clock with twelve ordered stations: apply, approve, publish the tenant, lock the endowment's NEAR, stake the pool from its lockup, stake the team's own NEAR, register the team wallet in veNEAR, assign the endowment's delegation, vote in House of Stake, unstake the pool, take the vote back, and unstake the team's stake. Each station declares its signer, so when the Trezu treasury changes between acts the row prompts you to connect before it can sign; one click runs everything the connected role can sign. DAO-signed actions are routed through the cycle as sputnik-dao proposals. Approving a staged proposal now always goes through the connected Trezu wallet — a mismatched treasury is disconnected and reconnected as the proposal's DAO before the vote is signed — and a station only reads done once none of its proposals still await votes; skipped stations say why. The admin "node applications" cleanup panel is gone.

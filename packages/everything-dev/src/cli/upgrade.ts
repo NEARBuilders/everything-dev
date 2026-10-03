@@ -4,8 +4,8 @@ import { join } from "node:path";
 import process from "node:process";
 import * as p from "@clack/prompts";
 import { glob } from "glob";
-import { loadResolvedConfig } from "../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../contract";
+import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { saveBosConfig } from "../utils/save-config";
 import { readInstalledFrameworkVersion } from "./framework-version";
@@ -1207,15 +1207,15 @@ async function runMigrationPhase(
   }
 
   await timePhase(timings, "sync shared deps", async () => {
-    const configResult = await loadResolvedConfig({ cwd: projectDir });
-    if (!configResult) {
+    const configSession = await openResolution({ cwd: projectDir });
+    if (!configSession?.config) {
       throw new Error("No bos.config.json found in current directory");
     }
 
     return syncResolvedSharedDeps({
       configDir: projectDir,
       hostMode: "local",
-      bosConfig: configResult.config,
+      bosConfig: configSession.config,
     });
   });
 

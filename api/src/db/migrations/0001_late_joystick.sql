@@ -1,1 +1,0 @@
-ALTER TABLE "tenants" ADD COLUMN "owner_kind" text DEFAULT 'platform' NOT NULL;

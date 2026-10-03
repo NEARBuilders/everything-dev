@@ -9,8 +9,14 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item";
+import { isSyntheticEmail } from "@/lib/synthetic-email";
 import { roleLabel } from "./-org-avatar";
 import { RowMenu } from "./-row-menu";
+
+function realEmail(email: string | null | undefined): string | null {
+  if (!email || isSyntheticEmail(email)) return null;
+  return email;
+}
 
 export interface MemberCardMember {
   id: string;
@@ -25,7 +31,7 @@ export interface MemberCardMember {
 }
 
 export function memberDisplayName(member: MemberCardMember | undefined, fallback: string) {
-  return member?.user?.name || member?.user?.email || fallback;
+  return member?.user?.name || realEmail(member?.user?.email) || fallback;
 }
 
 export function MemberAvatar({
@@ -58,7 +64,9 @@ export function MemberRow({
   onRemove?: () => void;
 }) {
   const name = memberDisplayName(member, member.userId);
-  const secondary = member.user?.name && member.user.email ? member.user.email : member.userId;
+  const secondary = member.user?.name
+    ? (realEmail(member.user?.email) ?? member.userId)
+    : member.userId;
 
   return (
     <Item size="sm" data-testid={`org-member-${member.userId}`}>

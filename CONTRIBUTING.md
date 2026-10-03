@@ -14,13 +14,13 @@ New here? Get onboarded and plugged in:
 ## Quick Setup
 
 ```bash
-cp .env.example .env      # First time only
 bun install               # Install dependencies
-docker compose up -d --wait   # Start local Postgres (api_db:5432, auth_db:5433)
 bun run dev               # Start development (host mode auto-detected)
 ```
 
-`bun db:migrate` is optional — the API and plugins auto-apply migrations on boot. Run it only to migrate without starting the dev server.
+That's it — on first run `bos dev` creates `.env` from `.env.example` (with a generated `BETTER_AUTH_SECRET`), and if local Postgres is down it starts it for you via `docker compose up -d --wait`. Docker must be installed and running.
+
+`bun run dev:postgres` starts the databases explicitly; `dev:postgres:down` / `dev:postgres:reset` manage them. `bun db:migrate` is optional — the API and plugins auto-apply migrations on boot.
 
 Visit http://localhost:3003 (UI), http://localhost:3001 (API), and http://localhost:3002 (Auth).
 
@@ -39,7 +39,7 @@ Visit http://localhost:3003 (UI), http://localhost:3001 (API), and http://localh
 
 Business logic lives in independent plugins. A plugin entry in `bos.config.json` can be **remote-only** (no `development: local:…` key) — the host/API consume it via `pluginsClient` and HTTP, and types resolve from the deployed manifest. Plugin source does not need to live in this repo.
 
-- **`plugins/apps/`** — Registry/discovery, FastKV app metadata (local in dev)
+- **`plugins/registry/`** — Registry/discovery, FastKV app metadata (local in dev)
 - **`plugins/_template/`** — Scaffold for new plugins
 - **Auth** — Extended remote plugin from `bos://auth.everything.near` (Better-Auth, NEAR SIWN, organizations, API keys)
 - **Proposals** — Remote-only plugin (production URL in `bos.config.json`); source lives in `NEARBuilders/nearbuilders.org`
@@ -192,6 +192,10 @@ Added new endpoint for user profiles
 - Add tests for new features
 - Use semantic Tailwind classes (see LLM.txt for style guide)
 - No code comments in implementation (code should be self-documenting)
+
+### Translations
+
+See [docs/i18n.md](./docs/i18n.md) for the locale architecture, message conventions, formatting rules, and the steps for adding a language.
 
 ### Linting
 

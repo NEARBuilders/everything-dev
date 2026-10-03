@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { createInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
@@ -14,26 +14,73 @@ let buildReady = false;
 
 loadHostTestEnv(workspaceRoot);
 
+/** The hashed SSR entry name from the ssr dist's build report — the fixed
+ * names were retired (atomic-deploys); the report is the discovery contract. */
+function ssrServerEntry(): string {
+  const reportPath = path.join(uiDir, "dist", "ssr", "build-report.json");
+  if (!existsSync(reportPath)) return "";
+  try {
+    const report = JSON.parse(readFileSync(reportPath, "utf8")) as { entry?: string };
+    const entry = typeof report.entry === "string" ? report.entry : "";
+    return entry && existsSync(path.join(uiDir, "dist", "ssr", entry)) ? entry : "";
+  } catch {
+    return "";
+  }
+}
+
 function ensureUiServerBuild() {
   if (buildReady) return;
 
-  const serverEntry = path.join(uiDir, "dist", "ssr", "remoteEntry.server.js");
-  if (existsSync(serverEntry)) {
+  if (ssrServerEntry()) {
     buildReady = true;
     return;
   }
 
-  const result = spawnSync("bun", ["run", "build"], {
-    cwd: uiDir,
-    stdio: "inherit",
-    env: { ...process.env, BUILD_TARGET: "server" },
-  });
+  // parallel vitest workers race here: only one may run the ui build — the
+  // others wait for the winner's output (rsbuild wipes dist, so a losing
+  // concurrent build both slows every worker and can serve a half-built dist)
+  const lockDir = path.join(uiDir, "dist", ".ssr-build-lock");
+  let locked = false;
+  try {
+    mkdirSync(path.join(uiDir, "dist"), { recursive: true });
+    mkdirSync(lockDir);
+    locked = true;
+  } catch {
+    // someone else is building — wait for their output (up to 90s)
+    const deadline = Date.now() + 90_000;
+    while (!ssrServerEntry() && Date.now() < deadline) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+    }
+    if (!ssrServerEntry()) {
+      rmSync(lockDir, { recursive: true, force: true });
+      locked = mkdirSyncSafe(lockDir);
+    }
+  }
 
-  if (result.status !== 0) {
-    throw new Error(`UI server build failed (exit ${result.status ?? "unknown"})`);
+  try {
+    const result = spawnSync("bun", ["run", "build"], {
+      cwd: uiDir,
+      stdio: "inherit",
+      env: { ...process.env, BUILD_TARGET: "server" },
+    });
+
+    if (result.status !== 0) {
+      throw new Error(`UI server build failed (exit ${result.status ?? "unknown"})`);
+    }
+  } finally {
+    if (locked) rmSync(lockDir, { recursive: true, force: true });
   }
 
   buildReady = true;
+}
+
+function mkdirSyncSafe(dir: string): boolean {
+  try {
+    mkdirSync(dir);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 let activeSsrLoader: {

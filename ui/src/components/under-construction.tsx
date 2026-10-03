@@ -1,9 +1,7 @@
-import { ArrowSquareOutIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, HammerIcon } from "@phosphor-icons/react";
 import { cn } from "cn";
 import type { ClientRuntimeConfig } from "everything-dev/types";
-import { motion } from "framer-motion";
 import { getRepository } from "@/app";
-import underConstructionImage from "@/assets/under-construction.gif";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface UnderConstructionProps {
@@ -51,7 +49,6 @@ export function UnderConstruction({
       <Tooltip>
         <TooltipTrigger
           className={cn("block cursor-pointer", className)}
-          style={{ perspective: 800 }}
           onClick={handleClick}
           data-pressed={pressed || undefined}
           aria-label={
@@ -64,33 +61,10 @@ export function UnderConstruction({
                 : "under construction - view source"
           }
         >
-          <motion.span
-            animate={
-              pressed
-                ? { scale: 0.95, rotateY: 0, z: -15 }
-                : {
-                    rotateY: [0, 12, 0, -12, 0],
-                    y: [0, -4, 0],
-                  }
-            }
-            transition={
-              pressed
-                ? { duration: 0.15 }
-                : {
-                    rotateY: { duration: 4, ease: "easeInOut", repeat: Infinity },
-                    y: { duration: 3, ease: "easeInOut", repeat: Infinity },
-                  }
-            }
-            whileTap={{ scale: 0.95, rotateY: 0, z: -15 }}
-            className="block"
-            style={{ transformStyle: "preserve-3d" }}
-          >
-            <img
-              src={underConstructionImage}
-              alt={label ? `${label} under construction` : "under construction"}
-              className="w-full h-auto rounded-xl border border-border object-cover shadow-lg"
-            />
-          </motion.span>
+          <span className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-muted px-3 py-4 text-center text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+            <HammerIcon className="size-5" aria-hidden="true" />
+            <span>In progress</span>
+          </span>
         </TooltipTrigger>
         {!skipNavigation && hasOutlink && (
           <TooltipContent side="top" sideOffset={6}>

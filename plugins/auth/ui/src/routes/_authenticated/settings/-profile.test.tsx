@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProfileSettings } from "./-components/profile-settings";
 
 const harness = vi.hoisted(() => ({
-  session: null as { user: { id: string; name: string; email: string } } | null,
+  session: null as {
+    user: { id: string; name: string; email: string; locale?: string | null };
+  } | null,
   updateUser: vi.fn(),
   getSession: vi.fn(),
   success: vi.fn(),
@@ -70,5 +72,39 @@ describe("profile settings", () => {
     await waitFor(() => expect(harness.updateUser).toHaveBeenCalledWith({ name: "New name" }));
     await waitFor(() => expect(queryClient.getQueryData(["session"])).toEqual(freshSession));
     expect(harness.success).toHaveBeenCalledWith("Profile updated");
+  });
+
+  it("saves the selected language to the user profile", async () => {
+    harness.session = {
+      user: {
+        id: "user-1",
+        name: "Tester",
+        email: "person@example.com",
+        locale: "en",
+      },
+    };
+    harness.getSession.mockImplementation(async () => ({ data: harness.session, error: null }));
+    harness.updateUser.mockImplementation(async ({ locale }: { locale: string }) => {
+      if (harness.session) {
+        harness.session = {
+          ...harness.session,
+          user: { ...harness.session.user, locale },
+        };
+      }
+      return { data: null, error: null };
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProfileSettings />
+      </QueryClientProvider>,
+    );
+
+    const selector = await screen.findByTestId("settings.language-select");
+    fireEvent.change(selector, { target: { value: "fr" } });
+
+    await waitFor(() => expect(harness.updateUser).toHaveBeenCalledWith({ locale: "fr" }));
+    await waitFor(() => expect(harness.success).toHaveBeenCalledWith("Language updated"));
   });
 });

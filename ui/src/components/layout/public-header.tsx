@@ -8,10 +8,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAppTranslation } from "@/i18n/runtime";
 import { ThemeToggle } from "./theme-toggle";
 import { UserNav } from "./user-nav";
 
-const PUBLIC_LINKS = [{ label: "Docs", to: "/about", icon: BookOpenIcon, slug: "docs" }] as const;
+const PUBLIC_LINKS = [
+  { message: "nav.docs", to: "/about", icon: BookOpenIcon, slug: "docs" },
+] as const;
 
 interface PublicHeaderProps {
   focused?: boolean;
@@ -25,6 +28,7 @@ function isActive(pathname: string, to: string) {
 
 export function PublicHeader({ focused = false, showSignIn = true }: PublicHeaderProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const t = useAppTranslation();
   return (
     <header
       className="sticky top-0 z-20 shrink-0 border-b border-border bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/85"
@@ -33,14 +37,14 @@ export function PublicHeader({ focused = false, showSignIn = true }: PublicHeade
       <div className="mx-auto flex h-16 w-full max-w-7xl items-center gap-2 px-4 sm:px-8">
         <Link
           to="/"
-          aria-label="everything.dev home"
+          aria-label={t("nav.home")}
           data-testid="public-header-home"
           className="mr-2 shrink-0 rounded-md sm:mr-6 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           <Logo mark={false} size="lg" />
         </Link>
         {!focused && (
-          <nav aria-label="Main navigation" className="hidden items-center gap-1 sm:flex">
+          <nav aria-label={t("nav.main")} className="hidden items-center gap-1 sm:flex">
             {PUBLIC_LINKS.map((link) => (
               <Button
                 key={link.to}
@@ -55,7 +59,7 @@ export function PublicHeader({ focused = false, showSignIn = true }: PublicHeade
                   />
                 }
               >
-                {link.label}
+                {t(link.message)}
               </Button>
             ))}
           </nav>
@@ -66,7 +70,7 @@ export function PublicHeader({ focused = false, showSignIn = true }: PublicHeade
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={<Button variant="ghost" size="icon" className="sm:hidden" />}
-                aria-label="Open menu"
+                aria-label={t("nav.menu")}
                 data-testid="public-nav-menu"
               >
                 <ListIcon />
@@ -75,7 +79,7 @@ export function PublicHeader({ focused = false, showSignIn = true }: PublicHeade
                 {PUBLIC_LINKS.map((link) => (
                   <DropdownMenuItem key={link.to} render={<Link to={link.to} />}>
                     <link.icon />
-                    {link.label}
+                    {t(link.message)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>

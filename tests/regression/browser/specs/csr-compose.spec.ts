@@ -30,25 +30,40 @@ test.describe("CSR compose", () => {
       const config = (
         window as {
           __RUNTIME_CONFIG__?: {
-            ui?: { compose?: { remotes?: Array<{ key: string; entry: string }> } };
+            ui?: {
+              compose?: {
+                remotes?: Array<{ key: string; entry: string }>;
+                manifests?: Array<{ name: string }>;
+              };
+            };
           };
         }
       ).__RUNTIME_CONFIG__;
       return config?.ui?.compose ?? null;
     });
     expect(compose, "CSR shell must carry a compose payload").toBeTruthy();
-    const authRemote = compose!.remotes?.find((remote) => remote.key === "auth");
-    expect(authRemote, "auth ui remote must be in the payload").toBeTruthy();
+    // Remotes are keyed by their manifest's composition name — assert the
+    // plugin remote through the payload's own identity (manifest agreement),
+    // not a config label.
+    const pluginRemote = compose!.remotes?.find((remote) =>
+      (compose!.manifests ?? []).some((manifest) => manifest.name === remote.key),
+    );
+    expect(pluginRemote, "auth ui remote must be in the payload").toBeTruthy();
 
     // The runtime registers the remote via its mf-manifest.json (the entry
-    // URL's remoteEntry.js is rewritten to it in hydrate) — that manifest
-    // fetch is the exact point the client compose previously failed.
-    const manifestUrl = authRemote!.entry.replace(/\/?remoteEntry\.js$/, "/mf-manifest.json");
+    // URL's remoteEntry[.hash].js is rewritten to it in hydrate) — that
+    // manifest fetch is the exact point the client compose previously failed.
+    // The hash segment is optional: dev stacks serve the fixed dev entry,
+    // pinned (start) stacks serve the content-hashed entry.
+    const manifestUrl = pluginRemote!.entry.replace(
+      /\/?remoteEntry(\.[a-f0-9]+)?\.js$/,
+      "/mf-manifest.json",
+    );
     const entryStatus = await page.evaluate(async (url: string) => {
       const response = await fetch(url, { method: "GET" });
       return response.status;
     }, manifestUrl);
-    expect(entryStatus, `auth mf-manifest at ${manifestUrl}`).toBe(200);
+    expect(entryStatus, `plugin mf-manifest at ${manifestUrl}`).toBe(200);
 
     // The tree was constructed from core + auth manifests (2 sources). The
     // progress array is the reliable signal: mark() only console-logs in DEV
@@ -75,6 +90,31 @@ test.describe("CSR compose", () => {
     await expect(page.getByTestId("login.heading")).toBeVisible({ timeout: 15000 });
     const pathname = new URL(page.url()).pathname;
     expect(pathname).toBe("/login");
+  });
+
+  test("the login language persists across reloads", async ({ context, page }) => {
+    await context.clearCookies();
+    await page.goto("/login", { waitUntil: "domcontentloaded" });
+    await waitForApp(page);
+
+    const selector = page.getByTestId("login.language-select");
+    await expect(selector).toBeVisible({ timeout: 15000 });
+    await selector.selectOption("es");
+
+    await expect(page.getByTestId("login.heading")).toHaveText("Inicia sesión en CityNode");
+    await expect(page.getByTestId("login.device-button")).toHaveText(
+      "Iniciar sesión con tu teléfono",
+    );
+    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+
+    const savedLocale = await context.cookies();
+    expect(savedLocale.find((cookie) => cookie.name === "citynode_locale")?.value).toBe("es");
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await waitForApp(page);
+
+    await expect(page.getByTestId("login.language-select")).toHaveValue("es");
+    await expect(page.getByTestId("login.heading")).toHaveText("Inicia sesión en CityNode");
   });
 
   test("an account path renders the account page, not the sign-in page", async ({ page }) => {

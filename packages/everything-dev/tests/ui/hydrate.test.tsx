@@ -46,7 +46,7 @@ vi.mock("@module-federation/enhanced/runtime", () => ({
 }));
 vi.mock("../../src/ui/manifest", () => ({
   constructTree: composeMocks.constructTree,
-  ComposePayloadSchema: { parse: (payload: unknown) => payload },
+  ComposePayloadSchema: { safeParse: (payload: unknown) => ({ success: true, data: payload }) },
   CORE_UI_PLUGIN_KEY: "ui",
 }));
 
@@ -190,6 +190,7 @@ describe("client bootstrap", () => {
   });
 
   it("falls back to the core-only tree when a plugin route config fails to load", async () => {
+    document.documentElement.setAttribute("data-everything-ssr", "");
     bootstrap.config = composeConfig();
     composeMocks.loadRemote.mockRejectedValue(new Error("remote down"));
     composeMocks.constructTree.mockImplementation(
@@ -204,20 +205,42 @@ describe("client bootstrap", () => {
 
     await runHydrate(bootstrap.config);
 
+    // The degraded compose must still hand the router a REAL tree — the
+    // core-only construction (core manifest + core route config, no remotes)
+    // — never `undefined` (a router without a tree crashes on `__root__`).
+    expect(composeMocks.constructTree).toHaveBeenCalledTimes(2);
+    const fallbackInput = composeMocks.constructTree.mock.calls[1]![0] as {
+      name: string;
+      plugins: Array<{ key: string; mfName: string }>;
+    };
+    expect(fallbackInput.name).toBe("core-fallback");
+    expect(fallbackInput.plugins).toEqual([{ key: "ui", mfName: "ui" }]);
     expect(bootstrap.createRouter).toHaveBeenCalledWith(
-      expect.objectContaining({ routeTree: undefined }),
+      expect.objectContaining({ routeTree: { id: "composed-tree" } }),
     );
+    // Degraded compose must never hydrate over SSR'd HTML — client-render.
+    expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
+    expect(bootstrap.render).toHaveBeenCalledOnce();
   });
 
   it("falls back to the core-only tree on compose digest mismatch", async () => {
     bootstrap.config = composeConfig();
     composeMocks.loadRemote.mockResolvedValue({ routeConfigLoaders: {} });
-    composeMocks.constructTree.mockResolvedValue({ ...composedTree(), digest: "stale-digest" });
+    composeMocks.constructTree
+      .mockResolvedValueOnce({ ...composedTree(), digest: "stale-digest" })
+      .mockResolvedValueOnce(composedTree());
 
     await runHydrate(bootstrap.config);
 
+    expect(composeMocks.constructTree).toHaveBeenCalledTimes(2);
+    const fallbackInput = composeMocks.constructTree.mock.calls[1]![0] as {
+      plugins: Array<{ key: string; mfName: string }>;
+    };
+    expect(fallbackInput.plugins).toEqual([{ key: "ui", mfName: "ui" }]);
     expect(bootstrap.createRouter).toHaveBeenCalledWith(
-      expect.objectContaining({ routeTree: undefined }),
+      expect.objectContaining({ routeTree: { id: "composed-tree" } }),
     );
+    expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
+    expect(bootstrap.render).toHaveBeenCalledOnce();
   });
 });

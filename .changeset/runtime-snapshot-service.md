@@ -1,0 +1,5 @@
+---
+"everything-dev": minor
+---
+
+Atomic deploys tickets 05-06: (1) an aborted deploy train is now a structured `{status:"error"}` — upload failures no longer propagate raw out of `bos deploy`, and the train-level tracer (real `publishToFastKv` against a mock storage origin with batch-500 and socket-kill injections) proves the previously published version stays fully live: pointer untouched, pinned bytes byte-identical + SRI-verified, retention across a completed v2 switch. (2) The host gains a `RuntimeSnapshot` service — an atomic Ref over the UI/SSR base state (config + compose state + deployment fingerprint) with `get`/`swap`/`modify` (a throwing modify leaves the state untouched); the SSR fallback and static-asset request paths resolve per-request against the snapshot's current base config via the new `getBaseConfig` seam, so in-flight requests keep the state they captured (session-level blue/green) and ticket 07's swap coordinator can adopt a new published pointer without a restart.

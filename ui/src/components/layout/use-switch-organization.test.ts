@@ -85,4 +85,20 @@ describe("organization switching", () => {
     expect(harness.setQueryData).toHaveBeenCalledWith(["session"], freshSession);
     expect(harness.invalidateRouter).toHaveBeenCalledOnce();
   });
+
+  it("refetches organization data scoped to the newly active organization", async () => {
+    harness.getSession.mockResolvedValue({
+      data: { session: { activeOrganizationId: "org-2" }, user: { id: "user-1" } },
+      error: null,
+    });
+
+    useSwitchOrganization();
+    await harness.options?.mutationFn("org-2");
+    await harness.options?.onSuccess();
+
+    expect(harness.invalidateQueries).toHaveBeenCalledWith(
+      { queryKey: ["organizations"], refetchType: "active" },
+      { throwOnError: true },
+    );
+  });
 });

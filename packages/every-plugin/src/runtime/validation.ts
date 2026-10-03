@@ -13,11 +13,9 @@ export const validate = <T>(
     if (result.success) {
       return result.data;
     }
-    return yield* Effect.fail(
-      new ValidationError({
-        pluginId,
-        stage,
-        zodError: result.error,
-      }),
-    );
+    return yield* new ValidationError({
+      pluginId,
+      stage,
+      zodError: result.error,
+    });
   });

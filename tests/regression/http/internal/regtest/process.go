@@ -135,7 +135,7 @@ func lookupEnv(env []string, key string) (string, bool) {
 // ResetPluginDatabases drops each local plugin's isolated schema
 // (plugin_<slug>) so every run starts from clean plugin state. The
 // drizzle_migrations journal lives inside the plugin schema, so one drop
-// fully resets it. Generic for whatever plugins bos.config.json declares.
+// fully resets it. Generic for whatever plugins the config declares.
 func ResetPluginDatabases() {
 	workdir, err := findRepoRoot()
 	if err != nil {
@@ -154,7 +154,7 @@ func ResetPluginDatabases() {
 
 // killStalePorts frees every port the target stack can bind. The list comes
 // from the repo-derived config (base service ports plus one or two plugin
-// ports per local plugin), so it tracks whatever bos.config.json declares.
+// ports per local plugin), so it tracks whatever the config declares.
 func killStalePorts(cfg *Config) {
 	ports := cfg.StalePorts
 	if len(ports) == 0 {
@@ -188,6 +188,9 @@ func findRepoRoot() (string, error) {
 		return "", err
 	}
 	for {
+		if _, err := os.Stat(filepath.Join(dir, "bos.app.ts")); err == nil {
+			return dir, nil
+		}
 		if _, err := os.Stat(filepath.Join(dir, "bos.config.json")); err == nil {
 			return dir, nil
 		}

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
-import { Data, Deferred, Effect, Option, Ref, Stream } from "effect";
+import { Data, Deferred, Effect, Option, Ref, Schedule, Stream } from "effect";
 import { stripAnsi } from "./dev-log-pipeline";
 import { ShellEnv } from "./env/project-env";
 import { patchManifestFetchForSsrPublicPath } from "./mf";
@@ -11,6 +11,12 @@ import {
   ServiceDescriptorMap,
 } from "./service-descriptor";
 import type { RuntimeConfig } from "./types";
+
+const warnOutsideEffect = (...args: unknown[]): void => {
+  console.warn(...args);
+};
+
+const runFetch = (url: string, init?: RequestInit): Promise<Response> => fetch(url, init);
 
 process.on("unhandledRejection", (reason) => {
   console.error("[Orchestrator] Unhandled rejection:", reason);
@@ -47,15 +53,11 @@ export interface ProcessState {
 const probeHttpOk = (url: string, timeoutMs = 400) =>
   Effect.tryPromise({
     try: async () => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const res = await fetch(url, { signal: controller.signal });
+        const res = await runFetch(url, { signal: AbortSignal.timeout(timeoutMs) });
         return res.ok;
       } catch {
         return false;
-      } finally {
-        clearTimeout(timer);
       }
     },
     catch: () => false,
@@ -205,13 +207,11 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     const entryUrl = yield* Effect.tryPromise({
       try: async () => {
         try {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 10_000);
           let res: Response;
           try {
-            res = await fetch(manifestUrl, { signal: controller.signal });
-          } finally {
-            clearTimeout(timer);
+            res = await runFetch(manifestUrl, { signal: AbortSignal.timeout(10_000) });
+          } catch {
+            throw new Error("manifest fetch failed");
           }
           if (!res.ok) return remoteEntryUrl;
           const json = (await res.json()) as Record<string, unknown>;
@@ -225,7 +225,7 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
             return manifestUrl;
           }
         } catch (e) {
-          console.warn(
+          warnOutsideEffect(
             `[Orchestrator] Failed to fetch or parse manifest from ${manifestUrl}, falling back to remoteEntryUrl: ${e}`,
           );
         }
@@ -423,28 +423,24 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
 
     yield* Effect.forkScoped(
       Effect.gen(function* () {
-        const deadline = Date.now() + LOCAL_PROBE_DEADLINE_MS;
-
-        if (port > 0) {
-          const readinessPath = descriptor.readinessPath;
-          const url = `http://127.0.0.1:${port}${readinessPath}`;
-          while (Date.now() < deadline) {
-            const status = yield* Ref.get(statusRef);
-            if (status === "ready" || status === "error") return;
-            const ok = yield* probeHttpOk(url);
-            if (ok) {
-              yield* markReady;
-              return;
-            }
-            yield* Effect.sleep(`${LOCAL_PROBE_INTERVAL_MS} millis`);
-          }
-        } else {
-          while (Date.now() < deadline) {
-            const status = yield* Ref.get(statusRef);
-            if (status === "ready" || status === "error") return;
-            yield* Effect.sleep("500 millis");
-          }
-        }
+        const readinessPath = descriptor.readinessPath;
+        const url = `http://127.0.0.1:${port}${readinessPath}`;
+        const readinessCheck = Effect.gen(function* () {
+          const status = yield* Ref.get(statusRef);
+          if (status === "ready" || status === "error") return true;
+          if (port <= 0) return false;
+          const ok = yield* probeHttpOk(url);
+          if (ok) yield* markReady;
+          return ok;
+        });
+        const ready = yield* Effect.repeat(readinessCheck, {
+          schedule: Schedule.spaced(`${port > 0 ? LOCAL_PROBE_INTERVAL_MS : 500} millis`),
+          until: (done) => done,
+        }).pipe(
+          Effect.timeout(`${LOCAL_PROBE_DEADLINE_MS} millis`),
+          Effect.catchTag("TimeoutError", () => Effect.succeed(false)),
+        );
+        if (ready) return;
 
         const status = yield* Ref.get(statusRef);
         if (status !== "ready" && status !== "error") {
@@ -601,29 +597,34 @@ const spawnRemoteProbe = (
 
     yield* Effect.forkScoped(
       Effect.gen(function* () {
-        const deadline = Date.now() + REMOTE_PROBE_DEADLINE_MS;
-        let delay = REMOTE_PROBE_BACKOFF_INITIAL_MS;
-        while (Date.now() < deadline) {
+        const readinessCheck = Effect.gen(function* () {
           const status = yield* Ref.get(statusRef);
-          if (status === "ready" || status === "error") return;
+          if (status === "ready" || status === "error") return true;
 
           const ok = yield* probeHttpOk(probeUrl, REMOTE_PROBE_TIMEOUT_MS);
-
           if (ok) {
             yield* markReady;
-            return;
+            return true;
           }
 
           const fallbackOk = yield* probeHttpOk(entryUrl, REMOTE_PROBE_TIMEOUT_MS);
-
           if (fallbackOk) {
             yield* markReady;
-            return;
+            return true;
           }
-
-          yield* Effect.sleep(`${delay} millis`);
-          delay = Math.min(Math.round(delay * 1.5), REMOTE_PROBE_BACKOFF_MAX_MS);
-        }
+          return false;
+        });
+        const ready = yield* Effect.repeat(readinessCheck, {
+          schedule: Schedule.min([
+            Schedule.exponential(`${REMOTE_PROBE_BACKOFF_INITIAL_MS} millis`, 1.5),
+            Schedule.spaced(`${REMOTE_PROBE_BACKOFF_MAX_MS} millis`),
+          ]),
+          until: (done) => done,
+        }).pipe(
+          Effect.timeout(`${REMOTE_PROBE_DEADLINE_MS} millis`),
+          Effect.catchTag("TimeoutError", () => Effect.succeed(false)),
+        );
+        if (ready) return;
 
         const status = yield* Ref.get(statusRef);
         if (status !== "ready") {

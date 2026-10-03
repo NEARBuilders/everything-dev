@@ -36,7 +36,7 @@ describe("onboarding handlers", () => {
 
     expect(result.code).toHaveLength(43);
     expect(result.eventName).toBe("Launch Night");
-    expect(result.maxUses).toBe(50);
+    expect(result.maxUses).toBe(300);
     expect(result.usedCount).toBe(0);
 
     const team = await services.services.db.query.team.findFirst({
@@ -208,6 +208,27 @@ describe("onboarding handlers", () => {
     });
 
     expect(again.alreadyRedeemed).toBe(true);
+
+    const drifted = await services.services.db.query.session.findFirst({
+      where: eq(schema.session.userId, newcomer.userId),
+    });
+    expect(drifted?.activeOrganizationId).toBe(org.id);
+
+    await services.services.db
+      .update(schema.session)
+      .set({ activeOrganizationId: null })
+      .where(eq(schema.session.userId, newcomer.userId));
+
+    const revisit = await handlers.onboarding.redeemOnboardingCode({
+      input: { code: code.code },
+      context: { reqHeaders: newcomer.reqHeaders },
+    });
+    expect(revisit.alreadyRedeemed).toBe(true);
+
+    const session = await services.services.db.query.session.findFirst({
+      where: eq(schema.session.userId, newcomer.userId),
+    });
+    expect(session?.activeOrganizationId).toBe(org.id);
 
     const status = await handlers.onboarding.getOnboardingStatus({
       input: { codeId: code.id, organizationId: org.id },

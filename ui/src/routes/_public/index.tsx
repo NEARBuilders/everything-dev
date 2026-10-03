@@ -1,106 +1,111 @@
+import { ArrowRightIcon, ArrowUpRightIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { getActiveRuntime, getGatewayId } from "@/app";
-import { Button, UnderConstruction } from "@/components";
+import { getAppName, getRepository } from "@/app";
+import { Button, SectionHeader } from "@/components";
 import { PageContainer } from "@/components/layout/page-container";
 
+const STEPS = [
+  {
+    title: "Compose",
+    body: "Assemble your app from published plugins — auth, registry, proposals, votes, and more load through a shared runtime.",
+  },
+  {
+    title: "Own your runtime",
+    body: "Your config is published on-chain under your account. Deploy your own instance that extends the base platform.",
+  },
+  {
+    title: "Extend the platform",
+    body: "Build plugins with oRPC contracts and Effect services, then publish them for every runtime to compose.",
+  },
+];
+
 export const Route = createFileRoute("/_public/")({
-  head: () => ({
+  loader: async ({ context }) => {
+    return { runtimeConfig: context.runtimeConfig };
+  },
+  head: ({ loaderData }) => ({
     meta: [
-      { title: "everything.dev | Runtime composition on NEAR" },
+      {
+        title: getAppName(loaderData?.runtimeConfig),
+      },
       {
         name: "description",
         content:
-          "everything.dev is an open runtime for apps on NEAR, composed from published config and loaded at runtime.",
+          "Open runtime for apps on NEAR — compose published plugins, own your runtime config, and extend the platform.",
       },
     ],
   }),
-  component: Landing,
+  component: LandingPage,
 });
 
-const subtitles = [
-  <>
-    An open runtime for apps on{" "}
-    <a
-      href="https://near.org"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="underline hover:text-foreground transition-colors"
-    >
-      NEAR
-    </a>
-  </>,
-  <>an upgradable runtime for a verifiable internet</>,
-  <>in pursuit of the open web.</>,
-];
-
-function Landing() {
-  const { runtimeConfig } = Route.useRouteContext();
-  const [subtitleIndex, setSubtitleIndex] = useState(0);
-  const activeRuntime = getActiveRuntime(runtimeConfig);
-  const runtimeLabel = activeRuntime
-    ? `${activeRuntime.accountId} / ${activeRuntime.gatewayId}`
-    : runtimeConfig?.account
-      ? `${runtimeConfig.account} / ${getGatewayId(runtimeConfig) || "gateway"}`
-      : "runtime / host";
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setSubtitleIndex((i) => (i + 1) % subtitles.length);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
+function LandingPage() {
+  const { runtimeConfig } = Route.useLoaderData();
+  const title = getAppName(runtimeConfig);
+  const repository = getRepository(runtimeConfig);
 
   return (
-    <PageContainer variant="wide" className="items-center gap-16 pb-16">
-      <div className="flex max-w-3xl flex-col items-center text-center">
-        <p className="font-mono text-xs uppercase tracking-[0.28em] text-muted-foreground">
-          {runtimeLabel}
+    <PageContainer variant="wide" className="gap-20 sm:gap-24">
+      <section className="flex max-w-3xl flex-col gap-6 pt-4 sm:pt-10">
+        <h1 className="text-5xl font-semibold text-balance text-foreground sm:text-6xl">{title}</h1>
+        <p className="max-w-xl text-lg text-muted-foreground">
+          Open runtime for apps on NEAR — compose published plugins, own your runtime config, and
+          extend the platform with your own deployments.
         </p>
-
-        <h1 className="mt-4 text-5xl font-semibold tracking-tight sm:text-7xl">everything.dev</h1>
-
-        <div className="mt-2 flex min-h-[1.75rem] items-center justify-center sm:min-h-[2rem]">
-          <p key={subtitleIndex} className="animate-subtitle-cycle text-lg sm:text-xl">
-            {subtitles[subtitleIndex]}
-          </p>
-        </div>
-
-        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-          Published config composes the host, UI, and API at runtime. The runtime is published from
-          NEAR, can share a stable host, and leaves room for new interfaces, plugins, and composed
-          applications to grow around the same core record.
-        </p>
-
-        <div className="mt-5 flex flex-wrap items-start justify-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <Button
             size="lg"
             nativeButton={false}
-            render={<Link to="/launch" data-testid="landing-launch" preload="intent" />}
+            render={<Link to="/about" data-testid="landing-about" />}
           >
-            Launch a node
+            Learn more
+            <ArrowRightIcon />
           </Button>
-          <div className="group relative flex flex-col items-center">
-            <Button size="lg" variant="outline" nativeButton={false} render={<Link to="/about" />}>
-              about
-            </Button>
-            <a
-              href="/skill.md"
-              className="absolute top-full mt-1 whitespace-nowrap font-mono text-[11px] text-muted-foreground opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:text-foreground"
-            >
-              for your agent: skill.md
-            </a>
-          </div>
+          <Button
+            size="lg"
+            variant="outline"
+            nativeButton={false}
+            render={<Link to="/dashboard" data-testid="landing-open" />}
+          >
+            Open the app
+          </Button>
         </div>
-      </div>
+      </section>
 
-      <div className="flex w-full justify-center" data-testid="landing-construction">
-        <UnderConstruction className="max-w-sm" />
-      </div>
+      <section className="flex flex-col gap-6" data-testid="landing-steps">
+        <SectionHeader title="How it works" />
+        <ol className="grid gap-8 sm:grid-cols-3">
+          {STEPS.map((step, index) => (
+            <li key={step.title} className="flex flex-col gap-3">
+              <h3 className="text-lg font-medium text-foreground">
+                <span className="text-muted-foreground">{index + 1}. </span>
+                {step.title}
+              </h3>
+              <p className="text-sm text-muted-foreground">{step.body}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
 
-      <p className="max-w-md text-center text-xs text-muted-foreground">
-        Software that stays portable, inspectable, and continuously built over time.
-      </p>
+      {repository && (
+        <section className="flex flex-col gap-6 border-t border-border pt-12 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-1">
+            <h2 className="text-xl font-semibold text-foreground">Open source</h2>
+            <p className="text-sm text-muted-foreground">{repository}</p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button
+              variant="ghost"
+              nativeButton={false}
+              render={(props) => (
+                <a {...props} href={repository} target="_blank" rel="noopener noreferrer" />
+              )}
+            >
+              View the repository
+              <ArrowUpRightIcon />
+            </Button>
+          </div>
+        </section>
+      )}
     </PageContainer>
   );
 }

@@ -60,7 +60,7 @@ export async function createPasskeySignUpUser(
   const created = await ctx.context.internalAdapter.createUser({
     email: `passkey-${crypto.randomUUID().slice(0, 8)}@${emailDomain}`,
     name: "Passkey user",
-    emailVerified: true,
+    emailVerified: false,
   });
   if (!created) {
     throw new APIError("INTERNAL_SERVER_ERROR", { message: "Failed to create user" });

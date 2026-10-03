@@ -9,7 +9,7 @@ import (
 )
 
 // Config carries everything the harness derives from repo state
-// (bos.config.json + .env + ambient env). It replaces the previously
+// (authored config + .env + ambient env). It replaces the previously
 // hardcoded upstream URLs/ports so the suite works in any fork.
 type Config struct {
 	BaseURL    string            `json:"baseUrl"`
@@ -61,7 +61,7 @@ func LoadConfig() *Config {
 	return configVal
 }
 
-// RepoRoot returns the directory containing bos.config.json.
+// RepoRoot returns the directory containing the authored config (bos.app.ts).
 func RepoRoot() string {
 	dir, err := findRepoRoot()
 	if err != nil {

@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { markAddEmailPromptPending } from "@/lib/add-email-prompt";
 
 type Mode = "create" | "existing";
 
@@ -42,6 +43,7 @@ export function OnboardSignUp({
     setUnsupported(false);
     await createAccountWithPasskey(auth, {
       onSuccess: async () => {
+        markAddEmailPromptPending();
         onAccountCreated();
         await refreshSessionCache(auth, queryClient);
         setPending(null);

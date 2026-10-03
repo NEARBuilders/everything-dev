@@ -42,12 +42,15 @@ func findRepoRoot(t *testing.T) string {
 		t.Fatalf("getting cwd: %v", err)
 	}
 	for {
+		if _, err := os.Stat(filepath.Join(dir, "bos.app.ts")); err == nil {
+			return dir
+		}
 		if _, err := os.Stat(filepath.Join(dir, "bos.config.json")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatalf("repo root (bos.config.json) not found from %s", dir)
+			t.Fatalf("repo root (bos.app.ts) not found from %s", dir)
 		}
 		dir = parent
 	}

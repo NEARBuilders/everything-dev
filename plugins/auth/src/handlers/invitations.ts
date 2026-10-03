@@ -9,7 +9,7 @@ import {
   normalizeNearAccountId,
 } from "../near-invitations";
 import { AuthServicesTag } from "../service-types";
-import { createHeaders, safeAuthApi } from "../utils";
+import { canReadMemberEmails, createHeaders, safeAuthApi } from "../utils";
 
 function resolveInvitee(input: { email?: string; nearAccountId?: string; nearNetwork?: string }) {
   if (!!input.email === !!input.nearAccountId) {
@@ -101,7 +101,8 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
               ...toInvitation(match.invitation),
               organizationName: match.organizationName,
               organizationSlug: match.organizationSlug,
-              inviterEmail: inviter?.email ?? "",
+              inviterName: inviter?.name ?? null,
+              inviterEmail: null,
             };
           }
           const invitation = await services.auth.api.getInvitation({
@@ -109,11 +110,15 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
             query: { id: input.id },
           });
           if (!invitation) return null;
+          const inviter = await services.db.query.user.findFirst({
+            where: eq(schema.user.id, invitation.inviterId),
+          });
           return {
             ...toInvitation(invitation),
             organizationName: invitation.organizationName,
             organizationSlug: invitation.organizationSlug,
-            inviterEmail: invitation.inviterEmail,
+            inviterName: inviter?.name ?? null,
+            inviterEmail: null,
           };
         } catch {
           return null;
@@ -125,6 +130,7 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
       .use(requireAuth)
       .handler(async ({ input, context }: { input: any; context: any }) => {
         const services = Context.get(context["effect/context"], AuthServicesTag);
+        const emailAllowed = await canReadMemberEmails(services, context, input?.organizationId);
         const result = await safeAuthApi(() =>
           services.auth.api.listInvitations({
             headers: createHeaders(context.reqHeaders),
@@ -133,7 +139,10 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
             },
           }),
         );
-        return (result ?? []).map(toInvitation);
+        return (result ?? []).map((inv: any) => ({
+          ...toInvitation(inv),
+          ...(emailAllowed ? { email: inv.email } : { email: null }),
+        }));
       }),
 
     listUserInvitations: builder.listUserInvitations

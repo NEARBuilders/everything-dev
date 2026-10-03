@@ -1,14 +1,24 @@
 import { CheckCircleIcon, GearSixIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { pluginPath, type SessionData } from "@/app";
 import { Avatar, AvatarFallback, AvatarImage, Badge, Button, Card } from "@/components";
+import { isSyntheticEmail } from "@/lib/synthetic-email";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   return (parts.length > 1 ? `${parts[0]?.[0]}${parts[1]?.[0]}` : name.slice(0, 2)).toUpperCase();
 }
 
-function MethodRow({ label, value }: { label: string; value: string | null }) {
+function MethodRow({
+  label,
+  value,
+  action,
+}: {
+  label: string;
+  value: string | null;
+  action?: ReactNode;
+}) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2">
       <span className="text-sm text-muted-foreground">{label}</span>
@@ -17,6 +27,8 @@ function MethodRow({ label, value }: { label: string; value: string | null }) {
           <CheckCircleIcon className="size-4 shrink-0 text-success" />
           <span className="truncate">{value}</span>
         </span>
+      ) : action ? (
+        action
       ) : (
         <span className="text-sm text-muted-foreground">Not added</span>
       )}
@@ -28,13 +40,15 @@ export function IdentityCard({
   user,
   nearAccountId,
   passkeyCount,
+  onAddEmail,
 }: {
   user: SessionData["user"];
   nearAccountId: string | null;
   passkeyCount: number;
+  onAddEmail?: () => void;
 }) {
   const name = user.name || nearAccountId || "You";
-  const realEmail = user.email && !user.email.startsWith("temp-") ? user.email : null;
+  const realEmail = isSyntheticEmail(user.email) ? null : (user.email ?? null);
   return (
     <Card className="gap-4 px-6" data-testid="home-identity">
       <div className="flex items-center gap-3">
@@ -56,7 +70,22 @@ export function IdentityCard({
       <div className="flex flex-col divide-y divide-border">
         <MethodRow label="Passkey" value={passkeyCount > 0 ? `${passkeyCount} added` : null} />
         <MethodRow label="NEAR wallet" value={nearAccountId} />
-        {realEmail && <MethodRow label="Email" value={realEmail} />}
+        <MethodRow
+          label="Email"
+          value={realEmail}
+          action={
+            !user.isAnonymous && onAddEmail ? (
+              <Button
+                variant="link"
+                size="xs"
+                onClick={onAddEmail}
+                data-testid="home-identity-add-email"
+              >
+                Add
+              </Button>
+            ) : undefined
+          }
+        />
       </div>
       <Button
         variant="outline"

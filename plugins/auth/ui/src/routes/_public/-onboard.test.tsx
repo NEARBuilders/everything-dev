@@ -8,13 +8,14 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Route as OnboardRoute } from "./onboard";
 
 const harness = vi.hoisted(() => ({
   session: null as { user: { id: string; name: string } } | null,
   getOnboardingCodeInfo: vi.fn(),
   redeemOnboardingCode: vi.fn(),
+  clipboardWriteText: vi.fn(async () => undefined),
 }));
 
 vi.mock("everything-dev/ui/auth", () => ({
@@ -33,7 +34,6 @@ vi.mock("everything-dev/ui/auth", () => ({
 }));
 
 vi.mock("better-near-auth/client", () => ({ isPasskeyWalletAvailable: () => true }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const CODE = "valid-code-12345";
 const info = {
@@ -75,6 +75,13 @@ function renderOnboard() {
   );
 }
 
+beforeEach(() => {
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText: harness.clipboardWriteText },
+    configurable: true,
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -95,8 +102,8 @@ describe("onboard join flow", () => {
     expect(harness.redeemOnboardingCode).not.toHaveBeenCalled();
   });
 
-  it("redeems for a signed-in member, asks for a name, then shows the done state", async () => {
-    harness.session = { user: { id: "user-1", name: "Grace" } };
+  it("asks an unnamed returning member for a name, then shows the done state", async () => {
+    harness.session = { user: { id: "user-1", name: "Passkey user" } };
     harness.getOnboardingCodeInfo.mockResolvedValue(info);
     harness.redeemOnboardingCode.mockResolvedValue({
       organizationName: "Chicago Builders",
@@ -113,7 +120,57 @@ describe("onboard join flow", () => {
     fireEvent.click(screen.getByTestId("onboard.display-name-skip"));
 
     expect(await screen.findByTestId("onboard.continue-on-computer")).toBeTruthy();
-    expect(screen.getByTestId("onboard.gateway-origin").textContent).toBe("localhost:3000");
+    expect(screen.getByTestId("onboard.gateway-origin").textContent).toBe(
+      "localhost:3000/login?method=phone",
+    );
     expect(screen.queryByTestId("onboard.display-name")).toBeNull();
+  });
+
+  it("skips the name step for a returning member who already chose a name", async () => {
+    harness.session = { user: { id: "user-1", name: "Grace" } };
+    harness.getOnboardingCodeInfo.mockResolvedValue(info);
+    harness.redeemOnboardingCode.mockResolvedValue({
+      organizationName: "Chicago Builders",
+      eventName: "Launch Night",
+    });
+
+    renderOnboard();
+
+    expect(await screen.findByTestId("onboard.continue-on-computer")).toBeTruthy();
+    expect(screen.queryByTestId("onboard.display-name")).toBeNull();
+  });
+
+  it("points the done state at the build page", async () => {
+    harness.session = { user: { id: "user-1", name: "Grace" } };
+    harness.getOnboardingCodeInfo.mockResolvedValue(info);
+    harness.redeemOnboardingCode.mockResolvedValue({
+      organizationName: "Chicago Builders",
+      eventName: "Launch Night",
+    });
+
+    renderOnboard();
+
+    const buildButton = await screen.findByTestId("onboard.build-button");
+    expect(buildButton.getAttribute("href")).toBe("/build");
+    expect(screen.queryByTestId("build.prompts")).toBeNull();
+  });
+
+  it("copies the desktop pairing link from the continue card", async () => {
+    harness.session = { user: { id: "user-1", name: "Grace" } };
+    harness.getOnboardingCodeInfo.mockResolvedValue(info);
+    harness.redeemOnboardingCode.mockResolvedValue({
+      organizationName: "Chicago Builders",
+      eventName: "Launch Night",
+    });
+
+    renderOnboard();
+
+    fireEvent.click(await screen.findByTestId("onboard.continue-copy-link"));
+
+    await waitFor(() =>
+      expect(harness.clipboardWriteText).toHaveBeenCalledWith(
+        "http://localhost:3000/login?method=phone",
+      ),
+    );
   });
 });

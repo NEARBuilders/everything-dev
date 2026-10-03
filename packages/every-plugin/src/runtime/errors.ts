@@ -115,9 +115,31 @@ const formatORPCValidationError = (error: any): string[] | null => {
   return lines;
 };
 
+const formatUnknownError = (error: any): string | null => {
+  if (!error) return null;
+  const message = extractErrorMessage(error);
+  const lines: string[] = [];
+  lines.push(`\n╭─ Unhandled error ${"─".repeat(37)}`);
+  for (const line of message.split("\n")) {
+    lines.push(`│  ${line}`);
+  }
+  const stack = error instanceof Error ? error.stack?.split("\n").slice(1, 6) : undefined;
+  if (stack && stack.length > 0) {
+    lines.push(`│`);
+    for (const line of stack) {
+      lines.push(`│  ${line.trim()}`);
+    }
+  }
+  lines.push(`╰${"─".repeat(50)}\n`);
+  return lines.join("\n");
+};
+
 export const formatORPCError = (error: any): string | null => {
   if (!(error instanceof ORPCError)) {
-    return null;
+    // Unknown errors used to return null, leaving internal failures (e.g. a
+    // storage backend throw) invisible in host logs while oRPC serialized
+    // them client-side as a bare INTERNAL_SERVER_ERROR.
+    return formatUnknownError(error);
   }
 
   const validationLines = formatORPCValidationError(error);

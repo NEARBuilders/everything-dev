@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Deferred, Effect, Exit } from "effect";
+import { Deferred, Effect, Exit, Layer } from "effect";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { runDevSession } from "../../src/dev-session";
 import { ShellEnvLive } from "../../src/env/project-env";
@@ -35,10 +35,6 @@ const mocks = vi.hoisted(() => {
   };
   return state;
 });
-
-vi.mock("../../src/config", () => ({
-  getProjectRoot: () => mocks.tmpRoot,
-}));
 
 vi.mock("../../src/components/dev-render", () => ({
   createDevRenderer: () => mocks.view,
@@ -102,21 +98,23 @@ const orchestrator = {
 const runSession = () => {
   let controls: Record<string, () => void> | null = null;
   const program = Effect.scoped(
-    runDevSession(orchestrator as never, (c) => {
+    runDevSession(mocks.tmpRoot, orchestrator as never, (c) => {
       controls = c as never;
     }),
   ).pipe(
     Effect.provide(
-      ServiceDescriptorMapLive(
-        new Map([
-          ["host", makeDescriptor("host")],
-          ["api", makeDescriptor("api")],
-        ]),
+      Layer.mergeAll(
+        ServiceDescriptorMapLive(
+          new Map([
+            ["host", makeDescriptor("host")],
+            ["api", makeDescriptor("api")],
+          ]),
+        ),
+        DevRuntimeConfigLive(fakeRuntimeConfig),
+        DevGeneratedEnvLive({}),
+        ShellEnvLive({}),
       ),
     ),
-    Effect.provide(DevRuntimeConfigLive(fakeRuntimeConfig)),
-    Effect.provide(DevGeneratedEnvLive({})),
-    Effect.provide(ShellEnvLive({})),
   );
   return {
     program,

@@ -174,6 +174,7 @@ export function buildServiceDescriptorMap(
     integrity: runtimeConfig.ui.integrity,
     ssr,
     ...SERVICE_CONFIGS.ui,
+    env: { BOS_DEV_SERVER: "1" },
     // BOS_NO_WATCH stacks (regression/CI) build once and serve the built dist
     // via rsbuild preview — no watcher, no HMR.
     args: process.env.BOS_NO_WATCH === "1" ? ["run", "dev:built"] : SERVICE_CONFIGS.ui.args,

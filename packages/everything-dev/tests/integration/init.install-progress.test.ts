@@ -1,12 +1,25 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   removeInitLockfile,
   scaffoldMinimalProject,
   stripOrphanedWorkspacesFromLockfile,
 } from "../../src/cli/init";
+
+vi.mock("../../src/http-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/http-client")>();
+  return {
+    ...actual,
+    fetchResponse: async () => {
+      throw new Error("network disabled in test");
+    },
+    fetchJsonOrNull: async () => null,
+  };
+});
+
+const REPO_ROOT = join(import.meta.dirname, "../../../../");
 
 describe("scaffoldMinimalProject — catalog population", () => {
   let testDir: string;
@@ -34,6 +47,7 @@ describe("scaffoldMinimalProject — catalog population", () => {
       account: "test.near",
       domain: "test.dev",
       overrides: ["ui", "api"],
+      catalogSourceDir: REPO_ROOT,
     });
 
     const pkgPath = join(testDir, "package.json");

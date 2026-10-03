@@ -3,7 +3,6 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import * as authSchema from "../../../plugins/auth/src/db/schema.ts";
 import { createAuthTestInstance } from "./auth-test-instance.ts";
-import { seedTenant } from "./seed-tenant.mjs";
 
 const MEMBER_COOKIES_PATH = ".bos/regression/cookies.json";
 const MEMBER_SEED_PATH = ".bos/regression/seed.json";
@@ -14,8 +13,7 @@ const MEMBER_SEED_PATH = ".bos/regression/seed.json";
  *
  * - a member user + signed session cookie written to cookies.json
  * - two owned orgs with org A active on the session
- * - a tenant row + primary domain binding in the API database
- * - the matched seed.json metadata (org ids/names, tenant id/subdomain)
+ * - the matched seed.json metadata (org ids/names)
  *
  * Runs on every browser regression invocation (global-setup), so stale or
  * wiped fixtures never reach the specs. Mirrors the Go HTTP seeder
@@ -60,14 +58,6 @@ export async function seedMemberFixtures({
       .set({ activeOrganizationId: orgA.id })
       .where(eq(authSchema.session.id, session.id));
 
-    const subdomain = `regression-tenant-${unique}`;
-    const tenant = await seedTenant({
-      subdomain,
-      name: "Regression Tenant",
-      accountId: `${subdomain}.testnet`,
-      orgId: orgA.id,
-    });
-
     const cookiesResolved = path.resolve(process.cwd(), MEMBER_COOKIES_PATH);
     fs.mkdirSync(path.dirname(cookiesResolved), { recursive: true });
     fs.writeFileSync(cookiesResolved, JSON.stringify(cookies, null, 2));
@@ -82,8 +72,6 @@ export async function seedMemberFixtures({
           orgBID: orgB.id,
           orgAName,
           orgBName,
-          tenantID: tenant.id,
-          subdomain: tenant.subdomain,
         },
         null,
         2,

@@ -1,20 +1,15 @@
 import { BankIcon } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, stripSearchParams, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
-import {
-  type Organization,
-  type SessionData,
-  sessionQueryOptions,
-  useApiClient,
-  useAuthClient,
-} from "@/app";
+import { type SessionData, sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import {
   Button,
   EmptyState,
   PageContainer,
+  PageHeader,
   Skeleton,
   Tabs,
   TabsList,
@@ -23,6 +18,7 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useSwitchOrganization } from "@/components/layout/use-switch-organization";
 import { pageTitle } from "@/lib/page-title";
+import { organizationsQueryOptions } from "@/lib/queries/organizations";
 import {
   ApiKeysTab,
   type CreatedOrganizationApiKey,
@@ -82,14 +78,7 @@ export const Route = createFileRoute("/_authenticated/_dashboard/orgs/$slug")({
   }),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(sessionQueryOptions(context.authClient));
-    await context.queryClient.ensureQueryData({
-      queryKey: ["organizations"],
-      queryFn: async () => {
-        const { data } = await context.authClient.organization.list();
-        return (data || []) as Organization[];
-      },
-      staleTime: 30 * 1000,
-    });
+    await context.queryClient.ensureQueryData(organizationsQueryOptions(context.apiClient));
   },
   component: OrganizationDetail,
 });
@@ -102,14 +91,9 @@ function OrganizationDetail() {
   const auth = useAuthClient();
   const apiClient = useApiClient();
   const { data: session } = useQuery<SessionData | null>(sessionQueryOptions(auth));
-  const { data: organizations = [], isLoading: isLoadingOrgs } = useQuery({
-    queryKey: ["organizations"],
-    queryFn: async () => {
-      const { data } = await auth.organization.list();
-      return (data || []) as Organization[];
-    },
-    staleTime: 30 * 1000,
-  });
+  const { data: organizations = [], isLoading: isLoadingOrgs } = useQuery(
+    organizationsQueryOptions(apiClient),
+  );
   const org = organizations.find((organization) => organization.slug === orgSlug);
   const orgId = org?.id ?? "";
   const activeOrgId = session?.session?.activeOrganizationId;
@@ -124,7 +108,7 @@ function OrganizationDetail() {
         if (error) throw new Error(error.message);
         return (data?.members ?? []) as MemberItem[];
       },
-      enabled: !!orgId,
+      enabled: !!orgId && org?.status === "active",
     }).data ?? [];
   const invitations =
     useQuery({
@@ -132,7 +116,7 @@ function OrganizationDetail() {
       queryFn: async (): Promise<InvitationItem[]> => {
         return apiClient.auth.listInvitations({ organizationId: orgId });
       },
-      enabled: !!orgId,
+      enabled: !!orgId && org?.status === "active",
     }).data ?? [];
   const apiKeys =
     useQuery({
@@ -144,7 +128,7 @@ function OrganizationDetail() {
         if (error) throw new Error(error.message);
         return (data?.apiKeys ?? []) as OrganizationApiKey[];
       },
-      enabled: !!orgId,
+      enabled: !!orgId && org?.status === "active",
     }).data ?? [];
   const myMembership = members.find((member) => member.userId === session?.user?.id);
   const canManageMembers = myMembership?.role === "owner" || myMembership?.role === "admin";
@@ -171,12 +155,30 @@ function OrganizationDetail() {
     (apiKey) => setCreatedApiKey(apiKey),
   );
   const { removeMemberMutation } = useOrganizationMemberActions(auth, orgId);
+  const canExportEmails = canManageMembers || session?.user?.role === "admin";
+  const exportEmailsMutation = useMutation({
+    mutationFn: async () => {
+      const result = await apiClient.auth.exportMembers({ organizationId: orgId });
+      return result.csv;
+    },
+    onSuccess: async (csv) => {
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${org?.slug ?? "organization"}-members.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success("Member emails exported");
+    },
+    onError: (error: Error) => toast.error(error.message || "Failed to export emails"),
+  });
   const activeTab = requestedTab;
   const setActiveTab = (value: unknown) => {
     if (!isOrganizationTab(value) || value === activeTab) return;
     void navigate({ search: (prev) => ({ ...prev, tab: value }), replace: true });
   };
-  const teamsState = useOrganizationTeams(orgId, activeTab === "teams");
+  const teamsState = useOrganizationTeams(orgId, activeTab === "teams" && org?.status === "active");
   const { deleteOrgMutation, leaveOrgMutation, updateOrgMutation } = useOrganizationSettings(
     auth,
     orgId,
@@ -208,6 +210,31 @@ function OrganizationDetail() {
             </Button>
           }
         />
+      </PageContainer>
+    );
+  }
+
+  if (org?.status !== "active") {
+    return (
+      <PageContainer variant="narrow">
+        <PageHeader
+          title={org.name}
+          subtitle={`@${org.slug}`}
+          headerTestId="orgs.request.heading"
+        />
+        <div className="flex flex-col gap-4" data-testid="orgs-request-status">
+          <h2 className="text-lg font-medium">
+            {org?.status === "pending" ? "Pending approval" : "Request rejected"}
+          </h2>
+          <p className="text-sm text-muted-foreground" data-testid="orgs-request-reason">
+            {org?.status === "pending"
+              ? "A platform admin will review your request. Your organization can be used once approved."
+              : org.rejectionReason}
+          </p>
+          <Button variant="outline" nativeButton={false} render={<Link to="/orgs" />}>
+            Back to organizations
+          </Button>
+        </div>
       </PageContainer>
     );
   }
@@ -264,8 +291,11 @@ function OrganizationDetail() {
         </div>
         <MembersTab
           canManageMembers={canManageMembers}
+          canExportEmails={canExportEmails}
+          isExportingEmails={exportEmailsMutation.isPending}
           isRemoving={removeMemberMutation.isPending}
           members={members}
+          onExportEmails={() => exportEmailsMutation.mutate()}
           onInvite={isPersonal ? undefined : () => setActiveTab("invitations")}
           onRemove={(member) => removeMemberMutation.mutate(member)}
           sessionUserId={session?.user?.id}

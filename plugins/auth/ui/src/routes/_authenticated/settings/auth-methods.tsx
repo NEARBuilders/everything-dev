@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { type SessionData, sessionQueryOptions, useAuthClient } from "everything-dev/ui/auth";
+import { useState } from "react";
+import { AddEmailDialog } from "@/components/add-email-dialog";
 import { SectionHeader } from "@/components/layout/section-header";
+import { isSyntheticEmail } from "@/lib/synthetic-email";
 import { useNetworkId } from "@/lib/use-network-id";
 import { EmailMethod } from "./-email-method";
 import { NearMethod } from "./-near-method";
@@ -16,8 +19,12 @@ function AuthMethodsSettings() {
   const { data: session } = useQuery<SessionData | null>(sessionQueryOptions(auth));
   const user = session?.user;
   const networkId = useNetworkId();
+  const [addEmailOpen, setAddEmailOpen] = useState(false);
 
   if (!user) return null;
+
+  const emailIsSynthetic = isSyntheticEmail(user.email);
+  const showEmailMethod = !user.isAnonymous;
 
   return (
     <div className="flex flex-col gap-10">
@@ -28,7 +35,13 @@ function AuthMethodsSettings() {
       />
       <PasskeysMethod />
       <NearMethod networkId={networkId} />
-      {user.email && !user.isAnonymous && <EmailMethod email={user.email} />}
+      {showEmailMethod && (
+        <EmailMethod
+          email={emailIsSynthetic ? null : (user.email ?? null)}
+          onAdd={() => setAddEmailOpen(true)}
+        />
+      )}
+      <AddEmailDialog open={addEmailOpen} onOpenChange={setAddEmailOpen} />
     </div>
   );
 }

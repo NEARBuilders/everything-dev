@@ -6,6 +6,7 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["node"],
 
     "moduleResolution": "bundler",
     "customConditions": ["development"],

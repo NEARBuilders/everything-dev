@@ -38,6 +38,14 @@ function-call keys. That shape is exactly what a scoped gas key covers.
    so the nonce threading is restored via `patchedDependencies`. This is
    reversible: if `@hot-labs` ships gas-key support, swapping back is
    mechanical because the API surface is identical (the patch retires with it).
+
+   Update (2026-10-01): reversed, exactly as predicted. The connector is now
+   `@hot-labs/near-connect` installed from the maintained gas-key-capable fork
+   `elliotBraem/near-connect#v0.12.0-fork.2` (same lineage, adds gas-key
+   actions, native `cspNonce`, iframe dispose guard). The fastnear swap caused
+   wallet-login regressions; the tracked patch and `patchedDependencies` are
+   gone, and near-kit's peer typing (`@hot-labs/near-connect >= 0.11.0`) is
+   satisfied natively again.
 3. **Sponsorship guardrails are server-enforced, not client-claimed.** The fund
    endpoint verifies the on-chain key balance is below the top-up threshold and
    enforces a per-user lifetime cap before signing any `TransferToGasKey`. Worst

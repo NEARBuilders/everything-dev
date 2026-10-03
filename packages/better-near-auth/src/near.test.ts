@@ -7,6 +7,11 @@ import { siwnClient } from "./client.js";
 import { siwn } from "./index.js";
 import { SUB_ACCOUNT_LABEL_REGEX } from "./types.js";
 
+const { mockNearSignMessage, mockWalletSignMessage } = vi.hoisted(() => ({
+  mockNearSignMessage: vi.fn(),
+  mockWalletSignMessage: vi.fn(),
+}));
+
 const MOCK_ACCOUNT_ID = "test.near";
 const MOCK_TESTNET_ACCOUNT_ID = "test.testnet";
 const MOCK_PUBLIC_KEY = "ed25519:abcdefghijklmnopqrstuvwxyz0123456789ABCD";
@@ -20,6 +25,8 @@ const mockSignedMessage = {
   publicKey: MOCK_PUBLIC_KEY,
   signature: "mock-signature-base64",
 };
+mockNearSignMessage.mockResolvedValue(mockSignedMessage);
+mockWalletSignMessage.mockResolvedValue(mockSignedMessage);
 
 let nonceCounter = 0;
 function makeUniqueNonce(): Uint8Array {
@@ -34,7 +41,7 @@ vi.mock("near-kit", () => {
     view: vi.fn(),
     call: vi.fn(),
     send: vi.fn(),
-    signMessage: vi.fn(() => Promise.resolve(mockSignedMessage)),
+    signMessage: mockNearSignMessage,
     getBalance: vi.fn(() => Promise.resolve("100")),
     getAccount: vi.fn(() =>
       Promise.resolve({
@@ -148,7 +155,7 @@ vi.mock("near-kit", () => {
   };
 });
 
-vi.mock("@fastnear/near-connect", () => ({
+vi.mock("@hot-labs/near-connect", () => ({
   NearConnector: vi.fn().mockImplementation(function (
     this: unknown,
     { network }: { network: "mainnet" | "testnet" },
@@ -158,6 +165,7 @@ vi.mock("@fastnear/near-connect", () => ({
       disconnect: vi.fn(() => Promise.resolve()),
       getConnectedWallet: vi.fn(() =>
         Promise.resolve({
+          wallet: { signMessage: mockWalletSignMessage },
           accounts: [
             {
               accountId: network === "testnet" ? MOCK_TESTNET_ACCOUNT_ID : MOCK_ACCOUNT_ID,
@@ -365,6 +373,40 @@ describe("siwn plugin", () => {
       expect(data?.success).toBe(true);
       const params = (verifyNep413Signature as any).mock.calls.at(-1)?.[1];
       expect(params?.callbackUrl).toBe("myapp://callback/success");
+    });
+
+    it("accepts wallets that sign without the callbackUrl", async () => {
+      const { verifyNep413Signature } = await import("near-kit");
+      (verifyNep413Signature as any).mockClear();
+      (verifyNep413Signature as any).mockImplementation(
+        async (_signed: unknown, payload: { callbackUrl?: string }) => !payload.callbackUrl,
+      );
+      try {
+        const { client } = await setup();
+
+        const { data, error } = await client.near.verify({
+          ...makeVerifyBody(),
+          callbackUrl: "http://localhost:3000/login?redirect=%2Fdashboard",
+        });
+
+        expect(error).toBeNull();
+        expect(data?.success).toBe(true);
+      } finally {
+        (verifyNep413Signature as any).mockResolvedValue(true);
+      }
+    });
+
+    it("rejects a signature that fails with and without the callbackUrl", async () => {
+      const { verifyNep413Signature } = await import("near-kit");
+      (verifyNep413Signature as any).mockResolvedValueOnce(false).mockResolvedValueOnce(false);
+      const { client } = await setup();
+
+      const { error } = await client.near.verify({
+        ...makeVerifyBody(),
+        callbackUrl: "http://localhost:3000/login",
+      });
+
+      expect(error?.status).toBe(401);
     });
 
     it("should detect nonce replay", async () => {
@@ -1212,7 +1254,7 @@ describe("siwnClient getActions", () => {
     Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
 
     try {
-      const { NearConnector } = await import("@fastnear/near-connect");
+      const { NearConnector } = await import("@hot-labs/near-connect");
       const connectorMock = NearConnector as any;
       const callStart = connectorMock.mock.calls.length;
       const { actions, plugin } = setupClient(null);
@@ -1248,6 +1290,95 @@ describe("siwnClient getActions", () => {
 
       expect(atoms.nearState.get()).toEqual(stateBeforeStaleEvent);
       expect(atoms.walletConnected.get()).toBe(true);
+    } finally {
+      if (previousWindow) {
+        Object.defineProperty(globalThis, "window", previousWindow);
+      } else {
+        Reflect.deleteProperty(globalThis, "window");
+      }
+    }
+  });
+
+  it("signs with the already detected wallet without looking it up again through near-kit", async () => {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const callbackUrl = "http://localhost:3000/login?redirect=%2Fdashboard";
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { location: { href: callbackUrl } },
+    });
+    mockNearSignMessage.mockClear();
+    mockWalletSignMessage.mockClear();
+
+    try {
+      const { NearConnector } = await import("@hot-labs/near-connect");
+      const connectorMock = NearConnector as any;
+      const callStart = connectorMock.mock.calls.length;
+      const { actions, $fetch } = setupClient(null, (path) =>
+        Promise.resolve(
+          path === "/near/verify"
+            ? { data: { success: true }, error: null }
+            : { data: { accounts: [] }, error: null },
+        ),
+      );
+
+      await vi.waitFor(() => {
+        expect(connectorMock).toHaveBeenCalledTimes(callStart + 1);
+      });
+      const connector = connectorMock.mock.results[callStart]?.value;
+      await expect(actions.near.detectNearAccount()).resolves.toMatchObject({
+        accountId: MOCK_ACCOUNT_ID,
+      });
+      connector.getConnectedWallet.mockClear();
+
+      const onSuccess = vi.fn();
+      await actions.signIn.near({ onSuccess });
+
+      expect(mockWalletSignMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: `Sign in to ${MOCK_RECIPIENT}`,
+          recipient: MOCK_RECIPIENT,
+          network: "mainnet",
+          callbackUrl,
+        }),
+      );
+      expect($fetch).toHaveBeenCalledWith(
+        "/near/verify",
+        expect.objectContaining({
+          body: expect.objectContaining({ callbackUrl }),
+        }),
+      );
+      expect(connector.getConnectedWallet).not.toHaveBeenCalled();
+      expect(mockNearSignMessage).not.toHaveBeenCalled();
+      expect(onSuccess).toHaveBeenCalledOnce();
+    } finally {
+      if (previousWindow) {
+        Object.defineProperty(globalThis, "window", previousWindow);
+      } else {
+        Reflect.deleteProperty(globalThis, "window");
+      }
+    }
+  });
+
+  it("keeps a detected wallet connected until an authenticated session actually signs out", async () => {
+    const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+
+    try {
+      const { NearConnector } = await import("@hot-labs/near-connect");
+      const connectorMock = NearConnector as any;
+      const callStart = connectorMock.mock.calls.length;
+      const { sessionAtom } = setupClient(null);
+
+      await vi.waitFor(() => {
+        expect(connectorMock).toHaveBeenCalledTimes(callStart + 1);
+      });
+      const connector = connectorMock.mock.results[callStart]?.value;
+      expect(connector.disconnect).not.toHaveBeenCalled();
+
+      sessionAtom.set({ data: { user: { id: "user-1" } } });
+      sessionAtom.set({ data: null });
+
+      expect(connector.disconnect).toHaveBeenCalledOnce();
     } finally {
       if (previousWindow) {
         Object.defineProperty(globalThis, "window", previousWindow);

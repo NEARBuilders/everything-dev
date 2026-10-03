@@ -2,27 +2,15 @@ import { chmod, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { defineConfig } from "tsdown";
 import packageJson from "./package.json" with { type: "json" };
+import { syncExports } from "./scripts/sync-exports.ts";
+import { entries } from "./tsdown-entries.ts";
 
 const SHEBANG = "#!/usr/bin/env bun\n";
 
+await syncExports();
+
 export default defineConfig({
-  entry: [
-    "src/index.ts",
-    "src/types.ts",
-    "src/errors.ts",
-    "src/remote-entry.ts",
-    "src/runtime/index.ts",
-    "src/testing/index.ts",
-    "src/runtime/mf-config.ts",
-    "src/runtime/services/normalize.ts",
-    "src/build/shared-deps.ts",
-    "src/build/rspack/index.ts",
-    "src/ui/manifest/index.ts",
-    "src/ui/manifest/generator.ts",
-    "src/build/ui/index.ts",
-    "src/dev/serve.ts",
-    "src/cli.ts",
-  ],
+  entry: entries.map((spec) => spec.entry),
   format: ["cjs", "esm"],
   dts: { tsconfig: "./tsconfig.dts.json" },
   clean: true,

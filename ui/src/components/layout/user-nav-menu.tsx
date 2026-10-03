@@ -1,4 +1,4 @@
-import { GearIcon, SignOutIcon, UserCircleIcon, UserIcon } from "@phosphor-icons/react";
+import { GearIcon, SignOutIcon, UserIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { Organization } from "@/app";
 import { pluginPath } from "@/app";
@@ -17,7 +17,6 @@ interface SignOutMutationLike {
 }
 
 interface UserNavMenuContentProps {
-  nearAccountId: string | null | undefined;
   activeOrg?: Organization | undefined;
   avatarSrc: string | undefined;
   displayName: string;
@@ -30,7 +29,6 @@ interface UserNavMenuContentProps {
 }
 
 export function UserNavMenuContent({
-  nearAccountId,
   avatarSrc,
   displayName,
   handle,
@@ -60,15 +58,6 @@ export function UserNavMenuContent({
       </DropdownMenuGroup>
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
-        {nearAccountId && (
-          <DropdownMenuItem
-            render={<Link to="/$accountId" params={{ accountId: nearAccountId }} />}
-            data-testid="account.profile-menuitem"
-          >
-            <UserCircleIcon />
-            Your profile
-          </DropdownMenuItem>
-        )}
         <DropdownMenuItem
           render={<Link to={pluginPath("/settings")} />}
           data-testid="account.settings-menuitem"

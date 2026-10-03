@@ -45,6 +45,21 @@ export function resolveLogLevel(
   return "warn";
 }
 
+export type EffectLogLevel = "Error" | "Warn" | "Info" | "Debug";
+
+export function toEffectLogLevel(level: LogLevel): EffectLogLevel {
+  switch (level) {
+    case "error":
+      return "Error";
+    case "warn":
+      return "Warn";
+    case "info":
+      return "Info";
+    case "debug":
+      return "Debug";
+  }
+}
+
 const STACK_FRAME_RE = /^\s+at\s/;
 
 const countBraces = (line: string): number => {

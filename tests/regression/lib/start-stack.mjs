@@ -65,7 +65,7 @@ async function waitForDatabases(dbUrls) {
 const mode = process.argv[2] ?? "dev";
 const root = findRepoRoot();
 if (!root) {
-  console.error("[start-stack] bos.config.json not found in any parent directory");
+  console.error("[start-stack] no authored config (bos.app.ts) found in any parent directory");
   process.exit(1);
 }
 

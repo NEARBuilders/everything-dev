@@ -3,7 +3,7 @@
 "host": minor
 "ui": minor
 "api": minor
-"@everything-dev/apps-plugin": minor
+"@everything-dev/registry-plugin": minor
 "@everything-dev/auth-plugin": minor
 "@everything-dev/proposals-plugin": minor
 "@everything-dev/votes-plugin": minor

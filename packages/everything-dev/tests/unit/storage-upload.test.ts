@@ -71,7 +71,11 @@ describe("uploadBundle", () => {
   });
 
   it("throws with the response status when the upload fails", async () => {
-    globalThis.fetch = (async () => new Response("nope", { status: 403 })) as typeof fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("nope", { status: 403 });
+    }) as typeof fetch;
     await expect(
       uploadBundle({
         origin: "https://everything.dev",
@@ -81,6 +85,127 @@ describe("uploadBundle", () => {
         files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
       }),
     ).rejects.toThrow("403");
+    expect(calls).toBe(1);
+  });
+
+  it("retries a retryable status (500) and succeeds on a later attempt", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      if (calls < 3) return new Response("boom", { status: 500 });
+      return new Response(JSON.stringify({ stored: 1, totalBytes: 0, integrity: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const result = await uploadBundle({
+      origin: "https://everything.dev",
+      account: "v1.citynode.near",
+      gateway: "citynode.app",
+      workspace: "ui",
+      files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
+    });
+    expect(calls).toBe(3);
+    expect(result.stored).toBe(1);
+  });
+
+  it("exhausts retries on persistent 503s and reports the workspace", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("down", { status: 503 });
+    }) as typeof fetch;
+
+    await expect(
+      uploadBundle({
+        origin: "https://everything.dev",
+        account: "v1.citynode.near",
+        gateway: "citynode.app",
+        workspace: "ui",
+        files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
+      }),
+    ).rejects.toThrow(/bundle upload for ui failed: 503/);
+    expect(calls).toBe(3);
+  });
+
+  it("hints at the host timeout env when the server reports a request timeout", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: "Request timeout" }), { status: 408 })) as typeof fetch;
+
+    await expect(
+      uploadBundle({
+        origin: "https://everything.dev",
+        account: "v1.citynode.near",
+        gateway: "citynode.app",
+        workspace: "ui",
+        files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
+      }),
+    ).rejects.toThrow(/BOS_STORAGE_UPLOAD_TIMEOUT_MS/);
+  });
+
+  it("hints at the host timeout env for the storage route's own 408 body", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("Bundle upload timed out", { status: 408 });
+    }) as typeof fetch;
+
+    await expect(
+      uploadBundle({
+        origin: "https://everything.dev",
+        account: "v1.citynode.near",
+        gateway: "citynode.app",
+        workspace: "ui",
+        files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
+      }),
+    ).rejects.toThrow(/BOS_STORAGE_UPLOAD_TIMEOUT_MS/);
+    expect(calls).toBe(3);
+  });
+
+  it("hints at the host logs when the server hides the cause behind a bare internal error", async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          defined: false,
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Internal Server Error",
+        }),
+        { status: 500 },
+      )) as typeof fetch;
+
+    await expect(
+      uploadBundle({
+        origin: "https://everything.dev",
+        account: "v1.citynode.near",
+        gateway: "citynode.app",
+        workspace: "ui",
+        files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
+      }),
+    ).rejects.toThrow(/check the host logs/);
+  });
+
+  it("surfaces a descriptive oRPC error message from the response body", async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          defined: true,
+          code: "CONNECTION_ERROR",
+          message: "Bundle storage failed for static/app.js: [storage] PUT failed: 403",
+          data: { errorCode: "STORAGE_PUT_FAILED" },
+        }),
+        { status: 502 },
+      )) as typeof fetch;
+
+    await expect(
+      uploadBundle({
+        origin: "https://everything.dev",
+        account: "v1.citynode.near",
+        gateway: "citynode.app",
+        workspace: "ui",
+        files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
+      }),
+    ).rejects.toThrow(/Bundle storage failed for static\/app\.js.*403/s);
   });
 });
 

@@ -12,7 +12,12 @@ import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { timeout } from "hono/timeout";
 import type { AuthVariables } from "../lib/auth";
-import { API_TIMEOUT_MS, BODY_LIMIT_MAX, bundleUploadBodyLimitBytes } from "../middleware/security";
+import {
+  API_TIMEOUT_MS,
+  BODY_LIMIT_MAX,
+  bundleUploadBodyLimitBytes,
+  storageUploadTimeoutMs,
+} from "../middleware/security";
 import { proxyRequest } from "../middleware/static-proxy";
 import { buildPluginContext, type createSessionMiddleware } from "../services/auth";
 import type { RuntimeConfig } from "../services/config";
@@ -190,12 +195,22 @@ export async function setupApiRoutes(
     return apiBodyLimit(c, next);
   });
 
-  app.use(
-    "/api/*",
-    timeout(API_TIMEOUT_MS, () => {
-      return new HTTPException(408, { message: "Request timeout" });
-    }),
+  // The storage route gets its own (much longer) timeout for the same
+  // reason: receiving + SRI-hashing + storing a large batched upload
+  // routinely exceeds the general API budget.
+  const apiTimeout = timeout(
+    API_TIMEOUT_MS,
+    () => new HTTPException(408, { message: "Request timeout" }),
   );
+  const storageTimeout = timeout(
+    storageUploadTimeoutMs(),
+    () => new HTTPException(408, { message: "Bundle upload timed out" }),
+  );
+  app.use(STORAGE_BUNDLE_PATH, storageTimeout);
+  app.use("/api/*", (c, next) => {
+    if (c.req.path === STORAGE_BUNDLE_PATH) return next();
+    return apiTimeout(c, next);
+  });
 
   app.use("/api/*", sessionMiddleware);
 

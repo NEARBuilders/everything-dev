@@ -63,6 +63,7 @@ async function runRspack(): Promise<void> {
 
 export function runCliCommand(raw: string, args: string[] = []): Promise<void> {
   const command = raw.replace(/=.*/, "");
+  if (command === "dev") process.env.BOS_DEV_SERVER = "1";
   // The core ui workspace form routes build/dev/preview through rsbuild;
   // plugin workspaces keep the rspack/dev-server surface.
   if (hasCoreUiWorkspace()) {

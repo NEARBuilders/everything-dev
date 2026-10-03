@@ -102,7 +102,10 @@ export function gatewayForAccount(
 
 export interface TenantUiOverride {
   production: string;
-  integrity: string;
+  /** direct entry SRI — only for genuinely fixed-name bundles without a pin */
+  integrity?: string;
+  /** version-manifest pin — the deploy unit for hashed, atomic deploys */
+  pin?: { manifest: string; integrity: string };
   ssr?: string;
   ssrIntegrity?: string;
 }
@@ -122,6 +125,12 @@ const optionalIntegrity = z
   .regex(INTEGRITY_PATTERN, "must look like sha384-… (base64)")
   .or(z.literal(""));
 
+const optionalManifestName = z
+  .string()
+  .trim()
+  .regex(/^versions\/[0-9a-f]{16}\.json$/, "must look like versions/<version-id>.json")
+  .or(z.literal(""));
+
 export const tenantConfigDraftSchema = z
   .object({
     title: z.string().trim().min(1, "title is required"),
@@ -129,12 +138,22 @@ export const tenantConfigDraftSchema = z
     repository: optionalUrl,
     uiProduction: optionalUrl,
     uiIntegrity: optionalIntegrity,
+    uiManifest: optionalManifestName,
+    uiPinIntegrity: optionalIntegrity,
     ssrUrl: optionalUrl,
     ssrIntegrity: optionalIntegrity,
   })
-  .refine((draft) => !!draft.uiProduction === !!draft.uiIntegrity, {
-    message: "a UI bundle needs both its URL and its integrity hash",
+  .refine((draft) => !!draft.uiProduction === !!(draft.uiIntegrity || draft.uiManifest), {
+    message: "a UI bundle needs both its URL and its integrity (direct hash or manifest pin)",
     path: ["uiIntegrity"],
+  })
+  .refine((draft) => !draft.uiIntegrity || !draft.uiManifest, {
+    message: "choose one integrity mode — a direct entry hash or a version-manifest pin, not both",
+    path: ["uiManifest"],
+  })
+  .refine((draft) => !!draft.uiManifest === !!draft.uiPinIntegrity, {
+    message: "a version-manifest pin needs both the manifest filename and its integrity",
+    path: ["uiPinIntegrity"],
   })
   .refine((draft) => !!draft.ssrUrl === !!draft.ssrIntegrity, {
     message: "an SSR bundle needs both its URL and its integrity hash",
@@ -149,6 +168,8 @@ export const emptyTenantConfigDraft: TenantConfigDraft = {
   repository: "",
   uiProduction: "",
   uiIntegrity: "",
+  uiManifest: "",
+  uiPinIntegrity: "",
   ssrUrl: "",
   ssrIntegrity: "",
 };
@@ -156,6 +177,7 @@ export const emptyTenantConfigDraft: TenantConfigDraft = {
 interface ResolvedUiConfig {
   production?: unknown;
   integrity?: unknown;
+  pin?: { manifest?: unknown; integrity?: unknown };
   ssr?: unknown;
   ssrIntegrity?: unknown;
 }
@@ -179,6 +201,8 @@ export function buildDraftFromResolvedConfig(
     repository: asString(resolvedConfig?.repository),
     uiProduction: asString(ui.production),
     uiIntegrity: asString(ui.integrity),
+    uiManifest: asString(ui.pin?.manifest),
+    uiPinIntegrity: asString(ui.pin?.integrity),
     ssrUrl: asString(ui.ssr),
     ssrIntegrity: asString(ui.ssrIntegrity),
   };
@@ -201,6 +225,8 @@ export function diffDraft(
     ["repository", asString(resolvedConfig?.repository), draft.repository],
     ["ui bundle", asString(ui.production), draft.uiProduction],
     ["ui integrity", asString(ui.integrity), draft.uiIntegrity],
+    ["ui manifest pin", asString(ui.pin?.manifest), draft.uiManifest],
+    ["ui pin integrity", asString(ui.pin?.integrity), draft.uiPinIntegrity],
     ["ssr bundle", asString(ui.ssr), draft.ssrUrl],
     ["ssr integrity", asString(ui.ssrIntegrity), draft.ssrIntegrity],
   ];
@@ -211,7 +237,19 @@ export function diffDraft(
 
 /** The `app` block for the published config, or undefined when no UI override is set. */
 export function draftUiOverride(draft: TenantConfigDraft): { ui: TenantUiOverride } | undefined {
-  if (!draft.uiProduction || !draft.uiIntegrity) return undefined;
+  if (!draft.uiProduction) return undefined;
+  if (draft.uiManifest && draft.uiPinIntegrity) {
+    return {
+      ui: {
+        production: normalizeBundleBaseUrl(draft.uiProduction),
+        pin: { manifest: draft.uiManifest, integrity: draft.uiPinIntegrity },
+        ...(draft.ssrUrl && draft.ssrIntegrity
+          ? { ssr: normalizeBundleBaseUrl(draft.ssrUrl), ssrIntegrity: draft.ssrIntegrity }
+          : {}),
+      },
+    };
+  }
+  if (!draft.uiIntegrity) return undefined;
   return {
     ui: {
       production: normalizeBundleBaseUrl(draft.uiProduction),
@@ -248,7 +286,7 @@ export async function computeSubresourceIntegrity(url: string): Promise<string> 
 }
 
 export function resolveClientEntryUrl(url: string): string {
-  if (url.endsWith(`/${UI_REMOTE_ENTRY_FILENAME}`)) return url;
+  if (/\/remoteEntry(\.[a-f0-9]{8,})?\.js$/.test(url)) return url;
   if (url.endsWith("/mf-manifest.json"))
     return `${url.replace(/\/mf-manifest\.json$/, "")}/${UI_REMOTE_ENTRY_FILENAME}`;
   return `${url.replace(/\/$/, "")}/${UI_REMOTE_ENTRY_FILENAME}`;
@@ -261,7 +299,7 @@ export function resolveServerEntryUrl(url: string): string {
 export function normalizeBundleBaseUrl(url: string): string {
   return url
     .trim()
-    .replace(/\/remoteEntry(\.server)?\.js$/, "")
+    .replace(/\/remoteEntry(\.server)?(\.[a-f0-9]{8,})?\.js$/, "")
     .replace(/\/mf-manifest\.json$/, "");
 }
 
@@ -293,6 +331,19 @@ export async function verifyUiIntegrity(
   expected: string,
 ): Promise<IntegrityCheckResult> {
   return verifyEntryIntegrity(resolveClientEntryUrl(baseUrl.trim()), expected);
+}
+
+/**
+ * Pin preflight: fetch the pinned version-manifest document and SRI-compare it
+ * against the pin — the manifest's own `entryIntegrity` covers the entry bytes
+ * at serve time.
+ */
+export async function verifyUiPin(
+  baseUrl: string,
+  pin: { manifest: string; integrity: string },
+): Promise<IntegrityCheckResult> {
+  const manifestUrl = `${baseUrl.trim().replace(/\/$/, "")}/${pin.manifest.replace(/^\//, "")}`;
+  return verifyEntryIntegrity(manifestUrl, pin.integrity);
 }
 
 export async function verifySsrIntegrity(

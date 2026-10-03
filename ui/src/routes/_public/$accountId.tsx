@@ -1,14 +1,15 @@
-import { ArrowUpRightIcon, HouseIcon, UserIcon } from "@phosphor-icons/react";
+import { ArrowUpRightIcon, CompassIcon, UserIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { getSocialImageMeta } from "everything-dev/ui/metadata";
 import { useAuthClient } from "@/app";
 import { Avatar, AvatarFallback, AvatarImage, Button, PageContainer } from "@/components";
 import { getNearInitials, resolveNearImageUrl } from "@/lib/near-profile";
+import { pageTitle } from "@/lib/page-title";
 
 export const Route = createFileRoute("/_public/$accountId")({
   loader: async ({ params, context }) => {
-    const { queryClient, authClient, runtimeConfig } = context;
+    const { queryClient, authClient } = context;
     const accountId = params.accountId;
 
     await queryClient.prefetchQuery({
@@ -20,14 +21,15 @@ export const Route = createFileRoute("/_public/$accountId")({
       staleTime: 5 * 60 * 1000,
     });
 
-    return { accountId, hostUrl: runtimeConfig?.hostUrl ?? "" };
+    return { accountId };
   },
-  head: ({ loaderData, params }) => {
+  head: ({ match, params }) => {
     const accountId = params.accountId;
-    const hostUrl = (loaderData?.hostUrl ?? "").replace(/\/$/, "");
+    const runtimeConfig = match.context.runtimeConfig;
+    const hostUrl = (runtimeConfig?.hostUrl ?? "").replace(/\/$/, "");
     const siteUrl = hostUrl ? `${hostUrl}/${accountId}` : "";
-    const title = `${accountId} | everything.dev`;
-    const description = `${accountId}'s public profile on everything.dev.`;
+    const title = pageTitle(accountId, runtimeConfig);
+    const description = `${accountId}'s public profile.`;
 
     return {
       meta: [
@@ -128,9 +130,9 @@ function AccountProfileLayout() {
             </p>
           </div>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-            <Button variant="outline" nativeButton={false} render={<Link to="/" />}>
-              <HouseIcon />
-              everything.dev
+            <Button variant="outline" nativeButton={false} render={<Link to="/about" />}>
+              <CompassIcon />
+              About the platform
             </Button>
             <Button
               variant="ghost"

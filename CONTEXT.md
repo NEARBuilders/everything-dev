@@ -1,30 +1,26 @@
-# City Node
+# everything.dev
 
-A node in the City Node network — a self-referencing tree where `parentId` is the only hierarchy axis and any kind of community (geo, org, user, zone root) is the same shape. Geographic nodes are owned by a node DAO and optionally backed by a staking pool; the kind label lives in node metadata.
+The open runtime for apps on NEAR — composed from published config and loaded through a shared host, UI, and API runtime.
 
 ## Language
 
-**Node DAO Account**:
-The node DAO's NEAR account — the account that stakes into the node's pool.
-_Avoid_: team account, team wallet, org account, user wallet
+**Runtime**:
+A published app configuration (`bos.app.ts` authored, resolved through `extends`) that the host loads as remotes.
+_Avoid_: app (ambiguous between the runtime and a tenant), project
 
-**Staking Pool**:
-The validator pool contract the node resolves for staking.
-_Avoid_: validator (the metadata record), total staked (the whole pool)
+**SlotResolver**:
+The host's entry-URL seam (`entryUrls` in `everything-dev/ui/slot`) — one pure derivation from a stamped config slot (`EntrySlot`) to the URLs each surface loads: `web` (browser entry — bustered fixed name in development, pin-derived hashed outside it), `ssr` (server container entry; undefined when the slot has no SSR coordinates), and `browserManifest` (the pin-derived hashed mf-manifest, structurally absent for local slots — atomic-deploys 08). Surfaces resolve lazily and throw loudly outside development naming slot + surface; buster arithmetic (integrity for web, ssrIntegrity→containerVersion for the server) lives inside the module, never at call sites.
+_Avoid_: resolveEntryUrlForEnv (the deleted per-surface helper), remoteEntryUrlOf/ssrEntryUrlOf/getSsrEntryUrl (the deleted per-site wrappers), buster at the call site
 
-**Node DAO Stake**:
-The Node DAO Account's current stake in the node's Staking Pool, including compounded validator rewards.
-_Avoid_: available rewards (product label for this same quantity), total staked, pool stake
-
-**Validator Rewards**:
-NEAR already compounded into Node DAO Stake. Not a separately held balance.
-_Avoid_: reward balance, pending rewards
+**Quiet build**:
+The prerequisite dist builder in `everything-dev/build` — one function (`buildPackageQuietly`) over the three framework packages (every-plugin, better-near-auth, everything-dev), each identified by its staleness-check dist entry. Skips when the dist is fresh, rebuilds captured-output-quietly, and fails loudly on nonzero exit; used by `bos build`'s train and the `bos dev` boot build.
+_Avoid_: buildEverythingDevQuietly/buildEveryPluginQuietly/buildBetterNearAuthQuietly (the deleted triplication), force-rebuild as the default path
 
 ## Organization access
 
 **Team**:
 A named sub-group within an organization that shares access to the organization's feature areas.
-_Avoid_: team account, team wallet, node DAO
+_Avoid_: team account, team wallet
 
 **Active Team**:
 The Team currently selected for a user's organization work.
@@ -36,55 +32,11 @@ _Avoid_: permission, role
 
 **Team Workspace**:
 The organization view scoped to an Active Team and its granted feature areas.
-_Avoid_: node workspace, organization account
-
-## Community discovery
-
-**Discovery Profile**:
-A node's public community identity, including its chosen geographic location and official social channels.
-_Avoid_: validator profile, node DAO account
-
-**Community Activity**:
-A published event or social update associated with a node and visible to visitors.
-_Avoid_: staking activity, validator uptime
-
-**Active Node**:
-A publicly discoverable node with recent Community Activity or an upcoming published event.
-_Avoid_: online node, active validator
-
-**Node Event**:
-A community gathering associated with one or more nodes, with a scheduled time and a public destination for event details or registration.
-_Avoid_: blockchain event, transaction
-
-**Social Update**:
-A node-associated public post with an attributed source, original publication time, and a link to the original content.
-_Avoid_: social account, imported activity
-
-## Event onboarding
-
-**Onboarding Code**:
-A revocable, expiring, use-capped invitation tied to one Node Event that makes whoever redeems it a member of the node's organization and of that event's Event Team; shown as a QR code.
-_Avoid_: join link, invite code, referral code, QR code (that's only its rendering)
-
-**Event Team**:
-A Team created for one Node Event whose members are the people who redeemed its Onboarding Codes; it is granted no Feature Areas unless an organizer adds them.
-_Avoid_: event cohort, attendee list
-
-**Organizer**:
-A member who can create and revoke Onboarding Codes for a node's events, by belonging to a Team granted the events Feature Area, or by being an organization owner or admin.
-_Avoid_: event admin, host
-
-**Passkey Wallet**:
-The deterministic NEAR account derived from a member's passkey public key, linked to their user at onboarding; it exists as an address before it is activated on-chain.
-_Avoid_: passkey account, embedded wallet, smart wallet
-
-**Activation**:
-The first sponsored on-chain deployment that makes a Passkey Wallet a live account able to hold keys and sign writes.
-_Avoid_: funding (that's the Sponsor topping up a key), creation
+_Avoid_: organization account
 
 **Gateway Origin**:
-The canonical citynode.app origin for a network, where every passkey ceremony takes place regardless of which tenant domain the member arrived from.
-_Avoid_: base URL, main domain, tenant domain
+The canonical base runtime origin for a network, where every passkey ceremony takes place regardless of which domain the member arrived from.
+_Avoid_: base URL, main domain
 
 **Device Link**:
 Signing a desktop browser into an existing session by approving the desktop's QR code from a phone that is already signed in.

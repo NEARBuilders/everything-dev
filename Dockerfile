@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM oven/bun:1.3.14-alpine AS builder
+FROM oven/bun:1.4.2-alpine AS builder
 WORKDIR /app
 
 # NOTE: do NOT split this into a manifests-first COPY + install. Bun's frozen
@@ -25,9 +25,12 @@ FROM builder AS dist-builder
 RUN bun run scripts/regression/container-build.ts
 
 # ── Prod build: strip sources — the framework loads remotes at runtime ──
+# The authored descriptor (bos.app.ts / bos.dev.ts) goes too: the runtime
+# image bakes the generated config (dist-builder, ADR 0005) as the boot
+# fallback, and findConfigPath must not shadow it with the authored form.
 FROM builder AS prod-builder
 
-RUN rm -rf host api ui plugins
+RUN rm -rf host api ui plugins && rm -f bos.app.ts bos.dev.ts
 
 # Clean broken workspace symlinks and strip workspace entries from package.json
 RUN find node_modules -maxdepth 1 -type l ! -exec test -e {} \; -print -delete 2>/dev/null || true
@@ -37,7 +40,7 @@ RUN node -e "const p=require('./package.json');p.workspaces.packages=p.workspace
 # Serves the staged dists on container-local static servers and boots the
 # production host over a baked local config (--config-path). Built explicitly
 # with `docker build --target regression` — not the deployment artifact.
-FROM oven/bun:1.3.14-alpine AS regression
+FROM oven/bun:1.4.2-alpine AS regression
 WORKDIR /app
 
 RUN apk add --no-cache curl
@@ -48,7 +51,8 @@ COPY --from=dist-builder --chown=appuser:appgroup /app/node_modules ./node_modul
 COPY --from=dist-builder --chown=appuser:appgroup /app/package.json .
 COPY --from=dist-builder --chown=appuser:appgroup /app/bun.lock .
 COPY --from=dist-builder --chown=appuser:appgroup /app/bunfig.toml .
-COPY --from=dist-builder --chown=appuser:appgroup /app/bos.config.json ./
+# Generated config (ADR 0005) — baked as the bare-start boot fallback.
+COPY --from=dist-builder --chown=appuser:appgroup /app/.bos/bos.resolved-config.json ./bos.config.json
 COPY --from=dist-builder --chown=appuser:appgroup /app/packages/everything-dev ./packages/everything-dev
 COPY --from=dist-builder --chown=appuser:appgroup /app/packages/every-plugin ./packages/every-plugin
 COPY --from=dist-builder --chown=appuser:appgroup /app/packages/better-near-auth ./packages/better-near-auth
@@ -79,7 +83,7 @@ ENTRYPOINT ["bun", "run", "scripts/regression/container-entrypoint.mjs"]
 # (ADR 0020: all bundle distribution lives on the CDN — the image keeps the
 # boot role). One container = the whole start stack; only the host port is
 # mapped. Databases and secrets arrive via env at `docker run`.
-FROM oven/bun:1.3.14-alpine AS runtime
+FROM oven/bun:1.4.2-alpine AS runtime
 WORKDIR /app
 
 RUN apk add --no-cache curl
@@ -90,7 +94,8 @@ COPY --from=prod-builder --chown=appuser:appgroup /app/node_modules ./node_modul
 COPY --from=prod-builder --chown=appuser:appgroup /app/package.json .
 COPY --from=prod-builder --chown=appuser:appgroup /app/bun.lock .
 COPY --from=prod-builder --chown=appuser:appgroup /app/bunfig.toml .
-COPY --from=prod-builder --chown=appuser:appgroup /app/bos.config.json ./
+# Generated config (ADR 0005) — baked as the bare-start boot fallback.
+COPY --from=dist-builder --chown=appuser:appgroup /app/.bos/bos.resolved-config.json ./bos.config.json
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/everything-dev ./packages/everything-dev
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/every-plugin ./packages/every-plugin
 

@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { execa } from "execa";
 import { glob } from "glob";
@@ -19,7 +19,7 @@ import {
   buildAuthExportStub,
   buildAuthTypesGenContent,
 } from "../auth-types-gen";
-import { loadAppDescriptorConfig } from "../config";
+import { findConfigPath, isAppDescriptorPath, loadAppDescriptorConfig } from "../config";
 import type { OverrideSection } from "../contract";
 import { serializeAppDescriptorSource } from "../descriptor/serialize";
 import { fetchBosConfigFromFastKv } from "../fastkv";
@@ -28,7 +28,8 @@ import {
   loadManifestNormalizationSpec,
   normalizePackageManifestsInTree,
 } from "../internal/manifest-normalizer";
-import type { BosConfig, BosConfigInput } from "../types";
+import { walkExtendsChain } from "../resolution/session";
+import type { BosConfig, BosConfigInput, ParentStarterConfig, StarterLevel } from "../types";
 import { saveBosConfig } from "../utils/save-config";
 import { computeSnapshotHash as computeHash } from "../utils/snapshot-hash";
 import { writeSnapshot } from "./snapshot";
@@ -41,7 +42,6 @@ export const INIT_ROOT_PATTERNS = [
   ".gitignore",
   "biome.json",
   "bunfig.toml",
-  "docker-compose.yml",
   "Dockerfile",
   "railway.json",
   "railway.toml",
@@ -75,7 +75,7 @@ export interface CatalogChainSource {
   extendsChain: string[];
 }
 
-function readWorkspaceCatalog(sourceDir: string): Record<string, string> {
+export function readWorkspaceCatalog(sourceDir: string): Record<string, string> {
   const pkgPath = join(sourceDir, "package.json");
   if (!existsSync(pkgPath)) {
     return {};
@@ -90,87 +90,42 @@ export async function resolveCatalogChainSource(opts: {
   extendsGateway: string;
   sourceDir?: string;
 }): Promise<CatalogChainSource> {
+  const entry = opts.sourceDir
+    ? (findConfigPath(resolve(opts.sourceDir)) ?? join(resolve(opts.sourceDir), "bos.config.json"))
+    : `bos://${opts.extendsAccount}/${opts.extendsGateway}`;
   const catalogs: Record<string, string>[] = [];
   const cleanups: Array<() => Promise<void>> = [];
-  const extendsChain: string[] = [];
-  const visited = new Set<string>();
+  const resolvedRefs: string[] = [];
   let repository: string | undefined;
-  let currentRef = `bos://${opts.extendsAccount}/${opts.extendsGateway}`;
-  let sourceDir = opts.sourceDir ? resolve(opts.sourceDir) : undefined;
-  let configPath = sourceDir ? join(sourceDir, "bos.config.json") : undefined;
 
   try {
-    while (true) {
-      if (visited.has(currentRef)) {
-        throw new Error(`Circular extends detected while resolving catalog source: ${currentRef}`);
-      }
-
-      visited.add(currentRef);
-      extendsChain.push(currentRef);
-
-      let config: Record<string, unknown>;
-      let currentSourceDir = sourceDir;
-      let cleanup: () => Promise<void> = async () => {};
-
-      if (configPath) {
-        config = readJsonFile<Record<string, unknown>>(configPath);
-        currentSourceDir = dirname(configPath);
-      } else {
-        const parsed = parseBosRef(currentRef);
-        if (!parsed) {
-          break;
+    await walkExtendsChain(entry, {
+      env: "production",
+      collectCatalogs: true,
+      registerCleanup: (fn) => cleanups.push(fn),
+      visit: async (link) => {
+        resolvedRefs.unshift(
+          link.ref.startsWith("bos://") ? link.ref : join(link.baseDir, basename(link.ref)),
+        );
+        catalogs.push(readWorkspaceCatalog(link.sourceDir ?? link.baseDir));
+        const repositoryValue = (link.config as Record<string, unknown>).repository;
+        if (typeof repositoryValue === "string" && repository === undefined) {
+          repository = repositoryValue;
         }
-        const sourceResult = await resolveSourceDir({
-          extendsAccount: parsed.account,
-          extendsGateway: parsed.gateway,
-        });
-        config = sourceResult.parentConfig as Record<string, unknown>;
-        currentSourceDir = sourceResult.sourceDir || undefined;
-        cleanup = sourceResult.cleanup;
-      }
-
-      cleanups.push(cleanup);
-      catalogs.push(currentSourceDir ? readWorkspaceCatalog(currentSourceDir) : {});
-
-      if (typeof config.repository === "string") {
-        repository = config.repository;
-      }
-
-      const nextExtendsRef = getExtendsRef(config);
-      if (!nextExtendsRef) {
-        break;
-      }
-
-      if (nextExtendsRef.startsWith("bos://")) {
-        currentRef = nextExtendsRef;
-        sourceDir = undefined;
-        configPath = undefined;
-        continue;
-      }
-
-      if (!currentSourceDir) {
-        break;
-      }
-
-      const nextConfigPath = resolve(currentSourceDir, nextExtendsRef);
-      if (!existsSync(nextConfigPath)) {
-        break;
-      }
-
-      currentRef = nextConfigPath;
-      sourceDir = dirname(nextConfigPath);
-      configPath = nextConfigPath;
-    }
+      },
+    });
   } finally {
-    for (const cleanup of cleanups.reverse()) {
+    for (const cleanup of [...cleanups].reverse()) {
       await cleanup();
     }
   }
 
   return {
-    catalog: Object.assign({}, ...catalogs.reverse()),
+    catalog: Object.assign({}, ...catalogs),
     repository,
-    extendsChain,
+    extendsChain: opts.sourceDir
+      ? [`bos://${opts.extendsAccount}/${opts.extendsGateway}`, ...resolvedRefs.slice(1)]
+      : resolvedRefs,
   };
 }
 
@@ -181,12 +136,15 @@ export async function resolveSourceDir(opts: {
 }): Promise<SourceResult> {
   if (opts.source) {
     const sourceDir = resolve(opts.source);
-    if (!existsSync(join(sourceDir, "bos.config.json"))) {
-      throw new Error(`No bos.config.json found in source directory: ${sourceDir}`);
+    const configPath = findConfigPath(sourceDir);
+    if (!configPath) {
+      throw new Error(
+        `No authored config (bos.app.ts or bos.config.json) found in source directory: ${sourceDir}`,
+      );
     }
-    const parentConfig = JSON.parse(
-      readFileSync(join(sourceDir, "bos.config.json"), "utf-8"),
-    ) as BosConfig;
+    const parentConfig = isAppDescriptorPath(configPath)
+      ? ((await loadAppDescriptorConfig(configPath)) as BosConfig)
+      : (JSON.parse(readFileSync(configPath, "utf-8")) as BosConfig);
     return { sourceDir, parentConfig, cleanup: async () => {} };
   }
 
@@ -222,7 +180,8 @@ export function buildInitPatterns(
   const patterns: string[] = [...INIT_ROOT_PATTERNS];
 
   if (has("ui")) patterns.push("ui/**");
-  if (has("api")) patterns.push("api/**");
+  if (has("api")) patterns.push(API_TEMPLATE_PATTERN);
+  if (has("api") || has("host")) patterns.push(COMPOSE_TEMPLATE_PATTERN);
   if (has("host")) patterns.push("host/**");
   if (has("plugins")) {
     for (const plugin of plugins ?? []) {
@@ -232,6 +191,20 @@ export function buildInitPatterns(
   }
 
   return patterns;
+}
+
+/** api-override children get the slim generic shell, never the parent's domain API. */
+const API_TEMPLATE_PATTERN = ".github/templates/api/**";
+
+/** Child-sized compose (api + api-test databases) for local compute overrides. */
+const COMPOSE_TEMPLATE_PATTERN = ".github/templates/docker-compose.yml";
+
+export function isApiTemplatePath(filePath: string): boolean {
+  return filePath.startsWith(".github/templates/api/");
+}
+
+export function isComposeTemplatePath(filePath: string): boolean {
+  return filePath === COMPOSE_TEMPLATE_PATTERN;
 }
 
 export function buildPluginRouteExclusions(
@@ -258,6 +231,64 @@ export function buildPluginRouteExclusions(
   return claimedByUnselected.filter((route) => !claimedBySelected.has(route));
 }
 
+const STARTER_PRODUCT_EXCLUSIONS = [
+  "_public/explore.tsx",
+  "_public/stake.tsx",
+  "_public/n/**",
+  "_public/$accountId.tsx",
+  "_public/$accountId/**",
+  "_public/activity/**",
+  "_public/-stake-*",
+  "_authenticated/_dashboard/dashboard/node/**",
+  "_authenticated/_dashboard/nodes/**",
+  "_authenticated/_dashboard/tenant.*",
+  "_authenticated/_dashboard/discover.tsx",
+  "_authenticated/_dashboard/apply.tsx",
+  "_authenticated/_dashboard/prototype-staking-poc.tsx",
+  "_authenticated/onboarding/**",
+  "_admin/_dashboard/_dashboard/admin/nodes/**",
+  "_admin/_dashboard/_dashboard/admin/proposals/**",
+  "_admin/_dashboard/_dashboard/admin/tenants/**",
+  "_admin/_dashboard/_dashboard/admin/relayer.tsx",
+  "_admin/_dashboard/_dashboard/admin/organizations.tsx",
+] as const;
+
+const STARTER_SIMPLE_EXCLUSIONS = [
+  "_authenticated.tsx",
+  "_authenticated/**",
+  "_admin.tsx",
+  "_admin/**",
+] as const;
+
+/**
+ * Route-file globs (relative to the child's `ui/src/routes/`) that a starter
+ * of the given level must not receive. Parent `starter` config can add
+ * exclusions (`exclude`, `levels[level].exclude`) or reclaim routes for a
+ * level (`levels[level].include`). Entries are prefixed with
+ * `ui/src/routes/` so they compose with `copyFilteredFiles`'s ignore list.
+ */
+export function buildStarterRouteExclusions(
+  level: StarterLevel,
+  parentConfig: { starter?: ParentStarterConfig } | null | undefined,
+): string[] {
+  const excluded = new Set<string>([...STARTER_PRODUCT_EXCLUSIONS]);
+  if (level === "simple") {
+    for (const entry of STARTER_SIMPLE_EXCLUSIONS) excluded.add(entry);
+  }
+
+  const starter = parentConfig?.starter;
+  if (starter) {
+    for (const entry of starter.exclude ?? []) excluded.add(entry);
+    const levelConfig = starter.levels?.[level];
+    if (levelConfig) {
+      for (const entry of levelConfig.exclude ?? []) excluded.add(entry);
+      for (const entry of levelConfig.include ?? []) excluded.delete(entry);
+    }
+  }
+
+  return [...excluded].map((entry) => `ui/src/routes/${entry}`);
+}
+
 function extractPluginRoutes(entry: unknown): string[] | undefined {
   if (typeof entry !== "object" || entry === null) return undefined;
   const routes = (entry as { routes?: unknown }).routes;
@@ -266,6 +297,12 @@ function extractPluginRoutes(entry: unknown): string[] | undefined {
 }
 
 export function sourcePathToDestinationPath(filePath: string): string {
+  if (isApiTemplatePath(filePath)) {
+    return filePath.replace(/^\.github\/templates\/api\//, "api/");
+  }
+  if (isComposeTemplatePath(filePath)) {
+    return "docker-compose.yml";
+  }
   return filePath.startsWith(".github/templates/")
     ? filePath.replace(/^\.github\/templates\//, ".github/")
     : filePath;
@@ -405,12 +442,12 @@ export async function downloadTarball(
 
 function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   const httpsMatch = url.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/);
-  if (httpsMatch) {
+  if (httpsMatch?.[1] && httpsMatch[2]) {
     return { owner: httpsMatch[1], repo: httpsMatch[2] };
   }
 
   const sshMatch = url.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (sshMatch) {
+  if (sshMatch?.[1] && sshMatch[2]) {
     return { owner: sshMatch[1], repo: sshMatch[2] };
   }
 
@@ -447,6 +484,16 @@ export async function copyFilteredFiles(
       allFiles.add(match);
     }
   }
+  if (!options.overrides.includes("api")) {
+    for (const match of allFiles) {
+      if (isApiTemplatePath(match)) allFiles.delete(match);
+    }
+  }
+  if (!options.overrides.includes("api") && !options.overrides.includes("host")) {
+    for (const match of allFiles) {
+      if (isComposeTemplatePath(match)) allFiles.delete(match);
+    }
+  }
 
   mkdirSync(destination, { recursive: true });
 
@@ -472,6 +519,7 @@ function stripProductionFields(entry: Record<string, unknown>): void {
   delete entry.integrity;
   delete entry.ssr;
   delete entry.ssrIntegrity;
+  delete entry.pin;
 }
 
 /**
@@ -491,6 +539,35 @@ export async function convertChildConfigToAppForm(
   writeFileSync(join(destination, "bos.app.ts"), serializeAppDescriptorSource(config));
   rmSync(configPath);
   return config;
+}
+
+/**
+ * Scaffold the root dev-overlay starter (`bos.dev.ts`). Idempotent — never
+ * overwrites an existing overlay. Dev overlays are merged child-wins over
+ * the resolved config in development and are never published.
+ */
+export function writeDevOverlayTemplate(
+  destination: string,
+  opts: { extendsRef?: string } = {},
+): void {
+  const overlayPath = join(destination, "bos.dev.ts");
+  if (existsSync(overlayPath)) return;
+  const extendsLine = opts.extendsRef ? `\n// Inherited base: ${opts.extendsRef}\n` : "";
+  writeFileSync(
+    overlayPath,
+    `import type { AppDescriptor } from "everything-dev/descriptor";
+${extendsLine}
+/**
+ * Development-only overlay for bos.app.ts — merged child-wins over the
+ * resolved config when the environment is development. Never published.
+ * Example: pin the auth attachment to a running dev server instead of
+ * letting the dev harness spawn it.
+ */
+export default {
+  // auth: { development: "http://localhost:3006" },
+} satisfies Partial<AppDescriptor>;
+`,
+  );
 }
 
 function buildRootTypecheckScript(sections: {
@@ -548,7 +625,7 @@ export function buildChildRootScripts(sections: {
     dev: "bos dev",
     "dev:proxy": "bos dev --proxy",
     build: "bos build",
-    deploy: "bos build --deploy",
+    deploy: "bos deploy",
     publish: "bos publish",
     start: "bos start",
     typecheck: buildRootTypecheckScript(sections),
@@ -628,6 +705,7 @@ export async function personalizeConfig(
     description?: string;
     testnet?: string;
     staging?: unknown;
+    starter?: StarterLevel;
   },
 ): Promise<void> {
   const has = (section: OverrideSection) => opts.overrides.includes(section);
@@ -636,6 +714,13 @@ export async function personalizeConfig(
       ? (opts.existingConfig.app as Record<string, unknown>)
       : undefined;
   const preservedAuth = existingApp?.auth;
+  const applyStarter = (config: Record<string, unknown>): void => {
+    if (opts.starter) {
+      config.starter = opts.starter;
+    } else if (opts.mode !== "sync") {
+      delete config.starter;
+    }
+  };
 
   const explicitRootKeys = new Set(
     Object.entries(opts)
@@ -683,6 +768,8 @@ export async function personalizeConfig(
         delete config[field];
       }
     }
+
+    applyStarter(config);
 
     if (config.app && typeof config.app === "object") {
       const app = config.app as Record<string, unknown>;
@@ -779,6 +866,8 @@ export async function personalizeConfig(
         delete config[field];
       }
     }
+
+    applyStarter(config);
 
     if (config.app && typeof config.app === "object") {
       const app = config.app as Record<string, unknown>;
@@ -969,8 +1058,14 @@ export async function personalizeConfig(
       ? loadManifestNormalizationSpec(opts.workspaceOpts.sourceDir)
       : null;
     if (spec) {
-      workspaces.catalog["everything-dev"] = spec.rootCatalog["everything-dev"];
-      workspaces.catalog["every-plugin"] = spec.rootCatalog["every-plugin"];
+      const rootCatalogEverythingDev = spec.rootCatalog["everything-dev"];
+      const rootCatalogEveryPlugin = spec.rootCatalog["every-plugin"];
+      if (rootCatalogEverythingDev) {
+        workspaces.catalog["everything-dev"] = rootCatalogEverythingDev;
+      }
+      if (rootCatalogEveryPlugin) {
+        workspaces.catalog["every-plugin"] = rootCatalogEveryPlugin;
+      }
     }
     const frameworkCatalog = (
       await resolveCatalogChainSource({
@@ -1164,9 +1259,7 @@ export async function runTypesGen(
   throw new Error("Unable to locate bos CLI for types generation");
 }
 
-export async function runDockerComposeUp(destination: string): Promise<void> {
-  await execCommand("docker", ["compose", "up", "-d", "--wait"], destination, { stdio: "inherit" });
-}
+export { runDockerComposeUp } from "../infra/docker";
 
 async function runWithProgress(
   command: string,
@@ -1256,6 +1349,9 @@ export async function scaffoldMinimalProject(
     repository?: string;
     title?: string;
     description?: string;
+    starter?: StarterLevel;
+    /** local parent source dir — resolves the catalog offline (tests, --source) */
+    catalogSourceDir?: string;
   },
 ): Promise<number> {
   mkdirSync(destination, { recursive: true });
@@ -1269,6 +1365,7 @@ export async function scaffoldMinimalProject(
     ...(opts.repository ? { repository: opts.repository } : {}),
     ...(opts.title ? { title: opts.title } : {}),
     ...(opts.description ? { description: opts.description } : {}),
+    ...(opts.starter ? { starter: opts.starter } : {}),
   };
 
   if (parentConfig.app && typeof parentConfig.app === "object") {
@@ -1328,6 +1425,7 @@ export async function scaffoldMinimalProject(
     await resolveCatalogChainSource({
       extendsAccount: opts.extendsAccount,
       extendsGateway: opts.extendsGateway,
+      sourceDir: opts.catalogSourceDir,
     })
   ).catalog;
 
@@ -1381,6 +1479,7 @@ export async function writeInitSnapshot(
     overrides: OverrideSection[];
     plugins?: string[];
     ignore?: string[];
+    starter?: StarterLevel;
   },
 ): Promise<void> {
   const baseIgnore = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.bos/**"];
@@ -1397,6 +1496,16 @@ export async function writeInitSnapshot(
     });
     for (const match of matches) {
       allFiles.add(match);
+    }
+  }
+  if (!options.overrides.includes("api")) {
+    for (const match of allFiles) {
+      if (isApiTemplatePath(match)) allFiles.delete(match);
+    }
+  }
+  if (!options.overrides.includes("api") && !options.overrides.includes("host")) {
+    for (const match of allFiles) {
+      if (isComposeTemplatePath(match)) allFiles.delete(match);
     }
   }
 
@@ -1416,6 +1525,7 @@ export async function writeInitSnapshot(
   await writeSnapshot(destination, {
     parentRef: `bos://${extendsAccount}/${extendsGateway}`,
     files: fileHashes,
+    starter: options.starter,
   });
 }
 
@@ -1483,7 +1593,6 @@ This document provides operational guidance for AI agents working in this everyt
 
 **Start Development:**
 \`\`\`bash
-cp .env.example .env   # First time only
 bun install
 bun run dev
 \`\`\`
@@ -1529,10 +1638,10 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
    \`\`\`json
    { "extends": "bos://<parent-account>/<parent-gateway>", "account": "<your-account>.near", "domain": "<parent-gateway>" }
    \`\`\`
-5. **Publish and deploy:**
-   \`\`\`bash
-   bos publish --deploy    # builds → writes deterministic bundle URLs → publishes config to FastKV at bos://<your-account>/<gateway>
-   \`\`\`
+ 5. **Publish and deploy:**
+    \`\`\`bash
+    bos deploy           # preflight → build → upload bundles → publish config to FastKV at bos://<your-account>/<gateway> → image/Railway when configured
+    \`\`\`
 6. **Deploy to Railway** (one-click template or \`railway up\`), set \`BOS_ACCOUNT\`, \`BOS_GATEWAY\` (same gateway as parent), and \`BETTER_AUTH_SECRET\`. Your Railway host fetches your config from FastKV and serves live.
 
 \`BOS_GATEWAY\` is the **FastKV lookup key**, not the DNS domain your Railway instance serves on. By keeping the same gateway while using your own \`BOS_ACCOUNT\`, your config lives at a separate FastKV path that \`extends\` the base runtime — you inherit the full platform and override only what you change.
@@ -1558,9 +1667,9 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
   parts.push(`## Development Workflow
 
 ### Starting Development
-1. \`cp .env.example .env\` (first time)
-2. \`bun install\`
-3. \`bun run dev\``);
+1. \`bun install\`
+2. \`bun run dev\`
+3. \`bos dev\` creates \`.env\` on first run and starts local Postgres via docker compose when it is down`);
 
   parts.push(`### Debugging Issues
 
@@ -1883,17 +1992,14 @@ Remotes in \`bos.config.json\` are **not hosted APIs** — they are code bundles
 ### Run locally
 
 \`\`\`bash
-cp .env.example .env
 bun install
-docker compose up -d --wait
 bos dev
 \`\`\`
 
 ### Publish
 
 \`\`\`bash
-bos build
-bos publish --deploy
+bos deploy
 \`\`\`
 
 ## Source

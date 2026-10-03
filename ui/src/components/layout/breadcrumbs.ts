@@ -6,6 +6,7 @@ export interface Crumb {
 export interface CrumbContext {
   appName?: string;
   orgName?: (slug: string) => string | undefined;
+  tab?: string;
 }
 
 const SETTINGS_SECTIONS: Record<string, string> = {
@@ -16,7 +17,6 @@ const SETTINGS_SECTIONS: Record<string, string> = {
 };
 
 const ADMIN_SECTIONS: Record<string, { label: string; detail: string }> = {
-  relayer: { label: "Relayer", detail: "Relayer" },
   system: { label: "System", detail: "System" },
 };
 
@@ -38,9 +38,9 @@ function page(label: string): Crumb {
 
 export function crumbsFor(pathname: string, context: CrumbContext = {}): Crumb[] {
   const segments = pathname.split("/").filter(Boolean);
-  const [first, second, third] = segments;
+  const [first, second, third, fourth] = segments;
 
-  if (segments.length === 0) return [page(context.appName ?? "everything.dev")];
+  if (segments.length === 0) return [page(context.appName ?? "Home")];
 
   switch (first) {
     case "dashboard":
@@ -62,6 +62,13 @@ export function crumbsFor(pathname: string, context: CrumbContext = {}): Crumb[]
       if (!section) return [page(ADMIN.label)];
       if (!third) return [ADMIN, page(section.label)];
       const sectionCrumb = { label: section.label, to: `/admin/${second}` };
+      if (fourth === "edit")
+        return [
+          ADMIN,
+          sectionCrumb,
+          { label: section.detail, to: `/admin/${second}/${third}` },
+          page(`Edit ${section.detail.toLowerCase()}`),
+        ];
       return [
         ADMIN,
         sectionCrumb,
@@ -78,8 +85,8 @@ export function crumbsFor(pathname: string, context: CrumbContext = {}): Crumb[]
       return [DOCS, page("Agent skill")];
     case "login":
       return [page("Sign in")];
-    case "launch":
-      return [page("Launch a node")];
+    case "onboard":
+      return [page("Join")];
     default:
       if (segments.length === 1) return [page(decodeURIComponent(first))];
       return segments.map((segment) => page(humanize(segment)));

@@ -10,11 +10,15 @@ import {
   personalizeConfig,
 } from "../../src/cli/init";
 import { loadManifestNormalizationSpec } from "../../src/internal/manifest-normalizer";
+import { writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
 const MANIFEST_SPEC = loadManifestNormalizationSpec(REPO_ROOT);
 
 const DEFAULT_OVERRIDES = ["ui", "api"] as const;
+// The base repo no longer commits bos.config.json (authored config lives in
+// bos.app.ts; the resolved file is generated). Tests seed a child config
+// fixture shaped like the scaffold output — see tests/helpers/parent-config.
 
 describe("bos init — structure", () => {
   let testDir: string;
@@ -28,24 +32,26 @@ describe("bos init — structure", () => {
   });
 
   it("builds curated root and selected surface patterns", () => {
-    const patterns = buildInitPatterns(["ui", "api", "plugins"], ["apps"]);
+    const patterns = buildInitPatterns(["ui", "api", "plugins"], ["registry"]);
     expect(patterns.length).toBeGreaterThan(0);
     expect(patterns).toContain("bos.config.json");
     expect(patterns).toContain("ui/**");
-    expect(patterns).toContain("api/**");
-    expect(patterns).toContain("plugins/apps/**");
+    expect(patterns).toContain(".github/templates/api/**");
+    expect(patterns).toContain("plugins/registry/**");
   });
 
   it("copies curated root files and selected surfaces", async () => {
-    const patterns = buildInitPatterns(["ui", "api", "plugins"], ["apps"]);
+    const patterns = buildInitPatterns(["ui", "api", "plugins"], ["registry"]);
     const filesCopied = await copyFilteredFiles(REPO_ROOT, testDir, patterns, {
       overrides: ["ui", "api", "plugins"],
-      plugins: ["apps"],
+      plugins: ["registry"],
     });
 
     expect(filesCopied).toBeGreaterThan(0);
 
-    expect(existsSync(join(testDir, "bos.config.json"))).toBe(true);
+    // The resolved config is generated, not copied — the scaffold writes the
+    // child's config from the fetched parent config.
+    expect(existsSync(join(testDir, "bos.config.json"))).toBe(false);
     expect(existsSync(join(testDir, "biome.json"))).toBe(true);
     expect(existsSync(join(testDir, ".github", "workflows", "ci.yml"))).toBe(true);
     expect(existsSync(join(testDir, ".github", "workflows", "deploy.yml"))).toBe(true);
@@ -58,8 +64,7 @@ describe("bos init — structure", () => {
     expect(existsSync(join(testDir, "ui/src/lib/api.ts"))).toBe(true);
     expect(existsSync(join(testDir, "ui/src/styles.css"))).toBe(true);
 
-    expect(existsSync(join(testDir, "plugins/apps"))).toBe(true);
-    expect(existsSync(join(testDir, "plugins/example"))).toBe(false);
+    expect(existsSync(join(testDir, "plugins/registry"))).toBe(true);
     expect(existsSync(join(testDir, "plugins/example"))).toBe(false);
 
     expect(existsSync(join(testDir, "host"))).toBe(false);
@@ -73,14 +78,13 @@ describe("bos init — structure", () => {
   it("copies selected plugin directories when plugins override is active", async () => {
     const selectedDir = mkdtempSync(join(tmpdir(), "bos-init-selected-plugins-"));
     try {
-      const patterns = buildInitPatterns(["ui", "api", "plugins"], ["apps"]);
+      const patterns = buildInitPatterns(["ui", "api", "plugins"], ["registry"]);
       await copyFilteredFiles(REPO_ROOT, selectedDir, patterns, {
         overrides: ["ui", "api", "plugins"],
-        plugins: ["apps"],
+        plugins: ["registry"],
       });
 
-      expect(existsSync(join(selectedDir, "plugins", "apps"))).toBe(true);
-      expect(existsSync(join(selectedDir, "plugins", "example"))).toBe(false);
+      expect(existsSync(join(selectedDir, "plugins", "registry"))).toBe(true);
       expect(existsSync(join(selectedDir, "plugins", "example"))).toBe(false);
     } finally {
       rmSync(selectedDir, { recursive: true, force: true });
@@ -91,9 +95,8 @@ describe("bos init — structure", () => {
     const noPluginsDir = mkdtempSync(join(tmpdir(), "bos-init-no-plugins-"));
     try {
       const patterns = buildInitPatterns(["ui", "api", "plugins"], []);
-      const parentConfig = JSON.parse(
-        readFileSync(join(REPO_ROOT, "bos.config.json"), "utf-8"),
-      ) as Record<string, unknown>;
+      const parentConfig = { plugins: {} } as Record<string, unknown>;
+      writeChildConfigFixture(noPluginsDir, ["ui", "api"], {});
       const routeExclusions = buildPluginRouteExclusions(parentConfig, []);
       await copyFilteredFiles(REPO_ROOT, noPluginsDir, patterns, {
         overrides: ["ui", "api", "plugins"],
@@ -128,6 +131,7 @@ describe("bos init — structure", () => {
   });
 
   it("personalizes bos.config.json removing non-overridden app sections", async () => {
+    writeChildConfigFixture(testDir, ["host", "ui", "api"]);
     await personalizeConfig(testDir, {
       extendsAccount: "dev.everything.near",
       extendsGateway: "everything.dev",
@@ -196,6 +200,7 @@ describe("bos init — structure", () => {
       await copyFilteredFiles(REPO_ROOT, hostTestDir, hostPatterns, {
         overrides: ["ui", "api", "host"],
       });
+      writeChildConfigFixture(hostTestDir, ["host", "ui", "api"]);
       await personalizeConfig(hostTestDir, {
         extendsAccount: "dev.everything.near",
         extendsGateway: "everything.dev",
@@ -223,6 +228,7 @@ describe("bos init — structure", () => {
     try {
       const patterns = buildInitPatterns(["api"]);
       await copyFilteredFiles(REPO_ROOT, apiOnlyDir, patterns, { overrides: ["api"] });
+      writeChildConfigFixture(apiOnlyDir, ["host", "ui", "api"]);
       await personalizeConfig(apiOnlyDir, {
         extendsAccount: "dev.everything.near",
         extendsGateway: "everything.dev",
@@ -255,6 +261,7 @@ describe("bos init — structure", () => {
     try {
       const patterns = buildInitPatterns(["ui"]);
       await copyFilteredFiles(REPO_ROOT, uiOnlyDir, patterns, { overrides: ["ui"] });
+      writeChildConfigFixture(uiOnlyDir, ["host", "ui", "api"]);
       await personalizeConfig(uiOnlyDir, {
         extendsAccount: "dev.everything.near",
         extendsGateway: "everything.dev",

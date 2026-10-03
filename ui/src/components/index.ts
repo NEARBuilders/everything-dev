@@ -1,9 +1,11 @@
+export { AddEmailDialog } from "./add-email-dialog";
 export {
   ApiKeyForm,
   type ApiKeyFormValues,
   ApiKeyReveal,
   type ApiKeyRevealProps,
 } from "./api-key-manager";
+export { Bulletin } from "./bulletin";
 export { ConfirmDialog } from "./confirm-dialog";
 export { DocumentFallback } from "./document-fallback";
 export { EmptyState } from "./empty-state";
@@ -31,6 +33,7 @@ export { ThemeToggle } from "./layout/theme-toggle";
 export { UserNav } from "./layout/user-nav";
 export { formatLocalDate, LocalDate, useLocalDate } from "./local-date";
 export { Logo } from "./logo";
+export { Markdown, type MarkdownVariant } from "./markdown";
 export { RootError } from "./root-error";
 export { RootNotFound } from "./root-not-found";
 export { RouterError } from "./router-error";

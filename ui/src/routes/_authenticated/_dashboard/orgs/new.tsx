@@ -53,7 +53,7 @@ function NewOrganization() {
       return data;
     },
     onSuccess: async (data) => {
-      toast.success(`Organization "${data?.name}" created`);
+      toast.success(`Organization "${data?.name}" submitted for approval`);
       await queryClient.invalidateQueries({ queryKey: ["organizations"] });
       await queryClient.refetchQueries({ queryKey: ["organizations"] });
       if (data?.slug) {
@@ -118,7 +118,7 @@ function NewOrganization() {
     <PageContainer variant="narrow">
       <PageHeader
         title="New organization"
-        description="You'll be the owner. Invite people once it's created."
+        description="Request an organization. Once a platform admin approves it, you'll be the owner and can invite people."
         headerTestId="orgs.new.heading"
       />
 
@@ -243,7 +243,7 @@ function NewOrganization() {
                 disabled={createMutation.isPending || !canSubmit}
                 data-testid="orgs.new.submit"
               >
-                {createMutation.isPending ? "Creating…" : "Create organization"}
+                {createMutation.isPending ? "Submitting…" : "Request organization"}
               </Button>
             )}
           </form.Subscribe>

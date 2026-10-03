@@ -185,12 +185,13 @@ export const ensureNearCli = Effect.gen(function* () {
   const isInstalled = yield* Effect.promise(() => isNearCliInstalled());
   if (isInstalled) return;
 
-  console.log();
-  console.log("  NEAR CLI not found");
-
-  console.log();
-  console.log(`  To install manually: curl --proto '=https' --tlsv1.2 -LsSf ${INSTALLER_URL} | sh`);
-  console.log();
+  yield* Effect.log("");
+  yield* Effect.log("  NEAR CLI not found");
+  yield* Effect.log("");
+  yield* Effect.log(
+    `  To install manually: curl --proto '=https' --tlsv1.2 -LsSf ${INSTALLER_URL} | sh`,
+  );
+  yield* Effect.log("");
   return yield* Effect.fail(new NearCliNotFoundError());
 });
 

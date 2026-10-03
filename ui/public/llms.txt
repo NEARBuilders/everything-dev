@@ -1,6 +1,6 @@
-# City Nodes
+# everything.dev
 
-> Decentralized city nodes on NEAR — each city is a tenant with its own validator pool you can stake to.
+> Open runtime for apps on NEAR — compose published plugins, own your runtime config, and extend the platform with your own deployments.
 
 ## Skills
 
@@ -17,18 +17,14 @@
 
 - [MCP server](/api/mcp): Model Context Protocol server (Streamable HTTP, stateless). Auto-generates tools from the API's OpenAPI spec. Connect your MCP client to discover and call all API operations.
 - [MCP discovery](/.well-known/mcp.json): JSON descriptor with server name, endpoint URL, and auth scheme.
+- [Version](/.well-known/version): deployed snapshot fingerprint, per-slot version-manifest pins, and the last watch-tick outcome — self-serve deploy state for agents.
 
 ## Auth
 
 Authenticate to the API using an API key:
 
 1. Sign in with your NEAR wallet (SIWN) at the website.
-2. Go to **Settings → API Keys** at `/settings/api-keys`.
-3. Create a key — the full secret (`edk_...`) is shown once.
-4. Pass it on every request: `x-api-key: edk_your_key_here`
+2. Create a key at **Settings → API Keys** (`/settings/api-keys`).
+3. Pass it on every request: `x-api-key: api_...`
 
-The `x-api-key` header works for `/api/*` (REST), `/api/rpc/*` (oRPC), and `/api/mcp` (MCP).
-
-## Source
-
-- [Repository](https://github.com/NEARBuilders/citynode.app): Clone and read `AGENTS.md` for full development instructions, TanStack Intent skills, and workflow guidance.
+The `x-api-key` header works for all API surfaces (REST, oRPC RPC, plugin RPC, MCP).

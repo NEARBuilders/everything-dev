@@ -1,4 +1,10 @@
-export type NextStepId = "save-account" | "create-org" | "choose-org" | "admin";
+export type NextStepId =
+  | "save-account"
+  | "add-email"
+  | "create-org"
+  | "choose-org"
+  | "open-things"
+  | "admin";
 
 export interface NextStep {
   id: NextStepId;
@@ -11,6 +17,7 @@ export interface NextStepsState {
   isAnonymous: boolean;
   hasPasskey: boolean;
   hasNear: boolean;
+  hasRealEmail: boolean;
   organizationCount: number;
   activeOrganizationName: string | null;
   isAdmin: boolean;
@@ -28,11 +35,20 @@ export function getNextSteps(state: NextStepsState): NextStep[] {
     });
   }
 
+  if (!state.isAnonymous && !state.hasRealEmail) {
+    steps.push({
+      id: "add-email",
+      title: "Add your email",
+      description: "Sign in from another device and recover your account.",
+      actionLabel: "Add email",
+    });
+  }
+
   if (state.organizationCount === 0) {
     steps.push({
       id: "create-org",
       title: "Create an organization",
-      description: "Nodes are owned and run by organizations.",
+      description: "Organizations keep your work in one place.",
       actionLabel: "Create organization",
     });
   } else if (!state.activeOrganizationName) {
@@ -42,13 +58,20 @@ export function getNextSteps(state: NextStepsState): NextStep[] {
       description: `You belong to ${state.organizationCount} ${state.organizationCount === 1 ? "organization" : "organizations"}. Pick one to work in.`,
       actionLabel: "Choose",
     });
+  } else {
+    steps.push({
+      id: "open-things",
+      title: "Open Things",
+      description: `Create and manage things for ${state.activeOrganizationName}.`,
+      actionLabel: "Open Things",
+    });
   }
 
   if (state.isAdmin) {
     steps.push({
       id: "admin",
-      title: "Review the admin queue",
-      description: "Pending nodes and system health.",
+      title: "Review the runtime",
+      description: "Version and deployment details.",
       actionLabel: "Open admin",
     });
   }

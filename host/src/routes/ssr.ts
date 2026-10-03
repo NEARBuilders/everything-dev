@@ -3,7 +3,7 @@ import type { AuthVariables } from "../lib/auth";
 import { buildPluginContext } from "../services/auth";
 import type { RuntimeConfig } from "../services/config";
 import type { PluginResult } from "../services/plugins";
-import { createSsrRender } from "../services/ssr-render";
+import { createSsrRender, type ServingSnapshot } from "../services/ssr-render";
 
 type HonoEnv = { Variables: AuthVariables };
 
@@ -16,8 +16,9 @@ export function createSsrFallbackHandler(
   config: RuntimeConfig,
   plugins: PluginResult,
   CSP_STRICT: boolean,
+  getServingState?: () => Promise<ServingSnapshot>,
 ) {
-  const render = createSsrRender({ config, plugins });
+  const render = createSsrRender({ config, getServingState, plugins });
   return async (c: Context<HonoEnv>) => {
     if (c.req.path === "/api" || c.req.path.startsWith("/api/")) {
       return c.notFound();

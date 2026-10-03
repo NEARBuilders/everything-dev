@@ -2,16 +2,25 @@ import { createServer } from "node:http";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAvailablePort } from "../helpers/ports";
 
-const loadRemoteConfigMock = vi.fn();
+const walkExtendsChainMock = vi.fn();
 const buildRuntimeConfigMock = vi.fn();
 const verifySriForUrlMock = vi.fn();
+
+vi.mock("everything-dev/resolution", async () => {
+  const actual = await vi.importActual<typeof import("everything-dev/resolution")>(
+    "everything-dev/resolution",
+  );
+  return {
+    ...actual,
+    walkExtendsChain: walkExtendsChainMock,
+  };
+});
 
 vi.mock("everything-dev/config", async () => {
   const actual =
     await vi.importActual<typeof import("everything-dev/config")>("everything-dev/config");
   return {
     ...actual,
-    loadRemoteConfig: loadRemoteConfigMock,
     buildRuntimeConfig: buildRuntimeConfigMock,
   };
 });
@@ -70,6 +79,7 @@ function createBaseConfig() {
       name: "ui",
       url: "http://127.0.0.1:0/ui",
       entry: "http://127.0.0.1:0/ui/mf-manifest.json",
+      entryUrl: "http://127.0.0.1:0/ui/remoteEntry.aaa.js",
       source: "remote",
       integrity: "sha384-base",
     },
@@ -147,6 +157,7 @@ describe("tenant host nested integration", () => {
           ...config.ui,
           url: `${assetServer.baseUrl}/ui`,
           entry: `${assetServer.baseUrl}/ui/mf-manifest.json`,
+          entryUrl: `${assetServer.baseUrl}/ui/remoteEntry.aaa.js`,
         },
         api: { ...config.api, proxy: assetServer.baseUrl },
         plugins: {
@@ -178,16 +189,15 @@ describe("tenant host nested integration", () => {
     verifySriForUrlMock.mockResolvedValue(undefined);
     const baseConfig = createBaseConfig();
 
-    loadRemoteConfigMock.mockResolvedValue({
-      source: "bos://chicago.alice.linktree.near/linktree.com",
-      rawConfig: {
-        extends: "bos://linktree.near/linktree.com",
-      },
+    walkExtendsChainMock.mockResolvedValue({
+      chain: ["bos://chicago.alice.linktree.near/linktree.com", "bos://linktree.near/linktree.com"],
       config: {
+        extends: "bos://linktree.near/linktree.com",
         account: "chicago.alice.linktree.near",
         title: "Chicago Alice",
         description: "Nested tenant",
         repository: "https://github.com/example/chicago-alice",
+        domain: "linktree.com",
         app: {
           host: { development: "local:host", production: "https://host.example.com" },
           ui: { name: "ui", production: "https://cdn.example.com/chicago-alice-ui" },
@@ -199,10 +209,6 @@ describe("tenant host nested integration", () => {
           },
         },
       },
-      extendsChain: [
-        "bos://chicago.alice.linktree.near/linktree.com",
-        "bos://linktree.near/linktree.com",
-      ],
     });
 
     buildRuntimeConfigMock.mockResolvedValue({
@@ -215,6 +221,7 @@ describe("tenant host nested integration", () => {
         ...baseConfig.ui,
         url: `${assetServer.baseUrl}/chicago-ui`,
         entry: `${assetServer.baseUrl}/chicago-ui/mf-manifest.json`,
+        entryUrl: `${assetServer.baseUrl}/chicago-ui/remoteEntry.aaa.js`,
         integrity: "sha384-chicago-ui",
       },
       api: {
@@ -237,10 +244,10 @@ describe("tenant host nested integration", () => {
     const html = await response.text();
 
     expect(response.status).toBe(200);
-    expect(loadRemoteConfigMock).toHaveBeenCalledWith(
+    expect(walkExtendsChainMock).toHaveBeenCalledWith(
       "bos://chicago.alice.linktree.near/linktree.com",
-      "production",
+      expect.objectContaining({ env: "production" }),
     );
-    expect(html).toContain(`${assetServer.baseUrl}/chicago-ui/remoteEntry.js`);
+    expect(html).toContain(`${assetServer.baseUrl}/chicago-ui/remoteEntry.aaa.js`);
   });
 });

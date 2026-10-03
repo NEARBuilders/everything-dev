@@ -27,7 +27,14 @@ export function AppHeader({ runtimeConfig }: AppHeaderProps) {
   const { data: workspace } = useTeamWorkspace(!!user);
   const activeTeamName = workspace?.activeTeam?.name;
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const tab = useRouterState({
+    select: (s) => {
+      const value = (s.location.search as Record<string, unknown>).tab;
+      return typeof value === "string" ? value : undefined;
+    },
+  });
   const crumbs = crumbsFor(pathname, {
+    tab,
     appName: getAppName(runtimeConfig),
     orgName: (slug) => organizations.find((org) => org.slug === slug)?.name,
   });

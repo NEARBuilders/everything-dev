@@ -1,6 +1,7 @@
 import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { Context, Effect, Layer } from "effect";
+import { DEV_ENTRY_FILENAME } from "../../build/artifact-names";
 import type { AnyPlugin } from "../../types";
 import { ModuleFederationError } from "../errors";
 import { type CoreSharedDepName, MF_CORE_SHARED_DEPS } from "../mf-config";
@@ -19,8 +20,13 @@ function expectedSharedIdentity(): Map<string, string> {
 
 type RemoteModule = (new () => AnyPlugin) | { default: new () => AnyPlugin };
 
+export const loadEveryPluginSharedModule = () => import("../../index");
+
 const coreModuleLoaders: Record<CoreSharedDepName, () => Promise<unknown>> = {
-  "every-plugin": () => import("every-plugin"),
+  // Keep the host-provided framework share on the same source graph as the
+  // runtime. A package self-import can resolve the published entry when a
+  // workspace script is launched through its package manager shim.
+  "every-plugin": loadEveryPluginSharedModule,
   effect: () => import("effect"),
   zod: () => import("zod"),
   "@orpc/contract": () => import("@orpc/contract"),
@@ -148,7 +154,7 @@ export const ModuleFederationServiceDefault = Layer.effect(
           const remoteName = getNormalizedRemoteName(pluginId);
           const type = url.endsWith("/mf-manifest.json")
             ? ("manifest" as const)
-            : url.endsWith("/remoteEntry.js")
+            : url.endsWith(`/${DEV_ENTRY_FILENAME}`)
               ? ("script" as const)
               : undefined;
 
@@ -188,7 +194,7 @@ export const ModuleFederationServiceDefault = Layer.effect(
                   : String(identityError.cause ?? "shared identity mismatch")
               }`,
             );
-            return yield* Effect.fail(identityError);
+            return yield* identityError;
           }
 
           const modulePath = `${remoteName}/plugin`;

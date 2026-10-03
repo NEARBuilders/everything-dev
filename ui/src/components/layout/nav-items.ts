@@ -5,7 +5,7 @@ import {
   CompassIcon,
   CubeIcon,
   HouseIcon,
-  LightningIcon,
+  InfoIcon,
   NetworkIcon,
   PlusCircleIcon,
   ShieldIcon,
@@ -60,13 +60,6 @@ const ADMIN_CHILDREN: SidebarItem[] = [
     roleRequired: "admin",
   },
   {
-    icon: LightningIcon,
-    label: "Relayer",
-    slug: "admin-relayer",
-    to: "/admin/relayer",
-    roleRequired: "admin",
-  },
-  {
     icon: WrenchIcon,
     label: "System",
     slug: "admin-system",
@@ -85,6 +78,14 @@ export function buildNavItems(context: NavContext = {}): SidebarItem[] {
       to: "/dashboard",
       exact: true,
       roleRequired: "member",
+      section: "main",
+    },
+    {
+      icon: InfoIcon,
+      label: "About",
+      slug: "about",
+      to: "/about",
+      roleRequired: "anon",
       section: "main",
     },
     {
@@ -184,6 +185,67 @@ export function filterSidebarByArea(
     const children = item.children
       .map(visible)
       .filter((child): child is SidebarItem => child !== null);
+    return { ...item, children };
+  };
+  return items.map(visible).filter((item): item is SidebarItem => item !== null);
+}
+
+export interface ManifestRoute {
+  id: string;
+  parentId?: string;
+  path?: string;
+  isLayout?: boolean;
+  isIndex?: boolean;
+}
+
+/**
+ * Absolute URL paths a shipped route tree actually serves, from the
+ * generated manifest's parent-relative `path` fields (layouts are pathless;
+ * parentId chains accumulate; trailing-slash index paths normalize).
+ */
+export function routePathsFromManifest(routes: ManifestRoute[]): Set<string> {
+  const byId = new Map(routes.map((route) => [route.id, route]));
+  const absolute = new Map<string, string>();
+  const resolve = (route: ManifestRoute): string => {
+    const cached = absolute.get(route.id);
+    if (cached) return cached;
+    let path = route.path ?? "/";
+    const parent = route.parentId ? byId.get(route.parentId) : undefined;
+    if (parent) {
+      const parentPath = resolve(parent);
+      if (parentPath !== "/") path = `${parentPath}${path}`;
+    }
+    const normalized = path.length > 1 ? path.replace(/\/+$/, "") : "/";
+    absolute.set(route.id, normalized);
+    return normalized;
+  };
+  return new Set(
+    routes
+      .filter((route) => !route.isLayout && route.path)
+      .map(resolve)
+      .filter((p) => p !== "/"),
+  );
+}
+
+/**
+ * Keep only items whose target route shipped. Children are pruned
+ * recursively; parents whose children all drop disappear. An empty path set
+ * is treated as "route manifest not available yet" and disables filtering.
+ */
+export function filterSidebarByRoutes(
+  items: SidebarItem[],
+  paths: ReadonlySet<string>,
+): SidebarItem[] {
+  if (paths.size === 0) return items;
+  const resolves = (item: SidebarItem): boolean =>
+    paths.has(item.to) || (item.activePrefixes ?? []).some((prefix) => paths.has(prefix));
+  const visible = (item: SidebarItem): SidebarItem | null => {
+    if (!resolves(item)) return null;
+    if (!item.children) return item;
+    const children = item.children
+      .map(visible)
+      .filter((child): child is SidebarItem => child !== null);
+    if (children.length === 0) return null;
     return { ...item, children };
   };
   return items.map(visible).filter((item): item is SidebarItem => item !== null);

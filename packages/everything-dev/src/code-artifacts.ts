@@ -4,8 +4,9 @@ import { Effect, Schema } from "effect";
 import { CORE_UI_PLUGIN_KEY } from "every-plugin/ui/manifest";
 import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { type ContractBridgeStatus, syncApiContractBridge } from "./api-contract";
-import { loadResolvedConfig, writeResolvedConfig } from "./config";
+import { writeResolvedConfig } from "./config";
 import type { BosEnv } from "./merge";
+import { openResolution } from "./resolution/session";
 import type { BosConfig, RuntimeConfig } from "./types";
 
 export class ArtifactGenError extends Schema.TaggedError<ArtifactGenError>()("ArtifactGenError", {
@@ -69,7 +70,7 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
   const runtimeConfig =
     opts?.runtimeConfig ??
     (yield* Effect.tryPromise({
-      try: () => loadResolvedConfig({ cwd: configDir }),
+      try: () => openResolution({ cwd: configDir }),
       catch: (cause) => new ArtifactGenError({ phase: "load resolved config", cause }),
     }))?.runtime;
   if (!runtimeConfig) return null;

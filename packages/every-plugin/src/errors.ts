@@ -111,11 +111,6 @@ export const PluginErrors = {
 } as const;
 
 /**
- * @deprecated Use individual imports or PluginErrors instead
- */
-export const CommonPluginErrors = PluginErrors;
-
-/**
  * Error-code -> HTTP-status map for handlers.
  *
  * oRPC v2 resolves statuses at the handler boundary via `errorStatusMap`

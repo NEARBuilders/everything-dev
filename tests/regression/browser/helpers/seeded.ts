@@ -19,8 +19,6 @@ interface SeedData {
   orgBID: string;
   orgAName: string;
   orgBName: string;
-  tenantID: string;
-  subdomain: string;
 }
 
 const COOKIES_PATH = ".bos/regression/cookies.json";
@@ -53,12 +51,14 @@ export async function seedRegressionThing() {
   const { baseUrl } = computeRegressionEnv();
   const cookies: CookieEntry[] = readJsonFile(COOKIES_PATH);
   const cookieHeader = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
-  const response = await fetch(`${baseUrl}/api/things`, {
+  const response = await fetch(`${baseUrl}/api/rpc/template/createThing`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie: cookieHeader },
     body: JSON.stringify({
-      thingId: "regression-plugin-test",
-      payload: { kind: "regression", source: "plugin-passthrough" },
+      json: {
+        thingId: "regression-plugin-test",
+        payload: { kind: "regression", source: "plugin-passthrough" },
+      },
     }),
   });
   if (!response.ok && response.status !== 409) {

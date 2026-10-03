@@ -105,3 +105,103 @@ ADR 0011 rejected a central CDN for two reasons, both re-examined:
 - ADR 0015's route design (auth trust family, path allowlist, traversal
   rejection, size ceiling, server-side SRI) is adopted as written; only the
   serving mount and storage backend differ.
+
+## Amendment (2026-09-30): authored `cdn.origin` — deploy origins are never derived from dev-resolved slots
+
+The zero-config CDN-origin derivation (`env BOS_BUNDLE_CDN_ORIGIN` → the
+resolved runtime config's `host.url`) promoted a dev listening URL to the
+published CDN origin whenever a deploy ran outside production resolution:
+the host slot resolves in development mode (`development: "local:host"`
+beating the committed `production` URL), so `host.url` became
+`http://localhost:<port>` and a local deploy wrote localhost bundle URLs
+into `bos.config.json` and published them to FastKV. This shipped once
+on-chain (a `localhost:3000` config at registry height 217486764, later
+overwritten by CI deploys) and repeatedly wasted local deploy trains.
+
+Replaced with an explicit authored field, `cdn: { origin }` in
+`bos.config.json` (a `BosConfigInput`/`BosConfig` schema field, surviving
+descriptor roundtrips and extending child-wins like `ci` — children inherit
+the base's CDN with zero config, which is what ADR 0020's zero-config path
+always meant). Deploy resolution is now:
+
+1. `BOS_BUNDLE_CDN_ORIGIN` env — wins; a local URL is a deliberate local
+   deploy and only warns.
+2. Authored `cdn.origin` (extends-inherited); a local URL here is a hard
+   error, not a silent promotion.
+3. Neither set with uploads planned — hard error. The silent image-native
+   fallback (gateway URLs the host can no longer serve) is gone; a
+   config-only `bos publish` (`build: false`) uploads nothing and requires
+   no origins.
+
+Guards in the same amendment: a `bos login` session pinned to a local
+`siteUrl` is a hard error for uploads (the session site can only ever be a
+squatter's port — the same-account guard cannot catch it); and the upload
+origin is probed (`GET /.well-known/mcp.json`) in preflight before the build
+train, so a wrong-port target fails in seconds with a named remedy instead
+of a foreign 413 after a full build.
+
+## Amendment (2026-09-30): hashed artifacts + version manifests — the deploy unit is additive
+
+The overwrite-in-place serving model (fixed-name entrypoints) has a
+non-atomic window in every deploy: uploaded bytes go live at fixed URLs
+(`max-age=0, must-revalidate`) minutes before the publish transaction swaps
+the pinned SRI — and an aborted train (a 2026-09-30 `auth-ui` socket failure)
+made the window permanent: new bytes on the CDN, old pins in the published
+config, browsers SRI-blocked.
+
+Replaced with immutable, content-addressed artifacts and manifest pointers:
+
+1. **Hashed artifacts.** Entrypoints build as `remoteEntry.[contenthash].js`
+   / `remoteEntry.server.[contenthash].js`; the build additively emits hashed
+   copies of the fixed-name browser artifacts (`mf-manifest.json`,
+   `static/css/style.css`) and a per-dist `build-report.json` naming the
+   hashed entry for the deploy leg — fixed-name entry aliases are fully
+   retired (hard break; dev servers keep the fixed dev names as the dev
+   serving contract). rspack plugin dists (api/auth) hash the entry; their
+   `mf-manifest.json` stays toolchain-consumed (never browser-loaded).
+2. **Version manifests.** Each deploy composes an immutable
+   `WorkspaceVersionManifest` (`every-plugin/version-manifest`) — entry +
+   per-file SRI, ssr entry + SRI, browser-manifest reference, shared-dep
+   versions — from the **server-computed SRI map** of the upload response,
+   and uploads it at `bundles/<account>/<gateway>/<workspace>/versions/<id>.json`.
+   The version id is content-derived (key-order stable, build time excluded):
+   unchanged bytes keep one id, so republishing unchanged content is a
+   pointer no-op.
+3. **Config slots become pointers.** Slots carry an explicit
+   `pin: { manifest, integrity }` — the versioned manifest filename
+   (relative to `production`) and that *manifest document's* SRI. The
+   top-level `integrity` is unambiguous: a direct entry SRI, only for
+   slots without a pin (fixed-name slots — a development-only shape).
+   The resolved internal `RuntimeConfig` derives the flattened fields
+   (`ui.entryUrl`, `ui.integrity`, `ui.ssrEntryUrl`, …) so consumers change
+   once, not per artifact kind. Outside development every remote slot MUST
+   pin — an unpinned remote slot fails resolution loudly (pre-pin configs
+   are pre-atomic-deploy and not servable). Extends inheritance: `app.*`
+   slots inherit the parent's fields; the `pin` merges atomically (a child
+   pin replaces the parent's whole, never half-mixed); child `plugins.*`
+   entries replace parent entries wholesale (existing semantics — a child
+   publishes its own manifests for every slot it ships).
+4. **Cache classification flipped.** A content-hash segment in the object
+   name now *wins*: hashed names (including hashed entrypoints) serve
+   `immutable, max-age=31536500`; fixed-name and non-hashed files serve
+   `max-age=0, must-revalidate` (`every-plugin/build/artifact-names`
+   `cacheControlOf`, shared by the storage route and the local bundle
+   resolver).
+
+Deploy ordering is unchanged (upload everything → publish pointer), but with
+additive artifacts an aborted train is now a no-op: the previously published
+version stays fully live and consistent, and completing the train switches
+atomically at publish.
+
+## Amendment — `bos plugin publish` joins the train (2026-10-01)
+
+`bos plugin publish <key>` was the last ADR-0011 command: it built the plugin
+locally, wrote a deterministic URL at the hardcoded `https://<gateway>` origin,
+uploaded nothing, pinned nothing, and didn't publish the config — its bytes
+went live only when the next image rebuild staged them, and the URL dangled
+for every non-root runtime. Superseded: `bos plugin publish` now runs the
+same per-workspace train as `bos deploy` scoped to one plugin — preflight
+(storage/CDN credentials + signing, before any build) → build → upload to the
+R2-backed storage → compose + pin the workspace's version manifest →
+config write-back → FastKV publish + read-back confirmation. The
+image-native `applyPluginPublishUrl` path is deleted.

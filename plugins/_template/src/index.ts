@@ -1,6 +1,6 @@
 import { MemoryPublisher } from "@orpc/publisher/memory";
 import { getEventMeta, ORPCError } from "@orpc/server";
-import { Context, Effect, Layer } from "effect";
+import { Clock, Context, DateTime, Effect, Layer } from "effect";
 import { createPlugin } from "every-plugin";
 import { z } from "zod";
 import { contract } from "./contract";
@@ -84,7 +84,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         config.variables.timeout,
       );
 
-      yield* service.ping();
+      yield* service.ping;
 
       const publisher = new MemoryPublisher<TemplateEvents>({
         resume: { enabled: true, seconds: 60 * 2 },
@@ -99,7 +99,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
               const event = {
                 id: `bg-${i}`,
                 index: i,
-                timestamp: Date.now(),
+                timestamp: yield* Clock.currentTimeMillis,
               };
 
               yield* Effect.tryPromise(() => publisher.publish("background-updates", event)).pipe(
@@ -157,7 +157,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
       ping: builder.ping.effect(function* () {
         const service = yield* TemplateApiClient;
-        return yield* service.ping();
+        return yield* service.ping;
       }),
 
       listenBackground: builder.listenBackground.handler(async function* ({
@@ -188,9 +188,9 @@ export default createPlugin.withPlugins<PluginsClient>()({
       enqueueBackground: builder.enqueueBackground.effect(function* ({ input }) {
         const publisher = yield* TemplatePublisher;
         const event = {
-          id: input.id || `manual-${Date.now()}`,
+          id: input.id || `manual-${yield* Clock.currentTimeMillis}`,
           index: -1,
-          timestamp: Date.now(),
+          timestamp: yield* Clock.currentTimeMillis,
         };
 
         yield* Effect.promise(() => publisher.publish("background-updates", event));
@@ -202,12 +202,13 @@ export default createPlugin.withPlugins<PluginsClient>()({
         const things = yield* ThingsService;
         const thing = yield* things.createThing(input.thingId, input.payload);
         const publisher = yield* TemplatePublisher;
+        const timestamp = DateTime.formatIso(yield* DateTime.now);
         yield* Effect.promise(() =>
           publisher.publish("thing-updates", {
             thingId: thing.thingId,
             type: thing.type,
             action: thing.action,
-            timestamp: new Date().toISOString(),
+            timestamp,
           }),
         );
         return thing;
@@ -249,12 +250,13 @@ export default createPlugin.withPlugins<PluginsClient>()({
         const thing = yield* things.getThing(input.thingId);
         const result = yield* things.deleteThing(input.thingId);
         const publisher = yield* TemplatePublisher;
+        const timestamp = DateTime.formatIso(yield* DateTime.now);
         yield* Effect.promise(() =>
           publisher.publish("thing-updates", {
             thingId: thing.thingId,
             type: thing.type,
             action: `${thing.type}.deleted`,
-            timestamp: new Date().toISOString(),
+            timestamp,
           }),
         );
         return result;

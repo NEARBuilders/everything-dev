@@ -226,7 +226,6 @@ import type { PluginConfigInput } from "every-plugin";
 import Plugin from "./src/index";
 
 export default {
-  pluginId: "my-plugin",
   port: 3010,
   config: {
     variables: {
@@ -238,6 +237,10 @@ export default {
   } satisfies PluginConfigInput<typeof Plugin>,
 };
 ```
+
+No `pluginId` field — the dev server derives the plugin id from the workspace
+itself (the `plugins/<key>` layout key and the package.json name); it never
+reads one from this file.
 
 Port assignments: host=3000, api=3001, auth=3002, ui=3003, ui-ssr=3004, plugins=3010+.
 

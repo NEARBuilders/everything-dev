@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { JsonObjectSchema, SharedDepMapSchema } from "../types";
+import { JsonObjectSchema, SharedDepMapSchema, SlotPinSchema } from "../types";
 
 /** Pipeline-owned fields — never authored; injected from the deploy map. */
 export const PipelineFieldsSchema = z.object({
@@ -7,6 +7,7 @@ export const PipelineFieldsSchema = z.object({
   integrity: z.string().optional(),
   ssr: z.string().optional(),
   ssrIntegrity: z.string().optional(),
+  pin: SlotPinSchema.optional(),
 });
 export type PipelineFields = z.infer<typeof PipelineFieldsSchema>;
 
@@ -36,6 +37,7 @@ export const AttachmentRefSchema = DevelopmentRefSchema.extend({
       path: z.string().optional(),
       development: z.string().optional(),
       integrity: z.string().optional(),
+      pin: SlotPinSchema.optional(),
     })
     .strict()
     .optional(),
@@ -96,14 +98,25 @@ export const AppDescriptorSchema = z
       })
       .strict()
       .optional(),
+    /** Authoring-only: the starter level this child was scaffolded with.
+     * Stripped from resolved configs — publish canonicalization never
+     * carries it. */
+    starter: z.enum(["simple", "advanced"]).optional(),
     ci: z
       .object({
+        image: z.string().optional(),
         railway: z
           .object({
             service: z.string(),
           })
           .strict()
           .optional(),
+      })
+      .strict()
+      .optional(),
+    cdn: z
+      .object({
+        origin: z.string().optional(),
       })
       .strict()
       .optional(),

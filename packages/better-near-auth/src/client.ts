@@ -1,5 +1,4 @@
-import type { WalletManifest } from "@fastnear/near-connect";
-import type { EventMap } from "@fastnear/near-connect/build/types/index.js";
+import type { EventMap, WalletManifest } from "@hot-labs/near-connect";
 import { hex } from "@scure/base";
 import type {
   BetterFetch,
@@ -86,7 +85,16 @@ interface SignWithWalletResult {
   accountId: string;
   publicKey: string;
   nonceHex: string;
+  callbackUrl?: string;
 }
+
+type SignMessageParamsWithCallback = {
+  message: string;
+  recipient: string;
+  nonce: Uint8Array;
+  network?: NearNetwork;
+  callbackUrl?: string;
+};
 
 export interface SIWNClientActions {
   near: {
@@ -179,7 +187,7 @@ export const passkeyWalletManifest: WalletManifest = {
     signAndSendTransactions: true,
     signInWithoutAddKey: true,
     signInAndSignMessage: true,
-    addFunctionCallKey: false,
+    signInWithFunctionCallKey: false,
     signDelegateActions: true,
     gasKeys: false,
     mainnet: true,
@@ -209,17 +217,43 @@ export const siwnClient = (config: SIWNClientConfig) => {
 
   const connectors = new Map<
     "mainnet" | "testnet",
-    InstanceType<typeof import("@fastnear/near-connect").NearConnector>
+    InstanceType<typeof import("@hot-labs/near-connect").NearConnector>
   >();
+  type Connector = InstanceType<typeof import("@hot-labs/near-connect").NearConnector>;
+  type ConnectedWallet = Awaited<ReturnType<Connector["getConnectedWallet"]>>;
+  const connectedWallets = new Map<NearNetwork, ConnectedWallet>();
+  const connectedWalletChecks = new Map<NearNetwork, Promise<ConnectedWallet>>();
   const nearClients = new Map<"mainnet" | "testnet", Near>();
   const initializedNetworks = new Set<"mainnet" | "testnet">();
-  let connectorModulePromise: Promise<typeof import("@fastnear/near-connect")> | null = null;
+  let connectorModulePromise: Promise<typeof import("@hot-labs/near-connect")> | null = null;
   const initPromises = new Map<"mainnet" | "testnet", Promise<boolean>>();
 
   const loadConnector = async () => {
-    connectorModulePromise ??= import("@fastnear/near-connect");
+    connectorModulePromise ??= import("@hot-labs/near-connect");
     const { NearConnector } = await connectorModulePromise;
     return NearConnector;
+  };
+
+  const getConnectedWallet = (
+    network: NearNetwork,
+    connector: Connector,
+  ): Promise<ConnectedWallet> => {
+    const pending = connectedWalletChecks.get(network);
+    if (pending) return pending;
+
+    const request = connector
+      .getConnectedWallet()
+      .then((connected) => {
+        connectedWallets.set(network, connected);
+        return connected;
+      })
+      .finally(() => {
+        if (connectedWalletChecks.get(network) === request) {
+          connectedWalletChecks.delete(network);
+        }
+      });
+    connectedWalletChecks.set(network, request);
+    return request;
   };
 
   const handleAccountConnection = async (
@@ -265,11 +299,13 @@ export const siwnClient = (config: SIWNClientConfig) => {
         const accountId = data.accounts?.[0]?.accountId;
         const publicKey = data.accounts?.[0]?.publicKey;
         if (accountId) {
+          connectedWallets.set(network, { wallet: data.wallet, accounts: data.accounts });
           await handleAccountConnection(accountId, publicKey, network);
         }
       });
 
       connector.on("wallet:signOut", () => {
+        connectedWallets.delete(network);
         if (activeNetwork.get() !== network) return;
         walletConnected.set(false);
         const state = nearState.get();
@@ -282,8 +318,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
         }
       });
 
-      void connector
-        .getConnectedWallet()
+      void getConnectedWallet(network, connector)
         .then(({ accounts }) => {
           if (activeNetwork.get() !== network) return;
           const account = accounts?.[0];
@@ -416,16 +451,16 @@ export const siwnClient = (config: SIWNClientConfig) => {
   const signWithWallet = async (): Promise<SignWithWalletResult> => {
     const net = activeNetwork.get();
     const conn = await requireConnector(net);
-    const nearClient = requireNear(net);
     const recipient = getRecipient(net);
 
     const nonceBytes = generateNonce();
     const nonceHex = hex.encode(nonceBytes);
     const message = `Sign in to ${recipient}`;
+    const callbackUrl = typeof window === "undefined" ? undefined : window.location.href;
 
     let connectedWallet: Awaited<ReturnType<typeof conn.getConnectedWallet>> | null = null;
     try {
-      connectedWallet = await conn.getConnectedWallet();
+      connectedWallet = connectedWallets.get(net) ?? (await getConnectedWallet(net, conn));
     } catch {}
 
     if (activeNetwork.get() !== net) {
@@ -442,11 +477,14 @@ export const siwnClient = (config: SIWNClientConfig) => {
     }
 
     if (connectedWallet?.accounts?.length) {
-      const signedMessage = await nearClient.signMessage({
+      const signMessageParams: SignMessageParamsWithCallback = {
         message,
         recipient,
         nonce: nonceBytes,
-      });
+        network: net,
+        callbackUrl,
+      };
+      const signedMessage = await connectedWallet.wallet.signMessage(signMessageParams);
 
       if (!signedMessage?.accountId) {
         throw new Error("Wallet sign-in was cancelled or failed");
@@ -457,6 +495,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
         accountId: signedMessage.accountId,
         publicKey: signedMessage.publicKey,
         nonceHex,
+        callbackUrl,
       };
     }
 
@@ -483,7 +522,8 @@ export const siwnClient = (config: SIWNClientConfig) => {
           message,
           recipient,
           nonce: nonceBytes,
-        },
+          callbackUrl,
+        } as SignMessageParamsWithCallback,
       });
     } finally {
       conn.off("wallet:signInAndSignMessage", handler);
@@ -502,6 +542,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
       accountId: result.value.accountId,
       publicKey: result.value.publicKey,
       nonceHex,
+      callbackUrl,
     };
   };
 
@@ -732,17 +773,21 @@ export const siwnClient = (config: SIWNClientConfig) => {
 
       const sessionAtom = $store.atoms?.session;
       if (sessionAtom) {
+        let hadAuthenticatedSession = Boolean(sessionAtom.get()?.data?.user);
         sessionAtom.subscribe(() => {
           const sessionData = sessionAtom.get()?.data ?? null;
-          if (sessionData === null) {
+          const hasAuthenticatedSession = Boolean(sessionData?.user);
+          if (hadAuthenticatedSession && !hasAuthenticatedSession) {
             for (const [_net, conn] of connectors) {
               void conn?.disconnect().catch(() => {});
             }
+            connectedWallets.clear();
             walletConnected.set(false);
             nearState.set(null);
             gasKeyState.set(null);
             sessionRestored = false;
           }
+          hadAuthenticatedSession = hasAuthenticatedSession;
         });
       }
 
@@ -798,7 +843,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
               const conn = connectors.get(network);
               if (!conn) continue;
               try {
-                const { accounts } = await conn.getConnectedWallet();
+                const { accounts } = await getConnectedWallet(network, conn);
                 if (accounts?.length) {
                   const account = accounts[0]!;
                   return {
@@ -820,7 +865,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
               try {
                 const conn = connectors.get(net);
                 if (conn) {
-                  const { accounts } = await conn.getConnectedWallet();
+                  const { accounts } = await getConnectedWallet(net, conn);
                   if (accounts?.length) return true;
                 }
               } catch (err) {
@@ -840,6 +885,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
                 } catch {}
               }
             }
+            connectedWallets.clear();
             walletConnected.set(false);
             nearState.set(null);
             gasKeyState.set(null);
@@ -849,7 +895,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
             const net = activeNetwork.get();
             const recipient = getRecipient(net);
             try {
-              const { signedMessage, accountId, nonceHex } = await signWithWallet();
+              const { signedMessage, accountId, nonceHex, callbackUrl } = await signWithWallet();
               const message = `Sign in to ${recipient}`;
 
               await handleAccountConnection(accountId, signedMessage.publicKey, net);
@@ -867,6 +913,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
                   recipient,
                   nonce: nonceHex,
                   accountId,
+                  callbackUrl,
                 },
               });
 
@@ -1044,6 +1091,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
               if (oldConn) {
                 void oldConn.disconnect().catch(() => {});
               }
+              connectedWallets.delete(prev);
               walletConnected.set(false);
               nearState.set(null);
               gasKeyState.set(null);
@@ -1072,7 +1120,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
         signIn: {
           near: async (callbacks?: AuthCallbacks) => {
             try {
-              const { signedMessage, accountId, nonceHex } = await signWithWallet();
+              const { signedMessage, accountId, nonceHex, callbackUrl } = await signWithWallet();
               const net = activeNetwork.get();
               const recipient = getRecipient(net);
               const message = `Sign in to ${recipient}`;
@@ -1089,6 +1137,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
                     recipient,
                     nonce: nonceHex,
                     accountId,
+                    callbackUrl,
                   },
                 },
               );

@@ -117,3 +117,44 @@ export function parseTeamAreas(metadata: unknown): string[] {
 export function serializeTeamAreas(areas: string[]): string {
   return JSON.stringify({ areas: [...new Set(areas)] });
 }
+
+export interface EmailVisibilityContext {
+  user?: { id?: string; role?: string | null } | null;
+  userId?: string | null;
+  reqHeaders?: HeaderInput;
+}
+
+export async function canReadMemberEmails(
+  services: {
+    auth: {
+      api: {
+        hasPermission: (args: {
+          headers: Headers;
+          body: { organizationId?: string; permissions: Record<string, string[]> };
+        }) => Promise<{ success: boolean }>;
+      };
+    };
+  },
+  context: EmailVisibilityContext,
+  organizationId?: string,
+): Promise<boolean> {
+  if (context.user?.role === "admin") return true;
+  try {
+    const result = await services.auth.api.hasPermission({
+      headers: createHeaders(context.reqHeaders),
+      body: { organizationId, permissions: { email: ["read"] } },
+    });
+    return result.success === true;
+  } catch {
+    return false;
+  }
+}
+
+export function visibleEmail(
+  rawEmail: string | null | undefined,
+  opts: { allowed: boolean; isSelf?: boolean },
+): string | null {
+  if (!rawEmail) return null;
+  if (opts.allowed || opts.isSelf) return rawEmail;
+  return null;
+}

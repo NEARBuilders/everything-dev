@@ -5,53 +5,38 @@
 
 <div align="center">
 
-<h1 style="font-size: 4.25rem; font-weight: 800; line-height: 1; margin: 0;">City Nodes</h1>
+<h1 style="font-size: 4.25rem; font-weight: 800; line-height: 1; margin: 0;">everything.dev</h1>
 
-<img src="ui/src/assets/under-construction.gif" alt="City Nodes" width="380" />
+<img src="ui/src/assets/under-construction.gif" alt="everything.dev" width="380" />
 
 </div>
 
-A decentralized network of NEAR validator nodes organized by geography. Every city, state, and country can run its own validator pool — stake NEAR to keep your city's node online.
+The open runtime for apps on NEAR — compose published plugins, own your runtime config, and extend the platform with your own deployments.
 
-## What are City Nodes?
+## What is everything.dev?
 
-A **City Node** is a NEAR Protocol validator node tied to a real place — a city, state, or country. Each node has its own subdomain (e.g. `chicago.citynode.app`), its own NEAR treasury account, and one or more validator pools that anyone can stake to.
+everything.dev is a **Module Federation runtime platform**:
 
-Nodes form a geography tree:
+- a shared **host** that boots from a published runtime config (authored in `bos.app.ts`, published on-chain to the FastKV registry)
+- an **every-plugin** framework — oRPC contracts, Effect services, plugin manifests
+- **Better-Auth + NEAR SIWN** for sign-in, with passkeys, API keys, and organizations
+- a **CLI** (`bos`) for dev, builds, publishing, and deploys
 
-- A **country** node (e.g. USA, Malaysia) sits at the top
-- A **state** node (e.g. Illinois) sits under its country
-- A **city** node (e.g. Chicago, NYC) sits under its state
-
-A node's **subtree** is itself plus all its descendants. A country page aggregates every validator in its subtree, so stakers can drill from country → state → city.
-
-## The validator pool model
-
-Each node can run **0..N validators**. A validator is a staking target on NEAR with:
-
-- an `account_id` — the NEAR pool account you stake to
-- a `protocol` — today: NEAR; extensible to other chains
-- a `role` — `official` (run by the node's org) or `community` (run by a local operator)
-- an `is_default` flag — the pre-selected validator when you land on a node's stake page
-
-A node with no validators of its own **inherits** from its parent chain. Kuala Lumpur can stake to Malaysia's validator; a brand-new city with no validator yet can stake to its state's or country's.
-
-## How staking works
-
-1. Pick a place — start at the [directory](https://citynode.app) and drill into a country, state, or city.
-2. Open the node's stake page (e.g. `chicago.citynode.app/stake`).
-3. Sign in with your NEAR wallet.
-4. Choose a validator (official or community) and stake NEAR.
-
-Staking helps keep that place's validator online and securing the NEAR network.
-
-## Apply to run a node
-
-Want to set up a node for your city, state, or country? [Apply to run a City Node](https://citynode.app/apply).
+Apps are composed at runtime: a child runtime `extends` the base platform, overrides the slots it cares about (UI, plugins), and deploys its own instance — no forks, no host rebuilds.
 
 ## For builders
 
-City Nodes runs on [everything.dev](https://github.com/NEARBuilders/everything-dev) — a Module Federation runtime platform with oRPC contracts, Better-Auth + NEAR SIWN, and an every-plugin API. A fork of this framework exists within this repository, so feel free to make changes to it.
+This repository is the **base runtime** and the source of truth for the published packages (`everything-dev`, `every-plugin`, `better-near-auth`) and the universal runtime image.
+
+Scaffold your own app on the platform:
+
+```bash
+bos init your-app.everything.dev \
+  --extends dev.everything.near/everything.dev \
+  --account your-account.near \
+  --overrides ui \
+  --no-interactive
+```
 
 ## Deploy
 

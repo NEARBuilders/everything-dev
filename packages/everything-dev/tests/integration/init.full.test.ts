@@ -8,6 +8,7 @@ import {
   personalizeConfig,
   runBunInstall,
 } from "../../src/cli/init";
+import { writeChildConfigFixture } from "../helpers/parent-config";
 import { getFrameworkTarballs, rewriteFrameworkPackageSpecs } from "./framework-packages";
 import {
   assertTypecheckSuccess,
@@ -39,6 +40,12 @@ describe.skipIf(process.env.CI !== "true")("bos init — full (install + typeche
     await copyFilteredFiles(REPO_ROOT, testDir, patterns, {
       overrides: ["ui", "api", "plugins"],
       plugins: ["template"],
+    });
+
+    // The base repo authors its config in bos.app.ts — the copy step carries
+    // no bos.config.json; seed the child fixture the scaffold would write.
+    writeChildConfigFixture(testDir, ["ui", "api"], {
+      template: { development: "local:plugins/_template" },
     });
 
     await personalizeConfig(testDir, {

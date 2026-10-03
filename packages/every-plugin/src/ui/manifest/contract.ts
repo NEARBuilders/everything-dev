@@ -27,8 +27,7 @@ export const PLUGIN_UI_SHARED_EXPOSES = {
 /**
  * MF container naming rule shared by the build (rsbuild config) and runtime
  * config resolution — the host must register remotes under exactly the name
- * the built container declares. Lives here so both sides agree without
- * importing the build toolchain into runtime bundles.
+ * the built container declares. Delegates to the canonical identity module
+ * (`every-plugin/identity`), which owns the derivation.
  */
-export const sanitizeContainerName = (pkgName: string): string =>
-  pkgName.replace(/[^A-Za-z0-9_]/g, "_");
+export { containerName as sanitizeContainerName } from "../../identity";

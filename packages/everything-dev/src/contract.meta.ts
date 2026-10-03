@@ -107,10 +107,10 @@ export const cliCommandMeta = {
   },
   publish: {
     commandPath: ["publish"],
-    summary: "Publish the current workspace configuration",
+    summary:
+      "Publish the current workspace configuration (no build — use bos deploy for the full train)",
     interactive: false,
     fields: {
-      deploy: { description: "Build and deploy all workspaces before publish" },
       dryRun: { description: "Preview what would be published without writing" },
       verbose: { description: "Show full build output instead of clean summary" },
       env: { description: "Environment: production or staging" },
@@ -125,9 +125,35 @@ export const cliCommandMeta = {
       },
     },
   },
+  rollback: {
+    commandPath: ["rollback"],
+    summary: "Republish an earlier config snapshot from the registry publish history",
+    interactive: true,
+    fields: {
+      version: { description: "Block height (or timestamp) of the snapshot from the listing" },
+      previous: { description: "Roll back to the write immediately before the current one" },
+      force: {
+        description:
+          "Allow pre-Phase-A snapshots without verifiable manifest pins (their bytes were overwritten in place)",
+      },
+      limit: { description: "Listing depth (1-200, default 20)" },
+      dryRun: { description: "Preview the rollback without publishing" },
+      env: { description: "Environment: production or staging" },
+      network: { description: "NEAR network: mainnet or testnet" },
+      wallet: {
+        description:
+          "Publish gaslessly with a one-time wallet approval (NEP-366 delegate action relayed by the platform relayer)",
+      },
+      registry: {
+        description:
+          "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+      },
+    },
+  },
   deploy: {
     commandPath: ["deploy"],
-    summary: "Publish config and trigger Railway redeploy",
+    summary:
+      "Full deploy train: preflight → build → upload bundles → publish config → push runtime image → Railway (pull-only)",
     interactive: false,
     fields: {
       env: { description: "Environment: production or staging" },
@@ -166,6 +192,10 @@ export const cliCommandMeta = {
     fields: {
       env: { description: "Environment: production or staging" },
       allowance: { description: "NEAR allowance for the key (default: 1NEAR, min: 0.3NEAR)" },
+      removeOldKeys: {
+        description:
+          "Remove existing publish key(s) without prompting (default: ask on a TTY, yes when non-interactive)",
+      },
       registry: {
         description:
           "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
@@ -192,6 +222,10 @@ export const cliCommandMeta = {
       },
       overrides: {
         description: "Comma-separated sections to customize locally: ui,api,host,plugins",
+      },
+      level: {
+        description:
+          "Starter complexity: simple (public shell) or advanced (adds dashboard, orgs, admin)",
       },
       noInteractive: { description: "Skip prompts, use flags only" },
       noInstall: { description: "Skip bun install" },

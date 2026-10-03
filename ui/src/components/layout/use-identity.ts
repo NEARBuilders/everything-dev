@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
-import type { Organization } from "@/app";
-import { clearAuthenticatedQueries, sessionQueryOptions, useAuthClient } from "@/app";
+import { clearAuthenticatedQueries, sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import { getNearInitials, resolveNearImageUrl } from "@/lib/near-profile";
+import { organizationsQueryOptions } from "@/lib/queries/organizations";
+import { isSyntheticEmail } from "@/lib/synthetic-email";
 import { useNearAccount } from "@/lib/use-near-account";
 
 export function useIdentity() {
   const auth = useAuthClient();
+  const apiClient = useApiClient();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const router = useRouter();
@@ -17,12 +19,7 @@ export function useIdentity() {
   const nearAccountId = useNearAccount();
 
   const { data: organizations } = useQuery({
-    queryKey: ["organizations"],
-    queryFn: async () => {
-      const { data } = await auth.organization.list();
-      return (data || []) as Organization[];
-    },
-    staleTime: 30 * 1000,
+    ...organizationsQueryOptions(apiClient),
     enabled: !!user,
   });
   const activeOrgId = session?.session?.activeOrganizationId;
@@ -60,7 +57,8 @@ export function useIdentity() {
   });
 
   const avatarSrc = resolveNearImageUrl(nearProfile?.image) ?? user?.image ?? undefined;
-  const validEmail = user && !user.isAnonymous && user.email ? user.email : null;
+  const validEmail =
+    user && !user.isAnonymous && user.email && !isSyntheticEmail(user.email) ? user.email : null;
   const displayName = nearProfile?.name || user?.name || nearAccountId || validEmail || "guest";
   const handle = nearAccountId || validEmail || "anonymous session";
   const showHandle = handle !== displayName;

@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import { Context } from "effect";
 import { AuthServicesTag } from "../service-types";
 import { createHeaders, safeAuthApi } from "../utils";
@@ -126,6 +127,12 @@ export function createNearHandlers(builder: any, requireAuth: any) {
       .use(requireAuth)
       .handler(async ({ input, context }: { input: any; context: any }) => {
         const services = Context.get(context["effect/context"], AuthServicesTag);
+        if (context.user?.role !== "admin") {
+          throw new ORPCError("FORBIDDEN", {
+            message: "Admin access required",
+            data: { apiKeyProvided: false },
+          });
+        }
         return safeAuthApi(() =>
           services.auth.api.getRelayerInfo({
             headers: createHeaders(context.reqHeaders),

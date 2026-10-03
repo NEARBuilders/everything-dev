@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { computeRegressionEnv, findRepoRoot } from "./regression-env.mjs";
+import { computeRegressionEnv, findRepoRoot, loadRegressionConfig } from "./regression-env.mjs";
 
 function pluginSchemaSlug(key) {
   return key
@@ -37,8 +37,8 @@ function parsePostgresUrl(url) {
 
 export async function resetPluginDatabases({ repoRoot, env = process.env } = {}) {
   const root = repoRoot ?? findRepoRoot();
-  if (!root) throw new Error("bos.config.json not found in any parent directory");
-  const config = JSON.parse(fs.readFileSync(path.join(root, "bos.config.json"), "utf-8"));
+  if (!root) throw new Error("No authored config (bos.app.ts) found in any parent directory");
+  const config = loadRegressionConfig(root);
   const resolved = computeRegressionEnv({ repoRoot: root, env });
 
   const targets = [];

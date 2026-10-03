@@ -1,6 +1,6 @@
-# CityNode design system
+# everything.dev design system
 
-The CityNode UI is built on shadcn's `base-maia` style (preset `b3ZN5L2h44`) running on
+The everything.dev UI is built on shadcn's `base-maia` style (preset `b3ZN5L2h44`) running on
 Base UI, with our own tokens, sizes and page patterns layered on top. The preset is
 the starting point; this file is the source of truth.
 
