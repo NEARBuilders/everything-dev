@@ -1,0 +1,9 @@
+{
+  "name": "db-auth-absorption-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  }
+}

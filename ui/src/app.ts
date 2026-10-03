@@ -73,6 +73,15 @@ export function getActiveRuntime(config?: RuntimeConfigInput) {
   return readRuntimeConfig(config)?.runtime;
 }
 
+/**
+ * The gateway domain of the active runtime, or null when the runtime config
+ * is missing or mis-shapen. Callers surface the null (error state, disabled
+ * query, failed mutation) — never guess a default gateway.
+ */
+export function getGatewayId(config?: RuntimeConfigInput): string | null {
+  return readRuntimeConfig(config)?.runtime?.gatewayId ?? null;
+}
+
 export function getAccount(config?: RuntimeConfigInput): string {
   return readRuntimeConfig(config)?.account ?? "every.near";
 }
@@ -88,15 +97,44 @@ export function getAppName(config?: RuntimeConfigInput): string {
 import type { ApiClient } from "./lib/api";
 import type { AuthClient as AuthClientType } from "./lib/auth";
 
+export {
+  type BuildTenantUrlOptions,
+  buildDraftFromResolvedConfig,
+  buildTenantUrl,
+  computeSsrEntryIntegrity,
+  computeSubresourceIntegrity,
+  computeUiEntryIntegrity,
+  diffDraft,
+  draftUiOverride,
+  emptyTenantConfigDraft,
+  gatewayForAccount,
+  type IntegrityCheckResult,
+  isLocalHostname,
+  normalizeBundleBaseUrl,
+  resolveClientEntryUrl,
+  resolveServerEntryUrl,
+  type TenantConfigDraft,
+  type TenantUiOverride,
+  tenantConfigDraftSchema,
+  tenantLabel,
+  verifySsrIntegrity,
+  verifyUiIntegrity,
+  verifyUiPin,
+} from "everything-dev/ui/tenant";
 export type { ApiClient } from "./lib/api";
 export { createApiClient, useApiClient, useOrpc } from "./lib/api";
-export type { AuthClient, Organization, Passkey, SessionData } from "./lib/auth";
+export type { AuthClient, AuthContext, Organization, Passkey, SessionData } from "./lib/auth";
 export {
+  clearAuthenticatedQueries,
   createAuthClient,
+  pluginHref,
+  pluginPath,
+  pluginSearch,
+  requireAdmin,
+  requireSession,
   sessionQueryKey,
   sessionQueryOptions,
   useAuthClient,
-  useRelayHistory,
 } from "./lib/auth";
 
 import type {

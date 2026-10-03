@@ -1,0 +1,19 @@
+{
+  "account": "base.near",
+  "domain": "base.near",
+  "title": "Base",
+  "app": {
+    "host": {
+      "development": "local:host",
+      "production": "https://base.near/bundles/base.near/base/host/"
+    },
+    "ui": {
+      "development": "local:ui",
+      "production": "https://base.near/bundles/base.near/base/ui/"
+    },
+    "api": {
+      "development": "local:api",
+      "production": "https://base.near/bundles/base.near/base/api/"
+    }
+  }
+}

@@ -76,11 +76,65 @@ function getScenarioSkipReason(config: BosConfig, scenario: RuntimeRemoteScenari
   return undefined;
 }
 
+async function getReleaseTrainSkipReason(config: BosConfig): Promise<boolean> {
+  if (process.env.BOS_RUNTIME_REMOTE_ALLOW_STALE_TRAIN) return true;
+
+  const { getPluginSharedDependencies } = (await import("every-plugin/build/rspack")) as {
+    getPluginSharedDependencies: () => Record<string, { version: string }>;
+  };
+  const expected = new Map(
+    Object.entries(getPluginSharedDependencies()).map(
+      ([name, dep]) => [name, dep.version] as const,
+    ),
+  );
+
+  const candidates = [
+    config.app?.host?.production,
+    config.app?.api?.production,
+    config.app?.auth?.production,
+  ]
+    .filter((url): url is string => typeof url === "string" && url.length > 0)
+    .map((url) => normalizeUrl(url).replace(/\/mf-manifest.json$/, ""));
+
+  for (const base of candidates) {
+    let manifest: { shared?: Array<{ name: string; version?: string }> } | null = null;
+    try {
+      const res = await fetch(`${base}/mf-manifest.json`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) {
+        manifest = (await res.json()) as {
+          shared?: Array<{ name: string; version?: string }>;
+        };
+      }
+    } catch {
+      return false;
+    }
+    for (const { name, version } of manifest?.shared ?? []) {
+      const expectedVersion = expected.get(name);
+      if (expectedVersion && version && version !== expectedVersion) {
+        console.warn(
+          `[SharedIdentity] Remote bundle ${base} is on a different release train ` +
+            `(${name}@${version} vs local ${expectedVersion}) — remote runtime smoke suites are skipped. ` +
+            `Run "bos publish --deploy --packages local" to recover, ` +
+            `or set BOS_RUNTIME_REMOTE_ALLOW_STALE_TRAIN=1 to force.`,
+        );
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 export async function getRuntimeRemoteScenarios(): Promise<RuntimeRemoteScenario[]> {
   const config = await loadRawBosConfig();
-  const remoteClientSkipReason = getScenarioSkipReason(config, "remote-client");
+  const trainAvailable = await getReleaseTrainSkipReason(config);
+  const remoteClientSkipReason = trainAvailable
+    ? getScenarioSkipReason(config, "remote-client")
+    : "Remote host/plugin bundles are on a different release train than the local runtime; run `bos publish --deploy --packages local` first or set BOS_RUNTIME_REMOTE_ALLOW_STALE_TRAIN=1";
   const remoteSsrSkipReason = getScenarioSkipReason(config, "remote-ssr");
   const remoteProxySkipReason = getScenarioSkipReason(config, "remote-proxy");
+  const remoteSsrTotalSkip = remoteSsrSkipReason ?? remoteClientSkipReason;
 
   return [
     {
@@ -96,8 +150,8 @@ export async function getRuntimeRemoteScenarios(): Promise<RuntimeRemoteScenario
       title: "remote ui + remote api with ssr",
       ssr: true,
       proxy: false,
-      skipReason: remoteSsrSkipReason,
-      available: !remoteSsrSkipReason,
+      skipReason: remoteSsrTotalSkip,
+      available: !remoteSsrTotalSkip,
     },
     {
       name: "remote-proxy",
@@ -171,6 +225,8 @@ function buildRuntimeConfig(
           ),
           source: "remote" as const,
           variables: rawAuth.variables as Record<string, unknown>,
+          secrets: rawAuth.secrets as string[] | undefined,
+          shared: rawAuth.shared as NonNullable<RuntimeConfig["auth"]>["shared"] | undefined,
         }
       : undefined,
   } as RuntimeConfig;
@@ -192,9 +248,11 @@ export async function startRuntimeRemoteHost(
   const previousNodeEnv = process.env.NODE_ENV;
   const previousHost = process.env.HOST;
   const previousPort = process.env.PORT;
+  const previousIdentityMode = process.env.BOS_MF_IDENTITY;
   process.env.NODE_ENV = "development";
   process.env.HOST = "127.0.0.1";
   process.env.PORT = String(port);
+  process.env.BOS_MF_IDENTITY = "warn";
 
   if (scenario.proxy) {
     process.argv.push("--proxy");
@@ -210,6 +268,7 @@ export async function startRuntimeRemoteHost(
     process.env.NODE_ENV = previousNodeEnv;
     process.env.HOST = previousHost;
     process.env.PORT = previousPort;
+    process.env.BOS_MF_IDENTITY = previousIdentityMode;
 
     if (scenario.proxy) {
       const proxyIdx = process.argv.indexOf("--proxy");
@@ -230,6 +289,7 @@ export async function startRuntimeRemoteHost(
       process.env.NODE_ENV = previousNodeEnv;
       process.env.HOST = previousHost;
       process.env.PORT = previousPort;
+      process.env.BOS_MF_IDENTITY = previousIdentityMode;
 
       const proxyIdx = process.argv.indexOf("--proxy");
       if (proxyIdx !== -1) {

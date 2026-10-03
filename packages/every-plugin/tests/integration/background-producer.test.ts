@@ -4,9 +4,11 @@ import { createPluginRuntime } from "every-plugin/runtime";
 import { describe } from "vitest";
 import { TEST_REGISTRY } from "../registry";
 
-const BACKGROUND_CONFIG = {
+const wallClockNow = () => Date.now();
+
+const backgroundConfig = (baseUrl: string) => ({
   variables: {
-    baseUrl: "http://localhost:1337",
+    baseUrl,
     timeout: 5000,
     backgroundEnabled: true,
     backgroundIntervalMs: 200,
@@ -15,7 +17,13 @@ const BACKGROUND_CONFIG = {
   secrets: {
     apiKey: "test-api-key-value",
   },
-};
+});
+
+// Distinct configs keep each test on its own plugin instance (and therefore
+// its own background producer) — structurally-equal configs now share one
+// cached instance whose producer stops after backgroundMaxItems events.
+const SINGLE_CONSUMER_CONFIG = backgroundConfig("http://localhost:1337");
+const MULTI_CONSUMER_CONFIG = backgroundConfig("http://localhost:1338");
 
 const SECRETS_CONFIG = {
   API_KEY: "test-api-key-value",
@@ -31,25 +39,25 @@ describe.sequential("Background Producer Integration Tests", () => {
     "should test background producer and consumer pattern",
     () =>
       Effect.gen(function* () {
-        console.log("🚀 Testing background producer/consumer with real Module Federation");
+        yield* Effect.log("🚀 Testing background producer/consumer with real Module Federation");
 
         const { createClient } = yield* Effect.promise(() =>
-          runtime.usePlugin("test-plugin", BACKGROUND_CONFIG),
+          runtime.usePlugin("test-plugin", SINGLE_CONSUMER_CONFIG),
         );
 
         const client = createClient();
-        console.log("✅ Plugin initialized with background producer enabled");
+        yield* Effect.log("✅ Plugin initialized with background producer enabled");
 
         // Ping to confirm basic connectivity
         const pingResult = yield* Effect.tryPromise(() => client.ping()).pipe(
           Effect.timeout("6 seconds"),
         );
 
-        console.log(`🏓 Ping successful: ${pingResult.ok} at ${pingResult.timestamp}`);
+        yield* Effect.log(`🏓 Ping successful: ${pingResult.ok} at ${pingResult.timestamp}`);
         expect(pingResult.ok).toBe(true);
 
         // Start consuming events immediately while producer is running
-        console.log("🔄 Starting event consumption");
+        yield* Effect.log("🔄 Starting event consumption");
 
         const streamResult = yield* Effect.tryPromise(() =>
           client.listenBackground({ maxResults: 3 }),
@@ -63,8 +71,8 @@ describe.sequential("Background Producer Integration Tests", () => {
         // Collect events as they arrive in real-time
         const events = yield* stream.pipe(
           Stream.tap((event) =>
-            Effect.sync(() => {
-              console.log(
+            Effect.gen(function* () {
+              yield* Effect.log(
                 `🔍 Received background event in real-time: ${event.id} (index: ${event.index})`,
               );
               expect(event.id).toMatch(/^bg-\d+$/);
@@ -78,15 +86,17 @@ describe.sequential("Background Producer Integration Tests", () => {
         );
 
         const eventArray = Array.from(events);
-        console.log(`✅ Collected ${eventArray.length} background events in real-time`);
+        yield* Effect.log(`✅ Collected ${eventArray.length} background events in real-time`);
         expect(eventArray.length).toBe(3);
 
-        // Verify event structure and sequential ordering (real-time broadcasting)
+        // Plugin runtime uses a live Clock; @effect/vitest installs TestClock
+        // (epoch 0) in this fiber — compare against wall time, not TestClock.
+        const wallNow = wallClockNow();
         for (const event of eventArray) {
           expect(event.id).toMatch(/^bg-\d+$/);
           expect(event.index).toBeGreaterThan(0);
           expect(typeof event.timestamp).toBe("number");
-          expect(event.timestamp).toBeLessThanOrEqual(Date.now());
+          expect(event.timestamp).toBeLessThanOrEqual(wallNow);
         }
 
         // Verify sequential ordering
@@ -100,9 +110,7 @@ describe.sequential("Background Producer Integration Tests", () => {
           }
         }
 
-        console.log("� background producer/consumer test completed successfully!");
-
-        console.log("🎉 background producer/consumer test completed successfully!");
+        yield* Effect.log("🎉 background producer/consumer test completed successfully!");
       }).pipe(Effect.timeout("15 seconds")),
     { timeout: 20000 },
   );
@@ -111,15 +119,15 @@ describe.sequential("Background Producer Integration Tests", () => {
     "should handle multiple consumers simultaneously",
     () =>
       Effect.gen(function* () {
-        console.log("🚀 Testing multiple consumers simultaneously");
+        yield* Effect.log("🚀 Testing multiple consumers simultaneously");
 
         const { createClient } = yield* Effect.promise(() =>
-          runtime.usePlugin("test-plugin", BACKGROUND_CONFIG),
+          runtime.usePlugin("test-plugin", MULTI_CONSUMER_CONFIG),
         );
 
         const client = createClient();
         // Test multiple consumers reading from same publisher
-        console.log("🔄 Starting multiple consumer streams");
+        yield* Effect.log("🔄 Starting multiple consumer streams");
 
         const consumer1 = Effect.tryPromise(() => client.listenBackground({ maxResults: 3 })).pipe(
           Effect.flatMap((streamResult) => {
@@ -143,8 +151,8 @@ describe.sequential("Background Producer Integration Tests", () => {
         const array1 = Array.from(events1);
         const array2 = Array.from(events2);
 
-        console.log(`✅ Consumer 1 received ${array1.length} events`);
-        console.log(`✅ Consumer 2 received ${array2.length} events`);
+        yield* Effect.log(`✅ Consumer 1 received ${array1.length} events`);
+        yield* Effect.log(`✅ Consumer 2 received ${array2.length} events`);
 
         expect(array1.length).toBe(3);
         expect(array2.length).toBe(2);
@@ -152,7 +160,7 @@ describe.sequential("Background Producer Integration Tests", () => {
         // Collect all received IDs to verify pub/sub behavior
         const allIds = [...array1, ...array2].map((e) => e.id);
         const uniqueIds = new Set(allIds);
-        console.log(`📊 Total events: ${allIds.length}, Unique IDs: ${uniqueIds.size}`);
+        yield* Effect.log(`📊 Total events: ${allIds.length}, Unique IDs: ${uniqueIds.size}`);
 
         // Pub/sub broadcasts to all consumers - events SHOULD be duplicated
         expect(uniqueIds.size).toBeLessThan(allIds.length);
@@ -162,14 +170,18 @@ describe.sequential("Background Producer Integration Tests", () => {
         const consumer2Ids = new Set(array2.map((e) => e.id));
         const overlap = [...consumer1Ids].filter((id) => consumer2Ids.has(id));
         expect(overlap.length).toBeGreaterThan(0);
-        console.log(`✅ Broadcast verified: ${overlap.length} events received by both consumers`);
+        yield* Effect.log(
+          `✅ Broadcast verified: ${overlap.length} events received by both consumers`,
+        );
 
-        // Each event should have correct structure
+        // Plugin runtime uses a live Clock; @effect/vitest installs TestClock
+        // (epoch 0) in this fiber — compare against wall time, not TestClock.
+        const wallNow = wallClockNow();
         [...array1, ...array2].forEach((event) => {
           expect(event.id).toMatch(/^bg-\d+$/);
           expect(event.index).toBeGreaterThan(0);
           expect(typeof event.timestamp).toBe("number");
-          expect(event.timestamp).toBeLessThanOrEqual(Date.now());
+          expect(event.timestamp).toBeLessThanOrEqual(wallNow);
         });
 
         // Verify each consumer individually has sequential events
@@ -192,7 +204,7 @@ describe.sequential("Background Producer Integration Tests", () => {
           }
         }
 
-        console.log("🎉 Multiple consumers test completed!");
+        yield* Effect.log("🎉 Multiple consumers test completed!");
       }).pipe(Effect.timeout("15 seconds")),
     { timeout: 20000 },
   );

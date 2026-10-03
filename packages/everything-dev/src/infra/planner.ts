@@ -1,23 +1,25 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import { Effect } from "effect";
-import { PortAllocator } from "../app";
+import { Clock, Effect } from "effect";
+import { PortAllocator, type PortBlockEntry } from "../app";
 import {
-  buildDatabaseConfigs,
-  buildOriginMap,
-  buildRedisConfigs,
-  type DatabaseSecretConfig,
+  buildConventionalDatabases,
+  buildConventionalRedis,
   getSecretGroups,
   loadPortState,
-  type RedisSecretConfig,
   savePortState,
 } from "../cli/infra";
-import { buildDescription } from "../service-descriptor";
+import {
+  type AuthSlotShape,
+  buildDescription,
+  isAuthMirrorPluginEntry,
+} from "../service-descriptor";
 import type { RuntimeConfig } from "../types";
+import { shouldPersistPortState } from "./materializer";
+import { ownerOfPort } from "./port-ownership";
 import type {
   ClaimRecord,
   CliPorts,
-  ComposeModelPlan,
   DatabasePlan,
   InfraInput,
   InfraPlan,
@@ -29,10 +31,7 @@ import type {
 import { InfraError } from "./types";
 
 const DEFAULT_HOST_PORT = 3000;
-const DEFAULT_API_PORT = 3001;
-const DEFAULT_AUTH_PORT = 3002;
-const DEFAULT_UI_PORT = 3003;
-const DEFAULT_PLUGIN_PORT_START = 3010;
+
 const POSTGRES_USER = "everythingdev";
 const POSTGRES_PASSWORD = "everythingdev";
 
@@ -47,7 +46,6 @@ function normalizeCliPorts(input: InfraInput["cli"]): CliPorts {
     api: input.apiPort,
     auth: input.authPort,
     ui: input.uiPort,
-    uiSsr: undefined,
     pluginsStart: input.pluginPortStart,
     plugins: input.plugins,
   };
@@ -56,8 +54,24 @@ function normalizeCliPorts(input: InfraInput["cli"]): CliPorts {
 interface AllocateServicesResult {
   ports: ResolvedPorts;
   claims: ClaimRecord[];
-  devPortsState: { host: number; api: number; auth: number; ui: number; pluginPortStart: number };
+  devPortsState: {
+    host?: number;
+    api?: number;
+    auth?: number;
+    ui?: number;
+    pluginPortStart?: number;
+  };
 }
+
+export interface ServiceSources {
+  host?: "local" | "remote";
+  api?: "local" | "remote";
+  auth?: "local" | "remote";
+  ui?: "local" | "remote";
+}
+
+const PLUGIN_START_OFFSET = 10;
+const BLOCK_STEP = 100;
 
 function allocateServices(
   cliPorts: CliPorts,
@@ -66,87 +80,142 @@ function allocateServices(
     { source: string; localPath?: string; ui?: { source: string; localPath?: string } }
   >,
   configDir: string,
+  auth?: AuthSlotShape,
+  sources?: ServiceSources,
 ): Effect.Effect<AllocateServicesResult, InfraError, PortAllocator> {
   return Effect.gen(function* () {
     const wKey = workspaceKey(configDir);
     const persisted = loadPortState(configDir).devPorts;
     const allocator = yield* PortAllocator;
 
-    const hostPort = yield* allocator.pickAvailable(
-      cliPorts.host ?? persisted?.host ?? DEFAULT_HOST_PORT,
-    );
+    const base = cliPorts.host ?? persisted?.host ?? DEFAULT_HOST_PORT;
+    const pluginStartPreferred =
+      cliPorts.pluginsStart ?? persisted?.pluginPortStart ?? base + PLUGIN_START_OFFSET;
+    const pluginStartPinned =
+      cliPorts.pluginsStart !== undefined || persisted?.pluginPortStart !== undefined;
 
-    const apiPort = yield* allocator.pickAvailable(
-      cliPorts.api ?? persisted?.api ?? DEFAULT_API_PORT,
-    );
+    const entries: PortBlockEntry[] = [];
+    const addEntry = (
+      key: string,
+      flag: number | undefined,
+      persistedValue: number | undefined,
+      derived: number,
+    ) => {
+      if (flag !== undefined) {
+        entries.push({ key, preferred: flag, pinned: true });
+      } else if (persistedValue !== undefined) {
+        entries.push({ key, preferred: persistedValue, pinned: true });
+      } else {
+        entries.push({ key, preferred: derived, pinned: false });
+      }
+    };
 
-    const authPort = yield* allocator.pickAvailable(
-      cliPorts.auth ?? persisted?.auth ?? DEFAULT_AUTH_PORT,
-    );
-
-    const uiPort = yield* allocator.pickAvailable(cliPorts.ui ?? persisted?.ui ?? DEFAULT_UI_PORT);
-
-    const uiSsrPort = yield* allocator.pickAvailable(cliPorts.uiSsr ?? uiPort + 1);
-
-    const pluginApiPorts: Record<string, number> = {};
-    const pluginUiPorts: Record<string, number> = {};
+    // Remote-source services spawn nothing locally (ADR 0009 start stack:
+    // remotes load over MF from their published origins) — no port is
+    // allocated for them. The host is the exception: even when loaded as a
+    // remote module, runServer binds its own port.
+    addEntry("host", cliPorts.host, undefined, base);
+    if (sources?.api !== "remote") {
+      addEntry("api", cliPorts.api, persisted?.api, base + 1);
+    }
+    if (sources?.auth !== "remote") {
+      addEntry("auth", cliPorts.auth, persisted?.auth, base + 2);
+    }
+    if (sources?.ui !== "remote") {
+      addEntry("ui", cliPorts.ui, persisted?.ui, base + 3);
+    }
 
     const pluginKeys = Object.keys(plugins).sort();
-    const pluginStart =
-      cliPorts.pluginsStart ?? persisted?.pluginPortStart ?? DEFAULT_PLUGIN_PORT_START;
-    let nextPluginPort = pluginStart;
+    const isAuthMirrorFor = (
+      pluginId: string,
+      pluginCfg: { source: string; localPath?: string } | undefined,
+    ) => pluginCfg !== undefined && isAuthMirrorPluginEntry(auth, pluginId, pluginCfg);
+
+    let pluginSlot = 0;
     for (const pluginId of pluginKeys) {
       const pluginCfg = plugins[pluginId];
-      const preferred = cliPorts.plugins?.[pluginId]?.api ?? nextPluginPort;
-      const pluginPort = yield* allocator.pickAvailable(preferred);
-      pluginApiPorts[pluginId] = pluginPort;
-      nextPluginPort = pluginPort + 1;
-
+      const pluginIsLocal = pluginCfg?.source === "local";
+      const slotBase = pluginStartPinned ? pluginStartPreferred : base + PLUGIN_START_OFFSET;
+      // The auth mirror's backend is owned by the `auth` app slot — no api
+      // port. Its ui surface is still real: without a port the runtime config
+      // advertises an empty ui.url and the browser can never load the remote
+      // (the /login page never renders).
+      if (!isAuthMirrorFor(pluginId, pluginCfg) && pluginIsLocal) {
+        addEntry(
+          `plugin:${pluginId}`,
+          cliPorts.plugins?.[pluginId]?.api,
+          undefined,
+          slotBase + pluginSlot,
+        );
+        pluginSlot += 1;
+      }
       if (
         pluginCfg?.source === "local" &&
         pluginCfg?.localPath &&
         pluginCfg?.ui?.source === "local"
       ) {
-        const uiPreferred = cliPorts.plugins?.[pluginId]?.ui ?? nextPluginPort;
-        const pluginUiPort = yield* allocator.pickAvailable(uiPreferred);
-        pluginUiPorts[pluginId] = pluginUiPort;
-        nextPluginPort = pluginUiPort + 1;
+        addEntry(
+          `plugin-ui:${pluginId}`,
+          cliPorts.plugins?.[pluginId]?.ui,
+          undefined,
+          slotBase + pluginSlot,
+        );
+        pluginSlot += 1;
       }
     }
 
+    const allocation = yield* allocator.acquireBlock({ base, step: BLOCK_STEP, entries });
+
+    if (allocation.base !== base) {
+      yield* Effect.logError(
+        `[Dev] Preferred port block starting at ${base} is occupied — using ${allocation.base} (this run only; restarts will retry ${base})`,
+      );
+      for (const conflict of allocation.conflicts.slice(0, 6)) {
+        if (conflict.claimed) {
+          yield* Effect.logError(
+            `[Dev]   port ${conflict.port} (${conflict.key}) — live bos session (registry claim)`,
+          );
+        } else {
+          const owner = yield* ownerOfPort(conflict.port);
+          yield* Effect.logError(
+            `[Dev]   port ${conflict.port} (${conflict.key}) — ${
+              owner ? `pid ${owner.pid} (${owner.command})` : "foreign holder (lsof unavailable)"
+            }`,
+          );
+        }
+      }
+    }
+
+    const pluginApiPorts: Record<string, number> = {};
+    const pluginUiPorts: Record<string, number> = {};
+    for (const pluginId of pluginKeys) {
+      const api = allocation.ports[`plugin:${pluginId}`];
+      if (api !== undefined) pluginApiPorts[pluginId] = api;
+      const ui = allocation.ports[`plugin-ui:${pluginId}`];
+      if (ui !== undefined) pluginUiPorts[pluginId] = ui;
+    }
+
     const resolved: ResolvedPorts = {
-      host: hostPort,
-      api: apiPort,
-      auth: authPort,
-      ui: uiPort,
-      uiSsr: uiSsrPort,
+      host: allocation.ports.host,
+      api: allocation.ports.api,
+      auth: allocation.ports.auth,
+      ui: allocation.ports.ui,
       plugins: Object.fromEntries(
-        Object.entries(pluginApiPorts).map(([k, v]) => [k, { api: v, ui: pluginUiPorts[k] }]),
+        pluginKeys.map((k) => [k, { api: pluginApiPorts[k], ui: pluginUiPorts[k] }]),
       ),
-      postgres: {},
-      redis: {},
     };
 
     const devPortsState = {
-      host: hostPort,
-      api: apiPort,
-      auth: authPort,
-      ui: uiPort,
-      pluginPortStart: pluginStart,
+      host: cliPorts.host,
+      api: cliPorts.api,
+      auth: cliPorts.auth,
+      ui: cliPorts.ui,
+      pluginPortStart: cliPorts.pluginsStart,
     };
 
-    const claimPorts: Record<string, number> = {
-      host: hostPort,
-      api: apiPort,
-      auth: authPort,
-      ui: uiPort,
-      uiSsr: uiSsrPort,
-    };
-    for (const [id, port] of Object.entries(pluginApiPorts)) {
-      claimPorts[`plugin:${id}`] = port;
-    }
-    for (const [id, port] of Object.entries(pluginUiPorts)) {
-      claimPorts[`plugin-ui:${id}`] = port;
+    const claimPorts: Record<string, number> = {};
+    for (const [key, port] of Object.entries(allocation.ports)) {
+      claimPorts[key] = port;
     }
 
     const claim: ClaimRecord = {
@@ -154,7 +223,7 @@ function allocateServices(
       pid: process.pid,
       configDir,
       ports: claimPorts,
-      startedAt: Date.now(),
+      startedAt: yield* Clock.currentTimeMillis,
     };
 
     return { ports: resolved, claims: [claim], devPortsState };
@@ -170,13 +239,8 @@ function allocateServices(
   );
 }
 
-function allocateDatabases(
-  runtimeConfig: RuntimeConfig,
-  configDir: string,
-): Effect.Effect<
+function allocateDatabases(runtimeConfig: RuntimeConfig): Effect.Effect<
   {
-    postgres: Record<string, number>;
-    redis: Record<string, number>;
     dbs: DatabasePlan[];
     redisPlans: RedisPlan[];
   },
@@ -184,51 +248,44 @@ function allocateDatabases(
   PortAllocator
 > {
   return Effect.gen(function* () {
-    const persisted = loadPortState(configDir);
     const groups = getSecretGroups(runtimeConfig);
     const allSecrets = groups.flatMap((group) => group.secrets);
-    const originMap = buildOriginMap(configDir, runtimeConfig);
     const allocator = yield* PortAllocator;
 
-    const infraDatabases: DatabaseSecretConfig[] = yield* Effect.sync(() =>
-      buildDatabaseConfigs(allSecrets, originMap, { ...persisted.postgresPorts }),
-    );
-    const infraRedis: RedisSecretConfig[] = yield* Effect.sync(() =>
-      buildRedisConfigs(allSecrets, originMap, { ...persisted.redisPorts }),
-    );
+    const conventionalDatabases = buildConventionalDatabases(allSecrets);
+    const conventionalRedis = buildConventionalRedis(allSecrets);
 
-    const postgres: Record<string, number> = {};
     const dbs: DatabasePlan[] = [];
-    for (const db of infraDatabases) {
-      const port = yield* allocator.pickAvailable(db.port);
-      postgres[db.slug] = port;
+    const allocatedByDesired = new Map<number, number>();
+    for (const db of conventionalDatabases) {
+      let port: number;
+      if (allocatedByDesired.has(db.port)) {
+        port = allocatedByDesired.get(db.port)!;
+      } else {
+        port = yield* allocator.pickAvailable(db.port);
+        allocatedByDesired.set(db.port, port);
+      }
       dbs.push({
         secret: db.secret,
         slug: db.slug,
         port,
         dbName: db.databaseName,
-        containerName: db.containerName,
-        volumeName: db.volumeName,
-        url: `postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${port}/${db.slug}_db`,
+        url: `postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${port}/${db.databaseName}`,
       });
     }
 
-    const redis: Record<string, number> = {};
     const redisPlans: RedisPlan[] = [];
-    for (const r of infraRedis) {
+    for (const r of conventionalRedis) {
       const port = yield* allocator.pickAvailable(r.port);
-      redis[r.slug] = port;
       redisPlans.push({
         secret: r.secret,
         slug: r.slug,
         port,
-        containerName: r.containerName,
-        volumeName: r.volumeName,
         url: `redis://localhost:${port}`,
       });
     }
 
-    return { postgres, redis, dbs, redisPlans };
+    return { dbs, redisPlans };
   }).pipe(
     Effect.mapError(
       (portErr) =>
@@ -289,22 +346,14 @@ export function buildServiceDescriptors(
       port: isLocal ? resolvedPorts.ui : undefined,
       localPath: isLocal ? runtimeConfig.ui.localPath : undefined,
     });
-    if (isLocal && resolvedPorts.uiSsr) {
-      descriptors.push({
-        key: "ui-ssr",
-        source: "local",
-        url: `http://localhost:${resolvedPorts.uiSsr}`,
-        port: resolvedPorts.uiSsr,
-        localPath: runtimeConfig.ui.localPath,
-      });
-    }
   }
 
   if (runtimeConfig.plugins) {
     for (const [pluginId, pluginCfg] of Object.entries(runtimeConfig.plugins)) {
       const pluginIsLocal = pluginCfg.source === "local";
       const p = resolvedPorts.plugins[pluginId];
-      if (pluginIsLocal && p?.api) {
+      const isAuthMirror = isAuthMirrorPluginEntry(runtimeConfig.auth, pluginId, pluginCfg);
+      if (pluginIsLocal && p?.api && !isAuthMirror) {
         descriptors.push({
           key: `plugin:${pluginId}`,
           source: "local",
@@ -313,7 +362,7 @@ export function buildServiceDescriptors(
           localPath: pluginCfg.localPath,
         });
       }
-      if (!pluginIsLocal && pluginCfg.url) {
+      if (!pluginIsLocal && pluginCfg.url && !isAuthMirror) {
         descriptors.push({
           key: `plugin:${pluginId}`,
           source: "remote",
@@ -359,10 +408,6 @@ export function buildLaunchSpec(
   };
 }
 
-export function buildComposeModel(dbs: DatabasePlan[], redisPlans: RedisPlan[]): ComposeModelPlan {
-  return { databases: dbs, redis: redisPlans };
-}
-
 export function buildEnvGenerated(
   resolvedPorts: ResolvedPorts,
   dbs: DatabasePlan[],
@@ -372,6 +417,9 @@ export function buildEnvGenerated(
 
   if (resolvedPorts.host) {
     env.CORS_ORIGIN = `http://localhost:${resolvedPorts.host}`;
+    // The host origin for plugins that derive absolute URLs from it (e.g. the
+    // auth plugin's Better Auth baseURL — email links, passkey RP id).
+    env.BASE_URL = `http://localhost:${resolvedPorts.host}`;
   }
 
   for (const db of dbs) {
@@ -398,29 +446,31 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
       ports: svcPorts,
       claims,
       devPortsState,
-    } = yield* allocateServices(cliPorts, plugins, input.configDir);
+    } = yield* allocateServices(cliPorts, plugins, input.configDir, input.bosConfig.auth, {
+      host: input.bosConfig.host?.source,
+      api: input.bosConfig.api?.source,
+      auth: input.bosConfig.auth?.source,
+      ui: input.bosConfig.ui?.source,
+    });
 
-    const {
-      dbs,
-      redisPlans,
-      postgres: pgPorts,
-      redis: rdPorts,
-    } = yield* allocateDatabases(input.bosConfig, input.configDir);
+    const { dbs, redisPlans } = yield* allocateDatabases(input.bosConfig);
 
-    const resolvedPorts: ResolvedPorts = {
-      ...svcPorts,
-      postgres: pgPorts,
-      redis: rdPorts,
-    };
+    const resolvedPorts: ResolvedPorts = { ...svcPorts };
 
     // Write merged state once after all allocations succeed
     // Skip persistence for regression tests / ephemeral runs
-    if (process.env.BOS_NO_PERSIST_PORTS !== "1") {
-      savePortState(input.configDir, {
-        postgresPorts: pgPorts,
-        redisPorts: rdPorts,
-        devPorts: devPortsState,
-      });
+    // devPorts pins are explicit choices only (ADR 0012 §4): this run's flags,
+    // falling back to previously-persisted explicit choices — never drift.
+    const previousDevPorts = loadPortState(input.configDir).devPorts ?? {};
+    const devPorts = {
+      host: devPortsState.host ?? previousDevPorts.host,
+      api: devPortsState.api ?? previousDevPorts.api,
+      auth: devPortsState.auth ?? previousDevPorts.auth,
+      ui: devPortsState.ui ?? previousDevPorts.ui,
+      pluginPortStart: devPortsState.pluginPortStart ?? previousDevPorts.pluginPortStart,
+    };
+    if (shouldPersistPortState()) {
+      savePortState(input.configDir, { devPorts });
     }
 
     const hostIsLocal = input.bosConfig.host?.source === "local";
@@ -453,6 +503,7 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
               ...input.bosConfig.ui,
               port: resolvedPorts.ui,
               url: `http://localhost:${resolvedPorts.ui}`,
+              ssrUrl: undefined,
             }
           : input.bosConfig.ui,
       auth:
@@ -466,11 +517,29 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
       plugins: input.bosConfig.plugins
         ? Object.fromEntries(
             Object.entries(input.bosConfig.plugins).map(([id, p]) => {
+              const isAuthMirror = isAuthMirrorPluginEntry(input.bosConfig.auth, id, p);
               const pluginPort = resolvedPorts.plugins[id];
+              const patchedUi = (() => {
+                if (p.ui?.source !== "local" || !p.ui?.localPath || !pluginPort?.ui) return p.ui;
+                return {
+                  ...p.ui,
+                  port: pluginPort.ui,
+                  url: `http://localhost:${pluginPort.ui}`,
+                  ssrUrl: undefined,
+                };
+              })();
+              if (isAuthMirror) {
+                return [id, { ...p, ui: patchedUi }];
+              }
               if (p.source === "local" && pluginPort?.api) {
                 return [
                   id,
-                  { ...p, port: pluginPort.api, url: `http://localhost:${pluginPort.api}` },
+                  {
+                    ...p,
+                    port: pluginPort.api,
+                    url: `http://localhost:${pluginPort.api}`,
+                    ui: patchedUi,
+                  },
                 ];
               }
               return [id, p];
@@ -479,10 +548,9 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
         : undefined,
     };
 
-    const serviceDescriptors = buildServiceDescriptors(input.bosConfig, resolvedPorts);
+    const serviceDescriptors = buildServiceDescriptors(assignedRuntimeConfig, resolvedPorts);
 
     const launch = buildLaunchSpec(input.bosConfig, resolvedPorts);
-    const composeModel = buildComposeModel(dbs, redisPlans);
     const envGenerated = buildEnvGenerated(resolvedPorts, dbs, redisPlans);
 
     const packages = serviceDescriptors.map((d) => d.key);
@@ -506,7 +574,6 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
       description,
       serviceDescriptors: new Map(serviceDescriptors.map((d) => [d.key, d])),
       envGenerated,
-      composeModel,
       claims,
       orchestrator,
     };

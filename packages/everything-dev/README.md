@@ -20,14 +20,6 @@ A consolidated product package for building Module Federation apps with oRPC API
 - `bos plugin list` - list configured plugins
 - `bos plugin publish <key>` - publish one plugin package
 
-## Demo
-
-See `demo-next/docs-book/` for a minimal example that demonstrates:
-- Host server loading UI and API remotes via MF manifest
-- API plugin with oRPC contract
-- UI with TanStack Router
-- E2E tests with Playwright
-
 ## Quick Start
 
 ```bash
@@ -35,9 +27,8 @@ See `demo-next/docs-book/` for a minimal example that demonstrates:
 cd packages/everything-dev
 npm run build
 
-# Run the demo
-cd ../../demo-next/docs-book/host
-npm run dev
+# Start the dev server from the project root
+bos dev
 ```
 
 ## Architecture

@@ -33,10 +33,12 @@ export async function run(
     });
   }
 
-  await proc;
+  // Read the settled result, not the promise object — under execa 9 the
+  // promise's stdout/stderr are live streams, not the resolved strings.
+  const result = await proc;
+  const exitCode = result.exitCode ?? (result.failed ? 1 : 0);
 
   if (!options.capture) {
-    const exitCode = proc.exitCode ?? 0;
     if (exitCode !== 0) {
       throw new Error(`${cmd} ${args.join(" ")} failed with exit code ${exitCode}`);
     }
@@ -44,17 +46,12 @@ export async function run(
   }
 
   if (options.onChunk) {
-    return {
-      stdout: capturedStdout,
-      stderr: capturedStderr,
-      exitCode: proc.exitCode ?? 0,
-    };
+    return { stdout: capturedStdout, stderr: capturedStderr, exitCode };
   }
 
-  const result: RunResult = {
-    stdout: typeof proc.stdout === "string" ? proc.stdout : "",
-    stderr: typeof proc.stderr === "string" ? proc.stderr : "",
-    exitCode: proc.exitCode ?? 0,
+  return {
+    stdout: typeof result.stdout === "string" ? result.stdout : "",
+    stderr: typeof result.stderr === "string" ? result.stderr : "",
+    exitCode,
   };
-  return result;
 }

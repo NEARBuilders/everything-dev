@@ -1,3 +1,4 @@
+import { cn } from "cn";
 import type { ComponentType, ReactNode } from "react";
 
 interface EmptyStateProps {
@@ -8,28 +9,18 @@ interface EmptyStateProps {
   className?: string;
 }
 
-export function EmptyState({
-  icon: Icon,
-  title,
-  description,
-  action,
-  className = "",
-}: EmptyStateProps) {
+export function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
   return (
-    <div className={`min-h-[55vh] flex flex-col items-center justify-center ${className}`}>
-      <div className="max-w-md text-center space-y-6">
+    <div className={cn("flex flex-col items-center justify-center px-4 py-20", className)}>
+      <div className="flex max-w-md flex-col items-center gap-4 text-center">
         {Icon && (
-          <div className="min-h-[40px] flex items-center justify-center">
-            <Icon size={40} className="text-muted-foreground" />
+          <div className="flex size-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <Icon size={28} />
           </div>
         )}
-        {title && <h2 className="text-base font-semibold text-foreground">{title}</h2>}
-        {description && (
-          <div className="text-sm text-muted-foreground leading-relaxed min-h-[1.25rem]">
-            {description}
-          </div>
-        )}
-        {action && <div className="pt-2">{action}</div>}
+        {title && <h2 className="text-xl font-semibold text-foreground">{title}</h2>}
+        {description && <div className="text-base text-muted-foreground">{description}</div>}
+        {action && <div className="flex flex-wrap justify-center gap-3 pt-2">{action}</div>}
       </div>
     </div>
   );

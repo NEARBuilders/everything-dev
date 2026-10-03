@@ -1,8 +1,10 @@
 name: Deploy
 
 on:
-  repository_dispatch:
-    types: [ci-main-success]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       verbose:
@@ -15,85 +17,32 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   deploy:
     name: Deploy Production
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
-      # Zephyr server-token auth. Zephyr directly advised us to retain this flow for
-      # our workflow even though server tokens are being deprecated in favor of CI
-      # ZE_SECRET_TOKEN is used directly as the bearer token — no API exchange needed.
-      # We fall back to ZE_CI_TOKEN (below) only if ZEPHYR_AUTH_TOKEN is unset.
-      ZE_SECRET_TOKEN: ${{ secrets.ZEPHYR_AUTH_TOKEN }}
-      ZE_USER_EMAIL: ${{ secrets.ZEPHYR_USER_EMAIL }}
+      BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      TARGET_BRANCH: ${{ github.ref_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
         with:
-          ref: ${{ env.TARGET_BRANCH }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.2"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Run postinstall
-        run: bun run postinstall
-
-      - name: Install NEAR CLI
-        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/download/v0.23.5/near-cli-rs-installer.sh | sh
-
-      - name: Verify NEAR CLI
-        run: near --version
-
-      - name: Configure Zephyr CI token fallback
-        if: ${{ env.ZE_SECRET_TOKEN == '' }}
-        env:
-          ZEPHYR_CI_TOKEN: ${{ secrets.ZEPHYR_CI_TOKEN }}
-        run: |
-          echo "ZE_CI_TOKEN=$ZEPHYR_CI_TOKEN" >> "$GITHUB_ENV"
-
-      - name: Publish with deploy
-        timeout-minutes: 20
-        run: bun run bos publish --deploy${{ inputs.verbose == true && ' --verbose' || '' }}
-
-      - name: Install Railway CLI
-        run: npm i -g @railway/cli
-
-      - name: Redeploy Railway
-        run: railway redeploy --service app --yes
-
-      - name: Commit and push bos.config.json updates
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          for i in 1 2 3 4 5; do
-            git fetch origin "$TARGET_BRANCH"
-            if ! git rebase "origin/$TARGET_BRANCH"; then
-              echo "Rebase conflict — manual intervention required"
-              exit 1
-            fi
-            git add bos.config.json
-            if git diff --cached --quiet; then
-              echo "Nothing to push after rebase (attempt $i)"
-              exit 0
-            fi
-            git commit -m "chore: update deployment URLs [skip ci]"
-            if git push origin "$TARGET_BRANCH"; then
-              echo "Push succeeded on attempt $i"
-              exit 0
-            fi
-            echo "Push attempt $i failed, retrying in $((i*5))s..."
-            sleep $((i*5))
-          done
-          echo "All push attempts failed"
-          exit 1
+      - name: Deploy (build → upload → publish → image → Railway)
+        timeout-minutes: 25
+        run: bun run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}

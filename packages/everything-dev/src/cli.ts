@@ -1,28 +1,39 @@
+import { existsSync, watch } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import * as p from "@clack/prompts";
+import { installBundleFetchFromEnv } from "./bundle-fs-resolve";
 import { findCommandDescriptor } from "./cli/catalog";
 import { resolveFrameworkPackage } from "./cli/framework-version";
 import { printHelp } from "./cli/help";
-import { loadProjectEnv } from "./cli/infra";
-import { fetchParentConfig, runDockerComposeUp } from "./cli/init";
+import { runDockerComposeUp } from "./cli/init";
 import { parseCommandInput } from "./cli/parse";
 import { promptInitBasic, promptInitOverrides } from "./cli/prompts";
 import { formatDuration, sumPhaseDurations } from "./cli/timing";
-import { findConfigPath } from "./config";
+import { fetchInitParent } from "./commands/init";
+import { findConfigPath, readAuthoredConfigInput } from "./config";
 import type {
   DevOptions,
   DevResult,
   InitOptions,
   InitResult,
+  KeyPublishOptions,
   KillOptions,
   KillResult,
+  LogsOptions,
+  LogsResult,
   OverrideSection,
   PsResult,
   StartOptions,
   StartResult,
+  TypecheckWorkspaceResult,
 } from "./contract";
-import type { ProgressEvent, StartSummary } from "./plugin";
-import bosPlugin, { consumeDevSession, pluginEvents } from "./plugin";
+import type { StartSummary } from "./dev-program";
+import { getRegistryNamespaceForAccount } from "./fastkv";
+import { listPublishKeys } from "./near-cli";
+import { getNetworkIdForAccount } from "./network";
+import bosPlugin from "./plugin";
+import { type ProgressEvent, pluginEvents } from "./progress";
 import { createPluginRuntime } from "./sdk";
 import { printBanner } from "./utils/banner";
 import { colors, frames, gradients, icons } from "./utils/theme";
@@ -138,17 +149,21 @@ async function warnIfOutdated(client: any, command: string): Promise<void> {
 
     if (outdated.length === 0) return;
 
-    console.log();
-    console.log(colors.yellow(`  ! Outdated packages detected:`));
+    const warn = (line: string) => {
+      if (command === "dev" || command === "start") process.stderr.write(`${line}\n`);
+      else console.log(line);
+    };
+    warn("");
+    warn(colors.yellow(`  ! Outdated packages detected:`));
     for (const pkg of outdated) {
-      console.log(colors.dim(`    ${pkg.name}  ${pkg.installed} → ${pkg.latest}`));
+      warn(colors.dim(`    ${pkg.name}  ${pkg.installed} → ${pkg.latest}`));
     }
-    console.log(
+    warn(
       colors.dim(
         `    Run ${colors.cyan("bos upgrade")} to update packages and sync template files.`,
       ),
     );
-    console.log();
+    warn("");
   } catch {
     // silently ignore if status check fails
   }
@@ -164,7 +179,6 @@ async function main() {
 
   const invocationArgs = args.length > 0 ? args : ["dev"];
   const command = invocationArgs[0] ?? "dev";
-  const configPath = findConfigPath();
 
   const commandMatch = findCommandDescriptor(invocationArgs);
   if (!commandMatch) {
@@ -175,7 +189,23 @@ async function main() {
   const { descriptor, consumed } = commandMatch;
   const commandArgs = invocationArgs.slice(consumed);
 
-  const projectDir = configPath ? dirname(configPath) : undefined;
+  // Parse before the plugin boot: `start --config-path` steers the whole CLI,
+  // not just the stack — the plugin initialize resolves and pin-validates the
+  // boot config, so it must be the config the command will actually run.
+  let parsedInput: unknown;
+  try {
+    parsedInput = parseCommandInput(descriptor, commandArgs);
+  } catch (error) {
+    console.error(`[CLI] ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+  const bootInput = parsedInput as { configPath?: string };
+
+  const cwdConfigPath = findConfigPath();
+  const configPath = bootInput.configPath ?? cwdConfigPath;
+  installBundleFetchFromEnv({ configPath });
+
+  const projectDir = cwdConfigPath ? dirname(cwdConfigPath) : undefined;
   const edResolved = projectDir ? resolveFrameworkPackage(projectDir, "everything-dev") : undefined;
   const displayVersion = edResolved?.installedVersion
     ? `${edResolved.installedVersion}${edResolved.isLinked ? " (linked)" : ""}`
@@ -196,6 +226,7 @@ async function main() {
   const plugin = await loadPlugin("bos", {
     variables: {
       configPath: configPath ?? undefined,
+      configDir: cwdConfigPath ? dirname(cwdConfigPath) : undefined,
     },
     secrets: {},
   });
@@ -205,7 +236,83 @@ async function main() {
   const outdatedWarning = warnIfOutdated(client, command);
 
   try {
-    const input = parseCommandInput(descriptor, commandArgs);
+    const input = parsedInput;
+
+    const rollbackInput = input as {
+      listOnly?: boolean;
+      version?: string;
+      previous?: boolean;
+      [key: string]: unknown;
+    };
+    if (
+      descriptor.key === "rollback" &&
+      !rollbackInput.listOnly &&
+      !rollbackInput.version &&
+      !rollbackInput.previous
+    ) {
+      const listing = await (client as any).rollback({ ...rollbackInput, listOnly: true });
+      if (listing.status !== "list" || !listing.history?.length) {
+        console.error(listing.error ?? "No publish history found");
+        process.exit(1);
+      }
+      console.log();
+      const selection = await p.select({
+        message: "Roll back to which publish?",
+        options: listing.history.map(
+          (entry: {
+            blockHeight: number;
+            blockTimestamp: string;
+            txHash?: string;
+            summary: string;
+          }) => ({
+            value: String(entry.blockHeight),
+            label: `${entry.blockTimestamp}  (block ${entry.blockHeight})`,
+            hint: entry.summary,
+          }),
+        ),
+      });
+      if (p.isCancel(selection)) {
+        return;
+      }
+      rollbackInput.version = selection as string;
+    }
+
+    if (descriptor.key === "keyPublish") {
+      const keyPublishInput = input as KeyPublishOptions;
+      if (keyPublishInput.removeOldKeys === undefined) {
+        if (process.stdin.isTTY) {
+          const authored = configPath ? await readAuthoredConfigInput(dirname(configPath)) : null;
+          const account =
+            keyPublishInput.env === "staging"
+              ? (authored?.staging?.account ?? authored?.account)
+              : authored?.account;
+          let listed: string[] | null = null;
+          if (account) {
+            const network = getNetworkIdForAccount(account);
+            const contract = getRegistryNamespaceForAccount(account, keyPublishInput.registry);
+            try {
+              listed = await listPublishKeys({ account, contract, network });
+            } catch {
+              listed = null;
+            }
+          }
+          if (listed?.length) {
+            const removeOldKeys = await p.confirm({
+              message: `Remove ${listed.length} existing publish key${listed.length > 1 ? "s" : ""}?`,
+              initialValue: true,
+            });
+            if (p.isCancel(removeOldKeys)) {
+              return;
+            }
+            keyPublishInput.removeOldKeys = removeOldKeys;
+          } else {
+            keyPublishInput.removeOldKeys = true;
+          }
+        } else {
+          keyPublishInput.removeOldKeys = true;
+        }
+      }
+    }
 
     if (descriptor.key === "dev") {
       const devSpinner = p.spinner();
@@ -217,6 +324,7 @@ async function main() {
         build: "Building...",
         "resolve config": "Resolving config...",
         ports: "Finding available ports...",
+        "docker compose up": "Starting local Postgres...",
         "generate artifacts": "Generating code artifacts...",
       };
 
@@ -244,11 +352,18 @@ async function main() {
       devSpinner.stop();
       clearSpinnerStopLine();
 
-      const session = consumeDevSession();
-      await outdatedWarning;
+      const session = result.session;
+      void outdatedWarning;
       if (session) {
         const { devApp } = await import("./dev-session");
-        devApp(session.orchestrator, session.services, session.runtimeConfig);
+        devApp(
+          projectDir ?? process.cwd(),
+          session.orchestrator,
+          session.services,
+          session.runtimeConfig,
+          session.envGenerated,
+          session.shellEnv,
+        );
       }
       return;
     }
@@ -285,15 +400,22 @@ async function main() {
 
       startSpinner.stop("Ready");
 
-      const session = consumeDevSession();
-      await outdatedWarning;
+      const session = result.session;
+      const summary = result.summary;
+      void outdatedWarning;
       if (session) {
-        const summary = session.summary;
         if (summary) {
           printStartSummary(summary);
         }
         const { startApp } = await import("./dev-session");
-        startApp(session.orchestrator, session.services, session.runtimeConfig);
+        startApp(
+          projectDir ?? process.cwd(),
+          session.orchestrator,
+          session.services,
+          session.runtimeConfig,
+          session.envGenerated,
+          session.shellEnv,
+        );
       }
       return;
     }
@@ -318,10 +440,9 @@ async function main() {
         const fetchSpinner = p.spinner();
         fetchSpinner.start("Fetching parent config");
         try {
-          parentConfig = await fetchParentConfig(basic.extendsAccount, basic.extendsGateway);
-          if (parentConfig?.plugins && typeof parentConfig.plugins === "object") {
-            parentPluginKeys = Object.keys(parentConfig.plugins);
-          }
+          const parent = await fetchInitParent(basic.extendsAccount, basic.extendsGateway);
+          parentConfig = parent.parentConfig;
+          parentPluginKeys = parent.parentPluginKeys;
         } catch {
           fetchSpinner.stop("Config not found");
           console.error(
@@ -351,6 +472,7 @@ async function main() {
           parentPluginKeys,
           plugins: initInput.plugins,
           overrides: initInput.overrides as OverrideSection[] | undefined,
+          level: initInput.level,
         });
 
         const directory = initInput.directory || basic.domain || basic.extendsGateway;
@@ -363,6 +485,7 @@ async function main() {
           domain: basic.domain || undefined,
           plugins: overrides.plugins,
           overrides: overrides.overrides,
+          level: overrides.level ?? initInput.level,
           noInteractive: true,
         };
       }
@@ -423,11 +546,9 @@ async function main() {
       console.log(colors.dim("  Next steps:"));
       console.log(colors.dim(`    cd ${result.directory}`));
       if (!initInput.noInstall) {
-        console.log(colors.dim("    docker compose up -d --wait"));
         console.log(colors.dim("    bun run dev"));
       } else {
         console.log(colors.dim("    bun install"));
-        console.log(colors.dim("    docker compose up -d --wait"));
         console.log(colors.dim("    bun run dev"));
       }
       console.log();
@@ -441,13 +562,13 @@ async function main() {
         if (shouldStartDocker === true) {
           const dockerSpinner = p.spinner();
           dockerSpinner.start("Starting Docker services");
-          try {
-            await runDockerComposeUp(result.targetDir);
+          const compose = await runDockerComposeUp(result.targetDir);
+          if (compose.ok) {
             dockerSpinner.stop("Docker services ready");
-          } catch (error) {
+          } else {
             dockerSpinner.stop("Docker services not started");
             p.log.warn(
-              `docker compose up -d --wait failed: ${error instanceof Error ? error.message : error}`,
+              `docker compose up -d --wait failed${compose.tail ? `:\n${compose.tail}` : ""}`,
             );
           }
         }
@@ -455,8 +576,6 @@ async function main() {
 
       return;
     }
-
-    await outdatedWarning;
 
     const result = await (client as any)[descriptor.key](input);
 
@@ -466,30 +585,6 @@ async function main() {
         process.exit(1);
       }
 
-      const configPath = findConfigPath();
-      if (configPath) loadProjectEnv(dirname(configPath));
-
-      const { runStudioLocal, runStudioRemote } = await import("./cli/db-studio");
-      const info = {
-        key: result.plugin as string,
-        source: result.source as "local" | "remote",
-        section: result.section as "app.api" | "app.auth" | "plugins",
-        databaseSecret: result.databaseSecret as string,
-        databaseUrl: result.databaseUrl as string,
-        workspaceDir: result.workspaceDir as string | undefined,
-        projectDir: dirname(configPath ?? process.cwd()),
-      };
-
-      try {
-        if (info.source === "local" && info.workspaceDir) {
-          await runStudioLocal(info);
-        } else {
-          await runStudioRemote(info);
-        }
-      } catch (error) {
-        console.error(`[CLI] ${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
-      }
       return;
     }
 
@@ -828,6 +923,55 @@ async function main() {
       return;
     }
 
+    if (descriptor.key === "logs") {
+      const logsResult = result as LogsResult;
+      const opts = input as LogsOptions;
+      for (const line of logsResult.lines) {
+        console.log(line);
+      }
+      if (logsResult.lines.length === 0) {
+        console.log(colors.dim(`  No matching log lines in ${logsResult.logFile}.`));
+      }
+      if (opts.follow) {
+        if (logsResult.logFile === "unknown" || !existsSync(logsResult.logFile)) {
+          console.log(colors.dim("  No log file to follow — nothing was found on disk."));
+        } else {
+          const filter = opts.service;
+          let byteOffset = 0;
+          for (const line of logsResult.lines) byteOffset += Buffer.byteLength(line, "utf8") + 1;
+          const followMatch = (line: string): boolean => {
+            if (!filter) return true;
+            const source = /\] \[([^\]]+)\] \[(?:OUT|ERR)\] /.exec(line)?.[1];
+            return source === filter || source === `plugin:${filter}`;
+          };
+          const watcher = watch(logsResult.logFile, (event) => {
+            if (event !== "change") return;
+            void readFile(logsResult.logFile, "utf8")
+              .then((text) => {
+                const newLines = text
+                  .slice(byteOffset)
+                  .split("\n")
+                  .filter((line) => line.length > 0 && followMatch(line));
+                byteOffset = Buffer.byteLength(text, "utf8");
+                for (const line of newLines) {
+                  console.log(line);
+                }
+              })
+              .catch(() => {
+                // the followed file was rotated or deleted — stop following
+                watcher.close();
+              });
+          });
+          console.log(colors.dim("  Following — Ctrl+C to stop."));
+          process.on("SIGINT", () => {
+            watcher.close();
+            process.exit(0);
+          });
+        }
+      }
+      return;
+    }
+
     if (descriptor.key === "kill") {
       const killResult = result as KillResult;
       console.log();
@@ -913,9 +1057,99 @@ async function main() {
       return;
     }
 
+    if (descriptor.key === "typecheck") {
+      console.log();
+      if (result.status === "error") {
+        console.error(`[CLI] ${result.error || "Unknown error"}`);
+        process.exit(1);
+      }
+      const failed = result.results.filter((r: TypecheckWorkspaceResult) => !r.passed);
+      const passed = result.results.filter((r: TypecheckWorkspaceResult) => r.passed);
+      console.log(colors.cyan(frames.top(52)));
+      console.log(`  ${icons.app} ${gradients.cyber("TYPECHECK")}`);
+      console.log(colors.cyan(frames.bottom(52)));
+      console.log();
+      for (const r of result.results) {
+        const icon = r.passed ? colors.green("✓") : colors.error("✗");
+        console.log(`  ${icon} ${r.workspace}`);
+      }
+      if (result.skipped.length > 0) {
+        console.log(`  ${colors.dim(`Skipped: ${result.skipped.join(", ")}`)}`);
+      }
+      console.log();
+      if (failed.length > 0) {
+        console.log(`  ${colors.error(`${failed.length} failed`)}`);
+        for (const f of failed) {
+          if (f.error) console.log(`    ${colors.dim(f.error)}`);
+        }
+        console.log();
+        process.exit(1);
+      }
+      console.log(`  ${colors.green(`${passed.length} passed`)}`);
+      console.log();
+      return;
+    }
+
+    if (descriptor.key === "mfCheck") {
+      console.log();
+      console.log(
+        `  ${colors.dim("Host")}   ${result.hostReachable ? colors.green("OK  ") : colors.error("FAIL")}  ${
+          result.hostVersion ?? "unreachable"
+        }${result.hostReason ? `  (${result.hostReason})` : ""}`,
+      );
+      for (const r of result.remotes) {
+        const tag = r.ok ? colors.green("OK  ") : colors.error("FAIL");
+        console.log(
+          `  ${colors.dim(r.role.padEnd(10))} ${tag} ${r.url}  pluginVersion=${r.pluginVersion ?? "?"}${
+            r.reason ? `  ↳ ${r.reason}` : ""
+          }`,
+        );
+      }
+      console.log();
+      if (result.status !== "ok") {
+        console.log(
+          colors.error(
+            "  mf-compat: ✗ federation manifests NOT compatible — redeploy affected plugin(s) so pluginVersion and shared versions match host",
+          ),
+        );
+        console.log();
+        process.exit(1);
+      }
+      console.log(colors.green("  mf-compat: ✓ all federation manifests compatible"));
+      console.log();
+      return;
+    }
+
     if (result?.status === "error" && descriptor.key !== "publish" && descriptor.key !== "deploy") {
       console.error(`[CLI] ${result.error || "Unknown error"}`);
       process.exit(1);
+    }
+
+    if (descriptor.key === "login") {
+      console.log();
+      console.log(colors.green(`${icons.ok} Logged in to ${result.siteUrl}`));
+      if (result.accountId) console.log(`  ${colors.dim("Account:")} ${result.accountId}`);
+      if (result.expiresAt) console.log(`  ${colors.dim("Expires:")} ${result.expiresAt}`);
+      if (result.warning) console.log(`  ${colors.yellow("⚠")} ${result.warning}`);
+      if (result.publishKey) {
+        console.log(
+          `  ${colors.dim("Publish key:")} ${result.publishKey.publicKey} ${colors.dim(
+            `(${result.publishKey.network}, exported to ${result.publishKey.exportedTo})`,
+          )}`,
+        );
+      }
+      console.log();
+      return;
+    }
+
+    if (descriptor.key === "logout") {
+      console.log();
+      console.log(colors.green(`${icons.ok} Logged out`));
+      if (result.revokedApiKey) console.log(`  ${colors.dim("Revoked API key")}`);
+      if (result.removedPublishKey) console.log(`  ${colors.dim("Removed exported publish key")}`);
+      if (result.warning) console.log(`  ${colors.yellow("⚠")} ${result.warning}`);
+      console.log();
+      return;
     }
 
     if (descriptor.key === "keyPublish") {
@@ -923,10 +1157,16 @@ async function main() {
       process.stdout.write(`  Network: ${result.network}\n`);
       process.stdout.write(`  Allowance: ${result.allowance}\n`);
       process.stdout.write(`\n`);
+      const secretName = result.env === "staging" ? "NEAR_TESTNET_PRIVATE_KEY" : "NEAR_PRIVATE_KEY";
+      if (!process.stdout.isTTY) {
+        process.stderr.write(
+          `  ⚠ Non-interactive stdout: this private key will be captured in any log or pipe (GitHub Actions logs persist stdout).\n`,
+        );
+      }
       process.stdout.write(
-        `  Set this as NEAR_PRIVATE_KEY in GitHub Actions or before calling publish:\n`,
+        `  Set this as ${secretName} in GitHub Actions or before calling publish:\n`,
       );
-      process.stdout.write(`  NEAR_PRIVATE_KEY=${result.privateKey}\n`);
+      process.stdout.write(`${secretName}=${result.privateKey}\n`);
     }
 
     if (descriptor.key === "pluginAdd") {
@@ -970,8 +1210,33 @@ async function main() {
       console.log();
       console.log(colors.green(`${icons.ok} Published plugin ${result.key}`));
       if (result.path) console.log(`  ${colors.dim("Path:")} ${result.path}`);
-      if (result.script) console.log(`  ${colors.dim("Script:")} bun run ${result.script}`);
       if (result.production) console.log(`  ${colors.dim("Production:")} ${result.production}`);
+      if (result.version) console.log(`  ${colors.dim("Version:")} ${result.version}`);
+      if (result.fingerprint) console.log(`  ${colors.dim("Fingerprint:")} ${result.fingerprint}`);
+      console.log();
+      return;
+    }
+
+    if (descriptor.key === "registryUse") {
+      console.log();
+      if (result.status === "error") {
+        console.error(colors.error(`${icons.err} ${result.error || "Unknown error"}`));
+        process.exit(1);
+      }
+      console.log(
+        colors.green(
+          `${icons.ok} ${result.status === "dry-run" ? "Dry run" : "Composed"} from ${result.from}`,
+        ),
+      );
+      for (const section of result.applied) {
+        console.log(`  ${colors.green("+")} ${section}`);
+      }
+      if (result.configPath) {
+        console.log(`  ${colors.dim("Config:")} ${result.configPath}`);
+      }
+      if (result.status === "updated") {
+        console.log(colors.dim("  Run bos types gen to refresh generated types."));
+      }
       console.log();
       return;
     }
@@ -1033,8 +1298,60 @@ async function main() {
       }
     }
 
+    if (descriptor.key === "rollback") {
+      const rollbackResult = result as any;
+      if (rollbackResult.status === "error") {
+        console.log();
+        console.log(colors.error(`${icons.err} Roll back failed`));
+        if (rollbackResult.error) {
+          console.log(`  ${colors.dim("Error:")} ${rollbackResult.error}`);
+        }
+        if (rollbackResult.verification) {
+          console.log();
+          for (const check of rollbackResult.verification) {
+            const mark = check.ok ? colors.green(icons.ok) : colors.error(icons.err);
+            const reason = check.reason ? colors.dim(` — ${check.reason}`) : "";
+            console.log(`  ${mark} ${check.slot}${reason}`);
+          }
+        }
+        console.log();
+        process.exit(1);
+      }
+
+      if (rollbackResult.status === "dry-run") {
+        console.log();
+        console.log(colors.cyan(`${icons.ok} Rollback dry run complete`));
+        console.log(`  ${colors.dim("Registry URL:")} ${rollbackResult.registryUrl}`);
+        console.log();
+        return;
+      }
+
+      console.log();
+      console.log(colors.green(`${icons.ok} Rolled back`));
+      console.log(`  ${colors.dim("Registry URL:")} ${rollbackResult.registryUrl}`);
+      if (rollbackResult.txHash) {
+        console.log(`  ${colors.dim("Transaction:")} ${rollbackResult.txHash}`);
+      }
+      console.log();
+      return;
+    }
+
     if (descriptor.key === "deploy") {
       const deployResult = result as any;
+      if (deployResult.status === "list") {
+        console.log();
+        console.log(colors.cyan("Recent publishes (audit trail)"));
+        for (const entry of deployResult.history ?? []) {
+          console.log(
+            `  ${entry.blockTimestamp}  ${colors.dim(`block ${entry.blockHeight}`)}${entry.publishedAt ? colors.dim(`  ${entry.publishedAt}`) : ""}`,
+          );
+        }
+        console.log();
+        return;
+      }
+      if (deployResult.fingerprint) {
+        console.log(`  ${colors.dim("Fingerprint:")} ${deployResult.fingerprint}`);
+      }
       if (deployResult.status === "dry-run") {
         console.log();
         console.log(colors.cyan(`${icons.ok} Dry run complete`));
@@ -1086,12 +1403,11 @@ async function main() {
             }
           }
         }
-        if (deployResult.redeployed) {
-          console.log(
-            `  ${colors.dim("Railway:")} redeployed ${deployResult.service ?? "service"}`,
-          );
-        } else if (!process.env.RAILWAY_TOKEN) {
-          console.log(`  ${colors.yellow("Railway:")} skipped (RAILWAY_TOKEN not set)`);
+        if (deployResult.image) {
+          console.log(`  ${colors.dim("Image:")} ${deployResult.image}`);
+        }
+        if (deployResult.service) {
+          console.log(`  ${colors.dim("Railway:")} deployed ${deployResult.service}`);
         }
         console.log();
         return;
@@ -1099,17 +1415,22 @@ async function main() {
 
       if (deployResult.status === "published") {
         console.log();
-        console.log(colors.yellow(`${icons.err} Config published, but Railway redeploy failed`));
+        console.log(colors.yellow(`${icons.err} Config published, but a deploy leg failed`));
         console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
         if (deployResult.txHash) {
           console.log(`  ${colors.dim("Transaction:")} ${deployResult.txHash}`);
         }
         if (deployResult.error) {
-          console.log(`  ${colors.dim("Railway:")} ${deployResult.error}`);
+          console.log(`  ${colors.dim("Error:")} ${deployResult.error}`);
         }
         console.log();
         process.exit(1);
       }
+    }
+
+    if (descriptor.key === "infraExport") {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
     }
   } catch (error) {
     console.error(`[CLI] ${error instanceof Error ? error.message : String(error)}`);

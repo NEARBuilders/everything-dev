@@ -6,9 +6,10 @@ import { RPCHandler } from "@orpc/server/node";
 import { createPluginRuntime } from "every-plugin";
 import type { contract } from "@/contract";
 import Plugin from "@/index";
+import packageJson from "../package.json" with { type: "json" };
 import pluginDevConfig from "../plugin.dev";
 
-const TEST_PLUGIN_ID = pluginDevConfig.pluginId;
+const TEST_PLUGIN_ID = packageJson.name;
 const TEST_CONFIG = pluginDevConfig.config;
 
 const TEST_REGISTRY = {
@@ -29,8 +30,9 @@ let port = 0;
 
 export async function getPluginClient(context?: { userId?: string; sessionId?: string }) {
   if (!server) {
-    const { router } = await runtime.usePlugin(TEST_PLUGIN_ID, TEST_CONFIG);
+    const { router, initialized } = await runtime.usePlugin(TEST_PLUGIN_ID, TEST_CONFIG);
     const rpcHandler = new RPCHandler(router);
+    const effectContext = initialized.effectContext;
 
     // Find an available port
     const testPort = 3000 + Math.floor(Math.random() * 1000);
@@ -60,7 +62,7 @@ export async function getPluginClient(context?: { userId?: string; sessionId?: s
 
         const result = await rpcHandler.handle(req, res, {
           prefix: "/rpc",
-          context: requestContext,
+          context: { ...requestContext, "effect/context": effectContext },
         });
         if (result.matched) return;
       }
@@ -76,7 +78,8 @@ export async function getPluginClient(context?: { userId?: string; sessionId?: s
   }
 
   const link = new RPCLink({
-    url: `${baseUrl}/rpc`,
+    origin: baseUrl,
+    url: "/rpc",
     fetch: globalThis.fetch,
     headers: context
       ? {

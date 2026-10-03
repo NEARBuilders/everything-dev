@@ -81,15 +81,9 @@ Child apps can either run as their own base runtime on their own domain, or as r
 
 Shared-host children must extend the base runtime and do not introduce new server-side plugin IDs dynamically.
 
-### 4. Host deployment env for shared-host mode
+### 4. Host resolution for shared-host mode
 
-The shared host uses these env vars to resolve descendant requests:
-
-```bash
-ALLOW_OVERRIDE=ui,plugins.*
-TENANT_WHITELIST=pizza.pingpayio.near,chicago.pizza.pingpayio.near
-ALLOW_UNTRUSTED_SSR=false
-```
+The shared host resolves descendant requests via a DB-backed binding map. It fetches tenant permissions from the API's `GET /tenants/bindings` endpoint (cached for 30s) — no env vars are needed:
 
 Design target, for example:
 - `pingpay.io` -> base runtime `bos://pingpayio.near/pingpay.io`
@@ -152,7 +146,7 @@ Framework-owned files (from `FRAMEWORK_OWNED_SYNC_FILES`) are always updated whe
 ### What gets synced
 
 From parent template → local:
-- `app.*.production` — Zephyr URLs
+- `app.*.production` — bundle URLs
 - `app.api.shared`, `app.auth.shared`, `plugins.*.shared` — dependency versions
 - Framework-owned files (rsbuild configs, routers, etc.)
 
@@ -195,7 +189,7 @@ bos publish                  # Publish config to FastKV
 bos publish --deploy         # Build, deploy to CDN, then publish
 ```
 
-`bos publish --deploy` builds, deploys to Zephyr, auto-updates `bos.config.json` with production URLs + integrity hashes, then publishes the config to FastKV.
+`bos publish --deploy` builds, auto-updates `bos.config.json` with deterministic bundle URLs, then publishes the config to FastKV.
 
 ## Canonical Ordering
 

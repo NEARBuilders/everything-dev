@@ -1,9 +1,28 @@
 # Git
 .git
 .gitignore
+.gitattributes
 .github
 .changeset
 .release
+
+# Vendored reference clones (gitignored, restored by bun run prepare)
+repos
+
+# Plans, scratch space, agent/IDE config — not needed in any image
+.scratch
+advisor-plans
+plans
+.agents
+.opencode
+.cursor
+CLAUDE.md
+
+# Host-only provisioning tooling (alchemy stack; never in any image)
+infra
+
+# BOS runtime state (regression stacks regenerate it inside the container)
+.bos
 
 # Dependencies (installed fresh in container)
 node_modules
@@ -57,6 +76,7 @@ test-results
 api/tests
 host/tests
 packages/every-plugin/tests
+!packages/every-plugin/tests/types.d.ts
 packages/everything-dev/tests
 
 # Docs

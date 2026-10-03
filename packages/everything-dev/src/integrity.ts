@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import { fetchResponse } from "./http-client";
 
@@ -72,6 +70,16 @@ export async function computeSriHashForUrl(
   url: string,
   options?: SriUrlOptions,
 ): Promise<string | null> {
+  const attempts = 3;
+  for (let attempt = 1; attempt < attempts; attempt++) {
+    const hash = await computeSriHashOnce(url, options);
+    if (hash) return hash;
+    await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+  }
+  return computeSriHashOnce(url, options);
+}
+
+async function computeSriHashOnce(url: string, options?: SriUrlOptions): Promise<string | null> {
   try {
     const entryUrl = resolveSriTargetUrl(url, options);
 
@@ -97,6 +105,13 @@ export function resolveEntryUrl(url: string): string {
   return `${url.replace(/\/$/, "")}/remoteEntry.js`;
 }
 
+export class SriVerificationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SriVerificationError";
+  }
+}
+
 export async function verifySriForUrl(
   url: string,
   expectedIntegrity: string,
@@ -106,8 +121,9 @@ export async function verifySriForUrl(
 
   const response = await fetchResponse(entryUrl, { timeout: "30 seconds" });
   if (!response.ok) {
-    console.warn(`[SRI] Failed to fetch ${entryUrl} for verification: ${response.status}`);
-    return;
+    throw new SriVerificationError(
+      `Failed to fetch ${entryUrl} for verification: ${response.status}`,
+    );
   }
 
   const computed = await computeSriHashFromResponse(response, entryUrl, options);
@@ -148,23 +164,34 @@ function extractIntegrityHashes(config: Record<string, unknown>): Map<string, st
   const app = config.app as Record<string, Record<string, unknown>> | undefined;
   const plugins = config.plugins as Record<string, Record<string, unknown>> | undefined;
 
-  if (app) {
-    for (const [, entry] of Object.entries(app)) {
-      if (entry?.integrity && entry?.production) {
-        hashes.set(resolveEntryUrl(entry.production as string), entry.integrity as string);
-      }
-    }
-  }
-
-  if (plugins) {
-    for (const [, entry] of Object.entries(plugins)) {
-      if (entry?.integrity && entry?.production) {
-        hashes.set(resolveEntryUrl(entry.production as string), entry.integrity as string);
-      }
-    }
+  for (const entry of [...Object.values(app ?? {}), ...Object.values(plugins ?? {})]) {
+    if (!entry) continue;
+    const slotHash = slotHashOf(entry);
+    if (slotHash) hashes.set(slotHash.key, slotHash.hash);
   }
 
   return hashes;
+}
+
+/**
+ * The integrity anchor a slot contributes to local↔chain attestation: pinned
+ * slots anchor at the pinned manifest document (the pin's SRI), unpinned
+ * slots at their fixed-name entry (the direct entry SRI).
+ */
+function slotHashOf(entry: Record<string, unknown>): { key: string; hash: string } | null {
+  const production = entry.production;
+  if (typeof production !== "string") return null;
+  const pin = entry.pin as { manifest?: unknown; integrity?: unknown } | undefined;
+  if (pin && typeof pin.manifest === "string" && typeof pin.integrity === "string") {
+    return {
+      key: `${production.replace(/\/$/, "")}/${pin.manifest.replace(/^\//, "")}`,
+      hash: pin.integrity,
+    };
+  }
+  if (typeof entry.integrity === "string") {
+    return { key: resolveEntryUrl(production), hash: entry.integrity };
+  }
+  return null;
 }
 
 export async function verifyConfigAgainstChain(
@@ -210,6 +237,12 @@ export interface DeployResultEntry {
   integrity?: string;
   urlField: string;
   integrityField?: string;
+  /** A plain pipeline-state value (e.g. the built MF container name). */
+  value?: string;
+  valueField?: string;
+  /** Dotted paths deleted after applying this entry — clears stale
+   * pipeline-state fields (e.g. the retired flat `manifest` pointer). */
+  removeFields?: string[];
 }
 
 function setNestedPath(obj: Record<string, unknown>, dottedPath: string, value: unknown): void {
@@ -236,56 +269,6 @@ function deleteNestedPath(obj: Record<string, unknown>, dottedPath: string): voi
   delete current[keys[keys.length - 1]!];
 }
 
-export function reportDeployResult(opts: {
-  url: string;
-  integrity?: string | null;
-  bosConfigPath: string;
-  urlField: string;
-  integrityField?: string;
-}): void {
-  console.log(
-    `[BOS_DEPLOY] url=${opts.url} urlField=${opts.urlField} integrityField=${opts.integrityField ?? ""} integrity=${opts.integrity ?? ""}`,
-  );
-
-  try {
-    const config = JSON.parse(readFileSync(opts.bosConfigPath, "utf8")) as Record<string, unknown>;
-    setNestedPath(config, opts.urlField, opts.url);
-    if (opts.integrityField) {
-      if (opts.integrity) {
-        setNestedPath(config, opts.integrityField, opts.integrity);
-      } else {
-        deleteNestedPath(config, opts.integrityField);
-      }
-    }
-    writeFileSync(opts.bosConfigPath, `${JSON.stringify(config, null, 2)}\n`);
-    console.log(`   ✅ Updated bos.config.json: ${opts.urlField}`);
-    if (opts.integrityField && opts.integrity) {
-      console.log(`   ✅ Updated bos.config.json: ${opts.integrityField}`);
-    }
-  } catch (err) {
-    console.error("   ❌ Failed to update bos.config.json:", (err as Error).message);
-  }
-}
-
-export function parseDeployLines(output: string): DeployResultEntry[] {
-  const results: DeployResultEntry[] = [];
-  for (const line of output.split("\n")) {
-    if (!line.includes("[BOS_DEPLOY]")) continue;
-    const urlMatch = line.match(/url=(\S+)/);
-    const urlFieldMatch = line.match(/urlField=(\S+)/);
-    if (!urlMatch || !urlFieldMatch) continue;
-    const integrityFieldMatch = line.match(/integrityField=(\S+)/);
-    const integrityMatch = line.match(/integrity=(\S+)/);
-    results.push({
-      url: urlMatch[1],
-      urlField: urlFieldMatch[1],
-      integrityField: integrityFieldMatch?.[1] || undefined,
-      integrity: integrityMatch?.[1] || undefined,
-    });
-  }
-  return results;
-}
-
 export function applyDeployResults(
   config: Record<string, unknown>,
   results: DeployResultEntry[],
@@ -300,23 +283,12 @@ export function applyDeployResults(
         deleteNestedPath(merged, result.integrityField);
       }
     }
+    if (result.valueField && result.value !== undefined && result.value !== null) {
+      setNestedPath(merged, result.valueField, result.value);
+    }
+    for (const field of result.removeFields ?? []) {
+      deleteNestedPath(merged, field);
+    }
   }
   return merged;
-}
-
-export function findPluginKey(bosConfigPath: string, pluginDir: string): string | null {
-  const config = JSON.parse(readFileSync(bosConfigPath, "utf8")) as Record<string, unknown>;
-  const plugins = config.plugins as Record<string, Record<string, unknown>> | undefined;
-  if (!plugins) return null;
-  const configRoot = join(bosConfigPath, "..");
-  const normalizedPluginDir = pluginDir.replace(/\\/g, "/").replace(/\/+$/, "");
-  for (const [key, plugin] of Object.entries(plugins)) {
-    const dev = plugin?.development;
-    if (typeof dev !== "string" || !dev.startsWith("local:")) continue;
-    const resolved = join(configRoot, dev.slice("local:".length))
-      .replace(/\\/g, "/")
-      .replace(/\/+$/, "");
-    if (resolved === normalizedPluginDir) return key;
-  }
-  return null;
 }

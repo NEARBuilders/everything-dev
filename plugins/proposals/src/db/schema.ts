@@ -1,0 +1,78 @@
+import { index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+
+export const proposals = pgTable(
+  "proposals",
+  {
+    id: text("id").primaryKey(),
+    pluginId: text("plugin_id").notNull(),
+    entityId: text("entity_id").notNull(),
+    operation: text("operation").notNull().default("create"),
+    payload: text("payload").notNull(),
+    schemaVersion: text("schema_version").notNull().default("1"),
+    createdBy: text("created_by").notNull(),
+    reviewStatus: text("review_status").notNull().default("pending"),
+    applyStatus: text("apply_status").notNull().default("not_started"),
+    removeStatus: text("remove_status").notNull().default("not_started"),
+    rejectionReason: text("rejection_reason"),
+    applyError: text("apply_error"),
+    removeError: text("remove_error"),
+    appliedResourceId: text("applied_resource_id"),
+    appliedAt: timestamp("applied_at", { mode: "date", withTimezone: true }),
+    removedAt: timestamp("removed_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("proposals_plugin_entity_operation_unique").on(
+      table.pluginId,
+      table.entityId,
+      table.operation,
+    ),
+    index("proposals_plugin_status_idx").on(table.pluginId, table.reviewStatus),
+    index("proposals_entity_idx").on(table.pluginId, table.entityId),
+  ],
+);
+
+export const proposalSubmissions = pgTable(
+  "proposal_submissions",
+  {
+    id: text("id").primaryKey(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => proposals.id, { onDelete: "cascade" }),
+    pluginId: text("plugin_id").notNull(),
+    entityId: text("entity_id").notNull(),
+    submittedBy: text("submitted_by").notNull(),
+    source: text("source"),
+    idempotencyKey: text("idempotency_key"),
+    payload: text("payload"),
+    metadata: text("metadata"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("proposal_submissions_proposal_idx").on(table.proposalId),
+    index("proposal_submissions_entity_idx").on(table.pluginId, table.entityId),
+    uniqueIndex("proposal_submissions_idempotency_unique").on(table.pluginId, table.idempotencyKey),
+  ],
+);
+
+export const proposalAuditLog = pgTable(
+  "proposal_audit_log",
+  {
+    id: text("id").primaryKey(),
+    proposalId: text("proposal_id")
+      .notNull()
+      .references(() => proposals.id, { onDelete: "cascade" }),
+    pluginId: text("plugin_id").notNull(),
+    entityId: text("entity_id").notNull(),
+    action: text("action").notNull(),
+    actor: text("actor").notNull(),
+    actorLabel: text("actor_label"),
+    details: text("details"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("proposal_audit_entity_idx").on(table.pluginId, table.entityId),
+    index("proposal_audit_proposal_idx").on(table.proposalId),
+  ],
+);

@@ -1,0 +1,15 @@
+{
+  "name": "tanstack-router-mf-prototype",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "workspaces": [
+    "host",
+    "remote-landing",
+    "remote-dashboard",
+    "remote-settings",
+    "remote-filebased"
+  ],
+  "devDependencies": {
+    "@tanstack/router-cli": "1.157.16"
+  }
+}

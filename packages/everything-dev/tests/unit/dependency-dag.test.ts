@@ -256,6 +256,16 @@ describe("topologicalSort", () => {
     expect(sorted).toEqual(["C", "B", "A"]);
   });
 
+  it("treats duplicate dependency declarations as one edge", () => {
+    const nodes = new Map<string, RuntimeDependencyNode>([
+      makePluginEntry("A", "http://a", { dependsOn: ["B", "B"] }),
+      makePluginEntry("B", "http://b"),
+    ]);
+
+    expect(topologicalSort(nodes)).toEqual(["B", "A"]);
+    expect(getDependenciesForNode(nodes.get("A")!, nodes)).toEqual([nodes.get("B")]);
+  });
+
   it("throws on circular dependencies", () => {
     const nodes = new Map<string, RuntimeDependencyNode>([
       makePluginEntry("A", "http://a", { dependsOn: ["B"] }),

@@ -1,0 +1,68 @@
+# dependencies (pnpm install)
+node_modules
+
+# output
+out
+dist
+!vendor/*/dist
+*.tgz
+
+# build artifacts
+*.tsbuildinfo
+
+# code coverage
+coverage
+*.lcov
+
+# logs
+logs
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# dotenv environment variable files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# caches
+.eslintcache
+.cache
+*.tsbuildinfo
+
+# IntelliJ based IDEs
+.idea
+
+# Finder (MacOS) folder config
+.DS_Store
+
+# opencode
+.opencode
+
+# content
+content
+
+temp
+
+bun.lock
+
+# SQLite in-memory databases
+:memory:
+
+# pglite test artifacts
+test-auth.db/
+
+# Examples
+examples/*/node_modules
+examples/*/.turbo
+examples/*/apps/*/node_modules
+examples/*/apps/*/.turbo
+examples/*/pnpm-lock.yaml
+examples/*/*.db
+examples/*/apps/*/*.db
+examples/*/plugins/*/*.db
+
+# Agent files
+AGENTS.md
+CLAUDE.md

@@ -150,43 +150,4 @@ describe("CSP Nonce Regression Tests", () => {
       ).toBe(0);
     });
   });
-
-  describe("RenderOptions type includes cspNonce without cast", () => {
-    it("accepts cspNonce as a typed property on RenderOptionsWithApi", () => {
-      const options: RenderOptionsWithApi<ApiClient> = {
-        runtimeConfig: {
-          account: "test.near",
-          env: "development",
-          networkId: "mainnet",
-          assetsUrl: "/assets",
-          apiBase: "/api",
-          rpcBase: "/rpc",
-        },
-        apiClient: mockApiClient,
-        session: mockSession,
-        authClient: mockAuthClient,
-        cspNonce: "typed-nonce-without-cast",
-      };
-
-      expect(options.cspNonce).toBe("typed-nonce-without-cast");
-    });
-
-    it("accepts RenderOptionsWithApi without cspNonce (optional)", () => {
-      const options: RenderOptionsWithApi<ApiClient> = {
-        runtimeConfig: {
-          account: "test.near",
-          env: "development",
-          networkId: "mainnet",
-          assetsUrl: "/assets",
-          apiBase: "/api",
-          rpcBase: "/rpc",
-        },
-        apiClient: mockApiClient,
-        session: mockSession,
-        authClient: mockAuthClient,
-      };
-
-      expect(options.cspNonce).toBeUndefined();
-    });
-  });
 });

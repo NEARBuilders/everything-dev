@@ -45,14 +45,17 @@ bos start --account myapp.near     # tenant override
 
 Build all workspace packages (or a subset) for production.
 
-**Flags:** `--packages <list>` `--force` `--deploy`
+**Flags:** `--packages <list|all|local>` `--force` `--deploy`
 
 ```bash
-bos build                    # build all workspaces
-bos build --packages ui,api  # build specific packages
-bos build --force            # rebuild even if up-to-date
-bos build --deploy           # build + deploy to Zephyr
+bos build                       # build all workspaces
+bos build --packages ui,api     # build specific packages (csv)
+bos build --packages local      # build only workspaces whose development starts with local:
+bos build --force               # rebuild even if up-to-date
+bos build --deploy              # build + write deploy URLs
 ```
+
+`--packages` accepts a comma-separated key list, `all` (default), or `local`. `local` selects only entries whose `bos.config.json` `development` field starts with `local:`, so the build set auto-tracks whatever apps and plugins live in this repo. CI deploy now invokes `bos publish --deploy --packages local` instead of a hand-maintained CSV.
 
 → [`publish-sync`](.) skill for full deploy+publish workflow.
 
@@ -130,27 +133,41 @@ Output includes installed vs latest versions for each workspace package, whether
 
 Publish `bos.config.json` to the FastKV on-chain registry. Optionally build and deploy workspaces first.
 
-**Flags:** `--deploy` `--dry-run` `--network <mainnet|testnet>` `--private-key <key>` `--env <production|staging>` `--packages <list>`
+**Flags:** `--deploy` `--dry-run` `--network <mainnet|testnet>` `--private-key <key>` `--env <production|staging>` `--packages <list|all|local>`
 
 ```bash
-bos publish                    # publish current config snapshot
-bos publish --deploy           # build all + deploy + publish
-bos publish --dry-run          # preview what would be published
-bos publish --network testnet  # publish to testnet registry
+bos publish                          # publish current config snapshot
+bos publish --deploy                 # build all + deploy + publish
+bos publish --deploy --packages local   # build/deploy only the workspaces owned by this repo (CI default)
+bos publish --dry-run                # preview what would be published
+bos publish --network testnet        # publish to testnet registry
 ```
 
 → [`publish-sync`](.) skill for config sections, SRI integrity, rollback, and FastKV troubleshooting.
+
+### `bos mf check`
+
+Verify Module Federation runtime compatibility across the published host + plugin bundles in `bos.config.json`. Fetches every `<remote>/mf-manifest.json`, asserts `metaData.pluginVersion` matches the host, and confirms each plugin provides the shared dependencies the host requires at compatible versions.
+
+```bash
+bos mf check     # exits 0 if compatible, 1 with diagnostic output if not
+```
+
+Use after redeploying any plugin to verify federation reachability before the next deploy. CI runs this on every push/PR; do not disable the gate. When it fails, redeploy the lagging plugin via `cd plugins/<key> && bun run deploy && bos publish --deploy`.
+
+→ [`publish-sync`](.) skill for the federation-compat failure mode and the recovery workflow.
 
 ### `bos deploy`
 
 Publish config and trigger a Railway redeploy. Builds and deploys by default.
 
-**Flags:** `--env <production|staging>` `--no-build` `--dry-run` `--network <mainnet|testnet>` `--private-key <key>` `--service <name>` `--packages <list>`
+**Flags:** `--env <production|staging>` `--no-build` `--dry-run` `--network <mainnet|testnet>` `--private-key <key>` `--service <name>` `--packages <list|all|local>`
 
 ```bash
-bos deploy                        # build + publish + trigger deploy
-bos deploy --no-build             # publish only, skip workspace build
-bos deploy --service my-railway   # override Railway service name
+bos deploy                              # build + publish + trigger deploy
+bos deploy --packages local             # build/deploy only this repo's local workspaces
+bos deploy --no-build                   # publish only, skip workspace build
+bos deploy --service my-railway         # override Railway service name
 ```
 
 → [`publish-sync`](.) skill and [`super-app`](.) for tenant-aware deploy considerations.
@@ -209,7 +226,7 @@ Outputs each plugin's key, development source, production URL, local path, versi
 
 ### `bos plugin publish`
 
-Build and publish a single plugin to Zephyr CDN, then update `bos.config.json` with the production URL and SRI integrity hash.
+Build a single plugin, then update `bos.config.json` with its deterministic image-native production URL (`https://<domain>/bundles/<account>/<gateway>/<key>/`).
 
 **Flags:** `<key>` (positional)
 

@@ -56,7 +56,7 @@ function ensureBuilds() {
   if (!existsSync(path.join(hostDir, "dist", "remoteEntry.js"))) {
     ensureBuild(hostDir);
   }
-  if (!existsSync(path.join(uiDir, "dist", "remoteEntry.server.js"))) {
+  if (!existsSync(path.join(uiDir, "dist", "ssr", "remoteEntry.server.js"))) {
     ensureBuild(uiDir);
   }
   buildReady = true;

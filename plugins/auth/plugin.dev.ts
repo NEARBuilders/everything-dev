@@ -1,0 +1,112 @@
+import "dotenv/config";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import type { PluginConfigInput } from "every-plugin";
+import packageJson from "./package.json" with { type: "json" };
+import type Plugin from "./src/index";
+
+function splitList(value?: string) {
+  return value
+    ?.split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+// Identity + authored siwn fallbacks come from the generated config under
+// .bos/ (ADR 0005) with the authored JSON as a legacy fallback.
+interface ProjectConfig {
+  account?: string;
+  staging?: { account?: string };
+  app?: {
+    auth?: {
+      variables?: {
+        siwn?: { recipients?: { mainnet?: string; testnet?: string } };
+      };
+    };
+  };
+}
+
+function readProjectConfig(): ProjectConfig | null {
+  for (const path of [
+    fileURLToPath(new URL("../../.bos/bos.resolved-config.json", import.meta.url)),
+    fileURLToPath(new URL("../../bos.config.json", import.meta.url)),
+  ]) {
+    try {
+      return JSON.parse(readFileSync(path, "utf-8")) as ProjectConfig;
+    } catch {}
+  }
+  return null;
+}
+
+const bosConfig = readProjectConfig();
+
+const configuredSiwn = bosConfig?.app?.auth?.variables?.siwn;
+const mainnetRecipient =
+  process.env.ACCOUNT || configuredSiwn?.recipients?.mainnet || bosConfig?.account;
+const testnetRecipient =
+  process.env.TESTNET_ACCOUNT || configuredSiwn?.recipients?.testnet || bosConfig?.staging?.account;
+
+export default {
+  pluginId: packageJson.name,
+  port: Number(process.env.PORT) || 3002,
+  config: {
+    variables: {
+      baseUrl: process.env.BASE_URL || process.env.DOMAIN || "http://localhost:3000",
+      trustedOrigins: splitList(process.env.TRUSTED_ORIGINS || process.env.CORS_ORIGIN),
+      socialProviders: {
+        github: {
+          clientId: process.env.GITHUB_CLIENT_ID,
+        },
+        google: {
+          clientId: process.env.GOOGLE_CLIENT_ID,
+        },
+      },
+      passkey: {
+        rpID: process.env.PASSKEY_RP_ID,
+        rpName: process.env.PASSKEY_RP_NAME,
+        origin: process.env.PASSKEY_ORIGIN,
+      },
+      email: {
+        from: "no-reply@example.com",
+      },
+      siwn: {
+        recipients: {
+          mainnet: mainnetRecipient ?? "dev.everything.near",
+          testnet: testnetRecipient ?? "dev.everything.testnet",
+        },
+        rpcUrl: process.env.NEAR_RPC_URL,
+        relayer: {
+          mainnet: {
+            accountId: process.env.NEAR_RELAYER_ACCOUNT_ID,
+          },
+        },
+        subAccount: {
+          mainnet: {
+            parentAccount: process.env.NEAR_SUB_ACCOUNT_PARENT_MAINNET,
+            // parentHasFullAccess: true,
+            // minDeposit: "0.1 NEAR",
+            // deploy: { fromPublished: { accountId: "myapp.near" } },
+            // init: { methodName: "init", args: { owner: "myapp.near" } },
+          },
+          testnet: {
+            parentAccount: process.env.NEAR_SUB_ACCOUNT_PARENT_TESTNET,
+          },
+        },
+      },
+    },
+    secrets: {
+      AUTH_DATABASE_URL: process.env.AUTH_DATABASE_URL || "pglite:.bos/auth/:memory:",
+      BETTER_AUTH_SECRET:
+        process.env.BETTER_AUTH_SECRET || "dev-only-secret-do-not-use-in-production",
+      GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET,
+      GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+      FASTNEAR_API_KEY: process.env.FASTNEAR_API_KEY,
+      TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
+      TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
+      TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER,
+      RESEND_API_KEY: process.env.RESEND_API_KEY,
+      NEAR_RELAYER_PRIVATE_KEY_MAINNET: process.env.NEAR_RELAYER_PRIVATE_KEY_MAINNET,
+      NEAR_RELAYER_PRIVATE_KEY_TESTNET: process.env.NEAR_RELAYER_PRIVATE_KEY_TESTNET,
+    },
+  } satisfies PluginConfigInput<typeof Plugin>,
+};

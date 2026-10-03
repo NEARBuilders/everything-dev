@@ -1,31 +1,48 @@
+import { MemoryPublisher } from "@orpc/publisher/memory";
+import { getEventMeta, ORPCError } from "@orpc/server";
+import { Clock, Context, DateTime, Effect, Layer } from "effect";
 import { createPlugin } from "every-plugin";
-import { Effect, Layer } from "every-plugin/effect";
-import { getEventMeta, MemoryPublisher, ORPCError } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
-
+import { z } from "zod";
 import { contract } from "./contract";
 import { DatabaseLive } from "./db/layer";
-import { ContextSchema, runEffect } from "./lib/context";
-import type { PluginsClient } from "./plugins-client.gen";
+import { ContextSchema } from "./lib/context";
+import type { PluginsClient } from "./lib/plugins-client.gen";
 import { TemplateService } from "./service";
 import { ThingsService } from "./services/things";
 
-type BackgroundEvents = {
+type TemplateEvents = {
   "background-updates": {
     id: string;
     index: number;
     timestamp: number;
   };
+  "thing-updates": {
+    thingId: string;
+    type: string;
+    action: string;
+    timestamp: string;
+  };
 };
+
+class TemplateApiClient extends Context.Service<TemplateApiClient, TemplateService>()(
+  "template/ApiClient",
+) {}
+
+class TemplatePublisher extends Context.Service<
+  TemplatePublisher,
+  MemoryPublisher<TemplateEvents>
+>()("template/Publisher") {}
 
 /**
  * Template Plugin - Demonstrates core plugin patterns.
  *
  * Shows how to:
- * - Initialize a simple service
- * - Build scoped resources (DB pools, etc.) via tools.buildService when needed
- * - Implement single fetch and streaming procedures
- * - Handle errors with CommonPluginErrors
+ * - Compose service Layers in `initialize` (the runtime builds them in the
+ *   plugin's lifecycle scope)
+ * - Access services in `.effect()` handlers via `yield* Tag`
+ * - Access services in streaming (async generator) handlers via
+ *   `Context.get(context["effect/context"], Tag)`
+ * - Merge a sibling plugin's router directly (`things: plugins.template.router`)
  *
  * Context fields available from the host:
  *   userId, user ({ id, role, email, name }),
@@ -59,7 +76,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
   contract,
 
-  initialize: (config, _plugins, tools) =>
+  initialize: (config) =>
     Effect.gen(function* () {
       const service = new TemplateService(
         config.variables.baseUrl,
@@ -67,16 +84,10 @@ export default createPlugin.withPlugins<PluginsClient>()({
         config.variables.timeout,
       );
 
-      yield* service.ping();
+      yield* service.ping;
 
-      // Scoped DB-backed service (pool lifecycle is bound to the plugin scope).
-      const thingsService = yield* tools.buildService(
-        ThingsService,
-        ThingsService.Live.pipe(Layer.provide(DatabaseLive(config.secrets.TEMPLATE_DATABASE_URL))),
-      );
-
-      const publisher = new MemoryPublisher<BackgroundEvents>({
-        resumeRetentionSeconds: 60 * 2,
+      const publisher = new MemoryPublisher<TemplateEvents>({
+        resume: { enabled: true, seconds: 60 * 2 },
       });
 
       if (config.variables.backgroundEnabled) {
@@ -88,11 +99,11 @@ export default createPlugin.withPlugins<PluginsClient>()({
               const event = {
                 id: `bg-${i}`,
                 index: i,
-                timestamp: Date.now(),
+                timestamp: yield* Clock.currentTimeMillis,
               };
 
               yield* Effect.tryPromise(() => publisher.publish("background-updates", event)).pipe(
-                Effect.catchAll((error) =>
+                Effect.catch((error) =>
                   Effect.logWarning(`[TemplatePlugin] Publish failed for event ${i}:`, error).pipe(
                     Effect.andThen(Effect.void),
                   ),
@@ -105,50 +116,63 @@ export default createPlugin.withPlugins<PluginsClient>()({
         );
       }
 
-      return { service, thingsService, publisher };
+      return Layer.mergeAll(
+        Layer.succeed(TemplateApiClient, service),
+        ThingsService.Live.pipe(Layer.provide(DatabaseLive(config.secrets.TEMPLATE_DATABASE_URL))),
+        Layer.succeed(TemplatePublisher, publisher),
+      );
     }),
 
-  shutdown: () => Effect.void,
-
-  createRouter: (context, builder) => {
-    const { service, thingsService, publisher } = context;
-
+  createRouter: (builder) => {
     return {
-      getById: builder.getById.handler(async ({ input, context }) => {
+      getById: builder.getById.effect(function* ({ input, context, errors }) {
         if (!context.userId) {
-          throw new ORPCError("UNAUTHORIZED", { message: "User ID required" });
+          return yield* Effect.fail(errors.UNAUTHORIZED({ message: "User ID required" }));
         }
-        try {
-          const item = await Effect.runPromise(service.getById(input.id));
-          return { item, userId: context.userId };
-        } catch (error) {
-          if (error instanceof Error && error.message.includes("Item not found")) {
-            throw new ORPCError("NOT_FOUND", { message: "Failed to fetch item: Item not found" });
-          }
-          throw error;
-        }
+        const service = yield* TemplateApiClient;
+        const item = yield* service.getById(input.id).pipe(
+          Effect.catch((error) =>
+            Effect.fail(
+              error.message.includes("Item not found")
+                ? errors.NOT_FOUND({
+                    message: `Failed to fetch item: ${error.message}`,
+                  })
+                : new ORPCError("INTERNAL_SERVER_ERROR", {
+                    message: error.message,
+                  }),
+            ),
+          ),
+        );
+        return { item, userId: context.userId };
       }),
 
-      search: builder.search.handler(async function* ({ input }) {
-        const generator = await Effect.runPromise(service.search(input.query, input.limit));
+      search: builder.search.handler(async function* ({ input, context }) {
+        const service = Context.get(context["effect/context"], TemplateApiClient);
+        const generator = service.search(input.query, input.limit);
 
         for await (const result of generator) {
           yield result;
         }
       }),
 
-      ping: builder.ping.handler(async () => {
-        return await Effect.runPromise(service.ping());
+      ping: builder.ping.effect(function* () {
+        const service = yield* TemplateApiClient;
+        return yield* service.ping;
       }),
 
       listenBackground: builder.listenBackground.handler(async function* ({
         input,
+        context,
         signal,
         lastEventId,
       }) {
         let count = 0;
         const maxResults = input.maxResults;
-        const iterator = publisher.subscribe("background-updates", { signal, lastEventId });
+        const publisher = Context.get(context["effect/context"], TemplatePublisher);
+        const iterator = publisher.subscribe("background-updates", {
+          signal,
+          lastEventId,
+        });
 
         for await (const event of iterator) {
           if (maxResults && count >= maxResults) break;
@@ -161,47 +185,101 @@ export default createPlugin.withPlugins<PluginsClient>()({
         }
       }),
 
-      enqueueBackground: builder.enqueueBackground.handler(async ({ input }) => {
+      enqueueBackground: builder.enqueueBackground.effect(function* ({ input }) {
+        const publisher = yield* TemplatePublisher;
         const event = {
-          id: input.id || `manual-${Date.now()}`,
+          id: input.id || `manual-${yield* Clock.currentTimeMillis}`,
           index: -1,
-          timestamp: Date.now(),
+          timestamp: yield* Clock.currentTimeMillis,
         };
 
-        await publisher.publish("background-updates", event);
+        yield* Effect.promise(() => publisher.publish("background-updates", event));
         return { ok: true };
       }),
 
-      createThing: builder.createThing.handler(async ({ input }) => {
-        return await runEffect(thingsService.createThing(input.thingId, input.payload));
+      createThing: builder.createThing.effect(function* ({ input, context, errors }) {
+        if (!context.userId) return yield* Effect.fail(errors.UNAUTHORIZED());
+        const things = yield* ThingsService;
+        const thing = yield* things.createThing(input.thingId, input.payload);
+        const publisher = yield* TemplatePublisher;
+        const timestamp = DateTime.formatIso(yield* DateTime.now);
+        yield* Effect.promise(() =>
+          publisher.publish("thing-updates", {
+            thingId: thing.thingId,
+            type: thing.type,
+            action: thing.action,
+            timestamp,
+          }),
+        );
+        return thing;
       }),
 
-      getThing: builder.getThing.handler(async ({ input }) => {
-        return await runEffect(thingsService.getThing(input.thingId));
+      getThing: builder.getThing.effect(function* ({ input }) {
+        const things = yield* ThingsService;
+        return yield* things.getThing(input.thingId);
       }),
 
-      listThings: builder.listThings.handler(async ({ input }) => {
-        return await runEffect(thingsService.listThings(input));
+      listThings: builder.listThings.effect(function* ({ input }) {
+        const things = yield* ThingsService;
+        return yield* things.listThings(input);
       }),
 
-      deleteThing: builder.deleteThing.handler(async ({ input }) => {
-        return await runEffect(thingsService.deleteThing(input.thingId));
+      subscribeThings: builder.subscribeThings.handler(async function* ({
+        input,
+        context,
+        signal,
+        lastEventId,
+      }) {
+        const publisher = Context.get(context["effect/context"], TemplatePublisher);
+        const iterator = publisher.subscribe("thing-updates", {
+          signal,
+          lastEventId,
+        });
+
+        for await (const event of iterator) {
+          if (input.thingId && event.thingId !== input.thingId) continue;
+          if (input.type && event.type !== input.type) continue;
+          if (input.action && event.action !== input.action) continue;
+          yield event;
+        }
       }),
 
-      testError: builder.testError.handler(async ({ input }) => {
+      deleteThing: builder.deleteThing.effect(function* ({ input, context, errors }) {
+        if (!context.userId) return yield* Effect.fail(errors.UNAUTHORIZED());
+        const things = yield* ThingsService;
+        const thing = yield* things.getThing(input.thingId);
+        const result = yield* things.deleteThing(input.thingId);
+        const publisher = yield* TemplatePublisher;
+        const timestamp = DateTime.formatIso(yield* DateTime.now);
+        yield* Effect.promise(() =>
+          publisher.publish("thing-updates", {
+            thingId: thing.thingId,
+            type: thing.type,
+            action: `${thing.type}.deleted`,
+            timestamp,
+          }),
+        );
+        return result;
+      }),
+
+      testError: builder.testError.effect(function* ({ input, errors }) {
         switch (input.kind) {
           case "unauthorized":
-            throw new ORPCError("UNAUTHORIZED", { message: "test unauthorized error" });
+            return yield* Effect.fail(errors.UNAUTHORIZED({ message: "test unauthorized error" }));
           case "forbidden":
-            throw new ORPCError("FORBIDDEN", { message: "test forbidden error" });
+            return yield* Effect.fail(errors.FORBIDDEN({ message: "test forbidden error" }));
           case "not_found":
-            throw new ORPCError("NOT_FOUND", { message: "test not found error" });
+            return yield* Effect.fail(errors.NOT_FOUND({ message: "test not found error" }));
           case "conflict":
-            throw new ORPCError("CONFLICT", { message: "test conflict error" });
+            return yield* Effect.fail(errors.CONFLICT({ message: "test conflict error" }));
           case "bad_request":
-            throw new ORPCError("BAD_REQUEST", { message: "test bad request error" });
+            return yield* Effect.fail(errors.BAD_REQUEST({ message: "test bad request error" }));
           default:
-            throw new Error("test internal server error");
+            return yield* Effect.fail(
+              new ORPCError("INTERNAL_SERVER_ERROR", {
+                message: "test internal server error",
+              }),
+            );
         }
       }),
     };

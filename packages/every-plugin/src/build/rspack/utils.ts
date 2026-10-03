@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getNormalizedRemoteName } from "every-plugin/normalize";
+import { remoteName } from "every-plugin/identity";
 
 export interface PluginInfo {
   name: string;
@@ -17,7 +17,7 @@ export function getPluginInfo(context: string): PluginInfo {
   return {
     name: pkg.name,
     version: pkg.version,
-    normalizedName: getNormalizedRemoteName(pkg.name),
+    normalizedName: remoteName(pkg.name),
     dependencies: pkg.dependencies || {},
     peerDependencies: pkg.peerDependencies || {},
   };

@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { Effect } from "effect";
+import type { DatabaseBinding, DrizzleKitService } from "../db";
 import { type DoctorReport, diagnosePlugin } from "./db-doctor";
-import type { PluginDbInfo } from "./db-studio";
 
 export interface RepairResult {
   status: "repaired" | "refused" | "error";
@@ -11,10 +11,11 @@ export interface RepairResult {
 }
 
 export async function repairPlugin(
-  info: PluginDbInfo,
+  binding: DatabaseBinding,
   mode: "history-reset" | "recreate",
+  drizzleKit: DrizzleKitService,
 ): Promise<RepairResult> {
-  const diagnosis = await diagnosePlugin(info);
+  const diagnosis = await diagnosePlugin(binding);
 
   if (diagnosis.diagnosis === "error") {
     return {
@@ -81,9 +82,9 @@ export async function repairPlugin(
   const { Pool } = await import("pg");
   const journalRef = `"${diagnosis.journalSchema}"."${diagnosis.journalTable}"`;
   const pool = new Pool({
-    connectionString: info.databaseUrl,
+    connectionString: binding.url,
     ssl:
-      info.databaseUrl.includes("localhost") || info.databaseUrl.includes("127.0.0.1")
+      binding.url.includes("localhost") || binding.url.includes("127.0.0.1")
         ? false
         : { rejectUnauthorized: false },
     max: 1,
@@ -93,11 +94,11 @@ export async function repairPlugin(
   try {
     await pool.query(`DROP TABLE IF EXISTS ${journalRef}`);
 
-    if (info.workspaceDir) {
-      const configPath = join(info.workspaceDir, "drizzle.config.ts");
+    if (binding.identity.workspaceDir) {
+      const configPath = join(binding.identity.workspaceDir, "drizzle.config.ts");
       if (existsSync(configPath)) {
         try {
-          await spawnDrizzleMigrate(info.workspaceDir, configPath);
+          await Effect.runPromise(drizzleKit.migrate(binding));
           return {
             status: "repaired",
             diagnosis,
@@ -112,7 +113,7 @@ export async function repairPlugin(
             message:
               `Migration history reset for ${diagnosis.plugin}. ` +
               `Automatic reapply failed: ${error instanceof Error ? error.message : String(error)}. ` +
-              `Run \`bun run --cwd ${info.workspaceDir} db:migrate\` manually.`,
+              `Run \`bun run --cwd ${binding.identity.workspaceDir} db:migrate\` manually.`,
           };
         }
       }
@@ -134,29 +135,4 @@ export async function repairPlugin(
       `Migration history reset for ${diagnosis.plugin}. ` +
       "No local drizzle.config.ts found — start the dev server to reapply migrations.",
   };
-}
-
-function spawnDrizzleMigrate(cwd: string, configPath: string): Promise<void> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn("npx", ["drizzle-kit", "migrate", "--config", configPath], {
-      cwd,
-      stdio: "pipe",
-      shell: true,
-    });
-
-    let stderr = "";
-    child.stderr?.on("data", (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    child.on("error", (err) => reject(err));
-
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolvePromise();
-      } else {
-        reject(new Error(`drizzle-kit migrate exited with code ${code}: ${stderr}`));
-      }
-    });
-  });
 }

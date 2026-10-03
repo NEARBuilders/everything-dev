@@ -89,9 +89,10 @@ describe("Plugin Lifecycle Unit Tests", () => {
 
   it("should cache plugins with same config", { timeout: 4000 }, async () => {
     const result1 = await runtime.usePlugin("test-plugin", TEST_CONFIG);
-    const result2 = await runtime.usePlugin("test-plugin", TEST_CONFIG);
+    const result2 = await runtime.usePlugin("test-plugin", structuredClone(TEST_CONFIG));
 
-    expect(result1.initialized.plugin.id).toBe(result2.initialized.plugin.id);
+    expect(result2.initialized).toBe(result1.initialized);
+    expect(result2.router).toBe(result1.router);
   });
 
   it("should create different instances for different configs", { timeout: 4000 }, async () => {

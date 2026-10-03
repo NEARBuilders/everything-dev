@@ -4,12 +4,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildInitPatterns, copyFilteredFiles, personalizeConfig } from "../../src/cli/init";
 import { loadManifestNormalizationSpec } from "../../src/internal/manifest-normalizer";
+import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
-const ROOT_CONFIG = JSON.parse(readFileSync(join(REPO_ROOT, "bos.config.json"), "utf-8")) as {
-  app?: { api?: { name?: string }; auth?: { shared?: Record<string, unknown> } };
-  plugins?: Record<string, { routes?: string[] }>;
-};
+const ROOT_CONFIG = await loadParentConfigFixture();
 const MANIFEST_SPEC = loadManifestNormalizationSpec(REPO_ROOT);
 
 function pluginRoutesFromRoot(): Record<string, string[]> {
@@ -31,6 +29,11 @@ async function scaffoldProject(
     plugins,
     pluginRoutes,
   });
+
+  writeChildConfigFixture(
+    testDir,
+    overrides.filter((o) => o !== "plugins") as Array<"host" | "ui" | "api">,
+  );
 
   await personalizeConfig(testDir, {
     extendsAccount: "dev.everything.near",
@@ -106,31 +109,32 @@ describe("personalizeConfig with real root config", () => {
   });
 
   it("filters plugin config and workspaces to the selected plugin set", async () => {
-    const testDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
+    const testDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
     tempDirs.push(testDir);
 
-    expect(existsSync(join(testDir, "plugins", "apps"))).toBe(true);
+    expect(existsSync(join(testDir, "plugins", "registry"))).toBe(true);
     expect(existsSync(join(testDir, "plugins", "example"))).toBe(false);
-    expect(existsSync(join(testDir, "plugins", "example"))).toBe(false);
-    expect(existsSync(join(testDir, "ui", "src", "routes", "_layout", "apps", "index.tsx"))).toBe(
-      true,
-    );
     expect(
-      existsSync(join(testDir, "ui", "src", "routes", "_layout", "_authenticated", "example.tsx")),
-    ).toBe(false);
+      existsSync(
+        join(testDir, "ui", "src", "routes", "_authenticated", "_dashboard", "things", "index.tsx"),
+      ),
+    ).toBe(true);
+    expect(existsSync(join(testDir, "ui", "src", "routes", "_authenticated", "example.tsx"))).toBe(
+      false,
+    );
 
     const config = JSON.parse(readFileSync(join(testDir, "bos.config.json"), "utf-8")) as {
       plugins?: Record<string, Record<string, unknown>>;
     };
 
-    expect(Object.keys(config.plugins ?? {})).toEqual(["apps"]);
-    expect(config.plugins?.apps?.development).toBe("local:plugins/apps");
-    expect(config.plugins?.apps?.production).toBeUndefined();
-    expect(config.plugins?.apps?.integrity).toBeUndefined();
+    expect(Object.keys(config.plugins ?? {})).toEqual(["registry"]);
+    expect(config.plugins?.registry?.development).toBe("local:plugins/registry");
+    expect(config.plugins?.registry?.production).toBeUndefined();
+    expect(config.plugins?.registry?.integrity).toBeUndefined();
   });
 
   it("rewrites package metadata to the child workspace shape", async () => {
-    const testDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
+    const testDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
     tempDirs.push(testDir);
 
     const pkg = JSON.parse(readFileSync(join(testDir, "package.json"), "utf-8")) as {
@@ -144,12 +148,12 @@ describe("personalizeConfig with real root config", () => {
     expect(pkg.dependencies?.["every-plugin"]).toBe("catalog:");
     expect(pkg.devDependencies?.["everything-dev"]).toBeUndefined();
     expect(pkg.devDependencies?.["every-plugin"]).toBeUndefined();
-    expect(pkg.scripts?.postinstall).toBe("node node_modules/.bin/bos types gen || true");
+    expect(pkg.scripts?.postinstall).toBeUndefined();
     expect(pkg.scripts?.["types:gen"]).toBe("node node_modules/.bin/bos types gen");
     expect(pkg.scripts?.bos).toBe("bos");
     expect(pkg.workspaces?.packages).toEqual(expect.arrayContaining(["ui", "api", "plugins/*"]));
     expect(pkg.workspaces?.packages).toHaveLength(3);
-    expect(pkg.workspaces?.packages).not.toContain("plugins/apps");
+    expect(pkg.workspaces?.packages).not.toContain("plugins/registry");
     expect(pkg.workspaces?.packages).not.toContain("host");
     expect(pkg.workspaces?.packages).not.toContain("packages/everything-dev");
     expect(pkg.workspaces?.catalog?.["everything-dev"]).toBe(
@@ -187,7 +191,7 @@ describe("personalizeConfig with real root config", () => {
       app?: Record<string, unknown>;
     };
     existingConfig.app = {
-      ...(existingConfig.app ?? {}),
+      ...existingConfig.app,
       auth: {
         development: "local:plugins/auth",
         production: "https://auth.child.dev",

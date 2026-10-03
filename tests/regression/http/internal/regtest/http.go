@@ -51,7 +51,7 @@ func GetWithOrigin(t *testing.T, client *http.Client, url string) (int, http.Hea
 	if err != nil {
 		t.Fatalf("creating GET request: %v", err)
 	}
-	req.Header.Set("Origin", "http://localhost:4100")
+	req.Header.Set("Origin", BaseURL())
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("GET %s: %v", url, err)

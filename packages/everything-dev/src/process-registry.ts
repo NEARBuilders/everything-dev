@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -12,8 +13,18 @@ export interface PidEntry {
   parentPid?: number;
   role: ProcessRole;
   ports: Record<string, number>;
+  childPids?: number[];
   budget?: { min: number; max: number };
+  // Lease seam (ADR 0012 §6): entries are leases on shared resources, keyed
+  // by what they hold; refcount-ready for the shared-plugin broker.
+  leaseKey?: string;
+  refcount?: number;
   startedAt: number;
+  // Identity of the claimed pid captured at registration time (ADR 0012
+  // amendment): PIDs are reused across container restarts, so a bare pid
+  // cannot prove a claim live. `processStartTime` is stable per process
+  // generation — a mismatch proves the recorded session is dead.
+  processStart?: string;
   description: string;
 }
 
@@ -57,10 +68,43 @@ export function isPidAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Identity of a process generation, stable across PID reuse: Linux reads the
+ * kernel's starttime tick from /proc, macOS falls back to `ps -o lstart=`.
+ * Null when the generation cannot be determined (the caller then treats the
+ * claim as unverifiable and keeps legacy behavior).
+ */
+export function processStartTime(pid: number): string | null {
+  if (pid <= 1) return null;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf-8");
+    const close = stat.lastIndexOf(")");
+    const fields = stat.slice(close + 2).split(" ");
+    const starttime = fields[19];
+    return starttime ? `proc:${starttime}` : null;
+  } catch {
+    try {
+      const out = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { timeout: 5000 });
+      const text = out.stdout?.toString().trim();
+      return text ? `ps:${text}` : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+export function isEntryLive(entry: PidEntry): boolean {
+  if (entry.pid <= 1) return false;
+  if (!existsSync(entry.configDir)) return false;
+  if (!isPidAlive(entry.pid)) return false;
+  if (entry.processStart !== undefined) {
+    return processStartTime(entry.pid) === entry.processStart;
+  }
+  return true;
+}
+
 export function pruneDead(entries: PidEntry[]): PidEntry[] {
-  return entries.filter(
-    (entry) => entry.pid > 1 && existsSync(entry.configDir) && isPidAlive(entry.pid),
-  );
+  return entries.filter(isEntryLive);
 }
 
 export function pruneDeadEffect(entries: PidEntry[]): Effect.Effect<PidEntry[]> {
@@ -76,6 +120,10 @@ export function pruneDeadEffect(entries: PidEntry[]): Effect.Effect<PidEntry[]> 
         );
         if (!dirExists) return null;
         if (!isPidAlive(entry.pid)) return null;
+        if (entry.processStart !== undefined) {
+          const current = yield* Effect.promise(() => Promise.resolve(processStartTime(entry.pid)));
+          if (current !== entry.processStart) return null;
+        }
         return entry;
       });
     },
@@ -93,7 +141,11 @@ export function writeRegistry(entries: PidEntry[]): void {
 
 export function registerStandalone(entry: Omit<PidEntry, "role">): PidEntry {
   const live = pruneDead(readRegistry());
-  const full: PidEntry = { ...entry, role: "standalone" };
+  const full: PidEntry = {
+    ...entry,
+    role: "standalone",
+    processStart: processStartTime(entry.pid) ?? entry.processStart,
+  };
   const withoutSelf = live.filter((existing) => existing.pid !== entry.pid);
   withoutSelf.push(full);
   writeRegistry(withoutSelf);
@@ -103,14 +155,25 @@ export function registerStandalone(entry: Omit<PidEntry, "role">): PidEntry {
 export function registerEntry(entry: PidEntry): void {
   const live = pruneDead(readRegistry());
   const withoutSelf = live.filter((existing) => existing.pid !== entry.pid);
-  withoutSelf.push(entry);
+  withoutSelf.push({
+    ...entry,
+    processStart: processStartTime(entry.pid) ?? entry.processStart,
+  });
   writeRegistry(withoutSelf);
 }
 
-export function unregisterPid(pid: number): void {
+export function updateChildPids(pid: number, childPids: number[]): void {
   const live = pruneDead(readRegistry());
-  const next = live.filter((entry) => entry.pid !== pid);
-  if (next.length === live.length) return;
+  const entry = live.find((existing) => existing.pid === pid);
+  if (!entry) return;
+  entry.childPids = childPids;
+  writeRegistry(live);
+}
+
+export function unregisterPid(pid: number): void {
+  const entries = readRegistry();
+  const next = pruneDead(entries).filter((entry) => entry.pid !== pid);
+  if (next.length === entries.length) return;
   writeRegistry(next);
 }
 
@@ -126,11 +189,17 @@ export function getRegistryPath(): string {
 }
 
 export function claimedPorts(): Set<number> {
+  const out = new Set<number>(claimedPortOwners().keys());
+  return out;
+}
+
+/** Port → the live registry entry claiming it, for occupancy diagnostics. */
+export function claimedPortOwners(): Map<number, PidEntry> {
   const live = pruneDead(readRegistry());
-  const out = new Set<number>();
+  const out = new Map<number, PidEntry>();
   for (const entry of live) {
     for (const port of Object.values(entry.ports)) {
-      if (typeof port === "number") out.add(port);
+      if (typeof port === "number") out.set(port, entry);
     }
   }
   return out;

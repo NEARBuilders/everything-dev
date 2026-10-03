@@ -1,7 +1,8 @@
+import { commandOptionSchemas } from "../contract";
 import type { CommandDescriptor } from "./catalog";
 
 type SchemaLike = {
-  _def?: {
+  def?: {
     type?: string;
     innerType?: SchemaLike;
     shape?: Record<string, SchemaLike>;
@@ -13,9 +14,9 @@ type SchemaLike = {
 function unwrap(schema: SchemaLike): SchemaLike {
   let current = schema;
   while (true) {
-    const type = current._def?.type;
+    const type = current.def?.type;
     if (type === "default" || type === "optional" || type === "nullable" || type === "nullish") {
-      const inner = current._def?.innerType;
+      const inner = current.def?.innerType;
       if (!inner) break;
       current = inner;
       continue;
@@ -26,16 +27,16 @@ function unwrap(schema: SchemaLike): SchemaLike {
 }
 
 function isBooleanSchema(schema: SchemaLike): boolean {
-  return unwrap(schema)._def?.type === "boolean";
+  return unwrap(schema).def?.type === "boolean";
 }
 
 function isArraySchema(schema: SchemaLike): boolean {
-  return unwrap(schema)._def?.type === "array";
+  return unwrap(schema).def?.type === "array";
 }
 
 function coerceValue(raw: string, schema: SchemaLike): unknown {
   const inner = unwrap(schema);
-  switch (inner._def?.type) {
+  switch (inner.def?.type) {
     case "boolean":
       return raw === "true" || raw === "1" || raw === "yes";
     case "number": {
@@ -56,13 +57,13 @@ function toFlagName(field: string): string {
 
 function getShape(schema: SchemaLike): Record<string, SchemaLike> {
   const inner = unwrap(schema);
-  const shape = inner._def?.shape;
+  const shape = inner.def?.shape;
   if (!shape) return {};
   return shape;
 }
 
 export function parseCommandInput(descriptor: CommandDescriptor, argv: string[]): unknown {
-  const schema = (descriptor.procedure as any)["~orpc"]?.inputSchema as SchemaLike | undefined;
+  const schema = commandOptionSchemas[descriptor.key as keyof typeof commandOptionSchemas];
   if (!schema) return {};
 
   const shape = getShape(schema);

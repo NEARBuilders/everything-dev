@@ -93,4 +93,20 @@ describe("parseCommandInput", () => {
     expect(input.signal).toBe("SIGKILL");
     expect(input.all).toBe(true);
   });
+
+  it("parses --config-path on the start command", () => {
+    const startDescriptor = commandCatalog.find((command) => command.key === "start");
+    expect(startDescriptor).toBeDefined();
+
+    const input = parseCommandInput(startDescriptor!, [
+      "--config-path",
+      "/app/.bos/regression/image/config-ssr.json",
+      "--no-interactive",
+      "--port",
+      "4100",
+    ]) as { configPath?: string; port?: number };
+
+    expect(input.configPath).toBe("/app/.bos/regression/image/config-ssr.json");
+    expect(input.port).toBe(4100);
+  });
 });

@@ -1,6 +1,9 @@
 import { createConnection } from "node:net";
 import { Effect } from "effect";
 
+const scheduleTimeout = (ms: number, fn: () => void): ReturnType<typeof setTimeout> =>
+  setTimeout(fn, ms);
+
 export interface PreflightTarget {
   secret: string;
   host: string;
@@ -14,16 +17,20 @@ export interface PreflightFailure {
   host: string;
   port: number;
   error: string;
+  /** True when the target port accepted a TCP connection (so docker compose cannot fix this failure). */
+  tcpReachable: boolean;
 }
 
 function parseLocalUrl(url: string): { host: string; port: number } | null {
   try {
-    const match = url.match(/:\/\/([^:/]+):(\d+)/);
-    if (!match) return null;
-    const host = match[1];
-    const port = Number.parseInt(match[2], 10);
-    if (Number.isNaN(port)) return null;
-    if (host !== "localhost" && host !== "127.0.0.1") return null;
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") return null;
+    const port = Number.parseInt(parsed.port, 10);
+    if (Number.isNaN(port)) {
+      const fallback = parsed.protocol === "redis:" ? 6379 : 5432;
+      return { host, port: fallback };
+    }
     return { host, port };
   } catch {
     return null;
@@ -31,12 +38,12 @@ function parseLocalUrl(url: string): { host: string; port: number } | null {
 }
 
 function checkTcpReachable(host: string, port: number, timeoutMs = 2000): Effect.Effect<boolean> {
-  return Effect.async<boolean>((resume) => {
+  return Effect.callback<boolean>((resume) => {
     const socket = createConnection({ host, port });
-    const timer = setTimeout(() => {
+    const timer = scheduleTimeout(timeoutMs, () => {
       socket.destroy();
       resume(Effect.succeed(false));
-    }, timeoutMs);
+    });
 
     socket.once("connect", () => {
       clearTimeout(timer);
@@ -61,20 +68,24 @@ function checkPgConnection(url: string): Effect.Effect<boolean> {
     );
     if (!reachable) return false;
 
-    try {
-      const { Pool } = yield* Effect.promise(() => import("pg"));
-      const pool = new Pool({ connectionString: url, connectionTimeoutMillis: 3000 });
-      const client = yield* Effect.promise(() => pool.connect().then((c) => ({ client: c, pool })));
-      try {
-        yield* Effect.promise(() => client.client.query("SELECT 1"));
-        return true;
-      } finally {
-        client.client.release();
-        yield* Effect.promise(() => client.pool.end().catch(() => {}));
-      }
-    } catch {
-      return false;
-    }
+    return yield* Effect.tryPromise({
+      try: async () => {
+        const { Pool } = await import("pg");
+        const pool = new Pool({ connectionString: url, connectionTimeoutMillis: 3000 });
+        try {
+          const client = await pool.connect();
+          try {
+            await client.query("SELECT 1");
+            return true;
+          } finally {
+            client.release();
+          }
+        } finally {
+          await pool.end().catch(() => {});
+        }
+      },
+      catch: () => new Error("pg unreachable"),
+    }).pipe(Effect.orElseSucceed(() => false));
   });
 }
 
@@ -119,15 +130,18 @@ export function preflightLocalInfra(
           const ok = yield* checkPgConnection(target.url);
           if (ok) return null;
           const tcpOk = yield* checkTcpReachable(target.host, target.port);
-          const pluginContext = target.secret.endsWith("_DATABASE_URL")
-            ? ` The plugin for ${target.secret} runs inside the local host process, so this DB must be reachable. Run \`docker compose up -d --wait\` to start local Postgres/Redis.`
-            : "";
+          const appDb =
+            target.secret === "API_DATABASE_URL" || target.secret === "AUTH_DATABASE_URL";
+          const pluginContext = appDb
+            ? " Run `docker compose up -d --wait` to start local Postgres."
+            : ` The plugin for ${target.secret} runs inside the local host process, so this DB must be reachable. Run \`docker compose up -d --wait\` to start local Postgres.`;
           if (tcpOk) {
             return {
               secret: target.secret,
               host: target.host,
               port: target.port,
               error: `${target.secret} at ${target.host}:${target.port} is reachable but Postgres connection failed. Check credentials and database name.${pluginContext}`,
+              tcpReachable: true,
             } satisfies PreflightFailure;
           }
           return {
@@ -135,6 +149,7 @@ export function preflightLocalInfra(
             host: target.host,
             port: target.port,
             error: `${target.secret} points to ${target.host}:${target.port} but nothing is listening.${pluginContext}`,
+            tcpReachable: false,
           } satisfies PreflightFailure;
         }
 
@@ -145,6 +160,7 @@ export function preflightLocalInfra(
           host: target.host,
           port: target.port,
           error: `${target.secret} points to ${target.host}:${target.port} but nothing is listening`,
+          tcpReachable: false,
         } satisfies PreflightFailure;
       }),
     { concurrency: "unbounded" },

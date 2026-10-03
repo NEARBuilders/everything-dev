@@ -1,14 +1,25 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { Effect, Schema } from "effect";
+import { getProcessEnv } from "./env/process-env";
+
+const warnOutsideEffect = (...args: unknown[]): void => {
+  console.warn(...args);
+};
+
+import { sanitizeContainerName } from "every-plugin/ui/manifest/contract";
 import { fetchApiPluginManifest } from "./api-contract";
 import { manifestPluginsToNodes } from "./dag";
+import { resolveApp, toConfigInput } from "./descriptor/resolve";
+import { type AppDescriptor, AppDescriptorSchema } from "./descriptor/schema";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import { fetchJsonOrNull } from "./http-client";
 import {
   type BosEnv,
   bosConfigMerger,
   isPlainObject,
-  mergeBosConfigWithExtends,
   type ResolvedConfigMeta,
   rebuildOrderedConfig,
   resolveExtendsRef,
@@ -18,19 +29,20 @@ import type {
   BosConfig,
   BosConfigInput,
   BosPluginRef,
-  ExtendsConfig,
   JsonObject,
   JsonValue,
   PluginEntryValue,
   RuntimeConfig,
-  RuntimeDependencyNode,
   RuntimePluginConfig,
 } from "./types";
 import { BosConfigSchema } from "./types";
+import { type ResolvedSlotVersion, resolveSlotVersion } from "./version-manifest-resolve";
 
 const LOCAL_PREFIX = "local:";
 const DEFAULT_HOST_PORT = 3000;
 const RESOLVED_CONFIG_FILENAME = "bos.resolved-config.json";
+
+export const DEV_OVERLAY_FILENAME = "bos.dev.ts";
 
 type RuntimeOverrideTarget = "ui" | "api" | "plugins" | `plugins.${string}`;
 
@@ -41,34 +53,26 @@ interface RuntimeTarget {
   port?: number;
 }
 
-let cachedConfig: BosConfig | null = null;
-let projectRoot: string | null = null;
-let configWarnings: string[] = [];
-let suppressConfigWarnings = false;
-
-export function clearConfigCache(): void {
-  cachedConfig = null;
-  projectRoot = null;
-  configWarnings = [];
+interface ConfigWarningCapture {
+  sink: string[];
+  previous: ConfigWarningCapture | undefined;
 }
 
-export function suppressWarnings(): void {
-  suppressConfigWarnings = true;
-}
+const warningCapture = new AsyncLocalStorage<ConfigWarningCapture | undefined>();
 
-export function resumeWarnings(): void {
-  suppressConfigWarnings = false;
-}
-
-export function drainConfigWarnings(): string[] {
-  const warnings = [...configWarnings];
-  configWarnings = [];
-  return warnings;
+/**
+ * @internal — runs `fn` with config warnings captured into `sink` instead of
+ * the console. Plumbing for the resolution session; not part of the public
+ * config surface.
+ */
+export function runWithConfigWarningSink<T>(sink: string[], fn: () => T): T {
+  return warningCapture.run({ sink, previous: warningCapture.getStore() }, fn);
 }
 
 function emitConfigWarning(message: string): void {
-  if (suppressConfigWarnings) {
-    configWarnings.push(message);
+  const capture = warningCapture.getStore();
+  if (capture) {
+    capture.sink.push(message);
   } else {
     console.warn(message);
   }
@@ -76,58 +80,136 @@ function emitConfigWarning(message: string): void {
 
 const configPathCache = new Map<string, string | null>();
 
+/**
+ * @internal — clears the findConfigPath memo. Plumbing for tests and the
+ * resolution session; not part of the public config surface.
+ */
+export function resetConfigPathCache(): void {
+  configPathCache.clear();
+}
+
+/**
+ * Reads the local authored config without resolving the extends chain or
+ * touching the network — the build-surface factories (generated rsbuild
+ * configs) consume it for their APP_NAME/APP_ACCOUNT defines.
+ */
+export async function readAuthoredConfigInput(cwd?: string): Promise<BosConfigInput | null> {
+  const configPath = findConfigPath(cwd);
+  if (!configPath || configPath.startsWith("bos://")) return null;
+  return readConfigInput(configPath, dirname(configPath));
+}
+
 export function findConfigPath(cwd?: string): string | null {
-  const cacheKey = cwd ?? process.cwd();
+  const cacheKey = resolve(cwd ?? process.cwd());
   const cached = configPathCache.get(cacheKey);
   if (cached !== undefined) return cached;
 
   let dir = cacheKey;
-  while (dir !== "/") {
-    const configPath = join(dir, "bos.config.json");
-    if (existsSync(configPath)) {
-      configPathCache.set(cacheKey, configPath);
-      return configPath;
+  while (true) {
+    const jsonPath = join(dir, "bos.config.json");
+    if (existsSync(jsonPath)) {
+      configPathCache.set(cacheKey, jsonPath);
+      return jsonPath;
     }
-    dir = dirname(dir);
+    const appPath = join(dir, "bos.app.ts");
+    if (existsSync(appPath)) {
+      configPathCache.set(cacheKey, appPath);
+      return appPath;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
   configPathCache.set(cacheKey, null);
   return null;
 }
 
-export function getConfig(): BosConfig | null {
-  return cachedConfig;
+export function isAppDescriptorPath(configPath: string): boolean {
+  return configPath.endsWith(".app.ts") || configPath.endsWith(".app.js");
 }
 
-export function getProjectRoot(): string {
-  if (!projectRoot) {
-    throw new Error("Config not loaded. Call loadResolvedConfig() first.");
+/**
+ * Materialize an authored bos.app.ts descriptor into the authoring-shape
+ * `BosConfigInput` the config pipeline consumes. Import-extends is honored
+ * two ways: the parent descriptor value can be imported directly (an
+ * inlined parent, resolved through `resolveApp`), or `extends` can name a
+ * published config (`bos://…`) / a local file, which flows into the JSON
+ * extends chain unchanged.
+ */
+export async function loadAppDescriptorConfig(resolvedPath: string): Promise<BosConfigInput> {
+  // webpackIgnore: the path is inherently runtime-resolved — bundlers must
+  // not try to statically analyze it (rsbuild otherwise warns "Critical
+  // dependency: the request of a dependency is an expression").
+  const mod = (await import(/* webpackIgnore: true */ pathToFileURL(resolvedPath).href)) as Record<
+    string,
+    unknown
+  >;
+  return parseAppDescriptorModule(mod, resolvedPath);
+}
+
+/**
+ * @internal — parses an already-imported app descriptor module into the
+ * authoring-shape `BosConfigInput`. Plumbing for the resolution session's
+ * injectable module loader; not part of the public config surface.
+ */
+export function parseAppDescriptorModule(
+  mod: Record<string, unknown>,
+  sourcePath?: string,
+): BosConfigInput {
+  if (!mod.default) {
+    throw new Error(
+      `${sourcePath ?? "App descriptor module"} must default-export an App() descriptor`,
+    );
   }
-  return projectRoot;
+  const descriptor = AppDescriptorSchema.parse(mod.default);
+
+  // Registry candidates: named exports that parse as App descriptors.
+  const registry: Record<string, unknown> = {};
+  for (const value of Object.values(mod)) {
+    const parsed = AppDescriptorSchema.safeParse(value);
+    if (parsed.success) registry[parsed.data.name] = parsed.data;
+  }
+
+  const extendsRef = descriptor.extends;
+  const inRegistry = typeof extendsRef === "string" && registry[extendsRef] !== undefined;
+  const importedParent = extendsRef !== undefined && typeof extendsRef !== "string";
+
+  if (inRegistry || importedParent) {
+    return resolveApp(descriptor.name, registry as never);
+  }
+
+  const input = toConfigInput(descriptor);
+  if (extendsRef !== undefined) {
+    input.extends = extendsRef as BosConfigInput["extends"];
+  }
+  return input;
 }
 
-export interface ConfigResult {
-  config: BosConfig;
-  runtime: RuntimeConfig;
-  source: {
-    path: string;
-    extended?: string[];
-    remote?: boolean;
-  };
-  warnings?: string[];
-}
-
-export interface LocalConfigResult {
-  config: BosConfigInput;
-  source: {
-    path: string;
-  };
-}
-
-export interface RemoteConfigResult {
-  rawConfig: BosConfigInput;
-  config: BosConfig;
-  source: string;
-  extendsChain: string[];
+/**
+ * @internal — validates an already-imported `bos.dev.ts` module as a
+ * `Partial<AppDescriptor>` dev overlay. Plumbing for the resolution session's
+ * injectable module loader; not part of the public config surface.
+ */
+export function parseDevOverlayModule(
+  mod: Record<string, unknown>,
+  sourcePath?: string,
+): Partial<AppDescriptor> {
+  const source = sourcePath ?? DEV_OVERLAY_FILENAME;
+  if (!mod?.default) {
+    throw new DevOverlayError({
+      path: source,
+      message: `${source} must default-export a dev overlay (Partial<AppDescriptor>)`,
+    });
+  }
+  const parsed = AppDescriptorSchema.partial().safeParse(mod.default);
+  if (!parsed.success) {
+    throw new DevOverlayError({
+      path: source,
+      message: `${source} is not a valid dev overlay: ${parsed.error.message}`,
+      cause: parsed.error,
+    });
+  }
+  return parsed.data;
 }
 
 export interface ResolvedComposableReference {
@@ -142,135 +224,46 @@ interface ParsedExtendsTarget {
   targetPath?: string;
 }
 
-export async function loadLocalConfig(options?: {
-  cwd?: string;
-  path?: string;
-}): Promise<LocalConfigResult | null> {
-  const configPath = options?.path ?? findConfigPath(options?.cwd);
-  if (!configPath) {
-    projectRoot = options?.cwd ?? process.cwd();
-    return null;
-  }
+export class ConfigLoadError extends Schema.TaggedError<ConfigLoadError>()("ConfigLoadError", {
+  path: Schema.String,
+  message: Schema.String,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
-  const baseDir = dirname(configPath);
-  const config = await loadConfigFile(configPath, baseDir);
+export class CircularExtendsError extends Schema.TaggedError<CircularExtendsError>()(
+  "CircularExtendsError",
+  { chain: Schema.Array(Schema.String), message: Schema.String },
+) {}
 
-  projectRoot = baseDir;
+export class ConfigNotfoundError extends Schema.TaggedError<ConfigNotfoundError>()(
+  "ConfigNotfoundError",
+  { message: Schema.String },
+) {}
 
-  return {
-    config,
-    source: {
-      path: configPath,
-    },
-  };
-}
+export class ConfigExtendsError extends Schema.TaggedError<ConfigExtendsError>()(
+  "ConfigExtendsError",
+  {
+    message: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+  },
+) {}
 
-export async function loadResolvedConfig(options?: {
-  cwd?: string;
-  path?: string;
-  env?: BosEnv;
-  remotePlugins?: string[];
-}): Promise<ConfigResult | null> {
-  const configPath = options?.path ?? findConfigPath(options?.cwd);
-  if (!configPath) {
-    projectRoot = options?.cwd ?? process.cwd();
-    return null;
-  }
+export class ConfigVersionManifestError extends Schema.TaggedError<ConfigVersionManifestError>()(
+  "ConfigVersionManifestError",
+  {
+    message: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+  },
+) {}
 
-  const baseDir = dirname(configPath);
-  const env = options?.env ?? "development";
-  const runtimeEnv: BosEnv = env === "staging" ? "production" : env;
+export class DevOverlayError extends Schema.TaggedError<DevOverlayError>()("DevOverlayError", {
+  path: Schema.String,
+  message: Schema.String,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
-  try {
-    suppressWarnings();
-    const extendedChain: string[] = [];
-    const parsed = await resolveConfigWithExtends(
-      configPath,
-      baseDir,
-      new Set(),
-      extendedChain,
-      env,
-    );
-    const config = await resolveConfigComposableEntries(
-      BosConfigSchema.parse(parsed),
-      baseDir,
-      runtimeEnv,
-    );
-
-    cachedConfig = config;
-    projectRoot = baseDir;
-
-    const pluginRuntime = await resolveRuntimePlugins(
-      config.plugins ?? {},
-      baseDir,
-      runtimeEnv,
-      options?.remotePlugins,
-    );
-    const runtime = await buildRuntimeConfig(config, baseDir, runtimeEnv, {
-      plugins: pluginRuntime,
-    });
-    const warnings = drainConfigWarnings();
-    resumeWarnings();
-
-    return {
-      config,
-      runtime,
-      source: {
-        path: configPath,
-        extended: extendedChain.length > 0 ? extendedChain : undefined,
-        remote: extendedChain.some((entry) => entry.startsWith("bos://")),
-      },
-      warnings: warnings.length > 0 ? warnings : undefined,
-    };
-  } catch (error) {
-    resumeWarnings();
-    if (error instanceof Error) {
-      throw new Error(`Failed to load config from ${configPath}: ${error.message}`, {
-        cause: error,
-      });
-    }
-    throw new Error(`Failed to load config from ${configPath}: ${String(error)}`);
-  }
-}
-
-export async function loadBosConfig(options?: {
-  cwd?: string;
-  path?: string;
-  env?: BosEnv;
-}): Promise<RuntimeConfig> {
-  const result = await loadResolvedConfig(options);
-  if (!result) {
-    throw new Error("No bos.config.json found");
-  }
-
-  return result.runtime;
-}
-
-export async function loadRemoteConfig(
-  bosUrl: string,
-  env: BosEnv = "production",
-): Promise<RemoteConfigResult> {
-  const runtimeEnv: BosEnv = env === "staging" ? "production" : env;
-  const extendedChain: string[] = [];
-  const parsed = await resolveConfigWithExtends(
-    bosUrl,
-    process.cwd(),
-    new Set(),
-    extendedChain,
-    env,
-  );
-  const config = await resolveConfigComposableEntries(
-    BosConfigSchema.parse(parsed),
-    process.cwd(),
-    runtimeEnv,
-  );
-
-  return {
-    rawConfig: await loadConfigFile(bosUrl, process.cwd()),
-    config,
-    source: bosUrl,
-    extendsChain: extendedChain,
-  };
+export function defaultConfigEnv(): BosEnv {
+  return process.env.NODE_ENV === "production" ? "production" : "development";
 }
 
 export function parseRuntimeOverrideTargets(value?: string | null): RuntimeOverrideTarget[] {
@@ -294,7 +287,7 @@ export function parseRuntimeOverrideTargets(value?: string | null): RuntimeOverr
       return entry as RuntimeOverrideTarget;
     }
 
-    throw new Error(`Invalid runtime override target: ${entry}`);
+    throw new ConfigExtendsError({ message: `Invalid runtime override target: ${entry}` });
   });
 }
 
@@ -317,26 +310,27 @@ export async function buildRuntimePluginsForConfig(
   config: BosConfig,
   baseDir: string,
   env: BosEnv,
+  remotePlugins?: string[],
 ): Promise<Record<string, RuntimePluginConfig> | undefined> {
-  const plugins = await resolveRuntimePlugins(config.plugins ?? {}, baseDir, env);
+  const plugins = await resolveRuntimePlugins(config.plugins ?? {}, baseDir, env, remotePlugins);
   return Object.keys(plugins).length > 0 ? plugins : undefined;
 }
 
 function getEntryAssociatedUi(entry: Partial<BosPluginRef>): Record<string, unknown> | undefined {
-  if (!isPlainObject(entry.app)) {
-    return undefined;
-  }
+  const flat = isPlainObject(entry.ui) ? (entry.ui as Record<string, unknown>) : undefined;
+  const nested = (() => {
+    if (!isPlainObject(entry.app)) return undefined;
+    const app = entry.app as Record<string, unknown>;
+    return isPlainObject(app.ui) ? (app.ui as Record<string, unknown>) : undefined;
+  })();
+  const ui = flat ?? nested;
+  if (!ui) return undefined;
 
-  const app = entry.app as Record<string, unknown>;
-  if (!isPlainObject(app.ui)) {
-    return undefined;
-  }
-
-  const ui = app.ui as Record<string, unknown>;
   if ("shared" in ui) {
-    throw new Error(
-      "app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.",
-    );
+    throw new ConfigExtendsError({
+      message:
+        "app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.",
+    });
   }
 
   return ui;
@@ -495,7 +489,12 @@ export function readBosConfigForBuild(configDir: string): Record<string, unknown
   return JSON.parse(readFileSync(bosConfigPath, "utf-8")) as Record<string, unknown>;
 }
 
-function parseExtendsTarget(ref: string): ParsedExtendsTarget {
+/**
+ * @internal — splits an extends ref into its config path and optional
+ * `#target` suffix. Plumbing for the resolution session; not part of the
+ * public config surface.
+ */
+export function parseExtendsTarget(ref: string): ParsedExtendsTarget {
   const hashIndex = ref.indexOf("#");
   if (hashIndex === -1) {
     return { configPath: ref };
@@ -509,7 +508,11 @@ function parseExtendsTarget(ref: string): ParsedExtendsTarget {
   };
 }
 
-function getConfigBaseDir(configPath: string, baseDir: string): string {
+/**
+ * @internal — resolves the base directory a config path extends from.
+ * Plumbing for the resolution session; not part of the public config surface.
+ */
+export function getConfigBaseDir(configPath: string, baseDir: string): string {
   if (configPath.startsWith("bos://")) return baseDir;
   return dirname(isAbsolute(configPath) ? configPath : resolve(baseDir, configPath));
 }
@@ -522,7 +525,9 @@ function asComposableEntry(value: unknown): BosPluginRef {
     return { extends: value };
   }
   if (!isPlainObject(value)) {
-    throw new Error(`Expected config entry object, received ${typeof value}`);
+    throw new ConfigExtendsError({
+      message: `Expected config entry object, received ${typeof value}`,
+    });
   }
   return value as BosPluginRef;
 }
@@ -536,12 +541,12 @@ function getTargetedEntry(config: BosConfigInput, targetPath: string): BosPlugin
   if (targetPath.startsWith("plugins.")) {
     const pluginId = targetPath.slice("plugins.".length);
     if (pluginId.length === 0) {
-      throw new Error(`Invalid plugin target path: ${targetPath}`);
+      throw new ConfigExtendsError({ message: `Invalid plugin target path: ${targetPath}` });
     }
     return asComposableEntry(config.plugins?.[pluginId]);
   }
 
-  throw new Error(`Unsupported extends target path: ${targetPath}`);
+  throw new ConfigExtendsError({ message: `Unsupported extends target path: ${targetPath}` });
 }
 
 function getAssociatedUi(
@@ -554,9 +559,10 @@ function getAssociatedUi(
 
   const ui = config.app.ui as Record<string, unknown>;
   if ("shared" in ui) {
-    throw new Error(
-      "app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.",
-    );
+    throw new ConfigExtendsError({
+      message:
+        "app.ui.shared is no longer supported. Move shared deps to app.api.shared, app.auth.shared, or plugins.*.shared.",
+    });
   }
 
   return ui;
@@ -615,17 +621,15 @@ export async function resolveComposableReference(
 
   const extendsRef = source.extends ? resolveExtendsRef(source.extends, env) : undefined;
   if (extendsRef) {
+    const { resolveMergedConfigInput } = await import("./resolution/session");
     const parsed = parseExtendsTarget(extendsRef);
     targetPath = parsed.targetPath ?? defaultTargetPath;
     const extendsBaseDir = getConfigBaseDir(parsed.configPath, baseDir);
     try {
-      const extendedConfig = await resolveConfigWithExtends(
-        parsed.configPath,
-        extendsBaseDir,
-        new Set(),
-        [],
+      const extendedConfig = await resolveMergedConfigInput(parsed.configPath, {
+        baseDir: extendsBaseDir,
         env,
-      );
+      });
       resolvedEntry = mergeComposableEntries(
         resolvedEntry,
         getTargetedEntry(extendedConfig, targetPath),
@@ -649,16 +653,14 @@ export async function resolveComposableReference(
   );
 
   if (localDevelopmentPath) {
+    const { resolveMergedConfigInput } = await import("./resolution/session");
     const localPath = localDevelopmentPath;
     const localConfigPath = join(localPath, "bos.config.json");
     if (existsSync(localConfigPath)) {
-      const localConfig = await resolveConfigWithExtends(
-        localConfigPath,
-        localPath,
-        new Set(),
-        [],
+      const localConfig = await resolveMergedConfigInput(localConfigPath, {
+        baseDir: localPath,
         env,
-      );
+      });
       resolvedEntry = mergeComposableEntries(
         resolvedEntry,
         getTargetedEntry(localConfig, targetPath),
@@ -685,7 +687,15 @@ export async function resolveComposableReference(
     entry: stripUnsafeLocalDevelopment(resolvedEntry, allowLocalPaths || Boolean(localDevelopment)),
     providerBaseDir,
     targetPath,
-    associatedUi: stripUnsafeLocalDevelopment(associatedUi, allowLocalPaths),
+    // A plugin's own ui lives under its local development tree — the same
+    // safety argument as the entry itself: keep its local target when the
+    // plugin resolves locally, or the folder-form ui surface silently
+    // disappears (no BOS_UI_PORT, an unassigned ui dev server, and a
+    // port collision with another plugin's ui slot).
+    associatedUi: stripUnsafeLocalDevelopment(
+      associatedUi,
+      allowLocalPaths || Boolean(localDevelopment),
+    ),
   };
 }
 
@@ -729,12 +739,12 @@ export interface BuildRuntimeConfigOptions {
   proxy?: string;
 }
 
-export async function buildRuntimeConfig(
+export const buildRuntimeConfigEffect = Effect.fn("buildRuntimeConfig")(function* (
   config: BosConfig,
   baseDir: string,
   env: BosEnv,
   options?: BuildRuntimeConfigOptions,
-): Promise<RuntimeConfig> {
+): Effect.fn.Return<RuntimeConfig, ConfigExtendsError | ConfigVersionManifestError> {
   const uiConfig = config.app.ui;
   const apiConfig = config.app.api;
   const authConfig = config.app.auth;
@@ -789,12 +799,58 @@ export async function buildRuntimeConfig(
   const hostListeningUrl =
     env === "development"
       ? resolveDevelopmentHostUrl(hostConfig.development)
-      : `http://localhost:${DEFAULT_HOST_PORT}`;
+      : `http://localhost:${getProcessEnv("PORT") ?? DEFAULT_HOST_PORT}`;
 
   const hostIsRemote = hostRuntime.source === "remote";
   const uiIsRemote = uiRuntime.source === "remote";
   const apiIsRemote = apiRuntime.source === "remote";
   const resolvedApiName = resolvePluginRuntimeName(apiConfig.name, apiRuntime.localPath, "api");
+
+  const authEntry = yield* Effect.tryPromise({
+    try: async () => {
+      if (!authConfig || !authRuntime) return undefined;
+      if (!authRuntime.localPath && !authRuntime.url) return undefined;
+      let authName = resolvePluginRuntimeName(authConfig.name, authRuntime.localPath, "auth");
+      if (
+        authRuntime.source === "remote" &&
+        authRuntime.url &&
+        !authRuntime.localPath &&
+        typeof authConfig.name !== "string"
+      ) {
+        authName = await resolveRemotePluginRuntimeName(authRuntime.url, authName);
+      }
+      return {
+        name: authName,
+        extendsRef: authExtendsRef,
+        url: authRuntime.url,
+        entry: authRuntime.url ? `${authRuntime.url}/mf-manifest.json` : "/mf-manifest.json",
+        localPath: authRuntime.localPath,
+        port: authRuntime.port,
+        source: authRuntime.source,
+        proxy: authConfig.proxy,
+        variables: authConfig.variables,
+        secrets: authConfig.secrets,
+        integrity: authRuntime.source === "remote" ? authConfig.integrity : undefined,
+        shared: authConfig.shared,
+        ui: buildRuntimeUiConfig(
+          "auth",
+          env,
+          getEntryAssociatedUi(authConfig as Partial<BosPluginRef>),
+          baseDir,
+          authName,
+          options?.authSource,
+        ),
+      };
+    },
+    catch: (cause) => new ConfigExtendsError({ message: String(cause), cause }),
+  });
+
+  const explicitPlugins =
+    options?.plugins && Object.keys(options.plugins).length > 0 ? options.plugins : undefined;
+  const runtimePlugins: Record<string, RuntimePluginConfig> = { ...explicitPlugins };
+  if (authEntry && !runtimePlugins.auth) {
+    runtimePlugins.auth = authEntry;
+  }
 
   const result: RuntimeConfig = {
     env,
@@ -809,7 +865,10 @@ export async function buildRuntimeConfig(
       url: hostListeningUrl,
       entry: `${hostListeningUrl}/mf-manifest.json`,
       localPath: hostRuntime.localPath,
-      port: env === "development" ? parsePort(hostListeningUrl) : DEFAULT_HOST_PORT,
+      port:
+        env === "development"
+          ? parsePort(hostListeningUrl)
+          : Number(getProcessEnv("PORT")) || DEFAULT_HOST_PORT,
       secrets: hostConfig.secrets,
       integrity: hostIsRemote ? hostConfig.integrity : undefined,
       source: hostRuntime.source,
@@ -819,6 +878,7 @@ export async function buildRuntimeConfig(
       name: resolvePluginRuntimeName(uiConfig.name, uiRuntime.localPath, "ui"),
       url: uiRuntime.url,
       entry: uiRuntime.url ? `${uiRuntime.url}/mf-manifest.json` : "/mf-manifest.json",
+      publicUrl: typeof uiConfig.publicUrl === "string" ? uiConfig.publicUrl : undefined,
       localPath: uiRuntime.localPath,
       port: uiRuntime.port,
       ssrUrl: uiIsRemote ? uiConfig.ssr : undefined,
@@ -840,134 +900,200 @@ export async function buildRuntimeConfig(
       shared: apiConfig.shared,
       dependsOn: apiConfig.dependsOn ? normalizeStringArray(apiConfig.dependsOn) : undefined,
     },
-    auth: (() => {
-      if (!authConfig || !authRuntime) return undefined;
-      if (!authRuntime.localPath && !authRuntime.url) return undefined;
-      return {
-        name: resolvePluginRuntimeName(authConfig.name, authRuntime.localPath, "auth"),
-        extendsRef: authExtendsRef,
-        url: authRuntime.url,
-        entry: authRuntime.url ? `${authRuntime.url}/mf-manifest.json` : "/mf-manifest.json",
-        localPath: authRuntime.localPath,
-        port: authRuntime.port,
-        source: authRuntime.source,
-        proxy: authConfig.proxy,
-        variables: authConfig.variables,
-        secrets: authConfig.secrets,
-        integrity: authRuntime.source === "remote" ? authConfig.integrity : undefined,
-        shared: authConfig.shared,
-      };
-    })(),
-    plugins:
-      options?.plugins && Object.keys(options.plugins).length > 0 ? options.plugins : undefined,
+    auth: authEntry,
+    plugins: Object.keys(runtimePlugins).length > 0 ? runtimePlugins : undefined,
   };
 
-  let manifestNodes: RuntimeDependencyNode[] = [];
-  const manifestPluginEntries: Array<{ key: string; config: RuntimePluginConfig }> = [];
-
-  if (result.api.source === "remote" && result.api.url) {
-    try {
-      const manifest = await fetchApiPluginManifest(result.api.url);
-      if (manifest.plugins?.length) {
-        manifestNodes = manifestPluginsToNodes(manifest.plugins);
-        for (const node of manifestNodes) {
-          if (!result.plugins?.[node.key]) {
-            manifestPluginEntries.push({
-              key: node.key,
-              config: {
-                name: node.name,
-                url: node.url,
-                entry: node.entry,
-                source: "remote",
-                dependsOn: node.dependsOn,
-                secrets: node.secrets,
-                variables: node.variables,
-              },
-            });
-            if (node.secrets) {
-              for (const secretName of node.secrets) {
-                if (!process.env[secretName]) {
-                  console.warn(
-                    `[Config] Plugin "${node.key}" (discovered from manifest) expects secret "${secretName}" but it is not set in the environment.`,
-                  );
+  yield* Effect.tryPromise({
+    try: async () => {
+      // catch-all diagnostics: a failed discovery fetch degrades to a
+      // warning, never fails the runtime config build
+      try {
+        if (result.api.source !== "remote" || !result.api.url) return;
+        const manifest = await fetchApiPluginManifest(result.api.url);
+        const manifestPluginEntries: Array<{ key: string; config: RuntimePluginConfig }> = [];
+        if (manifest.plugins?.length) {
+          for (const node of manifestPluginsToNodes(manifest.plugins)) {
+            if (!result.plugins?.[node.key]) {
+              manifestPluginEntries.push({
+                key: node.key,
+                config: {
+                  name: node.name,
+                  url: node.url,
+                  entry: node.entry,
+                  source: "remote",
+                  dependsOn: node.dependsOn,
+                  secrets: node.secrets,
+                  variables: node.variables,
+                },
+              });
+              if (node.secrets) {
+                for (const secretName of node.secrets) {
+                  if (!getProcessEnv(secretName)) {
+                    warnOutsideEffect(
+                      `[Config] Plugin "${node.key}" (discovered from manifest) expects secret "${secretName}" but it is not set in the environment.`,
+                    );
+                  }
                 }
               }
             }
           }
         }
-      }
-      if (manifest.dependsOn?.length) {
-        const existing = new Set(result.api.dependsOn ?? []);
-        for (const dep of manifest.dependsOn) {
-          if (!existing.has(dep)) {
-            result.api.dependsOn = [...(result.api.dependsOn ?? []), dep];
+        if (manifest.dependsOn?.length) {
+          const existing = new Set(result.api.dependsOn ?? []);
+          for (const dep of manifest.dependsOn) {
+            if (!existing.has(dep)) {
+              result.api.dependsOn = [...(result.api.dependsOn ?? []), dep];
+            }
           }
         }
+        if (manifestPluginEntries.length > 0) {
+          if (!result.plugins) result.plugins = {};
+          for (const { key, config: pluginConfig } of manifestPluginEntries) {
+            if (!result.plugins[key]) {
+              result.plugins[key] = pluginConfig;
+            }
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warnOutsideEffect(`[Config] Failed to fetch API plugin manifest for discovery: ${message}`);
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[Config] Failed to fetch API plugin manifest for discovery: ${message}`);
-    }
-  }
+    },
+    catch: (cause) => new ConfigExtendsError({ message: String(cause), cause }),
+  });
 
-  if (manifestPluginEntries.length > 0) {
-    if (!result.plugins) result.plugins = {};
-    for (const { key, config } of manifestPluginEntries) {
-      if (!result.plugins[key]) {
-        result.plugins[key] = config;
-      }
-    }
-  }
+  yield* Effect.tryPromise({
+    try: () => deriveVersionManifestFields(result, config, env),
+    catch: (cause) => new ConfigVersionManifestError({ message: String(cause), cause }),
+  });
 
   return result;
+});
+
+/**
+ * Version-manifest derivation (atomic-deploys 04): for every remote slot,
+ * resolve its `pin` (fetch + SRI-verify the pinned manifest, process-cached
+ * per pin) and stamp the derived entry-level fields — `entryUrl` (hashed
+ * container entry), the browser-manifest `entry`, and entry-level
+ * `integrity`/`ssrIntegrity`/`ssrEntryUrl` — so consumers load immutable
+ * hashed bytes without knowing the pointer indirection.
+ *
+ * Hard break: outside development every remote slot MUST pin a version
+ * manifest — an unpinned remote slot fails resolution loudly (the deploy
+ * train pins every workspace it uploads; a manifest-less slot means a
+ * pre-atomic-deploy config).
+ */
+async function deriveVersionManifestFields(
+  result: RuntimeConfig,
+  config: BosConfig,
+  env: BosEnv,
+): Promise<void> {
+  if (env === "development") return;
+
+  const derive = async (
+    label: string,
+    slotConfig: { pin?: unknown } | undefined,
+    slot: { url?: string; remoteUrl?: string; source?: string } | undefined,
+    apply: (resolved: ResolvedSlotVersion) => void,
+  ): Promise<void> => {
+    if (!slot || slot.source !== "remote" || !slot.url) return;
+    const rawPin = slotConfig?.pin as { manifest?: unknown; integrity?: unknown } | undefined;
+    const pin =
+      rawPin &&
+      typeof rawPin.manifest === "string" &&
+      rawPin.manifest &&
+      typeof rawPin.integrity === "string" &&
+      rawPin.integrity
+        ? { manifest: rawPin.manifest, integrity: rawPin.integrity }
+        : undefined;
+    if (!pin) {
+      throw new Error(
+        `slot "${label}" (${slot.url}) pins no version manifest — remote slots must pin ` +
+          `a version manifest outside development (pre-atomic-deploy config; redeploy required)`,
+      );
+    }
+    // The pin resolves against the slot's REMOTE base — the host slot's `url`
+    // is its own listening origin (the bytes it would serve don't exist
+    // there); its `remoteUrl` carries the deployment bundle base.
+    const resolved = await resolveSlotVersion({ base: slot.remoteUrl ?? slot.url, pin });
+    apply(resolved);
+  };
+
+  const applyUi = (ui: RuntimePluginConfig["ui"], r: ResolvedSlotVersion): void => {
+    if (!ui) return;
+    ui.entryUrl = r.entryUrl;
+    ui.entry = r.browserManifestUrl ?? ui.entry;
+    ui.browserManifestUrl = r.browserManifestUrl;
+    ui.integrity = r.entryIntegrity;
+    ui.ssrEntryUrl = r.ssrEntryUrl;
+    ui.ssrIntegrity = r.ssrIntegrity ?? ui.ssrIntegrity;
+  };
+
+  await derive("app.host", config.app.host, result.host, (r) => {
+    result.host.entryUrl = r.entryUrl;
+    result.host.integrity = r.entryIntegrity;
+  });
+  await derive("app.ui", config.app.ui, result.ui, (r) => applyUi(result.ui, r));
+  await derive("app.api", config.app.api, result.api, (r) => {
+    result.api.entryUrl = r.entryUrl;
+    result.api.integrity = r.entryIntegrity;
+  });
+  if (result.auth) {
+    await derive("app.auth", config.app.auth, result.auth, (r) => {
+      result.auth!.entryUrl = r.entryUrl;
+      result.auth!.integrity = r.entryIntegrity;
+    });
+    await derive(
+      "app.auth.ui",
+      getEntryAssociatedUi(config.app.auth as Partial<BosPluginRef>),
+      result.auth.ui,
+      (r) => applyUi(result.auth!.ui, r),
+    );
+  }
+  for (const [key, plugin] of Object.entries(result.plugins ?? {})) {
+    let pluginConfig = config.plugins?.[key];
+    // The auth mirror (config.ts adds plugins.auth when the authored config
+    // has no plugins.auth entry) derives from the app.auth slot — it is the
+    // only compose surface for the auth ui, and its pins live on app.auth.
+    const isAuthMirror =
+      key === "auth" && result.auth && (plugin === result.auth || plugin.url === result.auth.url);
+    if ((!pluginConfig || typeof pluginConfig === "string") && isAuthMirror) {
+      pluginConfig = config.app.auth;
+    }
+    if (!pluginConfig || typeof pluginConfig === "string") continue;
+    await derive(`plugins.${key}`, pluginConfig, plugin, (r) => {
+      plugin.entryUrl = r.entryUrl;
+      plugin.integrity = r.entryIntegrity;
+    });
+    await derive(
+      `plugins.${key}.ui`,
+      getEntryAssociatedUi(pluginConfig as Partial<BosPluginRef>),
+      plugin.ui,
+      (r) => applyUi(plugin.ui, r),
+    );
+  }
 }
 
-async function loadConfigFile(configPath: string, baseDir: string): Promise<BosConfigInput> {
+export async function buildRuntimeConfig(
+  config: BosConfig,
+  baseDir: string,
+  env: BosEnv,
+  options?: BuildRuntimeConfigOptions,
+): Promise<RuntimeConfig> {
+  return Effect.runPromise(buildRuntimeConfigEffect(config, baseDir, env, options));
+}
+
+async function readConfigInput(configPath: string, baseDir: string): Promise<BosConfigInput> {
   if (configPath.startsWith("bos://")) {
     return fetchBosConfigFromFastKv<BosConfigInput>(configPath);
   }
 
   const resolvedPath = isAbsolute(configPath) ? configPath : resolve(baseDir, configPath);
+  if (isAppDescriptorPath(resolvedPath)) {
+    return loadAppDescriptorConfig(resolvedPath);
+  }
   return JSON.parse(readFileSync(resolvedPath, "utf-8")) as BosConfigInput;
-}
-
-async function resolveConfigWithExtends(
-  configPath: string,
-  baseDir: string,
-  visited: Set<string>,
-  chain: string[],
-  env: BosEnv = "development",
-): Promise<BosConfigInput> {
-  if (visited.has(configPath)) {
-    throw new Error(`Circular extends detected: ${[...visited, configPath].join(" -> ")}`);
-  }
-
-  const config = await loadConfigFile(configPath, baseDir);
-  chain.push(configPath);
-
-  if (!config.extends) {
-    return config;
-  }
-
-  const extendsRef = resolveExtendsRef(config.extends as string | ExtendsConfig, env);
-  if (!extendsRef) {
-    return config;
-  }
-
-  const parsedParentRef = parseExtendsTarget(extendsRef);
-
-  const nextVisited = new Set(visited);
-  nextVisited.add(configPath);
-  const parentBaseDir = getConfigBaseDir(parsedParentRef.configPath, baseDir);
-  const parent = await resolveConfigWithExtends(
-    parsedParentRef.configPath,
-    parentBaseDir,
-    nextVisited,
-    chain,
-    env,
-  );
-
-  return mergeBosConfigWithExtends(parent, config);
 }
 
 type PluginOverrideValue = PluginEntryValue | null | false;
@@ -980,12 +1106,12 @@ function normalizePluginEntry(raw: PluginOverrideValue): BosPluginRef | null | f
   return raw;
 }
 
-async function resolveRuntimePlugins(
+const resolveRuntimePluginsEffect = Effect.fn("resolveRuntimePlugins")(function* (
   plugins: Record<string, PluginOverrideValue>,
   baseDir: string,
   env: BosEnv,
   remotePlugins?: string[],
-): Promise<Record<string, RuntimePluginConfig>> {
+): Effect.fn.Return<Record<string, RuntimePluginConfig>, ConfigExtendsError> {
   const entries = Object.entries(plugins)
     .map(([pluginId, rawInput]) => ({
       pluginId,
@@ -996,46 +1122,52 @@ async function resolveRuntimePlugins(
         entry.normalized !== null && entry.normalized !== false,
     );
 
-  const resolved = await Promise.all(
-    entries.map(async ({ pluginId, normalized }) => {
-      const resolvedReference = await resolveComposableReference(
-        normalized,
-        baseDir,
-        env,
-        `plugins.${pluginId}`,
-      );
+  const resolved = yield* Effect.forEach(
+    entries,
+    ({ pluginId, normalized }) =>
+      Effect.gen(function* () {
+        const resolvedReference = yield* Effect.tryPromise({
+          try: () => resolveComposableReference(normalized, baseDir, env, `plugins.${pluginId}`),
+          catch: (cause) => new ConfigExtendsError({ message: String(cause), cause }),
+        });
 
-      const forceSource =
-        remotePlugins === undefined
-          ? undefined
-          : remotePlugins.length === 0 || remotePlugins.includes(pluginId)
-            ? "remote"
-            : undefined;
-      const pluginRuntime = buildRuntimePluginConfig(pluginId, env, resolvedReference, forceSource);
-
-      if (!pluginRuntime.localPath && !pluginRuntime.url) {
-        if (forceSource === "remote") {
-          emitConfigWarning(
-            `[Config] Plugin "${pluginId}" has no production URL in bos.config.json and cannot be resolved as remote. Add a "production" field or remove it from --remote-plugins.`,
-          );
-        }
-        return null;
-      }
-
-      if (
-        pluginRuntime.source === "remote" &&
-        pluginRuntime.url &&
-        !pluginRuntime.localPath &&
-        typeof resolvedReference.entry.name !== "string"
-      ) {
-        pluginRuntime.name = await resolveRemotePluginRuntimeName(
-          pluginRuntime.url,
-          pluginRuntime.name,
+        const forceSource =
+          remotePlugins === undefined
+            ? undefined
+            : remotePlugins.length === 0 || remotePlugins.includes(pluginId)
+              ? ("remote" as const)
+              : undefined;
+        const pluginRuntime = buildRuntimePluginConfig(
+          pluginId,
+          env,
+          resolvedReference,
+          forceSource,
         );
-      }
 
-      return [pluginId, pluginRuntime] as const;
-    }),
+        if (!pluginRuntime.localPath && !pluginRuntime.url) {
+          if (forceSource === "remote") {
+            emitConfigWarning(
+              `[Config] Plugin "${pluginId}" has no production URL in bos.config.json and cannot be resolved as remote. Add a "production" field or remove it from --remote-plugins.`,
+            );
+          }
+          return null;
+        }
+
+        if (
+          pluginRuntime.source === "remote" &&
+          pluginRuntime.url &&
+          !pluginRuntime.localPath &&
+          typeof resolvedReference.entry.name !== "string"
+        ) {
+          pluginRuntime.name = yield* Effect.tryPromise({
+            try: () => resolveRemotePluginRuntimeName(pluginRuntime.url, pluginRuntime.name),
+            catch: (cause) => new ConfigExtendsError({ message: String(cause), cause }),
+          });
+        }
+
+        return [pluginId, pluginRuntime] as const;
+      }),
+    { concurrency: "unbounded" },
   );
 
   const out: Record<string, RuntimePluginConfig> = {};
@@ -1046,12 +1178,21 @@ async function resolveRuntimePlugins(
   }
 
   return out;
+});
+
+function resolveRuntimePlugins(
+  plugins: Record<string, PluginOverrideValue>,
+  baseDir: string,
+  env: BosEnv,
+  remotePlugins?: string[],
+): Promise<Record<string, RuntimePluginConfig>> {
+  return Effect.runPromise(resolveRuntimePluginsEffect(plugins, baseDir, env, remotePlugins));
 }
 
 async function resolveRemotePluginRuntimeName(baseUrl: string, fallback: string): Promise<string> {
   const manifest = await fetchJsonOrNull<{
     plugin?: { name?: unknown };
-  }>(`${baseUrl.replace(/\/$/, "")}/plugin.manifest.json`, { retries: 0 });
+  }>(`${baseUrl.replace(/\/$/, "")}/plugin.manifest.json`, { retries: 2 });
 
   return typeof manifest?.plugin?.name === "string" && manifest.plugin.name.length > 0
     ? manifest.plugin.name
@@ -1069,9 +1210,9 @@ function buildRuntimePluginConfig(
   const production = typeof source.production === "string" ? source.production : undefined;
 
   if (production?.startsWith("bos://")) {
-    throw new Error(
-      `Plugin "${pluginId}" has unsupported production target "${production}". Use extends: "bos://account/domain" for plugin configs or a CDN URL for production.`,
-    );
+    throw new ConfigExtendsError({
+      message: `Plugin "${pluginId}" has unsupported production target "${production}". Use extends: "bos://account/domain" for plugin configs or a CDN URL for production.`,
+    });
   }
 
   const pluginExtendsRef = source.extends ? resolveExtendsRef(source.extends, env) : undefined;
@@ -1089,22 +1230,14 @@ function buildRuntimePluginConfig(
       : resolveRuntimeTarget(production, resolved.providerBaseDir, "remote");
   const apiName = resolvePluginRuntimeName(source.name, runtimeTarget.localPath, pluginId);
 
-  const uiConfig = resolved.associatedUi;
-  const uiDevelopment =
-    typeof uiConfig?.development === "string" ? uiConfig.development : undefined;
-  const uiProduction = typeof uiConfig?.production === "string" ? uiConfig.production : undefined;
-  const uiRuntime =
-    uiConfig && (uiDevelopment || uiProduction)
-      ? env === "development"
-        ? resolveDevelopmentTarget(
-            uiDevelopment,
-            uiProduction,
-            resolved.providerBaseDir,
-            forceSource,
-            `plugins.${pluginId}.ui`,
-          )
-        : resolveRuntimeTarget(uiProduction, resolved.providerBaseDir, "remote")
-      : undefined;
+  const ui = buildRuntimeUiConfig(
+    pluginId,
+    env,
+    resolved.associatedUi,
+    resolved.providerBaseDir,
+    apiName,
+    forceSource,
+  );
 
   const routes = source.routes;
 
@@ -1124,25 +1257,98 @@ function buildRuntimePluginConfig(
     shared: source.shared,
     connectSrc: normalizeStringArray(source.connectSrc),
     integrity: runtimeTarget.source === "remote" ? source.integrity : undefined,
-    ui: uiRuntime
-      ? {
-          name: typeof uiConfig?.name === "string" ? uiConfig.name : `${apiName}-ui`,
-          url: uiRuntime.url,
-          entry: uiRuntime.url
-            ? `${uiRuntime.url.replace(/\/$/, "")}/mf-manifest.json`
-            : "/mf-manifest.json",
-          source: uiRuntime.source,
-          localPath: uiRuntime.localPath,
-          port: uiRuntime.port,
-          integrity:
-            uiRuntime.source === "remote" && typeof uiConfig?.integrity === "string"
-              ? uiConfig.integrity
-              : undefined,
-        }
-      : undefined,
+    ui,
     routes,
     dependsOn: source.dependsOn ? normalizeStringArray(source.dependsOn) : undefined,
   };
+}
+
+/**
+ * Resolve a plugin entry's associated ui surface (`plugins.<id>.ui` / legacy
+ * `plugins.<id>.app.ui`) into the runtime ui config. Extracted so app-slot
+ * entries (app.auth) resolve their ui the same way.
+ */
+function buildRuntimeUiConfig(
+  pluginId: string,
+  env: BosEnv,
+  uiConfig: Record<string, unknown> | undefined,
+  providerBaseDir: string,
+  apiName: string,
+  forceSource?: "local" | "remote",
+): RuntimePluginConfig["ui"] {
+  const uiDevelopment =
+    typeof uiConfig?.development === "string" ? uiConfig.development : undefined;
+  const uiProduction = typeof uiConfig?.production === "string" ? uiConfig.production : undefined;
+  const uiRuntime =
+    uiConfig && (uiDevelopment || uiProduction)
+      ? env === "development"
+        ? resolveDevelopmentTarget(
+            uiDevelopment,
+            uiProduction,
+            providerBaseDir,
+            forceSource,
+            `plugins.${pluginId}.ui`,
+          )
+        : resolveRuntimeTarget(uiProduction, providerBaseDir, "remote")
+      : undefined;
+  if (!uiRuntime) return undefined;
+  // A remote ui target with no URL is not a deployable surface (e.g. a
+  // plugin ui entry with only a development key) — dropping it here keeps
+  // the phantom source out of runtime resolution and client payloads.
+  if (uiRuntime.source === "remote" && !uiRuntime.url) return undefined;
+
+  return {
+    name: resolveUiRuntimeName(uiConfig, uiRuntime.localPath, apiName),
+    url: uiRuntime.url,
+    entry: uiRuntime.url
+      ? `${uiRuntime.url.replace(/\/$/, "")}/mf-manifest.json`
+      : "/mf-manifest.json",
+    source: uiRuntime.source,
+    publicUrl: typeof uiConfig?.publicUrl === "string" ? uiConfig.publicUrl : undefined,
+    localPath: uiRuntime.localPath,
+    port: uiRuntime.port,
+    integrity:
+      uiRuntime.source === "remote" && typeof uiConfig?.integrity === "string"
+        ? uiConfig.integrity
+        : undefined,
+    ssrUrl:
+      uiRuntime.source === "remote" && typeof uiConfig?.ssr === "string"
+        ? uiConfig.ssr
+        : uiRuntime.source === "local"
+          ? uiRuntime.url
+          : undefined,
+    ssrIntegrity:
+      uiRuntime.source === "remote" && typeof uiConfig?.ssrIntegrity === "string"
+        ? uiConfig.ssrIntegrity
+        : undefined,
+  };
+}
+
+/**
+ * MF container identity must match the build: folder-form plugin ui sources
+ * build under the sanitized plugin workspace package name (the generated
+ * rsbuild config imports the plugin's package.json), so derive the same
+ * value here — an authored `ui.name` is only a fallback, and can never
+ * override what the container actually registers under.
+ */
+export function resolveUiRuntimeName(
+  uiConfig: Record<string, unknown> | undefined,
+  localPath: string | undefined,
+  apiName: string,
+): string {
+  if (localPath) {
+    const uiPkgPath = join(localPath, "package.json");
+    const pkgPath = existsSync(uiPkgPath) ? uiPkgPath : join(dirname(localPath), "package.json");
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { name?: unknown };
+      if (typeof pkg.name === "string" && pkg.name.length > 0) {
+        return sanitizeContainerName(pkg.name);
+      }
+    } catch (e) {
+      console.warn(`[Config] Could not read package.json at ${pkgPath}: ${e}`);
+    }
+  }
+  return typeof uiConfig?.name === "string" ? uiConfig.name : `${apiName}-ui`;
 }
 
 export function resolvePluginRuntimeName(
@@ -1231,7 +1437,7 @@ function resolveRuntimeTarget(
   if (value.startsWith(LOCAL_PREFIX)) {
     const localTarget = value?.slice(LOCAL_PREFIX.length).trim();
     if (!localTarget) {
-      throw new Error(`Invalid local development target: ${value}`);
+      throw new ConfigExtendsError({ message: `Invalid local development target: ${value}` });
     }
 
     const localPath = resolve(baseDir, localTarget);
@@ -1292,6 +1498,7 @@ export function parsePort(url: string): number {
   }
 }
 
+export type { BosEnv } from "./merge";
 export {
   BOS_CONFIG_ORDER,
   mergeBosConfigWithExtends,

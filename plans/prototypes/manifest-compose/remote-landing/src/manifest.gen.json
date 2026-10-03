@@ -1,0 +1,28 @@
+{
+  "name": "landing",
+  "manifestVersion": 1,
+  "routes": [
+    {
+      "id": "_public",
+      "isLayout": true,
+      "mount": "public",
+      "file": "_public.tsx"
+    },
+    {
+      "id": "_public/docs",
+      "path": "/docs",
+      "isLayout": false,
+      "parentId": "_public",
+      "file": "_public/docs.tsx",
+      "isIndex": false
+    },
+    {
+      "id": "_public/",
+      "path": "/",
+      "isLayout": false,
+      "parentId": "_public",
+      "file": "_public/index.tsx",
+      "isIndex": true
+    }
+  ]
+}

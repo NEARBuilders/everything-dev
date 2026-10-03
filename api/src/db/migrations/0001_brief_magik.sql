@@ -1,1 +1,0 @@
-ALTER TYPE "public"."tenant_status" ADD VALUE 'pending' BEFORE 'suspended';

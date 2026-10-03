@@ -87,20 +87,13 @@ This runtime is still a lineage child because it extends the parent, but it is a
 
 You can also override existing plugin UIs and sidebar entries for tenant-specific navigation.
 
-## Host Env For Tenant Mode
+## Host Resolution For Tenant Mode
 
-The shared host uses these env vars to resolve tenants:
+The shared host resolves tenant permissions from the API, not env vars. It fetches the tenant bindings map from the API's `GET /tenants/bindings` endpoint (cached for 30s) and applies DB-backed per-tenant permissions:
 
-```bash
-ALLOW_OVERRIDE=ui,plugins.*
-TENANT_WHITELIST=pizza.pingpayio.near,chicago.pizza.pingpayio.near
-ALLOW_UNTRUSTED_SSR=false
-```
-
-Meaning:
-- `ALLOW_OVERRIDE` controls which tenant config sections can affect request-scoped composition. Format: comma-separated list (e.g., `ui,plugins.*`) where `plugins.*` is a glob matching all plugin overrides
-- `TENANT_WHITELIST` controls which tenants may use SSR
-- `ALLOW_UNTRUSTED_SSR=true` allows SSR for any valid tenant with SSR config
+- `allow_ui_overrides` controls whether the tenant `ui` override can affect request-scoped composition
+- `allow_backend_overrides` controls whether tenant plugin UI overrides (`plugins.<id>.ui`, `plugins.<id>.sidebar`) are applied
+- `allow_ssr` controls whether the tenant may use SSR
 
 ## Resolution Rules
 
@@ -141,7 +134,7 @@ If tenant overrides are not applying as expected:
 1. **Verify the tenant config exists in FastKV**: The config must be published to `{tenantAccount}/bos/gateways/{gateway}/bos.config.json`
 2. **Check extends chain**: The tenant config must extend the base runtime via its `extends` field
 3. **Check host logs**: Run `cat .bos/logs/host.log` and look for tenant resolution messages — the host logs which runtime config it resolved for each request
-4. **Check env vars**: `ALLOW_OVERRIDE` must include the sections you're overriding (e.g., `ui` or `plugins.*`)
+4. **Check tenant permissions**: the tenant record must have the relevant allow flag set in the database (e.g., `allow_ui_overrides` for a `ui` override, `allow_backend_overrides` for plugin UI overrides)
 5. **Verify integrity**: If tenant remote URLs have integrity hashes, the host validates them — mismatches cause rejection
 6. **Missing tenant config**: If the tenant config is not found in FastKV, the host silently serves the base runtime config without tenant overrides — no error is surfaced to the browser
 

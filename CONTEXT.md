@@ -1,0 +1,79 @@
+# everything.dev
+
+The open runtime for apps on NEAR — composed from published config and loaded through a shared host, UI, and API runtime.
+
+## Language
+
+**Runtime**:
+A published app configuration (`bos.app.ts` authored, resolved through `extends`) that the host loads as remotes.
+_Avoid_: app (ambiguous between the runtime and a tenant), project
+
+**SlotResolver**:
+The host's entry-URL seam (`entryUrls` in `everything-dev/ui/slot`) — one pure derivation from a stamped config slot (`EntrySlot`) to the URLs each surface loads: `web` (browser entry — bustered fixed name in development, pin-derived hashed outside it), `ssr` (server container entry; undefined when the slot has no SSR coordinates), and `browserManifest` (the pin-derived hashed mf-manifest, structurally absent for local slots — atomic-deploys 08). Surfaces resolve lazily and throw loudly outside development naming slot + surface; buster arithmetic (integrity for web, ssrIntegrity→containerVersion for the server) lives inside the module, never at call sites.
+_Avoid_: resolveEntryUrlForEnv (the deleted per-surface helper), remoteEntryUrlOf/ssrEntryUrlOf/getSsrEntryUrl (the deleted per-site wrappers), buster at the call site
+
+**Quiet build**:
+The prerequisite dist builder in `everything-dev/build` — one function (`buildPackageQuietly`) over the three framework packages (every-plugin, better-near-auth, everything-dev), each identified by its staleness-check dist entry. Skips when the dist is fresh, rebuilds captured-output-quietly, and fails loudly on nonzero exit; used by `bos build`'s train and the `bos dev` boot build.
+_Avoid_: buildEverythingDevQuietly/buildEveryPluginQuietly/buildBetterNearAuthQuietly (the deleted triplication), force-rebuild as the default path
+
+## Organization access
+
+**Team**:
+A named sub-group within an organization that shares access to the organization's feature areas.
+_Avoid_: team account, team wallet
+
+**Active Team**:
+The Team currently selected for a user's organization work.
+_Avoid_: current team, team account
+
+**Feature Area**:
+A product capability that an organization can grant to a Team.
+_Avoid_: permission, role
+
+**Team Workspace**:
+The organization view scoped to an Active Team and its granted feature areas.
+_Avoid_: organization account
+
+**Gateway Origin**:
+The canonical base runtime origin for a network, where every passkey ceremony takes place regardless of which domain the member arrived from.
+_Avoid_: base URL, main domain
+
+**Device Link**:
+Signing a desktop browser into an existing session by approving the desktop's QR code from a phone that is already signed in.
+_Avoid_: device pairing, sync, cross-device passkey (the browser-native hybrid flow is a different mechanism)
+
+## Regression stacks
+
+**Stack**:
+The fixture a regression suite runs against: `start` (the production command — the host booted over locally built, statically served artifacts via `bos start --config`) or `dev` (the dev server, `bos dev` — smoke-covered only).
+_Avoid_: environment (that's `production`/`staging`), target
+
+**Variant**:
+The render mode a stack runs with: `ssr` (server-composed) or `csr` (no ssr URL — the client composes). Written `stack:variant` (e.g. `start:csr`); a bare stack name runs both variants serially (`test:regression:start` / `test:regression:dev`).
+_Avoid_: mode (reserved for `production`/`staging` env), project
+
+**Stall Watchdog**:
+The Playwright reporter that fails the suite after minutes of zero test progress, printing a runner snapshot so a freeze produces evidence instead of eating the job timeout.
+_Avoid_: timeout (the job-level kill; the watchdog exists because that kill loses artifacts)
+
+## Gasless transactions
+
+**Gas Key**:
+A NEAR access key (NEP-611) with its own prepaid gas balance and parallel nonce lanes; gas burns from the key's balance, not the account's.
+_Avoid_: prepaid key, allowance (a function-call key's allowance spends the account's own NEAR — a different mechanism)
+
+**Session Gas Key**:
+The browser-generated Gas Key scoped to the FastKV namespace's `__fastdata_kv` method, bootstrapped onto a user's account at their opt-in and used to sign platform writes locally.
+_Avoid_: session key, FCAK, gas key (that's the protocol concept — be specific about which)
+
+**Sponsor**:
+The funding role of the ephemeral relayer account: it tops up Session Gas Keys via `TransferToGasKey` under server-enforced per-user caps.
+_Avoid_: relayer for this role (the relayer is the NEP-366 role of the same account — say which you mean)
+
+**Bootstrap**:
+The one-time, wallet-signed `AddKey` transaction that installs a Session Gas Key on the user's account; refused for wallets whose manifest lacks `features.gasKeys`.
+_Avoid_: provision, register
+
+**Lane**:
+One of a Gas Key's independent nonce sequences; parallel sends pick different Lanes and never serialize on each other.
+_Avoid_: nonce (the per-lane counter), slot

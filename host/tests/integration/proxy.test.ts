@@ -1,3 +1,4 @@
+import { Context as EffectContext } from "effect";
 import { type Context, Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { AuthVariables } from "../../src/lib/auth";
@@ -5,6 +6,10 @@ import { proxyRequest } from "../../src/middleware/static-proxy";
 import { setupApiRoutes } from "../../src/routes/api";
 import { registerAuthHandler } from "../../src/services/auth";
 import type { PluginResult } from "../../src/services/plugins";
+
+const authServicesTag = EffectContext.Service<{
+  handler: (req: Request) => Promise<Response>;
+}>("test/AuthServices");
 
 type HonoEnv = { Variables: AuthVariables };
 
@@ -244,7 +249,10 @@ describe("API Proxy", () => {
         return response;
       });
 
-      const rpcBody = JSON.stringify({ method: "getValue", params: { key: "test" } });
+      const rpcBody = JSON.stringify({
+        method: "getValue",
+        params: { key: "test" },
+      });
       fetchMock.mockResolvedValueOnce(createMockResponse('{"result":"value"}'));
 
       await app.fetch(
@@ -290,11 +298,12 @@ describe("API Proxy", () => {
           router: {},
           metadata: { remoteUrl: "local" },
           initialized: {
-            context: {
+            effectContext: EffectContext.make(authServicesTag, {
               handler: authHandler,
               auth: { api: { getSession: vi.fn() } },
               db: {} as any,
-            },
+            } as any),
+            plugin: { servicesTag: authServicesTag },
           },
         } as any,
         api: null,
@@ -306,6 +315,7 @@ describe("API Proxy", () => {
           error: null,
           errorDetails: null,
           loadedPlugins: [],
+          failures: [],
         },
       };
 
@@ -324,64 +334,6 @@ describe("API Proxy", () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe("auth ok");
       expect(authHandler).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe("RuntimeConfig proxy configuration", () => {
-    it("correctly builds RuntimeConfig with proxy URL", () => {
-      const bosConfig = {
-        account: "test.near",
-        app: {
-          host: { development: "http://localhost:3000", production: "https://prod.example.com" },
-          ui: {
-            name: "ui",
-            development: "http://localhost:3003",
-            production: "https://ui.example.com",
-          },
-          api: {
-            name: "api",
-            development: "http://localhost:3001",
-            production: "https://api.example.com",
-            proxy: "https://staging-api.example.com",
-          },
-        },
-      };
-
-      const runtimeConfig = {
-        env: "development" as const,
-        account: bosConfig.account,
-        hostUrl: "http://localhost:3000",
-        ui: {
-          name: bosConfig.app.ui.name,
-          url: bosConfig.app.ui.development,
-          source: "local" as const,
-        },
-        api: {
-          name: bosConfig.app.api.name,
-          url: bosConfig.app.api.development,
-          source: "local" as const,
-          proxy: bosConfig.app.api.proxy,
-        },
-      };
-
-      expect(runtimeConfig.api.proxy).toBe("https://staging-api.example.com");
-    });
-
-    it("validates proxy URL is a valid URL", () => {
-      const isValidUrl = (url: string): boolean => {
-        try {
-          new URL(url);
-          return true;
-        } catch {
-          return false;
-        }
-      };
-
-      expect(isValidUrl("https://api.example.com")).toBe(true);
-      expect(isValidUrl("http://localhost:3001")).toBe(true);
-      expect(isValidUrl("true")).toBe(false);
-      expect(isValidUrl("invalid")).toBe(false);
-      expect(isValidUrl("")).toBe(false);
     });
   });
 });

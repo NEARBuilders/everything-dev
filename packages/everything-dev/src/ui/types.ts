@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { AnyRouteMatch, AnyRouter, RouterHistory } from "@tanstack/react-router";
+import type { AnyRoute, AnyRouteMatch, AnyRouter, RouterHistory } from "@tanstack/react-router";
+import type { NavManifest } from "every-plugin/ui/manifest";
 import type { ClientRuntimeConfig } from "../types";
 
 export interface RouterContext<TSession = unknown> {
@@ -7,17 +8,23 @@ export interface RouterContext<TSession = unknown> {
   runtimeConfig?: Partial<ClientRuntimeConfig>;
   session?: TSession;
   cspNonce?: string;
+  /** nav manifest derived from composed routes' staticData.nav */
+  pluginNav?: NavManifest;
 }
 
 export interface RouterContextWithApi<TApiClient = unknown, TSession = unknown>
   extends RouterContext<TSession> {
   apiClient?: TApiClient;
+  /** auth client — concrete apps narrow this to their bound AuthClient type. */
+  authClient?: unknown;
 }
 
 export interface CreateRouterOptions<TApiClient = unknown, TSession = unknown> {
   history?: RouterHistory;
   context?: Partial<RouterContextWithApi<TApiClient, TSession>>;
   basepath?: string;
+  /** composed route tree — manifest construction passes it here; the bundled tree stays the core-only fallback. */
+  routeTree?: unknown;
 }
 
 export type HeadMeta = NonNullable<AnyRouteMatch["meta"]>[number];
@@ -35,6 +42,12 @@ export interface RenderOptions<TSession = unknown> {
   basepath?: string;
   session?: TSession;
   cspNonce?: string;
+  /** composed route tree — server composition only. */
+  routeTree?: AnyRoute;
+  /** nav manifest derived from composed routes — server composition only. */
+  pluginNav?: NavManifest;
+  /** correlation id from the host request — appears in SSR error logs. */
+  requestId?: string;
 }
 
 export interface RenderOptionsWithApi<TApiClient = unknown, TSession = unknown>

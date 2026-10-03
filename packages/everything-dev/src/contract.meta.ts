@@ -19,6 +19,10 @@ export const cliCommandMeta = {
         description:
           "Comma-separated plugin IDs to force remote (e.g. --remote-plugins auth,registry)",
       },
+      logLevel: {
+        description:
+          "Log tail level: error, warn (default), info, or debug (overrides BOS_LOG_LEVEL; the file always gets everything)",
+      },
     },
   },
   start: {
@@ -28,6 +32,14 @@ export const cliCommandMeta = {
     longRunning: true,
     fields: {
       env: { description: "Environment: production or staging" },
+      registry: {
+        description:
+          "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+      },
+      configPath: {
+        description:
+          "Boot from a local bos config file — skips FastKV resolution and SRI integrity verification",
+      },
     },
   },
   build: {
@@ -44,6 +56,23 @@ export const cliCommandMeta = {
     interactive: false,
     fields: {
       full: { description: "Print the fully resolved configuration" },
+    },
+  },
+  registryUse: {
+    commandPath: ["registry", "use"],
+    summary:
+      "Compose app.ui/app.host/app.api/plugins.<key> sections from a published runtime into bos.config.json",
+    interactive: false,
+    fields: {
+      from: {
+        positional: true,
+        description:
+          "Published runtime (account/gateway or bos:// URL), e.g. v1.citynode.near/citynode.app",
+      },
+      sections: {
+        description: "Comma-separated sections to compose, e.g. app.ui,plugins.apps",
+      },
+      dryRun: { description: "Preview the merged config without writing" },
     },
   },
   pluginAdd: {
@@ -78,19 +107,53 @@ export const cliCommandMeta = {
   },
   publish: {
     commandPath: ["publish"],
-    summary: "Publish the current workspace configuration",
+    summary:
+      "Publish the current workspace configuration (no build — use bos deploy for the full train)",
     interactive: false,
     fields: {
-      deploy: { description: "Build and deploy all workspaces before publish" },
       dryRun: { description: "Preview what would be published without writing" },
       verbose: { description: "Show full build output instead of clean summary" },
       env: { description: "Environment: production or staging" },
       network: { description: "NEAR network: mainnet or testnet" },
+      wallet: {
+        description:
+          "Publish gaslessly with a one-time wallet approval (NEP-366 delegate action relayed by the platform relayer)",
+      },
+      registry: {
+        description:
+          "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+      },
+    },
+  },
+  rollback: {
+    commandPath: ["rollback"],
+    summary: "Republish an earlier config snapshot from the registry publish history",
+    interactive: true,
+    fields: {
+      version: { description: "Block height (or timestamp) of the snapshot from the listing" },
+      previous: { description: "Roll back to the write immediately before the current one" },
+      force: {
+        description:
+          "Allow pre-Phase-A snapshots without verifiable manifest pins (their bytes were overwritten in place)",
+      },
+      limit: { description: "Listing depth (1-200, default 20)" },
+      dryRun: { description: "Preview the rollback without publishing" },
+      env: { description: "Environment: production or staging" },
+      network: { description: "NEAR network: mainnet or testnet" },
+      wallet: {
+        description:
+          "Publish gaslessly with a one-time wallet approval (NEP-366 delegate action relayed by the platform relayer)",
+      },
+      registry: {
+        description:
+          "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+      },
     },
   },
   deploy: {
     commandPath: ["deploy"],
-    summary: "Publish config and trigger Railway redeploy",
+    summary:
+      "Full deploy train: preflight → build → upload bundles → publish config → push runtime image → Railway (pull-only)",
     interactive: false,
     fields: {
       env: { description: "Environment: production or staging" },
@@ -98,12 +161,46 @@ export const cliCommandMeta = {
       dryRun: { description: "Preview what would be deployed without writing" },
       verbose: { description: "Show full build output instead of clean summary" },
       service: { description: "Override Railway service name from config" },
+      registry: {
+        description:
+          "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+      },
     },
+  },
+  login: {
+    commandPath: ["login"],
+    summary:
+      "Sign in with your NEAR account via the hosted site (wallet, passkey, or social login)",
+    interactive: true,
+    fields: {
+      key: { description: "Also mint and export a scoped publish key for headless/CI use" },
+      site: { description: "Override site URL hosting the CLI login page" },
+      device: { description: "Device label recorded on the credential (default: hostname)" },
+      expiresIn: { description: "Session lifetime in seconds (default: 90 days)" },
+      env: { description: "Environment: production (default) or staging" },
+    },
+  },
+  logout: {
+    commandPath: ["logout"],
+    summary: "Revoke the stored CLI session and delete the exported publish key",
+    interactive: false,
   },
   keyPublish: {
     commandPath: ["key", "generate"],
     summary: "Generate a publish access key",
     interactive: true,
+    fields: {
+      env: { description: "Environment: production or staging" },
+      allowance: { description: "NEAR allowance for the key (default: 1NEAR, min: 0.3NEAR)" },
+      removeOldKeys: {
+        description:
+          "Remove existing publish key(s) without prompting (default: ask on a TTY, yes when non-interactive)",
+      },
+      registry: {
+        description:
+          "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+      },
+    },
   },
   init: {
     commandPath: ["init"],
@@ -125,6 +222,10 @@ export const cliCommandMeta = {
       },
       overrides: {
         description: "Comma-separated sections to customize locally: ui,api,host,plugins",
+      },
+      level: {
+        description:
+          "Starter complexity: simple (public shell) or advanced (adds dashboard, orgs, admin)",
       },
       noInteractive: { description: "Skip prompts, use flags only" },
       noInstall: { description: "Skip bun install" },
@@ -161,6 +262,23 @@ export const cliCommandMeta = {
           "Comma-separated plugin IDs to fetch contract types remotely (e.g. --remote-plugins auth,registry)",
       },
     },
+  },
+  typecheck: {
+    commandPath: ["typecheck"],
+    summary: "Run TypeScript type checking across all local workspaces",
+    interactive: false,
+    fields: {
+      packages: {
+        positional: true,
+        description: "Comma-separated workspace list (default: all)",
+      },
+    },
+  },
+  mfCheck: {
+    commandPath: ["mf", "check"],
+    summary:
+      "Verify Module Federation runtime compatibility across published host + plugin bundles",
+    interactive: false,
   },
   dbStudio: {
     commandPath: ["db", "studio"],
@@ -208,6 +326,18 @@ export const cliCommandMeta = {
     summary: "List tracked development processes",
     interactive: false,
   },
+  logs: {
+    commandPath: ["logs"],
+    summary: "Read dev session logs (.bos/logs/dev-latest.log)",
+    interactive: false,
+    fields: {
+      service: {
+        description: "Filter by service name (e.g. host, api, auth, ui, plugin:votes)",
+      },
+      tail: { description: "Show only the last N lines" },
+      follow: { description: "Stream the log as lines are appended" },
+    },
+  },
   kill: {
     commandPath: ["kill"],
     summary: "Stop tracked development processes",
@@ -216,6 +346,16 @@ export const cliCommandMeta = {
       configDir: { description: "Kill processes owned by a config directory (defaults to cwd)" },
       signal: { description: "Signal: SIGTERM (default) or SIGKILL" },
       all: { description: "Kill processes across all config directories" },
+    },
+  },
+  infraExport: {
+    commandPath: ["infra", "export"],
+    summary: "Emit the resolved CI infra plan (env + services) for the current runtime",
+    interactive: false,
+    fields: {
+      target: { description: "Export target: ci (default) or local" },
+      network: { description: "NEAR network: mainnet or testnet" },
+      configDir: { description: "Override config directory" },
     },
   },
 } as const satisfies Record<string, CliCommandMeta>;

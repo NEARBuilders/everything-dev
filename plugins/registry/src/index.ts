@@ -1,0 +1,208 @@
+import { ORPCError } from "@orpc/server";
+import { Context, Effect, Layer } from "effect";
+import { createPlugin } from "every-plugin";
+import { z } from "zod";
+import { contract } from "./contract";
+import type { AuthPluginContext as AuthContext } from "./lib/auth-types.gen";
+import { ContextSchema } from "./lib/context";
+import { RegistryConfigService } from "./services/fastkv";
+import { RegistryService } from "./services/registry";
+
+export default createPlugin({
+  variables: z.object({
+    registryNamespace: z.string().optional(),
+  }),
+
+  secrets: z.object({
+    REGISTRY_RELAY_ACCOUNT_ID: z.string().optional(),
+    REGISTRY_RELAY_PRIVATE_KEY: z.string().optional(),
+    REGISTRY_RELAY_NETWORK: z.enum(["mainnet", "testnet"]).optional(),
+  }),
+
+  context: ContextSchema,
+
+  contract,
+
+  initialize: (config) =>
+    Effect.gen(function* () {
+      const RegistryConfig = RegistryConfigService.Live({
+        namespace: config.variables.registryNamespace,
+        relayAccountId: config.secrets.REGISTRY_RELAY_ACCOUNT_ID,
+        relayPrivateKey: config.secrets.REGISTRY_RELAY_PRIVATE_KEY,
+        relayNetwork: config.secrets.REGISTRY_RELAY_NETWORK,
+      });
+
+      yield* Effect.logInfo("[Registry] Services Initialized");
+      return RegistryService.Live.pipe(Layer.provide(RegistryConfig));
+    }),
+
+  createRouter: (builder) => {
+    const requireNearAccount = builder.middleware(async ({ context, next }) => {
+      if (!context.near?.primaryAccountId) {
+        throw new ORPCError("UNAUTHORIZED", {
+          message: "NEAR wallet required",
+          data: {
+            authType: "near",
+            hint: "Link a NEAR wallet to perform this action",
+          },
+        });
+      }
+
+      return next({
+        context: {
+          nearAccountId: context.near?.primaryAccountId,
+          reqHeaders: context.reqHeaders,
+        } as AuthContext,
+      });
+    });
+
+    return {
+      listRegistryApps: builder.listRegistryApps.handler(async ({ input, context }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        return await registryService.listRegistryApps(input);
+      }),
+
+      getRegistryAppsByAccount: builder.getRegistryAppsByAccount.handler(
+        async ({ input, context }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
+          return await registryService.getRegistryAppsByAccount(input.accountId);
+        },
+      ),
+
+      getRegistryApp: builder.getRegistryApp.handler(async ({ input, context, errors }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        const result = await registryService.getRegistryApp(input.accountId, input.gatewayId);
+        if (!result) {
+          throw errors.NOT_FOUND({
+            message: "Published app not found",
+            data: {
+              resource: "published-app",
+              resourceId: `${input.accountId}/${input.gatewayId}`,
+            },
+          });
+        }
+
+        return { data: result };
+      }),
+
+      getRegistryAppByHost: builder.getRegistryAppByHost.handler(
+        async ({ input, context, errors }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
+          const result = await registryService.getRegistryAppByHost(input.hostUrl);
+          if (!result) {
+            throw errors.NOT_FOUND({
+              message: "Published app not found for host",
+              data: {
+                resource: "published-app-host",
+                resourceId: input.hostUrl,
+              },
+            });
+          }
+
+          return { data: result };
+        },
+      ),
+
+      getRegistryStatus: builder.getRegistryStatus.handler(async ({ context }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        return registryService.getRegistryStatus();
+      }),
+
+      prepareRegistryMetadataWrite: builder.prepareRegistryMetadataWrite.handler(
+        async ({ input, context }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
+          return {
+            data: registryService.prepareRegistryMetadataWrite(input),
+          };
+        },
+      ),
+
+      prepareRegistryConfigWrite: builder.prepareRegistryConfigWrite.handler(
+        async ({ input, context }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
+          return { data: registryService.prepareRegistryConfigWrite(input) };
+        },
+      ),
+
+      relayRegistryMetadataWrite: builder.relayRegistryMetadataWrite
+        .use(requireNearAccount)
+        .handler(async ({ input, context, errors }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
+          try {
+            const senderId = registryService.getRegistryRelaySender(input.payload);
+
+            if (context.near?.primaryAccountId && senderId !== context.near?.primaryAccountId) {
+              throw errors.FORBIDDEN({
+                message: "Signed delegate payload does not match your linked NEAR account",
+                data: { action: "relay" },
+              });
+            }
+
+            const result = await registryService.relayRegistryMetadataWrite(input.payload);
+
+            return { data: result };
+          } catch (error) {
+            if (error instanceof ORPCError) {
+              throw error;
+            }
+
+            throw errors.BAD_REQUEST({
+              message: error instanceof Error ? error.message : "Failed to relay metadata write",
+              data: {},
+            });
+          }
+        }),
+
+      kvGet: builder.kvGet.handler(async ({ input, context, errors }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        const value = await registryService.kvGet(input.path);
+        if (value == null) {
+          throw errors.NOT_FOUND({
+            message: "Key not found",
+            data: { resource: "kv-key", resourceId: input.path },
+          });
+        }
+        return { data: value };
+      }),
+
+      kvList: builder.kvList.handler(async ({ input, context }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        return registryService.kvList(input);
+      }),
+
+      kvPrepareWrite: builder.kvPrepareWrite.handler(async ({ input, context }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        return { data: registryService.kvPrepareWrite(input.entries) };
+      }),
+
+      kvRelayWrite: builder.kvRelayWrite
+        .use(requireNearAccount)
+        .handler(async ({ input, context, errors }) => {
+          const registryService = Context.get(context["effect/context"], RegistryService);
+          try {
+            const senderId = registryService.getRegistryRelaySender(input.payload);
+
+            if (context.near?.primaryAccountId && senderId !== context.near?.primaryAccountId) {
+              throw errors.FORBIDDEN({
+                message: "Signed delegate payload does not match your linked NEAR account",
+                data: { action: "relay" },
+              });
+            }
+
+            const result = await registryService.kvRelayWrite(input.payload);
+
+            return { data: result };
+          } catch (error) {
+            if (error instanceof ORPCError) {
+              throw error;
+            }
+
+            throw errors.BAD_REQUEST({
+              message: error instanceof Error ? error.message : "Failed to relay KV write",
+              data: {},
+            });
+          }
+        }),
+    };
+  },
+});

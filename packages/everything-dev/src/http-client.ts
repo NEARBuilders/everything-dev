@@ -26,7 +26,7 @@ export interface FetchOptions {
   headers?: Record<string, string>;
   body?: BodyInit;
   redirect?: RequestRedirect;
-  timeout?: Duration.DurationInput;
+  timeout?: Duration.Input;
 }
 
 export interface FetchWithRetryOptions extends FetchOptions {
@@ -52,30 +52,31 @@ const isRetryable = (error: FetchError): boolean => {
 
 // --- Low-level: just timeout + error classification, returns Response regardless of HTTP status ---
 
+const runFetch = (url: string, init?: RequestInit): Promise<Response> => fetch(url, init);
+
 const fetchRawEff = (
   url: string,
   options?: FetchOptions,
 ): Effect.Effect<Response, FetchNetworkError | FetchTimeoutError> =>
   Effect.tryPromise({
     try: async () => {
-      const timeoutMs = Duration.toMillis(Duration.decode(options?.timeout ?? DEFAULT_TIMEOUT));
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const timeoutMs = Duration.toMillis(options?.timeout ?? DEFAULT_TIMEOUT);
       try {
-        return await fetch(url, {
+        return await runFetch(url, {
           method: options?.method ?? "GET",
           headers: options?.headers,
           body: options?.body,
           redirect: options?.redirect,
-          signal: controller.signal,
+          signal: AbortSignal.timeout(timeoutMs),
         });
       } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") {
+        if (
+          error instanceof Error &&
+          (error.name === "AbortError" || error.name === "TimeoutError")
+        ) {
           throw new FetchTimeoutError({ url });
         }
         throw new FetchNetworkError({ url, cause: error });
-      } finally {
-        clearTimeout(timer);
       }
     },
     catch: (error) => {
@@ -90,19 +91,17 @@ const fetchRawEff = (
 
 const fetchEff = (url: string, options?: FetchOptions): Effect.Effect<Response, FetchError> =>
   fetchRawEff(url, options).pipe(
-    Effect.flatMap((response) => {
-      if (response.ok) return Effect.succeed(response);
-      return Effect.fail(
+    Effect.filterOrFail(
+      (response) => response.ok,
+      (response) =>
         new FetchHttpError({ url, status: response.status, statusText: response.statusText }),
-      );
-    }),
+    ),
   );
 
 // --- With retry ---
 
 const retrySchedule = Schedule.exponential(EXPONENTIAL_BASE).pipe(
-  Schedule.upTo(EXPONENTIAL_CAP),
-  Schedule.intersect(Schedule.recurs(DEFAULT_RETRIES)),
+  Schedule.upTo({ duration: EXPONENTIAL_CAP, times: DEFAULT_RETRIES }),
 );
 
 export const fetchWithRetryEff = (
@@ -116,8 +115,7 @@ export const fetchWithRetryEff = (
   const schedule =
     options?.retries !== undefined
       ? Schedule.exponential(EXPONENTIAL_BASE).pipe(
-          Schedule.upTo(EXPONENTIAL_CAP),
-          Schedule.intersect(Schedule.recurs(retries)),
+          Schedule.upTo({ duration: EXPONENTIAL_CAP, times: retries }),
         )
       : retrySchedule;
 
@@ -133,6 +131,10 @@ export const fetchWithRetryEff = (
 
 const getCache = new Map<string, { data: unknown; expiresAt: number }>();
 const GET_CACHE_TTL_MS = 30_000;
+
+export function clearHttpCache(): void {
+  getCache.clear();
+}
 
 function isCacheable(_url: string, options?: FetchWithRetryOptions): boolean {
   if (options?.method && options.method !== "GET") return false;

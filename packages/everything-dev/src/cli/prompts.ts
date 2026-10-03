@@ -1,6 +1,7 @@
 import process from "node:process";
 import * as p from "@clack/prompts";
 import type { OverrideSection } from "../contract";
+import type { StarterLevel } from "../types";
 
 function parseExtendsRef(ref: string): { account: string; gateway: string } | null {
   const normalized = ref.startsWith("bos://") ? ref : `bos://${ref}`;
@@ -91,10 +92,28 @@ export async function promptInitOverrides(input: {
   parentPluginKeys?: string[];
   overrides?: OverrideSection[];
   plugins?: string[];
+  level?: StarterLevel;
 }): Promise<{
   overrides: OverrideSection[];
   plugins: string[];
+  level?: StarterLevel;
 }> {
+  const level =
+    input.level ??
+    ((await p.select({
+      message: "How much starter app do you want?",
+      options: [
+        { value: "simple", hint: "Public pages only — landing, about, login via the auth plugin" },
+        {
+          value: "advanced",
+          hint: "Adds the dashboard, organizations, and admin areas",
+        },
+      ],
+      initialValue: "simple",
+    })) as StarterLevel | undefined);
+
+  if (p.isCancel(level)) process.exit(0);
+
   const overrides =
     input.overrides ??
     ((await p.multiselect({
@@ -132,5 +151,5 @@ export async function promptInitOverrides(input: {
 
   if (p.isCancel(go) || !go) process.exit(0);
 
-  return { overrides, plugins };
+  return { overrides, plugins, level };
 }

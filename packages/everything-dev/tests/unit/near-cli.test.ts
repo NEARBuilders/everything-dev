@@ -1,11 +1,5 @@
-import { EventEmitter } from "node:events";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-type DeferredProc = Promise<{ exitCode: number; stdout?: string; stderr?: string }> & {
-  stdout?: EventEmitter;
-  stderr?: EventEmitter;
-};
 
 const { execaMock } = vi.hoisted(() => ({
   execaMock: vi.fn(),
@@ -15,53 +9,30 @@ vi.mock("execa", () => ({
   execa: execaMock,
 }));
 
-import { ensureNearCli, executeTransaction, resolveNearSigningMode } from "../../src/near-cli";
+import { ensureNearCli, executeKeychainTransaction } from "../../src/near-cli";
 
-function createDeferredProc(withStreams = true) {
-  let resolve!: (value: { exitCode: number; stdout?: string; stderr?: string }) => void;
-  const proc = new Promise<{ exitCode: number; stdout?: string; stderr?: string }>(
-    (promiseResolve) => {
-      resolve = promiseResolve;
-    },
-  ) as DeferredProc;
+const KEYCHAIN_ARGS = {
+  account: "v1.citynode.near",
+  contract: "dev.everything.near",
+  method: "__fastdata_kv",
+  args: { "apps/v1.citynode.near/citynode.app/bos.config.json": '{"account":"v1.citynode.near"}' },
+  network: "mainnet" as const,
+};
 
-  if (withStreams) {
-    proc.stdout = new EventEmitter();
-    proc.stderr = new EventEmitter();
-  }
-
-  return { proc, resolve };
+function setTty(value: boolean) {
+  Object.defineProperty(process.stdin, "isTTY", { configurable: true, value });
 }
 
 describe("near-cli", () => {
+  const originalTty = process.stdin.isTTY;
+
   afterEach(() => {
     execaMock.mockReset();
-    vi.restoreAllMocks();
-  });
-
-  it("warns once when resolving interactive keychain mode", () => {
-    const originalIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdin, "isTTY", {
       configurable: true,
-      value: true,
+      value: originalTty,
     });
-
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined as never);
-
-    try {
-      expect(resolveNearSigningMode()).toEqual({ _tag: "interactiveKeychain" });
-      expect(logSpy).toHaveBeenCalledTimes(1);
-      expect(logSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "No NEAR_PRIVATE_KEY set — falling back to interactive keychain signing.",
-        ),
-      );
-    } finally {
-      Object.defineProperty(process.stdin, "isTTY", {
-        configurable: true,
-        value: originalIsTTY,
-      });
-    }
+    vi.restoreAllMocks();
   });
 
   it("prints manual install guidance when NEAR CLI is missing", async () => {
@@ -77,134 +48,57 @@ describe("near-cli", () => {
     );
   });
 
-  it("pipes stdout and stderr in interactive mode", async () => {
-    const { proc, resolve } = createDeferredProc(false);
-    execaMock.mockReturnValueOnce(proc);
-
-    const promise = Effect.runPromise(
-      executeTransaction(
-        {
-          account: "dev.everything.near",
-          contract: "dev.everything.near",
-          method: "__fastdata_kv",
-          argsBase64: "e30=",
-          network: "mainnet",
-        },
-        { _tag: "interactiveKeychain" },
-      ),
-    );
-
-    await Promise.resolve();
-
-    expect(execaMock).toHaveBeenCalledWith(
-      "near",
-      expect.arrayContaining(["sign-with-keychain", "send"]),
-      expect.objectContaining({
-        stdin: "inherit",
-        stdout: "pipe",
-        stderr: "pipe",
-        reject: false,
-        timeout: 300000,
-      }),
-    );
-
-    resolve({
+  it("submits with sign-with-keychain and returns the transaction hash", async () => {
+    setTty(true);
+    execaMock.mockResolvedValueOnce({
       exitCode: 0,
-      stdout: "",
+      stdout: "Transaction ID: ABC123",
       stderr: "",
     });
 
-    await expect(promise).resolves.toEqual({ success: true, txHash: undefined, output: undefined });
+    const result = await executeKeychainTransaction(KEYCHAIN_ARGS);
+
+    expect(result).toEqual({ success: true, txHash: "ABC123" });
+    const [cmd, args] = vi.mocked(execaMock).mock.calls[0]!;
+    expect(cmd).toBe("near");
+    expect(args).toContain("sign-with-keychain");
+    const argsBase64 = (args as string[])[(args as string[]).indexOf("base64-args") + 1]!;
+    expect(Buffer.from(argsBase64, "base64").toString("utf-8")).toBe(
+      JSON.stringify(KEYCHAIN_ARGS.args),
+    );
   });
 
-  it("parses tx hash from the final captured output in private-key mode", async () => {
-    const { proc, resolve } = createDeferredProc();
-    execaMock.mockReturnValueOnce(proc);
-
-    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true as never);
-    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true as never);
-
-    const promise = Effect.runPromise(
-      executeTransaction(
-        {
-          account: "dev.everything.near",
-          contract: "dev.everything.near",
-          method: "__fastdata_kv",
-          argsBase64: "e30=",
-          network: "mainnet",
-          privateKey: "ed25519:test",
-          verbose: true,
-        },
-        { _tag: "privateKey", privateKey: "ed25519:test" },
-      ),
-    );
-
-    await Promise.resolve();
-
-    proc.stdout?.emit("data", Buffer.from("Publishing to https://kv...\n"));
-    proc.stderr?.emit("data", Buffer.from("Transaction ID: ABC123\n"));
-
-    expect(stdoutSpy).toHaveBeenCalledWith(Buffer.from("Publishing to https://kv...\n"));
-    expect(stderrSpy).toHaveBeenCalledWith(Buffer.from("Transaction ID: ABC123\n"));
-
-    resolve({
-      exitCode: 0,
-      stdout: "Publishing to https://kv...\nTransaction ID: ABC123",
-      stderr: "Transaction complete",
-    });
-
-    await expect(promise).resolves.toEqual({
-      success: true,
-      txHash: "ABC123",
-      output: "Publishing to https://kv...\nTransaction ID: ABC123\nTransaction complete",
-    });
-  });
-
-  it("throws combined output when NEAR exits non-zero", async () => {
-    const { proc, resolve } = createDeferredProc();
-    execaMock.mockReturnValueOnce(proc);
-
-    const promise = Effect.runPromise(
-      executeTransaction(
-        {
-          account: "dev.everything.near",
-          contract: "dev.everything.near",
-          method: "__fastdata_kv",
-          argsBase64: "e30=",
-          network: "mainnet",
-          privateKey: "ed25519:test",
-        },
-        { _tag: "privateKey", privateKey: "ed25519:test" },
-      ),
-    );
-
-    await Promise.resolve();
-
-    resolve({
+  it("tolerates CodeDoesNotExist execution failures — the registry is action-indexed", async () => {
+    setTty(true);
+    execaMock.mockResolvedValueOnce({
       exitCode: 1,
-      stdout: "Transaction ID: ABC123",
-      stderr: "Transaction failed",
+      stdout: "",
+      stderr:
+        'Smart contract panicked: {"CompilationError":{"CodeDoesNotExist":{"account_id":"dev.everything.near"}}}',
     });
 
-    await expect(promise).rejects.toThrow(/Transaction ID: ABC123/);
-    await expect(promise).rejects.toThrow(/Transaction failed/);
+    const result = await executeKeychainTransaction(KEYCHAIN_ARGS);
+
+    expect(result).toEqual({ success: true, txHash: undefined });
   });
 
-  it("fails before spawning near when no tty is available", () => {
-    const originalIsTTY = process.stdin.isTTY;
-    Object.defineProperty(process.stdin, "isTTY", {
-      configurable: true,
-      value: false,
+  it("throws combined output on real failures", async () => {
+    setTty(true);
+    execaMock.mockResolvedValueOnce({
+      exitCode: 1,
+      stdout: "",
+      stderr: "Access key exhausted",
     });
 
-    try {
-      expect(() => resolveNearSigningMode()).toThrow(/no TTY available for keychain signing/i);
-      expect(execaMock).not.toHaveBeenCalled();
-    } finally {
-      Object.defineProperty(process.stdin, "isTTY", {
-        configurable: true,
-        value: originalIsTTY,
-      });
-    }
+    await expect(executeKeychainTransaction(KEYCHAIN_ARGS)).rejects.toThrow(/Access key exhausted/);
+  });
+
+  it("refuses to run without a TTY", async () => {
+    setTty(false);
+
+    await expect(executeKeychainTransaction(KEYCHAIN_ARGS)).rejects.toThrow(
+      /No TTY available for keychain signing/,
+    );
+    expect(execaMock).not.toHaveBeenCalled();
   });
 });

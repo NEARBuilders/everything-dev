@@ -4,8 +4,8 @@ import { join } from "node:path";
 import process from "node:process";
 import * as p from "@clack/prompts";
 import { glob } from "glob";
-import { loadResolvedConfig } from "../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../contract";
+import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { saveBosConfig } from "../utils/save-config";
 import { readInstalledFrameworkVersion } from "./framework-version";
@@ -923,8 +923,8 @@ async function rewriteLegacyUiImports(projectDir: string): Promise<string[]> {
 }
 
 const LEGACY_DIST_IMPORT_REWRITES = [
-  ['from "everything-dev/', 'from "everything-dev/'],
-  ["from 'everything-dev/", "from 'everything-dev/"],
+  ['from "everything-dev/dist/', 'from "everything-dev/'],
+  ["from 'everything-dev/dist/", "from 'everything-dev/"],
 ] as const;
 
 function escapeRegex(s: string): string {
@@ -1014,7 +1014,7 @@ function rewritePipeEffectProvideForm(source: string, relPath: string): string {
     const tagName = deriveTagFromLayerExpr(layerExpr);
     if (!tagName) {
       console.warn(
-        `[Upgrade] ${relPath}: found .pipe(Effect.provide(${layerExpr})) but could not derive a tag name — skipping. Migrate manually to tools.buildService(<Tag>, ${layerExpr}).`,
+        `[Upgrade] ${relPath}: found .pipe(Effect.provide(${layerExpr})) but could not derive a tag name — skipping. Migrate manually to Layer.buildWithScope(${layerExpr}, yield* Effect.scope) + Context.get.`,
       );
       continue;
     }
@@ -1030,7 +1030,9 @@ function rewritePipeEffectProvideForm(source: string, relPath: string): string {
     const tagStart = tm.index ?? -1;
     if (tagStart < 0) continue;
     const tagLen = tm[0].length;
-    const replacement = `${tm[1]}tools.buildService(${tagName}, ${layerExpr})${tm[2]}`;
+    const replacement =
+      `${tm[1]}Layer.buildWithScope(${layerExpr}, yield* Effect.scope)` +
+      `.pipe(Effect.map((context) => Context.get(context, ${tagName})))${tm[2]}`;
     if (tagStart < call.dotIdx) {
       result =
         result.slice(0, tagStart) +
@@ -1049,6 +1051,64 @@ function rewritePipeEffectProvideForm(source: string, relPath: string): string {
   return result;
 }
 
+function rewriteTwoArgEffectProvideForm(source: string, relPath: string): string {
+  const matches = [...source.matchAll(/\byield\*\s*Effect\.provide\(/g)];
+  if (matches.length === 0) return source;
+
+  let result = source;
+
+  for (let k = matches.length - 1; k >= 0; k--) {
+    const m = matches[k];
+    const openIdx = (m.index ?? -1) + m[0].length - 1;
+    if (openIdx < 0) continue;
+    const closeIdx = balancedParenEnd(source, openIdx + 1);
+    if (closeIdx === -1) continue;
+
+    const inner = source.slice(openIdx + 1, closeIdx);
+    const commaIdx = findTopLevelComma(inner);
+    if (commaIdx === -1) {
+      console.warn(
+        `[Upgrade] ${relPath}: found \`yield* Effect.provide(...)\` without a top-level Tag, Layer argument pair — skipping. Migrate manually to Layer.buildWithScope + Context.get.`,
+      );
+      continue;
+    }
+
+    const tagExpr = inner.slice(0, commaIdx).trim();
+    const layerExpr = inner.slice(commaIdx + 1).trim();
+    const prefix = m[0].replace(/Effect\.provide\($/, "");
+    const replacement =
+      `${prefix}Layer.buildWithScope(${layerExpr}, yield* Effect.scope)` +
+      `.pipe(Effect.map((context) => Context.get(context, ${tagExpr})))`;
+    result = result.slice(0, m.index) + replacement + result.slice(closeIdx + 1);
+  }
+
+  return result;
+}
+
+function findTopLevelComma(inner: string): number {
+  let depth = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") depth--;
+    else if (ch === "," && depth === 0) return i;
+  }
+  return -1;
+}
+
+function ensureEffectImports(source: string): string {
+  const m = source.match(/import\s*\{([^}]*)\}\s*from\s*["']every-plugin\/effect["']/);
+  if (!m) return source;
+  const names = m[1]
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!names.includes("Context")) names.push("Context");
+  if (!names.includes("Layer")) names.push("Layer");
+  names.sort((a, b) => a.localeCompare(b));
+  return source.replace(m[0], `import { ${names.join(", ")} } from "effect"`);
+}
+
 export async function rewriteLegacyPluginScopedLayerPatterns(
   projectDir: string,
 ): Promise<string[]> {
@@ -1062,39 +1122,22 @@ export async function rewriteLegacyPluginScopedLayerPatterns(
   if (files.length === 0) return [];
 
   const migrated: string[] = [];
-  const effectProvidePattern = /\byield\*\s*Effect\.provide\(/g;
 
   for (const file of files) {
     const filePath = join(projectDir, file);
     const original = readFileSync(filePath, "utf-8");
     let next = original;
 
-    // Rewrite yield* Effect.provide(Tag, LayerExpr) → yield* tools.buildService(Tag, LayerExpr)
-    next = next.replaceAll(effectProvidePattern, "yield* tools.buildService(");
+    // Rewrite yield* Effect.provide(Tag, LayerExpr) → Layer.buildWithScope + Context.get
+    next = rewriteTwoArgEffectProvideForm(next, file);
 
     // Rewrite the .pipe(Effect.provide(<LayerExpr>)) form: move <LayerExpr> into a
-    // tools.buildService(<Tag>, <LayerExpr>) call replacing the bare `yield* <Tag>`
+    // Layer.buildWithScope(...) + Context.get call replacing the bare `yield* <Tag>`
     // inside the generator, and drop the trailing .pipe(Effect.provide(...)).
     next = rewritePipeEffectProvideForm(next, file);
 
-    // Add tools as third argument to initialize if it only has (config) or (config, plugins)
-    const hasEffectProvideOrServiceBuild = next.includes("tools.buildService(");
-
-    if (hasEffectProvideOrServiceBuild) {
-      // Rewrite initialize: (config, plugins) => or initialize: (config) =>
-      // to include tools
-      next = next.replace(
-        /(initialize:\s*)\((\w+)(?:,\s*(\w+))?\s*\)\s*=>/g,
-        (_match, prefix: string, p1: string, p2: string | undefined) => {
-          if (p2) {
-            return `${prefix}(${p1}, ${p2}, tools) =>`;
-          }
-          return `${prefix}(${p1}, _plugins, tools) =>`;
-        },
-      );
-    }
-
     if (next !== original) {
+      next = ensureEffectImports(next);
       writeFileSync(filePath, next);
       migrated.push(file);
     }
@@ -1103,7 +1146,7 @@ export async function rewriteLegacyPluginScopedLayerPatterns(
   return migrated;
 }
 
-async function rewriteLegacyDistImports(projectDir: string): Promise<string[]> {
+export async function rewriteLegacyDistImports(projectDir: string): Promise<string[]> {
   const files = await glob("**/*.{ts,tsx,js,jsx,mjs,cjs}", {
     cwd: projectDir,
     nodir: true,
@@ -1164,15 +1207,15 @@ async function runMigrationPhase(
   }
 
   await timePhase(timings, "sync shared deps", async () => {
-    const configResult = await loadResolvedConfig({ cwd: projectDir });
-    if (!configResult) {
+    const configSession = await openResolution({ cwd: projectDir });
+    if (!configSession?.config) {
       throw new Error("No bos.config.json found in current directory");
     }
 
     return syncResolvedSharedDeps({
       configDir: projectDir,
       hostMode: "local",
-      bosConfig: configResult.config,
+      bosConfig: configSession.config,
     });
   });
 

@@ -33,12 +33,15 @@ describe("resolveRemoteConfigChain", () => {
   it("returns the config as-is when it has no extends", async () => {
     fetchBosConfigFromFastKvMock.mockResolvedValue(PARENT_WITH_HOST);
 
-    const result = await resolveRemoteConfigChain("parent.near", "parent.dev", new Set());
+    const result = await resolveRemoteConfigChain("parent.near", "parent.dev");
 
     expect(result.account).toBe("parent.near");
     expect(result.app.host).toEqual(PARENT_WITH_HOST.app!.host);
     expect(fetchBosConfigFromFastKvMock).toHaveBeenCalledTimes(1);
-    expect(fetchBosConfigFromFastKvMock).toHaveBeenCalledWith("bos://parent.near/parent.dev");
+    expect(fetchBosConfigFromFastKvMock).toHaveBeenCalledWith(
+      "bos://parent.near/parent.dev",
+      undefined,
+    );
   });
 
   it("inherits app.host from the parent via extends", async () => {
@@ -58,7 +61,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    const result = await resolveRemoteConfigChain("child.near", "child.dev", new Set());
+    const result = await resolveRemoteConfigChain("child.near", "child.dev");
 
     expect(result.account).toBe("child.near");
     expect(result.domain).toBe("child.dev");
@@ -90,7 +93,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    const result = await resolveRemoteConfigChain("child.near", "child.dev", new Set());
+    const result = await resolveRemoteConfigChain("child.near", "child.dev");
 
     expect(result.app.host).toEqual({
       development: "local:host",
@@ -126,7 +129,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    const result = await resolveRemoteConfigChain("grandchild.near", "grandchild.dev", new Set());
+    const result = await resolveRemoteConfigChain("grandchild.near", "grandchild.dev");
 
     expect(result.account).toBe("grandchild.near");
     expect(result.app.host).toEqual(parentConfig.app!.host);
@@ -141,7 +144,7 @@ describe("resolveRemoteConfigChain", () => {
 
     fetchBosConfigFromFastKvMock.mockResolvedValue(circularConfig);
 
-    await expect(resolveRemoteConfigChain("circ.near", "circ.dev", new Set())).rejects.toThrow(
+    await expect(resolveRemoteConfigChain("circ.near", "circ.dev")).rejects.toThrow(
       /Circular extends/,
     );
   });
@@ -162,9 +165,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    await expect(resolveRemoteConfigChain("a.near", "a.dev", new Set())).rejects.toThrow(
-      /Circular extends/,
-    );
+    await expect(resolveRemoteConfigChain("a.near", "a.dev")).rejects.toThrow(/Circular extends/);
   });
 
   it("resolves env-specific extends object using production", async () => {
@@ -183,7 +184,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    const result = await resolveRemoteConfigChain("child.near", "child.dev", new Set());
+    const result = await resolveRemoteConfigChain("child.near", "child.dev");
 
     expect(result.app.host).toEqual(PARENT_WITH_HOST.app!.host);
   });
@@ -195,7 +196,7 @@ describe("resolveRemoteConfigChain", () => {
 
     fetchBosConfigFromFastKvMock.mockResolvedValue(config);
 
-    await expect(resolveRemoteConfigChain("bad.near", "bad.dev", new Set())).rejects.toThrow();
+    await expect(resolveRemoteConfigChain("bad.near", "bad.dev")).rejects.toThrow();
   });
 
   it("child without plugins key inherits parent plugins", async () => {
@@ -221,7 +222,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    const result = await resolveRemoteConfigChain("child.near", "child.dev", new Set());
+    const result = await resolveRemoteConfigChain("child.near", "child.dev");
 
     expect(result.plugins).toEqual(parentConfig.plugins);
   });
@@ -253,7 +254,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    const result = await resolveRemoteConfigChain("child.near", "child.dev", new Set());
+    const result = await resolveRemoteConfigChain("child.near", "child.dev");
 
     expect(result.plugins).toEqual({});
   });
@@ -288,7 +289,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    const result = await resolveRemoteConfigChain("child.near", "child.dev", new Set());
+    const result = await resolveRemoteConfigChain("child.near", "child.dev");
 
     const apiSecrets = (result.app.api as Record<string, unknown>).secrets as string[];
     expect(apiSecrets).toContain("CHILD_SECRET");
@@ -321,7 +322,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    const result = await resolveRemoteConfigChain("child.near", "child.dev", new Set());
+    const result = await resolveRemoteConfigChain("child.near", "child.dev");
 
     expect(result.plugins).toEqual({});
   });
@@ -373,7 +374,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    const result = await resolveRemoteConfigChain("child.near", "child.dev", new Set());
+    const result = await resolveRemoteConfigChain("child.near", "child.dev");
 
     expect(result.app.auth).toBeDefined();
     expect(result.app.auth.production).toBe("https://auth.prod.dev");
@@ -436,7 +437,7 @@ describe("resolveRemoteConfigChain", () => {
       throw new Error(`No config found for ${url}`);
     });
 
-    const result = await resolveRemoteConfigChain("child.near", "child.dev", new Set());
+    const result = await resolveRemoteConfigChain("child.near", "child.dev");
 
     expect(result.plugins?.myplugin).toBeDefined();
     const myplugin = result.plugins!.myplugin as Record<string, unknown>;

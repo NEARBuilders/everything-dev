@@ -52,10 +52,10 @@ describe("rewriteLegacyPluginScopedLayerPatterns", () => {
 
     const result = readFileSync(join(dir, "api/src/index.ts"), "utf-8");
     expect(result).toContain(
-      "yield* tools.buildService(DatabaseTag, DatabaseLive(config.secrets.API_DATABASE_URL))",
+      "yield* Layer.buildWithScope(DatabaseLive(config.secrets.API_DATABASE_URL), yield* Effect.scope).pipe(Effect.map((context) => Context.get(context, DatabaseTag)))",
     );
     expect(result).not.toContain("Effect.provide(DatabaseTag");
-    expect(result).toContain("initialize: (config, plugins, tools) =>");
+    expect(result).toContain('import { Context, Effect, Layer } from "effect";');
   });
 
   it("rewrites yield* Effect.provide(Tag, Layer) two-arg form in plugins/*/src/index.ts", async () => {
@@ -84,12 +84,12 @@ describe("rewriteLegacyPluginScopedLayerPatterns", () => {
 
     const result = readFileSync(join(dir, "plugins/widgets/src/index.ts"), "utf-8");
     expect(result).toContain(
-      "yield* tools.buildService(WidgetsTag, WidgetsLive(config.secrets.URL))",
+      "yield* Layer.buildWithScope(WidgetsLive(config.secrets.URL), yield* Effect.scope).pipe(Effect.map((context) => Context.get(context, WidgetsTag)))",
     );
-    expect(result).toContain("initialize: (config, _plugins, tools) =>");
+    expect(result).toContain('import { Context, Effect, Layer } from "effect";');
   });
 
-  it("rewrites .pipe(Effect.provide(Layer)) form in api/src/index.ts to tools.buildService", async () => {
+  it("rewrites .pipe(Effect.provide(Layer)) form in api/src/index.ts to Layer.buildWithScope", async () => {
     const dir = makeProjectDir();
     writeFile(
       dir,
@@ -119,10 +119,10 @@ describe("rewriteLegacyPluginScopedLayerPatterns", () => {
 
     const result = readFileSync(join(dir, "api/src/index.ts"), "utf-8");
     expect(result).toContain(
-      "const db = yield* tools.buildService(DatabaseTag, DatabaseLive(config.secrets.API_DATABASE_URL));",
+      "const db = yield* Layer.buildWithScope(DatabaseLive(config.secrets.API_DATABASE_URL), yield* Effect.scope).pipe(Effect.map((context) => Context.get(context, DatabaseTag)));",
     );
     expect(result).not.toContain(".pipe(Effect.provide(");
-    expect(result).toContain("initialize: (config, plugins, tools) =>");
+    expect(result).toContain('import { Context, Effect, Layer } from "effect";');
     expect(result).toContain("    }),");
     expect(result).toContain("shutdown: () => Effect.log('[API] Shutdown'),");
   });
@@ -153,10 +153,10 @@ describe("rewriteLegacyPluginScopedLayerPatterns", () => {
 
     const result = readFileSync(join(dir, "plugins/widgets/src/index.ts"), "utf-8");
     expect(result).toContain(
-      "const widgets = yield* tools.buildService(WidgetsTag, WidgetsLive(config.secrets.URL));",
+      "const widgets = yield* Layer.buildWithScope(WidgetsLive(config.secrets.URL), yield* Effect.scope).pipe(Effect.map((context) => Context.get(context, WidgetsTag)));",
     );
     expect(result).not.toContain(".pipe(Effect.provide(");
-    expect(result).toContain("initialize: (config, _plugins, tools) =>");
+    expect(result).toContain('import { Context, Effect, Layer } from "effect";');
   });
 
   it("rewrites multiline .pipe(\\n  Effect.provide(Layer),\\n) form", async () => {
@@ -187,17 +187,17 @@ describe("rewriteLegacyPluginScopedLayerPatterns", () => {
 
     const result = readFileSync(join(dir, "api/src/index.ts"), "utf-8");
     expect(result).toContain(
-      "const db = yield* tools.buildService(DatabaseTag, DatabaseLive(config.secrets.API_DATABASE_URL));",
+      "const db = yield* Layer.buildWithScope(DatabaseLive(config.secrets.API_DATABASE_URL), yield* Effect.scope).pipe(Effect.map((context) => Context.get(context, DatabaseTag)));",
     );
     expect(result).not.toContain("Effect.provide(");
-    expect(result).toContain("initialize: (config, plugins, tools) =>");
+    expect(result).toContain('import { Context, Effect, Layer } from "effect";');
   });
 
   it("skips .pipe(Effect.provide(...)) when the layer name does not match a Tag convention", async () => {
     const dir = makeProjectDir();
     const original = [
       'import { Effect } from "every-plugin/effect";',
-      'import { Layer } from "every-plugin/effect";',
+      'import { Layer } from "effect";',
       "",
       "export default createPlugin({",
       "  initialize: (config, plugins) =>",
@@ -216,7 +216,7 @@ describe("rewriteLegacyPluginScopedLayerPatterns", () => {
 
     const result = readFileSync(join(dir, "api/src/index.ts"), "utf-8");
     expect(result).toContain(".pipe(Effect.provide(");
-    expect(result).not.toContain("tools.buildService");
+    expect(result).not.toContain("Layer.buildWithScope");
     expect(warnSpy).toHaveBeenCalled();
   });
 
@@ -247,20 +247,20 @@ describe("rewriteLegacyPluginScopedLayerPatterns", () => {
 
     const result = readFileSync(join(dir, "api/src/index.ts"), "utf-8");
     expect(result).toContain(".pipe(Effect.provide(");
-    expect(result).not.toContain("tools.buildService");
+    expect(result).not.toContain("Layer.buildWithScope");
     expect(warnSpy).toHaveBeenCalled();
   });
 
   it("leaves already-migrated files untouched", async () => {
     const dir = makeProjectDir();
     const original = [
-      'import { Effect } from "every-plugin/effect";',
+      'import { Context, Effect, Layer } from "effect";',
       'import { DatabaseLive, DatabaseTag } from "./db/layer";',
       "",
       "export default createPlugin({",
-      "  initialize: (config, plugins, tools) =>",
+      "  initialize: (config, plugins) =>",
       "    Effect.gen(function* () {",
-      "      const db = yield* tools.buildService(DatabaseTag, DatabaseLive(config.secrets.API_DATABASE_URL));",
+      "      const db = yield* Layer.buildWithScope(DatabaseLive(config.secrets.API_DATABASE_URL), yield* Effect.scope).pipe(Effect.map((context) => Context.get(context, DatabaseTag)));",
       "      return { db };",
       "    }),",
       "  createRouter: () => ({}),",
@@ -276,7 +276,7 @@ describe("rewriteLegacyPluginScopedLayerPatterns", () => {
     expect(result).toBe(original);
   });
 
-  it("does not double-add tools when initialize already has it (pipe form)", async () => {
+  it("leaves the initialize signature untouched when rewriting the pipe form", async () => {
     const dir = makeProjectDir();
     writeFile(
       dir,
@@ -302,11 +302,11 @@ describe("rewriteLegacyPluginScopedLayerPatterns", () => {
 
     const result = readFileSync(join(dir, "api/src/index.ts"), "utf-8");
     expect(result).toContain(
-      "const db = yield* tools.buildService(DatabaseTag, DatabaseLive(config.secrets.API_DATABASE_URL));",
+      "const db = yield* Layer.buildWithScope(DatabaseLive(config.secrets.API_DATABASE_URL), yield* Effect.scope).pipe(Effect.map((context) => Context.get(context, DatabaseTag)));",
     );
     expect(result).not.toContain(".pipe(Effect.provide(");
+    expect(result).toContain('import { Context, Effect, Layer } from "effect";');
     expect(result).toContain("initialize: (config, plugins, tools) =>");
-    expect(result).not.toContain("tools, tools)");
   });
 
   it("returns empty when no matching files exist", async () => {

@@ -57,7 +57,7 @@ describe("SSR Social Metadata", () => {
         ...clientConfig,
         hostUrl: "https://dev.everything.dev",
         runtime: {
-          ...(clientConfig.runtime ?? {}),
+          ...clientConfig.runtime,
           accountId: config.account,
           gatewayId: config.domain ?? config.account,
           runtimeBasePath: "/",

@@ -1,9 +1,22 @@
+vi.mock("../../src/infra/materializer", async () => {
+  const actual = await vi.importActual<typeof import("../../src/infra/materializer")>(
+    "../../src/infra/materializer",
+  );
+  // Replace the orchestration helper with a no-op so the file-generation
+  // side-effects don't pollute the test's tempdir. The previous test mock
+  // targeted writeGeneratedInfra; this is the materializer-equivalent
+  // bypass at the orchestration entry point.
+  return {
+    ...actual,
+    materializeViaLayer: async () => {},
+  };
+});
+
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as infraModule from "../../src/cli/infra";
 import * as initModule from "../../src/cli/init";
 import {
   buildInitPatterns,
@@ -13,10 +26,11 @@ import {
 } from "../../src/cli/init";
 import { readSnapshot } from "../../src/cli/snapshot";
 import { syncTemplate } from "../../src/cli/sync";
-import * as configModule from "../../src/config";
+import * as sessionModule from "../../src/resolution/session";
+import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
-const ROOT_CONFIG = JSON.parse(readFileSync(join(REPO_ROOT, "bos.config.json"), "utf-8")) as {
+const ROOT_CONFIG = (await loadParentConfigFixture()) as {
   plugins?: Record<string, { routes?: string[] }>;
 };
 
@@ -52,6 +66,11 @@ async function scaffoldProject(
     plugins,
     pluginRoutes,
   });
+
+  writeChildConfigFixture(
+    projectDir,
+    overrides.filter((o) => o !== "plugins") as Array<"host" | "ui" | "api">,
+  );
 
   await personalizeConfig(projectDir, {
     extendsAccount: "dev.everything.near",
@@ -89,7 +108,7 @@ describe("syncTemplate", () => {
       parentConfig: ROOT_CONFIG as never,
       cleanup: async () => {},
     });
-    vi.spyOn(configModule, "loadResolvedConfig").mockImplementation(async ({ cwd }) => {
+    vi.spyOn(sessionModule, "openResolution").mockImplementation(async ({ cwd }) => {
       if (cwd === REPO_ROOT) {
         return { runtime: { plugins: runtimePluginsFromRoot() } } as never;
       }
@@ -97,7 +116,6 @@ describe("syncTemplate", () => {
     });
     vi.spyOn(initModule, "runBunInstall").mockResolvedValue();
     vi.spyOn(initModule, "runTypesGen").mockResolvedValue();
-    vi.spyOn(infraModule, "writeGeneratedInfra").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -111,7 +129,7 @@ describe("syncTemplate", () => {
   });
 
   it("updates framework-owned files and leaves non-framework files alone", async () => {
-    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
+    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
     tempDirs.push(projectDir);
 
     const frameworkOwnedPath = join(projectDir, "ui", "src", "lib", "api.ts");
@@ -139,11 +157,33 @@ describe("syncTemplate", () => {
     expect(readFileSync(appOwnedPath, "utf-8")).toBe("component override\n");
   });
 
+  it("delivers extracted fallbacks when upgrading a child that does not have them", async () => {
+    const projectDir = await scaffoldProject(["ui"]);
+    tempDirs.push(projectDir);
+    const fallbacks = [
+      "ui/src/components/document-fallback.tsx",
+      "ui/src/components/root-error.tsx",
+      "ui/src/components/root-not-found.tsx",
+      "ui/src/components/router-error.tsx",
+    ];
+    for (const file of fallbacks) unlinkSync(join(projectDir, file));
+
+    const result = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+
+    expect(result.status).toBe("synced");
+    expect(result.added).toEqual(expect.arrayContaining(fallbacks));
+    for (const file of fallbacks) {
+      expect(readFileSync(join(projectDir, file), "utf-8")).toBe(
+        readFileSync(join(REPO_ROOT, file), "utf-8"),
+      );
+    }
+  });
+
   it("sync does not re-add plugin workspaces because it only manages framework-owned files", async () => {
-    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
+    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
     tempDirs.push(projectDir);
 
-    const selectedPluginPackage = join(projectDir, "plugins", "apps", "package.json");
+    const selectedPluginPackage = join(projectDir, "plugins", "registry", "package.json");
     unlinkSync(selectedPluginPackage);
 
     const result = await syncTemplate(projectDir, {
@@ -152,12 +192,12 @@ describe("syncTemplate", () => {
     });
 
     expect(result.status).toBe("dry-run");
-    expect(result.added).not.toContain("plugins/apps/package.json");
+    expect(result.added).not.toContain("plugins/registry/package.json");
     expect(result.added).not.toContain("plugins/example/package.json");
   });
 
   it("preserves child root metadata and prunes stale local plugin entries during sync", async () => {
-    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["apps"]);
+    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
     tempDirs.push(projectDir);
 
     const configPath = join(projectDir, "bos.config.json");
@@ -171,7 +211,7 @@ describe("syncTemplate", () => {
     config.title = "child app";
     config.repository = "https://github.com/example/child-app";
     config.plugins = {
-      ...(config.plugins ?? {}),
+      ...config.plugins,
       example: {
         development: "local:plugins/example",
       },
@@ -195,7 +235,7 @@ describe("syncTemplate", () => {
     expect(syncedConfig.title).toBe("child app");
     expect(syncedConfig.repository).toBe("https://github.com/example/child-app");
     expect(syncedConfig.description).toBeUndefined();
-    expect(Object.keys(syncedConfig.plugins ?? {})).toEqual(["apps"]);
+    expect(Object.keys(syncedConfig.plugins ?? {})).toEqual(["registry"]);
   });
 
   it("syncs GitHub workflow files from .github/templates for child projects", async () => {
@@ -252,7 +292,7 @@ describe("syncTemplate", () => {
       scripts?: Record<string, string>;
     };
     packageJson.scripts = {
-      ...(packageJson.scripts ?? {}),
+      ...packageJson.scripts,
       custom: "bun run custom",
     };
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);

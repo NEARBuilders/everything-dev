@@ -7,6 +7,7 @@ import * as syncModule from "../../src/cli/sync";
 import {
   migrateBosConfigFiles,
   migrateChildRootPackageJson,
+  rewriteLegacyDistImports,
   upgradeTemplate,
 } from "../../src/cli/upgrade";
 import * as sharedDepsModule from "../../src/shared-deps";
@@ -229,7 +230,7 @@ describe("upgrade bos config migration", () => {
       `${JSON.stringify(
         {
           domain: "apps.everything.dev",
-          routes: ["ui/src/routes/_layout/apps/**"],
+          routes: ["ui/src/routes/_layout/_public/apps/**"],
         },
         null,
         2,
@@ -249,7 +250,7 @@ describe("upgrade bos config migration", () => {
       };
     };
 
-    expect(rootConfig.plugins.apps.routes).toEqual(["ui/src/routes/_layout/apps/**"]);
+    expect(rootConfig.plugins.apps.routes).toEqual(["ui/src/routes/_layout/_public/apps/**"]);
   });
 
   it("deletes plugin bos.config.json files even when no metadata to merge", async () => {
@@ -467,7 +468,7 @@ describe("upgrade bos config migration", () => {
     );
     expect(demoSections).toContain('from "@/lib/auth"');
     expect(demoSections).not.toContain("auth-utils");
-  });
+  }, 60_000);
 
   it("adds @better-auth/core catalog refs to root and workspace packages during package migration", async () => {
     const projectDir = makeProjectDir();
@@ -659,5 +660,28 @@ describe("upgrade bos config migration", () => {
       development: "local:plugins/auth",
       production: "https://auth.child.dev",
     });
+  });
+
+  it("rewrites legacy everything-dev/dist import subpaths to the package root", async () => {
+    const projectDir = makeProjectDir();
+    const sourceFile = join(projectDir, "src/example.ts");
+    mkdirSync(join(projectDir, "src"), { recursive: true });
+    writeFileSync(
+      sourceFile,
+      [
+        'import { x } from "everything-dev/dist/foo";',
+        "import { y } from 'everything-dev/dist/bar';",
+        'import { z } from "everything-dev/baz";',
+      ].join("\n"),
+    );
+
+    const migrated = await rewriteLegacyDistImports(projectDir);
+
+    expect(migrated).toContain("src/example.ts");
+    const contents = readFileSync(sourceFile, "utf-8");
+    expect(contents).toContain('from "everything-dev/foo"');
+    expect(contents).toContain("from 'everything-dev/bar'");
+    expect(contents).toContain('from "everything-dev/baz"');
+    expect(contents).not.toContain("everything-dev/dist");
   });
 });

@@ -1,4 +1,15 @@
-import { Data } from "every-plugin/effect";
+import { Data } from "effect";
+
+export class ExposeModuleMissing extends Data.TaggedError("ExposeModuleMissing")<{
+  readonly expose: string;
+  readonly reason: "not-found" | "no-default";
+}> {
+  get message() {
+    return this.reason === "not-found"
+      ? `Module not found: ${this.expose}`
+      : `${this.expose} has no default export`;
+  }
+}
 
 export class FederationError extends Data.TaggedError("FederationError")<{
   readonly remoteName: string;

@@ -2,6 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiPluginManifest } from "../../src/api-contract";
 import { buildDependencyDAG } from "../../src/dag";
 
+// the stacking tests below are about manifest discovery + DAG order, not
+// version-manifest resolution — every remote slot pins a manifest, and
+// resolution is stubbed
+vi.mock("../../src/version-manifest-resolve", () => ({
+  resolveSlotVersion: vi.fn(async () => ({
+    entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
+    entryIntegrity: "sha384-entry",
+  })),
+  clearSlotVersionCache: vi.fn(),
+}));
+
+const SLOT_PIN = { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" };
+
 const { fetchApiPluginManifestMock } = vi.hoisted(() => ({
   fetchApiPluginManifestMock: vi.fn(),
 }));
@@ -42,14 +55,30 @@ function makeRemoteBosConfig() {
     account: "test.near",
     extends: "dev.everything.near/dev.everything.dev",
     app: {
-      host: { name: "host", development: "http://localhost:3000", production: "http://host.cdn" },
-      ui: { name: "ui", development: "http://localhost:3003", production: "http://ui.cdn" },
-      api: { name: "api", development: "http://localhost:3001", production: "http://api.cdn" },
+      host: {
+        name: "host",
+        development: "http://localhost:3000",
+        production: "http://host.cdn",
+        pin: SLOT_PIN,
+      },
+      ui: {
+        name: "ui",
+        development: "http://localhost:3003",
+        production: "http://ui.cdn",
+        pin: SLOT_PIN,
+      },
+      api: {
+        name: "api",
+        development: "http://localhost:3001",
+        production: "http://api.cdn",
+        pin: SLOT_PIN,
+      },
       auth: {
         name: "auth",
         extends: "dev.everything.near/auth",
         development: "http://localhost:3002",
         production: "http://auth.cdn",
+        pin: SLOT_PIN,
       },
     },
     plugins: {
@@ -57,6 +86,7 @@ function makeRemoteBosConfig() {
         name: "pluginA",
         url: "http://pluginA.cdn",
         source: "remote" as const,
+        pin: SLOT_PIN,
       },
     },
   } as any;
@@ -89,6 +119,7 @@ describe("manifest stacking (one level deep)", () => {
           url: "http://pluginA.cdn",
           entry: "http://pluginA.cdn/mf-manifest.json",
           source: "remote",
+          pin: SLOT_PIN,
         },
       },
     });
@@ -128,6 +159,7 @@ describe("manifest stacking (one level deep)", () => {
           source: "remote",
           variables: { TIMEOUT: 10000 },
           secrets: ["MY_SECRET"],
+          pin: SLOT_PIN,
         },
       },
     });

@@ -1,5 +1,9 @@
+import "@orpc/experimental-effect/extensions/effect";
+import "@orpc/openapi/extensions/route";
+
 import { createRouterClient } from "@orpc/server";
-import { Cause, Effect, Exit, Hash, ManagedRuntime, Option } from "effect";
+import { Cause, Effect, Exit, ManagedRuntime, Option } from "effect";
+import { DEV_ENTRY_FILENAME } from "../build/artifact-names";
 import type {
   AnyPlugin,
   AnyPluginConstructor,
@@ -17,24 +21,93 @@ import type {
   UsePluginResult,
 } from "../types";
 import { PluginRuntimeError } from "./errors";
-import { PluginService } from "./services/plugin.service";
+import { PluginService, PluginServiceLive } from "./services/plugin.service";
+
+const MAX_CACHE_KEY_DEPTH = 32;
 
 export class PluginRuntime<R = RegisteredPlugins> {
   readonly __registryType?: R;
 
-  private pluginCache = new Map<
-    string,
-    Effect.Effect<InitializedPlugin<AnyPlugin>, PluginRuntimeError>
-  >();
+  private pluginCache = new Map<string, Promise<InitializedPlugin<AnyPlugin>>>();
+  private routerCache = new Map<string, PluginRouterType<any>>();
+  private cacheLeafIds = new WeakMap<object, number>();
+  private nextCacheLeafId = 0;
 
   constructor(
     private runtime: ManagedRuntime.ManagedRuntime<PluginService, never>,
     private registry: PluginRegistry,
   ) {}
 
+  /**
+   * Cache key for plugin instances: JSON-equal configs share one plugin
+   * instance (variables and secrets originate from bos.config.json, so they
+   * are JSON values). Values outside the JSON domain follow Effect's Hash
+   * semantics — symbols key by description, functions and class instances by
+   * reference identity — and the host creates its pluginsClient map once per
+   * boot, making identity the correct equivalence for function-bearing
+   * configs.
+   */
   private generateCacheKey(pluginId: string, config: unknown): string {
-    const configHash = Hash.structure(config as object).toString();
-    return `${pluginId}:${configHash}`;
+    return `${pluginId}:${this.canonicalizeConfig(config, 0, new Set())}`;
+  }
+
+  private canonicalizeConfig(value: unknown, depth: number, ancestors: Set<object>): string {
+    switch (typeof value) {
+      case "undefined":
+        return "undefined";
+      case "string":
+        return `string:${JSON.stringify(value)}`;
+      case "number":
+        return `number:${Object.is(value, -0) ? "-0" : String(value)}`;
+      case "bigint":
+        return `bigint:${value.toString()}`;
+      case "boolean":
+        return `boolean:${value}`;
+      case "symbol":
+        return `symbol:${String(value)}`;
+      case "function":
+        return `ref:${this.getCacheLeafId(value)}`;
+      case "object": {
+        if (value === null) return "null";
+        if (ancestors.has(value) || depth >= MAX_CACHE_KEY_DEPTH) {
+          return `ref:${this.getCacheLeafId(value)}`;
+        }
+
+        if (Array.isArray(value)) {
+          ancestors.add(value);
+          const serialized = `[${value
+            .map((item) => this.canonicalizeConfig(item, depth + 1, ancestors))
+            .join(",")}]`;
+          ancestors.delete(value);
+          return serialized;
+        }
+
+        const prototype = Object.getPrototypeOf(value);
+        if (prototype !== Object.prototype && prototype !== null) {
+          return `ref:${this.getCacheLeafId(value)}`;
+        }
+
+        const record = value as Record<string, unknown>;
+        ancestors.add(value);
+        const serialized = `{${Object.keys(record)
+          .sort()
+          .map(
+            (key) =>
+              `${JSON.stringify(key)}:${this.canonicalizeConfig(record[key], depth + 1, ancestors)}`,
+          )
+          .join(",")}}`;
+        ancestors.delete(value);
+        return serialized;
+      }
+    }
+  }
+
+  private getCacheLeafId(value: object): number {
+    const existing = this.cacheLeafIds.get(value);
+    if (existing !== undefined) return existing;
+    const id = this.nextCacheLeafId++;
+    this.cacheLeafIds.set(value, id);
+    return id;
   }
 
   private validatePluginId(pluginId: string): Effect.Effect<string, PluginRuntimeError> {
@@ -44,7 +117,6 @@ export class PluginRuntime<R = RegisteredPlugins> {
           pluginId: String(pluginId),
           operation: "validate-plugin-id",
           cause: new Error(`Plugin ID '${String(pluginId)}' not found in registry.`),
-          retryable: false,
         }),
       );
     }
@@ -55,7 +127,7 @@ export class PluginRuntime<R = RegisteredPlugins> {
     const exit = await this.runtime.runPromiseExit(effect);
 
     if (Exit.isFailure(exit)) {
-      const error = Cause.failureOption(exit.cause);
+      const error = Cause.findErrorOption(exit.cause);
       if (Option.isSome(error)) {
         throw error.value;
       }
@@ -74,7 +146,7 @@ export class PluginRuntime<R = RegisteredPlugins> {
 
     let cachedPlugin = this.pluginCache.get(cacheKey);
     if (!cachedPlugin) {
-      const operation = Effect.gen(this, function* () {
+      const operation = Effect.gen({ self: this }, function* () {
         const pluginService = yield* PluginService;
         const validatedId = yield* this.validatePluginId(pluginId);
 
@@ -85,27 +157,45 @@ export class PluginRuntime<R = RegisteredPlugins> {
         yield* pluginService.registerPlugin(initialized);
 
         return initialized;
-      }).pipe(Effect.annotateLogs({ plugin: pluginId }), Effect.provide(this.runtime));
+      });
 
-      cachedPlugin = Effect.cached(operation).pipe(Effect.flatten);
+      cachedPlugin = this.runPromise(operation);
       this.pluginCache.set(cacheKey, cachedPlugin);
     }
 
     let initialized: InitializedPlugin<AnyPlugin>;
     try {
-      initialized = await this.runPromise(cachedPlugin);
+      initialized = await cachedPlugin;
     } catch (error) {
-      // Evict failed initializations so the next call retries instead
-      // of returning the permanently-cached failure from Effect.cached.
-      this.pluginCache.delete(cacheKey);
+      if (this.pluginCache.get(cacheKey) === cachedPlugin) {
+        this.pluginCache.delete(cacheKey);
+        this.routerCache.delete(cacheKey);
+      }
       throw error;
     }
 
     // Construct the router once per plugin instance, not per client/request.
-    const router = initialized.plugin.createRouter(initialized.context) as PluginRouterType<R[K]>;
+    let router = this.routerCache.get(cacheKey);
+    if (!router) {
+      try {
+        router = initialized.plugin.createRouter(plugins ?? {}) as PluginRouterType<R[K]>;
+        this.routerCache.set(cacheKey, router);
+      } catch (error) {
+        await this.evictPlugin(pluginId, config, plugins);
+        throw error;
+      }
+    }
 
-    // Create client factory that accepts request context
-    const createClient = (context?: any) => createRouterClient(router, { context: context ?? {} });
+    // Create client factory that accepts request context. The plugin's
+    // Effect context is injected so `.effect()` handlers resolve services
+    // on in-process (server-side / SSR) calls.
+    const createClient = (context?: any) =>
+      createRouterClient(router, {
+        context: {
+          ...context,
+          "effect/context": initialized.effectContext,
+        },
+      });
 
     return {
       createClient: createClient as any,
@@ -121,7 +211,7 @@ export class PluginRuntime<R = RegisteredPlugins> {
     const effect = Effect.gen(function* () {
       const pluginService = yield* PluginService;
       return yield* pluginService.loadPlugin(pluginId);
-    }).pipe(Effect.annotateLogs({ plugin: pluginId }));
+    });
     return this.runPromise(effect) as Promise<LoadedPlugin<RegisteredPlugin<K, R>>>;
   }
 
@@ -132,7 +222,7 @@ export class PluginRuntime<R = RegisteredPlugins> {
     const effect = Effect.gen(function* () {
       const pluginService = yield* PluginService;
       return yield* pluginService.instantiatePlugin(pluginId, loadedPlugin);
-    }).pipe(Effect.annotateLogs({ plugin: pluginId }));
+    });
     return this.runPromise(effect) as Promise<PluginInstance<RegisteredPlugin<K, R>>>;
   }
 
@@ -146,17 +236,22 @@ export class PluginRuntime<R = RegisteredPlugins> {
       const initialized = yield* pluginService.initializePlugin(instance, config, plugins);
       yield* pluginService.registerPlugin(initialized);
       return initialized;
-    }).pipe(Effect.annotateLogs({ plugin: instance.plugin.id }));
+    });
     return this.runPromise(effect);
   }
 
   async shutdown(): Promise<void> {
     const effect = Effect.gen(function* () {
       const pluginService = yield* PluginService;
-      yield* pluginService.cleanup();
+      yield* pluginService.cleanup;
     });
-    await this.runPromise(effect);
-    await this.runtime.dispose();
+    try {
+      await this.runPromise(effect);
+    } finally {
+      this.pluginCache.clear();
+      this.routerCache.clear();
+      await this.runtime.dispose();
+    }
   }
 
   async evictPlugin<K extends keyof R & string>(
@@ -166,30 +261,24 @@ export class PluginRuntime<R = RegisteredPlugins> {
   ): Promise<void> {
     const cacheKey = this.generateCacheKey(pluginId, { ...config, __plugins: plugins ?? {} });
 
-    const effect = Effect.gen(this, function* () {
+    const effect = Effect.gen({ self: this }, function* () {
       const pluginService = yield* PluginService;
       const cachedPlugin = this.pluginCache.get(cacheKey);
 
       if (cachedPlugin) {
         this.pluginCache.delete(cacheKey);
+        this.routerCache.delete(cacheKey);
 
-        const pluginResult = yield* cachedPlugin.pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const pluginResult = yield* Effect.tryPromise({
+          try: () => cachedPlugin,
+          catch: (error) => error,
+        }).pipe(Effect.orElseSucceed(() => null));
 
         if (pluginResult) {
-          yield* pluginService
-            .shutdownPlugin(pluginResult)
-            .pipe(
-              Effect.catchAll((error) =>
-                Effect.logWarning(`Failed to shutdown evicted plugin ${pluginId}`, error),
-              ),
-            );
+          yield* pluginService.shutdownPlugin(pluginResult);
         }
       }
-    }).pipe(
-      Effect.catchAll((error) =>
-        Effect.logWarning(`Plugin eviction failed for ${pluginId}`, error),
-      ),
-    );
+    });
 
     return this.runPromise(effect);
   }
@@ -202,7 +291,7 @@ export class PluginRuntime<R = RegisteredPlugins> {
 function normalizeRemoteUrl(url: string): string {
   if (!url) return url;
   if (url.endsWith(".js") || url.endsWith(".json")) return url;
-  return `${url.endsWith("/") ? url.slice(0, -1) : url}/remoteEntry.js`;
+  return `${url.endsWith("/") ? url.slice(0, -1) : url}/${DEV_ENTRY_FILENAME}`;
 }
 
 /**
@@ -270,7 +359,7 @@ export function createPluginRuntime<TRegistry extends Record<string, PluginRegis
   const normalizedRegistry = normalizeRegistry(config.registry);
   const pluginMap = extractPluginMap(config.registry);
 
-  const layer = PluginService.Live(normalizedRegistry, secrets, pluginMap);
+  const layer = PluginServiceLive(normalizedRegistry, secrets, pluginMap);
   const runtime = ManagedRuntime.make(layer);
 
   return new PluginRuntime(runtime, normalizedRegistry) as PluginRuntime<

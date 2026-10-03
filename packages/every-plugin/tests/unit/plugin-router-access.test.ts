@@ -6,7 +6,7 @@ import { OpenAPIGenerator } from "@orpc/openapi";
 import { OpenAPIHandler } from "@orpc/openapi/node";
 import type { RouterClient } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/node";
-import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
+import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import type { EveryPlugin } from "every-plugin";
 import { createPluginRuntime } from "every-plugin";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -59,7 +59,7 @@ describe("Plugin Router Access Methods", () => {
       if (url.pathname.startsWith("/rpc")) {
         const result = await rpcHandler.handle(req, res, {
           prefix: "/rpc",
-          context: plugin!.initialized.context,
+          context: { "effect/context": plugin!.initialized.effectContext },
         });
         if (result.matched) return;
       }
@@ -67,7 +67,7 @@ describe("Plugin Router Access Methods", () => {
       if (url.pathname.startsWith("/api")) {
         const result = await openApiHandler.handle(req, res, {
           prefix: "/api",
-          context: plugin!.initialized.context,
+          context: { "effect/context": plugin!.initialized.effectContext },
         });
         if (result.matched) return;
       }
@@ -137,7 +137,8 @@ describe("Plugin Router Access Methods", () => {
 
   it("should work via oRPC client", { timeout: 10000 }, async () => {
     const link = new RPCLink({
-      url: `${baseUrl}/rpc`,
+      origin: baseUrl,
+      url: "/rpc",
       fetch: globalThis.fetch,
     });
 
@@ -160,7 +161,8 @@ describe("Plugin Router Access Methods", () => {
 
   it("should handle streaming via oRPC", { timeout: 10000 }, async () => {
     const link = new RPCLink({
-      url: `${baseUrl}/rpc`,
+      origin: baseUrl,
+      url: "/rpc",
       fetch: globalThis.fetch,
     });
 
@@ -195,14 +197,16 @@ describe("Plugin Router Access Methods", () => {
     const { router } = result;
 
     const generator = new OpenAPIGenerator({
-      schemaConverters: [new ZodToJsonSchemaConverter()],
+      converters: [new ZodToJsonSchemaConverter()],
     });
 
     const spec = await generator.generate(router, {
-      info: {
-        title: "Test Plugin API",
-        version: "1.0.0",
-        description: "Generated OpenAPI spec for test plugin",
+      base: {
+        info: {
+          title: "Test Plugin API",
+          version: "1.0.0",
+          description: "Generated OpenAPI spec for test plugin",
+        },
       },
     });
 

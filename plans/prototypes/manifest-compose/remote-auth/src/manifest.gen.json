@@ -1,0 +1,42 @@
+{
+  "name": "auth",
+  "manifestVersion": 1,
+  "routes": [
+    {
+      "id": "_authenticated",
+      "isLayout": true,
+      "mount": "authenticated",
+      "file": "_authenticated.tsx"
+    },
+    {
+      "id": "_public",
+      "isLayout": true,
+      "mount": "public",
+      "file": "_public.tsx"
+    },
+    {
+      "id": "_authenticated/settings",
+      "path": "/settings",
+      "isLayout": false,
+      "parentId": "_authenticated",
+      "file": "_authenticated/settings.tsx",
+      "isIndex": false
+    },
+    {
+      "id": "_public/login",
+      "path": "/login",
+      "isLayout": false,
+      "parentId": "_public",
+      "file": "_public/login.tsx",
+      "isIndex": false
+    },
+    {
+      "id": "_authenticated/settings/api-keys",
+      "path": "/api-keys",
+      "isLayout": false,
+      "parentId": "_authenticated/settings",
+      "file": "_authenticated/settings/api-keys.tsx",
+      "isIndex": false
+    }
+  ]
+}

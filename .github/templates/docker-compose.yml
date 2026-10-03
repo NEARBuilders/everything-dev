@@ -1,0 +1,42 @@
+# Static local development databases — managed by hand, never generated.
+# If a host port is already taken, change the left side of the ports mapping
+# and update the matching *_DATABASE_URL in .env to match.
+#
+# Child runtimes develop the API (and optionally host) locally; auth is
+# consumed from the extended platform, so no auth database is needed here.
+services:
+  postgres-api:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: everythingdev
+      POSTGRES_PASSWORD: everythingdev
+      POSTGRES_DB: api_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U everythingdev -d api_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - postgres_api_data:/var/lib/postgresql/data
+
+  postgres-api-test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: everythingdev
+      POSTGRES_PASSWORD: everythingdev
+      POSTGRES_DB: api_test_db
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U everythingdev -d api_test_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - postgres_api_test_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_api_data:
+  postgres_api_test_data:

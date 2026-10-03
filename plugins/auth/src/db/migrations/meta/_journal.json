@@ -1,0 +1,76 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1778128749199,
+      "tag": "0000_sturdy_lady_vermin",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786026390221,
+      "tag": "0002_third_captain_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790062881299,
+      "tag": "0003_teams_workspaces",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790118194729,
+      "tag": "0004_futuristic_mandrill",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790123373979,
+      "tag": "0005_blushing_george_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790362420849,
+      "tag": "0006_device_link_claim",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790367834594,
+      "tag": "0007_onboarding_code_event",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790611423268,
+      "tag": "0008_pale_exiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790791083485,
+      "tag": "0009_org-approval",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790796048691,
+      "tag": "0010_preserve-approved-organizations",
+      "breakpoints": true
+    }
+  ]
+}

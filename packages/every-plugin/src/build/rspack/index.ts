@@ -1,14 +1,19 @@
 export {
-  getMajorMinorVersion,
   getPluginSharedDependencies,
-  getPluginSharedDependenciesVersionRange,
+  isEffectCriticalSharedDep,
   type SharedDependencies,
   type SharedDependencyConfig,
-} from "../shared-deps";
+} from "../../shared-deps-spec";
+export { BuildReportPlugin } from "./build-report-plugin";
+export {
+  createPluginBaseConfig,
+  type PluginBaseConfig,
+  type PluginBaseConfigOptions,
+} from "./compose";
 export { FixMfDataUriPlugin } from "./fix-mf-data-uri-plugin";
 export {
   EmitPluginManifest,
-  EveryPluginDevServer,
-  type EveryPluginOptions,
+  EveryPluginBuild,
+  type EveryPluginBuildOptions,
   type PluginManifestEmitterOptions,
 } from "./plugin";

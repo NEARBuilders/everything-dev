@@ -1,33 +1,44 @@
 import {
+  BosConfigSchema,
   buildRuntimeConfig,
-  isRuntimeOverrideAllowed,
-  loadRemoteConfig,
-  parseRuntimeOverrideTargets,
   type RuntimeConfig,
+  resolveConfigComposableEntries,
 } from "everything-dev/config";
 import { verifySriForUrl } from "everything-dev/integrity";
+import { type ResolutionIo, walkExtendsChain } from "everything-dev/resolution";
+import type { BosConfig, BosConfigInput } from "everything-dev/types";
 import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
 import { resolveDomain } from "../utils/normalize";
+import {
+  type BindingResolver,
+  clearBindingResolverCache,
+  createBindingResolver,
+} from "./binding-resolver";
 
 const REMOTE_CONFIG_TTL_MS = 30_000;
 const VERIFICATION_TTL_MS = 5 * 60_000;
 const MAX_REMOTE_CONFIG_CACHE_SIZE = 256;
 const MAX_VERIFICATION_CACHE_SIZE = 512;
-const NEAR_ACCOUNT_ID_REGEX =
-  /^(?=.{2,64}$)([a-z0-9]+(?:[-_][a-z0-9]+)*)(\.([a-z0-9]+(?:[-_][a-z0-9]+)*))*$/;
 
-type RuntimeOverrideTarget = ReturnType<typeof parseRuntimeOverrideTargets>[number];
-type BosEnv = "development" | "production" | "staging";
 type IntegrityVerificationMode = "blocking" | "stale-while-revalidate";
 
 interface ResolveRequestRuntimeOptions {
   verification?: IntegrityVerificationMode;
+  bindingResolver?: BindingResolver;
+  io?: ResolutionIo;
+}
+
+interface RemoteTenantConfig {
+  rawConfig: BosConfigInput;
+  config: BosConfig;
+  source: string;
+  extendsChain: string[];
 }
 
 interface CachedRemoteConfig {
   expiresAt: number;
-  value: Promise<Awaited<ReturnType<typeof loadRemoteConfig>>>;
+  value: Promise<RemoteTenantConfig>;
 }
 
 interface CachedVerification {
@@ -55,9 +66,6 @@ export class TenantRuntimeError extends Error {
 
 const remoteConfigCache = new Map<string, CachedRemoteConfig>();
 const verifiedUiCache = new Map<string, CachedVerification>();
-const unsupportedOverrideWarnings = new Set<string>();
-let tenantWhitelistCache: { raw: string; value: Set<string> } | null = null;
-let allowedOverridesCache: { raw: string; value: RuntimeOverrideTarget[] } | null = null;
 
 function pruneExpiredCacheEntries<T extends { expiresAt: number }>(
   cache: Map<string, T>,
@@ -96,95 +104,37 @@ export function getTenantRuntimeErrorResponse(error: unknown): { status: number;
 export function clearTenantRuntimeCaches() {
   remoteConfigCache.clear();
   verifiedUiCache.clear();
-  unsupportedOverrideWarnings.clear();
-  tenantWhitelistCache = null;
-  allowedOverridesCache = null;
+  clearBindingResolverCache();
 }
 
-function parseBoolean(value: string | undefined): boolean {
-  if (!value) return false;
-  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
-}
-
-function getTenantWhitelist(): Set<string> {
-  const raw = process.env.TENANT_WHITELIST ?? "";
-  if (tenantWhitelistCache?.raw === raw) {
-    return tenantWhitelistCache.value;
-  }
-
-  const value = new Set(
-    raw
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean),
+async function loadRemoteTenantConfig(
+  bosUrl: string,
+  io?: ResolutionIo,
+): Promise<RemoteTenantConfig> {
+  let rawConfig: BosConfigInput | undefined;
+  const { chain, config: merged } = await walkExtendsChain(bosUrl, {
+    env: "production",
+    io,
+    visit: async (link) => {
+      if (!rawConfig) {
+        rawConfig = link.config;
+      }
+    },
+  });
+  const config = await resolveConfigComposableEntries(
+    BosConfigSchema.parse(merged),
+    process.cwd(),
+    "production",
   );
-  tenantWhitelistCache = { raw, value };
-  return value;
+  return {
+    rawConfig: rawConfig ?? merged,
+    config,
+    source: bosUrl,
+    extendsChain: chain,
+  };
 }
 
-function getAllowedOverrides(): RuntimeOverrideTarget[] {
-  const raw = process.env.ALLOW_OVERRIDE ?? "";
-  if (allowedOverridesCache?.raw === raw) {
-    return allowedOverridesCache.value;
-  }
-
-  const value = parseRuntimeOverrideTargets(raw);
-  allowedOverridesCache = { raw, value };
-  return value;
-}
-
-function warnUnsupportedOverrideTargets(targets: ReadonlyArray<RuntimeOverrideTarget>) {
-  for (const target of targets) {
-    if (target === "ui" || target === "plugins" || target.startsWith("plugins.")) {
-      continue;
-    }
-
-    if (!unsupportedOverrideWarnings.has(target)) {
-      unsupportedOverrideWarnings.add(target);
-      logger.warn(
-        `[Tenant Runtime] Ignoring unsupported override target "${target}" in fixed-core mode`,
-      );
-    }
-  }
-}
-
-function resolveTenantAccountId(
-  hostname: string,
-  gatewayId: string,
-  namespaceAccountId: string,
-): string | null {
-  const normalizedHost = hostname.toLowerCase();
-  const normalizedGateway = gatewayId.toLowerCase();
-  const normalizedNamespaceAccountId = namespaceAccountId.toLowerCase();
-
-  if (
-    normalizedHost === normalizedGateway ||
-    normalizedHost === "localhost" ||
-    normalizedHost === "127.0.0.1"
-  ) {
-    return null;
-  }
-
-  const suffix = `.${normalizedGateway}`;
-  if (!normalizedHost.endsWith(suffix)) {
-    return null;
-  }
-
-  const tenantLabel = normalizedHost.slice(0, -suffix.length);
-  const tenantSegments = tenantLabel.split(".").filter(Boolean);
-  if (tenantSegments.length === 0 || tenantSegments.join(".") !== tenantLabel) {
-    throw new TenantRuntimeError(`Invalid tenant host: ${hostname}`, 404);
-  }
-
-  const accountId = `${tenantSegments.join(".")}.${normalizedNamespaceAccountId}`;
-  if (!NEAR_ACCOUNT_ID_REGEX.test(accountId)) {
-    throw new TenantRuntimeError(`Invalid tenant account: ${accountId}`, 404);
-  }
-
-  return accountId;
-}
-
-function getRemoteConfigCached(bosUrl: string, env: BosEnv) {
+function getRemoteConfigCached(bosUrl: string, io?: ResolutionIo) {
   const now = Date.now();
   pruneExpiredCacheEntries(remoteConfigCache, now);
   const cached = remoteConfigCache.get(bosUrl);
@@ -193,7 +143,7 @@ function getRemoteConfigCached(bosUrl: string, env: BosEnv) {
     return cached.value;
   }
 
-  const value = loadRemoteConfig(bosUrl, env).catch((error) => {
+  const value = loadRemoteTenantConfig(bosUrl, io).catch((error) => {
     remoteConfigCache.delete(bosUrl);
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes(`No config found for ${bosUrl}`)) {
@@ -217,8 +167,9 @@ function createVerificationPromise(
   url: string,
   integrity: string,
   label: string,
+  options?: { resolveEntryUrl?: boolean },
 ) {
-  const verification = verifySriForUrl(url, integrity).catch((error) => {
+  const verification = verifySriForUrl(url, integrity, options).catch((error) => {
     const cached = verifiedUiCache.get(cacheKey);
     if (cached?.value === verification || cached?.refreshing === verification) {
       verifiedUiCache.delete(cacheKey);
@@ -235,12 +186,16 @@ function scheduleVerificationRefresh(
   url: string,
   integrity: string,
   label: string,
+  options?: { resolveEntryUrl?: boolean },
 ) {
   if (cached.refreshing) {
     return cached.refreshing;
   }
 
-  const refresh = createVerificationPromise(cacheKey, url, integrity, label)
+  const refresh = createVerificationPromise(cacheKey, url, integrity, label, options);
+
+  cached.refreshing = refresh;
+  void refresh
     .then(() => {
       const entry = verifiedUiCache.get(cacheKey);
       if (!entry || entry.refreshing !== refresh) {
@@ -255,10 +210,7 @@ function scheduleVerificationRefresh(
       logger.error(
         `[Tenant Runtime] Integrity refresh failed for ${label}: ${error instanceof Error ? error.message : String(error)}`,
       );
-      throw error;
     });
-
-  cached.refreshing = refresh;
   return refresh;
 }
 
@@ -267,6 +219,7 @@ async function verifyIntegrity(
   integrity: string,
   label: string,
   mode: IntegrityVerificationMode,
+  options?: { resolveEntryUrl?: boolean },
 ) {
   const cacheKey = `${url}::${integrity}`;
   const now = Date.now();
@@ -277,7 +230,7 @@ async function verifyIntegrity(
   }
 
   if (!cached) {
-    const value = createVerificationPromise(cacheKey, url, integrity, label);
+    const value = createVerificationPromise(cacheKey, url, integrity, label, options);
     verifiedUiCache.set(cacheKey, {
       value,
       expiresAt: now + VERIFICATION_TTL_MS,
@@ -294,11 +247,13 @@ async function verifyIntegrity(
   }
 
   if (mode === "stale-while-revalidate") {
-    void scheduleVerificationRefresh(cacheKey, cached, url, integrity, label).catch(() => {});
+    void scheduleVerificationRefresh(cacheKey, cached, url, integrity, label, options).catch(
+      () => {},
+    );
     return cached.value;
   }
 
-  const refresh = scheduleVerificationRefresh(cacheKey, cached, url, integrity, label);
+  const refresh = scheduleVerificationRefresh(cacheKey, cached, url, integrity, label, options);
   await refresh;
 
   const entry = verifiedUiCache.get(cacheKey);
@@ -315,6 +270,19 @@ async function verifyUiIntegrity(config: RuntimeConfig, mode: IntegrityVerificat
       "Tenant UI overrides must define app.ui.production and app.ui.integrity",
       404,
     );
+  }
+
+  if (config.ui.entryUrl) {
+    // pin-derived: the runtime integrity IS the entry SRI — verify the hashed
+    // entry bytes directly (fixed-name resolution would 404 on hashed dists)
+    await verifyIntegrity(
+      config.ui.entryUrl,
+      config.ui.integrity,
+      `tenant UI ${config.ui.entryUrl}`,
+      mode,
+      { resolveEntryUrl: false },
+    );
+    return;
   }
 
   await verifyIntegrity(config.ui.url, config.ui.integrity, `tenant UI ${config.ui.url}`, mode);
@@ -339,21 +307,22 @@ async function verifyPluginUiIntegrity(
     );
   }
 
+  if (plugin.ui.entryUrl) {
+    await verifyIntegrity(
+      plugin.ui.entryUrl,
+      plugin.ui.integrity,
+      `tenant plugin UI ${pluginKey} ${plugin.ui.entryUrl}`,
+      mode,
+      { resolveEntryUrl: false },
+    );
+    return;
+  }
+
   await verifyIntegrity(
     plugin.ui.url,
     plugin.ui.integrity,
     `tenant plugin UI ${pluginKey} ${plugin.ui.url}`,
     mode,
-  );
-}
-
-function isPluginOverrideAllowed(
-  allowedOverrides: ReadonlyArray<RuntimeOverrideTarget>,
-  pluginKey: string,
-): boolean {
-  return (
-    isRuntimeOverrideAllowed(allowedOverrides, "plugins") ||
-    isRuntimeOverrideAllowed(allowedOverrides, `plugins.${pluginKey}`)
   );
 }
 
@@ -372,10 +341,9 @@ function buildEffectiveRuntimeConfig(
   baseConfig: RuntimeConfig,
   tenantConfig: RuntimeConfig,
   tenantAccountId: string,
-  allowedOverrides: ReadonlyArray<RuntimeOverrideTarget>,
+  allowUiOverrides: boolean,
+  allowBackendOverrides: boolean,
 ): RuntimeConfig {
-  warnUnsupportedOverrideTargets(allowedOverrides);
-
   const effectiveConfig: RuntimeConfig = {
     ...baseConfig,
     account: tenantAccountId,
@@ -385,7 +353,7 @@ function buildEffectiveRuntimeConfig(
     repository: tenantConfig.repository,
   };
 
-  if (isRuntimeOverrideAllowed(allowedOverrides, "ui")) {
+  if (allowUiOverrides) {
     effectiveConfig.ui = tenantConfig.ui;
   }
 
@@ -399,7 +367,7 @@ function buildEffectiveRuntimeConfig(
         continue;
       }
 
-      if (!isPluginOverrideAllowed(allowedOverrides, pluginKey)) {
+      if (!allowBackendOverrides) {
         continue;
       }
 
@@ -412,29 +380,6 @@ function buildEffectiveRuntimeConfig(
   return effectiveConfig;
 }
 
-function matchesTenantPattern(accountId: string, pattern: string): boolean {
-  if (pattern === accountId) return true;
-  if (pattern.startsWith("*.") && accountId.endsWith(pattern.slice(1))) return true;
-  return false;
-}
-
-function isSsrAllowed(accountId: string): boolean {
-  if (parseBoolean(process.env.ALLOW_UNTRUSTED_SSR)) {
-    return true;
-  }
-
-  const whitelist = getTenantWhitelist();
-  for (const entry of whitelist) {
-    if (matchesTenantPattern(accountId, entry)) return true;
-  }
-  return false;
-}
-
-function getTenantStatus(remoteConfig: Awaited<ReturnType<typeof getRemoteConfigCached>>): string {
-  const raw = remoteConfig.rawConfig as { status?: string } | undefined;
-  return raw?.status ?? "active";
-}
-
 export async function resolveRequestRuntime(
   baseConfig: RuntimeConfig,
   request: Request,
@@ -443,8 +388,9 @@ export async function resolveRequestRuntime(
   const verificationMode = options?.verification ?? "blocking";
   const url = new URL(request.url);
   const gatewayId = resolveDomain(baseConfig.domain, baseConfig.host.url);
-  const tenantAccountId = resolveTenantAccountId(url.hostname, gatewayId, baseConfig.account);
-  if (!tenantAccountId) {
+  const bindingResolver = options?.bindingResolver ?? createBindingResolver(baseConfig);
+  const binding = await bindingResolver.resolve(url.hostname);
+  if (!binding) {
     return {
       config: baseConfig,
       tenantAccountId: null,
@@ -453,8 +399,16 @@ export async function resolveRequestRuntime(
     };
   }
 
+  const tenantAccountId = binding.accountId;
+  if (binding.status === "suspended") {
+    throw new TenantRuntimeError("Tenant is suspended", 503);
+  }
+  if (binding.status === "pending_deletion") {
+    throw new TenantRuntimeError("Tenant has been deleted", 410);
+  }
+
   const bosUrl = `bos://${tenantAccountId}/${gatewayId}`;
-  const remoteConfig = await getRemoteConfigCached(bosUrl, "production");
+  const remoteConfig = await getRemoteConfigCached(bosUrl, options?.io);
   const baseBosUrl = `bos://${baseConfig.account}/${gatewayId}`;
 
   if (!remoteConfig.extendsChain.includes(baseBosUrl)) {
@@ -483,16 +437,9 @@ export async function resolveRequestRuntime(
     baseConfig,
     tenantRuntimeConfig,
     tenantAccountId,
-    getAllowedOverrides(),
+    binding.allowUiOverrides,
+    binding.allowBackendOverrides,
   );
-
-  const tenantStatus = getTenantStatus(remoteConfig);
-  if (tenantStatus === "suspended") {
-    throw new TenantRuntimeError("Tenant is suspended", 503);
-  }
-  if (tenantStatus === "pending_deletion") {
-    throw new TenantRuntimeError("Tenant has been deleted", 410);
-  }
 
   if (effectiveConfig.ui.url !== baseConfig.ui.url) {
     await verifyUiIntegrity(effectiveConfig, verificationMode);
@@ -510,9 +457,9 @@ export async function resolveRequestRuntime(
   }
 
   const ssrAllowed =
-    Boolean(effectiveConfig.ui.ssrUrl) &&
+    (Boolean(effectiveConfig.ui.ssrEntryUrl) || Boolean(effectiveConfig.ui.ssrUrl)) &&
     Boolean(effectiveConfig.ui.ssrIntegrity) &&
-    isSsrAllowed(tenantAccountId);
+    binding.allowSsr;
 
   return {
     config: ssrAllowed
@@ -523,6 +470,7 @@ export async function resolveRequestRuntime(
             ...effectiveConfig.ui,
             ssrUrl: undefined,
             ssrIntegrity: undefined,
+            ssrEntryUrl: undefined,
           },
         },
     tenantAccountId,

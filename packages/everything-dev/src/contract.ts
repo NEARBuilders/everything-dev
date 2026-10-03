@@ -1,6 +1,13 @@
+import "@orpc/openapi/extensions/route";
 import * as z from "zod";
+import type { DevSessionData, StartSummary } from "./dev-session-data";
 import { oc } from "./sdk";
-import { BosConfigInputSchema, BosConfigSchema, SourceModeSchema } from "./types";
+import {
+  BosConfigInputSchema,
+  BosConfigSchema,
+  SourceModeSchema,
+  StarterLevelSchema,
+} from "./types";
 
 export const PhaseTimingSchema = z.object({
   name: z.string(),
@@ -21,6 +28,7 @@ export const DevOptionsSchema = z.object({
   authPort: z.number().optional(),
   pluginPortStart: z.number().optional(),
   interactive: z.boolean().optional(),
+  logLevel: z.enum(["error", "warn", "info", "debug"]).optional(),
 });
 
 export const DevResultSchema = z.object({
@@ -28,6 +36,7 @@ export const DevResultSchema = z.object({
   description: z.string(),
   processes: z.array(z.string()),
   timings: z.array(PhaseTimingSchema).optional(),
+  session: z.custom<DevSessionData>().optional(),
 });
 
 export const StartOptionsSchema = z.object({
@@ -36,25 +45,33 @@ export const StartOptionsSchema = z.object({
   account: z.string().optional(),
   domain: z.string().optional(),
   env: z.enum(["production", "staging"]).default("production"),
+  registry: z.string().optional(),
+  configPath: z.string().optional(),
 });
 
 export const StartResultSchema = z.object({
   status: z.enum(["running", "error"]),
   url: z.string(),
   error: z.string().optional(),
+  session: z.custom<DevSessionData>().optional(),
+  summary: z.custom<StartSummary>().optional(),
 });
 
 export const BuildOptionsSchema = z.object({
-  packages: z.string().default("all"),
+  packages: z
+    .string()
+    .default("all")
+    .describe(
+      "Comma-separated keys, 'all' (default), or 'local' (only this repo's local plugins hosted via 'local:…')",
+    ),
   force: z.boolean().default(false),
-  deploy: z.boolean().default(false),
 });
 
 export const BuildResultSchema = z.object({
   status: z.enum(["success", "error"]),
+  error: z.string().optional(),
   built: z.array(z.string()),
   skipped: z.array(z.string()).optional(),
-  deployed: z.boolean().optional(),
 });
 
 export const ConfigOptionsSchema = z.object({
@@ -66,6 +83,23 @@ export const ConfigResultSchema = z.object({
   packages: z.array(z.string()),
   remotes: z.array(z.string()),
   full: z.boolean().default(false),
+});
+
+export const RegistryUseOptionsSchema = z.object({
+  from: z.string().describe("Published runtime to compose from (account/gateway or bos:// URL)"),
+  sections: z
+    .array(z.string())
+    .min(1)
+    .describe("Sections to compose: app.ui, app.host, app.api, app.auth, plugins.<key>"),
+  dryRun: z.boolean().default(false),
+});
+
+export const RegistryUseResultSchema = z.object({
+  status: z.enum(["updated", "dry-run", "error"]),
+  from: z.string(),
+  applied: z.array(z.string()),
+  configPath: z.string().optional(),
+  error: z.string().optional(),
 });
 
 export const PluginAddOptionsSchema = z.object({
@@ -119,10 +153,9 @@ export const PluginPublishResultSchema = z.object({
   status: z.enum(["published", "error"]),
   key: z.string(),
   path: z.string().optional(),
-  script: z.string().optional(),
   production: z.string().optional(),
-  integrity: z.string().optional(),
   version: z.string().optional(),
+  fingerprint: z.string().optional(),
   error: z.string().optional(),
 });
 
@@ -130,27 +163,63 @@ export const WorkspaceDeployResultSchema = z.object({
   key: z.string(),
   kind: z.enum(["app", "plugin"]),
   success: z.boolean(),
-  url: z.string().optional(),
   error: z.string().optional(),
-  warnings: z.array(z.string()).optional(),
   durationMs: z.number().optional(),
-  retried: z.boolean().optional(),
 });
 
 export const PublishOptionsSchema = z.object({
-  deploy: z.boolean().default(false),
   dryRun: z.boolean().default(false),
   verbose: z.boolean().default(false),
-  packages: z.string().default("all"),
   network: z.enum(["mainnet", "testnet"]).optional(),
   privateKey: z.string().optional(),
+  wallet: z.boolean().default(false),
   env: z.enum(["production", "staging"]).default("production"),
+  registry: z.string().optional(),
+});
+
+export const RollbackOptionsSchema = z.object({
+  listOnly: z.boolean().default(false),
+  version: z.string().optional(),
+  previous: z.boolean().default(false),
+  force: z.boolean().default(false),
+  limit: z.number().int().min(1).max(200).default(20),
+  dryRun: z.boolean().default(false),
+  verbose: z.boolean().default(false),
+  network: z.enum(["mainnet", "testnet"]).optional(),
+  privateKey: z.string().optional(),
+  wallet: z.boolean().default(false),
+  env: z.enum(["production", "staging"]).default("production"),
+  registry: z.string().optional(),
+});
+
+export const RollbackHistoryEntrySchema = z.object({
+  blockHeight: z.number(),
+  blockTimestamp: z.string(),
+  txHash: z.string().optional(),
+  summary: z.string(),
+});
+
+export const RollbackSlotCheckSchema = z.object({
+  slot: z.string(),
+  ok: z.boolean(),
+  reason: z.string().optional(),
+});
+
+export const RollbackResultSchema = z.object({
+  status: z.enum(["published", "error", "dry-run", "list"]),
+  registryUrl: z.string(),
+  txHash: z.string().optional(),
+  error: z.string().optional(),
+  history: z.array(RollbackHistoryEntrySchema).optional(),
+  verification: z.array(RollbackSlotCheckSchema).optional(),
 });
 
 export const PublishResultSchema = z.object({
   status: z.enum(["published", "error", "dry-run"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
+  fingerprint: z.string().optional(),
+  slotPins: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
   built: z.array(z.string()).optional(),
   skipped: z.array(z.string()).optional(),
@@ -158,23 +227,41 @@ export const PublishResultSchema = z.object({
 });
 
 export const DeployOptionsSchema = z.object({
+  statusList: z.boolean().default(false),
   env: z.enum(["production", "staging"]).default("production"),
   build: z.boolean().default(true),
   dryRun: z.boolean().default(false),
   verbose: z.boolean().default(false),
-  packages: z.string().default("all"),
+  packages: z
+    .string()
+    .default("all")
+    .describe(
+      "Comma-separated keys, 'all' (default), or 'local' (only this repo's local plugins hosted via 'local:…')",
+    ),
   network: z.enum(["mainnet", "testnet"]).optional(),
   privateKey: z.string().optional(),
   service: z.string().optional(),
+  registry: z.string().optional(),
+});
+
+export const DeployManifestListEntrySchema = z.object({
+  key: z.string(),
+  blockHeight: z.number(),
+  blockTimestamp: z.string(),
+  txHash: z.string().optional(),
+  publishedAt: z.string().optional(),
 });
 
 export const DeployResultSchema = z.object({
-  status: z.enum(["deployed", "published", "error", "dry-run"]),
+  status: z.enum(["deployed", "published", "error", "dry-run", "list"]),
   registryUrl: z.string(),
   txHash: z.string().optional(),
+  fingerprint: z.string().optional(),
+  slotPins: z.record(z.string(), z.string()).optional(),
+  history: z.array(DeployManifestListEntrySchema).optional(),
   built: z.array(z.string()).optional(),
   skipped: z.array(z.string()).optional(),
-  redeployed: z.boolean(),
+  image: z.string().optional(),
   service: z.string().optional(),
   error: z.string().optional(),
   deployResults: z.array(WorkspaceDeployResultSchema).optional(),
@@ -184,7 +271,7 @@ function parseNearAmount(value: string): number {
   const cleaned = value.replace(/[\s_,]/g, "");
   const match = cleaned.match(/^(\d+(?:\.\d+)?)near$/i);
   if (!match) return NaN;
-  return Number.parseFloat(match[1]);
+  return Number.parseFloat(match[1]!);
 }
 
 const MIN_PUBLISH_ALLOWANCE_NEAR = 0.3;
@@ -202,12 +289,16 @@ export const KeyPublishOptionsSchema = z.object({
         message: `Allowance must be at least ${MIN_PUBLISH_ALLOWANCE_NEAR} NEAR to cover the transaction cost`,
       },
     ),
+  env: z.enum(["production", "staging"]).default("production"),
+  registry: z.string().optional(),
+  removeOldKeys: z.boolean().optional(),
 });
 
 export const KeyPublishResultSchema = z.object({
   status: z.enum(["published", "error"]),
   account: z.string(),
   network: z.enum(["mainnet", "testnet"]),
+  env: z.enum(["production", "staging"]),
   contract: z.string(),
   allowance: z.string(),
   functionNames: z.array(z.string()),
@@ -217,6 +308,47 @@ export const KeyPublishResultSchema = z.object({
 });
 
 export const OverrideSectionSchema = z.enum(["ui", "api", "host", "plugins"]);
+
+const DEFAULT_LOGIN_EXPIRES_IN_SECONDS = 90 * 24 * 60 * 60;
+
+export const LoginOptionsSchema = z.object({
+  key: z.boolean().default(false),
+  site: z.string().optional(),
+  expiresIn: z.number().int().positive().default(DEFAULT_LOGIN_EXPIRES_IN_SECONDS),
+  device: z.string().optional(),
+  env: z.enum(["production", "staging"]).default("production"),
+  registry: z.string().optional(),
+});
+
+export const LoginResultSchema = z.object({
+  status: z.enum(["logged-in", "error"]),
+  siteUrl: z.string(),
+  accountId: z.string().nullish(),
+  expiresAt: z.string().nullish(),
+  loginUrl: z.string().nullish(),
+  publishKey: z
+    .object({
+      publicKey: z.string(),
+      network: z.enum(["mainnet", "testnet"]),
+      contract: z.string(),
+      exportedTo: z.string(),
+    })
+    .nullish(),
+  warning: z.string().nullish(),
+  error: z.string().optional(),
+});
+
+export const LogoutOptionsSchema = z.object({
+  configDir: z.string().optional(),
+});
+
+export const LogoutResultSchema = z.object({
+  status: z.enum(["logged-out", "error"]),
+  revokedApiKey: z.boolean(),
+  removedPublishKey: z.boolean(),
+  warning: z.string().nullish(),
+  error: z.string().optional(),
+});
 
 export const RuntimeOverrideTargetBaseSchema = z.enum(["ui", "api", "plugins"]);
 
@@ -233,6 +365,7 @@ export const InitOptionsSchema = z.object({
   source: z.string().optional(),
   plugins: z.array(z.string()).optional(),
   overrides: z.array(OverrideSectionSchema).optional(),
+  level: StarterLevelSchema.optional(),
   noInteractive: z.boolean().default(false),
   noInstall: z.boolean().default(false),
 });
@@ -294,8 +427,16 @@ export const UpgradeResultSchema = z.object({
   error: z.string().optional(),
 });
 
+export const DeployedVersionStatusSchema = z.object({
+  publishedFingerprint: z.string(),
+  servedFingerprint: z.string().optional(),
+  inSync: z.boolean(),
+  error: z.string().optional(),
+});
+
 export const StatusResultSchema = z.object({
   status: z.enum(["ok", "error"]),
+  deployedVersion: DeployedVersionStatusSchema.optional(),
   extends: z.string().optional(),
   account: z.string().optional(),
   domain: z.string().optional(),
@@ -409,6 +550,17 @@ export const PsResultSchema = z.object({
   error: z.string().optional(),
 });
 
+export const LogsOptionsSchema = z.object({
+  service: z.string().optional(),
+  tail: z.number().int().positive().max(100_000).optional(),
+  follow: z.boolean().optional(),
+});
+
+export const LogsResultSchema = z.object({
+  logFile: z.string(),
+  lines: z.array(z.string()),
+});
+
 export const KillOptionsSchema = z.object({
   configDir: z.string().optional(),
   signal: z.enum(["SIGTERM", "SIGKILL"]).default("SIGTERM"),
@@ -421,6 +573,105 @@ export const KillResultSchema = z.object({
   skipped: z.array(z.object({ pid: z.number(), reason: z.string() })),
   error: z.string().optional(),
 });
+
+export const TypecheckOptionsSchema = z.object({
+  packages: z.string().default("all"),
+});
+
+export const TypecheckWorkspaceResultSchema = z.object({
+  workspace: z.string(),
+  passed: z.boolean(),
+  output: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const TypecheckResultSchema = z.object({
+  status: z.enum(["success", "error"]),
+  checked: z.array(z.string()),
+  skipped: z.array(z.string()),
+  results: z.array(TypecheckWorkspaceResultSchema),
+  error: z.string().optional(),
+});
+
+export const InfraExportServiceSchema = z.object({
+  key: z.string(),
+  image: z.string(),
+  env: z.record(z.string(), z.string()).default({}),
+  ports: z.array(z.string()),
+  healthcheck: z
+    .object({
+      test: z.array(z.string()),
+      interval: z.string(),
+      timeout: z.string(),
+      retries: z.number(),
+    })
+    .optional(),
+  volumes: z.array(z.string()).default([]),
+});
+
+export const InfraExportOptionsSchema = z.object({
+  target: z.enum(["ci", "local"]).default("ci"),
+  network: z.enum(["mainnet", "testnet"]).optional(),
+  configDir: z.string().optional(),
+});
+
+export const InfraExportResultSchema = z.object({
+  env: z.record(z.string(), z.string()),
+  services: z.array(InfraExportServiceSchema),
+  generatedAt: z.string(),
+  project: z.string(),
+  account: z.string(),
+  gateway: z.string(),
+});
+
+export const MfCheckOptionsSchema = z.object({
+  timeoutMs: z.number().default(15_000),
+});
+
+export const MfCheckRemoteResultSchema = z.object({
+  role: z.string(),
+  url: z.string(),
+  reachable: z.boolean(),
+  pluginVersion: z.string().nullable(),
+  ok: z.boolean(),
+  reason: z.string().optional(),
+});
+
+export const MfCheckResultSchema = z.object({
+  status: z.enum(["ok", "fail"]),
+  hostVersion: z.string().nullable(),
+  hostReachable: z.boolean(),
+  hostReason: z.string().optional(),
+  remotes: z.array(MfCheckRemoteResultSchema),
+});
+
+export const commandOptionSchemas = {
+  dev: DevOptionsSchema,
+  start: StartOptionsSchema,
+  build: BuildOptionsSchema,
+  config: ConfigOptionsSchema,
+  registryUse: RegistryUseOptionsSchema,
+  pluginAdd: PluginAddOptionsSchema,
+  pluginRemove: PluginRemoveOptionsSchema,
+  pluginPublish: PluginPublishOptionsSchema,
+  publish: PublishOptionsSchema,
+  rollback: RollbackOptionsSchema,
+  deploy: DeployOptionsSchema,
+  keyPublish: KeyPublishOptionsSchema,
+  login: LoginOptionsSchema,
+  logout: LogoutOptionsSchema,
+  init: InitOptionsSchema,
+  sync: SyncOptionsSchema,
+  upgrade: UpgradeOptionsSchema,
+  typecheck: TypecheckOptionsSchema,
+  mfCheck: MfCheckOptionsSchema,
+  infraExport: InfraExportOptionsSchema,
+  dbStudio: DbStudioOptionsSchema,
+  dbDoctor: DbDoctorOptionsSchema,
+  dbRepair: DbRepairOptionsSchema,
+  logs: LogsOptionsSchema,
+  kill: KillOptionsSchema,
+} satisfies Partial<Record<keyof typeof bosContract, z.ZodType>>;
 
 export const bosContract = oc.router({
   dev: oc.route({ method: "POST", path: "/dev" }).input(DevOptionsSchema).output(DevResultSchema),
@@ -436,6 +687,10 @@ export const bosContract = oc.router({
     .route({ method: "GET", path: "/config" })
     .input(ConfigOptionsSchema)
     .output(ConfigResultSchema),
+  registryUse: oc
+    .route({ method: "POST", path: "/registry/use" })
+    .input(RegistryUseOptionsSchema)
+    .output(RegistryUseResultSchema),
   pluginAdd: oc
     .route({ method: "POST", path: "/plugin/add" })
     .input(PluginAddOptionsSchema)
@@ -453,6 +708,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/publish" })
     .input(PublishOptionsSchema)
     .output(PublishResultSchema),
+  rollback: oc
+    .route({ method: "POST", path: "/rollback" })
+    .input(RollbackOptionsSchema)
+    .output(RollbackResultSchema),
   deploy: oc
     .route({ method: "POST", path: "/deploy" })
     .input(DeployOptionsSchema)
@@ -461,6 +720,14 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/key/publish" })
     .input(KeyPublishOptionsSchema)
     .output(KeyPublishResultSchema),
+  login: oc
+    .route({ method: "POST", path: "/login" })
+    .input(LoginOptionsSchema)
+    .output(LoginResultSchema),
+  logout: oc
+    .route({ method: "POST", path: "/logout" })
+    .input(LogoutOptionsSchema)
+    .output(LogoutResultSchema),
   init: oc
     .route({ method: "POST", path: "/init" })
     .input(InitOptionsSchema)
@@ -491,10 +758,26 @@ export const bosContract = oc.router({
     .input(DbRepairOptionsSchema)
     .output(DbRepairResultSchema),
   ps: oc.route({ method: "GET", path: "/ps" }).output(PsResultSchema),
+  logs: oc
+    .route({ method: "GET", path: "/logs" })
+    .input(LogsOptionsSchema)
+    .output(LogsResultSchema),
   kill: oc
     .route({ method: "POST", path: "/kill" })
     .input(KillOptionsSchema)
     .output(KillResultSchema),
+  typecheck: oc
+    .route({ method: "POST", path: "/typecheck" })
+    .input(TypecheckOptionsSchema)
+    .output(TypecheckResultSchema),
+  mfCheck: oc
+    .route({ method: "POST", path: "/mf/check" })
+    .input(MfCheckOptionsSchema)
+    .output(MfCheckResultSchema),
+  infraExport: oc
+    .route({ method: "POST", path: "/infra/export" })
+    .input(InfraExportOptionsSchema)
+    .output(InfraExportResultSchema),
 });
 
 export type DevOptions = z.infer<typeof DevOptionsSchema>;
@@ -517,6 +800,10 @@ export type DeployOptions = z.infer<typeof DeployOptionsSchema>;
 export type DeployResult = z.infer<typeof DeployResultSchema>;
 export type KeyPublishOptions = z.infer<typeof KeyPublishOptionsSchema>;
 export type KeyPublishResult = z.infer<typeof KeyPublishResultSchema>;
+export type LoginOptions = z.infer<typeof LoginOptionsSchema>;
+export type LoginResult = z.infer<typeof LoginResultSchema>;
+export type LogoutOptions = z.infer<typeof LogoutOptionsSchema>;
+export type LogoutResult = z.infer<typeof LogoutResultSchema>;
 export type InitOptions = z.infer<typeof InitOptionsSchema>;
 export type InitResult = z.infer<typeof InitResultSchema>;
 export type OverrideSection = z.infer<typeof OverrideSectionSchema>;
@@ -538,5 +825,15 @@ export type RuntimeOverrideTarget = z.infer<typeof RuntimeOverrideTargetSchema>;
 export type ProcessRole = z.infer<typeof ProcessRoleSchema>;
 export type PidEntry = z.infer<typeof PidEntrySchema>;
 export type PsResult = z.infer<typeof PsResultSchema>;
+export type LogsOptions = z.infer<typeof LogsOptionsSchema>;
+export type LogsResult = z.infer<typeof LogsResultSchema>;
 export type KillOptions = z.infer<typeof KillOptionsSchema>;
 export type KillResult = z.infer<typeof KillResultSchema>;
+export type TypecheckOptions = z.infer<typeof TypecheckOptionsSchema>;
+export type TypecheckResult = z.infer<typeof TypecheckResultSchema>;
+export type TypecheckWorkspaceResult = z.infer<typeof TypecheckWorkspaceResultSchema>;
+export type InfraExportOptions = z.infer<typeof InfraExportOptionsSchema>;
+export type MfCheckOptions = z.infer<typeof MfCheckOptionsSchema>;
+export type MfCheckResult = z.infer<typeof MfCheckResultSchema>;
+export type InfraExportResult = z.infer<typeof InfraExportResultSchema>;
+export type InfraExportService = z.infer<typeof InfraExportServiceSchema>;

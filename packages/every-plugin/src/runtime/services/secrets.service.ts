@@ -1,4 +1,4 @@
-import { Context, Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import * as z from "zod";
 import type { SecretsConfig } from "../../types";
 import { PluginRuntimeError } from "../errors";
@@ -9,13 +9,21 @@ const configSchema = z
   })
   .passthrough();
 
-export class SecretsConfigTag extends Context.Tag("SecretsConfig")<
-  SecretsConfigTag,
-  SecretsConfig
->() {}
+export class SecretsConfigTag extends Context.Service<SecretsConfigTag, SecretsConfig>()(
+  "SecretsConfig",
+) {}
 
-export class SecretsService extends Effect.Service<SecretsService>()("SecretsService", {
-  effect: Effect.gen(function* () {
+export interface SecretsServiceShape {
+  hydrateSecrets: <T>(config: T) => Effect.Effect<T, PluginRuntimeError>;
+}
+
+export class SecretsService extends Context.Service<SecretsService, SecretsServiceShape>()(
+  "SecretsService",
+) {}
+
+export const SecretsServiceDefault = Layer.effect(
+  SecretsService,
+  Effect.gen(function* () {
     const secrets = yield* SecretsConfigTag;
 
     const hydrateValue = (value: unknown): unknown => {
@@ -57,18 +65,15 @@ export class SecretsService extends Effect.Service<SecretsService>()("SecretsSer
       hydrateSecrets: <T>(config: T) =>
         Effect.gen(function* () {
           const parseResult = configSchema.parse(config);
-          try {
-            return hydrateValue(parseResult) as T;
-          } catch (error) {
-            return yield* Effect.fail(
+          return yield* Effect.try({
+            try: () => hydrateValue(parseResult) as T,
+            catch: (error) =>
               new PluginRuntimeError({
                 operation: "hydrate-secrets",
                 cause: error instanceof Error ? error : new Error(String(error)),
-                retryable: false,
               }),
-            );
-          }
+          });
         }),
     };
   }),
-}) {}
+);

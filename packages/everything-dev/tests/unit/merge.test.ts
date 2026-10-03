@@ -504,8 +504,9 @@ describe("BOS_CONFIG_ORDER", () => {
 
   it("has app and plugins at end in order", () => {
     const len = BOS_CONFIG_ORDER.length;
-    expect(BOS_CONFIG_ORDER[len - 2]).toBe("app");
-    expect(BOS_CONFIG_ORDER[len - 1]).toBe("plugins");
+    expect(BOS_CONFIG_ORDER[len - 3]).toBe("app");
+    expect(BOS_CONFIG_ORDER[len - 2]).toBe("plugins");
+    expect(BOS_CONFIG_ORDER[len - 1]).toBe("rolledBackFrom");
   });
 
   it("includes all expected fields", () => {

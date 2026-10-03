@@ -1,0 +1,73 @@
+{
+  "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
+  "extends": ["./node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
+  "jsPlugins": ["@shadcn/lint"],
+  "settings": {
+    "shadcn": {
+      "note": "Follow ui/DESIGN.md: semantic tokens, component variants and sizes, layout-only className."
+    }
+  },
+  "rules": {
+    "effecttsgo/node-builtin-import": "off",
+    "effecttsgo/async-function": "off",
+    "effecttsgo/global-console": "off",
+    "effecttsgo/process-env": "off",
+    "effecttsgo/global-date": "off",
+    "effecttsgo/global-fetch": "off",
+    "effecttsgo/new-promise": "off",
+    "effecttsgo/crypto-random-uuid": "off",
+    "effecttsgo/global-timers": "off",
+    "effecttsgo/global-random": "off"
+  },
+  "ignorePatterns": [
+    "plans",
+    "node_modules",
+    "repos",
+    "repos/**",
+    "dist",
+    "dist-*",
+    "**/*.gen.ts",
+    "**/types.gen.ts"
+  ],
+  "overrides": [
+    {
+      "files": ["ui/src/**/*.{ts,tsx}", "plugins/auth/ui/src/**/*.{ts,tsx}"],
+      "rules": {
+        "shadcn/no-restyle": [
+          "error",
+          {
+            "allow": ["layout"],
+            "contracts": [
+              {
+                "pattern": "^(Card|CardHeader|CardContent|CardFooter|TabsContent|SheetHeader|SheetFooter|DialogHeader|DialogFooter|SidebarContent|SidebarGroup)$",
+                "allow": ["layout", "spacing"]
+              },
+              {
+                "pattern": "^Skeleton$",
+                "allow": ["layout", "spacing", "shape"]
+              },
+              {
+                "pattern": "^(Input|Textarea|InputGroupInput|InputGroupTextarea|Badge)$",
+                "allow": ["layout", "font-mono"]
+              }
+            ]
+          }
+        ],
+        "shadcn/no-raw-colors": "error",
+        "shadcn/no-arbitrary-values": "error",
+        "shadcn/no-unknown-classes": "error",
+        "shadcn/no-inline-styles": "warn",
+        "shadcn/require-static-classes": "warn"
+      }
+    },
+    {
+      "files": ["ui/src/components/ui/**", "plugins/auth/ui/src/components/ui/**"],
+      "rules": {
+        "shadcn/no-restyle": "off",
+        "shadcn/no-arbitrary-values": "off",
+        "shadcn/require-static-classes": "off",
+        "shadcn/no-unknown-classes": "off"
+      }
+    }
+  ]
+}

@@ -78,7 +78,7 @@ function buildStaticAssetProxyHeaders(req: Request) {
 
 export async function proxyStaticAssetRequest(req: Request, targetBase: string): Promise<Response> {
   const url = new URL(req.url);
-  const targetUrl = `${targetBase}${url.pathname}${url.search}`;
+  const targetUrl = `${targetBase.replace(/\/$/, "")}${url.pathname}${url.search}`;
 
   const response = await proxy(targetUrl, {
     raw: req,
@@ -92,7 +92,10 @@ export async function proxyStaticAssetRequest(req: Request, targetBase: string):
   return response;
 }
 
-export function createStaticAssetProxyHandler(config: RuntimeConfig) {
+export function createStaticAssetProxyHandler(
+  config: RuntimeConfig,
+  getBaseConfig?: () => Promise<RuntimeConfig>,
+) {
   return async (c: Context<HonoEnv>, next: () => Promise<void>) => {
     const { pathname } = new URL(c.req.url);
 
@@ -100,6 +103,7 @@ export function createStaticAssetProxyHandler(config: RuntimeConfig) {
       pathname === "/" ||
       pathname === "/api" ||
       pathname.startsWith("/api/") ||
+      pathname.startsWith("/bundles/") ||
       pathname === "/health"
     ) {
       return next();
@@ -111,7 +115,8 @@ export function createStaticAssetProxyHandler(config: RuntimeConfig) {
     }
 
     try {
-      const runtime = await resolveRequestRuntime(config, c.req.raw, {
+      const baseConfig = getBaseConfig ? await getBaseConfig() : config;
+      const runtime = await resolveRequestRuntime(baseConfig, c.req.raw, {
         verification: "stale-while-revalidate",
       });
       return await proxyStaticAssetRequest(c.req.raw, runtime.config.ui.url);

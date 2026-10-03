@@ -1,0 +1,201 @@
+import { createHash } from "node:crypto";
+import { MemoryPublisher } from "@orpc/publisher/memory";
+import { and, count, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { Context, Effect, Layer } from "effect";
+import type { z } from "zod";
+import type { VoteEventSchema } from "../contract";
+import { DatabaseTag } from "../db/layer";
+import { upvotes } from "../db/schema";
+
+type VoteEventDetail = z.infer<typeof VoteEventSchema>;
+
+type VoteEvents = {
+  vote: VoteEventDetail;
+};
+
+function generateId(): string {
+  return `uv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+export function voteChannel(userId: string): string {
+  return createHash("sha256").update(userId).digest("hex").slice(0, 16);
+}
+
+function createVoteMethods(db: any, publisher: MemoryPublisher<VoteEvents>) {
+  return {
+    async upvote(entityId: string, userId: string) {
+      try {
+        await db.insert(upvotes).values({
+          id: generateId(),
+          entityId,
+          userId,
+        });
+      } catch (error) {
+        const [existing] = await db
+          .select({ id: upvotes.id })
+          .from(upvotes)
+          .where(and(eq(upvotes.entityId, entityId), eq(upvotes.userId, userId)))
+          .limit(1);
+        if (!existing) throw error;
+      }
+
+      const [result] = await db
+        .select({ count: count() })
+        .from(upvotes)
+        .where(eq(upvotes.entityId, entityId));
+
+      const totalCount = result?.count ?? 0;
+
+      await publisher.publish("vote", {
+        type: "upvote",
+        entityId,
+        userId: voteChannel(userId),
+        timestamp: new Date().toISOString(),
+        totalCount,
+      });
+
+      return { entityId, userId, totalCount };
+    },
+
+    async downvote(entityId: string, userId: string) {
+      await db
+        .delete(upvotes)
+        .where(and(eq(upvotes.entityId, entityId), eq(upvotes.userId, userId)));
+
+      const [result] = await db
+        .select({ count: count() })
+        .from(upvotes)
+        .where(eq(upvotes.entityId, entityId));
+
+      const totalCount = result?.count ?? 0;
+
+      await publisher.publish("vote", {
+        type: "downvote",
+        entityId,
+        userId: voteChannel(userId),
+        timestamp: new Date().toISOString(),
+        totalCount,
+      });
+
+      return { entityId, totalCount };
+    },
+
+    async getUpvoteCount(entityId: string) {
+      const [result] = await db
+        .select({ count: count() })
+        .from(upvotes)
+        .where(eq(upvotes.entityId, entityId));
+
+      return { entityId, totalCount: result?.count ?? 0 };
+    },
+
+    async getUserVote(entityId: string, userId: string) {
+      const [result] = await db
+        .select({ count: count() })
+        .from(upvotes)
+        .where(and(eq(upvotes.entityId, entityId), eq(upvotes.userId, userId)));
+      return { entityId, hasUpvote: (result?.count ?? 0) > 0 };
+    },
+
+    async getUpvoteCounts(entityIds: string[]) {
+      if (entityIds.length === 0) return {};
+      const results = await db
+        .select({
+          entityId: upvotes.entityId,
+          count: count(),
+        })
+        .from(upvotes)
+        .where(inArray(upvotes.entityId, entityIds))
+        .groupBy(upvotes.entityId);
+
+      const map: Record<string, { entityId: string; totalCount: number }> = {};
+      for (const entityId of entityIds) {
+        const found = results.find(
+          (r: { entityId: string; count: number }) => r.entityId === entityId,
+        );
+        map[entityId] = { entityId, totalCount: found?.count ?? 0 };
+      }
+      return map;
+    },
+
+    async getUserVotes(entityIds: string[], userId: string) {
+      if (entityIds.length === 0) return {};
+      const results = await db
+        .select({
+          entityId: upvotes.entityId,
+          count: count(),
+        })
+        .from(upvotes)
+        .where(and(inArray(upvotes.entityId, entityIds), eq(upvotes.userId, userId)))
+        .groupBy(upvotes.entityId);
+
+      const map: Record<string, { entityId: string; hasUpvote: boolean }> = {};
+      for (const entityId of entityIds) {
+        const found = results.find(
+          (r: { entityId: string; count: number }) => r.entityId === entityId,
+        );
+        map[entityId] = { entityId, hasUpvote: (found?.count ?? 0) > 0 };
+      }
+      return map;
+    },
+
+    async getUpvoteFeed(limit = 50, cursor?: string) {
+      const pageLimit = Math.min(limit, 100);
+      let recordsQuery = db.select().from(upvotes);
+
+      if (cursor) {
+        const [cursorRow] = await db
+          .select({ id: upvotes.id, createdAt: upvotes.createdAt })
+          .from(upvotes)
+          .where(eq(upvotes.id, cursor))
+          .limit(1);
+
+        const cursorCondition = cursorRow
+          ? or(
+              lt(upvotes.createdAt, cursorRow.createdAt),
+              and(eq(upvotes.createdAt, cursorRow.createdAt), lt(upvotes.id, cursorRow.id)),
+            )
+          : eq(upvotes.id, cursor);
+        recordsQuery = recordsQuery.where(cursorCondition);
+      }
+
+      const records = await recordsQuery
+        .orderBy(desc(upvotes.createdAt), desc(upvotes.id))
+        .limit(pageLimit + 1);
+
+      const hasMore = records.length > pageLimit;
+      const data = records.slice(0, pageLimit).map((r: any) => ({
+        id: r.id,
+        entityId: r.entityId,
+        channel: voteChannel(r.userId),
+        createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
+      }));
+
+      return {
+        data,
+        meta: {
+          total: data.length,
+          hasMore,
+          nextCursor: hasMore ? (data[data.length - 1]?.id ?? null) : null,
+        },
+      };
+    },
+  };
+}
+
+type VoteMethods = ReturnType<typeof createVoteMethods>;
+
+export class VoteService extends Context.Service<
+  VoteService,
+  VoteMethods & { publisher: MemoryPublisher<VoteEvents> }
+>()("votes/VoteService") {}
+
+export const VoteServiceLive = Layer.effect(
+  VoteService,
+  Effect.gen(function* () {
+    const db = yield* DatabaseTag;
+    const publisher = new MemoryPublisher<VoteEvents>({ resume: { enabled: true, seconds: 120 } });
+    const methods = createVoteMethods(db, publisher);
+    return { ...methods, publisher };
+  }),
+);

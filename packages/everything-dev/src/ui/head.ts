@@ -1,4 +1,5 @@
 import type { ClientRuntimeConfig } from "../types";
+import { type EntrySlot, entryUrls } from "./slot";
 import type { HeadScript } from "./types";
 
 export interface RemoteScriptsOptions {
@@ -12,12 +13,12 @@ export interface RemoteScriptsOptions {
 export function getThemeInitScript(): HeadScript {
   return {
     children:
-      "(function(){var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');}})();",
+      "(function(){var t=localStorage.getItem('theme');if(t==='dark'){document.documentElement.classList.add('dark');}})();",
   };
 }
 
 function escapeJsonForScript(value: unknown): string {
-  return JSON.stringify(value)
+  return JSON.stringify(value ?? null)
     .replace(/<\/script/gi, "<\\/script")
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
@@ -68,13 +69,21 @@ export function getHydrateScript(
 export function getRemoteScripts(options: RemoteScriptsOptions): HeadScript[] {
   const { runtimeConfig, containerName, hydratePath, integrity, cspNonce } = options;
   const assetsUrl = runtimeConfig?.assetsUrl?.replace(/\/$/, "");
+  const slot: EntrySlot = {
+    name: "ui",
+    url: assetsUrl,
+    entryUrl: runtimeConfig?.ui?.entryUrl,
+    integrity,
+  };
+  const entrySrc = entryUrls(slot, runtimeConfig?.env ?? "production").web;
   const entryScript: HeadScript = {
-    src: `${assetsUrl ?? ""}/remoteEntry.js${integrity ? `?v=${encodeURIComponent(integrity)}` : ""}`,
+    src: entrySrc,
+    crossOrigin: "anonymous",
   };
   if (integrity) {
     entryScript.integrity = integrity;
-    entryScript.crossOrigin = "anonymous";
   }
+
   return [entryScript, getHydrateScript(runtimeConfig, containerName, hydratePath, cspNonce)];
 }
 

@@ -17,22 +17,21 @@ export default createPlugin.withPlugins<PluginsClient>()({
   secrets: z.object({ /* typed env vars, defaults for dev */ }),
   context: z.object({ /* per-request context injected by host */ }),
   contract,
-  initialize: (config, plugins, tools) =>
+  initialize: (config, plugins) =>
     Effect.gen(function* () {
-      const registry = yield* tools.buildService(
+      const registry = yield* buildScoped(
         RegistryTag,
         RegistryLive.pipe(Layer.provide(DatabaseLive(config.secrets.API_DATABASE_URL))),
       );
       return { registry, publisher, auth: plugins.auth, plugins };
     }),
-  shutdown: (deps) => Effect.promise(async () => { /* cleanup */ }),
-  createRouter: (deps, builder) => ({
+  createRouter: (builder, plugins) => ({
     ping: builder.ping.handler(async () => ({ status: "ok", timestamp })),
   }),
 });
 ```
 
-Fields: `variables` (public config), `secrets` (private env), `context` (per-request host context), `contract` (oRPC router), `initialize` (startup, returns services; third arg `tools` for scoped resources), `createRouter` (maps procedures to handlers), `shutdown` (cleanup). `plugins` in `initialize` gives typed factories for all other plugins. Use `tools.buildService(tag, layer)` for DB-backed services, caches, and other scoped resources.
+Fields: `variables` (public config), `secrets` (private env), `context` (per-request host context), `contract` (oRPC router), `initialize` (startup — build a Layer and let the runtime scope it), `createRouter` (maps procedures to handlers; `(builder, plugins)`). `plugins` in `initialize` gives typed factories for all other plugins. Use `buildScoped(tag, layer)` from `"every-plugin"` for DB-backed services, caches, and other scoped resources — teardown lives in Layer finalizers (there is no `shutdown`).
 
 ## oRPC Contract Design
 
@@ -40,8 +39,8 @@ Defined in `api/src/contract.ts`:
 
 ```ts
 import { BAD_REQUEST, NOT_FOUND, UNAUTHORIZED } from "every-plugin/errors";
-import { eventIterator, oc } from "every-plugin/orpc";
-import { z } from "every-plugin/zod";
+import { eventIterator, oc } from "@orpc/contract";
+import { z } from "zod";
 
 export const contract = oc.router({
   ping: oc.route({ method: "GET", path: "/ping" }).output(
@@ -119,7 +118,7 @@ See `references/middleware.md` for the full middleware table, org metadata valid
 Use `ORPCError` from `every-plugin/errors`:
 
 ```ts
-import { ORPCError } from "every-plugin/orpc";
+import { ORPCError } from "@orpc/server";
 import { BAD_REQUEST, UNAUTHORIZED } from "every-plugin/errors";
 
 throw new ORPCError("UNAUTHORIZED", {
@@ -308,22 +307,23 @@ Rules: API owns `thingId`, `pluginId`, timestamps. Plugin owns `type` and `paylo
 
 ### Effect and DB Lifecycle
 
-Prefer `Layer` for long-lived resources (DB, service singletons) and `Effect` for the work itself. Use `runEffect()` to bridge Effect and async handlers with clean ORPC error boundaries — unwraps `ORPCError` from Effect and converts unknown errors to `INTERNAL_SERVER_ERROR`:
+Prefer `Layer` for long-lived resources (DB, service singletons) and `Effect` for the work itself. Handlers are Effect-native: use `.effect()` generator handlers and access services with `yield* Tag` — oRPC bridges to async at the boundary (plain async handlers read services via `Context.get(context["effect/context"], Tag)`):
 
 ```ts
-import { runEffect } from "@/lib/context";
-
-const result = await runEffect(services.myService.doSomething(input));
+ping: builder.ping.effect(function* () {
+  const myService = yield* MyServiceTag;
+  return yield* myService.doSomething();
+}),
 ```
 
-Best practices: Keep service interfaces Effect-native, bridge to async only at the handler boundary via `runEffect()`. Use `Context.Tag` for DI between services.
+Best practices: Keep service interfaces Effect-native. Use `Context.Service<Self, Shape>()("id")` class tags for DI between services (Effect 4 removed `Context.Tag`).
 
-**Scoped resources** — For DB pools, caches, publishers, or any resource that must live for the plugin's lifetime, build them inside `initialize` using `tools.buildService(tag, layer)`. This binds the resource to the plugin lifecycle scope — it persists until plugin shutdown and is automatically released.
+**Scoped resources** — For DB pools, caches, publishers, or any resource that must live for the plugin's lifetime, build them inside `initialize` using `buildScoped(tag, layer)` from `"every-plugin"`. This binds the resource to the plugin lifecycle scope — it persists until plugin shutdown and is automatically released.
 
 ```ts
-initialize: (config, plugins, tools) =>
+initialize: (config, plugins) =>
   Effect.gen(function* () {
-    const repo = yield* tools.buildService(
+    const repo = yield* buildScoped(
       MyRepoTag,
       MyRepoLive.pipe(Layer.provide(DatabaseLive(config.secrets.MY_DATABASE_URL))),
     );
@@ -331,7 +331,7 @@ initialize: (config, plugins, tools) =>
   }),
 ```
 
-Do **not** use `Effect.provide(Tag, Layer.scoped(...))` inside `initialize` for long-lived resources — it creates a transient scope that closes immediately. `tools.buildService(...)` uses the plugin's lifecycle scope instead.
+Do **not** use `Effect.provide(Tag, Layer.scoped(...))` inside `initialize` for long-lived resources — it creates a transient scope that closes immediately. `buildScoped(...)` uses the plugin's lifecycle scope instead.
 
 ### SSR Proxy Client
 
@@ -355,6 +355,54 @@ export function createPluginsClient(result, context) {
   });
 }
 ```
+
+### Tenant-Scoped Data
+
+A **tenant** is a deployment record (subdomain + NEAR account + UI/backend/SSR override
+permissions) — distinct from an organization (a group of users) and from a user's own data.
+If your plugin stores data that belongs to a specific tenant deployment (not just a user or
+org), resolve the tenant and scope every query to it.
+
+The `api` plugin owns the `tenants` table and exposes public lookup routes (no auth required —
+tenant lookups are read-only and safe to expose):
+
+```ts
+// From any plugin, via pluginsClient.api (injected through withPlugins<PluginsClient>())
+const tenant = context.organization?.activeOrganizationId
+  ? await plugins.api().resolveTenantByOrgId({ orgId: context.organization.activeOrganizationId })
+  : await plugins.api().resolveTenant({ accountId: context.near?.primaryAccountId ?? "" });
+```
+
+Build a local `requireTenant` middleware in your own plugin (mirrors `requireOrganization`):
+
+```ts
+const requireTenant = builder.middleware(async ({ context, next }) => {
+  const activeOrgId = context.organization?.activeOrganizationId;
+  const tenant = activeOrgId
+    ? await plugins.api().resolveTenantByOrgId({ orgId: activeOrgId }).catch(() => null)
+    : null;
+  if (!tenant) {
+    throw new ORPCError("FORBIDDEN", { message: "No tenant found for this organization" });
+  }
+  return next({ context: { ...context, tenant } });
+});
+
+builder.listReports.use(requireTenant).handler(async ({ context }) => {
+  return await services.reports.listByTenant(context.tenant.id); // always filtered
+});
+```
+
+**Row-level convention (interim isolation)**: add a `tenantId` column to any table holding
+tenant-specific application data, resolved server-side and never trusted from client input —
+same discipline the `tenants` table itself uses for `orgId` scoping. See
+`plugins/_template/src/db/schema.ts` for a commented example table.
+
+**Forward path**: the target architecture (see `plans/beta-v2-tenants.md`) is per-tenant-per-plugin
+Postgres schema isolation (`tenant_<id>_plugin_<name>`, `search_path` injected per request). That
+requires request-scoped DB access instead of the current initialize-time singleton pattern — a
+larger change, only worth it once there's a real multi-tenant plugin ecosystem to isolate. The
+`tenantId` column convention above is forward-compatible: when schema isolation lands, the column
+becomes redundant and can be dropped without reworking query logic.
 
 ## Generated Types
 

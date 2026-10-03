@@ -3,26 +3,24 @@ import fs from "node:fs";
 import path from "node:path";
 import { ModuleFederationPlugin } from "@module-federation/enhanced/rspack";
 import type { Compiler, RspackPluginInstance } from "@rspack/core";
-import { setupPluginMiddleware } from "./dev-server-middleware";
+import {
+  DEV_ENTRY_FILENAME,
+  findHashedEntry,
+  isBuildInvocation,
+  uiEntryFilename,
+} from "../artifact-names";
+import { CONTRACT_TYPES_FILE, generateContractTypes } from "../contract-types";
+import { BuildReportPlugin } from "./build-report-plugin";
 import { buildSharedDependencies } from "./module-federation";
-import { getPluginInfo, loadDevConfig } from "./utils";
+import { getPluginInfo } from "./utils";
 
-export interface EveryPluginOptions {
-  devConfigPath?: string;
-  port?: number;
-  pluginId?: string;
+export interface EveryPluginBuildOptions {
   dts?: boolean;
-}
-
-export interface AdditionalExport {
-  srcPath: string;
-  exportNames: string[];
 }
 
 export interface PluginManifestEmitterOptions {
   manifestFileName?: string;
   contractFileName?: string;
-  additionalExports?: AdditionalExport[];
 }
 
 export class EmitPluginManifest implements RspackPluginInstance {
@@ -42,9 +40,22 @@ export class EmitPluginManifest implements RspackPluginInstance {
         const contractFileName = this.options.contractFileName ?? "contract.d.ts";
         const manifestFileName = this.options.manifestFileName ?? "plugin.manifest.json";
 
-        const sourceContractPath = path.join(context, "types", contractFileName);
+        let generationError: string | null = null;
+        try {
+          const status = await generateContractTypes(context);
+          if (status === "generated") {
+            console.log(`[EmitPluginManifest] Contract types regenerated (${context}).`);
+          }
+        } catch (error) {
+          generationError = error instanceof Error ? error.message : String(error);
+        }
 
-        let contractTypes: string;
+        if (generationError) {
+          console.warn(`[EmitPluginManifest] Skipping manifest generation — ${generationError}`);
+          return;
+        }
+
+        const sourceContractPath = path.join(context, CONTRACT_TYPES_FILE);
 
         const tryReadFile = async (filePath: string): Promise<string | null> => {
           if (!fs.existsSync(filePath)) {
@@ -61,24 +72,18 @@ export class EmitPluginManifest implements RspackPluginInstance {
           }
         };
 
-        contractTypes = (await tryReadFile(sourceContractPath)) ?? "";
+        const contractTypes = (await tryReadFile(sourceContractPath)) ?? "";
 
         if (!contractTypes) {
-          const packageDir = context.split("/").pop();
-          const nestedPath = path.join(context, "types", packageDir ?? "", "src", contractFileName);
-
-          contractTypes = (await tryReadFile(nestedPath)) ?? "";
-
-          if (!contractTypes) {
-            console.warn(
-              `[EmitPluginManifest] Contract file not found at ${sourceContractPath} or ${nestedPath}. ` +
-                `Skipping manifest generation.`,
-            );
-            return;
-          }
+          console.warn(
+            `[EmitPluginManifest] No contract types at ${sourceContractPath} ` +
+              `(no src/contract.ts in this workspace?). Skipping manifest generation.`,
+          );
+          return;
         }
 
         const contractSha256 = crypto.createHash("sha256").update(contractTypes).digest("hex");
+        const hashedEntry = findHashedEntry(Object.keys(compilation.assets), "remoteEntry");
         const manifest: Record<string, unknown> = {
           schemaVersion: 1,
           kind: "every-plugin/manifest",
@@ -87,7 +92,7 @@ export class EmitPluginManifest implements RspackPluginInstance {
             version: pluginInfo.version,
           },
           runtime: {
-            remoteEntry: "./remoteEntry.js",
+            remoteEntry: `./${hashedEntry ?? DEV_ENTRY_FILENAME}`,
           },
           contract: {
             kind: "orpc",
@@ -99,37 +104,6 @@ export class EmitPluginManifest implements RspackPluginInstance {
             },
           },
         };
-
-        const additionalExportsEntries: Array<{ path: string; exports: string[]; sha256: string }> =
-          [];
-
-        if (this.options.additionalExports?.length) {
-          for (const additional of this.options.additionalExports) {
-            const sourcePath = path.join(context, "types", additional.srcPath);
-            const content = await tryReadFile(sourcePath);
-            if (!content) {
-              console.warn(
-                `[EmitPluginManifest] Additional export file not found at ${sourcePath}. Skipping.`,
-              );
-              continue;
-            }
-            const sha256 = crypto.createHash("sha256").update(content).digest("hex");
-            const distPath = `./types/${additional.srcPath}`;
-            additionalExportsEntries.push({
-              path: distPath,
-              exports: additional.exportNames,
-              sha256,
-            });
-
-            if (rawSource) {
-              compilation.emitAsset(`types/${additional.srcPath}`, new rawSource(content));
-            }
-          }
-
-          if (additionalExportsEntries.length > 0) {
-            manifest.additionalExports = additionalExportsEntries;
-          }
-        }
 
         if (rawSource) {
           compilation.emitAsset(
@@ -143,27 +117,19 @@ export class EmitPluginManifest implements RspackPluginInstance {
   }
 }
 
-export class EveryPluginDevServer implements RspackPluginInstance {
-  name = "EveryPluginDevServer";
+export class EveryPluginBuild implements RspackPluginInstance {
+  name = "EveryPluginBuild";
 
-  constructor(private options: EveryPluginOptions = {}) {}
+  constructor(private options: EveryPluginBuildOptions = {}) {}
 
   apply(compiler: Compiler) {
     const pluginInfo = getPluginInfo(compiler.options.context || process.cwd());
-    const devConfig = loadDevConfig(this.options.devConfigPath || "./plugin.dev.ts");
-    const port = Number(process.env.PORT) || this.options.port || devConfig?.port || 3999;
 
     this.configureDefaults(compiler, pluginInfo);
 
-    if (!compiler.options.devServer) {
-      compiler.options.devServer = {};
-    }
-
-    this.configureDevServer(compiler, pluginInfo, devConfig, port);
-
     new ModuleFederationPlugin({
       name: pluginInfo.normalizedName,
-      filename: "remoteEntry.js",
+      filename: uiEntryFilename({ isBuild: isBuildInvocation() }),
       dts: this.options.dts !== false,
       manifest: {},
       runtimePlugins: [require.resolve("@module-federation/node/runtimePlugin")],
@@ -174,6 +140,8 @@ export class EveryPluginDevServer implements RspackPluginInstance {
       shared: buildSharedDependencies(pluginInfo),
       shareStrategy: "version-first",
     }).apply(compiler);
+
+    new BuildReportPlugin().apply(compiler);
 
     if (this.options.dts === false) {
       compiler.options.plugins = (compiler.options.plugins ?? []).filter(
@@ -194,7 +162,10 @@ export class EveryPluginDevServer implements RspackPluginInstance {
     compiler.options.output.uniqueName = pluginInfo.normalizedName;
     compiler.options.output.publicPath = "auto";
     compiler.options.output.path = path.resolve(context, "dist");
-    compiler.options.output.clean = true;
+    // Watch rebuilds must not wipe dist: the dev serve static handler serves
+    // this directory, and a clean on every rebuild opens a window where
+    // remoteEntry.js 404s for any consumer that loads mid-rebuild.
+    compiler.options.output.clean = !compiler.options.watch;
     compiler.options.output.library = { type: "commonjs-module" };
 
     if (!compiler.options.target) {
@@ -221,7 +192,16 @@ export class EveryPluginDevServer implements RspackPluginInstance {
       compiler.options.resolve = {};
     }
     compiler.options.resolve.extensions = ["...", ".tsx", ".ts"];
+    // Source-first for local flows: resolve framework packages through the
+    // `development` export condition (TS source) unless DEPLOY=true — the
+    // manual dist-first switch deploy-identical builds opt into. (NODE_ENV
+    // is unusable as the gate here: the rspack CLI defaults it to
+    // "production" for every `build` invocation, including local dev watch.)
+    // byDependency entries inherit the root conditions via "...", so
+    // dropping the strip lets esm/cjs deps pick up `development` too.
+    const sourceFirst = process.env.DEPLOY !== "true";
     compiler.options.resolve.conditionNames = [
+      ...(sourceFirst ? ["development"] : []),
       "webpack",
       "import",
       "module",
@@ -229,7 +209,18 @@ export class EveryPluginDevServer implements RspackPluginInstance {
       "node",
       "default",
     ];
-    if (compiler.options.resolve.byDependency) {
+    if (sourceFirst) {
+      // Source-resolved TS packages (e.g. better-near-auth) use node-style
+      // `.js` specifiers for their own relative imports; map them to the
+      // on-disk `.ts` sources. `.js` stays first in the expansion: the alias
+      // picks the first target that exists on disk, and .ts-first made
+      // packages that also ship index.ts (e.g. @scure/base) resolve their
+      // TypeScript over their real JavaScript entry.
+      compiler.options.resolve.extensionAlias = {
+        ".js": [".js", ".ts", ".tsx"],
+      };
+    }
+    if (!sourceFirst && compiler.options.resolve.byDependency) {
       for (const depType of Object.keys(compiler.options.resolve.byDependency)) {
         const depConfig = (
           compiler.options.resolve.byDependency as Record<string, { conditionNames?: string[] }>
@@ -255,6 +246,25 @@ export class EveryPluginDevServer implements RspackPluginInstance {
       compiler.options.module.rules = [];
     }
 
+    // Source-first resolution pulls every-plugin src into the graph, which
+    // imports package.json (runtime/mf-config.ts). The MF shared chunks
+    // must emit it as a json module, not parse it as JavaScript.
+    const hasJsonRule = compiler.options.module.rules.some(
+      (rule: any) =>
+        typeof rule === "object" &&
+        rule !== null &&
+        "test" in rule &&
+        rule.test instanceof RegExp &&
+        rule.test.test(".json"),
+    );
+
+    if (!hasJsonRule) {
+      compiler.options.module.rules.push({
+        test: /\.json$/,
+        type: "json",
+      } as any);
+    }
+
     const hasTsLoader = compiler.options.module.rules.some(
       (rule: any) =>
         typeof rule === "object" &&
@@ -271,37 +281,5 @@ export class EveryPluginDevServer implements RspackPluginInstance {
         exclude: /node_modules/,
       });
     }
-  }
-
-  private configureDevServer(compiler: Compiler, pluginInfo: any, devConfig: any, port: number) {
-    if (!compiler.options.devServer) {
-      return;
-    }
-
-    const context = compiler.options.context || process.cwd();
-    const originalSetup = compiler.options.devServer.setupMiddlewares;
-
-    compiler.options.devServer.port = port;
-    compiler.options.devServer.static = path.join(context, "dist");
-    compiler.options.devServer.hot = true;
-    compiler.options.devServer.devMiddleware = { writeToDisk: true };
-    compiler.options.devServer.headers = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-      "Access-Control-Allow-Headers": "X-Requested-With, content-type, Authorization",
-    };
-
-    compiler.options.devServer.client = {
-      logging: "warn",
-      overlay: {
-        warnings: false,
-        errors: true,
-      },
-    };
-
-    compiler.options.devServer.setupMiddlewares = (middlewares, devServer) => {
-      setupPluginMiddleware(devServer, pluginInfo, devConfig, port);
-      return originalSetup ? originalSetup(middlewares, devServer) : middlewares;
-    };
   }
 }

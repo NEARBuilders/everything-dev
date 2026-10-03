@@ -1,0 +1,3 @@
+export const DEFAULT_DEVICE_LINK_CLIENT_ID = "everything-dev";
+
+export const PASSKEY_WALLET_UNAVAILABLE = "PASSKEY_WALLET_UNAVAILABLE";

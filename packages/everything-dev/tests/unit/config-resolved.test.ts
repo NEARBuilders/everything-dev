@@ -3,16 +3,85 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  findConfigPath,
   getResolvedConfigPath,
   loadGeneratedResolvedConfig,
-  loadLocalConfig,
-  loadResolvedConfig,
+  readAuthoredConfigInput,
   readBosConfigForBuild,
+  resetConfigPathCache,
   resolveBosConfigPath,
   writeResolvedConfig,
 } from "../../src/config";
+import { openResolution } from "../../src/resolution/session";
 
-describe("writeResolvedConfig / loadResolvedConfig", () => {
+vi.mock("../../src/version-manifest-resolve", () => ({
+  resolveSlotVersion: vi.fn(async () => ({
+    entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
+    entryIntegrity: "sha384-entry",
+  })),
+  clearSlotVersionCache: vi.fn(),
+}));
+
+vi.mock("../../src/fastkv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/fastkv")>();
+  return {
+    ...actual,
+    fetchBosConfigFromFastKv: async () => {
+      throw new Error("[test] network disabled — stub fetchBosConfigFromFastKv");
+    },
+  };
+});
+
+vi.mock("../../src/api-contract", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/api-contract")>();
+  return {
+    ...actual,
+    fetchApiPluginManifest: async () => {
+      throw new Error("[test] network disabled — stub fetchApiPluginManifest");
+    },
+  };
+});
+
+vi.mock("../../src/http-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/http-client")>();
+  return {
+    ...actual,
+    fetchResponse: async () => {
+      throw new Error("[test] network disabled — stub fetchResponse");
+    },
+    fetchEff: (() => {
+      throw new Error("[test] network disabled — stub fetchEff");
+    }) as unknown as typeof actual.fetchEff,
+  };
+});
+
+describe("findConfigPath cache", () => {
+  afterEach(() => {
+    resetConfigPathCache();
+  });
+
+  it("normalizes a relative working directory before walking parents", () => {
+    expect(findConfigPath(".")).toBe(findConfigPath(process.cwd()));
+  });
+
+  it("clears cached misses when the config file is created", () => {
+    const testDir = mkdtempSync(join(tmpdir(), "bos-config-path-cache-"));
+
+    try {
+      expect(findConfigPath(testDir)).toBeNull();
+      writeFileSync(join(testDir, "bos.config.json"), "{}");
+      expect(findConfigPath(testDir)).toBeNull();
+
+      resetConfigPathCache();
+
+      expect(findConfigPath(testDir)).toBe(join(testDir, "bos.config.json"));
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("writeResolvedConfig / loadGeneratedResolvedConfig", () => {
   let testDir: string;
 
   beforeAll(() => {
@@ -48,7 +117,7 @@ describe("writeResolvedConfig / loadResolvedConfig", () => {
     expect(raw.domain).toBe("test.dev");
   });
 
-  it("loadResolvedConfig reads back the merged config", () => {
+  it("loadGeneratedResolvedConfig reads back the merged config", () => {
     const config = {
       account: "test.near",
       domain: "test.dev",
@@ -65,7 +134,7 @@ describe("writeResolvedConfig / loadResolvedConfig", () => {
     expect(loaded!.account).toBe("test.near");
   });
 
-  it("loadResolvedConfig returns null when file doesn't exist", () => {
+  it("loadGeneratedResolvedConfig returns null when file doesn't exist", () => {
     const emptyDir = mkdtempSync(join(tmpdir(), "bos-resolved-empty-"));
     try {
       expect(loadGeneratedResolvedConfig(emptyDir)).toBeNull();
@@ -224,10 +293,10 @@ describe("loadConfig plugin runtime filtering", () => {
         )}\n`,
       );
 
-      const loaded = await loadResolvedConfig({ cwd: testDir });
+      const session = await openResolution({ cwd: testDir });
 
-      expect(loaded).not.toBeNull();
-      expect(loaded?.runtime.plugins).toBeUndefined();
+      expect(session).not.toBeNull();
+      expect(session?.runtime.plugins).toBeUndefined();
     } finally {
       rmSync(testDir, { recursive: true, force: true });
     }
@@ -270,11 +339,11 @@ describe("loadConfig plugin runtime filtering", () => {
         )}\n`,
       );
 
-      const loaded = await loadResolvedConfig({ cwd: testDir });
+      const session = await openResolution({ cwd: testDir });
 
-      expect(loaded?.runtime.plugins?.example?.source).toBe("remote");
-      expect(loaded?.runtime.plugins?.example?.url).toBe("https://example.example.com");
-      expect(loaded?.warnings).toContain(
+      expect(session?.runtime.plugins?.example?.source).toBe("remote");
+      expect(session?.runtime.plugins?.example?.url).toBe("https://example.example.com");
+      expect(session?.warnings).toContain(
         '[Config] No development target for "plugins.example", using production',
       );
     } finally {
@@ -320,11 +389,11 @@ describe("loadConfig plugin runtime filtering", () => {
         )}\n`,
       );
 
-      const loaded = await loadResolvedConfig({ cwd: testDir });
+      const session = await openResolution({ cwd: testDir });
 
-      expect(loaded?.runtime.plugins?.example?.source).toBe("remote");
-      expect(loaded?.runtime.plugins?.example?.url).toBe("https://example.example.com");
-      expect(loaded?.warnings).toContain(
+      expect(session?.runtime.plugins?.example?.source).toBe("remote");
+      expect(session?.runtime.plugins?.example?.url).toBe("https://example.example.com");
+      expect(session?.warnings).toContain(
         '[Config] Could not load local target for "plugins.example", using production',
       );
     } finally {
@@ -370,7 +439,7 @@ describe("loadConfig plugin runtime filtering", () => {
         )}\n`,
       );
 
-      await expect(loadResolvedConfig({ cwd: testDir })).rejects.toThrow(
+      await expect(openResolution({ cwd: testDir })).rejects.toThrow(
         "missing-provider/bos.config.json",
       );
     } finally {
@@ -420,10 +489,10 @@ describe("loadConfig plugin runtime filtering", () => {
       );
       writeFileSync(join(localPluginDir, "package.json"), '{"name":"example"}\n');
 
-      const loaded = await loadResolvedConfig({ cwd: testDir });
+      const session = await openResolution({ cwd: testDir });
 
-      expect(loaded?.runtime.plugins?.example?.source).toBe("local");
-      expect(loaded?.runtime.plugins?.example?.localPath).toBe(localPluginDir);
+      expect(session?.runtime.plugins?.example?.source).toBe("local");
+      expect(session?.runtime.plugins?.example?.localPath).toBe(localPluginDir);
     } finally {
       rmSync(testDir, { recursive: true, force: true });
     }
@@ -443,20 +512,24 @@ describe("loadConfig plugin runtime filtering", () => {
               host: {
                 development: "http://localhost:3000",
                 production: "https://host.example.com",
+                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
               },
               ui: {
                 name: "ui",
                 development: "http://localhost:3003",
                 production: "https://ui.example.com",
+                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
               },
               api: {
                 name: "api",
                 development: "http://localhost:3001",
                 production: "https://api.example.com",
+                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
               },
               auth: {
                 name: "auth",
                 production: "https://auth.example.com",
+                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
                 variables: {
                   baseUrl: "https://auth.everything.near",
                   trustedOrigins: ["https://everything.dev", "https://*.everything.dev"],
@@ -480,6 +553,7 @@ describe("loadConfig plugin runtime filtering", () => {
             plugins: {
               example: {
                 production: "https://example.example.com",
+                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
                 variables: {
                   sections: ["profile", "security"],
                   featureFlags: {
@@ -495,9 +569,9 @@ describe("loadConfig plugin runtime filtering", () => {
         )}\n`,
       );
 
-      const loaded = await loadResolvedConfig({ cwd: testDir, env: "production" });
+      const session = await openResolution({ cwd: testDir, env: "production" });
 
-      expect(loaded?.runtime.auth?.variables).toEqual({
+      expect(session?.runtime.auth?.variables).toEqual({
         baseUrl: "https://auth.everything.near",
         trustedOrigins: ["https://everything.dev", "https://*.everything.dev"],
         passkey: {
@@ -515,7 +589,7 @@ describe("loadConfig plugin runtime filtering", () => {
           },
         },
       });
-      expect(loaded?.runtime.plugins?.example?.variables).toEqual({
+      expect(session?.runtime.plugins?.example?.variables).toEqual({
         sections: ["profile", "security"],
         featureFlags: {
           passkeys: true,
@@ -568,13 +642,13 @@ describe("loadConfig plugin runtime filtering", () => {
         )}\n`,
       );
 
-      const loaded = await loadResolvedConfig({ cwd: testDir, remotePlugins: ["example"] });
+      const session = await openResolution({ cwd: testDir, remotePlugins: ["example"] });
 
-      expect(loaded?.runtime.plugins?.example).toBeDefined();
-      expect(loaded?.runtime.plugins?.example?.source).toBe("remote");
-      expect(loaded?.runtime.plugins?.example?.url).toBe("https://example.example.com");
-      expect(loaded?.runtime.plugins?.example?.localPath).toBeUndefined();
-      expect(loaded?.runtime.plugins?.example?.entry).toBe(
+      expect(session?.runtime.plugins?.example).toBeDefined();
+      expect(session?.runtime.plugins?.example?.source).toBe("remote");
+      expect(session?.runtime.plugins?.example?.url).toBe("https://example.example.com");
+      expect(session?.runtime.plugins?.example?.localPath).toBeUndefined();
+      expect(session?.runtime.plugins?.example?.entry).toBe(
         "https://example.example.com/mf-manifest.json",
       );
     } finally {
@@ -624,11 +698,71 @@ describe("loadConfig plugin runtime filtering", () => {
         )}\n`,
       );
 
-      const loaded = await loadResolvedConfig({ cwd: testDir });
+      const session = await openResolution({ cwd: testDir });
 
-      expect(loaded?.runtime.plugins?.example).toBeDefined();
-      expect(loaded?.runtime.plugins?.example?.source).toBe("local");
-      expect(loaded?.runtime.plugins?.example?.localPath).toBe(localPluginDir);
+      expect(session?.runtime.plugins?.example).toBeDefined();
+      expect(session?.runtime.plugins?.example?.source).toBe("local");
+      expect(session?.runtime.plugins?.example?.localPath).toBe(localPluginDir);
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it("derives the auth mirror (plugins.auth) from app.auth when the authored config has no plugins.auth", async () => {
+    const testDir = mkdtempSync(join(tmpdir(), "bos-config-auth-mirror-"));
+
+    try {
+      writeFileSync(
+        join(testDir, "bos.config.json"),
+        `${JSON.stringify(
+          {
+            account: "test.near",
+            domain: "test.dev",
+            app: {
+              host: {
+                development: "local:host",
+                production: "https://host.example.com",
+                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+              },
+              ui: {
+                name: "ui",
+                development: "local:ui",
+                production: "https://ui.example.com",
+                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+              },
+              api: {
+                name: "api",
+                development: "local:api",
+                production: "https://api.example.com",
+                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+              },
+              auth: {
+                name: "auth",
+                development: "local:plugins/auth",
+                production: "https://auth.example.com",
+                pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                ui: {
+                  name: "_everything_dev_auth_plugin",
+                  development: "local:plugins/auth/ui",
+                  production: "https://auth-ui.example.com",
+                  pin: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" },
+                },
+              },
+            },
+            plugins: {},
+          },
+          null,
+          2,
+        )}\n`,
+      );
+
+      const session = await openResolution({ cwd: testDir, env: "production" });
+
+      expect(session?.runtime.auth?.entryUrl).toBe("https://cdn.example.test/remoteEntry.aaa.js");
+      expect(session?.runtime.plugins?.auth?.ui?.entryUrl).toBe(
+        "https://cdn.example.test/remoteEntry.aaa.js",
+      );
+      expect(session?.runtime.plugins?.auth?.ui?.source).toBe("remote");
     } finally {
       rmSync(testDir, { recursive: true, force: true });
     }
@@ -677,11 +811,11 @@ describe("local vs resolved config loading", () => {
         )}\n`,
       );
 
-      const local = await loadLocalConfig({ cwd: childDir });
-      const resolved = await loadResolvedConfig({ cwd: childDir });
+      const local = await readAuthoredConfigInput(childDir);
+      const resolved = await openResolution({ cwd: childDir });
 
-      expect(local?.config.app?.host).toBeUndefined();
-      expect(local?.config.app?.auth).toBeUndefined();
+      expect(local?.app?.host).toBeUndefined();
+      expect(local?.app?.auth).toBeUndefined();
       expect(resolved?.config.app.host.production).toBe("https://host.parent.dev");
       expect(resolved?.config.app.auth?.production).toBe("https://auth.parent.dev");
     } finally {

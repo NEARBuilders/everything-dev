@@ -1,4 +1,4 @@
-import { ORPCError } from "@orpc/contract";
+import { ORPCError } from "@orpc/server";
 import { Cause, Data } from "effect";
 import type { z } from "zod";
 
@@ -7,7 +7,6 @@ export class PluginRuntimeError extends Data.TaggedError("PluginRuntimeError")<{
   readonly operation?: string;
   readonly procedureName?: string;
   readonly cause?: Error;
-  readonly retryable: boolean;
 }> {}
 
 export class ModuleFederationError extends Data.TaggedError("ModuleFederationError")<{
@@ -116,9 +115,31 @@ const formatORPCValidationError = (error: any): string[] | null => {
   return lines;
 };
 
+const formatUnknownError = (error: any): string | null => {
+  if (!error) return null;
+  const message = extractErrorMessage(error);
+  const lines: string[] = [];
+  lines.push(`\n╭─ Unhandled error ${"─".repeat(37)}`);
+  for (const line of message.split("\n")) {
+    lines.push(`│  ${line}`);
+  }
+  const stack = error instanceof Error ? error.stack?.split("\n").slice(1, 6) : undefined;
+  if (stack && stack.length > 0) {
+    lines.push(`│`);
+    for (const line of stack) {
+      lines.push(`│  ${line.trim()}`);
+    }
+  }
+  lines.push(`╰${"─".repeat(50)}\n`);
+  return lines.join("\n");
+};
+
 export const formatORPCError = (error: any): string | null => {
   if (!(error instanceof ORPCError)) {
-    return null;
+    // Unknown errors used to return null, leaving internal failures (e.g. a
+    // storage backend throw) invisible in host logs while oRPC serialized
+    // them client-side as a bare INTERNAL_SERVER_ERROR.
+    return formatUnknownError(error);
   }
 
   const validationLines = formatORPCValidationError(error);
@@ -128,7 +149,6 @@ export const formatORPCError = (error: any): string | null => {
 
   const lines: string[] = [];
   const code = error.code || "UNKNOWN";
-  const status = error.status || 500;
   const message = error.message || "An error occurred";
 
   lines.push(`\n╭─ oRPC Error ${"─".repeat(40)}`);
@@ -136,7 +156,7 @@ export const formatORPCError = (error: any): string | null => {
   for (const line of messageLines) {
     lines.push(`│  ${line}`);
   }
-  lines.push(`│  Code: ${code} (${status})`);
+  lines.push(`│  Code: ${code}`);
   lines.push(`│`);
 
   if (error.data) {
@@ -187,23 +207,126 @@ export const formatORPCError = (error: any): string | null => {
   return lines.join("\n");
 };
 
-const isRetryableError = (message: string): boolean => {
-  const retryablePatterns = ["ETIMEDOUT", "ECONNRESET", "timeout", "503", "429"];
-  return retryablePatterns.some((p) => message.toLowerCase().includes(p.toLowerCase()));
-};
+export type PluginFailureKind =
+  | "mf"
+  | "integrity"
+  | "config"
+  | "validation"
+  | "network"
+  | "unknown";
 
-// Helper to determine if an oRPC error code is retryable
-export const isRetryableORPCCode = (code: string): boolean => {
-  switch (code) {
-    case "TOO_MANY_REQUESTS":
-    case "SERVICE_UNAVAILABLE":
-    case "BAD_GATEWAY":
-    case "GATEWAY_TIMEOUT":
-    case "TIMEOUT":
-      return true;
-    default:
-      return false;
+export interface PluginFailureClassification {
+  kind: PluginFailureKind;
+  retryable: boolean;
+  message: string;
+  suggestion?: string;
+}
+
+/**
+ * Structured report of one plugin-load failure, built by a loader (the host's
+ * plugin boot, the dev server) from a `PluginFailureClassification` plus
+ * loader context. This is the shape health endpoints and dashboards consume —
+ * keep it serializable.
+ */
+export interface PluginLoadFailureInfo {
+  /** loader-side key (host entry key, dev plugin id) */
+  pluginKey: string;
+  pluginUrl?: string;
+  /** failing runtime stage when the cause is stage-attributed */
+  operation?: string;
+  kind: PluginFailureKind | string;
+  retryable: boolean;
+  message: string;
+  suggestion?: string;
+  /** loader context: which env secret the plugin's DB binding expects */
+  dbSecret?: string;
+  dbUrlMasked?: string;
+}
+
+const NETWORK_RETRYABLE_PATTERNS = ["ETIMEDOUT", "ECONNRESET", "timeout", "503", "429"] as const;
+const NETWORK_DEAD_PATTERNS = ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH"] as const;
+const RETRYABLE_ORPC_CODES = new Set([
+  "TOO_MANY_REQUESTS",
+  "SERVICE_UNAVAILABLE",
+  "BAD_GATEWAY",
+  "GATEWAY_TIMEOUT",
+  "TIMEOUT",
+]);
+
+/**
+ * One classification for plugin lifecycle failures across MF / validation /
+ * network sources. This is the recovery policy — nothing in the runtime
+ * retries on it today by design (the host degrades and runs without a failed
+ * plugin); consumers (host bootstrap messages, the dev server retry loop)
+ * read kind / retryable / suggestion to decide what to tell the author.
+ */
+export const classifyPluginFailure = (error: unknown): PluginFailureClassification => {
+  let current: unknown = extractFromFiberFailure(error);
+  let hops = 0;
+  while (current && typeof current === "object" && hops < 8) {
+    if (current instanceof ModuleFederationError) {
+      return {
+        kind: "mf",
+        retryable: false,
+        message: extractErrorMessage(current),
+        suggestion:
+          "Run bos mf check — the deployed plugin bundle is likely stale (sharedDep / pluginVersion skew), then redeploy the plugin and bos publish --deploy --packages local",
+      };
+    }
+    if (current instanceof ValidationError) {
+      return {
+        kind: "validation",
+        retryable: false,
+        message: `${current.stage}: ${extractErrorMessage(current.zodError)}`,
+        suggestion: `Fix the plugin's ${current.stage} schema at plugins/${current.pluginId}`,
+      };
+    }
+    if (current instanceof ORPCError) {
+      const retryableByCode = RETRYABLE_ORPC_CODES.has(current.code);
+      return {
+        kind: "network",
+        retryable: retryableByCode,
+        message: current.message,
+        suggestion: retryableByCode
+          ? "The plugin procedure failed transiently — retry the call"
+          : undefined,
+      };
+    }
+    current = (current as { cause?: unknown }).cause;
+    hops += 1;
   }
+
+  const message = extractErrorMessage(error);
+  const lower = message.toLowerCase();
+
+  if (NETWORK_RETRYABLE_PATTERNS.some((p) => lower.includes(p.toLowerCase()))) {
+    return {
+      kind: "network",
+      retryable: true,
+      message,
+      suggestion: "The remote may be temporarily unavailable — retry after redeploying the plugin",
+    };
+  }
+  if (NETWORK_DEAD_PATTERNS.some((p) => lower.includes(p.toLowerCase()))) {
+    return {
+      kind: "network",
+      retryable: false,
+      message,
+      suggestion:
+        "The plugin host is unreachable — check plugins.<id> entry URLs in bos.config.json",
+    };
+  }
+  if (lower.includes("integrity") || lower.includes("sri")) {
+    return {
+      kind: "integrity",
+      retryable: true,
+      message,
+      suggestion:
+        "The deployed bundle content does not match its recorded integrity — redeploy the plugin so bos.config.json is republished with a fresh hash",
+    };
+  }
+
+  return { kind: "unknown", retryable: false, message };
 };
 
 // Convert ORPC errors from plugin procedures to PluginRuntimeError
@@ -217,7 +340,6 @@ export const wrapORPCError = (
     pluginId,
     operation,
     procedureName,
-    retryable: isRetryableORPCCode(orpcError.code),
     cause: orpcError as Error,
   });
 };
@@ -235,7 +357,7 @@ export const extractFromFiberFailure = (error: unknown): unknown => {
 
     if (cause && typeof cause === "object" && "_tag" in cause) {
       try {
-        const squashed = Cause.squash(cause as Cause.Cause<unknown>);
+        const squashed = Cause.squash(cause as unknown as Cause.Cause<unknown>);
         if (squashed instanceof ORPCError) {
           return squashed;
         }
@@ -259,7 +381,6 @@ export const toPluginRuntimeError = (
   pluginId?: string,
   procedureName?: string,
   operation?: string,
-  defaultRetryable = false,
 ): PluginRuntimeError => {
   if (error instanceof ORPCError) {
     return wrapORPCError(error, pluginId, procedureName, operation);
@@ -273,7 +394,6 @@ export const toPluginRuntimeError = (
     pluginId,
     operation,
     procedureName,
-    retryable: defaultRetryable || isRetryableError(extractErrorMessage(error)),
     cause: error instanceof Error ? error : new Error(extractErrorMessage(error)),
   });
 };

@@ -1,0 +1,24 @@
+{
+  "name": "manifest-compose-prototype",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "generator",
+    "host",
+    "remote-auth",
+    "remote-landing",
+    "remote-landing-tenant"
+  ],
+  "scripts": {
+    "gen": "bun generator/src/cli.ts --all",
+    "verify": "bun run --cwd host verify",
+    "start": "bun run --cwd host start",
+    "start:tenant": "bun run --cwd host start:tenant",
+    "build:client": "bun run --cwd host build:client"
+  },
+  "devDependencies": {
+    "@manifest-compose/shared": "workspace:*",
+    "@tanstack/router-cli": "1.167.33",
+    "typescript": "5.9.3"
+  }
+}

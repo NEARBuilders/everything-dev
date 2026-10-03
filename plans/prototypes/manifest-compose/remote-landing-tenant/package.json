@@ -1,0 +1,19 @@
+{
+  "name": "@manifest-compose/remote-landing-tenant",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "gen": "cd .. && bun generator/src/cli.ts landing-tenant"
+  },
+  "dependencies": {
+    "@manifest-compose/shared": "workspace:*",
+    "@tanstack/react-router": "1.170.32",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "2.2.8",
+    "@rsbuild/plugin-react": "2.1.0"
+  }
+}

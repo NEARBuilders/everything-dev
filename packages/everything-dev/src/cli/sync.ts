@@ -1,18 +1,20 @@
-import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { glob } from "glob";
-import { loadResolvedConfig } from "../config";
+import { loadAppDescriptorConfig } from "../config";
 import type { SyncOptions, SyncResult } from "../contract";
+import { materializeViaLayer } from "../infra/materializer";
 import {
   isPlainObject as isPlainObjectFromMerge,
   mergeBosConfigWithTemplate,
   resolveExtendsRef,
 } from "../merge";
+import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
-import { writeGeneratedInfra } from "./infra";
+import { computeSnapshotHash as computeHash } from "../utils/snapshot-hash";
 import {
   buildChildAgentsMd,
+  buildChildRootScripts,
   extractSkillsBlock,
   personalizeConfig,
   resolveSourceDir,
@@ -37,11 +39,17 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   "railway.toml",
   "ui/package.json",
   "ui/postcss.config.mjs",
-  "ui/rsbuild.config.ts",
   "ui/tsconfig.json",
   "ui/src/app.ts",
+  "ui/src/components/document-fallback.tsx",
+  "ui/src/components/root-error.tsx",
+  "ui/src/components/root-not-found.tsx",
+  "ui/src/components/router-error.tsx",
+  "ui/src/entry.ts",
   "ui/src/globals.d.ts",
   "ui/src/hydrate.tsx",
+  "ui/src/providers/index.tsx",
+  "ui/src/hooks/index.ts",
   "ui/src/lib/api.ts",
   "ui/src/lib/auth.ts",
   "ui/src/router.server.tsx",
@@ -50,9 +58,7 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   "api/package.json",
   "api/plugin.dev.ts",
   "api/rspack.config.js",
-  "api/tsconfig.contract.json",
   "api/tsconfig.json",
-  "api/src/lib/auth.ts",
   "api/src/lib/context.ts",
   "api/drizzle.config.ts",
   "api/src/db/index.ts",
@@ -64,13 +70,19 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
 
 type PackageJson = Record<string, unknown>;
 
-function computeHash(content: string | Uint8Array): string {
-  return createHash("sha256").update(content).digest("hex").substring(0, 16);
-}
+const AGENT_SYNC_GLOBS = [".agents/skills/**", "docs/agents/**", "skills-lock.json"];
 
 export function isFrameworkOwnedSyncFile(filePath: string): boolean {
   if (FRAMEWORK_OWNED_SYNC_FILES.has(filePath)) return true;
-  if (/^plugins\/[^/]+\/src\/lib\/(auth|context)\.ts$/.test(filePath)) return true;
+  if (
+    filePath.startsWith(".agents/skills/") ||
+    filePath.startsWith("docs/agents/") ||
+    filePath === "skills-lock.json"
+  )
+    return true;
+  // lib/auth.ts is NOT sync-owned since #207: the middleware factory lives in
+  // everything-dev/api (framework home); projects import it, they don't own a copy.
+  if (/^plugins\/[^/]+\/src\/lib\/context\.ts$/.test(filePath)) return true;
   if (/^plugins\/[^/]+\/src\/db\/(index|layer|migrate)\.ts$/.test(filePath)) return true;
   if (/^plugins\/[^/]+\/rspack\.config\.js$/.test(filePath)) return true;
   if (/^plugins\/[^/]+\/drizzle\.config\.ts$/.test(filePath)) return true;
@@ -115,7 +127,7 @@ function mergeStringMaps(
 ): Record<string, string> | undefined {
   if (!local && !template) return undefined;
 
-  const merged: Record<string, string> = { ...(local ?? {}) };
+  const merged: Record<string, string> = { ...local };
   for (const [name, value] of Object.entries(template ?? {})) {
     merged[name] = value;
   }
@@ -138,7 +150,7 @@ function mergeWorkspacePackages(local: unknown, template: unknown): string[] | u
 
   const hasPluginEntry = [...ordered].some((e) => e.startsWith("plugins/") && e !== "plugins/*");
   if (hasPluginEntry) {
-    for (const entry of [...ordered]) {
+    for (const entry of ordered) {
       if (entry.startsWith("plugins/") && entry !== "plugins/*") {
         ordered.delete(entry);
       }
@@ -153,6 +165,7 @@ export function mergePackageJson(
   filePath: string,
   local: PackageJson,
   template: PackageJson,
+  childScripts?: Record<string, string>,
 ): PackageJson {
   const merged: PackageJson = { ...local, ...template };
 
@@ -185,11 +198,14 @@ export function mergePackageJson(
 
   if (
     (local.scripts && typeof local.scripts === "object") ||
-    (template.scripts && typeof template.scripts === "object")
+    (template.scripts && typeof template.scripts === "object") ||
+    childScripts
   ) {
     const mergedScripts = mergeStringMaps(
       local.scripts as Record<string, string> | undefined,
-      template.scripts as Record<string, string> | undefined,
+      filePath === "package.json" && childScripts
+        ? childScripts
+        : (template.scripts as Record<string, string> | undefined),
     );
     if (mergedScripts) {
       merged.scripts = mergedScripts;
@@ -264,6 +280,7 @@ function buildSyncedFileContent(
   projectDir: string,
   filePath: string,
   explicitDestPath?: string,
+  childScripts?: Record<string, string>,
 ): string | Uint8Array {
   const src = join(sourceDir, filePath);
   const destPath =
@@ -292,7 +309,7 @@ function buildSyncedFileContent(
     if (localContent) {
       const local = JSON.parse(localContent) as Record<string, unknown>;
       const template = JSON.parse(templateContent) as Record<string, unknown>;
-      const merged = mergePackageJson(destPath, local, template);
+      const merged = mergePackageJson(destPath, local, template, childScripts);
       return `${JSON.stringify(merged, null, 2)}\n`;
     }
   }
@@ -305,6 +322,7 @@ function writeSyncedFile(
   projectDir: string,
   filePath: string,
   explicitDestPath?: string,
+  childScripts?: Record<string, string>,
 ): void {
   const destPath =
     explicitDestPath ??
@@ -313,7 +331,10 @@ function writeSyncedFile(
       : filePath);
   const dest = join(projectDir, destPath);
   mkdirSync(dirname(dest), { recursive: true });
-  writeFileSync(dest, buildSyncedFileContent(sourceDir, projectDir, filePath, destPath));
+  writeFileSync(
+    dest,
+    buildSyncedFileContent(sourceDir, projectDir, filePath, destPath, childScripts),
+  );
 }
 
 async function getSelectedChildPlugins(
@@ -396,12 +417,17 @@ function hasPluginsWorkspace(projectDir: string): boolean {
 }
 
 export async function syncTemplate(projectDir: string, options: SyncOptions): Promise<SyncResult> {
-  // Sync reads the raw bos.config.json (not the resolved config) because it needs
-  // the user's explicit local settings: their extends ref, selected plugins, etc.
-  // The resolved config is the merged result and would include inherited parent
-  // values that the user didn't explicitly choose, which would break sync filtering.
-  const localConfig = JSON.parse(
-    readFileSync(join(projectDir, "bos.config.json"), "utf-8"),
+  // Sync reads the user's authored config — the raw bos.config.json, or the
+  // materialized bos.app.ts descriptor for TS-form children — not the
+  // resolved config: it needs the user's explicit local settings (their
+  // extends ref, selected plugins, etc.). The resolved config is the merged
+  // result and would include inherited parent values that the user didn't
+  // explicitly choose, which would break sync filtering.
+  const tsFormChild = existsSync(join(projectDir, "bos.app.ts"));
+  const localConfig = (
+    tsFormChild
+      ? await loadAppDescriptorConfig(join(projectDir, "bos.app.ts"))
+      : JSON.parse(readFileSync(join(projectDir, "bos.config.json"), "utf-8"))
   ) as Record<string, unknown>;
 
   let extendsRef: string | undefined;
@@ -448,14 +474,35 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
     const withHost = existsSync(join(projectDir, "host", "package.json"));
     const withPlugins = childPlugins.length > 0 || hasPluginsWorkspace(projectDir);
 
+    const childScripts = buildChildRootScripts({
+      ui: withUi,
+      api: withApi,
+      host: withHost,
+      plugins: withPlugins,
+    });
+
     const destToSource = new Map<string, string>();
+    // TS-form children author bos.app.ts — the parent's JSON config must
+    // never sync into them.
+    const tsFormChild = !existsSync(join(projectDir, "bos.config.json"));
     for (const destPath of FRAMEWORK_OWNED_SYNC_FILES) {
+      if (destPath === "bos.config.json" && tsFormChild) continue;
       if (destPath.startsWith("ui/") && !withUi) continue;
       if (destPath.startsWith("api/") && !withApi) continue;
       if (destPath.startsWith("host/") && !withHost) continue;
       const sourcePath = toSourcePath(sourceDir, destPath);
       if (!sourcePath) continue;
       destToSource.set(destPath, sourcePath);
+    }
+
+    for (const destPath of await glob(AGENT_SYNC_GLOBS, {
+      cwd: sourceDir,
+      nodir: true,
+      dot: true,
+      absolute: false,
+      ignore: ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.bos/**"],
+    })) {
+      destToSource.set(destPath, destPath);
     }
 
     // Sync api/src/lib/{auth,context}.ts into each plugin's src/lib/
@@ -510,14 +557,12 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       destToSource.set(`plugins/${pluginKey}/drizzle.config.ts`, sourceFile);
     }
 
-    // Sync tsconfig files from the template into each plugin
+    // Sync tsconfig from the template into each plugin
     for (const pluginKey of childPlugins) {
       if (!existsSync(join(projectDir, "plugins", pluginKey))) continue;
-      for (const tsconfigFile of ["tsconfig.json", "tsconfig.contract.json"]) {
-        const sourceFile = `plugins/_template/${tsconfigFile}`;
-        if (!existsSync(join(sourceDir, sourceFile))) continue;
-        destToSource.set(`plugins/${pluginKey}/${tsconfigFile}`, sourceFile);
-      }
+      const sourceFile = "plugins/_template/tsconfig.json";
+      if (!existsSync(join(sourceDir, sourceFile))) continue;
+      destToSource.set(`plugins/${pluginKey}/tsconfig.json`, sourceFile);
     }
 
     const updated: string[] = [];
@@ -530,7 +575,9 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
 
     for (const [destPath, filePath] of destToSource.entries()) {
       const localHash = computeLocalHash(projectDir, destPath);
-      const sourceHash = computeHash(buildSyncedFileContent(sourceDir, projectDir, filePath));
+      const sourceHash = computeHash(
+        buildSyncedFileContent(sourceDir, projectDir, filePath, undefined, childScripts),
+      );
 
       if (localHash === null) {
         added.push(destPath);
@@ -604,7 +651,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
 
       for (const destPath of filesToWrite) {
         const sourcePath = destToSource.get(destPath) ?? destPath;
-        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath);
+        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath, childScripts);
       }
     }
 
@@ -625,9 +672,9 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       hostMode: "local",
     });
 
-    const syncedConfig = await loadResolvedConfig({ cwd: projectDir });
+    const syncedConfig = await openResolution({ cwd: projectDir });
     if (syncedConfig?.runtime) {
-      writeGeneratedInfra(projectDir, syncedConfig.runtime);
+      await materializeViaLayer(projectDir, syncedConfig.runtime!);
     }
 
     const newSnapshotFiles: Record<string, string> = {};

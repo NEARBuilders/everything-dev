@@ -1,3 +1,10 @@
+/**
+ * Local-only diagnostic — NOT wired into CI by decision (ADR 0009-era review):
+ * the scenarios hydrate against PUBLISHED remote bundles and skip unless the
+ * published release train matches the local runtime. Run after
+ * `bos publish --deploy --packages local` (or with
+ * BOS_RUNTIME_REMOTE_ALLOW_STALE_TRAIN=1): `bun run --cwd host test:e2e`.
+ */
 import { expect, test } from "@playwright/test";
 import {
   getRuntimeRemoteScenarios,

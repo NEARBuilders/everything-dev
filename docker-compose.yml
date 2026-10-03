@@ -1,54 +1,79 @@
-name: dev.everything.near
-
-x-pg-common: &pg-common
-  image: postgres:17-alpine
-  environment: &pg-env
-    POSTGRES_USER: everythingdev
-    POSTGRES_PASSWORD: everythingdev
-  healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U everythingdev"]
-    interval: 3s
-    timeout: 3s
-    retries: 5
-
+# Static local development databases — managed by hand, never generated.
+# If a host port is already taken, change the left side of the ports mapping
+# and update the matching *_DATABASE_URL in .env to match.
+#
+# Volume migration (one-time, from older account-prefixed compose files):
+# the volumes below are scoped to this directory's project name. To keep
+# data from a previous generated file, copy it first, e.g.:
+#   docker run --rm -v v1_citynode_near_postgres_api_data:/from \
+#     -v <this-dir>_postgres_api_data:/to alpine sh -c "cp -a /from/. /to/"
 services:
   postgres-api:
-    <<: *pg-common
-    container_name: dev.everything.near-postgres-api
+    image: postgres:17-alpine
     environment:
-      <<: *pg-env
+      POSTGRES_USER: everythingdev
+      POSTGRES_PASSWORD: everythingdev
       POSTGRES_DB: api_db
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U everythingdev -d api_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
     volumes:
-      - dev_everything_near_postgres_api_data:/var/lib/postgresql/data
+      - postgres_api_data:/var/lib/postgresql/data
 
   postgres-auth:
-    <<: *pg-common
-    container_name: auth.everything.near-postgres-auth
+    image: postgres:17-alpine
     environment:
-      <<: *pg-env
+      POSTGRES_USER: everythingdev
+      POSTGRES_PASSWORD: everythingdev
       POSTGRES_DB: auth_db
     ports:
       - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U everythingdev -d auth_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
     volumes:
-      - auth_everything_near_postgres_auth_data:/var/lib/postgresql/data
+      - postgres_auth_data:/var/lib/postgresql/data
 
-  postgres-template:
-    <<: *pg-common
-    container_name: dev.everything.near-postgres-template
+  postgres-api-test:
+    image: postgres:17-alpine
     environment:
-      <<: *pg-env
-      POSTGRES_DB: template_db
+      POSTGRES_USER: everythingdev
+      POSTGRES_PASSWORD: everythingdev
+      POSTGRES_DB: api_test_db
     ports:
       - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U everythingdev -d api_test_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
     volumes:
-      - dev_everything_near_postgres_template_data:/var/lib/postgresql/data
+      - postgres_api_test_data:/var/lib/postgresql/data
+
+  postgres-auth-test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: everythingdev
+      POSTGRES_PASSWORD: everythingdev
+      POSTGRES_DB: auth_test_db
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U everythingdev -d auth_test_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - postgres_auth_test_data:/var/lib/postgresql/data
 
 volumes:
-  dev_everything_near_postgres_api_data:
-    name: dev_everything_near_postgres_api_data
-  auth_everything_near_postgres_auth_data:
-    name: auth_everything_near_postgres_auth_data
-  dev_everything_near_postgres_template_data:
-    name: dev_everything_near_postgres_template_data
+  postgres_api_data:
+  postgres_auth_data:
+  postgres_api_test_data:
+  postgres_auth_test_data:

@@ -58,7 +58,11 @@ describe("Request Context Integration", () => {
 
         const result = await rpcHandler.handle(req, res, {
           prefix: "/rpc",
-          context: requestContext, // Request context from host
+          // Request context from host
+          context: {
+            ...requestContext,
+            "effect/context": plugin.initialized.effectContext,
+          },
         });
         if (result.matched) return;
       }
@@ -83,7 +87,8 @@ describe("Request Context Integration", () => {
 
   it("should pass request context from host to handler", { timeout: 10000 }, async () => {
     const link = new RPCLink({
-      url: `${baseUrl}/rpc`,
+      origin: baseUrl,
+      url: "/rpc",
       fetch: globalThis.fetch,
       headers: {
         "x-test-user": "user123",
@@ -93,7 +98,7 @@ describe("Request Context Integration", () => {
 
     const client: ContractRouterClient<typeof testContract> = createORPCClient(link);
 
-    const result = await client.ping({});
+    const result = await client.ping();
 
     expect(result).toHaveProperty("ok", true);
     expect(result).toHaveProperty("timestamp");
@@ -101,7 +106,8 @@ describe("Request Context Integration", () => {
 
   it("should allow middleware to check authentication", { timeout: 10000 }, async () => {
     const link = new RPCLink({
-      url: `${baseUrl}/rpc`,
+      origin: baseUrl,
+      url: "/rpc",
       fetch: globalThis.fetch,
       headers: {
         "x-test-user": "user123",
@@ -121,7 +127,8 @@ describe("Request Context Integration", () => {
 
   it("should reject protected routes without userId", { timeout: 10000 }, async () => {
     const link = new RPCLink({
-      url: `${baseUrl}/rpc`,
+      origin: baseUrl,
+      url: "/rpc",
       fetch: globalThis.fetch,
       // No x-test-user header - should fail
     });
@@ -135,14 +142,15 @@ describe("Request Context Integration", () => {
 
   it("should allow public routes without context", { timeout: 10000 }, async () => {
     const link = new RPCLink({
-      url: `${baseUrl}/rpc`,
+      origin: baseUrl,
+      url: "/rpc",
       fetch: globalThis.fetch,
       // No headers - empty context
     });
 
     const client: ContractRouterClient<typeof testContract> = createORPCClient(link);
 
-    const result = await client.ping({});
+    const result = await client.ping();
 
     expect(result).toHaveProperty("ok", true);
     expect(result).toHaveProperty("timestamp");

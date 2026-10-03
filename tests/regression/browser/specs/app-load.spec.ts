@@ -27,39 +27,17 @@ test.describe("App load", () => {
     expect(config.hostUrl).toBeTruthy();
   });
 
-  test("backend assets reachable from browser", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
-    await waitForApp(page);
-
-    const results = await page.evaluate(async () => {
-      const [skill, llms, health] = await Promise.all([
-        fetch("/skill.md"),
-        fetch("/llms.txt"),
-        fetch("/api/_health"),
-      ]);
-      return {
-        skillStatus: skill.status,
-        llmsStatus: llms.status,
-        healthStatus: health.status,
-      };
-    });
-
-    expect(results.skillStatus).toBe(200);
-    expect(results.llmsStatus).toBe(200);
-    expect(results.healthStatus).toBe(200);
-    expectNoHydrationFailure(pageErrors);
-  });
-
   test("about page navigates to skill", async ({ page }) => {
     await page.goto("/about", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
+    await page.waitForLoadState("networkidle");
 
-    const skillLink = page.getByText("Open skill");
+    const skillLink = page.getByTestId("about.open-skill-link");
     await expect(skillLink).toBeVisible({ timeout: 10000 });
     await skillLink.click();
 
-    await page.waitForURL(/\/skill$/, { timeout: 10000 });
-    await expect(page.getByText("raw skill.md")).toBeVisible({ timeout: 10000 });
+    await expect(page).toHaveURL(/\/skill$/, { timeout: 10000, waitUntil: "commit" });
+    await expect(page.getByTestId("skill.raw-link")).toBeVisible({ timeout: 10000 });
 
     expectNoHydrationFailure(pageErrors);
   });

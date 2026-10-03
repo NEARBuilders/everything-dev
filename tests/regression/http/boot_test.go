@@ -14,8 +14,8 @@ func TestBootSurface(t *testing.T) {
 	t.Run("health", func(t *testing.T) {
 		status, _, body := regtest.GetRaw(t, client, baseURL+"/health")
 		regtest.MustStatus(t, status, 200, body)
-		if body != "OK" {
-			t.Fatalf("expected body OK, got %q", body)
+		if !regtest.StatusReady(body) {
+			t.Fatalf("expected health to report ready, got %q", body)
 		}
 	})
 

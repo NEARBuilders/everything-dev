@@ -1,7 +1,8 @@
 import { expect, it } from "@effect/vitest";
-import { createRouterClient } from "every-plugin/orpc";
+import { createRouterClient } from "@orpc/server";
 import { createPluginRuntime } from "every-plugin/runtime";
 import { describe } from "vitest";
+import { classifyPluginFailure } from "../../src/runtime/errors";
 import { TEST_REGISTRY } from "../registry";
 
 const TEST_CONFIG = {
@@ -35,11 +36,11 @@ describe("Plugin Lifecycle Integration Tests", () => {
     const initializedPlugin = await pluginRuntime.initializePlugin(pluginInstance, TEST_CONFIG);
     expect(initializedPlugin).toBeDefined();
     expect(initializedPlugin.config).toBeDefined();
+    expect(initializedPlugin.effectContext).toBeDefined();
 
-    const client = createRouterClient(
-      initializedPlugin.plugin.createRouter(initializedPlugin.context),
-      {} as any,
-    );
+    const client = createRouterClient(initializedPlugin.plugin.createRouter({}), {
+      context: { "effect/context": initializedPlugin.effectContext },
+    } as any);
     const output = await client.getById({ id: "integration-test" });
     expect(output).toBeDefined();
   }, 15000);
@@ -92,7 +93,7 @@ describe("Plugin Lifecycle Integration Tests", () => {
       expect.fail("Should have thrown PluginRuntimeError");
     } catch (error: any) {
       expect(error.operation).toBe("validate-secrets");
-      expect(error.retryable).toBe(false);
+      expect(classifyPluginFailure(error).retryable).toBe(false);
       expect(error.pluginId).toBe("test-plugin");
     }
   }, 10000);

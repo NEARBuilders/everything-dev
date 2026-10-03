@@ -1,0 +1,112 @@
+{
+  "name": "better-near-auth",
+  "version": "1.10.2",
+  "description": "Sign in with NEAR (SIWN) plugin for Better Auth",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": {
+        "types": "./src/index.ts",
+        "import": "./src/index.ts"
+      },
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./client": {
+      "development": {
+        "types": "./src/client.ts",
+        "import": "./src/client.ts"
+      },
+      "import": "./dist/client.js",
+      "types": "./dist/client.d.ts"
+    },
+    "./react": {
+      "development": {
+        "types": "./src/react.ts",
+        "import": "./src/react.ts"
+      },
+      "import": "./dist/react.js",
+      "types": "./dist/react.d.ts"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown && tsc --emitDeclarationOnly",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "better-auth",
+    "near",
+    "siwn",
+    "sign-in-with-near",
+    "authentication",
+    "blockchain",
+    "web3",
+    "plugin",
+    "tanstack-intent"
+  ],
+  "author": "efiz.near",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NEARBuilders/citynode.app.git",
+    "directory": "packages/better-near-auth"
+  },
+  "bugs": {
+    "url": "https://github.com/NEARBuilders/citynode.app/issues"
+  },
+  "homepage": "https://github.com/NEARBuilders/citynode.app/tree/main/packages/better-near-auth#readme",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "peerDependencies": {
+    "@better-auth/core": "^1.6.25",
+    "better-auth": "^1.6.25",
+    "react": "^18.0.0 || ^19.0.0",
+    "typescript": "^7.0.2"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@noble/post-quantum": "^0.6.1",
+    "@scure/base": "^2.2.0",
+    "nanostores": "^1.1.0",
+    "near-kit": "^0.20.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^0.6.0",
+    "@changesets/cli": "^2.30.0",
+    "@hot-labs/near-connect": "catalog:",
+    "@tanstack/intent": "^0.0.40",
+    "@types/bun": "latest",
+    "@types/node": "^25.0.9",
+    "@types/react": "^19.2.7",
+    "@better-auth/core": "^1.6.25",
+    "better-call": "^1.3.7",
+    "better-auth": "^1.6.25",
+    "tsdown": "^0.22.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.0.17"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "skills",
+    "!skills/_artifacts"
+  ]
+}
