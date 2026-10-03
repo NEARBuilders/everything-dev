@@ -332,6 +332,7 @@ node_modules/.federation
 !AGENTS.md
 !CONTRIBUTING.md
 !ui/DESIGN.md
+!ui/public/skill.md
 !**/README.md
 !**/CHANGELOG.md
 !.changeset/**/*.md
