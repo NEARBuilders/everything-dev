@@ -18,7 +18,7 @@ func TestPluginPassthrough(t *testing.T) {
 
 	var thingID string
 	t.Run("create_thing", func(t *testing.T) {
-		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/things", map[string]any{
+		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/rpc/template/createThing", map[string]any{
 			"thingId": "regression-plugin-test",
 			"payload": map[string]string{
 				"kind":   "regression",
@@ -49,7 +49,7 @@ func TestPluginPassthrough(t *testing.T) {
 	})
 
 	t.Run("read_thing_back", func(t *testing.T) {
-		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/things/"+thingID)
+		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/rpc/template/getThing?thingId="+thingID)
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {

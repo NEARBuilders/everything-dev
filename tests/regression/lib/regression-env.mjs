@@ -42,12 +42,12 @@ export function loadRegressionConfig(repoRoot) {
 
   const result = spawnSync(
     "bun",
-    ["--conditions=development", "packages/everything-dev/src/cli.ts", "types", "gen"],
+    [path.join(repoRoot, "tests/regression/lib/resolve-config.mjs")],
     { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
   );
   if (result.status !== 0) {
     throw new Error(
-      `Failed to resolve the authored config (bos types gen exited ${result.status}):\n${result.stderr ?? ""}`,
+      `Failed to resolve the authored config (resolve-config exited ${result.status}):\n${result.stderr ?? result.stdout ?? ""}`,
     );
   }
   const resolved = readGeneratedConfig(repoRoot);

@@ -12,7 +12,7 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 
 	// Step 1: Unauthenticated create should fail
 	t.Run("unauthenticated_create_fails", func(t *testing.T) {
-		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/things", map[string]any{
+		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/rpc/template/createThing", map[string]any{
 			"thingId": "regression-unauth",
 			"payload": map[string]string{"kind": "regression"},
 		}, nil)
@@ -80,7 +80,7 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 	// Step 4: Create a thing with session auth
 	var createdThingID string
 	t.Run("create_thing_with_session", func(t *testing.T) {
-		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/things", map[string]any{
+		status, _, body := regtest.PostJSON(t, client, baseURL+"/api/rpc/template/createThing", map[string]any{
 			"thingId": "regression-session",
 			"payload": map[string]string{
 				"kind":   "regression",
@@ -140,7 +140,7 @@ func TestAnonymousSessionCanCreateAndReadThing(t *testing.T) {
 
 	// Step 7: Read thing back via public API
 	t.Run("read_thing_back", func(t *testing.T) {
-		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/things/"+createdThingID)
+		status, _, body := regtest.GetRaw(t, client, baseURL+"/api/rpc/template/getThing?thingId="+createdThingID)
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {

@@ -23,6 +23,7 @@ export default App({
   api: API({ path: "api", variables: { gatewayDomains: "everything.dev,dev.everything.dev" } }),
   auth: Plugin("auth").path("plugins/auth", {
     name: "@everything-dev/auth-plugin",
+    ui: { name: "auth-ui", path: "plugins/auth/ui" },
     secrets: [
       "AUTH_DATABASE_URL",
       "BETTER_AUTH_SECRET",
