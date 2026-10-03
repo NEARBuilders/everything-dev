@@ -8,8 +8,8 @@ import {
   personalizeConfig,
   runBunInstall,
 } from "../../src/cli/init";
-import { getFrameworkTarballs, rewriteFrameworkPackageSpecs } from "./framework-packages";
 import { writeChildConfigFixture } from "../helpers/parent-config";
+import { getFrameworkTarballs, rewriteFrameworkPackageSpecs } from "./framework-packages";
 import {
   assertTypecheckSuccess,
   runCommand,
