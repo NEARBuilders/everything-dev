@@ -10,7 +10,6 @@
  */
 
 import type { QueryClient } from "@tanstack/react-query";
-import type { AnyRouter } from "@tanstack/react-router";
 import type { ClientRuntimeConfig } from "../types";
 import { createApiClient } from "./api";
 import { createAuthClient } from "./auth";
@@ -24,7 +23,7 @@ import {
 } from "./manifest";
 import { defaultQueryClient } from "./router-defaults";
 import { getCspNonce, getRuntimeConfig } from "./runtime";
-import type { CreateRouterOptions, RouterContextWithApi } from "./types";
+import type { AppRouterFactory } from "./types";
 
 declare global {
   interface Window {
@@ -51,16 +50,7 @@ function isAbsoluteHttpUrl(value: string | undefined): value is string {
   }
 }
 
-/**
- * The app's authored router factory — the router policy seam. The app types
- * it against its concrete clients; this module sees them opaquely (`any` at
- * the boundary — the same contract shape the manifest option bundles use).
- */
-export type AppRouterFactory = (
-  opts: CreateRouterOptions<any, any> & {
-    context: RouterContextWithApi<any, any> & { apiClient: any; authClient: any };
-  },
-) => { router: AnyRouter; queryClient?: QueryClient };
+export type { AppRouterFactory } from "./types";
 
 export interface CoreHydrateOptions {
   /**
@@ -112,10 +102,10 @@ async function composeFromPayload(
   // The core-only tree is the degradation target for every failure below —
   // the payload's core manifest plus the app's own route config, no remotes.
   const composeCoreOnly = async (
-    fallbackManifests: Array<PluginManifest | undefined>,
+    candidateManifests: PluginManifest[],
   ): Promise<ComposedTree | undefined> => {
     try {
-      const core = fallbackManifests.find((m) => m?.name === CORE_UI_PLUGIN_KEY);
+      const core = candidateManifests.find((m) => m.name === CORE_UI_PLUGIN_KEY);
       if (!core) return undefined;
       const tree = await constructTree({
         name: "core-fallback",

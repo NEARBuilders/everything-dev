@@ -9,6 +9,7 @@
  * Prefer upstream changes at https://github.com/nearbuilders/everything-dev
  */
 
+import { QueryClient } from "@tanstack/react-query";
 import { createRouter as createCoreRouter } from "everything-dev/ui/router-client";
 import type { ApiClient, CreateRouterOptions, SessionData } from "./app";
 import { routeTree } from "./routeTree.gen";
@@ -24,6 +25,23 @@ export function createRouter(opts: CreateRouterOptions) {
   return createCoreRouter<ApiClient, SessionData, typeof routeTree>({
     ...opts,
     defaultRouteTree: routeTree,
+  });
+}
+
+/**
+ * Query timings — the client and SSR query clients mint through this. Edit
+ * the defaults here to change data-freshness behavior app-wide.
+ */
+export function createQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 5 * 60 * 1000,
+        gcTime: 30 * 60 * 1000,
+        refetchOnWindowFocus: false,
+        retry: 1,
+      },
+    },
   });
 }
 

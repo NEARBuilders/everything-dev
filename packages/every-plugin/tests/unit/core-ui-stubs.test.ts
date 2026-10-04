@@ -38,12 +38,12 @@ describe("core ui generated stubs", () => {
 
   it("wires the generated bootstrap to the authored router and gen artifacts", () => {
     const hydrate = CORE_UI_STUBS["src/hydrate.gen.tsx"]!;
-    expect(hydrate).toContain('import { createRouter } from "./router"');
+    expect(hydrate).toContain('import { createQueryClient, createRouter } from "./router"');
     expect(hydrate).toContain('import("./routeConfig.gen")');
     expect(hydrate).toContain('import("./manifest.gen.json")');
     expect(hydrate).toContain("coreHydrate(");
     expect(CORE_UI_STUBS["src/entry.gen.ts"]).toContain('import("./hydrate.gen")');
-    expect(CORE_UI_STUBS["src/router.server.gen.tsx"]).toContain("createServerRouterModule");
+    expect(CORE_UI_STUBS["src/router.server.gen.tsx"]).toContain("createQueryClient, createRouter");
     expect(CORE_UI_STUBS["src/compose.gen.ts"]).toContain('from "everything-dev/ui/manifest"');
     expect(CORE_UI_STUBS["src/globals.gen.ts"]).toContain("@rsbuild/core/types");
     for (const content of Object.values(CORE_UI_STUBS)) {

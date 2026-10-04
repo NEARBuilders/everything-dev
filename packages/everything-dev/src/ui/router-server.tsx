@@ -27,6 +27,7 @@ import {
 } from "./router-defaults";
 import { RouterError } from "./router-error";
 import type {
+  AppRouterFactory,
   CreateRouterOptions,
   HeadData,
   RenderOptionsWithApi,
@@ -41,15 +42,10 @@ export interface ServerRouterModuleOptions<TRouteTree extends AnyRoute = AnyRout
    * The app's authored router factory — SSR parity: each request's router is
    * minted through the same factory the client hydrates with, so notFound/
    * pending/error options match. Absent, the framework's own factory runs.
-   * The app types it against its concrete clients; this module sees them
-   * opaquely (`any` at the boundary).
    */
-  createRouter?: (
-    opts: CreateRouterOptions<any, any> & {
-      routeTree?: TRouteTree;
-      context: RouterContextWithApi<any, any> & { apiClient: any; authClient: any };
-    },
-  ) => { router: AnyRouter; queryClient: QueryClient };
+  createRouter?: AppRouterFactory;
+  /** The app's query client factory (staleTime, gcTime, …) — SSR parity with the client hydrator. Absent, the framework default. */
+  createQueryClient?: () => QueryClient;
 }
 
 type ServerRouterOptions<TRouteTree extends AnyRoute> = CreateRouterOptions & {
@@ -167,7 +163,8 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
     const handler = createRequestHandler({
       request,
       createRouter: () => {
-        const localQueryClient = queryClientRef ?? defaultQueryClient();
+        const localQueryClient =
+          queryClientRef ?? options.createQueryClient?.() ?? defaultQueryClient();
         const built = buildRouter({
           history,
           routeTree: renderOptions.routeTree as TRouteTree,
@@ -186,7 +183,7 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
             pluginNav: renderOptions.pluginNav,
           },
         });
-        queryClientRef = built.queryClient;
+        queryClientRef = built.queryClient ?? localQueryClient;
         return built.router;
       },
     });

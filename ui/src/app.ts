@@ -17,10 +17,12 @@
  *                        Router, and browser-side auth/API clients once.
  *                        Called from the host-rendered HTML shell.
  *
- *   router.tsx        — Client router type surface. The framework's hydrator
- *                        owns client router creation from the composed tree;
- *                        this file carries the app's `Register` declaration
- *                        that powers route-type inference.
+ *   router.tsx        — Client router factory: the app's router policy seam
+ *                        (notFound/pending/error components, query timings).
+ *                        The hydrated client router and each SSR request's
+ *                        server router mint through it; the composed manifest
+ *                        tree arrives at call time and wins over the bundled
+ *                        core-only tree.
  *
  *   router.server.tsx — SSR router factory. Creates request-scoped server
  *                        router and server-side API/auth clients per request.

@@ -26,13 +26,14 @@ runEntry(() => import("./hydrate.gen"));
 // by \`bos dev\` / \`bos build\` / \`bos typecheck\` (gitignored).
 import "./styles.css";
 import { hydrate as coreHydrate } from "everything-dev/ui/hydrate";
-import { createRouter } from "./router";
+import { createQueryClient, createRouter } from "./router";
 
 export function hydrate() {
   return coreHydrate({
     routeConfig: () => import("./routeConfig.gen"),
     manifest: () => import("./manifest.gen.json"),
     createRouter,
+    createQueryClient,
   });
 }
 
@@ -41,10 +42,14 @@ export default hydrate;
   "src/router.server.gen.tsx": `// GENERATED FILE — do not edit. Regenerated from the installed framework version
 // by \`bos dev\` / \`bos build\` / \`bos typecheck\` (gitignored).
 import { createServerRouterModule } from "everything-dev/ui/router-server";
-import { createRouter } from "./router";
+import { createQueryClient, createRouter } from "./router";
 import { routeTree } from "./routeTree.gen";
 
-const routerModule = createServerRouterModule({ defaultRouteTree: routeTree, createRouter });
+const routerModule = createServerRouterModule({
+  defaultRouteTree: routeTree,
+  createRouter,
+  createQueryClient,
+});
 
 export default routerModule;
 `,
