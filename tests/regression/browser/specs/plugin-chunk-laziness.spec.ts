@@ -25,17 +25,19 @@ test.describe("plugin route chunk laziness", () => {
     // The compose payload names the auth remote's entry — every auth-origin
     // resource URL the page will ever fetch derives from its directory.
     const authEntry = await page.evaluate(() => {
-      const config = (window as unknown as {
-        __RUNTIME_CONFIG__?: {
-          ui?: { compose?: { remotes?: Array<{ key: string; entry?: string }> } };
-        };
-      }).__RUNTIME_CONFIG__;
+      const config = (
+        window as unknown as {
+          __RUNTIME_CONFIG__?: {
+            ui?: { compose?: { remotes?: Array<{ key: string; entry?: string }> } };
+          };
+        }
+      ).__RUNTIME_CONFIG__;
       const remotes = config?.ui?.compose?.remotes ?? [];
       return remotes.find((remote) => remote.key !== "ui")?.entry ?? null;
     });
     expect(authEntry, "compose payload must carry a non-core remote").toBeTruthy();
 
-    const remoteBase = authEntry!.replace(/[^/]*$/, "");
+    const remoteDir = authEntry!.slice(0, authEntry!.lastIndexOf("/") + 1);
     const authOrigin = new URL(authEntry!).origin;
     const authJsResources = () =>
       page.evaluate(
@@ -48,7 +50,7 @@ test.describe("plugin route chunk laziness", () => {
                 name.endsWith(".js") && (name.startsWith(base) || new URL(name).origin === origin),
             );
         },
-        { base: remoteBase, origin: authOrigin },
+        { base: remoteDir, origin: authOrigin },
       );
 
     const beforeNavigation = await authJsResources();
@@ -64,9 +66,7 @@ test.describe("plugin route chunk laziness", () => {
     });
 
     const afterNavigation = await authJsResources();
-    const fetchedOnNavigation = afterNavigation.filter(
-      (name) => !beforeNavigation.includes(name),
-    );
+    const fetchedOnNavigation = afterNavigation.filter((name) => !beforeNavigation.includes(name));
     expect(
       fetchedOnNavigation.length,
       `navigating to the plugin route must fetch its chunks on demand (before: ${beforeNavigation.length} chunk(s), after: ${afterNavigation.length})`,

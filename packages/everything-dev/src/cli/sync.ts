@@ -784,6 +784,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       conflicted,
       retired: retirement.retired,
       retiredConflicted: retirement.retiredConflicted,
+      retiredBackupDir: retirement.backupDir ?? undefined,
       backupDir,
     };
   } finally {

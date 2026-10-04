@@ -401,6 +401,8 @@ export const SyncResultSchema = z.object({
   retired: z.array(z.string()).optional(),
   /** retired stub files that were hand-modified — backed up, then deleted */
   retiredConflicted: z.array(z.string()).optional(),
+  /** where the retired hand-modified copies were backed up */
+  retiredBackupDir: z.string().optional(),
   backupDir: z.string().optional(),
   error: z.string().optional(),
 });

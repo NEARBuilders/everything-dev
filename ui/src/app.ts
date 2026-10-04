@@ -41,9 +41,6 @@
  * provides runtime config + auth/API routing. Work within the typed
  * surface exported here. Only investigate host internals if something
  * is genuinely broken and a host PR is warranted.
- *
- * This file is yours — scaffolded once by `bos init`, never overwritten by
- * `bos sync` (ADR 0023). Extend the `@/app` surface freely.
  */
 
 export { getBaseStyles } from "everything-dev/ui/head";
