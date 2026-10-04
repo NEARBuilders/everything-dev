@@ -32,12 +32,14 @@ export {
   type ComposePayload,
   ComposePayloadSchema,
   type ComposeRemote,
-  type Manifest,
+  MANIFEST_VERSION,
   ManifestSchema,
   type PluginManifest,
   PluginManifestSchema,
+  parsePluginManifest,
   type RouteRecord,
   RouteRecordSchema,
+  SUPPORTED_MANIFEST_VERSION,
 } from "./manifest-schema";
 export {
   MOUNT_ALIASES,

@@ -19,6 +19,7 @@ import {
   constructTree,
   type NavManifest,
   type PluginManifest,
+  parsePluginManifest,
   type RouteConfigModule,
 } from "./manifest";
 import { defaultQueryClient } from "./router-defaults";
@@ -62,9 +63,11 @@ export interface CoreHydrateOptions {
    * Loads the app's generated core manifest — the degradation target when the
    * runtime config carries no (or no usable) compose payload: a plugin-free
    * deployment has no payload at all, yet the core-only tree is still the
-   * tree. Absent, a payload-less page cannot construct a tree.
+   * tree. Absent, a payload-less page cannot construct a tree. The value is
+   * parsed through the manifest contract at the boundary (a skewed version
+   * or shape fails loudly here).
    */
-  manifest?: () => Promise<PluginManifest | { default: PluginManifest }>;
+  manifest?: () => Promise<unknown>;
   /**
    * The app's authored router factory — notFound/pending/error components,
    * scroll behavior, and router defaults live there. Absent, the framework's
@@ -263,7 +266,14 @@ export async function hydrate(options: CoreHydrateOptions) {
       options.routeConfig().then((mod) => ("default" in mod ? mod.default : mod)),
     ]);
     const coreManifest = options.manifest
-      ? await options.manifest().then((mod) => ("default" in mod ? mod.default : mod))
+      ? await options
+          .manifest()
+          .then((raw) =>
+            typeof raw === "object" && raw !== null && "default" in raw
+              ? (raw as { default: unknown }).default
+              : raw,
+          )
+          .then((raw) => parsePluginManifest(raw))
       : undefined;
     const client = options.createQueryClient?.() ?? defaultQueryClient();
 

@@ -46,6 +46,7 @@ vi.mock("@module-federation/enhanced/runtime", () => ({
 }));
 vi.mock("../../src/ui/manifest", () => ({
   constructTree: composeMocks.constructTree,
+  parsePluginManifest: (raw: unknown) => raw,
   ComposePayloadSchema: {
     safeParse: (payload: unknown) =>
       payload && Array.isArray((payload as { remotes?: unknown }).remotes)

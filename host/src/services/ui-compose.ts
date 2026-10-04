@@ -26,7 +26,7 @@ import {
   MANIFEST_FILENAME,
   type NavManifest,
   type PluginManifest,
-  PluginManifestSchema,
+  parsePluginManifest,
   type RouteConfigModule,
 } from "everything-dev/ui/manifest";
 import type { RouterModule } from "../types";
@@ -179,7 +179,7 @@ const loadRemoteManifestCached = (
       if (!response.ok) {
         throw new Error(`manifest fetch ${response.status} for ${manifestUrl}`);
       }
-      return PluginManifestSchema.parse(await response.json()) satisfies PluginManifest;
+      return parsePluginManifest(await response.json()) satisfies PluginManifest;
     }).pipe(
       Effect.catch((error) =>
         Effect.gen(function* () {
@@ -203,7 +203,7 @@ const loadManifest = (
 ): Effect.Effect<PluginManifest, Error> => {
   if (source.localRoot) {
     return Effect.try(() =>
-      PluginManifestSchema.parse(
+      parsePluginManifest(
         JSON.parse(readFileSync(`${source.localRoot}/src/${MANIFEST_FILENAME}`, "utf8")),
       ),
     );

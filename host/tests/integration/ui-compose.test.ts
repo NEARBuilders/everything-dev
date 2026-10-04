@@ -34,16 +34,17 @@ const { FederationLifecycle } = await import("../../src/services/federation.serv
 
 const CORE_MANIFEST = {
   name: "ui",
-  manifestVersion: 1,
+  manifestVersion: 2,
   routes: [
-    { id: "_public", isLayout: true, mount: "public", file: "_public.tsx" },
+    { id: "_public", type: "layout", mount: "public", file: "_public.tsx" },
     {
       id: "_public/login-target",
       path: "/welcome",
+      type: "route",
       parentId: "_public",
       file: "_public/welcome.tsx",
     },
-    { id: "_authenticated", isLayout: true, mount: "authenticated", file: "_authenticated.tsx" },
+    { id: "_authenticated", type: "layout", mount: "authenticated", file: "_authenticated.tsx" },
   ],
 };
 
@@ -52,12 +53,13 @@ const CORE_MANIFEST = {
 // digest identity must key by this, not the label.
 const AUTH_MANIFEST = {
   name: "_everything_dev_auth_plugin",
-  manifestVersion: 1,
+  manifestVersion: 2,
   routes: [
-    { id: "_public/login", path: "/login", file: "_public/login.tsx" },
+    { id: "_public/login", path: "/login", type: "route", file: "_public/login.tsx" },
     {
       id: "_authenticated/settings",
       path: "/settings",
+      type: "route",
       parentId: "_authenticated",
       file: "_authenticated/settings.tsx",
     },
@@ -254,7 +256,7 @@ describe("composeUi", () => {
 
     const changed = {
       ...AUTH_MANIFEST,
-      routes: [...AUTH_MANIFEST.routes, { id: "_public/signup", path: "/signup" }],
+      routes: [...AUTH_MANIFEST.routes, { id: "_public/signup", path: "/signup", type: "route" }],
     };
     fetchMock.mockImplementation(async (url: unknown) => {
       const target = String(url);
@@ -343,8 +345,8 @@ describe("composeUi", () => {
         path.join(root, "src", "manifest.gen.json"),
         JSON.stringify({
           name: manifestName,
-          manifestVersion: 1,
-          routes: [{ id: "_public", isLayout: true, mount: "public", file: "_public.tsx" }],
+          manifestVersion: 2,
+          routes: [{ id: "_public", type: "layout", mount: "public", file: "_public.tsx" }],
         }),
       );
       await writeFile(path.join(root, "dist", "ssr", "remoteEntry.server.js"), "");

@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { findBosConfigPath } from "../rspack/compose";
-import { getPluginInfo } from "../rspack/utils";
 
 const UI_DIR = "ui";
 const GENERATED_CONFIG_DIR = ".every-plugin";
@@ -66,10 +65,19 @@ export function pluginLayoutKey(cwd: string): string | null {
  */
 export function ensureGeneratedUiRsbuildConfig(cwd: string): string | null {
   if (!hasFolderFormUi(cwd)) return null;
+  // One derived composition identity (ADR 0008 §2): the manifest's name is
+  // the plugins/<key> layout key, never the package/container name. A
+  // non-derivable key fails the build loudly instead of silently mis-keying
+  // the manifest (the drift the container-name fallback used to produce).
+  const pluginId = pluginLayoutKey(cwd);
+  if (!pluginId) {
+    throw new Error(
+      `[every-plugin] cannot derive the ui's composition key from ${cwd} — no authored config (bos.app.ts / bos.config.json) found above a plugins/<key> directory. The manifest name is the layout key; the container name is never a fallback.`,
+    );
+  }
   const outDir = path.join(cwd, GENERATED_CONFIG_DIR);
   fs.mkdirSync(outDir, { recursive: true });
   const outPath = path.join(outDir, GENERATED_UI_CONFIG);
-  const pluginId = pluginLayoutKey(cwd) ?? getPluginInfo(cwd).normalizedName;
   const next = generatedUiConfig(pluginId);
   if (!fs.existsSync(outPath) || fs.readFileSync(outPath, "utf8") !== next) {
     fs.writeFileSync(outPath, next);

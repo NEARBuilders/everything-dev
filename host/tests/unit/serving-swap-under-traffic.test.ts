@@ -28,8 +28,8 @@ import { createSsrRender } from "../../src/services/ssr-render";
 
 const CORE_MANIFEST = {
   name: "ui",
-  manifestVersion: 1,
-  routes: [{ id: "_public", isLayout: true, mount: "public", file: "_public.tsx" }],
+  manifestVersion: 2,
+  routes: [{ id: "_public", type: "layout", mount: "public", file: "_public.tsx" }],
 };
 
 const composeCount = { count: 0 };

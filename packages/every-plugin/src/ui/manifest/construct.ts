@@ -320,7 +320,7 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
         const options = optionsById.get(record.id)!;
         const parent = parentFor(record);
         const routePath = record.path;
-        const isLayoutRoute = record.isLayout || routePath === undefined;
+        const isLayoutRoute = record.type === "layout" || routePath === undefined;
         if (!isLayoutRoute) {
           const siblings = claimedPathsByParent.get(parent.route) ?? new Map<string, string>();
           const claimant = siblings.get(routePath);

@@ -8,27 +8,34 @@ import { MOUNTS } from "./mount-registry";
  * unknown `manifestVersion` majors.
  */
 
+/**
+ * The manifest contract major this code speaks. Emitted by the generator and
+ * enforced at every load (the host parses through `parsePluginManifest`; the
+ * client parse of the compose payload checks it — a skewed major degrades to
+ * the core-only tree instead of silently mis-constructing).
+ */
+export const MANIFEST_VERSION = 2;
+export const SUPPORTED_MANIFEST_VERSION = MANIFEST_VERSION;
+
 export const RouteRecordSchema = z.object({
   /** Full route id, root-relative, no leading slash. e.g. "_public/login" */
   id: z.string(),
+  /** Node kind — the @tanstack/virtual-file-routes vocabulary. */
+  type: z.enum(["route", "layout", "index"]),
   /** URL path relative to the parent; absent for pathless layouts. */
   path: z.string().optional(),
-  /** `true` when the record is a pathless/layout node (rendered as `<Outlet/>`). */
-  isLayout: z.boolean().optional(),
   /** id of the parent record within the same plugin; absent = mount-level. */
   parentId: z.string().optional(),
   /** Set on ROOT-level pathless layouts: the mount this subtree declares. */
   mount: z.enum(MOUNTS as [string, ...string[]]).optional(),
   /** Route file relative to the routes directory (options source). */
   file: z.string().optional(),
-  /** `true` for a directory/index route resolved to its parent path. */
-  isIndex: z.boolean().optional(),
 });
 
 export const PluginManifestSchema = z.object({
   /** Plugin key — derived from the workspace/config key by the emitter. */
   name: z.string(),
-  /** Contract version; the host refuses unknown majors. */
+  /** Contract version — enforced by `parsePluginManifest` / the payload check. */
   manifestVersion: z.number().int(),
   /** Lifted from the plugin's `__root` route options, if any. */
   rootMeta: z
@@ -39,6 +46,20 @@ export const PluginManifestSchema = z.object({
     .optional(),
   routes: z.array(RouteRecordSchema),
 });
+
+/**
+ * The load-time contract check — one diagnostic for a manifest from a
+ * different framework major. Every manifest load goes through this.
+ */
+export function parsePluginManifest(data: unknown): PluginManifest {
+  const parsed = PluginManifestSchema.parse(data);
+  if (parsed.manifestVersion !== SUPPORTED_MANIFEST_VERSION) {
+    throw new Error(
+      `unsupported manifest version ${parsed.manifestVersion} in "${parsed.name}" — this build speaks ${SUPPORTED_MANIFEST_VERSION}; regenerate manifest.gen.json with the installed framework`,
+    );
+  }
+  return parsed;
+}
 
 export const ManifestSchema = z.object({
   manifestVersion: z.number().int(),
@@ -64,11 +85,22 @@ export const ComposeRemoteSchema = z.object({
   manifestUrl: z.string().optional(),
 });
 
-export const ComposePayloadSchema = z.object({
-  digest: z.string(),
-  remotes: z.array(ComposeRemoteSchema),
-  manifests: z.array(PluginManifestSchema),
-});
+export const ComposePayloadSchema = z
+  .object({
+    digest: z.string(),
+    remotes: z.array(ComposeRemoteSchema),
+    manifests: z.array(PluginManifestSchema),
+  })
+  .superRefine((payload, ctx) => {
+    for (const manifest of payload.manifests) {
+      if (manifest.manifestVersion !== SUPPORTED_MANIFEST_VERSION) {
+        ctx.addIssue({
+          code: "custom",
+          message: `unsupported manifest version ${manifest.manifestVersion} in "${manifest.name}" — this build speaks ${SUPPORTED_MANIFEST_VERSION}; regenerate the ui manifest with the installed framework`,
+        });
+      }
+    }
+  });
 
 export type ComposeRemote = z.infer<typeof ComposeRemoteSchema>;
 export type ComposePayload = z.infer<typeof ComposePayloadSchema>;
