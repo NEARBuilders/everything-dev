@@ -1,0 +1,19 @@
+{
+  "mode": "pre",
+  "tag": "rc",
+  "initialVersions": {
+    "api": "1.0.0",
+    "host": "1.16.1",
+    "better-near-auth": "1.10.2",
+    "every-plugin": "2.10.1",
+    "everything-dev": "1.53.2",
+    "@every-plugin/template": "1.3.0",
+    "@everything-dev/ai-plugin": "0.1.0",
+    "@everything-dev/auth-plugin": "1.2.3",
+    "@everything-dev/proposals-plugin": "1.1.0",
+    "@everything-dev/registry-plugin": "1.4.2",
+    "@everything-dev/votes-plugin": "1.1.0",
+    "ui": "1.9.1"
+  },
+  "changesets": []
+}
