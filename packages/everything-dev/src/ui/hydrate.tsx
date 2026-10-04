@@ -17,6 +17,7 @@ import {
   ComposePayloadSchema,
   constructTree,
   type NavManifest,
+  type PluginManifest,
   type RouteConfigModule,
 } from "./manifest";
 import { defaultQueryClient } from "./router-defaults";
@@ -53,6 +54,13 @@ export interface CoreHydrateOptions {
    * input; clients, compose machinery, and the router come from the package.
    */
   routeConfig: () => Promise<RouteConfigModule | { default: RouteConfigModule }>;
+  /**
+   * Loads the app's generated core manifest — the degradation target when the
+   * runtime config carries no (or no usable) compose payload: a plugin-free
+   * deployment has no payload at all, yet the core-only tree is still the
+   * tree. Absent, a payload-less page cannot construct a tree.
+   */
+  manifest?: () => Promise<PluginManifest | { default: PluginManifest }>;
   /** Overrides the runtime config source (tests, embeds). */
   config?: ClientRuntimeConfig;
 }
@@ -75,31 +83,24 @@ interface ComposedTree {
 async function composeFromPayload(
   runtimeConfig: ClientRuntimeConfig,
   coreRouteConfig: RouteConfigModule,
+  coreManifest: PluginManifest | undefined,
 ): Promise<ComposedTree | undefined> {
-  const payload = runtimeConfig.ui?.compose;
-  if (!payload?.remotes) return undefined;
-
-  const parsed = ComposePayloadSchema.safeParse(payload);
-  if (!parsed.success) {
-    mark(`compose payload malformed: ${parsed.error.message}`);
-    return undefined;
-  }
-  const { manifests } = parsed.data;
-
   const coreUiName = runtimeConfig.ui?.name ?? CORE_UI_PLUGIN_KEY;
 
   // The core-only tree is the degradation target for every failure below —
   // the payload's core manifest plus the app's own route config, no remotes.
-  const composeCoreOnly = async (): Promise<ComposedTree | undefined> => {
+  const composeCoreOnly = async (
+    fallbackManifests: Array<PluginManifest | undefined>,
+  ): Promise<ComposedTree | undefined> => {
     try {
-      const coreManifest = manifests.find((m) => m.name === CORE_UI_PLUGIN_KEY);
-      if (!coreManifest) return undefined;
+      const core = fallbackManifests.find((m) => m?.name === CORE_UI_PLUGIN_KEY);
+      if (!core) return undefined;
       const tree = await constructTree({
         name: "core-fallback",
-        plugins: [{ key: coreManifest.name, mfName: coreUiName }],
+        plugins: [{ key: core.name, mfName: coreUiName }],
         resolve: async (ref) => ({
           key: ref.key,
-          manifest: coreManifest,
+          manifest: core,
           routeConfig: coreRouteConfig,
         }),
         rootOptions: coreRouteConfig.rootMeta,
@@ -114,6 +115,20 @@ async function composeFromPayload(
       return undefined;
     }
   };
+
+  const payload = runtimeConfig.ui?.compose;
+  if (!payload?.remotes) {
+    // No payload at all — a plugin-free deployment. The core-only tree IS
+    // the tree; without the app manifest there is nothing to construct.
+    return coreManifest ? composeCoreOnly([coreManifest]) : undefined;
+  }
+
+  const parsed = ComposePayloadSchema.safeParse(payload);
+  if (!parsed.success) {
+    mark(`compose payload malformed: ${parsed.error.message}`);
+    return coreManifest ? composeCoreOnly([coreManifest]) : undefined;
+  }
+  const { manifests } = parsed.data;
 
   try {
     const { registerRemotes, loadRemote } = await import("@module-federation/enhanced/runtime");
@@ -178,7 +193,7 @@ async function composeFromPayload(
         `[Hydrate] Compose digest mismatch (client ${tree.digest} vs server ${payload.digest}); core-only fallback`,
       );
       mark(`DIGEST PARITY FAILURE server=${payload.digest} client=${tree.digest}`);
-      return composeCoreOnly();
+      return composeCoreOnly(manifests);
     }
 
     mark(
@@ -188,7 +203,7 @@ async function composeFromPayload(
   } catch (error) {
     console.error("[Hydrate] Client compose failed; core-only fallback:", error);
     mark(`CLIENT COMPOSE ERROR: ${(error as Error).message}`);
-    return composeCoreOnly();
+    return composeCoreOnly(manifests);
   }
 }
 
@@ -233,11 +248,14 @@ export async function hydrate(options: CoreHydrateOptions) {
     const [coreRouteConfig] = await Promise.all([
       options.routeConfig().then((mod) => ("default" in mod ? mod.default : mod)),
     ]);
+    const coreManifest = options.manifest
+      ? await options.manifest().then((mod) => ("default" in mod ? mod.default : mod))
+      : undefined;
     const client = defaultQueryClient();
 
     mark(`$_TSR present: ${Boolean(window.$_TSR)}`);
 
-    const composed = await composeFromPayload(runtimeConfig, coreRouteConfig);
+    const composed = await composeFromPayload(runtimeConfig, coreRouteConfig, coreManifest);
 
     const { router } = createRouter({
       routeTree: composed?.routeTree,

@@ -46,7 +46,12 @@ vi.mock("@module-federation/enhanced/runtime", () => ({
 }));
 vi.mock("../../src/ui/manifest", () => ({
   constructTree: composeMocks.constructTree,
-  ComposePayloadSchema: { safeParse: (payload: unknown) => ({ success: true, data: payload }) },
+  ComposePayloadSchema: {
+    safeParse: (payload: unknown) =>
+      payload && Array.isArray((payload as { remotes?: unknown }).remotes)
+        ? { success: true, data: payload }
+        : { success: false, error: { message: "malformed compose payload" } },
+  },
   CORE_UI_PLUGIN_KEY: "ui",
 }));
 
@@ -138,6 +143,70 @@ describe("client bootstrap", () => {
   it("client-renders instead of hydrating when a server-rendered page has no compose payload", async () => {
     document.documentElement.setAttribute("data-everything-ssr", "");
     await runHydrate(bootstrap.config);
+    expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
+    expect(bootstrap.render).toHaveBeenCalledOnce();
+  });
+
+  it("constructs the core-only tree when there is no compose payload", async () => {
+    composeMocks.constructTree.mockResolvedValue({
+      ...composedTree(),
+      manifests: [CORE_MANIFEST],
+      nav: { items: [] },
+    });
+
+    const { hydrate } = await loadHydrate();
+    await hydrate({
+      config: bootstrap.config as never,
+      routeConfig: async () => bootstrap.coreRouteConfig,
+      manifest: async () => CORE_MANIFEST,
+    });
+
+    // A plugin-free deployment carries no compose payload at all — the
+    // core-only tree IS the tree, built from the app's own manifest and
+    // route config. The router must never receive `undefined`.
+    expect(composeMocks.constructTree).toHaveBeenCalledOnce();
+    const input = composeMocks.constructTree.mock.calls[0]![0] as {
+      name: string;
+      plugins: Array<{ key: string; mfName: string }>;
+      resolve: (ref: { key: string }) => unknown;
+      rootOptions: unknown;
+    };
+    expect(input.name).toBe("core-fallback");
+    expect(input.plugins).toEqual([{ key: "ui", mfName: "ui" }]);
+    expect(input.rootOptions).toBe(bootstrap.coreRouteConfig.rootMeta);
+    expect(await input.resolve({ key: "ui" })).toMatchObject({
+      key: "ui",
+      manifest: CORE_MANIFEST,
+      routeConfig: bootstrap.coreRouteConfig,
+    });
+    expect(bootstrap.createRouter).toHaveBeenCalledWith(
+      expect.objectContaining({ routeTree: { id: "composed-tree" } }),
+    );
+  });
+
+  it("falls back to the core-only tree when the compose payload is malformed", async () => {
+    document.documentElement.setAttribute("data-everything-ssr", "");
+    composeMocks.constructTree.mockResolvedValue({
+      ...composedTree(),
+      manifests: [CORE_MANIFEST],
+      nav: { items: [] },
+    });
+    bootstrap.config = {
+      ...bootstrap.config,
+      ui: { name: "ui", compose: { digest: "digest-1", remotes: "not-an-array" } },
+    };
+
+    const { hydrate } = await loadHydrate();
+    await hydrate({
+      config: bootstrap.config as never,
+      routeConfig: async () => bootstrap.coreRouteConfig,
+      manifest: async () => CORE_MANIFEST,
+    });
+
+    expect(composeMocks.constructTree).toHaveBeenCalledOnce();
+    expect(bootstrap.createRouter).toHaveBeenCalledWith(
+      expect.objectContaining({ routeTree: { id: "composed-tree" } }),
+    );
     expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
     expect(bootstrap.render).toHaveBeenCalledOnce();
   });

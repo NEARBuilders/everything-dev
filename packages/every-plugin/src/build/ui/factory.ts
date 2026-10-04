@@ -19,6 +19,23 @@ export interface CoreUiRsbuildConfigInput {
   account?: string;
 }
 
+/**
+ * The core ui's MF expose tables — the declared surface (ADR 0008 §2). Only
+ * surfaces with consumers: the browser bootstrap, the shared component
+ * barrel, the SSR router module, the composition engine, and the generated
+ * route config.
+ */
+export const CORE_UI_WEB_EXPOSES: Record<string, string> = {
+  "./Hydrate": "./src/hydrate.tsx",
+  "./components": "./src/components/index.ts",
+};
+
+export const CORE_UI_NODE_EXPOSES: Record<string, string> = {
+  "./Router": "./src/router.server.tsx",
+  "./compose": "./src/compose.ts",
+  "./routeConfig": "./src/routeConfig.gen.ts",
+};
+
 export function createCoreUiRsbuildConfig({ domain, account }: CoreUiRsbuildConfigInput = {}) {
   const workspaceRoot = process.cwd();
   const pkg = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "package.json"), "utf-8")) as {
@@ -32,18 +49,9 @@ export function createCoreUiRsbuildConfig({ domain, account }: CoreUiRsbuildConf
     manifestName: CORE_UI_PLUGIN_KEY,
     devPort: 3003,
     webEntry: "./src/entry.ts",
-    webExposes: {
-      "./Hydrate": "./src/hydrate.tsx",
-      "./components": "./src/components/index.ts",
-      "./providers": "./src/providers/index.tsx",
-      "./hooks": "./src/hooks/index.ts",
-    },
+    webExposes: CORE_UI_WEB_EXPOSES,
     nodeEntry: "./src/router.server.tsx",
-    nodeExposes: {
-      "./Router": "./src/router.server.tsx",
-      "./compose": "./src/compose.ts",
-      "./routeConfig": "./src/routeConfig.gen.ts",
-    },
+    nodeExposes: CORE_UI_NODE_EXPOSES,
     copy: [{ from: path.join(workspaceRoot, "public"), to: "./" }],
     define: {
       "import.meta.env.APP_NAME": JSON.stringify(domain),

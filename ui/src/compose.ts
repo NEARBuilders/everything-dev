@@ -4,8 +4,9 @@
  * import). Constructed route objects are minted by the same react/router
  * instance the core's Router renders with — one module graph by construction.
  *
- * BE CAREFUL MODIFYING THIS FILE — changes will be overwritten by `bos sync` / `bos upgrade`.
- * Prefer upstream changes at https://github.com/nearbuilders/everything-dev
+ * This file is part of the core ui scaffold copied at `bos init`; it is not
+ * in the `bos sync` overwrite list. Prefer upstream changes at
+ * https://github.com/nearbuilders/everything-dev
  */
 
 export type {

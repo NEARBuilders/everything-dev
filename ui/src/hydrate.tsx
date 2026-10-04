@@ -10,7 +10,10 @@ import "./styles.css";
 import { hydrate as coreHydrate } from "everything-dev/ui/hydrate";
 
 export function hydrate() {
-  return coreHydrate({ routeConfig: () => import("./routeConfig.gen") });
+  return coreHydrate({
+    routeConfig: () => import("./routeConfig.gen"),
+    manifest: () => import("./manifest.gen.json"),
+  });
 }
 
 export default hydrate;
