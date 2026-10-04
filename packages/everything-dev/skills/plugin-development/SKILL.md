@@ -375,7 +375,7 @@ Use `createPlugin.withPlugins<PluginsClient>()` to get typed access to other plu
 
 ## Plugin UI
 
-Add a UI remote via the `ui` field in `bos.config.json`. Sidebar items are defined manually in `ui/src/routes/_layout.tsx`.
+Add a UI remote via the `ui` field in `bos.config.json`. Sidebar items are defined manually in `ui/src/components/layout/nav-items.ts`.
 
 ## Deploy
 

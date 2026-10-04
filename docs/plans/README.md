@@ -48,7 +48,7 @@ docs/plans/
 | 045 | Make wallet invitation transitions atomic and preserve membership policy | P2 | M | 044 | DONE — PR #136 (`86907b94b`) |
 | 046 | Centralize workspace refresh and invitation actions | P2 | M | none (coordinate with 044) | DONE — PR #136 (`86907b94b`) |
 | 047 | Load team memberships only when the Teams tab needs them | P2 | M | 046 | DONE — PR #136 (`86907b94b`) |
-| 048 | Share the pure team access policy between API and UI | P2 | M | none | DONE — PR #136 (`86907b94b`); `api/src/team-access-policy.ts` + `ui/src/lib/team-workspace.ts` live (UI files later relocated by `8a12fd041`) |
+| 048 | Share the pure team access policy between API and UI | P2 | M | none | DONE — PR #136 (`86907b94b`); the policy now lives in `ui/src/lib/team-workspace.ts` and the auth plugin's team context (UI files later relocated by `8a12fd041`) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
@@ -61,7 +61,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 016 requires done/001 — `runWithLayer` builds on `buildScopedContext`.
 - 012 pairs with 015's test-first ethos but has no hard file overlap; its interleaved fixture is written inside the plan.
 - 012/015 are the riskiest remaining (user-source rewriting, process lifecycle) — their plans are test-first by construction; do not reorder their internal steps.
-- 017 executes the amended [#89 design doc](./v1-current/every-plugin-db-auth-absorption.md): `everything-dev/db` gains `createDatabaseDriver`/`databaseLayer`/`pluginSchemaName` and consumes done/008's runner; db files and `lib/context.ts` exit sync ownership. The original 017–019 trio (every-plugin/db + /auth facades) was rejected in the 2026-09-15 amendment — every-plugin's surface is shrinking (effect-native Phase 5 removes its barrels), everything-dev/db is already the runtime-imported home, and alchemy (decisions 13/16) makes the deploy package the long-term migration owner. Plan 007's auth convergence is the resting point. 020 records the #90 decision and builds on 014's `ResolvedChainContext`. (Former plan 027-db-receipt was a duplicate of this plan and is archived as superseded.)
+- 017 executes the amended [#89 design doc](./v1-current/every-plugin-db-auth-absorption.md): `everything-dev/db` gains `createDatabaseDriver`/`databaseLayer`/`pluginSchemaName` and consumes done/008's runner; db files and `plugins/*/lib/context.ts` exit sync ownership. The original 017–019 trio (every-plugin/db + /auth facades) was rejected in the 2026-09-15 amendment — every-plugin's surface is shrinking (effect-native Phase 5 removes its barrels), everything-dev/db is already the runtime-imported home, and alchemy (decisions 13/16) makes the deploy package the long-term migration owner. Plan 007's auth convergence is the resting point. 020 records the #90 decision and builds on 014's `ResolvedChainContext`. (Former plan 027-db-receipt was a duplicate of this plan and is archived as superseded.)
 - Waves: {004, 007, 011, 012, 013, 015, 016} next; {009, 014, 017, 020} after; {028, 030–032} last (the manifest rework they were gated on — former plans 033/034 — has landed; see [done/README.md](./done/README.md)).
 
 ### Verification gates common to every plan
@@ -195,8 +195,8 @@ Two wayfinder maps exist:
    local artifacts: root `GLOSSARY.md` (City Node glossary),
    `docs/adr/0013-passkeys-bound-to-gateway-origin.md`. Note:
    `sandbox-orchestrator.md` lives on the `spike/sandbox-orchestrator`
-   branch and `docs/research/caddy-edge-mechanics.md` on
-   `research/caddy-edge-mechanics` — neither is on `main`.
+   branch and `docs/research/caddy-edge-mechanics.md` on <!-- docs-check:skip (branch-only artifact) -->
+   `research/caddy-edge-mechanics` — neither is on `main`. <!-- docs-check:skip (branch-only artifacts) -->
 
 ### beta-v2 ticket status
 

@@ -4,10 +4,13 @@
 # updates one review PR when existing skills, artifact coverage, or workspace
 # package coverage need review.
 #
-# Triggers: pull requests touching skills/artifacts, new release published, or
-# manual workflow_dispatch.
+# Triggers: pull requests touching skills/artifacts or the source trees that
+# package-skill `metadata.sources` point into, new release published, or manual
+# workflow_dispatch. Source-tree triggers matter: file moves in non-skills PRs
+# are exactly what silently rots the sources lists.
 #
-# intent-workflow-version: 3
+# intent-workflow-version: 3 (locally extended — reconcile on the next
+# `intent setup` regeneration; keep the validate/stale additions and path list)
 #
 # Template variables (replaced by `intent setup`):
 #   everything-dev — e.g. @tanstack/query or my-workspace workspace
@@ -21,6 +24,11 @@ on:
       - '**/skills/**'
       - '_artifacts/**'
       - '**/_artifacts/**'
+      - 'packages/*/src/**'
+      - 'ui/src/**'
+      - 'api/src/**'
+      - 'host/src/**'
+      - 'plugins/**'
   release:
     types: [published]
   workflow_dispatch: {}
@@ -46,10 +54,27 @@ jobs:
       - name: Install intent CLI
         run: bun add -g @tanstack/intent
 
+      # NOTE: this validate step is currently RED for both packages (~86
+      # pre-existing snippet findings — mixed excerpt-parse pedantry and
+      # possible real drift; triage in #298). Once clean, also validate
+      # packages/better-near-auth (~37 more findings) and drop this note.
       - name: Validate skills
         run: |
           intent validate packages/everything-dev --github-summary
           intent validate packages/every-plugin --github-summary
+
+      # stale detects skill-vs-library content/version drift (needsReview).
+      # Dead metadata.sources paths are caught by docs:check in ci.yml —
+      # stale does not verify source existence.
+      - name: Check skill drift
+        run: |
+          set -o pipefail
+          for pkg in packages/everything-dev packages/every-plugin packages/better-near-auth; do
+            if intent stale "$pkg" --json 2>/dev/null | grep -q '"needsReview": true'; then
+              echo "::error::Skill drift detected in $pkg — run 'bunx @tanstack/intent@latest stale $pkg' locally and review"
+              exit 1
+            fi
+          done
 
   review:
     name: Check intent skill coverage

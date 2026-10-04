@@ -94,7 +94,7 @@ Handler receives `{ input, context, signal?, lastEventId? }`.
 
 ## Middleware
 
-Create auth middleware with `createAuthMiddleware(builder)` in `api/src/lib/auth.ts`. Each middleware narrows the context type through `.use()` — no non-null assertions needed.
+Create auth middleware with `createAuthMiddleware(builder)` in `packages/everything-dev/src/api/auth-middleware.ts`. Each middleware narrows the context type through `.use()` — no non-null assertions needed.
 
 ```ts
 const { requireAuth } = createAuthMiddleware(builder);

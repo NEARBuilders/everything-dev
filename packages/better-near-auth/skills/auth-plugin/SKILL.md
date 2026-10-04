@@ -61,7 +61,7 @@ The auth plugin is read from the registry and forwards its `variables.siwn` and 
 
 ## Registering in bos.config.json
 
-The current canonical example lives in `examples/auth.everything.dev/bos.config.json`:
+The current canonical example lives in `examples/auth.everything.dev/bos.config.json`: <!-- docs-check:skip (file in the better-near-auth library repo) -->
 
 ```json
 {
@@ -166,7 +166,7 @@ Key points:
 
 ## Route Protection
 
-The `_authenticated` layout pattern from `examples/auth.everything.dev/ui/src/routes/_layout/_authenticated.tsx`:
+The `_authenticated` layout pattern from `examples/auth.everything.dev/ui/src/routes/_layout/_authenticated.tsx`: <!-- docs-check:skip (file in the better-near-auth library repo) -->
 
 ```typescript
 export const Route = createFileRoute('/_layout/_authenticated')({

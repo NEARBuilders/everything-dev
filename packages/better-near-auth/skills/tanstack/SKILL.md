@@ -274,9 +274,9 @@ Replace three separate files with one `auth.ts`:
 
 | Before | After |
 | ------ | ----- |
-| `lib/auth-client.ts` (factory + types) | `auth.ts` (factory + types + hooks + queries) |
-| `lib/session.ts` (query options) | `auth.ts` |
-| `lib/auth-hooks.ts` (relay history hook) | `auth.ts` |
+| `lib/auth-client.ts` (factory + types) | `auth.ts` (factory + types + hooks + queries) | <!-- docs-check:skip (before/after files in the library's example app) -->
+| `lib/session.ts` (query options) | `auth.ts` | <!-- docs-check:skip (library example app) -->
+| `lib/auth-hooks.ts` (relay history hook) | `auth.ts` | <!-- docs-check:skip (library example app) -->
 
 The consolidated `auth.ts` is ~80 lines and eliminates all `runtimeConfig` parameter threading.
 

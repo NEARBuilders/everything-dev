@@ -34,14 +34,15 @@ The main UI and auth UI share locale state across their Module Federation bundle
 
 ## Configuration
 
-`bos.config.json` only needs the UI runtime URLs and package metadata. Build-time module exposes stay in `ui/rsbuild.config.ts`.
+`bos.config.json` only needs the UI runtime URLs and package metadata. Build-time module exposes are synthesized by the CLI — workspaces ship zero build config by default.
 
 ## Route Protection
 
 File-based routing with auth guards via TanStack Router:
 
 - `_authenticated.tsx` - Requires login, redirects to `/login`
-- `_authenticated/_admin.tsx` - Requires admin role
+- `_admin.tsx` - Requires admin role
+- `_public.tsx` - Public surfaces (landing, about, skill docs)
 
 ## Tech Stack
 
