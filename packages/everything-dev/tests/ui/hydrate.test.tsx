@@ -258,6 +258,48 @@ describe("client bootstrap", () => {
     );
   });
 
+  it("mints the router and query client through the app's factories", async () => {
+    bootstrap.config = composeConfig();
+    composeMocks.loadRemote.mockResolvedValue({ routeConfigLoaders: {} });
+    composeMocks.constructTree.mockImplementation(
+      async (input: {
+        plugins: Array<{ key: string }>;
+        resolve: (ref: { key: string }) => unknown;
+      }) => {
+        for (const ref of input.plugins) await input.resolve(ref);
+        return composedTree();
+      },
+    );
+
+    const appQueryClient = { tag: "app-client" };
+    const appFactory = vi.fn(() => ({
+      router: { tag: "app-router" },
+      queryClient: appQueryClient,
+    }));
+    const createQueryClient = vi.fn(() => appQueryClient);
+
+    const { hydrate } = await loadHydrate();
+    await hydrate({
+      config: bootstrap.config as never,
+      routeConfig: async () => bootstrap.coreRouteConfig,
+      createRouter: appFactory as never,
+      createQueryClient: createQueryClient as never,
+    });
+
+    expect(createQueryClient).toHaveBeenCalledOnce();
+    expect(appFactory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        routeTree: { id: "composed-tree" },
+        context: expect.objectContaining({
+          queryClient: appQueryClient,
+          pluginNav: composedTree().nav,
+        }),
+      }),
+    );
+    expect(bootstrap.createRouter).not.toHaveBeenCalled();
+    expect(bootstrap.render).toHaveBeenCalledOnce();
+  });
+
   it("falls back to the core-only tree when a plugin route config fails to load", async () => {
     document.documentElement.setAttribute("data-everything-ssr", "");
     bootstrap.config = composeConfig();

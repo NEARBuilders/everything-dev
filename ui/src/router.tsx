@@ -1,6 +1,9 @@
 /**
- * Client router — thin stub injecting the app's generated route tree into the
- * framework router factory, keeping full route-type inference for the app.
+ * Client router — the app's authored router factory, the single customization
+ * seam for router policy (notFound/pending/error components, scroll behavior,
+ * query timings via a `createQueryClient` export). Minted through the
+ * framework's client factory; the composed manifest tree arrives at call
+ * time and wins over the bundled core-only tree.
  *
  * BE CAREFUL MODIFYING THIS FILE — changes will be overwritten by `bos sync` / `bos upgrade`.
  * Prefer upstream changes at https://github.com/nearbuilders/everything-dev

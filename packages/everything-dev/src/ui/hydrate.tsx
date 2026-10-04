@@ -9,6 +9,8 @@
  * by share-scope negotiation).
  */
 
+import type { QueryClient } from "@tanstack/react-query";
+import type { AnyRouter } from "@tanstack/react-router";
 import type { ClientRuntimeConfig } from "../types";
 import { createApiClient } from "./api";
 import { createAuthClient } from "./auth";
@@ -22,6 +24,7 @@ import {
 } from "./manifest";
 import { defaultQueryClient } from "./router-defaults";
 import { getCspNonce, getRuntimeConfig } from "./runtime";
+import type { CreateRouterOptions, RouterContextWithApi } from "./types";
 
 declare global {
   interface Window {
@@ -48,6 +51,17 @@ function isAbsoluteHttpUrl(value: string | undefined): value is string {
   }
 }
 
+/**
+ * The app's authored router factory — the router policy seam. The app types
+ * it against its concrete clients; this module sees them opaquely (`any` at
+ * the boundary — the same contract shape the manifest option bundles use).
+ */
+export type AppRouterFactory = (
+  opts: CreateRouterOptions<any, any> & {
+    context: RouterContextWithApi<any, any> & { apiClient: any; authClient: any };
+  },
+) => { router: AnyRouter; queryClient?: QueryClient };
+
 export interface CoreHydrateOptions {
   /**
    * Loads the app's generated core route config — the only app-specific
@@ -61,6 +75,14 @@ export interface CoreHydrateOptions {
    * tree. Absent, a payload-less page cannot construct a tree.
    */
   manifest?: () => Promise<PluginManifest | { default: PluginManifest }>;
+  /**
+   * The app's authored router factory — notFound/pending/error components,
+   * scroll behavior, and router defaults live there. Absent, the framework's
+   * own factory runs.
+   */
+  createRouter?: AppRouterFactory;
+  /** The app's query client factory (staleTime, gcTime, …). Absent, the framework default. */
+  createQueryClient?: () => QueryClient;
   /** Overrides the runtime config source (tests, embeds). */
   config?: ClientRuntimeConfig;
 }
@@ -241,9 +263,11 @@ export async function hydrate(options: CoreHydrateOptions) {
       throw new Error("Missing hostUrl or rpcBase in runtime config");
     }
 
-    const [{ QueryClientProvider }, { createRouter }] = await Promise.all([
+    const [{ QueryClientProvider }, routerFactory] = await Promise.all([
       import("@tanstack/react-query"),
-      import("./router-client"),
+      options.createRouter
+        ? Promise.resolve(options.createRouter)
+        : import("./router-client").then((m) => m.createRouter as AppRouterFactory),
     ]);
     const [coreRouteConfig] = await Promise.all([
       options.routeConfig().then((mod) => ("default" in mod ? mod.default : mod)),
@@ -251,13 +275,13 @@ export async function hydrate(options: CoreHydrateOptions) {
     const coreManifest = options.manifest
       ? await options.manifest().then((mod) => ("default" in mod ? mod.default : mod))
       : undefined;
-    const client = defaultQueryClient();
+    const client = options.createQueryClient?.() ?? defaultQueryClient();
 
     mark(`$_TSR present: ${Boolean(window.$_TSR)}`);
 
     const composed = await composeFromPayload(runtimeConfig, coreRouteConfig, coreManifest);
 
-    const { router } = createRouter({
+    const { router, queryClient: builtClient } = await routerFactory({
       routeTree: composed?.routeTree,
       context: {
         pluginNav: composed?.nav,
@@ -271,6 +295,7 @@ export async function hydrate(options: CoreHydrateOptions) {
         authClient: createAuthClient({ runtimeConfig, cspNonce }),
       },
     });
+    const providerClient = builtClient ?? client;
 
     // A server-rendered page whose compose degraded to core-only would
     // hydrate a DIFFERENT tree than the HTML contains — a guaranteed React
@@ -285,7 +310,7 @@ export async function hydrate(options: CoreHydrateOptions) {
       console.log("[Hydrate] Calling hydrateRoot...");
       hydrateRoot(
         document,
-        <QueryClientProvider client={client}>
+        <QueryClientProvider client={providerClient}>
           <RouterClient router={router} />
         </QueryClientProvider>,
       );
@@ -296,7 +321,7 @@ export async function hydrate(options: CoreHydrateOptions) {
 
       console.log("[Hydrate] Calling createRoot...");
       createRoot(document).render(
-        <QueryClientProvider client={client}>
+        <QueryClientProvider client={providerClient}>
           <RouterProvider router={router} />
         </QueryClientProvider>,
       );
