@@ -1,13 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { isFrameworkOwnedSyncFile, mergePackageJson } from "../../src/cli/sync";
+import { isFrameworkOwnedSyncFile, mergePackageJson, RETIRED_SYNC_FILES } from "../../src/cli/sync";
 
 describe("bos sync — framework-owned files", () => {
   it("marks scaffold runtime files as framework-owned", () => {
     expect(isFrameworkOwnedSyncFile(".gitignore")).toBe(true);
     expect(isFrameworkOwnedSyncFile("biome.json")).toBe(true);
     expect(isFrameworkOwnedSyncFile(".github/workflows/deploy.yml")).toBe(true);
-    expect(isFrameworkOwnedSyncFile("ui/src/router.tsx")).toBe(true);
     expect(isFrameworkOwnedSyncFile("api/rspack.config.js")).toBe(true);
+  });
+
+  it("no longer owns any ui source file — the app owns its ui after init (ADR 0023)", () => {
+    expect(isFrameworkOwnedSyncFile("ui/src/router.tsx")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/app.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/lib/api.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/lib/auth.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/routes/__root.tsx")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/providers/index.tsx")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/hooks/index.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/components/root-error.tsx")).toBe(false);
+    // config-level ui files stay framework-owned
+    expect(isFrameworkOwnedSyncFile("ui/tsconfig.json")).toBe(true);
+    expect(isFrameworkOwnedSyncFile("ui/package.json")).toBe(true);
   });
 
   it("no longer owns the generated bootstrap stubs", () => {
@@ -16,6 +29,16 @@ describe("bos sync — framework-owned files", () => {
     expect(isFrameworkOwnedSyncFile("ui/src/router.server.gen.tsx")).toBe(false);
     expect(isFrameworkOwnedSyncFile("ui/src/compose.gen.ts")).toBe(false);
     expect(isFrameworkOwnedSyncFile("ui/src/globals.gen.ts")).toBe(false);
+  });
+
+  it("retires exactly the stub files the generated set replaced", () => {
+    expect([...RETIRED_SYNC_FILES].sort()).toEqual([
+      "ui/src/compose.ts",
+      "ui/src/entry.ts",
+      "ui/src/globals.d.ts",
+      "ui/src/hydrate.tsx",
+      "ui/src/router.server.tsx",
+    ]);
   });
 
   it("marks per-plugin lib files as framework-owned", () => {

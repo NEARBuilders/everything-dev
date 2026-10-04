@@ -397,6 +397,10 @@ export const SyncResultSchema = z.object({
   skipped: z.array(z.string()),
   added: z.array(z.string()),
   conflicted: z.array(z.string()).default([]),
+  /** retired stub files deleted silently (unmodified) — ADR 0023 migration */
+  retired: z.array(z.string()).optional(),
+  /** retired stub files that were hand-modified — backed up, then deleted */
+  retiredConflicted: z.array(z.string()).optional(),
   backupDir: z.string().optional(),
   error: z.string().optional(),
 });

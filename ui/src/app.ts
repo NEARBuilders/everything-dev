@@ -1,8 +1,8 @@
 /**
  * Public UI surface — runtime helpers, client factories, and router types.
  *
- * ⚠️  DO NOT MODIFY THIS FILE.
- * It is framework-owned and will be overwritten by `bos sync` / `bos upgrade`.
+ * This file is yours — scaffolded once by `bos init`, never overwritten by
+ * `bos sync` (ADR 0023). Extend the `@/app` surface freely.
  *
  * Imports within this file must be relative paths (./lib/api, ./lib/auth).
  * Never import from "@/app" here — that would create a circular self-reference.
@@ -41,6 +41,9 @@
  * provides runtime config + auth/API routing. Work within the typed
  * surface exported here. Only investigate host internals if something
  * is genuinely broken and a host PR is warranted.
+ *
+ * This file is yours — scaffolded once by `bos init`, never overwritten by
+ * `bos sync` (ADR 0023). Extend the `@/app` surface freely.
  */
 
 export { getBaseStyles } from "everything-dev/ui/head";
