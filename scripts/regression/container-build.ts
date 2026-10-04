@@ -12,6 +12,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { emitCoreUiStubs } from "every-plugin/build/ui";
 import { containerName } from "every-plugin/identity";
 import { composeVersionManifest } from "every-plugin/version-manifest";
 import { writeResolvedConfig } from "../../packages/everything-dev/src/config";
@@ -234,6 +235,11 @@ const run = (cmd: string, args: string[], cwd: string, env: Record<string, strin
 const build = () => {
   console.log("[container-build] better-near-auth (production dist for prod-mode resolution)…");
   run("bun", ["run", "build"], "packages/better-near-auth");
+
+  console.log(
+    "[container-build] core ui bootstrap stubs (ADR 0023 — emitted by the train's code-artifact pass)…",
+  );
+  emitCoreUiStubs(path.join(root, "ui"));
 
   console.log("[container-build] core ui (web, then ssr — sequential environments)…");
   run("bun", ["run", "build:client"], "ui");
