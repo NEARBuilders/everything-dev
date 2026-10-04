@@ -230,6 +230,16 @@ const resolveManifestsAndDigest = (
     const manifests = yield* Effect.forEach(sources, (source) => loadManifest(source, cache), {
       concurrency: "unbounded",
     });
+    for (const [i, source] of sources.entries()) {
+      const manifest = manifests[i];
+      if (manifest && manifest.name !== source.key) {
+        return yield* Effect.fail(
+          new Error(
+            `[Compose] identity mismatch: the ui manifest for plugin "${source.key}" names itself "${manifest.name}" — the authored config key and the plugins/<key> layout key must agree (ADR 0008 §2); rename one or regenerate the ui manifest`,
+          ),
+        );
+      }
+    }
     const digest = yield* Effect.tryPromise(() =>
       digestOf({
         plugins: sources.map((source, i) => ({

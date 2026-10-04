@@ -48,11 +48,11 @@ const CORE_MANIFEST = {
   ],
 };
 
-// The built manifest's container name derives from the plugin package name —
-// never the config label ("auth") the host uses for sources. The payload and
-// digest identity must key by this, not the label.
+// The manifest's name IS the composition identity — the plugins/<key> layout
+// key, which the authored config key must agree with (ADR 0008 §2, enforced
+// at compose time). The MF container name is separate deployment detail.
 const AUTH_MANIFEST = {
-  name: "_everything_dev_auth_plugin",
+  name: "auth",
   manifestVersion: 2,
   routes: [
     { id: "_public/login", path: "/login", type: "route", file: "_public/login.tsx" },
@@ -235,16 +235,16 @@ describe("composeUi", () => {
       rootOptions: unknown;
     };
     expect(constructInput.plugins).toEqual([
-      { key: "_everything_dev_auth_plugin", mfName: "auth-ui" },
+      { key: "auth", mfName: "auth-ui" },
       { key: "ui", mfName: "ui" },
     ]);
     expect(constructInput.rootOptions).toBe(CORE_ROUTE_CONFIG.rootMeta);
 
     const resolvedAuth = await (
       construct.mock.calls[0]![0] as { resolve: (ref: { key: string }) => Promise<unknown> }
-    ).resolve({ key: "_everything_dev_auth_plugin" });
+    ).resolve({ key: "auth" });
     expect(resolvedAuth).toMatchObject({
-      key: "_everything_dev_auth_plugin",
+      key: "auth",
       manifest: AUTH_MANIFEST,
       routeConfig: AUTH_ROUTE_CONFIG,
     });
@@ -293,7 +293,7 @@ describe("composeUi", () => {
     expect(variant.clientPayload.digest).toBe(variant.digest);
     expect(variant.clientPayload.remotes).toEqual([
       {
-        key: "_everything_dev_auth_plugin",
+        key: "auth",
         name: "auth-ui",
         entry: "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
         manifestUrl: "https://cdn.example.com/auth-ui/mf-manifest.json",
@@ -328,7 +328,7 @@ describe("composeUi", () => {
 
     expect(client?.clientPayload.remotes).toEqual([
       {
-        key: "_everything_dev_auth_plugin",
+        key: "auth",
         name: "auth-ui",
         entry: "http://localhost:4111/remoteEntry.js",
       },
@@ -353,7 +353,9 @@ describe("composeUi", () => {
       return root;
     };
     const coreFixture = await fixture("core-ui", "ui");
-    const authFixture = await fixture("auth-ui", "auth-ui");
+    // the manifest names itself by the layout key (== the config key); the
+    // directory/container name ("auth-ui") stays deployment detail
+    const authFixture = await fixture("auth-ui", "auth");
 
     const config = {
       ...configWithPlugin(),
@@ -381,7 +383,7 @@ describe("composeUi", () => {
     expect(variant.routerModule).toBe(ROUTER_MODULE);
     expect(variant.clientPayload.remotes).toEqual([
       {
-        key: "auth-ui",
+        key: "auth",
         name: "auth-ui",
         entry: "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
       },
@@ -421,7 +423,7 @@ describe("composeClientPayload", () => {
     expect(client).toEqual({ digest: variant.digest, clientPayload: variant.clientPayload });
     expect(client?.clientPayload.remotes).toEqual([
       {
-        key: "_everything_dev_auth_plugin",
+        key: "auth",
         name: "auth-ui",
         entry: "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
         manifestUrl: "https://cdn.example.com/auth-ui/mf-manifest.json",

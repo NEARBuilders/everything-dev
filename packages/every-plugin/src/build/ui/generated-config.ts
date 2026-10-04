@@ -65,10 +65,9 @@ export function pluginLayoutKey(cwd: string): string | null {
  */
 export function ensureGeneratedUiRsbuildConfig(cwd: string): string | null {
   if (!hasFolderFormUi(cwd)) return null;
-  // One derived composition identity (ADR 0008 §2): the manifest's name is
-  // the plugins/<key> layout key, never the package/container name. A
-  // non-derivable key fails the build loudly instead of silently mis-keying
-  // the manifest (the drift the container-name fallback used to produce).
+  // The manifest's name derives ONLY from the plugins/<key> layout key
+  // (ADR 0008 §2) — a non-derivable key fails the build loudly, never the
+  // container-name fallback that mis-keyed manifests.
   const pluginId = pluginLayoutKey(cwd);
   if (!pluginId) {
     throw new Error(

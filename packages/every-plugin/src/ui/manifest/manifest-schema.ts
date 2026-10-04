@@ -54,12 +54,13 @@ export const PluginManifestSchema = z.object({
 export function parsePluginManifest(data: unknown): PluginManifest {
   const parsed = PluginManifestSchema.parse(data);
   if (parsed.manifestVersion !== SUPPORTED_MANIFEST_VERSION) {
-    throw new Error(
-      `unsupported manifest version ${parsed.manifestVersion} in "${parsed.name}" — this build speaks ${SUPPORTED_MANIFEST_VERSION}; regenerate manifest.gen.json with the installed framework`,
-    );
+    throw new Error(manifestVersionIssue(parsed.name, parsed.manifestVersion));
   }
   return parsed;
 }
+
+const manifestVersionIssue = (name: string, found: number): string =>
+  `unsupported manifest version ${found} in "${name}" — this build speaks ${SUPPORTED_MANIFEST_VERSION}; regenerate manifest.gen.json with the installed framework`;
 
 export const ManifestSchema = z.object({
   manifestVersion: z.number().int(),
@@ -96,7 +97,7 @@ export const ComposePayloadSchema = z
       if (manifest.manifestVersion !== SUPPORTED_MANIFEST_VERSION) {
         ctx.addIssue({
           code: "custom",
-          message: `unsupported manifest version ${manifest.manifestVersion} in "${manifest.name}" — this build speaks ${SUPPORTED_MANIFEST_VERSION}; regenerate the ui manifest with the installed framework`,
+          message: manifestVersionIssue(manifest.name, manifest.manifestVersion),
         });
       }
     }
