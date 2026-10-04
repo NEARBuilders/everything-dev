@@ -91,7 +91,7 @@
     "@changesets/changelog-github": "^0.6.0",
     "@changesets/cli": "^2.30.0",
     "@hot-labs/near-connect": "catalog:",
-    "@tanstack/intent": "^0.0.40",
+    "@tanstack/intent": "catalog:",
     "@types/bun": "latest",
     "@types/node": "^25.0.9",
     "@types/react": "^19.2.7",

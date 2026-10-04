@@ -2,7 +2,7 @@
 name: api-and-auth
 description: API architecture, oRPC contracts, auth middleware, plugin-client composition, session handling, and client-side auth. Use when adding API routes, creating middleware, calling other plugins in-process, or integrating auth in routes and UI.
 metadata:
-  sources: "api/src/index.ts,api/src/contract.ts,api/src/lib/auth.ts,host/src/services/auth.ts,host/src/services/plugins.ts,host/src/program.ts,ui/src/lib/auth.ts,ui/src/lib/api.ts"
+  sources: "api/src/index.ts,api/src/contract.ts,packages/everything-dev/src/api/auth-middleware.ts,host/src/services/auth.ts,host/src/services/plugins.ts,host/src/program.ts,ui/src/lib/auth.ts,ui/src/lib/api.ts"
 ---
 
 # API Architecture & Auth
@@ -94,7 +94,7 @@ Handler receives `{ input, context, signal?, lastEventId? }`.
 
 ## Middleware
 
-Create auth middleware with `createAuthMiddleware(builder)` in `api/src/lib/auth.ts`. Each middleware narrows the context type through `.use()` — no non-null assertions needed.
+Create auth middleware with `createAuthMiddleware(builder)` in `packages/everything-dev/src/api/auth-middleware.ts`. Each middleware narrows the context type through `.use()` — no non-null assertions needed.
 
 ```ts
 const { requireAuth } = createAuthMiddleware(builder);
@@ -397,7 +397,7 @@ tenant-specific application data, resolved server-side and never trusted from cl
 same discipline the `tenants` table itself uses for `orgId` scoping. See
 `plugins/_template/src/db/schema.ts` for a commented example table.
 
-**Forward path**: the target architecture (see `plans/beta-v2-tenants.md`) is per-tenant-per-plugin
+**Forward path**: the target architecture (see `docs/plans/beta-v2/tenants.md`) is per-tenant-per-plugin
 Postgres schema isolation (`tenant_<id>_plugin_<name>`, `search_path` injected per request). That
 requires request-scoped DB access instead of the current initialize-time singleton pattern — a
 larger change, only worth it once there's a real multi-tenant plugin ecosystem to isolate. The

@@ -2,7 +2,7 @@
 name: ui-integration
 description: Route creation, API client usage, auth client, SSR hydration, sidebar system, and the @/app module surface. Use when adding new UI routes, fetching data from the API, implementing auth flows, or customizing sidebar navigation.
 metadata:
-  sources: "ui/src/app.ts,ui/src/lib/api.ts,ui/src/lib/auth.ts,ui/src/router.tsx,ui/src/router.server.tsx,ui/src/hydrate.tsx,ui/src/routes/__root.tsx,ui/src/routes/_layout.tsx,ui/src/routes/_layout/_authenticated.tsx"
+  sources: "ui/src/app.ts,ui/src/lib/api.ts,ui/src/lib/auth.ts,ui/src/router.tsx,ui/src/router.server.tsx,ui/src/hydrate.tsx,ui/src/routes/__root.tsx,ui/src/routes/_authenticated.tsx"
 ---
 
 # UI Integration
@@ -32,8 +32,8 @@ ui/src/routes/
 
 - Files starting with `_` are **layout** routes (parent components with `<Outlet />`)
 - Files starting with `_` followed by a path segment are **nested layouts**
-- Regular files become path segments (e.g., `settings.tsx` → `/settings`)
-- Directories create nested paths (e.g., `_authenticated/settings.tsx` → `/settings` inside the auth guard)
+- Regular files become path segments (e.g., `ui/src/routes/_public/about.tsx` → `/about`)
+- Directories create nested paths (e.g., a `_dashboard/` directory nests its files beneath `/dashboard` inside the auth guard)
 
 ### Basic Route
 
@@ -271,7 +271,7 @@ Nest routes under `_layout/_authenticated/` to inherit this guard. Unauthenticat
 
 ## Sidebar System
 
-Sidebar items are defined inline in `ui/src/routes/_layout.tsx` as a `sidebarItems` array:
+Sidebar items are defined inline in `ui/src/components/layout/nav-items.ts` as a `NAV_ITEMS` array:
 
 ```ts
 import { Globe, Home } from "lucide-react";

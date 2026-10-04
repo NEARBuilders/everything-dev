@@ -4,22 +4,23 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root, or
-- **`CONTEXT-MAP.md`** at the repo root if it exists: it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
+- **`GLOSSARY.md`** at the repo root, or
+- **`GLOSSARY-MAP.md`** at the repo root if it exists: it points at one `GLOSSARY.md` per context. Read each one relevant to the topic.
 - **`docs/adr/`**: read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
 
 ## File structure
 
-This repo is a monorepo with multiple contexts (host, ui, api, plugins, packages). The layout is:
+This repo is a single-context monorepo with multiple workspaces (host, ui, api, plugins, packages). The layout is:
 
 ```
 /
-├── CONTEXT-MAP.md                     ← points at each context (when created)
+├── GLOSSARY.md
 ├── docs/
 │   ├── adr/                           ← system-wide decisions
-│   └── agents/                        ← this file and siblings
+│   ├── agents/                        ← this file and siblings
+│   └── plans/                         ← implementation plans, prototypes
 ├── host/
 ├── ui/
 ├── api/
@@ -27,11 +28,11 @@ This repo is a monorepo with multiple contexts (host, ui, api, plugins, packages
 └── packages/
 ```
 
-If no `CONTEXT-MAP.md` exists yet, treat this as a single-context repo: read `CONTEXT.md` at the root if present, and `docs/adr/` for decisions.
+If no `GLOSSARY-MAP.md` exists, treat this as a single-context repo: read `GLOSSARY.md` at the root, and `docs/adr/` for decisions.
 
 ## Use the glossary's vocabulary
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
+When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `GLOSSARY.md`. Don't drift to synonyms the glossary explicitly avoids.
 
 If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 

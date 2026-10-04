@@ -30,18 +30,19 @@ bos dev --api remote    # Isolate UI work
 
 ## Internationalization
 
-The main UI and auth UI share locale state across their Module Federation bundles. See [the i18n contributor guide](../docs/i18n.md) before adding messages or locales.
+The main UI and auth UI share locale state across their Module Federation bundles. Message catalogs live in each workspace's `locales/` directory; locale ownership follows the Module Federation message boundaries.
 
 ## Configuration
 
-`bos.config.json` only needs the UI runtime URLs and package metadata. Build-time module exposes stay in `ui/rsbuild.config.ts`.
+`bos.config.json` only needs the UI runtime URLs and package metadata. Build-time module exposes are synthesized by the CLI — workspaces ship zero build config by default.
 
 ## Route Protection
 
 File-based routing with auth guards via TanStack Router:
 
 - `_authenticated.tsx` - Requires login, redirects to `/login`
-- `_authenticated/_admin.tsx` - Requires admin role
+- `_admin.tsx` - Requires admin role
+- `_public.tsx` - Public surfaces (landing, about, skill docs)
 
 ## Tech Stack
 

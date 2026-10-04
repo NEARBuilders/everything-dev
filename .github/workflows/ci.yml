@@ -157,6 +157,12 @@ jobs:
       - name: Run Effect lint (oxlint, type-aware)
         run: bun run lint:effect
 
+      - name: Check agent skills lock
+        run: bun run skills:check
+
+      - name: Check docs links
+        run: bun run docs:check
+
       - name: Run typecheck
         run: bun typecheck
 

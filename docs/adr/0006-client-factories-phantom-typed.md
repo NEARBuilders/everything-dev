@@ -5,7 +5,7 @@ Status: Accepted
 
 ## Context
 
-Plan 022 (advisor-plans/done/022-framework-ui-client.md) proposed `packages/everything-dev/src/ui/client.ts` + `client-auth.ts` to host the typed client factories that were sync-owned copies in every monolith (`ui/src/lib/api.ts`, `ui/src/lib/auth.ts`). Three problems surfaced during planning/execution:
+Plan 022 (docs/plans/done/022-framework-ui-client.md) proposed `packages/everything-dev/src/ui/client.ts` + `client-auth.ts` to host the typed client factories that were sync-owned copies in every monolith (`ui/src/lib/api.ts`, `ui/src/lib/auth.ts`). Three problems surfaced during planning/execution:
 
 1. **Naming.** `client.ts`/`client-auth.ts` name the mechanism, not the domain, and fight both the package's existing flat, domain-named file style (`runtime.ts`, `head.ts`, `metadata.ts`, `router.ts`, `types.ts`) and the code inside the modules (`createApiClient`, `useApiClient`, `createAuthClient`, `useAuthClient`). `client.gen.ts` was rejected outright: `.gen.ts` is reserved for machine-generated files (`bos types gen` output).
 2. **Contracts are type-only.** Generated contracts (`ui/src/lib/api-types.gen.ts`, remote-manifest types) are `import type`-only — there is no runtime contract value to pass. A factory shaped like `createApiClient(contract, cfg)` forces call sites to fabricate dummy values, and a WeakMap memo keyed "per contract" has nothing real to key on.

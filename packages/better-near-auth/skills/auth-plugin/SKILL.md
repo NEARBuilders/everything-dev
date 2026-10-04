@@ -19,7 +19,7 @@ requires:
 metadata:
   type: composition
   library: better-near-auth
-  library_version: "1.8.3"
+  library_version: "1.10.2"
 sources:
   - "elliotBraem/better-near-auth:examples/auth.everything.dev/bos.config.json"
   - "elliotBraem/better-near-auth:examples/auth.everything.dev/plugins/auth/src/contract.ts"
@@ -48,8 +48,8 @@ This skill covers **consuming** the plugin: registration, UI auth client, route 
 
 | Library | Plugin version |
 | --- | --- |
-| `better-near-auth` | 1.8.3 |
-| `@everything-dev/auth-plugin` (this skill) | tracks `better-near-auth` 1.8.x |
+| `better-near-auth` | 1.10.2 |
+| `@everything-dev/auth-plugin` (this skill) | tracks `better-near-auth` 1.10.x |
 
 The auth plugin is read from the registry and forwards its `variables.siwn` and `secrets` to the underlying `siwn()` plugin instance. The plugin does **not** lock to a specific `better-near-auth` version — it accepts whatever the bundled `dist` contains.
 
@@ -61,7 +61,7 @@ The auth plugin is read from the registry and forwards its `variables.siwn` and 
 
 ## Registering in bos.config.json
 
-The current canonical example lives in `examples/auth.everything.dev/bos.config.json`:
+The current canonical example lives in `examples/auth.everything.dev/bos.config.json`: <!-- docs-check:skip (file in the better-near-auth library repo) -->
 
 ```json
 {
@@ -166,7 +166,7 @@ Key points:
 
 ## Route Protection
 
-The `_authenticated` layout pattern from `examples/auth.everything.dev/ui/src/routes/_layout/_authenticated.tsx`:
+The `_authenticated` layout pattern from `examples/auth.everything.dev/ui/src/routes/_layout/_authenticated.tsx`: <!-- docs-check:skip (file in the better-near-auth library repo) -->
 
 ```typescript
 export const Route = createFileRoute('/_layout/_authenticated')({
