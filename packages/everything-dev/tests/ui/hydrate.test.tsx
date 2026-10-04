@@ -301,7 +301,7 @@ describe("client bootstrap", () => {
     expect(bootstrap.render).toHaveBeenCalledOnce();
   });
 
-  it("falls back to the core-only tree when a plugin route config fails to load", async () => {
+  it("drops the failed remote and composes the core-only subset (degraded, client-render)", async () => {
     document.documentElement.setAttribute("data-everything-ssr", "");
     bootstrap.config = composeConfig();
     composeMocks.loadRemote.mockRejectedValue(new Error("remote down"));
@@ -317,20 +317,82 @@ describe("client bootstrap", () => {
 
     await runHydrate(bootstrap.config);
 
-    // The degraded compose must still hand the router a REAL tree — the
-    // core-only construction (core manifest + core route config, no remotes)
-    // — never `undefined` (a router without a tree crashes on `__root__`).
-    expect(composeMocks.constructTree).toHaveBeenCalledTimes(2);
-    const fallbackInput = composeMocks.constructTree.mock.calls[1]![0] as {
+    // Per-source isolation: the broken remote drops ONLY its own routes —
+    // one construction over the core-only subset, never a second fallback.
+    expect(composeMocks.constructTree).toHaveBeenCalledTimes(1);
+    const input = composeMocks.constructTree.mock.calls[0]![0] as {
       name: string;
       plugins: Array<{ key: string; mfName: string }>;
     };
-    expect(fallbackInput.name).toBe("core-fallback");
-    expect(fallbackInput.plugins).toEqual([{ key: "ui", mfName: "ui" }]);
+    expect(input.name).toBe("client");
+    expect(input.plugins).toEqual([{ key: "ui", mfName: "ui" }]);
     expect(bootstrap.createRouter).toHaveBeenCalledWith(
       expect.objectContaining({ routeTree: { id: "composed-tree" } }),
     );
-    // Degraded compose must never hydrate over SSR'd HTML — client-render.
+    // The SSR'd tree included the dropped remote — hydration is unsafe, so
+    // the page client-renders the degraded tree.
+    expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
+    expect(bootstrap.render).toHaveBeenCalledOnce();
+  });
+
+  it("drops only the failed remote and composes the healthy subset", async () => {
+    document.documentElement.setAttribute("data-everything-ssr", "");
+    const IDEAS_MANIFEST = {
+      name: "ideas",
+      manifestVersion: 2,
+      routes: [{ id: "_public/ideas", path: "/ideas" }],
+    };
+    bootstrap.config = {
+      ...composeConfig(),
+      ui: {
+        ...composeConfig().ui,
+        compose: {
+          digest: "digest-1",
+          remotes: [
+            {
+              key: "auth",
+              name: "auth-ui",
+              entry: "https://cdn.example.com/auth-ui/remoteEntry.js",
+            },
+            {
+              key: "ideas",
+              name: "ideas-ui",
+              entry: "https://cdn.example.com/ideas-ui/remoteEntry.js",
+            },
+          ],
+          manifests: [CORE_MANIFEST, AUTH_MANIFEST, IDEAS_MANIFEST],
+        },
+      },
+    } as never;
+    composeMocks.loadRemote.mockImplementation(async (name: unknown) => {
+      if (String(name).startsWith("ideas-ui/")) throw new Error("remote down");
+      return { routeConfigLoaders: {} };
+    });
+    composeMocks.constructTree.mockImplementation(
+      async (input: {
+        plugins: Array<{ key: string }>;
+        resolve: (ref: { key: string }) => unknown;
+      }) => {
+        for (const ref of input.plugins) await input.resolve(ref);
+        return composedTree();
+      },
+    );
+
+    await runHydrate(bootstrap.config);
+
+    // the healthy remote composes; the broken one drops
+    expect(composeMocks.constructTree).toHaveBeenCalledOnce();
+    const input = composeMocks.constructTree.mock.calls[0]![0] as {
+      plugins: Array<{ key: string; mfName: string }>;
+    };
+    expect(input.plugins).toEqual([
+      { key: "ui", mfName: "ui" },
+      { key: "auth", mfName: "auth-ui" },
+    ]);
+    expect(bootstrap.createRouter).toHaveBeenCalledWith(
+      expect.objectContaining({ routeTree: { id: "composed-tree" } }),
+    );
+    // degraded (the SSR'd tree included the dropped remote) → client-render
     expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
     expect(bootstrap.render).toHaveBeenCalledOnce();
   });

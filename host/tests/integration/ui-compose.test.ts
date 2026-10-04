@@ -128,8 +128,10 @@ const construct = vi.fn(
     resolve: (ref: { key: string }) => Promise<{ manifest: unknown }>;
     rootOptions?: unknown;
   }) => {
+    // mirror the real engine: refs sort by key before digestion
+    const refs = [...input.plugins].sort((a, b) => a.key.localeCompare(b.key));
     const resolved = [];
-    for (const ref of input.plugins) resolved.push(await input.resolve(ref));
+    for (const ref of refs) resolved.push(await input.resolve(ref));
     const { digestOf } = await import("everything-dev/ui/manifest");
     return {
       rootRoute: { id: "composed-tree" },
@@ -137,7 +139,7 @@ const construct = vi.fn(
       nav: { items: [] },
       manifests: [],
       digest: await digestOf({
-        plugins: input.plugins.map((p) => ({ key: p.key, mfName: p.mfName ?? p.key })),
+        plugins: refs.map((p) => ({ key: p.key, mfName: p.mfName ?? p.key })),
         manifests: resolved.map((r) => r.manifest),
       }),
     };
@@ -335,6 +337,48 @@ describe("composeUi", () => {
     ]);
   });
 
+  it("drops a plugin whose manifest cannot be fetched and composes the core", async () => {
+    const config = configWithPlugin();
+    fetchMock.mockImplementation(async (url: unknown) => {
+      const target = String(url);
+      if (target.startsWith("https://cdn.example.com/auth-ui/")) {
+        return { ok: false, status: 500, json: async () => ({}) };
+      }
+      return cdnAwareFetch(url);
+    });
+
+    const variant = await compose(config);
+
+    // the broken source drops itself; the core composes and the payload
+    // carries only healthy sources — the digest (over the healthy set) still
+    // verifies, and the variant recovers when the source comes back
+    expect(variant.clientPayload.remotes).toEqual([]);
+    expect(variant.clientPayload.manifests).toEqual([CORE_MANIFEST]);
+    expect(variant.routeTree).toEqual({ id: "composed-tree" });
+    expect(construct).toHaveBeenCalledTimes(1);
+    expect(construct.mock.calls[0]![0].plugins).toEqual([{ key: "ui", mfName: "ui" }]);
+  });
+
+  it("drops a plugin whose manifest names itself something else (identity mismatch)", async () => {
+    const config = configWithPlugin();
+    fetchMock.mockImplementation(async (url: unknown) => {
+      const target = String(url);
+      if (target.startsWith("https://cdn.example.com/auth-ui/")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ...AUTH_MANIFEST, name: "not-auth" }),
+        };
+      }
+      return cdnAwareFetch(url);
+    });
+
+    const variant = await compose(config);
+
+    expect(variant.clientPayload.remotes).toEqual([]);
+    expect(variant.clientPayload.manifests).toEqual([CORE_MANIFEST]);
+  });
+
   it("local dev composes through the same MF loaders via the local dist container", async () => {
     const localRoot = await mkdtemp(path.join(tmpdir(), "ui-compose-local-"));
     const fixture = async (name: string, manifestName: string) => {
@@ -392,7 +436,7 @@ describe("composeUi", () => {
     await rm(localRoot, { recursive: true, force: true });
   });
 
-  it("fails loudly when a manifest cannot be fetched", async () => {
+  it("fails loudly when the core manifest cannot be fetched (plugin sources drop, core does not)", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
     const result = await composeExit(configWithPlugin());
     expect(Exit.isFailure(result)).toBe(true);
@@ -447,7 +491,7 @@ describe("composeClientPayload", () => {
     expect(construct).not.toHaveBeenCalled();
   });
 
-  it("fails when a manifest cannot be fetched (no silent plugin loss)", async () => {
+  it("fails when the core manifest cannot be fetched — the payload path never fails silent either", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
     cache.remoteManifests.clear();
     const result = await Effect.runPromiseExit(composeClientPayload(configWithPlugin(), cache));

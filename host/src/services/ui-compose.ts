@@ -33,7 +33,6 @@ import type { RouterModule } from "../types";
 import { logger } from "../utils/logger";
 import type { RuntimeConfig } from "./config";
 import {
-  type ComposeModule,
   loadCoreUiRouteConfig,
   loadRouterModule,
   loadUiComposeModule,
@@ -214,70 +213,89 @@ const loadManifest = (
   return loadRemoteManifestCached(source, source.manifestUrl, cache);
 };
 
-interface ResolvedManifests {
-  manifests: PluginManifest[];
-  digest: string;
+interface ComposableSource {
+  source: UiSource;
+  manifest: PluginManifest;
 }
 
-/** The shared front half of composition: manifests + digest. Both composeUi
- * (full SSR variant) and composeClientPayload (payload only) run this so the
- * two paths digest identically by construction. */
-const resolveManifestsAndDigest = (
+/**
+ * Per-source isolation (ADR 0024 §5): a plugin source that cannot produce a
+ * usable manifest — fetch failure with no last-good snapshot, unparsable
+ * content, or an identity mismatch with its config key — drops itself with a
+ * warning instead of failing the whole composition. The core source failing
+ * stays loud. composeUi and composeClientPayload digest the same healthy set,
+ * so their payloads stay in parity by construction.
+ */
+const resolveComposableSources = (
   sources: UiSource[],
   cache: UiComposeCacheState,
-): Effect.Effect<ResolvedManifests, Error> =>
-  Effect.gen(function* () {
-    const manifests = yield* Effect.forEach(sources, (source) => loadManifest(source, cache), {
-      concurrency: "unbounded",
-    });
-    for (const [i, source] of sources.entries()) {
-      const manifest = manifests[i];
-      if (manifest && manifest.name !== source.key) {
-        return yield* Effect.fail(
-          new Error(
-            `[Compose] identity mismatch: the ui manifest for plugin "${source.key}" names itself "${manifest.name}" — the authored config key and the plugins/<key> layout key must agree (ADR 0008 §2); rename one or regenerate the ui manifest`,
-          ),
+): Effect.Effect<ComposableSource[], Error> =>
+  Effect.forEach(
+    sources,
+    (source) =>
+      Effect.gen(function* () {
+        const manifest = yield* loadManifest(source, cache);
+        if (manifest.name === source.key) return manifest;
+        if (source.key === CORE_UI_KEY) {
+          return yield* Effect.fail(
+            new Error(
+              `[Compose] the core ui manifest names itself "${manifest.name}" — expected "${source.key}" (ADR 0008 §2)`,
+            ),
+          );
+        }
+        yield* Effect.logWarning(
+          `[Compose] dropping ui source "${source.key}" — its manifest names itself "${manifest.name}" (identity mismatch, ADR 0008 §2)`,
         );
-      }
-    }
-    const digest = yield* Effect.tryPromise(() =>
-      digestOf({
-        plugins: sources.map((source, i) => ({
-          // Composition identity is the manifest's build-time container
-          // name — the identity the client derives from the payload's
-          // manifests (hydrate builds refs as key: manifest.name). Source
-          // config labels are deployment detail and must not enter the
-          // digest.
-          key: manifests[i]?.name ?? source.key,
-          mfName: source.mfName,
-        })),
-        manifests,
-      }),
-    );
-    return { manifests, digest };
+        return null;
+      }).pipe(
+        Effect.catch((error) =>
+          source.key === CORE_UI_KEY
+            ? Effect.fail(error)
+            : Effect.logWarning(
+                `[Compose] dropping ui source "${source.key}" — no usable manifest (${error.message})`,
+              ).pipe(Effect.as(null)),
+        ),
+      ),
+    { concurrency: "unbounded" },
+  ).pipe(
+    Effect.map((loaded) =>
+      loaded.flatMap((entry, i): ComposableSource[] =>
+        entry ? [{ source: sources[i]!, manifest: entry }] : [],
+      ),
+    ),
+  );
+
+const digestOfSources = (composable: ComposableSource[]) =>
+  Effect.tryPromise(() => {
+    // The construction engine sorts plugins by key before digesting — the
+    // manifest digest must read the same sorted order or parity fails.
+    const sorted = [...composable].sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
+    return digestOf({
+      plugins: sorted.map(({ source, manifest }) => ({
+        key: manifest.name,
+        mfName: source.mfName,
+      })),
+      manifests: sorted.map(({ manifest }) => manifest),
+    });
   });
 
-const clientPayloadOf = (
-  sources: UiSource[],
-  manifests: PluginManifest[],
-  digest: string,
-): ComposePayload => ({
+const clientPayloadOf = (composable: ComposableSource[], digest: string): ComposePayload => ({
   digest,
-  remotes: sources.flatMap((source, i) => {
+  remotes: composable.flatMap(({ source, manifest }) => {
     if (source.key === CORE_UI_KEY || !source.webEntry) return [];
     return [
       {
         // The client matches remotes to manifests by `key === manifest.name`;
-        // a source's `key` (config label) often differs from the manifest's
-        // build-time container name (derived from the package name).
-        key: manifests[i]?.name ?? source.key,
+        // the manifest name IS the composition identity (ADR 0008 §2). The
+        // MF container name is separate deployment detail.
+        key: manifest.name,
         name: source.mfName,
         entry: source.webEntry,
         ...(source.browserManifestUrl ? { manifestUrl: source.browserManifestUrl } : {}),
       },
     ];
   }),
-  manifests,
+  manifests: composable.map(({ manifest }) => manifest),
 });
 
 function rememberVariant(
@@ -315,24 +333,9 @@ export const composeUi = (
 ): Effect.Effect<ComposedUi, Error> =>
   Effect.gen(function* () {
     const sources = uiSources(config);
-    const core = sources.find((source) => source.key === CORE_UI_KEY)!;
-
-    const { manifests, digest } = yield* resolveManifestsAndDigest(sources, cache);
-    const manifestByName = new Map(manifests.map((manifest) => [manifest.name, manifest]));
-    const manifestNameByKey = new Map(
-      sources.map((source, i) => [source.key, manifests[i]!.name] as const),
-    );
-
-    const variantKey = `${digest}::${variantFingerprint(sources)}`;
-    const isDev = sources.some((source) => source.localRoot);
-    const now = yield* Clock.currentTimeMillis;
-    const cached = cache.variants.get(variantKey);
-    if (cached && (isDev ? cached.staleAfter > now : true)) {
-      return cached.variant;
-    }
-
-    let compose: ComposeModule["constructTree"];
-    let coreRouteConfig: RouteConfigModule;
+    const composable = yield* resolveComposableSources(sources, cache);
+    const corePair = composable.find(({ source }) => source.key === CORE_UI_KEY)!;
+    const core = corePair.source;
 
     const coreEntry = core.localRoot
       ? yield* Effect.tryPromise(() =>
@@ -347,40 +350,74 @@ export const composeUi = (
       loadCoreUiRouteConfig(coreEntry, config.env),
       loadRouterModule(config, core.localRoot ? coreEntry : undefined),
     ]);
-    compose = composeModule.constructTree;
-    coreRouteConfig = routeConfig;
+    const coreRouteConfig: RouteConfigModule = routeConfig;
 
+    // Per-source route-config isolation: a plugin whose container/config
+    // cannot load drops itself (warn); the core stays loud. The digest is
+    // computed over the final healthy set — after drops — so the engine's
+    // parity check and the client payload agree by construction.
+    const healthy: ComposableSource[] = [{ source: core, manifest: corePair.manifest }];
     const routeConfigByName = new Map<string, RouteConfigModule>([
-      [manifestNameByKey.get(CORE_UI_KEY) ?? CORE_UI_KEY, coreRouteConfig],
+      [corePair.manifest.name, coreRouteConfig],
     ]);
-    for (const source of sources) {
-      if (source.key === CORE_UI_KEY) continue;
-      const name = manifestNameByKey.get(source.key) ?? source.key;
-      if (source.localRoot) {
-        const localEntry = yield* Effect.tryPromise(() =>
-          localUiRemoteEntry({ name: source.mfName, localRoot: source.localRoot! }),
-        );
-        yield* waitForLocalContainer(localEntry, config.env);
-        routeConfigByName.set(name, yield* loadUiRouteConfig(localEntry, config.env));
-      } else if (source.remote) {
-        routeConfigByName.set(name, yield* loadUiRouteConfig(source.remote, config.env));
+    for (const entry of composable) {
+      if (entry.source.key === CORE_UI_KEY) continue;
+      const loaded = yield* (
+        entry.source.localRoot
+          ? Effect.gen(function* () {
+              const localEntry = yield* Effect.tryPromise(() =>
+                localUiRemoteEntry({
+                  name: entry.source.mfName,
+                  localRoot: entry.source.localRoot!,
+                }),
+              );
+              yield* waitForLocalContainer(localEntry, config.env);
+              return yield* loadUiRouteConfig(localEntry, config.env);
+            })
+          : loadUiRouteConfig(entry.source.remote!, config.env)
+      ).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning(
+            `[Compose] dropping ui source "${entry.source.key}" — route config unavailable (${error.message})`,
+          ).pipe(Effect.as(null)),
+        ),
+      );
+      if (loaded) {
+        healthy.push(entry);
+        routeConfigByName.set(entry.manifest.name, loaded);
       }
+    }
+    const healthySources = healthy.map(({ source }) => source);
+
+    // Canonical order — the engine sorts refs by key before digesting; the
+    // same sorted set feeds the manifest digest, the payload, and the
+    // fingerprint.
+    healthy.sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
+
+    const digest = yield* digestOfSources(healthy);
+
+    const variantKey = `${digest}::${variantFingerprint(healthySources)}`;
+    const isDev = healthySources.some((source) => source.localRoot);
+    const now = yield* Clock.currentTimeMillis;
+    const cached = cache.variants.get(variantKey);
+    if (cached && (isDev ? cached.staleAfter > now : true)) {
+      return cached.variant;
     }
 
     const constructed = yield* Effect.tryPromise(() =>
-      compose({
+      composeModule.constructTree({
         name: "server",
-        plugins: sources.map((source, i) => ({
-          key: manifests[i]?.name ?? source.key,
+        plugins: healthy.map(({ source, manifest }) => ({
+          key: manifest.name,
           mfName: source.mfName,
         })),
         resolve: async (ref: { key: string }) => {
-          const manifest = manifestByName.get(ref.key);
-          const routeConfig = routeConfigByName.get(ref.key);
-          if (!manifest || !routeConfig) {
+          const manifest = healthy.find(({ manifest }) => manifest.name === ref.key)?.manifest;
+          const routeConfigFor = routeConfigByName.get(ref.key);
+          if (!manifest || !routeConfigFor) {
             throw new Error(`composition source "${ref.key}" is not fully resolved`);
           }
-          return { key: ref.key, manifest, routeConfig };
+          return { key: ref.key, manifest, routeConfig: routeConfigFor };
         },
         rootOptions: coreRouteConfig.rootMeta,
       }),
@@ -398,7 +435,7 @@ export const composeUi = (
       routeTree: constructed.rootRoute,
       digest,
       nav: constructed.nav,
-      clientPayload: clientPayloadOf(sources, manifests, digest),
+      clientPayload: clientPayloadOf(healthy, digest),
     };
     rememberVariant(
       cache,
@@ -427,7 +464,7 @@ export interface ClientCompose {
  * exist — the bundled core-only tree is already complete there, and serving
  * a core-manifest payload would needlessly swap the bundled generated tree
  * for the constructed one. Digest parity with composeUi is structural: both
- * run resolveManifestsAndDigest over the same sources.
+ * isolate and digest the same healthy source set.
  */
 export const composeClientPayload = (
   config: RuntimeConfig,
@@ -436,6 +473,7 @@ export const composeClientPayload = (
   Effect.gen(function* () {
     const sources = uiSources(config);
     if (sources.every((source) => source.key === CORE_UI_KEY)) return undefined;
-    const { manifests, digest } = yield* resolveManifestsAndDigest(sources, cache);
-    return { digest, clientPayload: clientPayloadOf(sources, manifests, digest) };
+    const composable = yield* resolveComposableSources(sources, cache);
+    const digest = yield* digestOfSources(composable);
+    return { digest, clientPayload: clientPayloadOf(composable, digest) };
   });

@@ -144,13 +144,12 @@ async function composeFromPayload(
     return coreManifest ? composeCoreOnly([coreManifest]) : undefined;
   }
   const { manifests } = parsed.data;
+  const manifestByKey = new Map(manifests.map((m) => [m.name, m]));
 
   try {
     const { registerRemotes, loadRemote } = await import("@module-federation/enhanced/runtime");
 
     mark(`compose payload: digest ${payload.digest}, ${payload.remotes.length} remote(s)`);
-
-    const manifestByKey = new Map(manifests.map((m) => [m.name, m]));
 
     registerRemotes(
       payload.remotes.map((remote) => ({
@@ -173,9 +172,42 @@ async function composeFromPayload(
       mark(`remote registered ${remote.name} @ ${remote.entry}`);
     }
 
+    // Per-source isolation (ADR 0024 §5): a remote whose route config fails
+    // to load drops only its own routes. The dropped set degrades the compose
+    // (client-render — the SSR'd tree included it), never the whole page.
+    const loadedRouteConfigs = new Map<string, RouteConfigModule>();
+    const dropped: string[] = [];
+    const healthyManifests: PluginManifest[] = [];
+    for (const manifest of manifests) {
+      if (manifest.name === CORE_UI_PLUGIN_KEY) {
+        healthyManifests.push(manifest);
+        continue;
+      }
+      const remote = payload.remotes.find((r) => r.key === manifest.name);
+      if (!remote) {
+        dropped.push(manifest.name);
+        mark(`dropped ${manifest.name} — payload has no matching remote`);
+        continue;
+      }
+      try {
+        const mod = await loadRemote(`${remote.name}/routeConfig`, { from: "build" });
+        const routeConfig = ((mod as { default?: RouteConfigModule })?.default ??
+          mod) as RouteConfigModule;
+        if (!routeConfig?.routeConfigLoaders) {
+          throw new Error(`loadRemote(${remote.name}/routeConfig) returned no route config`);
+        }
+        loadedRouteConfigs.set(manifest.name, routeConfig);
+        healthyManifests.push(manifest);
+        mark(`loaded ${remote.name}/routeConfig`);
+      } catch (error) {
+        dropped.push(manifest.name);
+        mark(`dropped ${manifest.name} — ${(error as Error).message}`);
+      }
+    }
+
     const tree = await constructTree({
       name: "client",
-      plugins: manifests.map((manifest) => {
+      plugins: healthyManifests.map((manifest) => {
         const remote = payload.remotes.find((r) => r.key === manifest.name);
         return {
           key: manifest.name,
@@ -184,24 +216,25 @@ async function composeFromPayload(
         };
       }),
       resolve: async (ref) => {
-        const manifest = manifestByKey.get(ref.key);
-        if (!manifest) throw new Error(`compose payload has no manifest for "${ref.key}"`);
         if (ref.key === CORE_UI_PLUGIN_KEY) {
+          const manifest = manifestByKey.get(ref.key);
+          if (!manifest) throw new Error(`compose payload has no manifest for "${ref.key}"`);
           return { key: ref.key, manifest, routeConfig: coreRouteConfig };
         }
-        const remote = payload.remotes.find((r) => r.key === ref.key);
-        if (!remote) throw new Error(`compose payload has no remote for "${ref.key}"`);
-        const mod = await loadRemote(`${remote.name}/routeConfig`, { from: "build" });
-        const routeConfig = ((mod as { default?: RouteConfigModule })?.default ??
-          mod) as RouteConfigModule;
-        if (!routeConfig?.routeConfigLoaders) {
-          throw new Error(`loadRemote(${remote.name}/routeConfig) returned no route config`);
+        const manifest = manifestByKey.get(ref.key);
+        const routeConfig = loadedRouteConfigs.get(ref.key);
+        if (!manifest || !routeConfig) {
+          throw new Error(`composition source "${ref.key}" is not fully resolved`);
         }
-        mark(`loaded ${remote.name}/routeConfig`);
         return { key: ref.key, manifest, routeConfig };
       },
       rootOptions: coreRouteConfig.rootMeta,
     });
+
+    if (dropped.length > 0) {
+      mark(`degraded compose: ${dropped.join(", ")} dropped — client-render`);
+      return { routeTree: tree.rootRoute, nav: tree.nav, degraded: true };
+    }
 
     if (tree.digest !== payload.digest) {
       console.warn(
