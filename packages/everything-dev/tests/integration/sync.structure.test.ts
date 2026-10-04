@@ -6,9 +6,16 @@ describe("bos sync — framework-owned files", () => {
     expect(isFrameworkOwnedSyncFile(".gitignore")).toBe(true);
     expect(isFrameworkOwnedSyncFile("biome.json")).toBe(true);
     expect(isFrameworkOwnedSyncFile(".github/workflows/deploy.yml")).toBe(true);
-    expect(isFrameworkOwnedSyncFile("ui/src/globals.d.ts")).toBe(true);
     expect(isFrameworkOwnedSyncFile("ui/src/router.tsx")).toBe(true);
     expect(isFrameworkOwnedSyncFile("api/rspack.config.js")).toBe(true);
+  });
+
+  it("no longer owns the generated bootstrap stubs", () => {
+    expect(isFrameworkOwnedSyncFile("ui/src/entry.gen.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/hydrate.gen.tsx")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/router.server.gen.tsx")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/compose.gen.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("ui/src/globals.gen.ts")).toBe(false);
   });
 
   it("marks per-plugin lib files as framework-owned", () => {

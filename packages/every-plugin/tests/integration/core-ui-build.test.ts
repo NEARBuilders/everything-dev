@@ -13,10 +13,9 @@ afterEach(() => {
   fs.rmSync(scratchRoot, { recursive: true, force: true });
 });
 
-function makeWorkspace(shape: "core-ui" | "plugin" | "folder-form"): string {
+function makeWorkspace(shape: "core-ui" | "core-ui-no-entry" | "plugin" | "folder-form"): string {
   const cwd = join(scratchRoot, shape);
   fs.mkdirSync(join(cwd, "src", "routes"), { recursive: true });
-  fs.writeFileSync(join(cwd, "src", "entry.ts"), "export {};\n");
   fs.writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "ui", version: "0.0.0" }));
   if (shape === "plugin") {
     fs.writeFileSync(join(cwd, "src", "contract.ts"), "export {};\n");
@@ -28,12 +27,17 @@ function makeWorkspace(shape: "core-ui" | "plugin" | "folder-form"): string {
     fs.writeFileSync(join(cwd, "plugin.dev.ts"), "export {};\n");
     fs.mkdirSync(join(cwd, "ui", "src", "routes"), { recursive: true });
   }
+  if (shape === "core-ui") {
+    fs.writeFileSync(join(cwd, "src", "entry.ts"), "export {};\n");
+  }
+  // core-ui-no-entry: detection must not depend on the (generated) entry stub
   return cwd;
 }
 
 describe("core ui rsbuild synthesis", () => {
-  it("detects the workspace-form core ui (routes + entry, not plugin-shaped)", () => {
+  it("detects the workspace-form core ui (routes, not plugin-shaped) — entry stub not required", () => {
     expect(hasCoreUiWorkspace(makeWorkspace("core-ui"))).toBe(true);
+    expect(hasCoreUiWorkspace(makeWorkspace("core-ui-no-entry"))).toBe(true);
     expect(hasCoreUiWorkspace(makeWorkspace("plugin"))).toBe(false);
     expect(hasCoreUiWorkspace(makeWorkspace("folder-form"))).toBe(false);
   });

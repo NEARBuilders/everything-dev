@@ -42,6 +42,7 @@ export {
   sanitizeContainerName,
   type UiRsbuildConfigOptions,
 } from "./rsbuild-config";
+export { CORE_UI_STUBS, emitCoreUiStubs } from "./stubs";
 export type { UiManifestGenPluginOptions };
 export { uiManifestGenPlugin };
 

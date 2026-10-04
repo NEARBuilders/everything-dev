@@ -46,14 +46,10 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   "ui/src/components/root-error.tsx",
   "ui/src/components/root-not-found.tsx",
   "ui/src/components/router-error.tsx",
-  "ui/src/entry.ts",
-  "ui/src/globals.d.ts",
-  "ui/src/hydrate.tsx",
   "ui/src/providers/index.tsx",
   "ui/src/hooks/index.ts",
   "ui/src/lib/api.ts",
   "ui/src/lib/auth.ts",
-  "ui/src/router.server.tsx",
   "ui/src/router.tsx",
   "ui/src/routes/__root.tsx",
   "api/package.json",
@@ -575,6 +571,13 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
     const snapshotFiles = snapshot?.files ?? {};
 
     for (const [destPath, filePath] of destToSource.entries()) {
+      if (!existsSync(join(sourceDir, filePath))) {
+        // The template no longer ships this file — it was retired from the
+        // scaffold. Leave the local copy untouched rather than crashing the
+        // sync (the old-CLI + new-template transitional combo).
+        skipped.push(destPath);
+        continue;
+      }
       const localHash = computeLocalHash(projectDir, destPath);
       const sourceHash = computeHash(
         buildSyncedFileContent(sourceDir, projectDir, filePath, undefined, childScripts),

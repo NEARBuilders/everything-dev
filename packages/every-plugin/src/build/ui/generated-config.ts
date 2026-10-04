@@ -79,19 +79,19 @@ export function ensureGeneratedUiRsbuildConfig(cwd: string): string | null {
 
 const CORE_UI_MARKERS = {
   routes: "src/routes",
-  entry: "src/entry.ts",
   contract: "src/contract.ts",
 };
 
 /**
  * Workspace-form core ui: the workspace IS the ui (own package.json, route
- * tree, web entry) and is not plugin-shaped — the /api counterpart of the
- * plugin workspace form.
+ * tree) and is not plugin-shaped — the /api counterpart of the plugin
+ * workspace form. The entry stub is NOT a marker: it is generated
+ * (ADR 0023), so a fresh clone has no bootstrap stubs until the first
+ * generation pass.
  */
 export function hasCoreUiWorkspace(cwd: string = process.cwd()): boolean {
   return (
     fs.existsSync(path.join(cwd, CORE_UI_MARKERS.routes)) &&
-    fs.existsSync(path.join(cwd, CORE_UI_MARKERS.entry)) &&
     !fs.existsSync(path.join(cwd, CORE_UI_MARKERS.contract)) &&
     !fs.existsSync(path.join(cwd, "plugin.dev.ts"))
   );
