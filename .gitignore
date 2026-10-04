@@ -336,9 +336,7 @@ node_modules/.federation
 !**/README.md
 !**/CHANGELOG.md
 !.changeset/**/*.md
-!docs/agents/**/*.md
-!docs/adr/**/*.md
-!docs/plans/**/*.md
+!docs/**/*.md
 
 # The multi-context glossary map stays local until it is actually needed.
 /GLOSSARY-MAP.md

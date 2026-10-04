@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, posix, relative } from "node:path";
 
@@ -135,9 +136,30 @@ function targetExists(sourceFile, target) {
   ) {
     return true;
   }
-  return resolutionCandidates(sourceFile, clean).some((candidate) =>
-    existsSync(join(repoRoot, candidate)),
-  );
+  const candidates = resolutionCandidates(sourceFile, clean);
+  if (candidates.some((candidate) => existsSync(join(repoRoot, candidate)))) {
+    return true;
+  }
+  // A target that exists only after generation (routeTree.gen.ts, *.gen.ts
+  // type files) is gitignored, so a clean checkout never has it. Skip those:
+  // references to generated artifacts are descriptions, not navigation.
+  return candidates.some((candidate) => isGitIgnored(candidate));
+}
+
+const gitIgnoreChecked = new Map();
+
+function isGitIgnored(candidate) {
+  const cached = gitIgnoreChecked.get(candidate);
+  if (cached !== undefined) return cached;
+  let ignored = false;
+  try {
+    execFileSync("git", ["check-ignore", "-q", candidate], { cwd: repoRoot, stdio: "ignore" });
+    ignored = true;
+  } catch (error) {
+    ignored = error.status === 0;
+  }
+  gitIgnoreChecked.set(candidate, ignored);
+  return ignored;
 }
 
 function extractFromFrontmatterSources(content, broken, sourceFile) {
