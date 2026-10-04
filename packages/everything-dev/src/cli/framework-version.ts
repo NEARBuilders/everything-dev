@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { findWorkspaceRoot } from "../workspace";
 
 export interface FrameworkPackageResolution {
   specifier?: string;
@@ -12,11 +13,15 @@ function stripVersionPrefix(version: string): string {
   return version.replace(/^[\^~>=]+/, "");
 }
 
+function workspaceDirOf(projectDir: string): string {
+  return findWorkspaceRoot(projectDir)?.dir ?? projectDir;
+}
+
 export function readRootCatalogVersion(
   projectDir: string,
   packageName: string,
 ): string | undefined {
-  const pkgPath = join(projectDir, "package.json");
+  const pkgPath = join(workspaceDirOf(projectDir), "package.json");
   if (!existsSync(pkgPath)) return undefined;
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
     workspaces?: { catalog?: Record<string, string> };
@@ -29,7 +34,7 @@ export function readNodeModulesVersion(
   projectDir: string,
   packageName: string,
 ): string | undefined {
-  const pkgPath = join(projectDir, "node_modules", packageName, "package.json");
+  const pkgPath = join(workspaceDirOf(projectDir), "node_modules", packageName, "package.json");
   if (!existsSync(pkgPath)) return undefined;
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version?: string };
   return pkg.version;
@@ -46,7 +51,7 @@ export function resolveFrameworkPackage(
   projectDir: string,
   packageName: string,
 ): FrameworkPackageResolution {
-  const pkgPath = join(projectDir, "package.json");
+  const pkgPath = join(workspaceDirOf(projectDir), "package.json");
   if (!existsSync(pkgPath)) {
     return { isLinked: false, isWorkspaceLike: false };
   }

@@ -6,11 +6,11 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "rsbuild build",
-    "preview": "NODE_ENV=production BOS_CONFIG_PATH=../bos.config.json tsx server.ts",
-    "test": "NODE_ENV=production BOS_CONFIG_PATH=../bos.config.json vitest run",
-    "test:e2e": "BOS_CONFIG_PATH=../bos.config.json playwright test -c ./playwright.config.mjs",
-    "test:integration:remote": "BOS_CONFIG_PATH=../bos.config.json vitest run -c ./vitest.remote.config.ts",
-    "test:watch": "NODE_ENV=production BOS_CONFIG_PATH=../bos.config.json vitest",
+    "preview": "NODE_ENV=production tsx server.ts",
+    "test": "NODE_ENV=production vitest run",
+    "test:e2e": "playwright test -c ./playwright.config.mjs",
+    "test:integration:remote": "vitest run -c ./vitest.remote.config.ts",
+    "test:watch": "NODE_ENV=production vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

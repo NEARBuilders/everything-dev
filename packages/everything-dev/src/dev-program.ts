@@ -1,6 +1,5 @@
 import { Clock, Data, Effect, Layer } from "effect";
 import { detectLocalPackages, PortAllocatorLive } from "./app";
-import { buildPackageQuietly } from "./build";
 import { generateCodeArtifacts } from "./code-artifacts";
 import {
   buildRuntimeConfig,
@@ -50,6 +49,7 @@ import { isRegistryStart, resolveStartConfigSource } from "./start-config-source
 import type { BosConfig, SourceMode } from "./types";
 import { BosConfigSchema } from "./types";
 import { run } from "./utils/run";
+import { ensureFreshDeps, findWorkspaceRoot } from "./workspace";
 
 export type { DevSessionData, StartSummary } from "./dev-session-data";
 
@@ -190,17 +190,19 @@ export const devBootstrap = (
       session.runtime ?? undefined,
       session.root,
     );
+    const localPackageNames = new Set(localPackages.map((entry) => entry.name));
+    const localDirs = localPackages.map((entry) => entry.dir);
 
-    const hostSource: SourceMode = localPackages.includes("host")
+    const hostSource: SourceMode = localPackageNames.has("host")
       ? parseSourceMode(input.host, "local")
       : "remote";
-    const uiSource: SourceMode = localPackages.includes("ui")
+    const uiSource: SourceMode = localPackageNames.has("ui")
       ? parseSourceMode(input.ui, "local")
       : "remote";
-    const apiSource: SourceMode = localPackages.includes("api")
+    const apiSource: SourceMode = localPackageNames.has("api")
       ? parseSourceMode(input.api, "local")
       : "remote";
-    const authSource: SourceMode = localPackages.includes("auth")
+    const authSource: SourceMode = localPackageNames.has("auth")
       ? parseSourceMode(input.auth, "local")
       : "remote";
     const ssr = input.ssr ?? false;
@@ -228,21 +230,15 @@ export const devBootstrap = (
     );
     let configMayHaveChanged = false;
     if (sharedSync.catalogChanged) {
-      yield* step(timings, "install", () => run("bun", ["install"], { cwd: session.root }));
+      yield* step(timings, "install", () =>
+        run("bun", ["install"], { cwd: findWorkspaceRoot(session.root)?.dir ?? session.root }),
+      );
       configMayHaveChanged = true;
     }
-    const shouldBuildPlugin =
-      (apiSource === "local" && !proxy) || localPackages.some((pkg) => pkg.startsWith("plugin:"));
 
     yield* step(timings, "build", async () => {
-      const [everythingDevRebuilt] = await Promise.all([
-        buildPackageQuietly(session.root, "everything-dev"),
-        buildPackageQuietly(session.root, "better-near-auth"),
-      ]);
-      if (shouldBuildPlugin) {
-        await buildPackageQuietly(session.root, "every-plugin");
-      }
-      if (everythingDevRebuilt === true) {
+      const report = await ensureFreshDeps(session.root, localDirs);
+      if (report.rebuilt.some((member) => member.name === "everything-dev")) {
         // Only the bos process itself runs the everything-dev dist (plugin
         // children spawn after this step and load the fresh build). A source
         // run (bun src/cli.ts) never imported dist, so nothing is stale for

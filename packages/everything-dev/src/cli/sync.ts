@@ -12,6 +12,7 @@ import {
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { computeSnapshotHash as computeHash } from "../utils/snapshot-hash";
+import { findWorkspaceRoot } from "../workspace";
 import {
   buildChildAgentsMd,
   buildChildRootScripts,
@@ -397,7 +398,7 @@ async function getSelectedChildPlugins(
 }
 
 function hasPluginsWorkspace(projectDir: string): boolean {
-  const packageJsonPath = join(projectDir, "package.json");
+  const packageJsonPath = join(findWorkspaceRoot(projectDir)?.dir ?? projectDir, "package.json");
   if (!existsSync(packageJsonPath)) return false;
 
   try {
@@ -712,7 +713,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
     });
 
     if (!options.noInstall) {
-      await runBunInstall(projectDir);
+      await runBunInstall(findWorkspaceRoot(projectDir)?.dir ?? projectDir);
       await runTypesGen(projectDir);
     }
 

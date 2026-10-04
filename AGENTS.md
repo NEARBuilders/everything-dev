@@ -261,11 +261,11 @@ bun run build          # bos build — all workspaces (staleness-checked prerequ
 bun run build ui       # bos build ui — one target + fresh prerequisites
 bun run deploy         # bos deploy — the full deploy train (also runs on merge, via CI)
 ```
-`bun run build <targets>` quietly (re)builds the framework prerequisites (`every-plugin`, `everything-dev`, `better-near-auth` — staleness-checked, cheap no-ops when fresh) before any target, so targets always bundle fresh dists. Raw per-workspace builds (`cd ui && bun run build`) bypass the prerequisite train and are unsupported — use the train.
+`bun run build <targets>` first gives every target's local workspace dependencies fresh dists — the prerequisite graph is derived from each workspace's declared `dependencies`/`devDependencies` resolved against the bun workspace members (`every-plugin`, `everything-dev`, `better-near-auth` for `ui`), staleness-checked per member and cheap no-ops when fresh; failures are loud (ADR 0022). Raw per-workspace builds (`cd ui && bun run build`) bypass the prerequisite train and are unsupported — use the train.
 
 Two resolution rules keep this safe (ADR 0018): **bundler-configuration code resolves from source** — `every-plugin/build/ui` and `every-plugin/build/rspack` (the generated plugin configs' factories) resolve `src` in every condition, so the config chain cannot go stale; **shipped code resolves from dist** — runtime subpaths (`everything-dev/ui/auth`, `db`, …) resolve built dists, whose freshness the prerequisite train guarantees.
 
-**Dev overlays (`bos.dev.ts`):** authored config lives in `bos.app.ts` (published); dev-only overrides live in `bos.dev.ts` (optional, child-wins merged over the resolved config when the environment is development, **never published** — same role as `.env` vs `.env.example` at the config level). Each unit gets the pair; `plugin.dev.ts` is the legacy name being retired (see `.scratch/app-model` — SPEC decision 3's strict layout and the strict cut in closed/02; dev-overlay consumption in issues/06-07).
+**Dev overlays (`bos.dev.ts`):** authored config lives in `bos.app.ts` (published); dev-only overrides live in `bos.dev.ts` (optional, child-wins merged over the resolved config when the environment is development, **never published** — same role as `.env` vs `.env.example` at the config level). Each unit gets the pair; `plugin.dev.ts` is the legacy name being retired. The app root (the directory holding the `bos.app.ts`/`bos.dev.ts` pair) is distinct from the bun workspace root — see ADR 0022 for the two-roots model and which CLI concerns anchor to which root.
 
 **Sync and Publish:**
 ```bash
@@ -566,7 +566,7 @@ bun lint        # Run linting (Biome format/style + Effect rules via `bun run li
 
 Host tests specifically use vitest via the workspace script:
 ```bash
-bun run --cwd host test    # NODE_ENV=production BOS_CONFIG_PATH=../bos.config.json vitest run
+bun run --cwd host test    # NODE_ENV=production vitest run
 ```
 Always use `bun run test` / `bun run --cwd host test` — never `bun test`, which invokes Bun's built-in runner and produces different (and misleading) results.
 
