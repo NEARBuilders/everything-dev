@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { hasFolderFormUi } from "every-plugin/build/ui";
@@ -7,7 +7,7 @@ import { buildWorkspaceTargets, resolveWorkspaceTarget, selectWorkspaceTargets }
 import { type CdnDeployInputs, probeStorageOrigin, resolveCdnDeployInputs } from "./cdn-deploy";
 import { formatDuration } from "./cli/timing";
 import { generateCodeArtifacts } from "./code-artifacts";
-import { resolveUiRuntimeName } from "./config";
+import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "./config";
 import type { WorkspaceDeployResult } from "./contract";
 import { ensureDelegateKey, submitRegistryWriteDelegated } from "./delegate-signer";
 import {
@@ -18,6 +18,7 @@ import {
 } from "./fastkv";
 import { pointerFingerprint, slotPins } from "./fingerprint";
 import { applyDeployResults, type DeployResultEntry } from "./integrity";
+import { mergeAuthoredOverPublished } from "./merge";
 import {
   describeSigningStrategy,
   resolveSigningStrategy,
@@ -175,6 +176,8 @@ interface PublishToFastKvResult {
   slotPins?: Record<string, string>;
 }
 
+export type PublishedConfigState = "fetched" | "missing" | "unreachable";
+
 export interface PublishPreflightPlan {
   isStaging: boolean;
   account: string;
@@ -188,6 +191,10 @@ export interface PublishPreflightPlan {
   cdnOrigin: string | undefined;
   storageOrigin: string;
   storageApiKey?: string;
+  /** The config currently published to FastKV (null when missing or unreachable). */
+  publishedConfig: Record<string, unknown> | null;
+  /** Whether the preflight FastKV read succeeded, found nothing, or failed. */
+  publishedConfigState: PublishedConfigState;
 }
 
 export type PublishPreflight =
@@ -209,7 +216,7 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
     return {
       kind: "error",
       registryUrl: "",
-      error: "bos.config.json must define domain to publish",
+      error: "authored config must define domain to publish",
     };
   }
 
@@ -225,7 +232,7 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
       return fail(
         (input.wallet
           ? "--wallet requires"
-          : 'bos.config.json sets publish.auth = "session", but') +
+          : 'the authored config sets publish.auth = "session", but') +
           " no CLI session is stored in .bos/ for this project. Run bos login to create one.",
       );
     }
@@ -240,7 +247,7 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
   if (publishAuth && !input.privateKey) {
     if (publishAuth === "custody") {
       return fail(
-        'bos.config.json sets publish.auth = "custody", but custody publish is not implemented yet (see NEARBuilders/everything-dev#291).',
+        'the authored config sets publish.auth = "custody", but custody publish is not implemented yet (see NEARBuilders/everything-dev#291).',
       );
     }
   }
@@ -302,16 +309,26 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
     }
   }
 
-  // Registry reachability: one FastKV read. A missing config is fine for a
-  // first publish — an early signal, not a hard gate.
+  // Registry reachability + published-state capture: one FastKV read. A
+  // missing config is fine for a first publish — an early signal, not a hard
+  // gate. The captured config is the merge base for a config-only publish on
+  // a TS-form project (authored hand-edits win; live pipeline state carries).
+  let publishedConfig: Record<string, unknown> | null = null;
+  let publishedConfigState: PublishedConfigState = "missing";
   try {
-    await fetchBosConfigFromFastKv(registryUrl, input.registry);
-  } catch {
-    console.log(
-      colors.dim(
-        "  Note: no published config found yet (first publish, or registry unreachable) — continuing",
-      ),
+    publishedConfig = await fetchBosConfigFromFastKv<Record<string, unknown>>(
+      registryUrl,
+      input.registry,
     );
+    publishedConfigState = "fetched";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith("No config found")) {
+      console.log(colors.dim("  Note: no published config found yet (first publish) — continuing"));
+    } else {
+      publishedConfigState = "unreachable";
+      console.log(colors.dim("  Note: registry read failed — continuing"));
+    }
   }
 
   return {
@@ -329,6 +346,8 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
       cdnOrigin: cdnDeploy.cdnOrigin,
       storageOrigin: cdnDeploy.storageOrigin,
       storageApiKey: cdnDeploy.apiKey,
+      publishedConfig,
+      publishedConfigState,
     },
   };
 }
@@ -429,7 +448,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
         built,
         skipped,
         deployResults,
-        error: "Failed to reload bos.config.json after build",
+        error: "Failed to reload the config after build",
       };
     }
 
@@ -437,10 +456,45 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     refreshedRawConfig = refreshed.rawConfig;
   }
 
-  const rawConfigPath = join(configDir, "bos.config.json");
-  const rawConfig =
-    refreshedRawConfig ?? (JSON.parse(readFileSync(rawConfigPath, "utf-8")) as BosConfigInput);
-  let publishPayload: BosConfigInput = isStaging ? { ...rawConfig, domain: gateway } : rawConfig;
+  const authoredPath = findConfigPath(configDir);
+  const tsForm = authoredPath !== null && isAppDescriptorPath(authoredPath);
+  let rawConfig: BosConfigInput;
+  if (refreshedRawConfig) {
+    rawConfig = refreshedRawConfig;
+  } else {
+    const opened = await openResolution({ cwd: configDir });
+    if (!opened?.rawConfig) {
+      return {
+        status: "error",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        error: "Failed to load the authored config for publish",
+      };
+    }
+    rawConfig = opened.rawConfig;
+  }
+  if (tsForm && !input.build && plan.publishedConfigState === "unreachable") {
+    // A config-only TS-form publish derives its pipeline state from the live
+    // published config — publishing without it would wipe bundle URLs.
+    return {
+      status: "error",
+      registryUrl,
+      built,
+      skipped,
+      deployResults,
+      error:
+        "Cannot read the currently published config from the registry — a config-only publish would overwrite live bundle URLs. Retry when the registry is reachable, or run a full deploy.",
+    };
+  }
+  let publishPayload: BosConfigInput =
+    tsForm && !input.build
+      ? // Config-only publish on a TS-form project: the authored config owns
+        // composition (hand-edits win) while live pipeline state (bundle
+        // URLs, integrity) carries over from the published config.
+        mergeAuthoredOverPublished((plan.publishedConfig ?? {}) as BosConfigInput, rawConfig)
+      : rawConfig;
 
   const urlOrigin = plan.cdnOrigin ?? `https://${gateway}`;
   const deployTargets = (built ?? []).filter((key) => targets.includes(key));
@@ -622,19 +676,27 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
 
   if (platformEntries.length > 0) {
     const merged = applyDeployResults(rawConfig as Record<string, unknown>, platformEntries);
-    try {
-      writeFileSync(rawConfigPath, `${JSON.stringify(merged, null, 2)}\n`);
-    } catch (error) {
-      return {
-        status: "error",
-        registryUrl,
-        built,
-        skipped,
-        deployResults,
-        error: `Failed to write bundle URLs to bos.config.json: ${error instanceof Error ? error.message : error}`,
-      };
+    if (!tsForm) {
+      // Legacy JSON-form children keep their local write-back; TS-form keeps
+      // pipeline state in FastKV only — a write-back would shadow the
+      // authored bos.app.ts descriptor.
+      try {
+        writeFileSync(join(configDir, "bos.config.json"), `${JSON.stringify(merged, null, 2)}\n`);
+      } catch (error) {
+        return {
+          status: "error",
+          registryUrl,
+          built,
+          skipped,
+          deployResults,
+          error: `Failed to write bundle URLs to bos.config.json: ${error instanceof Error ? error.message : error}`,
+        };
+      }
     }
-    publishPayload = (isStaging ? { ...merged, domain: gateway } : merged) as BosConfigInput;
+    publishPayload = merged as BosConfigInput;
+  }
+  if (isStaging) {
+    publishPayload = { ...publishPayload, domain: gateway };
   }
 
   const registryKey = `apps/${account}/${gateway}/bos.config.json`;

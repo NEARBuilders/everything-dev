@@ -5,6 +5,8 @@ metadata:
   sources: "packages/everything-dev/src/cli/init.ts,packages/everything-dev/src/cli/sync.ts,packages/everything-dev/src/cli/upgrade.ts,packages/everything-dev/src/cli/snapshot.ts,packages/everything-dev/src/merge.ts"
 ---
 
+> **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
+
 # bos init, sync, upgrade
 
 ## bos init
@@ -43,7 +45,7 @@ This base runtime is the app the host boots from.
 
 ### 2. Create the child app from the base runtime
 
-Create a second app whose `bos.config.json` extends the base runtime:
+Create a second app whose authored config extends the base runtime:
 
 ```json
 {
@@ -99,7 +101,7 @@ Use the `extends-config` skill when reasoning about how the tenant config merges
 ### Init File Selection
 
 `buildInitPatterns(overrides, plugins)` chooses what init copies from the template source:
-- Scaffold runtime files (bos.config.json, package.json, biome.json, rsbuild configs)
+- Scaffold runtime files (bos.app.ts, bos.dev.ts, package.json, biome.json, rsbuild configs)
 - UI structure (routes/__root.tsx, components/index.ts, providers, hooks, lib)
 - API structure (contract.ts, index.ts, db/, drizzle.config.ts)
 - Selected plugin workspaces (`plugins/<selected-plugin>/**`)
@@ -189,11 +191,11 @@ bos publish                  # Publish config to FastKV
 bos publish --deploy         # Build, deploy to CDN, then publish
 ```
 
-`bos publish --deploy` builds, auto-updates `bos.config.json` with deterministic bundle URLs, then publishes the config to FastKV.
+`bos publish --deploy` builds, pins deterministic bundle URLs into the published config, then publishes to FastKV (a legacy JSON child's `bos.config.json` is also updated locally).
 
 ## Canonical Ordering
 
-All writes to `bos.config.json` enforce `BOS_CONFIG_ORDER`:
+All writes to the authored config enforce `BOS_CONFIG_ORDER`:
 `extends` → `account` → `domain` → `title` → `description` → `testnet` → `staging` → `repository` → `ci` → `app` → `plugins`
 
 Unknown keys go after known keys. See `everything-dev#extends-config` for full ordering details.

@@ -1,14 +1,20 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { Context } from "effect";
-import { readAuthoredConfigInput, resolveConfigComposableEntries } from "../config";
+import {
+  localConfigEntryPath,
+  readAuthoredConfigInput,
+  readLocalAuthoredConfigInput,
+  resolveConfigComposableEntries,
+} from "../config";
 import type { BosConfigResult } from "../contract";
 import { fetchBosConfigFromFastKv } from "../fastkv";
 import { applyRegistrySections } from "../registry-use";
 import { walkExtendsChain } from "../resolution/session";
 import type { BosConfig, BosConfigInput } from "../types";
 import { BosConfigSchema } from "../types";
+import { saveBosConfig } from "../utils/save-config";
 import { type BosBuilder, BosDepsTag } from "./shared";
 
 export function registerConfig(builder: BosBuilder) {
@@ -25,12 +31,17 @@ export function registerConfig(builder: BosBuilder) {
 
     registryUse: builder.registryUse.handler(async ({ input, context }) => {
       const deps = Context.get(context["effect/context"], BosDepsTag);
-      const configPath = join(deps.session?.root ?? process.cwd(), "bos.config.json");
+      const root = deps.session?.root ?? process.cwd();
+      const configPath = localConfigEntryPath(root) ?? join(root, "bos.config.json");
       const normalizedFrom = input.from.startsWith("bos://") ? input.from : `bos://${input.from}`;
 
       try {
         const remote = await fetchBosConfigFromFastKv<Record<string, unknown>>(normalizedFrom);
-        const local = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+        const localRaw = await readLocalAuthoredConfigInput(root);
+        const local = (localRaw ?? JSON.parse(readFileSync(configPath, "utf-8"))) as Record<
+          string,
+          unknown
+        >;
         const { config: merged, applied } = applyRegistrySections(
           local as never,
           remote as never,
@@ -46,7 +57,7 @@ export function registerConfig(builder: BosBuilder) {
           };
         }
 
-        writeFileSync(configPath, `${JSON.stringify(merged, null, 2)}\n`);
+        await saveBosConfig(root, merged);
 
         return {
           status: "updated" as const,

@@ -1,5 +1,6 @@
 import process from "node:process";
 import { Context, Effect, References } from "effect";
+import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { PhaseTiming } from "../contract";
 import { type LogLevelEnv, resolveLogLevel, toEffectLogLevel } from "../dev-log-pipeline";
 import { bootstrapLayers, devBootstrap, resolveProxyUrl, startBootstrap } from "../dev-program";
@@ -20,9 +21,9 @@ export function registerDev(builder: BosBuilder) {
           ),
           Effect.provide(bootstrapLayers),
           Effect.catchTags({
-            DevConfigMissing: () => Effect.succeed({ failed: "No bos.config.json found" }),
+            DevConfigMissing: () => Effect.succeed({ failed: MISSING_CONFIG_MESSAGE }),
             DevProxyMissing: () =>
-              Effect.succeed({ failed: "No valid proxy URL configured in bos.config.json" }),
+              Effect.succeed({ failed: "No valid proxy URL configured in the authored config" }),
             DevPreflightFailed: (error) =>
               Effect.succeed({ failed: `Infra preflight failed: ${error.messages.join("; ")}` }),
           }),
@@ -71,7 +72,7 @@ export function registerDev(builder: BosBuilder) {
             StartConfigMissing: () =>
               Effect.succeed({
                 failed:
-                  "No configuration found. Provide --account and --gateway flags, or create a local bos.config.json.",
+                  "No configuration found. Provide --account and --gateway flags, or create a local authored config (bos.app.ts or bos.config.json).",
               }),
             InfraError: (error) => Effect.succeed({ failed: `${error.phase}: ${error.message}` }),
             DevStepError: (error) =>

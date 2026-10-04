@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import type { StatusResult } from "../contract";
 import { fetchBosConfigFromFastKv } from "../fastkv";
 import { fetchJsonOrNull } from "../http-client";
@@ -49,17 +50,17 @@ async function checkParentReachable(extendsRef: string | undefined): Promise<boo
 }
 
 export async function getStatus(projectDir: string): Promise<StatusResult> {
-  const configPath = join(projectDir, "bos.config.json");
-  if (!existsSync(configPath)) {
+  const authored = await readAuthoredConfigInput(projectDir);
+  if (!authored) {
     return {
       status: "error",
-      error: "No bos.config.json found in current directory",
+      error: `${MISSING_CONFIG_MESSAGE} in current directory`,
       packages: [],
       envFile: "missing",
     };
   }
 
-  const config = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+  const config = authored as Record<string, unknown>;
 
   const packageNames = [...FRAMEWORK_PACKAGES];
   for (const name of CATALOG_TOOL_PACKAGES) {

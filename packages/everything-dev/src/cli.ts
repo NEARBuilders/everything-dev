@@ -11,7 +11,7 @@ import { parseCommandInput } from "./cli/parse";
 import { promptInitBasic, promptInitOverrides } from "./cli/prompts";
 import { formatDuration, sumPhaseDurations } from "./cli/timing";
 import { fetchInitParent } from "./commands/init";
-import { findConfigPath, readAuthoredConfigInput } from "./config";
+import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "./config";
 import type {
   DevOptions,
   DevResult,
@@ -656,7 +656,7 @@ async function main() {
 
     if (descriptor.key === "config") {
       if (!result.config) {
-        console.error("No bos.config.json found");
+        console.error(MISSING_CONFIG_MESSAGE);
         process.exit(1);
       }
 

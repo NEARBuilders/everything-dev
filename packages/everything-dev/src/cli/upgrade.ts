@@ -4,6 +4,7 @@ import { join } from "node:path";
 import process from "node:process";
 import * as p from "@clack/prompts";
 import { glob } from "glob";
+import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../contract";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
@@ -276,12 +277,11 @@ function syncRootCatalogWithParent(
 }
 
 async function readExtendedRootSource(projectDir: string): Promise<ExtendedRootSource> {
-  const configPath = join(projectDir, "bos.config.json");
-  if (!existsSync(configPath)) {
+  const localConfig = (await readAuthoredConfigInput(projectDir)) as Record<string, unknown> | null;
+  if (!localConfig) {
     return { catalog: {}, extendsChain: [] };
   }
 
-  const localConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   let extendsRef = getExtendsRef(localConfig);
   if (!extendsRef?.startsWith("bos://")) {
     return {
@@ -648,12 +648,10 @@ async function loadParentPluginOptions(projectDir: string): Promise<{
   parentPlugins: Record<string, unknown>;
   newPluginKeys: string[];
 } | null> {
-  const configPath = join(projectDir, "bos.config.json");
-  if (!existsSync(configPath)) {
+  const localConfig = (await readAuthoredConfigInput(projectDir)) as Record<string, unknown> | null;
+  if (!localConfig) {
     return null;
   }
-
-  const localConfig = JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   const extendsRef = getExtendsRef(localConfig);
   if (!extendsRef?.startsWith("bos://")) {
     return null;
@@ -776,13 +774,12 @@ async function findWorkspacePackageJsons(projectDir: string): Promise<string[]> 
 }
 
 export async function migrateChildRootPackageJson(projectDir: string): Promise<boolean> {
-  const configPath = join(projectDir, "bos.config.json");
+  const config = (await readAuthoredConfigInput(projectDir)) as Record<string, unknown> | null;
   const pkgPath = join(workspaceDirOf(projectDir), "package.json");
-  if (!existsSync(configPath) || !existsSync(pkgPath)) {
+  if (!config || !existsSync(pkgPath)) {
     return false;
   }
 
-  const config = readJsonFile<Record<string, unknown>>(configPath);
   const extendsRef = getExtendsRef(config);
   if (!extendsRef?.startsWith("bos://")) {
     return false;
@@ -1215,7 +1212,7 @@ async function runMigrationPhase(
   await timePhase(timings, "sync shared deps", async () => {
     const configSession = await openResolution({ cwd: projectDir });
     if (!configSession?.config) {
-      throw new Error("No bos.config.json found in current directory");
+      throw new Error(`${MISSING_CONFIG_MESSAGE} in current directory`);
     }
 
     return syncResolvedSharedDeps({

@@ -1,9 +1,11 @@
 ---
 name: publish-sync
-description: Publish bos.config.json to the FastKV registry, sync from upstream, and upgrade workspace packages. Use when deploying, syncing, or managing runtime configuration across projects.
+description: Publish the authored config (bos.app.ts) to the FastKV registry, sync from upstream, and upgrade workspace packages. Use when deploying, syncing, or managing runtime configuration across projects.
 metadata:
   sources: "packages/everything-dev/src/plugin.ts,packages/everything-dev/src/cli/sync.ts,packages/everything-dev/src/cli/upgrade.ts,packages/everything-dev/src/fastkv.ts,packages/everything-dev/src/integrity.ts,packages/everything-dev/src/config.ts"
 ---
+
+> **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
 
 # everything-dev Publish & Sync
 
@@ -17,7 +19,7 @@ rspack  FastKV    bos sync
 
 ## Publish
 
-Publish `bos.config.json` to the configured FastKV registry path for the app account/domain:
+Publish the resolved config to the configured FastKV registry path for the app account/domain:
 
 ```bash
 bos publish                        # Publish config only
@@ -34,21 +36,23 @@ The registry transaction is signed in-process via near-kit — key resolution or
 
 After `bos publish --deploy`:
 1. Each workspace builds; the publish writes deterministic bundle URLs (`https://<domain>/bundles/<account>/<gateway>/<workspace>/`)
-2. `bos.config.json` is auto-updated with the production URLs
+2. Pipeline state (production URLs, integrity) goes to FastKV. For legacy JSON-form projects, `bos.config.json` is also updated locally; for the authored `bos.app.ts` form, nothing is written back — the authoring surface never holds pipeline state
 3. Config is published to the FastKV registry at `{account}/bos/gateways/{gateway}/bos.config.json`
 
 The `--network` flag controls the NEAR network (mainnet by default). With `--network testnet`, publishes go to the NEAR testnet chain under the testnet account specified in config.
 
 ### Rollback
 
-To revert a publish, restore the previous `bos.config.json` from git and re-publish:
+To revert a publish, restore the previous authored config from git and re-publish:
 
 ```bash
-git checkout HEAD~1 -- bos.config.json
+git checkout HEAD~1 -- bos.app.ts
 bos publish
 ```
 
-Or cherry-pick a specific version of `bos.config.json` and publish that snapshot.
+A config-only publish merges the freshly authored config over the currently published one — authored edits win, and the live pipeline state (bundle URLs, integrity) carries over. Removing a slot from the authored config requires `bos deploy`, which regenerates the payload from scratch. Legacy JSON-form children re-publish their `bos.config.json` as-is.
+
+Or cherry-pick a specific version of the authored config and publish that snapshot. Prefer `bos rollback --previous` (or `--version <height>`) — it republishes a verified FastKV snapshot without touching git.
 
 Lineage model:
 - `extends` is the canonical parent edge between published runtimes
@@ -62,7 +66,7 @@ You don't need to wait for CI/CD to see changes in production. Publish your own 
 
 **Same gateway, own account:**
 
-`BOS_GATEWAY` (`domain` in `bos.config.json`) is the **FastKV lookup key**, not the DNS domain your Railway instance serves on. By keeping `BOS_GATEWAY` the same as the parent while using your own `BOS_ACCOUNT`, your config lives at a separate FastKV path (`bos://<your-account>/<gateway>`) that `extends` the base runtime. You inherit the full platform — host, API, auth, plugins — and override only what you change. Your Railway URL is the ingress.
+`BOS_GATEWAY` (`domain` in the authored config) is the **FastKV lookup key**, not the DNS domain your Railway instance serves on. By keeping `BOS_GATEWAY` the same as the parent while using your own `BOS_ACCOUNT`, your config lives at a separate FastKV path (`bos://<your-account>/<gateway>`) that `extends` the base runtime. You inherit the full platform — host, API, auth, plugins — and override only what you change. Your Railway URL is the ingress.
 
 **Step-by-step:**
 
@@ -77,7 +81,7 @@ You don't need to wait for CI/CD to see changes in production. Publish your own 
 
 ## Sync
 
-Pull template updates from the parent referenced by local `bos.config.json`:
+Pull template updates from the parent referenced by the local authored config:
 
 ```bash
 bos sync
@@ -138,7 +142,7 @@ These are auto-generated during `bos publish --deploy` and verified at runtime b
 
 ## Configuration
 
-All runtime config lives in `bos.config.json`. Key sections:
+All runtime config lives in the authored config. Key sections:
 - `account` — NEAR mainnet account
 - `testnet` — NEAR testnet account
 - `staging.domain` — Staging domain
@@ -176,7 +180,7 @@ For remix-host browsing with the apps plugin:
 
 ### What bos dev writes vs bos publish writes
 
-See `everything-dev#extends-config` for the full table. In short: `bos dev` and `bos build` write to `.bos/bos.resolved-config.json` (gitignored); `bos publish --deploy`, `bos plugin publish`, and `bos sync` write to `bos.config.json`.
+See `everything-dev#extends-config` for the full table. In short: `bos dev` and `bos build` write to `.bos/bos.resolved-config.json` (gitignored); `bos publish --deploy`, `bos plugin publish`, and `bos sync` write to the authored config — `bos.app.ts` for TS-form projects, `bos.config.json` for legacy JSON-form children. Pipeline state (deploy-injected URLs) is written back only for JSON-form.
 
 ## Troubleshooting
 
@@ -188,13 +192,13 @@ bos status            # Check remote health
 ### FastKV publish failures
 
 - **NEAR RPC error**: Verify the configured NEAR account has sufficient gas and the FastKV contract is deployed at `{account}/bos/gateways/{gateway}/bos.config.json`
-- **Account mismatch**: The `bos.config.json` `account` field must match the on-chain account that owns the FastKV path
+- **Account mismatch**: The authored config's `account` field must match the on-chain account that owns the FastKV path
 - **Network mismatch**: Ensure `--network` matches where the account is deployed (mainnet vs testnet)
 - **Dry-run first**: Use `bos publish --dry-run` to preview before sending
 
 ### Integrity verification
 
-During `bos publish --deploy`, integrity SRI hashes are auto-generated for each remote entry and stored in `bos.config.json`. At runtime, the host:
+During `bos publish --deploy`, integrity SRI hashes are auto-generated for each remote entry and stored in the published config (FastKV; also written back to `bos.config.json` for legacy JSON-form children). At runtime, the host:
 - Verifies integrity on first load using bounded streaming (not full-response buffering)
 - Uses stale-while-revalidate for asset requests to avoid latency spikes
 - Blocks HTML and SSR requests on integrity mismatch
@@ -226,7 +230,7 @@ If `bos mf check` fails for one plugin, redeploy only that plugin from this repo
 
 ```bash
 cd plugins/<key>
-bos plugin publish <key>             # rebuild + write the deterministic bundle URL to bos.config.json
+bos plugin publish <key>             # rebuild + pin the workspace's production URL, then publish config
 ```
 
 Then from the repo root: `bos publish --deploy --packages local` and `bos mf check` to confirm.

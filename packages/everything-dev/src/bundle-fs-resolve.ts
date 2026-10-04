@@ -9,6 +9,7 @@ import {
   readBundleCache,
   writeBundleCache,
 } from "./bundle-cache";
+import { isAppDescriptorPath } from "./config";
 
 /**
  * Local-first bundle resolution (ADR 0011 amendment): a self-contained
@@ -256,7 +257,7 @@ export function installBundleFetchFromEnv(input: {
   let configAccount: string | undefined;
   let configGateway: string | undefined;
   const configPath = input.configPath;
-  if (configPath) {
+  if (configPath && !isAppDescriptorPath(configPath)) {
     try {
       const parsed = JSON.parse(readFileSync(configPath, "utf8")) as {
         account?: string;

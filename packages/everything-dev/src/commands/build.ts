@@ -1,6 +1,7 @@
 import { Context } from "effect";
 import { buildWorkspaceTargets, selectWorkspaceTargets } from "../build";
 import { generateCodeArtifacts } from "../code-artifacts";
+import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { BosEnv } from "../merge";
 import { type BosBuilder, BosDepsTag } from "./shared";
 
@@ -12,7 +13,7 @@ export function registerBuild(builder: BosBuilder) {
       if (!session?.config) {
         return {
           status: "error" as const,
-          error: "No bos.config.json found",
+          error: MISSING_CONFIG_MESSAGE,
           built: [],
           skipped: [],
         };

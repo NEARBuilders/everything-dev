@@ -11,6 +11,7 @@ import {
   type SessionCredential,
   writeSessionHandle,
 } from "../auth-session";
+import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { LoginResult } from "../contract";
 import { getRegistryNamespaceForAccount } from "../fastkv";
 import {
@@ -41,7 +42,7 @@ export function registerKeys(builder: BosBuilder) {
           contract: "",
           allowance: input.allowance,
           functionNames: PUBLISH_FUNCTION_NAMES,
-          error: "No bos.config.json found",
+          error: MISSING_CONFIG_MESSAGE,
         };
       }
 
@@ -172,7 +173,7 @@ export function registerKeys(builder: BosBuilder) {
 
         let warning: string | null = null;
         if (account && approval.accountId && approval.accountId !== account) {
-          warning = `Logged in as ${approval.accountId}, but bos.config.json account is ${account}. Publishes will use the configured account.`;
+          warning = `Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`;
         }
 
         let publishKey: LoginResult["publishKey"] = null;
@@ -275,7 +276,7 @@ async function exportPublishKey(
   registry: string | undefined,
 ): Promise<NonNullable<LoginResult["publishKey"]>> {
   if (!account) {
-    throw new Error("bos.config.json has no account to export a publish key for");
+    throw new Error("the authored config has no account to export a publish key for");
   }
 
   await Effect.runPromise(ensureNearCli);

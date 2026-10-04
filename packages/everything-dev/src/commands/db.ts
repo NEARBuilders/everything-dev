@@ -1,5 +1,5 @@
 import { Context, Effect } from "effect";
-import { findConfigPath } from "../config";
+import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
 import { type BosBuilder, BosDepsTag } from "./shared";
 
 export function registerDb(builder: BosBuilder) {
@@ -13,7 +13,7 @@ export function registerDb(builder: BosBuilder) {
           plugin: input.plugin,
           source: "remote" as const,
           section: "",
-          error: "No bos.config.json found in current directory",
+          error: `${MISSING_CONFIG_MESSAGE} in current directory`,
         };
       }
 
@@ -57,7 +57,7 @@ export function registerDb(builder: BosBuilder) {
             appliedHashCount: 0,
             expectedTables: [],
             missingTables: [],
-            error: "No bos.config.json found in current directory",
+            error: `${MISSING_CONFIG_MESSAGE} in current directory`,
           };
         }
 
@@ -94,7 +94,7 @@ export function registerDb(builder: BosBuilder) {
         if (!configPath) {
           return {
             status: "error" as const,
-            message: "No bos.config.json found",
+            message: MISSING_CONFIG_MESSAGE,
             diagnosis: null,
             error: "No config",
           };

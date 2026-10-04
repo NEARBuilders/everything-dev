@@ -1,7 +1,9 @@
+import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { Context } from "effect";
 import { getPluginRef } from "../build";
 import { generateCodeArtifacts } from "../code-artifacts";
+import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { PluginListResult } from "../contract";
 import { fetchRemotePluginManifest } from "../fastkv";
 import { publishToFastKv } from "../publish";
@@ -19,7 +21,7 @@ export function registerPlugins(builder: BosBuilder) {
         return {
           status: "error" as const,
           key: "",
-          error: "No bos.config.json found",
+          error: MISSING_CONFIG_MESSAGE,
         };
       }
 
@@ -31,32 +33,40 @@ export function registerPlugins(builder: BosBuilder) {
       );
       const existing = session.config.plugins?.[key];
       const existingEntry = existing && typeof existing === "object" ? existing : {};
+      const applyEntryDelta = (base: Record<string, unknown>): Record<string, unknown> => {
+        if (isBosRef) return { ...base, extends: input.source };
+        if (isLocal) return { ...base, development: input.source };
+        return { ...base, production: input.production ?? input.source };
+      };
       const nextPlugins = { ...session.config.plugins };
-
-      if (isBosRef) {
-        nextPlugins[key] = {
-          ...existingEntry,
-          extends: input.source,
-        };
-      } else if (isLocal) {
-        nextPlugins[key] = {
-          ...existingEntry,
-          development: input.source,
-          ...(existingEntry.extends ? {} : {}),
-        };
-      } else {
-        nextPlugins[key] = {
-          ...existingEntry,
-          production: input.production ?? input.source,
-        };
-      }
+      nextPlugins[key] = applyEntryDelta(existingEntry);
 
       const nextConfig: BosConfig = {
         ...session.config,
         plugins: nextPlugins,
       };
 
-      await saveBosConfig(session.root, nextConfig);
+      const authored = session.rawConfig;
+      if (authored) {
+        // Authoring-surface save: the authored leaf input + delta, never the
+        // resolved config (which would bake inherited values into the file).
+        const authoredExisting = authored.plugins?.[key];
+        const authoredBase: Record<string, unknown> =
+          typeof authoredExisting === "string"
+            ? { extends: authoredExisting }
+            : authoredExisting && typeof authoredExisting === "object"
+              ? (authoredExisting as Record<string, unknown>)
+              : {};
+        await saveBosConfig(session.root, {
+          ...authored,
+          plugins: {
+            ...(authored.plugins ?? {}),
+            [key]: applyEntryDelta(authoredBase),
+          },
+        });
+      } else {
+        await saveBosConfig(session.root, nextConfig);
+      }
       await generateCodeArtifacts(session.root, nextConfig);
 
       const stored = nextConfig.plugins?.[key];
@@ -79,7 +89,7 @@ export function registerPlugins(builder: BosBuilder) {
         return {
           status: "error" as const,
           key: input.key,
-          error: "No bos.config.json found",
+          error: MISSING_CONFIG_MESSAGE,
         };
       }
 
@@ -98,7 +108,31 @@ export function registerPlugins(builder: BosBuilder) {
         plugins: Object.keys(nextPlugins).length > 0 ? nextPlugins : undefined,
       };
 
-      await saveBosConfig(session.root, nextConfig);
+      const authored = session.rawConfig;
+      if (authored) {
+        const authoredPlugins: Record<string, unknown> = { ...(authored.plugins ?? {}) };
+        if (authoredPlugins[input.key] === undefined) {
+          // Inherited from the parent runtime. JSON-form children can express
+          // removal with a null sentinel (dropped by the extends merge); the
+          // TS descriptor schema cannot, so only those error out.
+          if (existsSync(join(session.root, "bos.app.ts"))) {
+            return {
+              status: "error" as const,
+              key: input.key,
+              error: `'${input.key}' is inherited from the parent runtime — remove it in the parent config or override it there (the authored descriptor cannot express removal)`,
+            };
+          }
+          authoredPlugins[input.key] = null;
+        } else {
+          delete authoredPlugins[input.key];
+        }
+        await saveBosConfig(session.root, {
+          ...authored,
+          plugins: Object.keys(authoredPlugins).length > 0 ? authoredPlugins : undefined,
+        });
+      } else {
+        await saveBosConfig(session.root, nextConfig);
+      }
       await generateCodeArtifacts(session.root, nextConfig);
 
       return {
@@ -125,7 +159,7 @@ export function registerPlugins(builder: BosBuilder) {
         return {
           status: "error" as const,
           key: input.key,
-          error: "No bos.config.json found",
+          error: MISSING_CONFIG_MESSAGE,
         };
       }
 

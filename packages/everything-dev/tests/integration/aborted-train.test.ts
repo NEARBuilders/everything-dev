@@ -224,7 +224,10 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
       privateKey: "ed25519:test",
       source: "provided",
     });
-    vi.mocked(openResolution).mockResolvedValue({ config: bosConfig } as never);
+    vi.mocked(openResolution).mockResolvedValue({
+      config: bosConfig,
+      rawConfig: bosConfig,
+    } as never);
     submitRegistryWriteMock.mockImplementation(async (tx: { args: Record<string, string> }) => {
       publishedPayloads.push(JSON.parse(Object.values(tx.args)[0]!));
       return { success: true, txHash: "tx_test" };

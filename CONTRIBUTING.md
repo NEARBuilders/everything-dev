@@ -33,11 +33,11 @@ Visit http://localhost:3003 (UI), http://localhost:3001 (API), and http://localh
 - **UI Changes**: Edit `ui/src/` → hot reload automatically
 - **API Changes**: Edit `api/src/` → hot reload automatically
 - **Plugin Changes**: Edit `plugins/*/src/` → hot reload automatically → deploy per plugin
-- **Host Changes**: Edit `host/src/` or `bos.config.json`
+- **Host Changes**: Edit `host/src/` or the authored config (`bos.app.ts`)
 
 ### Plugin Architecture
 
-Business logic lives in independent plugins. A plugin entry in `bos.config.json` can be **remote-only** (no `development: local:…` key) — the host/API consume it via `pluginsClient` and HTTP, and types resolve from the deployed manifest. Plugin source does not need to live in this repo.
+Business logic lives in independent plugins. A plugin entry in the authored config can be **remote-only** (no `development: local:…` key) — the host/API consume it via `pluginsClient` and HTTP, and types resolve from the deployed manifest. Plugin source does not need to live in this repo.
 
 - **`plugins/registry/`** — Registry/discovery, FastKV app metadata (local in dev)
 - **`plugins/_template/`** — Scaffold for new plugins
@@ -50,7 +50,7 @@ Each plugin has its own `contract.ts`, `index.ts`, and generated rspack config, 
 
 The `api/` package is a slim shell (ping/error routes + DB layer). It composes across plugins in-process via `createPlugin.withPlugins<PluginsClient>()` — the API receives typed client factories for all other plugins and calls their routers directly without HTTP roundtrips.
 
-Plugin and API variables are configured in `bos.config.json`:
+Plugin and API variables are configured in the authored config (`bos.app.ts`):
 - API variables: `app.api.variables` → `config.variables` in `initialize`
 - Plugin variables: `plugins.{key}.variables` → plugin's own `config.variables` in `initialize`
 
@@ -58,7 +58,7 @@ Plugins are accessible both directly via HTTP (`/api/{key}/*`) and in-process vi
 
 ### Environment Configuration
 
-All runtime URLs are configured in `bos.config.json` - no rebuild needed! Switch environments:
+All runtime URLs are configured in the authored config - no rebuild needed! Switch environments:
 
 ```bash
 NODE_ENV=development bos dev  # Use local services (default)

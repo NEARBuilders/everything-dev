@@ -1,5 +1,6 @@
 import process from "node:process";
 import { Context } from "effect";
+import { MISSING_CONFIG_MESSAGE } from "../config";
 import {
   type ConfigHistoryEntry,
   fetchBosConfigFromFastKv,
@@ -29,7 +30,7 @@ export function registerDeploy(builder: BosBuilder) {
         return {
           status: "error" as const,
           registryUrl: "",
-          error: "No bos.config.json found",
+          error: MISSING_CONFIG_MESSAGE,
         };
       }
 
@@ -66,7 +67,7 @@ export function registerDeploy(builder: BosBuilder) {
         return {
           status: "error" as const,
           registryUrl: "",
-          error: "No bos.config.json found",
+          error: MISSING_CONFIG_MESSAGE,
         };
       }
 
@@ -75,7 +76,7 @@ export function registerDeploy(builder: BosBuilder) {
         return {
           status: "error" as const,
           registryUrl: "",
-          error: "bos.config.json must define account and domain to roll back",
+          error: "authored config must define account and domain to roll back",
         };
       }
 
@@ -219,7 +220,7 @@ export function registerDeploy(builder: BosBuilder) {
         return {
           status: "error" as const,
           registryUrl: "",
-          error: "No bos.config.json found",
+          error: MISSING_CONFIG_MESSAGE,
         };
       }
 
@@ -228,7 +229,7 @@ export function registerDeploy(builder: BosBuilder) {
           return {
             status: "error" as const,
             registryUrl: "",
-            error: "bos.config.json must define account and domain to list deploy manifests",
+            error: "authored config must define account and domain to list deploy manifests",
           };
         }
         try {

@@ -42,6 +42,8 @@ const LOCAL_PREFIX = "local:";
 const DEFAULT_HOST_PORT = 3000;
 const RESOLVED_CONFIG_FILENAME = "bos.resolved-config.json";
 
+export const MISSING_CONFIG_MESSAGE = "No config found (bos.app.ts or bos.config.json)";
+
 export const DEV_OVERLAY_FILENAME = "bos.dev.ts";
 
 type RuntimeOverrideTarget = "ui" | "api" | "plugins" | `plugins.${string}`;
@@ -99,6 +101,33 @@ export async function readAuthoredConfigInput(cwd?: string): Promise<BosConfigIn
   return readConfigInput(configPath, dirname(configPath));
 }
 
+/**
+ * The authored config entry inside exactly `dir` — no upward walk. Unlike
+ * `findConfigPath` this never escapes the given directory, for write targets
+ * and nested-local-path resolution where a parent's config must not be
+ * picked up. Prefers the authored `bos.app.ts` descriptor (the canonical
+ * form) over a legacy `bos.config.json`.
+ */
+export function localConfigEntryPath(dir: string): string | null {
+  const appPath = join(dir, "bos.app.ts");
+  if (existsSync(appPath)) return appPath;
+  const jsonPath = join(dir, "bos.config.json");
+  return existsSync(jsonPath) ? jsonPath : null;
+}
+
+/** `localConfigEntryPath` + the form-aware read (`BosConfigInput`). */
+export async function readLocalAuthoredConfigInput(dir: string): Promise<BosConfigInput | null> {
+  const entry = localConfigEntryPath(dir);
+  if (!entry) return null;
+  return readConfigInput(entry, dirname(entry));
+}
+
+/**
+ * The authored `bos.app.ts` descriptor is the canonical form — when both
+ * forms coexist (e.g. a generated `bos.config.json` write-back beside the
+ * authored descriptor), the authored file wins. JSON-form-only children are
+ * unaffected: with no `bos.app.ts`, the JSON file is the entry.
+ */
 export function findConfigPath(cwd?: string): string | null {
   const cacheKey = resolve(cwd ?? process.cwd());
   const cached = configPathCache.get(cacheKey);
@@ -106,15 +135,15 @@ export function findConfigPath(cwd?: string): string | null {
 
   let dir = cacheKey;
   while (true) {
-    const jsonPath = join(dir, "bos.config.json");
-    if (existsSync(jsonPath)) {
-      configPathCache.set(cacheKey, jsonPath);
-      return jsonPath;
-    }
     const appPath = join(dir, "bos.app.ts");
     if (existsSync(appPath)) {
       configPathCache.set(cacheKey, appPath);
       return appPath;
+    }
+    const jsonPath = join(dir, "bos.config.json");
+    if (existsSync(jsonPath)) {
+      configPathCache.set(cacheKey, jsonPath);
+      return jsonPath;
     }
     const parent = dirname(dir);
     if (parent === dir) break;
@@ -655,8 +684,8 @@ export async function resolveComposableReference(
   if (localDevelopmentPath) {
     const { resolveMergedConfigInput } = await import("./resolution/session");
     const localPath = localDevelopmentPath;
-    const localConfigPath = join(localPath, "bos.config.json");
-    if (existsSync(localConfigPath)) {
+    const localConfigPath = localConfigEntryPath(localPath);
+    if (localConfigPath) {
       const localConfig = await resolveMergedConfigInput(localConfigPath, {
         baseDir: localPath,
         env,

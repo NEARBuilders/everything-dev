@@ -1,9 +1,11 @@
 ---
 name: plugin-development
-description: Build, register, and deploy plugins within everything.dev. Covers the _template scaffold, contract/service/index pattern, database setup with Drizzle, bos.config.json registration, plugin UI/sidebar, and CLI workflow. Use when creating new plugins, adding database-backed routes, or deploying plugins to production.
+description: Build, register, and deploy plugins within everything.dev. Covers the _template scaffold, contract/service/index pattern, database setup with Drizzle, authored-config registration, plugin UI/sidebar, and CLI workflow. Use when creating new plugins, adding database-backed routes, or deploying plugins to production.
 metadata:
   sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,packages/every-plugin/src/build/rspack,plugins/_template/plugin.dev.ts,plugins/_template/src/db/schema.ts,plugins/_template/src/db/layer.ts,api/src/db/index.ts,api/src/db/migrate.ts,packages/every-plugin/src/plugin.ts"
 ---
+
+> **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
 
 # Plugin Development
 
@@ -236,7 +238,7 @@ Good practice:
 
 ### Key Patterns
 
-**`variables`** — Public config exposed in `bos.config.json` (typed, with defaults).  
+**`variables`** — Public config exposed in the authored config (typed, with defaults).  
 **`secrets`** — Private values from `process.env` (typed, dev defaults).  
 **`context`** — Per-request context injected by the host. See "Request Context Reference" below for all available fields.  
 **`initialize`** — Effect-based startup. Return an Effect `Layer`; the runtime builds it against the plugin's lifecycle scope. Use `buildScoped(tag, layer)` (or `buildScopedContext(layer)` for multi-service layers) from `"every-plugin"` to build scoped resources (DB pools, caches, repositories) that live for the plugin's lifetime.  
@@ -250,7 +252,7 @@ Available fields: `userId`, `user` (id, role, email, name), `organizationId` / `
 
 See `references/request-context.md` for the full schema and field table. For pre-built auth/organization middleware, see the `api-and-auth` skill.
 
-## Step 5: Register in `bos.config.json`
+## Step 5: Register in the authored config
 
 Add a plugin entry:
 
@@ -277,7 +279,7 @@ Add a plugin entry:
 }
 ```
 
-The CLI updates `bos.config.json` automatically when you run `bos plugin add` / `bos plugin remove`.
+The CLI updates the authored config (`bos.app.ts`) automatically when you run `bos plugin add` / `bos plugin remove`.
 
 **Remote-only plugins:** The `development` key is optional. A plugin can be remote-only (just a `production` URL) — the host/API consume it via `pluginsClient` and HTTP, and types resolve from the deployed manifest. Plugin source does not need to live in the consuming repo. This is how plugins maintained in other repos are mounted.
 
@@ -375,7 +377,7 @@ Use `createPlugin.withPlugins<PluginsClient>()` to get typed access to other plu
 
 ## Plugin UI
 
-Add a UI remote via the `ui` field in `bos.config.json`. Sidebar items are defined manually in `ui/src/components/layout/nav-items.ts`.
+Add a UI remote via the `ui` field in the authored config. Sidebar items are defined manually in `ui/src/components/layout/nav-items.ts`.
 
 ## Deploy
 
@@ -384,12 +386,12 @@ bos plugin publish          # Build and publish just this plugin
 bos publish --deploy        # Build ALL packages + deploy + publish config
 ```
 
-Builds the plugin, updates `bos.config.json` with the deterministic image-native production URL (`https://<domain>/bundles/<account>/<gateway>/<key>/`), and publishes to FastKV registry. Restart the host after publishing.
+Builds the plugin, pins the deterministic image-native production URL into the published config (`https://<domain>/bundles/<account>/<gateway>/<key>/`), and publishes to FastKV registry. Restart the host after publishing.
 
 ### CLI Lifecycle
 
 1. `cp -r plugins/_template plugins/your-plugin` then edit names
-2. Register in `bos.config.json` (or `bos plugin add`)
+2. Register in the authored config (or `bos plugin add`)
 3. `bos types gen`
 4. `bos dev` to develop
 5. `bos plugin publish` to deploy
