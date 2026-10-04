@@ -1,6 +1,6 @@
 import { oc } from "@orpc/contract";
 import { call } from "@orpc/server";
-import { Context, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import { buildScoped, buildScopedContext, createPlugin, createPluginRuntime } from "every-plugin";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -8,6 +8,15 @@ import { z } from "zod";
 const testContract = oc.router({
   ping: oc.route({ method: "GET", path: "/ping" }).output(z.object({ ok: z.boolean() })),
 });
+
+class LifecycleTestError extends Data.TaggedError("LifecycleTestError")<{
+  readonly detail: string;
+  readonly cause?: unknown;
+}> {
+  override get message() {
+    return this.detail;
+  }
+}
 
 describe("Scope lifecycle", () => {
   it("Layer returned from initialize persists after plugin initialization", async () => {
@@ -269,7 +278,7 @@ describe("Scope lifecycle", () => {
                 released = true;
               }),
           );
-          return yield* Effect.fail(new Error("intentional init failure"));
+          return yield* new LifecycleTestError({ detail: "intentional init failure" });
         }),
       createRouter: (builder) => ({
         ping: builder.ping.handler(async () => ({ ok: true as const })),
@@ -368,7 +377,7 @@ describe("Scope lifecycle", () => {
         Effect.gen(function* () {
           callCount++;
           if (callCount < 3) {
-            return yield* Effect.fail(new Error(`transient failure #${callCount}`));
+            return yield* new LifecycleTestError({ detail: `transient failure #${callCount}` });
           }
           return Layer.empty as never;
         }),
@@ -427,7 +436,11 @@ describe("Scope lifecycle", () => {
             startedResolve();
             return await initialization;
           },
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: (cause) =>
+            new LifecycleTestError({
+              detail: cause instanceof Error ? cause.message : String(cause),
+              cause,
+            }),
         }).pipe(Effect.map(() => Layer.empty as never)),
       createRouter: (builder) => ({
         ping: builder.ping.handler(async () => ({ ok: true as const })),

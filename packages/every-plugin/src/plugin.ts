@@ -5,6 +5,7 @@ import type { ContractedRouter, Implementer } from "@orpc/server";
 import { implement } from "@orpc/server";
 import type { Scope } from "effect";
 import { Context, Effect, Layer } from "effect";
+import { type PluginRuntimeError, toPluginRuntimeError } from "./runtime/errors";
 
 type ContextOutput<T> = T extends AnySchema ? InferSchemaOutput<T> : Record<string, never>;
 
@@ -60,7 +61,7 @@ type PluginDefinition<
   initialize?: (
     config: PluginInitializeInput<V, S>,
     plugins: P,
-  ) => Effect.Effect<Layer.Layer<any, any, any>, Error, PluginEnv>;
+  ) => Effect.Effect<Layer.Layer<any, Error, PluginEnv>, Error, PluginEnv>;
   /**
    * Creates the strongly-typed oRPC router for this plugin.
    * Services come from the Effect context — access them with
@@ -110,7 +111,7 @@ export interface Plugin<
   initialize(
     config: PluginInitializeInput<TVariables, TSecrets>,
     plugins: Record<string, unknown>,
-  ): Effect.Effect<Layer.Layer<any, any, any>, unknown, PluginEnv>;
+  ): Effect.Effect<Layer.Layer<any, Error, PluginEnv>, PluginRuntimeError, PluginEnv>;
 
   /**
    * Creates the strongly-typed oRPC router for this plugin.
@@ -159,16 +160,17 @@ export const createPlugin: CreatePluginFn = function createPlugin<
     initialize(
       pluginConfig: PluginInitializeInput<V, S>,
       plugins: Record<string, unknown> = {},
-    ): Effect.Effect<Layer.Layer<any, any, any>, unknown, PluginEnv> {
-      const init =
-        config.initialize ??
-        (() => Effect.succeed(Layer.empty as unknown as Layer.Layer<any, any, any>));
+    ): Effect.Effect<Layer.Layer<any, Error, PluginEnv>, PluginRuntimeError, PluginEnv> {
+      const init = config.initialize;
+      if (!init) {
+        return Effect.succeed(Layer.empty as unknown as Layer.Layer<any, Error, PluginEnv>);
+      }
 
-      return init(pluginConfig, plugins as P) as Effect.Effect<
-        Layer.Layer<any, any, any>,
-        unknown,
-        PluginEnv
-      >;
+      return init(pluginConfig, plugins as P).pipe(
+        Effect.mapError((error) =>
+          toPluginRuntimeError(error, this.id, undefined, "initialize-plugin"),
+        ),
+      );
     }
 
     createRouter(plugins: Record<string, unknown>): ContractedRouter<TContract, any> {

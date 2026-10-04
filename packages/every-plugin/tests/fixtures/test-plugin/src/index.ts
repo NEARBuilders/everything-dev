@@ -1,12 +1,21 @@
 import { MemoryPublisher } from "@orpc/publisher/memory";
 import { ORPCError } from "@orpc/server";
-import { Clock, Context, Effect, Layer } from "effect";
+import { Clock, Context, Data, Effect, Layer } from "effect";
 import { createPlugin } from "every-plugin";
 import { z } from "zod";
 import { TestClient } from "./client";
 import { testContract } from "./contract";
 
 export { testContract };
+
+class TestPluginError extends Data.TaggedError("TestPluginError")<{
+  readonly detail: string;
+  readonly cause?: unknown;
+}> {
+  override get message() {
+    return this.detail;
+  }
+}
 
 // Define publisher event types
 type BackgroundEvents = {
@@ -52,7 +61,7 @@ export const TestPlugin = createPlugin({
     Effect.gen(function* () {
       // Business logic validation - config structure is guaranteed by schema
       if (config.secrets.apiKey === "invalid-key") {
-        return yield* Effect.fail(new Error("Invalid API key format"));
+        return yield* new TestPluginError({ detail: "Invalid API key format" });
       }
 
       // Initialize client
@@ -60,15 +69,16 @@ export const TestPlugin = createPlugin({
 
       // Test connection (can throw for testing)
       if (config.secrets.apiKey === "connection-fail") {
-        return yield* Effect.fail(new Error("Failed to connect to service"));
+        return yield* new TestPluginError({ detail: "Failed to connect to service" });
       }
 
       yield* Effect.tryPromise({
         try: () => client.healthCheck(),
-        catch: (error) =>
-          new Error(
-            `Health check failed: ${error instanceof Error ? error.message : String(error)}`,
-          ),
+        catch: (cause) =>
+          new TestPluginError({
+            detail: `Health check failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+            cause,
+          }),
       });
 
       // Create publisher for background events with resume support for serverless

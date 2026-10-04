@@ -22,6 +22,7 @@ import type { HealthLoadingState } from "./routes/health";
 import { createSsrFallbackHandler } from "./routes/ssr";
 import { createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { ConfigService, type RuntimeConfig } from "./services/config";
+import { HostServerError } from "./services/errors";
 import { FederationLifecycle } from "./services/federation.server";
 import { closeMcpServer } from "./services/mcp";
 import { PluginsService } from "./services/plugins";
@@ -319,20 +320,26 @@ export const runServer = (input: ServerInput): ServerHandle => {
   );
 
   const runtime = ManagedRuntime.make(ServerLive);
-  let programFiber: Fiber.Fiber<void, unknown> | null = null;
+  let programFiber: Fiber.Fiber<void, Config.ConfigError | HostServerError> | null = null;
 
   const ready = new Promise<void>((resolveReady, rejectReady) => {
-    const serverEffect = createStartServer(() => resolveReady());
+    const serverEffect = createStartServer(() => resolveReady()).pipe(
+      Effect.mapError((cause) => new HostServerError({ cause })),
+    );
 
     const program = Effect.gen(function* () {
-      const handle = yield* FiberHandle.make();
+      const handle = yield* FiberHandle.make<void, HostServerError>();
       yield* FiberHandle.run(handle, serverEffect);
       yield* FiberHandle.join(handle);
-    }).pipe(Effect.scoped);
+    }).pipe(
+      Effect.scoped,
+      Effect.mapError((cause) => new HostServerError({ cause })),
+    );
 
-    programFiber = runtime.runFork(program);
+    const fiber = runtime.runFork(program);
+    programFiber = fiber;
 
-    programFiber.addObserver((exit) => {
+    fiber.addObserver((exit) => {
       if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) {
         rejectReady(Cause.squash(exit.cause));
       }
@@ -344,10 +351,7 @@ export const runServer = (input: ServerInput): ServerHandle => {
 
     if (programFiber) {
       await Effect.runPromise(
-        Fiber.interrupt(programFiber).pipe(
-          Effect.timeout("5 seconds"),
-          Effect.catch(() => Effect.void),
-        ),
+        Fiber.interrupt(programFiber).pipe(Effect.timeout("5 seconds"), Effect.ignore),
       );
     }
 

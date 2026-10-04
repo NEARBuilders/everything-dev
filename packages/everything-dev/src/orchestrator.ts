@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
-import { Data, Deferred, Effect, Option, Ref, Schedule, Stream } from "effect";
+import { Data, Deferred, Effect, Option, Ref, Schedule, Schema, Stream } from "effect";
 import { stripAnsi } from "./dev-log-pipeline";
 import { ShellEnv } from "./env/project-env";
 import { patchManifestFetchForSsrPublicPath } from "./mf";
@@ -34,10 +34,46 @@ export interface ProcessCallbacks {
 export interface ProcessHandle {
   name: string;
   pid: number | undefined;
-  kill: Effect.Effect<void, unknown>;
-  waitForReady: Effect.Effect<void, Error>;
-  waitForExit: Effect.Effect<number, unknown>;
+  kill: Effect.Effect<void>;
+  waitForReady: Effect.Effect<void, OrchestratorError>;
+  waitForExit: Effect.Effect<number, OrchestratorError>;
 }
+
+export class OrchestratorError extends Data.TaggedError("OrchestratorError")<{
+  readonly operation: string;
+  readonly detail: string;
+  readonly cause?: unknown;
+}> {
+  override get message() {
+    return `${this.operation}: ${this.detail}`;
+  }
+}
+
+const omitUndefined = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => (item === undefined ? null : omitUndefined(item)));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, omitUndefined(item)]),
+    );
+  }
+  return value;
+};
+
+export const encodeRuntimeConfig = (runtimeConfig: unknown) =>
+  Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Json))(omitUndefined(runtimeConfig)).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestratorError({
+          operation: "serialize runtime config",
+          detail: cause.message,
+          cause,
+        }),
+    ),
+  );
 
 export type ProcessStatus = "pending" | "starting" | "ready" | "error";
 
@@ -150,13 +186,13 @@ const patchConsole = (name: string, callbacks: ProcessCallbacks): (() => void) =
 export class HostRemoteUrlMissing extends Data.TaggedError("HostRemoteUrlMissing")<
   Record<never, never>
 > {
-  get message() {
+  override get message() {
     return "remoteUrl not provided on host descriptor";
   }
 }
 
 export class HostModuleInvalid extends Data.TaggedError("HostModuleInvalid")<Record<never, never>> {
-  get message() {
+  override get message() {
     return "Host module does not export runServer function";
   }
 }
@@ -182,12 +218,22 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
 
     const mfRuntime = yield* Effect.tryPromise({
       try: () => import("@module-federation/enhanced/runtime"),
-      catch: (e) => new Error(`Failed to load MF runtime: ${e}`),
+      catch: (cause) =>
+        new OrchestratorError({
+          operation: "load module federation runtime",
+          detail: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
     });
 
     const mfCore = yield* Effect.tryPromise({
       try: () => import("@module-federation/runtime-core"),
-      catch: (e) => new Error(`Failed to load MF core: ${e}`),
+      catch: (cause) =>
+        new OrchestratorError({
+          operation: "load module federation core",
+          detail: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
     });
 
     let mf = mfRuntime.getInstance();
@@ -242,7 +288,12 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
         (mf as any).loadRemote("host/Server") as Promise<{
           runServer: (input: ServerInput) => ServerHandle;
         }>,
-      catch: (e) => new Error(`Failed to load host module: ${e}`),
+      catch: (cause) =>
+        new OrchestratorError({
+          operation: "load host module",
+          detail: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
     });
 
     if (!hostModule?.runServer) {
@@ -261,7 +312,12 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     });
     yield* Effect.tryPromise({
       try: () => serverHandle.ready,
-      catch: (e) => new Error(`Server failed to start: ${e}`),
+      catch: (cause) =>
+        new OrchestratorError({
+          operation: "start server",
+          detail: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
     });
 
     callbacks.onStatus(descriptor.key, "ready");
@@ -277,7 +333,7 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
           catch: () => {},
         }).pipe(Effect.ignore);
       }),
-      waitForReady: Effect.succeed(undefined),
+      waitForReady: Effect.void,
       waitForExit: Effect.never,
     } satisfies ProcessHandle;
   });
@@ -351,7 +407,7 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     const port = descriptor.port ?? descriptor.defaultPort;
     const name = descriptor.key;
 
-    const readyDeferred = yield* Deferred.make<void, Error>();
+    const readyDeferred = yield* Deferred.make<void, OrchestratorError>();
     const statusRef = yield* Ref.make<ProcessStatus>("starting");
 
     callbacks.onStatus(name, "starting");
@@ -369,7 +425,7 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
       shellTier,
     );
 
-    envVars.BOS_RUNTIME_CONFIG = JSON.stringify(runtimeConfig);
+    envVars.BOS_RUNTIME_CONFIG = yield* encodeRuntimeConfig(runtimeConfig);
 
     const cmd = spawn(command, args, {
       cwd: fullCwd,
@@ -379,7 +435,7 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     });
 
     let lastExit: { code: number | null; signal: NodeJS.Signals | null } | null = null;
-    const exitCode = Effect.callback<number, Error>((resume) => {
+    const exitCode = Effect.callback<number, OrchestratorError>((resume) => {
       const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
         lastExit = { code, signal };
         resume(Effect.succeed(code ?? (signal ? 1 : 0)));
@@ -387,7 +443,15 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
       const onError = (err: Error) => {
         callbacks.onLog(name, `Spawn failed: ${err.message}`, true);
         callbacks.onStatus(name, "error", `spawn failed: ${err.message}`);
-        resume(Effect.fail(err));
+        resume(
+          Effect.fail(
+            new OrchestratorError({
+              operation: "spawn process",
+              detail: err.message,
+              cause: err,
+            }),
+          ),
+        );
       };
       cmd.once("exit", onExit);
       cmd.once("error", onError);
@@ -418,7 +482,10 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
         if (currentStatus === "ready" || currentStatus === "error") return;
         yield* Ref.set(statusRef, "error");
         callbacks.onStatus(name, "error");
-        yield* Deferred.fail(readyDeferred, new Error(message)).pipe(Effect.ignore);
+        yield* Deferred.fail(
+          readyDeferred,
+          new OrchestratorError({ operation: "wait for process readiness", detail: message }),
+        ).pipe(Effect.ignore);
       });
 
     yield* Effect.forkScoped(
@@ -518,7 +585,12 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
             Stream.decodeText(
               Stream.fromReadableStream({
                 evaluate: () => stdoutStream,
-                onError: (cause) => new Error(String(cause)),
+                onError: (cause) =>
+                  new OrchestratorError({
+                    operation: "read process stdout",
+                    detail: String(cause),
+                    cause,
+                  }),
               }),
             ),
           ),
@@ -533,7 +605,12 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
             Stream.decodeText(
               Stream.fromReadableStream({
                 evaluate: () => stderrStream,
-                onError: (cause) => new Error(String(cause)),
+                onError: (cause) =>
+                  new OrchestratorError({
+                    operation: "read process stderr",
+                    detail: String(cause),
+                    cause,
+                  }),
               }),
             ),
           ),
@@ -569,7 +646,7 @@ const spawnRemoteProbe = (
 ) =>
   Effect.gen(function* () {
     callbacks.onStatus(pkg, "starting");
-    const readyDeferred = yield* Deferred.make<void, Error>();
+    const readyDeferred = yield* Deferred.make<void, OrchestratorError>();
     const statusRef = yield* Ref.make<ProcessStatus>("starting");
 
     const markReady = Effect.gen(function* () {
@@ -584,9 +661,13 @@ const spawnRemoteProbe = (
       const currentStatus = yield* Ref.get(statusRef);
       if (currentStatus === "ready" || currentStatus === "error") return;
       yield* Ref.set(statusRef, "error");
-      yield* Deferred.fail(readyDeferred, new Error(`Remote ${pkg} unreachable`)).pipe(
-        Effect.ignore,
-      );
+      yield* Deferred.fail(
+        readyDeferred,
+        new OrchestratorError({
+          operation: "probe remote process",
+          detail: `Remote ${pkg} unreachable`,
+        }),
+      ).pipe(Effect.ignore);
       callbacks.onStatus(pkg, "error", "unreachable");
     });
 
@@ -638,7 +719,10 @@ const spawnRemoteProbe = (
       pid: undefined,
       kill: Effect.gen(function* () {
         yield* Ref.set(statusRef, "error");
-        yield* Deferred.fail(readyDeferred, new Error("Killed")).pipe(Effect.ignore);
+        yield* Deferred.fail(
+          readyDeferred,
+          new OrchestratorError({ operation: "stop remote process", detail: "Killed" }),
+        ).pipe(Effect.ignore);
       }),
       waitForReady: Deferred.await(readyDeferred),
       waitForExit: Effect.never,

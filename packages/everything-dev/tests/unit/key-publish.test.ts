@@ -17,7 +17,7 @@ vi.mock("../../src/near-cli", async (importOriginal) => {
   const { Effect } = await import("effect");
   return {
     ...actual,
-    ensureNearCli: Effect.succeed(undefined) as typeof actual.ensureNearCli,
+    ensureNearCli: Effect.void as typeof actual.ensureNearCli,
     listPublishKeys: mocks.listPublishKeys,
     addFunctionCallAccessKey: mocks.addFunctionCallAccessKey,
     deleteAccessKeys: mocks.deleteAccessKeys,

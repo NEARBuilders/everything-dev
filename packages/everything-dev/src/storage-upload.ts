@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { Data } from "effect";
 
 export interface DistFile {
   path: string;
@@ -42,13 +43,21 @@ const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const backoffMs = (attempt: number) => 1000 * attempt + Math.floor(Math.random() * 500);
 
-class BundleUploadError extends Error {
-  constructor(
-    readonly status: number,
-    readonly detail: string,
-  ) {
-    super(detail);
-    this.name = "BundleUploadError";
+class BundleUploadError extends Data.TaggedError("BundleUploadError")<{
+  readonly status: number;
+  readonly detail: string;
+  readonly note?: string;
+}> {
+  constructor(status: number, detail: string, note?: string) {
+    super({ status, detail, note });
+  }
+
+  override get message() {
+    return `${this.detail}${this.note ?? ""}`;
+  }
+
+  withNote(note: string) {
+    return new BundleUploadError(this.status, this.detail, `${this.note ?? ""}${note}`);
   }
 }
 
@@ -133,7 +142,9 @@ export async function uploadBundle(input: {
   }
 
   if (lastError instanceof BundleUploadError && lastError.status === 0) {
-    lastError.message += " (Bun fetch note: re-run with fetch verbose diagnostics for detail)";
+    lastError = lastError.withNote(
+      " (Bun fetch note: re-run with fetch verbose diagnostics for detail)",
+    );
   }
   throw lastError ?? new Error(`[publish] bundle upload for ${input.workspace} failed`);
 }

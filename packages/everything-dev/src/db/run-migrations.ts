@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { sql } from "drizzle-orm";
-import { Effect, Option, Schedule } from "effect";
+import { Effect, Option, Schedule, Schema } from "effect";
 import {
   DUPLICATE_OBJECT_SQLSTATES,
   extractExpectedTables,
@@ -36,6 +36,16 @@ export interface LoadedMigrations {
   migrations: Migration[];
   source: "virtual" | "disk";
 }
+
+const migrationJournalSchema = Schema.Struct({
+  entries: Schema.Array(
+    Schema.Struct({
+      idx: Schema.Finite,
+      when: Schema.Finite,
+      tag: Schema.String,
+    }),
+  ),
+});
 
 export interface DriftReport {
   status: "healthy" | "empty" | "untracked-existing-schema" | "drift-safe-repair" | "drift-manual";
@@ -161,39 +171,47 @@ export function loadMigrations(
 }
 
 function loadMigrationsFromDisk(fromDir?: string): Effect.Effect<Migration[], DatabaseError> {
-  return Effect.try({
-    try: () => {
-      const migrationsDir = resolve(fromDir ?? import.meta.dirname, "migrations");
-      const metaDir = join(migrationsDir, "meta");
-      const journalPath = join(metaDir, "_journal.json");
+  return Effect.gen(function* () {
+    const migrationsDir = resolve(fromDir ?? import.meta.dirname, "migrations");
+    const journalPath = join(migrationsDir, "meta", "_journal.json");
 
-      if (!existsSync(journalPath)) {
-        throw new Error(
+    if (!existsSync(journalPath)) {
+      return yield* new DatabaseError({
+        stage: "load",
+        cause: new Error(
           `Migrations journal not found at ${journalPath}. Run \`db:generate\` first.`,
-        );
-      }
-
-      const journal = JSON.parse(readFileSync(journalPath, "utf8"));
-
-      return journal.entries.map((entry: { idx: number; when: number; tag: string }) => {
-        const sqlPath = join(migrationsDir, `${entry.tag}.sql`);
-        if (!existsSync(sqlPath)) {
-          throw new Error(`Migration SQL file not found: ${sqlPath}`);
-        }
-        const raw = readFileSync(sqlPath, "utf8");
-        const sqlStatements = raw.split("--> statement-breakpoint").map((s: string) => s.trim());
-        const hash = createHash("sha256").update(raw).digest("hex");
-
-        return {
-          idx: entry.idx,
-          when: entry.when,
-          tag: entry.tag,
-          hash,
-          sql: sqlStatements,
-        };
+        ),
       });
-    },
-    catch: (cause) => new DatabaseError({ stage: "load", cause }),
+    }
+
+    const journalContents = yield* Effect.try({
+      try: () => readFileSync(journalPath, "utf8"),
+      catch: (cause) => new DatabaseError({ stage: "load", cause }),
+    });
+    const json = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(
+      journalContents,
+    ).pipe(Effect.mapError((cause) => new DatabaseError({ stage: "load", cause })));
+    const journal = yield* Schema.decodeUnknownEffect(migrationJournalSchema)(json).pipe(
+      Effect.mapError((cause) => new DatabaseError({ stage: "load", cause })),
+    );
+
+    return yield* Effect.forEach(journal.entries, (entry) =>
+      Effect.try({
+        try: () => {
+          const sqlPath = join(migrationsDir, `${entry.tag}.sql`);
+          if (!existsSync(sqlPath)) {
+            throw new Error(`Migration SQL file not found: ${sqlPath}`);
+          }
+          const raw = readFileSync(sqlPath, "utf8");
+          const sqlStatements = raw
+            .split("--> statement-breakpoint")
+            .map((statement) => statement.trim());
+          const hash = createHash("sha256").update(raw).digest("hex");
+          return { idx: entry.idx, when: entry.when, tag: entry.tag, hash, sql: sqlStatements };
+        },
+        catch: (cause) => new DatabaseError({ stage: "load", cause }),
+      }),
+    );
   });
 }
 

@@ -72,9 +72,12 @@ export function registerAuthHandler(app: Hono<HonoEnv>, plugins: PluginResult) {
       logger.error("[Auth] Auth handler rejected:", error);
     });
     return Effect.runPromise(
-      Effect.promise(() => pending).pipe(
-        Effect.timeout(`${AUTH_TIMEOUT_MS} millis`),
-        Effect.catchTag("TimeoutError", () => Effect.succeed(authTimeoutResponse())),
+      Effect.timeoutOrElse(
+        Effect.promise(() => pending),
+        {
+          duration: `${AUTH_TIMEOUT_MS} millis`,
+          orElse: () => Effect.succeed(authTimeoutResponse()),
+        },
       ),
     );
   });

@@ -170,7 +170,9 @@ describe("adoptPublishedPointer", () => {
 
   it("a failed pre-warm compose aborts the adopt before the swap", async () => {
     buildRuntimeConfigMock.mockReturnValue(Effect.succeed(derivedConfig));
-    composeUiMock.mockReturnValue(Effect.fail(new Error("compose digest mismatch")));
+    composeUiMock.mockReturnValue(
+      Effect.fail(new SnapshotAdoptError({ message: "compose digest mismatch" })),
+    );
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const snapshot = yield* RuntimeSnapshot;

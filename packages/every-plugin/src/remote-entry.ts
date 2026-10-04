@@ -10,7 +10,12 @@
  *    rejections), so retries without a purge await the same failure.
  */
 import { Duration, Effect, Schedule } from "effect";
-import { classifyPluginFailure, type PluginFailureClassification } from "./runtime/errors";
+import type { PluginRuntimeError } from "./runtime/errors";
+import {
+  classifyPluginFailure,
+  type PluginFailureClassification,
+  toPluginRuntimeError,
+} from "./runtime/errors";
 
 const POLL_INTERVAL_MS = 300;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -98,7 +103,7 @@ export interface PluginLoadRetryOptions<T> {
  */
 export const loadRemoteWithRetry = <T>(
   options: PluginLoadRetryOptions<T>,
-): Effect.Effect<T, unknown> => {
+): Effect.Effect<T, PluginRuntimeError> => {
   const {
     label,
     remoteUrl,
@@ -139,7 +144,10 @@ export const loadRemoteWithRetry = <T>(
     );
   };
 
-  const loadWithRetry = Effect.tryPromise({ try: load, catch: (error) => error }).pipe(
+  const loadWithRetry = Effect.tryPromise({
+    try: load,
+    catch: (error) => toPluginRuntimeError(error, label, undefined, "remote-entry-load"),
+  }).pipe(
     Effect.tapError((error) => Effect.sync(() => reportFailure(error))),
     Effect.retry({ schedule, while: (error) => classifyPluginFailure(error).retryable }),
   );
@@ -152,6 +160,6 @@ export const loadRemoteWithRetry = <T>(
 
   return Effect.tryPromise({
     try: () => waitForRemoteEntryReady(label, remoteUrl, readinessTimeout),
-    catch: (error) => error,
+    catch: (error) => toPluginRuntimeError(error, label, undefined, "remote-entry-readiness"),
   }).pipe(Effect.flatMap(() => loadWithRetry));
 };

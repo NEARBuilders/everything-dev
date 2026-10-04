@@ -43,7 +43,7 @@ vi.mock("../../src/resolution/session", async (importOriginal) => {
 
 const projectEnvStub = Layer.succeed(ProjectEnv, {
   ensureFile: () => Effect.succeed(false),
-  load: () => Effect.succeed(undefined),
+  load: () => Effect.void,
   sync: () => Effect.succeed([]),
 });
 

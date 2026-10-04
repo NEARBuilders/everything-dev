@@ -7,7 +7,11 @@ export class PluginRuntimeError extends Data.TaggedError("PluginRuntimeError")<{
   readonly operation?: string;
   readonly procedureName?: string;
   readonly cause?: Error;
-}> {}
+}> {
+  override get message() {
+    return this.cause?.message ?? "Plugin operation failed";
+  }
+}
 
 export class ModuleFederationError extends Data.TaggedError("ModuleFederationError")<{
   readonly pluginId: string;

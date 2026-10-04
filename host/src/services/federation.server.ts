@@ -127,7 +127,7 @@ function removeInstanceRemotes(instance: ModuleFederationInstance, remoteName?: 
  */
 const shareScopePermits = Semaphore.makeUnsafe(1);
 
-function initializeShareScope(mf: ModuleFederationInstance): Effect.Effect<void, Error> {
+function initializeShareScope(mf: ModuleFederationInstance): Effect.Effect<void, FederationError> {
   return shareScopePermits.withPermits(1)(
     Effect.tryPromise(() => {
       const sharing = (
@@ -140,7 +140,7 @@ function initializeShareScope(mf: ModuleFederationInstance): Effect.Effect<void,
         return Promise.all(sharing).then(() => undefined);
       }
       return Promise.resolve();
-    }),
+    }).pipe(Effect.mapError((cause) => new FederationError({ remoteName: "share scope", cause }))),
   );
 }
 
@@ -151,7 +151,7 @@ function disposeFederationResources(): Effect.Effect<void> {
     uiExposeCache.clear();
     yield* Effect.forEach(
       [...localDistServers.values()],
-      (server) => Effect.tryPromise(() => server.stop()).pipe(Effect.catch(() => Effect.void)),
+      (server) => Effect.tryPromise(() => server.stop()).pipe(Effect.ignore),
       { discard: true },
     );
     localDistServers.clear();
@@ -211,12 +211,13 @@ export async function localUiRemoteEntry(source: {
 export const waitForLocalContainer = Effect.fn("waitForLocalContainer")(function* (
   entry: EntrySlot,
   env: BosEnv,
-): Effect.fn.Return<void, Error> {
+): Effect.fn.Return<void, FederationError> {
   const containerUrl = entryUrls(entry, env).ssr;
   if (!containerUrl) {
-    return yield* Effect.fail(
-      new Error(`${entry.name} SSR container has no entry URL — no local dist server`),
-    );
+    return yield* new FederationError({
+      remoteName: entry.name,
+      detail: `${entry.name} SSR container has no entry URL — no local dist server`,
+    });
   }
   let announced = false;
   const check = Effect.tryPromise({
@@ -241,13 +242,17 @@ export const waitForLocalContainer = Effect.fn("waitForLocalContainer")(function
     schedule: Schedule.spaced(`${LOCAL_CONTAINER_READY_POLL_MS} millis`),
     until: (isReady) => isReady,
   }).pipe(
-    Effect.timeout(`${LOCAL_CONTAINER_READY_TIMEOUT_MS} millis`),
-    Effect.catchTag("TimeoutError", () => Effect.succeed(false)),
+    Effect.timeoutOrElse({
+      duration: `${LOCAL_CONTAINER_READY_TIMEOUT_MS} millis`,
+      orElse: () => Effect.succeed(false),
+    }),
   );
   if (!ready) {
-    return yield* Effect.fail(
-      new Error(`${entry.name} SSR container never became ready at ${containerUrl}`),
-    );
+    return yield* new FederationError({
+      remoteName: entry.name,
+      remoteUrl: containerUrl,
+      detail: `${entry.name} SSR container never became ready at ${containerUrl}`,
+    });
   }
 });
 
@@ -358,7 +363,7 @@ function loadRemoteExpose<T>(params: RemoteModuleLoad<T>): Promise<T> {
     yield* initializeShareScope(mf);
     const result = yield* Effect.tryPromise({
       try: () => mf.loadRemote<any>(expose, { from: "build" }),
-      catch: (e) => e as Error,
+      catch: (cause) => new FederationError({ remoteName, remoteUrl: entryUrl, cause }),
     });
     if (!result) {
       return yield* new ExposeModuleMissing({ expose, reason: "not-found" });
