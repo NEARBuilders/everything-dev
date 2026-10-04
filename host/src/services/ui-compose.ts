@@ -300,11 +300,11 @@ const clientPayloadOf = (composable: ComposableSource[], digest: string): Compos
 
 function rememberVariant(
   cache: UiComposeCacheState,
-  digest: string,
+  variantKey: string,
   variant: ComposedUi,
   staleAfter: number,
 ) {
-  cache.variants.set(digest, { variant, staleAfter });
+  cache.variants.set(variantKey, { variant, staleAfter });
 }
 
 /** Variant cache identity: the structural digest plus a deployment
