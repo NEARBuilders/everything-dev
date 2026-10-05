@@ -46,7 +46,7 @@
   "scripts": {
     "build": "every-plugin build",
     "dev": "every-plugin dev",
-    "test": "vitest run --root . --pool=forks",
+    "test": "vitest run --root . --pool=forks --passWithNoTests",
     "test:watch": "vitest --root .",
     "coverage": "vitest run --root . --coverage",
     "typecheck": "tsc --noEmit",
