@@ -158,9 +158,14 @@ export function regressionStackOptions(config, mode, env = process.env) {
     );
   }
   const { basePort } = config;
+  // node + tsx runs the CLI from source (bun's native TS execution is retired
+  // — ADR 0026); the development condition keeps framework packages resolving
+  // src over a possibly stale dist (ADR 0018).
+  const tsFromSource = ["--import", "tsx", "--conditions=development"];
   const command =
     mode === "backcompat"
       ? [
+          ...tsFromSource,
           "packages/everything-dev/src/cli.ts",
           "dev",
           "--no-interactive",
@@ -186,6 +191,7 @@ export function regressionStackOptions(config, mode, env = process.env) {
           String(basePort + 10),
         ]
       : [
+          ...tsFromSource,
           "packages/everything-dev/src/cli.ts",
           "dev",
           "--no-interactive",

@@ -6,7 +6,7 @@ import {
   buildInitPatterns,
   copyFilteredFiles,
   personalizeConfig,
-  runBunInstall,
+  runPnpmInstall,
 } from "../../src/cli/init";
 import { writeChildConfigFixture } from "../helpers/parent-config";
 import { getFrameworkTarballs, rewriteFrameworkPackageSpecs } from "./framework-packages";
@@ -59,7 +59,7 @@ describe.skipIf(process.env.CI !== "true")("bos init — full (install + typeche
     });
     rewriteFrameworkPackageSpecs(testDir, frameworkTarballs);
 
-    await runBunInstall(testDir);
+    await runPnpmInstall(testDir);
     writeGeneratedAuthStubs(testDir);
     expect(existsSync(join(testDir, "node_modules"))).toBe(true);
 
