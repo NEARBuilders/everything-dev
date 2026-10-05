@@ -169,7 +169,7 @@ jobs:
           fi
 
       - name: Run Biome lint and format check
-        run: bun biome ci .
+        run: pnpm exec biome ci .
 
       - name: Run Effect lint (oxlint, type-aware)
         run: pnpm run lint:effect
@@ -181,7 +181,7 @@ jobs:
         run: pnpm run docs:check
 
       - name: Run typecheck
-        run: bun typecheck
+        run: pnpm run typecheck
 
       # The build train: staleness-checked quiet prerequisites
       # (every-plugin / everything-dev / better-near-auth) + the template
@@ -206,10 +206,6 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
-      - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -218,10 +214,10 @@ jobs:
         run: pnpm run build template
 
       - name: Test everything-dev
-        run: bun run --cwd packages/everything-dev test
+        run: pnpm --filter everything-dev test
 
       - name: Test better-near-auth
-        run: bun run --cwd packages/better-near-auth test
+        run: pnpm --filter better-near-auth test
 
   plugin-tests:
     name: Plugin runtime tests
@@ -247,7 +243,7 @@ jobs:
         run: pnpm run build template
 
       - name: Test every-plugin
-        run: bun run --cwd packages/every-plugin test:all
+        run: pnpm --filter every-plugin test:all
 
   host-tests:
     name: Host tests
@@ -276,7 +272,7 @@ jobs:
         run: pnpm run build template
 
       - name: Test host
-        run: bun run --cwd host test
+        run: pnpm --filter host test
 
   regression-unit:
     name: Regression unit
@@ -535,15 +531,15 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Playwright browser
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: bunx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Install Playwright system deps
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: bunx playwright install-deps chromium
+        run: pnpm exec playwright install-deps chromium
 
       - name: Resource watchdog
         run: |

@@ -101,13 +101,13 @@ jobs:
 
             pkg_dir=$(dirname "$pkg_json")
             if jq -e '.scripts.build' "$pkg_json" >/dev/null; then
-              bun run --cwd "$pkg_dir" build
+              pnpm --filter "$(jq -r '.name' "$pkg_json")" run build
             fi
           done
 
       - name: Stage release packages
         if: steps.release_mode.outputs.should_publish == 'true'
-        run: bun run scripts/stage-release-packages.ts
+        run: node --import tsx scripts/stage-release-packages.ts
 
       - name: Publish packages to npm
         id: npm_publish
