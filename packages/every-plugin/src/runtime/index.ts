@@ -20,7 +20,7 @@ import type {
   RegisteredPlugins,
   UsePluginResult,
 } from "../types";
-import { PluginRuntimeError } from "./errors";
+import { PluginRuntimeError, toPluginRuntimeError } from "./errors";
 import { PluginService, PluginServiceLive } from "./services/plugin.service";
 
 const MAX_CACHE_KEY_DEPTH = 32;
@@ -271,7 +271,7 @@ export class PluginRuntime<R = RegisteredPlugins> {
 
         const pluginResult = yield* Effect.tryPromise({
           try: () => cachedPlugin,
-          catch: (error) => error,
+          catch: (error) => toPluginRuntimeError(error, pluginId, undefined, "evict-plugin"),
         }).pipe(Effect.orElseSucceed(() => null));
 
         if (pluginResult) {

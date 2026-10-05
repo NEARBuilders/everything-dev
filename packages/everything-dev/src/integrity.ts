@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Data } from "effect";
 import { fetchBosConfigFromFastKv } from "./fastkv";
 import { fetchResponse } from "./http-client";
 
@@ -105,10 +106,15 @@ export function resolveEntryUrl(url: string): string {
   return `${url.replace(/\/$/, "")}/remoteEntry.js`;
 }
 
-export class SriVerificationError extends Error {
+export class SriVerificationError extends Data.TaggedError("SriVerificationError")<{
+  readonly detail: string;
+}> {
   constructor(message: string) {
-    super(message);
-    this.name = "SriVerificationError";
+    super({ detail: message });
+  }
+
+  override get message() {
+    return this.detail;
   }
 }
 

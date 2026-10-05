@@ -216,6 +216,7 @@ describe("swap under traffic (C7: shadow-flip, ESM disposal, leak measurement)",
     let servingCaptures = 0;
     const result = await Effect.runPromise(
       Effect.gen(function* () {
+        const effectContext = yield* Effect.context();
         const snapshot = yield* RuntimeSnapshot;
         const bootState = yield* snapshot.get;
         const bootFingerprint = bootState.fingerprint;
@@ -224,7 +225,7 @@ describe("swap under traffic (C7: shadow-flip, ESM disposal, leak measurement)",
           config: genConfig(0),
           getServingState: () => {
             servingCaptures += 1;
-            return Effect.runPromise(snapshot.get);
+            return Effect.runPromiseWith(effectContext)(snapshot.get);
           },
           plugins: {
             runtime: null,

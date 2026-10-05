@@ -515,7 +515,7 @@ export const initializePlugins = Effect.gen(function* () {
       Effect.gen(function* () {
         const { verified, mismatches } = yield* Effect.tryPromise({
           try: () => verifyConfigAgainstChain(config as unknown as Record<string, unknown>, bosUrl),
-          catch: (error) => error,
+          catch: (cause) => new PluginError({ pluginName: "config attestation", cause }),
         });
         if (!verified) {
           logger.error(

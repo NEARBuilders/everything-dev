@@ -23,23 +23,30 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Data } from "effect";
 
 const require = createRequire(import.meta.url);
 
-export class SharedDependencyResolutionError extends Error {
+export class SharedDependencyResolutionError extends Data.TaggedError(
+  "SharedDependencyResolutionError",
+)<{
   readonly packageName: string;
   readonly searched: string[];
-
+}> {
   constructor(packageName: string, searched: string[]) {
-    super(
-      `Could not resolve shared dependency "${packageName}". Looked in:\n` +
-        searched.map((location) => `  - ${location}`).join("\n") +
-        `\nUnresolved shared dependencies fail loudly (no "*", no "latest" fallback) — ` +
-        `install the package in the resolving workspace or pin a resolvable version.`,
+    super({
+      packageName,
+      searched,
+    });
+  }
+
+  override get message() {
+    return (
+      `Could not resolve shared dependency "${this.packageName}". Looked in:\n` +
+      this.searched.map((location) => `  - ${location}`).join("\n") +
+      `\nUnresolved shared dependencies fail loudly (no "*", no "latest" fallback) — ` +
+      `install the package in the resolving workspace or pin a resolvable version.`
     );
-    this.name = "SharedDependencyResolutionError";
-    this.packageName = packageName;
-    this.searched = searched;
   }
 }
 

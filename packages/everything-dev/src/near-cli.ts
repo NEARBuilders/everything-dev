@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 import { execa } from "execa";
 
 export interface NearKeyPair {
@@ -34,15 +34,24 @@ const NEAR_CLI_VERSION = "0.23.5";
 const INSTALLER_URL = `https://github.com/near/near-cli-rs/releases/download/v${NEAR_CLI_VERSION}/near-cli-rs-installer.sh`;
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
-export class NearCliNotFoundError extends Error {
-  readonly _tag = "NearCliNotFoundError";
-  constructor() {
-    super("NEAR CLI not found");
+export class NearCliNotFoundError extends Data.TaggedError("NearCliNotFoundError")<{
+  readonly detail?: string;
+}> {
+  override get message() {
+    return "NEAR CLI not found";
   }
 }
 
-export class NearTransactionError extends Error {
-  readonly _tag = "NearTransactionError";
+export class NearTransactionError extends Data.TaggedError("NearTransactionError")<{
+  readonly detail: string;
+}> {
+  constructor(detail: string) {
+    super({ detail });
+  }
+
+  override get message() {
+    return this.detail;
+  }
 }
 
 function base64UrlToBytes(input: string): Uint8Array {
@@ -192,7 +201,7 @@ export const ensureNearCli = Effect.gen(function* () {
     `  To install manually: curl --proto '=https' --tlsv1.2 -LsSf ${INSTALLER_URL} | sh`,
   );
   yield* Effect.log("");
-  return yield* Effect.fail(new NearCliNotFoundError());
+  return yield* new NearCliNotFoundError({});
 });
 
 export async function listPublishKeys(config: {

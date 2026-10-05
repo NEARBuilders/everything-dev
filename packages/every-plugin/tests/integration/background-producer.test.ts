@@ -1,8 +1,16 @@
 import { expect, it } from "@effect/vitest";
-import { Effect, Stream } from "effect";
+import { Data, Effect, Stream } from "effect";
 import { createPluginRuntime } from "every-plugin/runtime";
 import { describe } from "vitest";
 import { TEST_REGISTRY } from "../registry";
+
+class BackgroundStreamError extends Data.TaggedError("BackgroundStreamError")<{
+  readonly cause: unknown;
+}> {
+  override get message() {
+    return `Background stream failed: ${this.cause instanceof Error ? this.cause.message : String(this.cause)}`;
+  }
+}
 
 const wallClockNow = () => Date.now();
 
@@ -59,11 +67,13 @@ describe.sequential("Background Producer Integration Tests", () => {
         // Start consuming events immediately while producer is running
         yield* Effect.log("🔄 Starting event consumption");
 
-        const streamResult = yield* Effect.tryPromise(() =>
-          client.listenBackground({ maxResults: 3 }),
-        );
+        const streamResult = yield* Effect.tryPromise({
+          try: () => client.listenBackground({ maxResults: 3 }),
+          catch: (cause) => new BackgroundStreamError({ cause }),
+        });
 
-        const stream = Stream.fromAsyncIterable(streamResult, (error) => {
+        const stream = Stream.fromAsyncIterable(streamResult, (cause) => {
+          const error = new BackgroundStreamError({ cause });
           console.error("❌ Background stream error:", error);
           return error;
         });
@@ -129,16 +139,28 @@ describe.sequential("Background Producer Integration Tests", () => {
         // Test multiple consumers reading from same publisher
         yield* Effect.log("🔄 Starting multiple consumer streams");
 
-        const consumer1 = Effect.tryPromise(() => client.listenBackground({ maxResults: 3 })).pipe(
+        const consumer1 = Effect.tryPromise({
+          try: () => client.listenBackground({ maxResults: 3 }),
+          catch: (cause) => new BackgroundStreamError({ cause }),
+        }).pipe(
           Effect.flatMap((streamResult) => {
-            const stream = Stream.fromAsyncIterable(streamResult, (error) => error);
+            const stream = Stream.fromAsyncIterable(
+              streamResult,
+              (cause) => new BackgroundStreamError({ cause }),
+            );
             return stream.pipe(Stream.take(3), Stream.runCollect);
           }),
         );
 
-        const consumer2 = Effect.tryPromise(() => client.listenBackground({ maxResults: 2 })).pipe(
+        const consumer2 = Effect.tryPromise({
+          try: () => client.listenBackground({ maxResults: 2 }),
+          catch: (cause) => new BackgroundStreamError({ cause }),
+        }).pipe(
           Effect.flatMap((streamResult) => {
-            const stream = Stream.fromAsyncIterable(streamResult, (error) => error);
+            const stream = Stream.fromAsyncIterable(
+              streamResult,
+              (cause) => new BackgroundStreamError({ cause }),
+            );
             return stream.pipe(Stream.take(2), Stream.runCollect);
           }),
         );

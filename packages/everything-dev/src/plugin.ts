@@ -40,6 +40,7 @@ export default createPlugin({
       );
 
       const projectEnv = yield* buildScoped(ProjectEnv, ProjectEnvLive);
+      const effectContext = yield* Effect.context();
 
       const configDir = config.variables.configDir ?? session?.root ?? process.cwd();
 
@@ -48,17 +49,7 @@ export default createPlugin({
           makeDatabaseBindings({
             projectDir: configDir,
             loadRuntimeConfig: async () => (await session?.buildRuntime()) ?? null,
-            loadEnv: () =>
-              projectEnv.load(configDir).pipe(
-                Effect.catchTag("EnvLoadError", (error) =>
-                  Effect.fail(
-                    new Error(
-                      `failed to load .env: ${error.cause instanceof Error ? error.cause.message : String(error.cause)}`,
-                    ),
-                  ),
-                ),
-                Effect.runPromise,
-              ),
+            loadEnv: () => Effect.runPromiseWith(effectContext)(projectEnv.load(configDir)),
           }),
           makeDrizzleKitLive({
             projectDir: configDir,

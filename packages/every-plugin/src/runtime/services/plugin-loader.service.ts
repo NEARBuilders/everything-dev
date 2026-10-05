@@ -277,8 +277,12 @@ export const PluginLoaderServiceDefault = Layer.effect(
                 Effect.provideService(Scope.Scope, scope),
               );
 
-            return yield* Layer.buildWithScope(layer as Layer.Layer<any, Error>, scope).pipe(
+            return yield* Layer.buildWithScope(layer, scope).pipe(
               Effect.provideService(PluginIdTag, plugin.id),
+              Effect.provideService(Scope.Scope, scope),
+              Effect.mapError((error) =>
+                toPluginRuntimeError(error, plugin.id, undefined, "initialize-layer"),
+              ),
             );
           }).pipe(
             Effect.onExit((exit) =>

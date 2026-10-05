@@ -1,5 +1,15 @@
 import { createConnection } from "node:net";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
+
+class PreflightConnectionError extends Data.TaggedError("PreflightConnectionError")<{
+  readonly cause: unknown;
+}> {
+  override get message() {
+    return `Postgres connection failed: ${
+      this.cause instanceof Error ? this.cause.message : String(this.cause)
+    }`;
+  }
+}
 
 const scheduleTimeout = (ms: number, fn: () => void): ReturnType<typeof setTimeout> =>
   setTimeout(fn, ms);
@@ -84,7 +94,7 @@ function checkPgConnection(url: string): Effect.Effect<boolean> {
           await pool.end().catch(() => {});
         }
       },
-      catch: () => new Error("pg unreachable"),
+      catch: (cause) => new PreflightConnectionError({ cause }),
     }).pipe(Effect.orElseSucceed(() => false));
   });
 }

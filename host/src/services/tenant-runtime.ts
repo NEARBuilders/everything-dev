@@ -1,3 +1,4 @@
+import { Data } from "effect";
 import {
   BosConfigSchema,
   buildRuntimeConfig,
@@ -54,13 +55,17 @@ export interface RequestRuntimeResolution {
   ssrAllowed: boolean;
 }
 
-export class TenantRuntimeError extends Error {
-  status: number;
-
+export class TenantRuntimeError extends Data.TaggedError("TenantRuntimeError")<{
+  readonly detail: string;
+  readonly status: number;
+  readonly cause?: unknown;
+}> {
   constructor(message: string, status: number, options?: { cause?: unknown }) {
-    super(message, options);
-    this.name = "TenantRuntimeError";
-    this.status = status;
+    super({ detail: message, status, cause: options?.cause });
+  }
+
+  get message() {
+    return this.detail;
   }
 }
 
