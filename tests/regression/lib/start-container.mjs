@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Start-command regression stack (ADR 0009): builds the Dockerfile
  * `regression` fixture — the staged-dists harness image, not the deployable
@@ -9,7 +9,7 @@
  * those servers directly. No runner-side builds, no FastKV, no NEAR
  * credentials.
  *
- * Usage: bun tests/regression/lib/start-container.mjs <ssr|csr>
+ * Usage: node tests/regression/lib/start-container.mjs <ssr|csr>
  */
 import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";

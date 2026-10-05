@@ -241,6 +241,6 @@ In CI, this runs as a `bos mf check` step on every push/PR (`packages/everything
 
 ```bash
 bos kill               # Kill all tracked processes
-bun install            # Reinstall deps
+pnpm install           # Reinstall deps
 bos dev                # Restart
 ```

@@ -41,8 +41,13 @@ export function loadRegressionConfig(repoRoot) {
   }
 
   const result = spawnSync(
-    "bun",
-    ["--conditions=development", path.join(repoRoot, "tests/regression/lib/resolve-config.mjs")],
+    "node",
+    [
+      "--import",
+      "tsx",
+      "--conditions=development",
+      path.join(repoRoot, "tests/regression/lib/resolve-config.mjs"),
+    ],
     { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
   );
   if (result.status !== 0) {
@@ -109,8 +114,8 @@ export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
       throw new Error(
         `refusing to run: ${secret} resolves to the dev database. ` +
           "Regression tests must stay isolated from dev databases. " +
-          "Restore the generated .env.test (run `bun run bos dev` to regenerate), " +
-          "or start the test databases with `bun run test:db:up`, " +
+          "Restore the generated .env.test (run `pnpm run bos dev` to regenerate), " +
+          "or start the test databases with `pnpm run test:db:up`, " +
           "or set REGRESSION_ALLOW_DEV_DB=1 to override deliberately.",
       );
     }

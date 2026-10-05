@@ -250,7 +250,7 @@ The host injects a per-request context object into every plugin. The plugin **mu
 
 Available fields: `userId`, `user` (id, role, email, name), `organizationId` / `organization` (active org envelope, `member.role`, `metadata.daoAccountId`), `near` (primaryAccountId, linkedAccounts), `walletAddress`, `apiKey` (id, name, permissions), `reqHeaders`, `getRawBody`.
 
-See `references/request-context.md` for the full schema and field table. For pre-built auth/organization middleware, see the `api-and-auth` skill.
+See [request-context](references/request-context.md) for the full schema and field table. For pre-built auth/organization middleware, see the `api-and-auth` skill.
 
 ## Step 5: Register in the authored config
 
@@ -351,7 +351,7 @@ export async function createDatabaseDriver(url: string) {
 
 ### Layer Pattern
 
-`DatabaseLive` is a `Layer.scoped` that creates the driver, runs migrations (inside the scoped layer, so the pool stays open for migration queries), and returns the `db`. `acquireRelease` closes the driver on scope release. See `references/database.md` for the full implementation.
+`DatabaseLive` is a `Layer.scoped` that creates the driver, runs migrations (inside the scoped layer, so the pool stays open for migration queries), and returns the `db`. `acquireRelease` closes the driver on scope release. See [database](references/database.md) for the full implementation.
 
 ### Migration Generation
 
@@ -359,7 +359,7 @@ export async function createDatabaseDriver(url: string) {
 2. Run `drizzle-kit generate` to produce SQL migration files
 3. Store migrations in `src/db/migrations/` with an explicit `storage` resolved from the workspace (the no-arg fallback reads `npm_package_name`, unreliable under rspack/Module Federation bundling)
 
-Migrations run inside `DatabaseLive`'s scoped layer. The critical rule is to **build the DB-backed service via `buildScoped`** so the scope (and the pool) lives for the plugin's lifetime. Do NOT call `DatabaseLive` directly in `initialize` and extract the driver — that creates a transient scope that releases the pool immediately. See `references/database.md` for correct/wrong examples.
+Migrations run inside `DatabaseLive`'s scoped layer. The critical rule is to **build the DB-backed service via `buildScoped`** so the scope (and the pool) lives for the plugin's lifetime. Do NOT call `DatabaseLive` directly in `initialize` and extract the driver — that creates a transient scope that releases the pool immediately. See [database](references/database.md) for correct/wrong examples.
 
 ### Per-Plugin Isolation
 

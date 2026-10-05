@@ -65,7 +65,7 @@ The orchestrator builds a `ServiceDescriptorMap` from the resolved config. Each 
 - `readyPatterns` / `errorPatterns` — Regexes matched against stdout/stderr
 
 The orchestrator:
-1. Spawns local services via `bun run dev` in each package directory
+1. Spawns local services via `pnpm run dev` in each package directory
 2. Probes remote services via HTTP GET to their readiness path
 3. Tracks process state: pending → starting → ready → error
 4. Writes logs to `.bos/logs/{service}.log`
@@ -87,7 +87,7 @@ bos types gen   # Regenerate ui/src/lib/api-types.gen.ts and api/src/lib/plugins
 ```
 
 **When it auto-runs:**
-- `bun typecheck`
+- `pnpm run typecheck`
 - `bos dev` startup
 - `bos build`, `bos deploy`, `bos publish`
 - `bos pluginAdd` / `bos pluginRemove`

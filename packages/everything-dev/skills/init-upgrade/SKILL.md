@@ -27,7 +27,7 @@ bos init --overrides ui,api,host                          # Include host locally
 5. `personalizeConfig()` — sets `extends`, `account`, `domain`, removes production URLs
 6. `resolveWorkspaceRefs()` — normalizes each workspace `package.json`: rewrites `file:`/`workspace:*` refs to `catalog:`, ensures all workspace packages are listed in root `workspaces.catalog`, pins framework versions (`everything-dev`, `every-plugin`)
 7. Write initial snapshot (`.bos/sync-snapshot.json`) — records file path → content hash for all template-origin files, used later by `bos sync` for conflict detection
-8. `bun install` + `bos types gen`
+8. `pnpm install` + `bos types gen`
 
 ## Shared Host + Custom Child App
 
@@ -173,7 +173,7 @@ bos upgrade --dry-run    # Preview without making changes
 1. Check npm registry for latest versions of `everything-dev` and `every-plugin`
 2. Update root `package.json` workspaces.catalog
 3. Update all workspace `package.json` to use `catalog:` references
-4. `bun install` + `bos types gen`
+4. `pnpm install` + `bos types gen`
 5. Run `bos sync` to pull template updates matching new version
 6. Rewrite legacy UI imports (e.g., `from "@/auth"` → `from "@/app"`)
 7. Remove obsolete files

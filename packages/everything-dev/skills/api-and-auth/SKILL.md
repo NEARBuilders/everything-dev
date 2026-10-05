@@ -111,7 +111,7 @@ builder.authHealth.use(requireAuth).handler(...)
 builder.adminAction.use(requireRole("admin")).handler(...)
 ```
 
-See `references/middleware.md` for the full middleware table, org metadata validation, and typed context helpers.
+See [middleware](references/middleware.md) for the full middleware table, org metadata validation, and typed context helpers.
 
 ## Error Handling
 
@@ -406,7 +406,7 @@ becomes redundant and can be dropped without reworking query logic.
 
 ## Generated Types
 
-See `references/generated-types.md` for the full table — files, contents, and regeneration triggers.
+See [generated-types](references/generated-types.md) for the full table — files, contents, and regeneration triggers.
 
 ## SSE Notes
 

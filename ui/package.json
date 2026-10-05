@@ -9,7 +9,6 @@
     "build": "every-plugin build",
     "build:client": "every-plugin build --environment web",
     "build:ssr": "every-plugin build --environment node",
-    "generate-metadata": "bun run ./scripts/generate-metadata.ts",
     "preview": "every-plugin preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

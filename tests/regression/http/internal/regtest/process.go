@@ -50,7 +50,7 @@ func Start(t interface{ Fatalf(string, ...any) }) *Process {
 
 	killStalePorts(cfg)
 
-	cmd := exec.Command("bun", "run", ScriptName())
+	cmd := exec.Command("pnpm", "run", ScriptName())
 	cmd.Dir = workdir
 	cmd.Env = buildTargetEnv(cfg)
 
@@ -142,7 +142,7 @@ func ResetPluginDatabases() {
 		log.Printf("WARN: skipping plugin database reset (repo root not found): %v", err)
 		return
 	}
-	cmd := exec.Command("bun", "tests/regression/lib/reset-plugin-dbs.mjs")
+	cmd := exec.Command("node", "tests/regression/lib/reset-plugin-dbs.mjs")
 	cmd.Dir = workdir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -2,223 +2,223 @@
 # TanStack Intent - before editing files, run the matching guidance command.
 tanstackIntent:
   - id: "@hot-labs/near-connect#near-connect-quickstart"
-    run: "bunx @tanstack/intent@latest load @hot-labs/near-connect#near-connect-quickstart"
+    run: "pnpm dlx @tanstack/intent@latest load @hot-labs/near-connect#near-connect-quickstart"
     for: "Install and set up @hot-labs/near-connect for NEAR blockchain wallet connection. Covers NearConnector initialization, connect/disconnect, wallet:signIn and wallet:signOut events, feature filtering, WalletConnect configuration, and manifest auto-updating. Use when adding NEAR wallet support to a dapp, configuring WalletConnect for mobile wallets, or troubleshooting wallet visibility issues."
   - id: "@hot-labs/near-connect#near-connect-transactions"
-    run: "bunx @tanstack/intent@latest load @hot-labs/near-connect#near-connect-transactions"
+    run: "pnpm dlx @tanstack/intent@latest load @hot-labs/near-connect#near-connect-transactions"
     for: "Send transactions and sign messages with @hot-labs/near-connect. Covers ConnectorAction format (FunctionCall, Transfer, etc.), @near-js Action compatibility, signAndSendTransaction, signAndSendTransactions, signMessage, signInAndSignMessage, signDelegateActions, and function call access key parameters. Use when a dapp needs to call a NEAR contract, sign a message for authentication, or add a limited-access key."
   - id: "@tanstack/devtools#devtools-app-setup"
-    run: "bunx @tanstack/intent@latest load @tanstack/devtools#devtools-app-setup"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/devtools#devtools-app-setup"
     for: "Install TanStack Devtools, pick framework adapter (React/Vue/Solid/Preact), register plugins via plugins prop, configure shell (position, hotkeys, theme, hideUntilHover, requireUrlFlag, eventBusConfig). TanStackDevtools component, defaultOpen, localStorage persistence."
   - id: "@tanstack/devtools#devtools-marketplace"
-    run: "bunx @tanstack/intent@latest load @tanstack/devtools#devtools-marketplace"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/devtools#devtools-marketplace"
     for: "Publish plugin to npm and submit to TanStack Devtools Marketplace. PluginMetadata registry format, plugin-registry.ts, pluginImport (importName, type), requires (packageName, minVersion), framework tagging, multi-framework submissions, featured plugins."
   - id: "@tanstack/devtools#devtools-plugin-panel"
-    run: "bunx @tanstack/intent@latest load @tanstack/devtools#devtools-plugin-panel"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/devtools#devtools-plugin-panel"
     for: "Build devtools panel components that display emitted event data. Listen via EventClient.on(), handle theme (light/dark), use @tanstack/devtools-ui components. Plugin registration (name, render, id, defaultOpen), lifecycle (mount, activate, destroy), max 3 active plugins. Two paths: Solid.js core with devtools-ui for multi-framework support, or framework-specific panels."
   - id: "@tanstack/devtools#devtools-production"
-    run: "bunx @tanstack/intent@latest load @tanstack/devtools#devtools-production"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/devtools#devtools-production"
     for: "Handle devtools in production vs development. removeDevtoolsOnBuild, devDependency vs regular dependency, conditional imports, NoOp plugin variants for tree-shaking, non-Vite production exclusion patterns."
   - id: "@tanstack/devtools-event-client#devtools-bidirectional"
-    run: "bunx @tanstack/intent@latest load @tanstack/devtools-event-client#devtools-bidirectional"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/devtools-event-client#devtools-bidirectional"
     for: "Two-way event patterns between devtools panel and application. App-to-devtools observation, devtools-to-app commands, time-travel debugging with snapshots and revert. structuredClone for snapshot safety, distinct event suffixes for observation vs commands, serializable payloads only."
   - id: "@tanstack/devtools-event-client#devtools-event-client"
-    run: "bunx @tanstack/intent@latest load @tanstack/devtools-event-client#devtools-event-client"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/devtools-event-client#devtools-event-client"
     for: "Create typed EventClient for a library. Define event maps with typed payloads, pluginId auto-prepend namespacing, emit()/on()/onAll()/onAllPluginEvents() API. Connection lifecycle (5 retries, 300ms), event queuing, enabled/disabled state, SSR fallbacks, singleton pattern. Unique pluginId requirement to avoid event collisions."
   - id: "@tanstack/devtools-event-client#devtools-instrumentation"
-    run: "bunx @tanstack/intent@latest load @tanstack/devtools-event-client#devtools-instrumentation"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/devtools-event-client#devtools-instrumentation"
     for: "Analyze library codebase for critical architecture and debugging points, add strategic event emissions. Identify middleware boundaries, state transitions, lifecycle hooks. Consolidate events (1 not 15), debounce high-frequency updates, DRY shared payload fields, guard emit() for production. Transparent server/client event bridging."
   - id: "@tanstack/react-table#create-table-hook"
-    run: "bunx @tanstack/intent@latest load @tanstack/react-table#create-table-hook"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/react-table#create-table-hook"
     for: "Build reusable React table infrastructure with createTableHook, useAppTable, createAppColumnHelper, shared features/defaults, component registries, AppTable/AppCell/AppHeader wrappers, and typed context hooks. Load for recurring application table conventions, scoped contexts, HMR cycles, or table prop drilling."
   - id: "@tanstack/react-table#getting-started"
-    run: "bunx @tanstack/intent@latest load @tanstack/react-table#getting-started"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/react-table#getting-started"
     for: "Create and render a TanStack React Table v9 table with useTable, tableFeatures, stable data and columns, row/header models, and table.FlexRender. Load for a first React table, headless rendering, or when v8 useReactTable examples are producing the wrong setup."
   - id: "@tanstack/react-table#migrate-v8-to-v9"
-    run: "bunx @tanstack/intent@latest load @tanstack/react-table#migrate-v8-to-v9"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/react-table#migrate-v8-to-v9"
     for: "Perform a complete @tanstack/react-table v8-to-v9 migration: hook and feature architecture, row-model slots, React state and subscriptions, rendering, composable tables, type helpers, and every shared API rename and semantic change. Use for migration plans, implementation, or audits. Treat useLegacyTable only as a deprecated temporary bridge."
   - id: "@tanstack/react-table#table-state"
-    run: "bunx @tanstack/intent@latest load @tanstack/react-table#table-state"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/react-table#table-state"
     for: "Read, select, subscribe to, and control React Table V9 state with useTable selectors, table.state, table.Subscribe, table.atoms, table.store, and external TanStack Store atoms. Load for controlled state, render performance, or React Compiler builder-method subscription problems."
   - id: "@tanstack/react-table#with-tanstack-query"
-    run: "bunx @tanstack/intent@latest load @tanstack/react-table#with-tanstack-query"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/react-table#with-tanstack-query"
     for: "Compose React Table v9 with TanStack Query for server filtering, sorting, pagination, and infinite data. Load for query-key table state, manual* processing boundaries, server rowCount, keepPreviousData, or avoiding duplicated query-result state."
   - id: "@tanstack/react-table#with-tanstack-virtual"
-    run: "bunx @tanstack/intent@latest load @tanstack/react-table#with-tanstack-virtual"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/react-table#with-tanstack-virtual"
     for: "Virtualize final React Table row or column models with TanStack Virtual. Load for useVirtualizer counts, scroll elements, stable keys, data-index measurement, dynamic heights, sticky headers/columns, grid/flex geometry, or infinite fetching; Virtual is renderer composition, not a Table feature."
   - id: "@tanstack/router-core#router-core"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-core#router-core"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-core#router-core"
     for: "Framework-agnostic core concepts for TanStack Router: route trees, createRouter, createRoute, createRootRoute, createRootRouteWithContext, addChildren, Register type declaration, route matching, route sorting, file naming conventions. Entry point for all router skills."
   - id: "@tanstack/router-core#router-core/auth-and-guards"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-core#router-core/auth-and-guards"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-core#router-core/auth-and-guards"
     for: "Route protection with beforeLoad, redirect()/throw redirect(), isRedirect helper, authenticated layout routes (_authenticated), non-redirect auth (inline login), RBAC with roles and permissions, auth provider integration (Auth0, Clerk, Supabase), router context for auth state."
   - id: "@tanstack/router-core#router-core/code-splitting"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-core#router-core/code-splitting"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-core#router-core/code-splitting"
     for: "Automatic code splitting (autoCodeSplitting), .lazy.tsx convention, createLazyFileRoute, createLazyRoute, lazyRouteComponent, getRouteApi for typed hooks in split files, codeSplitGroupings per-route override, splitBehavior programmatic config, critical vs non-critical properties."
   - id: "@tanstack/router-core#router-core/data-loading"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-core#router-core/data-loading"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-core#router-core/data-loading"
     for: "Route loader option, loaderDeps for cache keys, staleTime/gcTime/ defaultPreloadStaleTime SWR caching, pendingComponent/pendingMs/ pendingMinMs, errorComponent/onError/onCatch, beforeLoad, router context and createRootRouteWithContext DI pattern, router.invalidate, Await component, deferred data loading with unawaited promises."
   - id: "@tanstack/router-core#router-core/navigation"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-core#router-core/navigation"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-core#router-core/navigation"
     for: "Link component, useNavigate, Navigate component, router.navigate, ToOptions/NavigateOptions/LinkOptions, from/to relative navigation, activeOptions/activeProps, preloading (intent/viewport/render), preloadDelay, navigation blocking (useBlocker, Block), createLink, linkOptions helper, scroll restoration, MatchRoute."
   - id: "@tanstack/router-core#router-core/not-found-and-errors"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-core#router-core/not-found-and-errors"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-core#router-core/not-found-and-errors"
     for: "notFound() function, notFoundComponent, defaultNotFoundComponent, notFoundMode (fuzzy/root), errorComponent, CatchBoundary, CatchNotFound, isNotFound, NotFoundRoute (deprecated), route masking (mask option, createRouteMask, unmaskOnReload)."
   - id: "@tanstack/router-core#router-core/path-params"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-core#router-core/path-params"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-core#router-core/path-params"
     for: "Dynamic path segments ($paramName), splat routes ($ / _splat), optional params ({-$paramName}), prefix/suffix patterns ({$param}.ext), useParams, params.parse/stringify, pathParamsAllowedCharacters, i18n locale patterns."
   - id: "@tanstack/router-core#router-core/search-params"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-core#router-core/search-params"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-core#router-core/search-params"
     for: "validateSearch, search param validation with Zod/Valibot/ArkType adapters, fallback(), search middlewares (retainSearchParams, stripSearchParams), custom serialization (parseSearch, stringifySearch), search param inheritance, loaderDeps for cache keys, reading and writing search params."
   - id: "@tanstack/router-core#router-core/ssr"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-core#router-core/ssr"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-core#router-core/ssr"
     for: "Non-streaming and streaming SSR, RouterClient/RouterServer, renderRouterToString/renderRouterToStream, createRequestHandler, defaultRenderHandler/defaultStreamHandler, HeadContent/Scripts components, head route option (meta/links/styles/scripts), ScriptOnce, automatic loader dehydration/hydration, memory history on server, data serialization, document head management."
   - id: "@tanstack/router-core#router-core/type-safety"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-core#router-core/type-safety"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-core#router-core/type-safety"
     for: "Full type inference philosophy (never cast, never annotate inferred values), Register module declaration, from narrowing on hooks and Link, strict:false for shared components, getRouteApi for code-split typed access, addChildren with object syntax for TS perf, LinkProps and ValidateLinkOptions type utilities, as const satisfies pattern."
   - id: "@tanstack/router-plugin#router-plugin"
-    run: "bunx @tanstack/intent@latest load @tanstack/router-plugin#router-plugin"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/router-plugin#router-plugin"
     for: "TanStack Router bundler plugin for route generation and automatic code splitting. Supports Vite, Webpack, Rspack, and esbuild. Configures autoCodeSplitting, routesDirectory, target framework, and code split groupings."
   - id: "@tanstack/table-core#aggregation"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#aggregation"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#aggregation"
     for: "Aggregate TanStack Table columns independently of grouping, including grand totals, caller-selected row totals, multiple keyed aggregations, custom context-based definitions, grouped merges, manual values, and worker constraints."
   - id: "@tanstack/table-core#api-not-found"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#api-not-found"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#api-not-found"
     for: "Diagnose missing TanStack Table v9 exports, options, state slices, and instance methods. Load before inventing an API when code sees a type error, undefined feature method, absent object key, adapter mismatch, or v8-shaped example."
   - id: "@tanstack/table-core#cell-selection"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#cell-selection"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#cell-selection"
     for: "Select, add, and subtract rectangular cell ranges with cellSelectionFeature: ordered include/exclude operations keyed by row and column id, modifier dragging, final positive bounds, selection edges, render-order resolution under pinning, and autoResetCellSelection. Load for spreadsheet-style selection, “select all except” behavior, unexpected range changes after sorting or reordering, drag performance, or copy-to-clipboard."
   - id: "@tanstack/table-core#cell-spanning"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#cell-spanning"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#cell-spanning"
     for: "Merge adjacent body cells with cellSpanningFeature: value-based rowSpan opt-in per column via spanRows, per-row colSpan via spanColumns, and the covered-cell convention where a span of 0 means skip the cell. Load for merged data grids, spans that disappear after sorting or paginating, ragged table rows, or a cell that unexpectedly merges down the whole tbody."
   - id: "@tanstack/table-core#client-vs-server"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#client-vs-server"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#client-vs-server"
     for: "Choose client or server ownership for filtering, grouping, sorting, expanding, and pagination in TanStack Table v9. Load for manual* flags, mixed pipelines, server counts, or deciding which dataset each row-model stage receives."
   - id: "@tanstack/table-core#column-faceting"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#column-faceting"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#column-faceting"
     for: "Build faceted filter UIs with columnFacetingFeature, facetedRowModel, facetedUniqueValues, and facetedMinMaxValues. Load for facet counts, numeric ranges, own-filter exclusion, or server-page facet completeness."
   - id: "@tanstack/table-core#column-filtering"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#column-filtering"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#column-filtering"
     for: "Filter columns with columnFilteringFeature, filteredRowModel, filterFns, filterMeta, nested-row direction, and manualFiltering. Load for accessor compatibility, controlled filter updaters, fuzzy metadata, or client/server ownership."
   - id: "@tanstack/table-core#column-ordering"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#column-ordering"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#column-ordering"
     for: "Control TanStack Table v9 leaf columnOrder with stable IDs while accounting for pinning regions, visibility, and groupedColumnMode precedence. Load for drag-and-drop columns or rendered order that differs from state."
   - id: "@tanstack/table-core#column-pinning"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#column-pinning"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#column-pinning"
     for: "Pin columns into logical start, center, and end regions with columnPinningFeature and renderer-owned sticky CSS. Load for RTL offsets, z-index, backgrounds, overflow, widths, gaps, or overlaps."
   - id: "@tanstack/table-core#column-resizing"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#column-resizing"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#column-resizing"
     for: "Wire columnResizingFeature, header.getResizeHandler, resize mode and direction, pointer or touch events, and performant CSS-variable updates. Load when resize state changes but widths do not, or large tables resize slowly."
   - id: "@tanstack/table-core#column-sizing"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#column-sizing"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#column-sizing"
     for: "Use columnSizingFeature numeric size, minSize, maxSize, getSize, getStart, getAfter, and total-size APIs in table, grid, or flex CSS. Load for auto or percentage misconceptions and sizing/pinning layout mismatch."
   - id: "@tanstack/table-core#column-visibility"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#column-visibility"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#column-visibility"
     for: "Hide columns with columnVisibilityFeature while rendering visibility-aware header, column, and cell collections. Load when hidden columns remain in the DOM, false-versus-absent state is confused, or enableHiding is misunderstood."
   - id: "@tanstack/table-core#core"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#core"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#core"
     for: "Use TanStack Table v9 as a headless data-grid state and row-processing engine. Load for first-table architecture, stable data and columns, row numbering with getDisplayIndex, semantic rendering, framework adapter choice, or deciding what Table owns versus the renderer."
   - id: "@tanstack/table-core#custom-features"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#custom-features"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#custom-features"
     for: "Author a TanStack Table v9 feature plugin across every FeatureMap and API installation surface: state, options, column definitions, table, column, row, cell, header, row-model functions/caches, defaults, prototypes, and table/row/column instance data lifecycles. Load for initTableInstanceData, resetTableInstanceData, constructTableAPIs, or reusable behavior not covered by built-ins, meta, or option composition."
   - id: "@tanstack/table-core#expanding"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#expanding"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#expanding"
     for: "Expand hierarchical subrows or custom detail panels with rowExpandingFeature, expandedRowModel, getSubRows, getRowCanExpand, manualExpanding, and paginateExpandedRows. Load when expansion state changes but no UI appears."
   - id: "@tanstack/table-core#global-filtering"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#global-filtering"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#global-filtering"
     for: "Apply globalFilter across eligible columns with globalFilteringFeature, columnFilteringFeature, filteredRowModel, globalFilterFn, and manual server filtering. Load when columns unexpectedly participate or a global filter changes state without changing rows."
   - id: "@tanstack/table-core#grouping"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#grouping"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#grouping"
     for: "Group rows with columnGroupingFeature, groupedRowModel, groupedColumnMode, and manualGrouping. Load for grouped or placeholder cells and grouping interactions with expansion or pagination."
   - id: "@tanstack/table-core#migrate-v8-to-v9"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#migrate-v8-to-v9"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#migrate-v8-to-v9"
     for: "Perform a complete TanStack Table v8-to-v9 migration audit: feature registration, row-model and function-registry slots, state/store changes, prototype methods, column pinning and resizing renames, sorting and selection semantics, removed internals, helpers, meta typing, and generic changes. Load this shared inventory before the installed framework adapter's migration skill."
   - id: "@tanstack/table-core#pagination"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#pagination"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#pagination"
     for: "Paginate with rowPaginationFeature and paginatedRowModel or manualPagination. Load for pageIndex/pageSize state, rowCount/pageCount, unknown next-page limits, already-paginated server data, or autoResetPageIndex surprises."
   - id: "@tanstack/table-core#row-pinning"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#row-pinning"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#row-pinning"
     for: "Pin stable row IDs into top, center, and bottom collections with rowPinningFeature and keepPinnedRows. Load for filtering/pagination visibility, explicit region rendering, or renderer-owned sticky CSS."
   - id: "@tanstack/table-core#row-selection"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#row-selection"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#row-selection"
     for: "Maintain rowSelection ID state with stable getRowId, single, multi, subrow, and Shift-range rules, selected row models, handler anchors, and manual-pagination semantics. Load when implementing getToggleSelectedHandler, enableRowRangeSelection, selectChildren, deselectParents, or selected IDs that outlive loaded Row objects."
   - id: "@tanstack/table-core#sorting"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#sorting"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#sorting"
     for: "Sort with rowSortingFeature, sortedRowModel, sortFns, multi-sort and removal options, sortUndefined, and manualSorting. Load for comparator direction, incoming server order, or product-specific sorting cycles."
   - id: "@tanstack/table-core#table-features"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#table-features"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#table-features"
     for: "Register TanStack Table v9 tableFeatures, feature plugins, create*RowModel factories, and function registries in prerequisite order. Load when an option, state slice, or instance API is missing, or when choosing explicit features versus stockFeatures."
   - id: "@tanstack/table-core#typescript"
-    run: "bunx @tanstack/intent@latest load @tanstack/table-core#typescript"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/table-core#typescript"
     for: "Preserve TanStack Table v9 inference with createColumnHelper, columns(), tableOptions, tableFeatures, and metaHelper. Load for ColumnDef errors, reusable tables, typed meta, named registries, or unnecessary manual feature generics."
   - id: "@tanstack/virtual-file-routes#virtual-file-routes"
-    run: "bunx @tanstack/intent@latest load @tanstack/virtual-file-routes#virtual-file-routes"
+    run: "pnpm dlx @tanstack/intent@latest load @tanstack/virtual-file-routes#virtual-file-routes"
     for: "Programmatic route tree building as an alternative to filesystem conventions: rootRoute, index, route, layout, physical, defineVirtualSubtreeConfig. Use with TanStack Router plugin's virtualRouteConfig option."
   - id: "better-near-auth#auth-plugin"
-    run: "bunx @tanstack/intent@latest load better-near-auth#auth-plugin"
+    run: "pnpm dlx @tanstack/intent@latest load better-near-auth#auth-plugin"
     for: "Mount and consume the @everything-dev/auth-plugin in an everything-dev or every-plugin project. Register it in bos.config.json, wire the Better Auth client into the UI with siwnClient/passkey/API-key/organization plugins, protect routes with session checks, compose with the auth plugin in-process via createPlugin.withPlugins, and use the auth context (getContext) in your own oRPC middleware. Sub-account creation is supported in bos.config.json for scalar fields (parentHasFullAccess, minDeposit, deploy.fromPublished, init with static args). Load when adding auth to an everything.dev app, configuring SIWN recipients from runtime config, calling auth endpoints from another plugin, or debugging auth context resolution. As of better-near-auth 1.8.2 the client uses getNearClient() (not .client) and signIn.near / near.link refresh the session atomically."
   - id: "better-near-auth#client"
-    run: "bunx @tanstack/intent@latest load better-near-auth#client"
+    run: "pnpm dlx @tanstack/intent@latest load better-near-auth#client"
     for: "Set up the siwnClient plugin for Better Auth client, configure NEAR wallet connection via NearConnect, use authClient.near actions for sign-in, profile lookup, account management, delegate action building with TransactionBuilder, and relay submission. Load when implementing NEAR wallet sign-in on the client, using authClient.near.* methods, or building delegate actions for gasless relay."
   - id: "better-near-auth#relay"
-    run: "bunx @tanstack/intent@latest load better-near-auth#relay"
+    run: "pnpm dlx @tanstack/intent@latest load better-near-auth#relay"
     for: "Configure the gasless NEP-366 delegate action relayer in ephemeral or explicit mode, relay signed delegate actions on-chain, enforce contract whitelisting and gas/deposit limits, check relay status and history, and use the contract view endpoint. Load when setting up relayer config or debugging relay failures."
   - id: "better-near-auth#siwn"
-    run: "bunx @tanstack/intent@latest load better-near-auth#siwn"
+    run: "pnpm dlx @tanstack/intent@latest load better-near-auth#siwn"
     for: "Set up the SIWN server plugin for Better Auth, configure NEP-413 authentication with recipient and API key, handle nonce generation, signature verification, account linking and unlinking, and NEAR profile lookup. Load when adding NEAR wallet sign-in to a Better Auth server, configuring siwn() plugin options, or debugging NEP-413 verify or nonce issues."
   - id: "better-near-auth#subaccount"
-    run: "bunx @tanstack/intent@latest load better-near-auth#subaccount"
+    run: "pnpm dlx @tanstack/intent@latest load better-near-auth#subaccount"
     for: "Configure sub-account creation with parent ownership, contract deployment, init calls, composable transaction hooks, and lifecycle callbacks with automatic rollback. Load when setting up subAccount config, deploying contracts to new sub-accounts, or handling post-creation side effects. Sub-account creation surface has been stable since 1.7.0; the 1.8.x client improvements (getNearClient, detectNearAccount, session-signal notify) do not change the createSubAccount / checkSubAccountAvailability endpoints."
   - id: "better-near-auth#tanstack"
-    run: "bunx @tanstack/intent@latest load better-near-auth#tanstack"
+    run: "pnpm dlx @tanstack/intent@latest load better-near-auth#tanstack"
     for: "Integrate better-near-auth with TanStack Router (SSR or CSR). Set up auth client as a router context singleton, useAuthClient hook, session query options, inferred types from AuthClient, and ensureConnected before signing. Load when scaffolding a new TanStack Router app with better-near-auth, wiring auth into router context, or debugging wallet state loss after sign-in in SSR/CSR TanStack apps."
   - id: "dotenv#dotenv"
-    run: "bunx @tanstack/intent@latest load dotenv#dotenv"
+    run: "pnpm dlx @tanstack/intent@latest load dotenv#dotenv"
     for: "Load environment variables from a .env file into process.env for Node.js applications. Use when configuring apps with secrets, setting up local development environments, managing API keys and database uRLs, parsing .env file contents, or populating environment variables programmatically. Always use this skill when the user mentions .env, even for simple tasks like \"set up dotenv\" — the skill contains critical gotchas (encrypted keys, variable expansion, command substitution) that prevent common production issues."
   - id: "dotenv#dotenvx"
-    run: "bunx @tanstack/intent@latest load dotenv#dotenvx"
+    run: "pnpm dlx @tanstack/intent@latest load dotenv#dotenvx"
     for: "Use dotenvx to run commands with environment variables, manage multiple .env files, expand variables, and encrypt env files for safe commits and CI/CD."
   - id: "every-plugin#plugin-client"
-    run: "bunx @tanstack/intent@latest load every-plugin#plugin-client"
+    run: "pnpm dlx @tanstack/intent@latest load every-plugin#plugin-client"
     for: "Connect to and consume deployed everything.dev plugins from an external app, child project, or script. Use when creating API/auth clients, reading runtime config, authenticating with API keys or sessions, or calling plugin routes programmatically."
   - id: "every-plugin#plugin-development"
-    run: "bunx @tanstack/intent@latest load every-plugin#plugin-development"
+    run: "pnpm dlx @tanstack/intent@latest load every-plugin#plugin-development"
     for: "Build every-plugin modules with oRPC contracts, Effect services, and Module Federation. Use when creating or modifying plugins under plugins/ or the _template scaffold."
   - id: "every-plugin#plugin-testing"
-    run: "bunx @tanstack/intent@latest load every-plugin#plugin-testing"
+    run: "pnpm dlx @tanstack/intent@latest load every-plugin#plugin-testing"
     for: "Test every-plugin modules with vitest and the plugin runtime. Use when writing or modifying plugin tests under plugins/*/src/__tests__/ or plugins/*/tests/."
   - id: "everything-dev#api-and-auth"
-    run: "bunx @tanstack/intent@latest load everything-dev#api-and-auth"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#api-and-auth"
     for: "API architecture, oRPC contracts, auth middleware, plugin-client composition, session handling, and client-side auth. Use when adding API routes, creating middleware, calling other plugins in-process, or integrating auth in routes and UI."
   - id: "everything-dev#cli-reference"
-    run: "bunx @tanstack/intent@latest load everything-dev#cli-reference"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#cli-reference"
     for: "Quick reference for all bos CLI commands — flags, options, environment settings, and links to detailed guidance in related skills. Use when any bos command comes up or the user needs a CLI overview."
   - id: "everything-dev#code-style"
-    run: "bunx @tanstack/intent@latest load everything-dev#code-style"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#code-style"
     for: "Code style conventions for everything-dev projects — component file naming (kebab-case, lowercase), CSS (semantic Tailwind only, no hardcoded colors), no comments in implementation, import/export conventions, and following neighboring file patterns."
   - id: "everything-dev#dev-workflow"
-    run: "bunx @tanstack/intent@latest load everything-dev#dev-workflow"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#dev-workflow"
     for: "Development workflow for everything-dev projects using bos dev, bos start, and the Module Federation runtime. Use when starting dev servers, debugging hot reload, or understanding the service-descriptor architecture."
   - id: "everything-dev#extends-config"
-    run: "bunx @tanstack/intent@latest load everything-dev#extends-config"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#extends-config"
     for: "How bos.config.json extends chains work, deep merge semantics, resolved config lifecycle, env-specific extends, and canonical field ordering. Use when debugging extends inheritance, configuring per-environment parents, understanding what dev writes vs publish writes, or reasoning about config merging."
   - id: "everything-dev#init-upgrade"
-    run: "bunx @tanstack/intent@latest load everything-dev#init-upgrade"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#init-upgrade"
     for: "bos init, bos sync, and bos upgrade workflows — template download, snapshot-based conflict detection, package version bumps, and how init/sync select and own files. Use when scaffolding new projects, syncing upstream changes, or upgrading framework packages."
   - id: "everything-dev#plugin-development"
-    run: "bunx @tanstack/intent@latest load everything-dev#plugin-development"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#plugin-development"
     for: "Build, register, and deploy plugins within everything.dev. Covers the _template scaffold, contract/service/index pattern, database setup with Drizzle, bos.config.json registration, plugin UI/sidebar, and CLI workflow. Use when creating new plugins, adding database-backed routes, or deploying plugins to production."
   - id: "everything-dev#publish-sync"
-    run: "bunx @tanstack/intent@latest load everything-dev#publish-sync"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#publish-sync"
     for: "Publish bos.config.json to the FastKV registry, sync from upstream, and upgrade workspace packages. Use when deploying, syncing, or managing runtime configuration across projects."
   - id: "everything-dev#registry"
-    run: "bunx @tanstack/intent@latest load everything-dev#registry"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#registry"
     for: "Read and write the FastKV config registry efficiently — key layout, namespace=signer semantics, integrity, and composing published runtimes into local bos.config.json. Use when publishing configs, composing another runtime's UI/host/api/plugins, or debugging why a published config doesn't resolve."
   - id: "everything-dev#super-app"
-    run: "bunx @tanstack/intent@latest load everything-dev#super-app"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#super-app"
     for: "Build shared-host, shared-API super apps with tenant-specific UI composition. Use when setting up a base runtime plus custom tenant apps, configuring fixed-core multi-tenancy, reasoning about extends-based runtime lineage, or deciding what tenants can override today."
   - id: "everything-dev#ui-integration"
-    run: "bunx @tanstack/intent@latest load everything-dev#ui-integration"
+    run: "pnpm dlx @tanstack/intent@latest load everything-dev#ui-integration"
     for: "Route creation, API client usage, auth client, SSR hydration, sidebar system, and the @/app module surface. Use when adding new UI routes, fetching data from the API, implementing auth flows, or customizing sidebar navigation."
 <!-- intent-skills:end -->
 
@@ -230,12 +230,12 @@ This document provides operational guidance for AI agents working in the parent 
 
 **Start Development:**
 ```bash
-bun install
-bun run dev
+pnpm install
+pnpm run dev
 
 # bos dev creates .env from .env.example on first run (with a generated BETTER_AUTH_SECRET)
 # and auto-starts docker compose when the DB preflight finds local Postgres down.
-# Or combined: bun run dev:postgres  ==  docker compose up -d --wait && bun run dev
+# Or combined: pnpm run dev:postgres  ==  docker compose up -d --wait && pnpm run dev
 
 # Pin individual service ports (explicitly-passed flags are pinned; unset services derive from the base; only explicit choices persist in .bos/infra-state.json — see ADR 0012)
 bos dev --port 3100 --api-port 3101 --ui-port 3103 --auth-port 3102 --plugin-port-start 3110
@@ -247,9 +247,9 @@ bos dev --port 3100 --api-port 3101 --ui-port 3103 --auth-port 3102 --plugin-por
 - `postgres-api-test` (port 5434, db `api_test_db`) — test-only API/plugin database.
 - `postgres-auth-test` (port 5435, db `auth_test_db`) — test-only auth database.
 
-**Dev/test isolation:** a committed `.env.test` (generated alongside `.env.example` and `docker-compose.yml` by `bos dev`) maps every `*_DATABASE_URL` and `BETTER_AUTH_SECRET` to the test databases. Test suites load `.env.test` instead of `.env`: the regression stack (`tests/regression/lib/start-stack.mjs`) injects it into spawned stacks, `tests/regression/lib/regression-env.mjs` resolves it with fail-fast guards that refuse to run against dev URLs or the dev auth secret (override deliberately with `REGRESSION_ALLOW_DEV_DB=1`), and api unit/integration tests pin to in-memory pglite unless `TEST_DATABASE=postgres` opts into `.env.test`. Start the test databases with `bun run test:db:up` (or `bun run test:db:reset` for a clean slate).
+**Dev/test isolation:** a committed `.env.test` (generated alongside `.env.example` and `docker-compose.yml` by `bos dev`) maps every `*_DATABASE_URL` and `BETTER_AUTH_SECRET` to the test databases. Test suites load `.env.test` instead of `.env`: the regression stack (`tests/regression/lib/start-stack.mjs`) injects it into spawned stacks, `tests/regression/lib/regression-env.mjs` resolves it with fail-fast guards that refuse to run against dev URLs or the dev auth secret (override deliberately with `REGRESSION_ALLOW_DEV_DB=1`), and api unit/integration tests pin to in-memory pglite unless `TEST_DATABASE=postgres` opts into `.env.test`. Start the test databases with `pnpm run test:db:up` (or `pnpm run test:db:reset` for a clean slate).
 
-The API and plugins auto-apply migrations on boot, so `bun db:migrate` is optional (use it to migrate without starting the dev server). `bun run dev` runs `bos dev`'s preflight, which probes the localhost DB ports and — when every failure is a down local service, `docker-compose.yml` exists, docker is reachable, and it is not a test-mode stack — starts the compose services itself (`docker compose up -d --wait`) and re-probes once before failing. Test-mode stacks (`NODE_ENV=test` / `BOS_TEST=1` / `BOS_NO_PERSIST_PORTS=1`) never auto-start compose. Bootstrap-phase INFO logs (e.g. `[env] ... updated` port-drift lines) are suppressed on the console by default — pass `--log-level info` (or set `BOS_LOG_LEVEL` / `DEBUG=1`) to see them; warnings and errors always print.
+The API and plugins auto-apply migrations on boot, so `pnpm run db:migrate` is optional (use it to migrate without starting the dev server). `pnpm run dev` runs `bos dev`'s preflight, which probes the localhost DB ports and — when every failure is a down local service, `docker-compose.yml` exists, docker is reachable, and it is not a test-mode stack — starts the compose services itself (`docker compose up -d --wait`) and re-probes once before failing. Test-mode stacks (`NODE_ENV=test` / `BOS_TEST=1` / `BOS_NO_PERSIST_PORTS=1`) never auto-start compose. Bootstrap-phase INFO logs (e.g. `[env] ... updated` port-drift lines) are suppressed on the console by default — pass `--log-level info` (or set `BOS_LOG_LEVEL` / `DEBUG=1`) to see them; warnings and errors always print.
 
 Port allocation is atomic block allocation (ADR 0012): the layout derives deterministically from one base port (`--port N` → api N+1, auth N+2, ui N+3, plugins N+10+), the whole block is validated before anything spawns, and only explicitly-passed port flags persist to `.bos/infra-state.json` under `devPorts` (drift is never persisted — a busy block moves +100 with a prominent notice naming the holders, and restarts re-try the preferred base). Explicitly-passed flags are pinned: if that exact port is occupied, allocation fails loudly instead of silently moving. `bos kill` escalates SIGTERM → 5s → SIGKILL, reaps orphaned children of dead sessions, and verifies ports actually freed; new sessions adopt-and-reap orphaned children from dead same-project sessions at boot. Test-spawned stacks never persist ports (`BOS_NO_PERSIST_PORTS=1`, plus `NODE_ENV=test` / `BOS_TEST=1` are honored), so test runs can never repin your dev ports.
 `CORS_ORIGIN` in `.env.example` is derived from the actual resolved host port in development.
@@ -257,15 +257,15 @@ A global PID registry at `~/.cache/everything-dev/pids.json` tracks running `bos
 
 **Builds — the train is the build path:**
 ```bash
-bun run build          # bos build — all workspaces (staleness-checked prerequisites first)
-bun run build ui       # bos build ui — one target + fresh prerequisites
-bun run deploy         # bos deploy — the full deploy train (also runs on merge, via CI)
+pnpm run build          # bos build — all workspaces (staleness-checked prerequisites first)
+pnpm run build ui       # bos build ui — one target + fresh prerequisites
+pnpm run deploy         # bos deploy — the full deploy train (also runs on merge, via CI)
 ```
-`bun run build <targets>` first gives every target's local workspace dependencies fresh dists — the prerequisite graph is derived from each workspace's declared `dependencies`/`devDependencies` resolved against the bun workspace members (`every-plugin`, `everything-dev`, `better-near-auth` for `ui`), staleness-checked per member and cheap no-ops when fresh; failures are loud (ADR 0022). Raw per-workspace builds (`cd ui && bun run build`) bypass the prerequisite train and are unsupported — use the train.
+`pnpm run build <targets>` first gives every target's local workspace dependencies fresh dists — the prerequisite graph is derived from each workspace's declared `dependencies`/`devDependencies` resolved against the pnpm workspace members (`every-plugin`, `everything-dev`, `better-near-auth` for `ui`), staleness-checked per member and cheap no-ops when fresh; failures are loud (ADR 0022). Raw per-workspace builds (`cd ui && pnpm run build`) bypass the prerequisite train and are unsupported — use the train.
 
 Two resolution rules keep this safe (ADR 0018): **bundler-configuration code resolves from source** — `every-plugin/build/ui` and `every-plugin/build/rspack` (the generated plugin configs' factories) resolve `src` in every condition, so the config chain cannot go stale; **shipped code resolves from dist** — runtime subpaths (`everything-dev/ui/auth`, `db`, …) resolve built dists, whose freshness the prerequisite train guarantees.
 
-**Dev overlays (`bos.dev.ts`):** authored config lives in `bos.app.ts` (published); dev-only overrides live in `bos.dev.ts` (optional, child-wins merged over the resolved config when the environment is development, **never published** — same role as `.env` vs `.env.example` at the config level). Each unit gets the pair; `plugin.dev.ts` is the legacy name being retired. The app root (the directory holding the `bos.app.ts`/`bos.dev.ts` pair) is distinct from the bun workspace root — see ADR 0022 for the two-roots model and which CLI concerns anchor to which root.
+**Dev overlays (`bos.dev.ts`):** authored config lives in `bos.app.ts` (published); dev-only overrides live in `bos.dev.ts` (optional, child-wins merged over the resolved config when the environment is development, **never published** — same role as `.env` vs `.env.example` at the config level). Each unit gets the pair; `plugin.dev.ts` is the legacy name being retired. The app root (the directory holding the `bos.app.ts`/`bos.dev.ts` pair) is distinct from the pnpm workspace root — see ADR 0022 for the two-roots model and which CLI concerns anchor to which root.
 
 **Sync and Publish:**
 ```bash
@@ -342,7 +342,7 @@ For full per-request host/plugin/auth/api swapping, see `docs/plans/` for design
 ## Development Workflow
 
 ### Typical Session
-1. `bun run dev` to start development
+1. `pnpm run dev` to start development
 2. UI available at http://localhost:3003, API at http://localhost:3001, Auth at http://localhost:3002
 3. Check `.bos/logs/` for process logs if issues occur
 4. Use `bos kill` to clean up processes when done
@@ -359,8 +359,8 @@ For full per-request host/plugin/auth/api swapping, see `docs/plans/` for design
 - Clear browser cache and retry
 
 **Type errors:**
-- Run `bun typecheck`
-- Effect-rule diagnostics (floating effects, tag Self mismatches, …) come from `bun run lint:effect` (oxlint type-aware) — run it when `tsc` is clean but Effect lint flags something
+- Run `pnpm run typecheck`
+- Effect-rule diagnostics (floating effects, tag Self mismatches, …) come from `pnpm run lint:effect` (oxlint type-aware) — run it when `tsc` is clean but Effect lint flags something
 - Ensure `api/src/contract.ts` is in sync with UI usage
 
 ### Self-Deployed Development
@@ -370,7 +370,7 @@ You don't need to wait for a PR to merge and run through CI/CD to see your chang
 **Local dev (no NEAR account needed):**
 
 ```bash
-bun run dev    # hot reload, all services local
+pnpm run dev    # hot reload, all services local
 ```
 
 **Runtime tiers (ADR 0020/0021):**
@@ -454,7 +454,7 @@ The API plugin receives typed entries for all other plugins via `createPlugin.wi
 
 **Two-phase loading**: The host loads non-API plugins first (Phase 1), creates a `pluginsClient` map, then loads the API with that map injected (Phase 2). The host is generic — no plugin-specific code.
 
-**Generated types**: `api/src/lib/plugins-types.gen.ts`, `api/src/lib/auth-types.gen.ts`, `ui/src/lib/api-types.gen.ts`, and `ui/src/lib/auth-types.gen.ts` are generated by `bos types gen` from the authored config (`bos.app.ts`, or a legacy `bos.config.json`). These files are gitignored and auto-regenerated by `bos typecheck` (which generates before type-checking), `bos dev`, `bos build`, and `bos pluginAdd`/`pluginRemove` — `bun typecheck` is self-sufficient, no separate generation step needed.
+**Generated types**: `api/src/lib/plugins-types.gen.ts`, `api/src/lib/auth-types.gen.ts`, `ui/src/lib/api-types.gen.ts`, and `ui/src/lib/auth-types.gen.ts` are generated by `bos types gen` from the authored config (`bos.app.ts`, or a legacy `bos.config.json`). These files are gitignored and auto-regenerated by `bos typecheck` (which generates before type-checking), `bos dev`, `bos build`, and `bos pluginAdd`/`pluginRemove` — `pnpm run typecheck` is self-sufficient, no separate generation step needed.
 
 Plugin types resolve in two ways:
 - `local:plugins/<name>` → reads `src/contract.ts` directly from disk
@@ -482,12 +482,12 @@ This repo is the parent platform, not a generated child project.
 **Release flow:**
 - CI is the validation workflow. On successful push to `main`, the Deploy workflow triggers automatically via `workflow_run` and checks out the exact SHA CI validated.
 - `release.yml` is manual (`workflow_dispatch`): it consumes changesets, creates the `chore: version packages` PR when pending, and publishes to npm when no changesets remain.
-- `deploy.yml` runs `bun run bos deploy` — the single command runs the whole train: preflight (config/signing/storage credentials, fail fast before any build), workspace builds, bundle upload to the R2-backed storage, FastKV publish with read-back confirmation, the `runtime` image stage pushed to GHCR by SHA + `latest` tags (`ci.image` in the authored config), and a pull-only Railway deploy pinned to the pushed digest (generated thin `FROM <image>@sha256:<digest>` Dockerfile — ADR 0021). Nothing is committed back — the runtime fetches the published config from FastKV.
+- `deploy.yml` runs `pnpm run bos deploy` — the single command runs the whole train: preflight (config/signing/storage credentials, fail fast before any build), workspace builds, bundle upload to the R2-backed storage, FastKV publish with read-back confirmation, the `runtime` image stage pushed to GHCR by SHA + `latest` tags (`ci.image` in the authored config), and a pull-only Railway deploy pinned to the pushed digest (generated thin `FROM <image>@sha256:<digest>` Dockerfile — ADR 0021). Nothing is committed back — the runtime fetches the published config from FastKV.
 - Generated child repos use a simpler flow: both Release and Deploy trigger directly from CI success via `workflow_run` (no npm publish, no Docker).
 
 **Create changeset:**
 ```bash
-bun run changeset
+pnpm run changeset
 # Follow prompts to select packages and describe changes
 ```
 
@@ -495,16 +495,16 @@ bun run changeset
 
 **Before committing:**
 ```bash
-bun run test    # Run all tests (root script — NOT `bun test`, which uses Bun's native runner)
-bun typecheck   # Type check all packages (TS 7 native, ~4-6x faster than the TS 5.9 tsc it replaced)
-bun lint        # Run linting (Biome format/style + Effect rules via `bun run lint:effect`)
+pnpm run test    # Run all tests (root script)
+pnpm run typecheck   # Type check all packages (TS 7 native, ~4-6x faster than the TS 5.9 tsc it replaced)
+pnpm run lint        # Run linting (Biome format/style + Effect rules via `pnpm run lint:effect`)
 ```
 
 Host tests specifically use vitest via the workspace script:
 ```bash
-bun run --cwd host test    # NODE_ENV=production vitest run
+pnpm --filter host test    # NODE_ENV=production vitest run
 ```
-Always use `bun run test` / `bun run --cwd host test` — never `bun test`, which invokes Bun's built-in runner and produces different (and misleading) results.
+Always use `pnpm run test` / `pnpm --filter host test` — never a bare `vitest` without the workspace's NODE_ENV pin.
 
 ### Test value rules
 
@@ -516,21 +516,21 @@ Always use `bun run test` / `bun run --cwd host test` — never `bun test`, whic
 
 The repo standardizes on the Effect v4 dev toolchain ([docs](https://effect.website/docs/v4/getting-started/devtools)):
 
-- **TypeScript 7 (native, Go port) + Effect LSP** — `typescript` is `^7` in the catalog. `@effect/tsgo` is a root devDependency; `bun install` runs `prepare: effect-tsgo patch --oxlint`, which patches the native `tsc` and Oxlint with Effect diagnostics. Every workspace tsconfig enables the language-service plugin with `diagnostics: false` (Oxlint reports Effect rules to avoid duplication; `tsc --noEmit` still surfaces them as regular TS diagnostics).
-- **Effect lint** — `bun lint` = Biome (format/style) + `bun run lint:effect` (`oxlint --type-aware`, Effect rules from `@effect/tsgo`'s recommended preset in `.oxlintrc.json`; CI runs the same script). "Effect parity" rules that demand rewriting imperative code (`node-builtin-import`, `async-function`, `global-console`, `process-env`, `global-date`, `global-fetch`, `new-promise`, `crypto-random-uuid`, `global-timers`, `global-random`) are intentionally off — this is a mixed Effect/non-Effect codebase. Note `node-builtin-import`, `async-function`, and `new-promise` have no `-in-effect` variants in the preset, so turning them off removes even in-Effect coverage for those. Rules that are **errors** must be fixed in code, not suppressed.
-- **CI** — because CI installs with `--ignore-scripts`, the `lint-and-typecheck` job runs `bun run prepare` explicitly before lint/typecheck. `oxlint` and `oxlint-tsgolint` are version-locked to `@effect/tsgo` (e.g. tsgo 0.45.0 supports exactly oxlint 1.81/1.82 and oxlint-tsgolint 7.0.2001) — bump all three **together**; a Renovate/renovate-style PR bumping one alone breaks the `prepare` patch and must be rejected.
+- **TypeScript 7 (native, Go port) + Effect LSP** — `typescript` is `^7` in the catalog. `@effect/tsgo` is a root devDependency; `pnpm install` runs `prepare: effect-tsgo patch --oxlint`, which patches the native `tsc` and Oxlint with Effect diagnostics. Every workspace tsconfig enables the language-service plugin with `diagnostics: false` (Oxlint reports Effect rules to avoid duplication; `tsc --noEmit` still surfaces them as regular TS diagnostics).
+- **Effect lint** — `pnpm run lint` = Biome (format/style) + `pnpm run lint:effect` (`oxlint --type-aware`, Effect rules from `@effect/tsgo`'s recommended preset in `.oxlintrc.json`; CI runs the same script). "Effect parity" rules that demand rewriting imperative code (`node-builtin-import`, `async-function`, `global-console`, `process-env`, `global-date`, `global-fetch`, `new-promise`, `crypto-random-uuid`, `global-timers`, `global-random`) are intentionally off — this is a mixed Effect/non-Effect codebase. Note `node-builtin-import`, `async-function`, and `new-promise` have no `-in-effect` variants in the preset, so turning them off removes even in-Effect coverage for those. Rules that are **errors** must be fixed in code, not suppressed.
+- **CI** — because CI installs with `--ignore-scripts`, the `lint-and-typecheck` job runs `pnpm run prepare` explicitly before lint/typecheck. `oxlint` and `oxlint-tsgolint` are version-locked to `@effect/tsgo` (e.g. tsgo 0.45.0 supports exactly oxlint 1.81/1.82 and oxlint-tsgolint 7.0.2001) — bump all three **together**; a Renovate/renovate-style PR bumping one alone breaks the `prepare` patch and must be rejected.
 - **Editor** — install the Effect VS Code/Cursor extension (`effectful-tech.effect-vscode`, recommended in `.vscode/extensions.json`) for fiber inspection, span stack, and pause-on-defect. The language service requires the **workspace** TypeScript version, not the editor-bundled one.
 - When adding Effect code, follow the enforced conventions: `Context.Service<TagName, Shape>()` tags, `return yield* Effect.fail(...)` for definitive failure exits inside `Effect.gen`.
 
 ## Vendored Repositories
 
-This project vendors the Effect v4 monorepo (tag `effect@4.0.0-rc.112`, matching the catalog pin) under `repos/effect` as a **gitignored local clone**, restored automatically by `bun run prepare` (safe to re-run; skips the clone when it already exists).
+This project vendors the Effect v4 monorepo (tag `effect@4.0.0-rc.112`, matching the catalog pin) under `repos/effect` as a **gitignored local clone**, restored automatically by `pnpm run prepare` (safe to re-run; skips the clone when it already exists).
 
 - Treat `repos/effect` as **read-only reference material**. Never edit files under it and never import from it — application code imports from normal package dependencies.
 - Always read `repos/effect/LLMS.md` before writing Effect code.
 - For idiomatic v4 patterns (`Context.Service`, `Layer`, scoped resources, `Effect.gen`), study the source and tests under `repos/effect/packages/effect/src` and treat them as the source of truth over documentation, generated guesses, or web search.
-- `bun run prepare` also symlinks `node_modules/@effect/oxc` → the vendored `packages/tools/oxc` workspace package (not published to npm); the patched Oxlint requires it to load the `effecttsgo` plugin — deleting `repos/` without re-running `prepare` breaks `bun lint`.
-- Update the clone deliberately when bumping the `effect` catalog pin: `git -C repos/effect fetch --tags && git -C repos/effect checkout effect@<new-tag>`, or delete `repos/` and re-run `bun run prepare` (adjust the tag in the `prepare` script).
+- `pnpm run prepare` also symlinks `node_modules/@effect/oxc` → the vendored `packages/tools/oxc` workspace package (not published to npm); the patched Oxlint requires it to load the `effecttsgo` plugin — deleting `repos/` without re-running `prepare` breaks `pnpm run lint`.
+- Update the clone deliberately when bumping the `effect` catalog pin: `git -C repos/effect fetch --tags && git -C repos/effect checkout effect@<new-tag>`, or delete `repos/` and re-run `pnpm run prepare` (adjust the tag in the `prepare` script).
 - Pattern references live in `docs/agents/effect-patterns.md`.
 
 ## TypeScript configuration (TS 7)
@@ -540,7 +540,7 @@ Parent-owned workspace tsconfigs (`host/`, `packages/*`) extend the root `tsconf
 - **`extends` does not merge arrays** — a child that declares its own `plugins` or `types` array replaces the base's entirely. Parent-owned tsconfigs must not redefine `plugins`; `types` is intentionally per-workspace (TS 7 no longer auto-includes `@types/*`, so every workspace that touches Node globals declares `"types": ["node"]` explicitly).
 - **`baseUrl` is removed in TS 7** — never use it; `paths` entries resolve relative to the tsconfig file.
 - **Emitting configs** (`outDir`/`emitDeclarationOnly`) must set an explicit `rootDir` — TS 7 no longer infers the common source directory — and an explicit `types`. Emitting configs must not use `paths` that point at sibling workspaces' **sources** (pulls files outside `rootDir`); resolve sibling packages through their `exports` map / built declarations instead. Source-mapped `paths` are only allowed in `noEmit` typecheck configs.
-- **Known local nuisance** — building `packages/every-plugin` regenerates stray `src/**/*.d.ts`(+`.map`) files beside the sources (tsdown outDir quirk). They are untracked build artifacts: never commit them; delete them (`git clean`-style) if `bun lint` starts failing on them. Root fix tracked as a follow-up to the tsdown config.
+- **Known local nuisance** — building `packages/every-plugin` regenerates stray `src/**/*.d.ts`(+`.map`) files beside the sources (tsdown outDir quirk). They are untracked build artifacts: never commit them; delete them (`git clean`-style) if `pnpm run lint` starts failing on them. Root fix tracked as a follow-up to the tsdown config.
 - `docs/plans/prototypes/*` pin their own TypeScript 5 and are exempt.
 
 ## Common Patterns
@@ -625,9 +625,9 @@ Module Federation shares React, TanStack Query, and TanStack Router as singleton
 ### Dependency Security
 
 - **Renovate** manages dependency updates for this parent repo (not Dependabot). Config: `.github/renovate.json`. New generated child repos no longer scaffold that config by default.
-- **`--ignore-scripts`** — all CI workflows use `bun install --frozen-lockfile --ignore-scripts`. Lifecycle scripts (the TanStack attack vector) never execute during install.
+- **`--ignore-scripts`** — all CI workflows use `pnpm install --frozen-lockfile --ignore-scripts`. Lifecycle scripts (the TanStack attack vector) never execute during install.
 - **Renovate `vulnerabilityAlerts`** — enabled in `.github/renovate.json`, opens PRs for dependencies with known vulnerabilities.
-- **`bun audit`** runs in CI on every push, PR, and manual dispatch. It fails the build on critical/high findings only when the `AUDIT_STRICT=true` GitHub secret is set; otherwise it emits a warning.
+- **`pnpm audit`** runs in CI on every push, PR, and manual dispatch. It fails the build on critical/high findings only when the `AUDIT_STRICT=true` GitHub secret is set; otherwise it emits a warning.
 - **GitHub Actions pinned to commit SHAs** — all `uses:` references are SHA-pinned to prevent tag-hijacking attacks (e.g. tj-actions).
 
 ### Supply Chain Incident Response
@@ -651,8 +651,8 @@ If a dependency is compromised:
 **Process won't start:**
 ```bash
 bos kill        # Kill all tracked processes
-bun install     # Ensure dependencies
-bun run dev     # Restart
+pnpm install    # Ensure dependencies
+pnpm run dev    # Restart
 ```
 
 **Module Federation errors:**
@@ -677,8 +677,8 @@ See `tests/regression/browser/specs/settings-api-keys.spec.ts` for examples.
 
 **Database issues:**
 ```bash
-bun run db:push   # Push schema changes
-bun run db:studio # Open Drizzle Studio
+pnpm run db:push   # Push schema changes
+pnpm run db:studio # Open Drizzle Studio
 ```
 
 ## Environment

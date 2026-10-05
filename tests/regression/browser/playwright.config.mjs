@@ -4,7 +4,7 @@ import { computeRegressionEnv } from "../lib/regression-env.mjs";
 
 const stallWatchdog = fileURLToPath(new URL("./helpers/stall-watchdog.mjs", import.meta.url));
 const mode = process.env.REGRESSION_MODE ?? "dev:ssr";
-const command = `bun run regression:${mode}`;
+const command = `pnpm run regression:${mode}`;
 
 const regressionEnv = computeRegressionEnv();
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // Boots the regression stack (dev/prod/backcompat) with the test environment
 // from .env.test so regression runs never touch dev databases or dev ports.
 import { spawn } from "node:child_process";
@@ -54,7 +54,7 @@ async function waitForDatabases(dbUrls) {
     if (attempt === PROBE_RETRIES) {
       throw new Error(
         `test databases not reachable: ${missing.join(", ")}. ` +
-          "Start them with `bun run test:db:up` (docker compose postgres-*-test services).",
+          "Start them with `pnpm run test:db:up` (docker compose postgres-*-test services).",
       );
     }
     log(`waiting for test databases (${missing.join(", ")})...`);
@@ -110,7 +110,7 @@ const forceExit = () => {
   process.exit(0);
 };
 // The signal has to survive the wrapper layers (playwright's `sh -c`, the
-// `bun run` npm runner) — forward to the whole group, then hard-kill after a
+// `pnpm run` npm runner) — forward to the whole group, then hard-kill after a
 // grace: a wedged graceful shutdown must never hold the webServer open.
 const forward = (signal) => {
   killGroup(signal);

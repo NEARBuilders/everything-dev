@@ -6,9 +6,7 @@ import (
 	"log"
 	"os/exec"
 	"sync"
-)
-
-// Config carries everything the harness derives from repo state
+)// Config carries everything the harness derives from repo state
 // (authored config + .env + ambient env). It replaces the previously
 // hardcoded upstream URLs/ports so the suite works in any fork.
 type Config struct {
@@ -24,7 +22,8 @@ var (
 	configErr  error
 )
 
-// EnvPath is resolved relative to the repo root at load time.
+// EnvPath is resolved relative to the repo root at load time. The helper
+// runs through node directly (the repo's runtime since ADR 0026).
 func envHelperArgs() []string {
 	return []string{"tests/regression/lib/regression-env.mjs", "--json"}
 }
@@ -37,11 +36,11 @@ func LoadConfig() *Config {
 			configErr = fmt.Errorf("finding repo root: %w", err)
 			return
 		}
-		cmd := exec.Command("bun", envHelperArgs()...)
+		cmd := exec.Command("node", envHelperArgs()...)
 		cmd.Dir = workdir
 		out, err := cmd.Output()
 		if err != nil {
-			configErr = fmt.Errorf("running regression-env helper (bun tests/regression/lib/regression-env.mjs): %w", err)
+			configErr = fmt.Errorf("running regression-env helper (node tests/regression/lib/regression-env.mjs): %w", err)
 			return
 		}
 		var cfg Config
