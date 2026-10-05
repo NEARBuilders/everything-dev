@@ -15,8 +15,8 @@ console.log("MARKER_DONE");
 `;
 
 describe.each([
-  ["bun", ["bun", "-e", script]],
-  ["node via tsx", ["bunx", "tsx", "-e", script]],
+  ["node via tsx", ["node", "--import", "tsx", "-e", script]],
+  ["node via tsx bin", ["pnpm", "exec", "tsx", "-e", script]],
 ])("suppressPgQueryQueueDeprecation under %s", (_label, command) => {
   it("silences the pg query-queue deprecation but re-prints other warnings", () => {
     const cwd = new URL("../../", import.meta.url).pathname;

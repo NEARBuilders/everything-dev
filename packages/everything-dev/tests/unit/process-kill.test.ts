@@ -41,9 +41,9 @@ describe("port-ownership", () => {
 
   it("reports the listening pid and its command", async () => {
     const lsof = fakeLsof("#!/bin/sh\necho 4242\n");
-    const ps = fakeLsof('#!/bin/sh\necho "bun /somewhere/dev-server.ts"\n');
+    const ps = fakeLsof('#!/bin/sh\necho "node /somewhere/dev-server.ts"\n');
     const owner = await Effect.runPromise(ownerOfPort(3000, { lsofPath: lsof, psPath: ps }));
-    expect(owner).toEqual({ pid: 4242, command: "bun /somewhere/dev-server.ts" });
+    expect(owner).toEqual({ pid: 4242, command: "node /somewhere/dev-server.ts" });
   });
 
   it("returns null when the port is free (lsof finds nothing)", async () => {

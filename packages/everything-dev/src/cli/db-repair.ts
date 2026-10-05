@@ -113,7 +113,7 @@ export async function repairPlugin(
             message:
               `Migration history reset for ${diagnosis.plugin}. ` +
               `Automatic reapply failed: ${error instanceof Error ? error.message : String(error)}. ` +
-              `Run \`bun run --cwd ${binding.identity.workspaceDir} db:migrate\` manually.`,
+              `Run \`pnpm --dir ${binding.identity.workspaceDir} run db:migrate\` manually.`,
           };
         }
       }

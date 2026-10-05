@@ -241,8 +241,9 @@ export const devBootstrap = (
       if (report.rebuilt.some((member) => member.name === "everything-dev")) {
         // Only the bos process itself runs the everything-dev dist (plugin
         // children spawn after this step and load the fresh build). A source
-        // run (bun src/cli.ts) never imported dist, so nothing is stale for
-        // it — warn only where the previously imported build matters.
+        // run (node --import tsx src/cli.ts) never imported dist, so nothing
+        // is stale for it — warn only where the previously imported build
+        // matters.
         const runningFromDist = import.meta.url.includes("/dist/");
         if (runningFromDist) {
           console.log(

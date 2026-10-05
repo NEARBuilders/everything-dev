@@ -343,7 +343,7 @@ export function registerUpgrade(builder: BosBuilder) {
 
         for (const entry of targets) {
           const packageJsonPath = join(entry.dir, "package.json");
-          let args: string[] = ["run", "tsc", "--noEmit"];
+          let args: string[] = ["exec", "tsc", "--noEmit"];
           if (existsSync(packageJsonPath)) {
             try {
               const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
@@ -356,7 +356,7 @@ export function registerUpgrade(builder: BosBuilder) {
           }
 
           console.log(`\n  ${colors.dim("Checking")} ${colors.cyan(entry.label)}`);
-          const child = spawnSync("bun", args, {
+          const child = spawnSync("pnpm", args, {
             cwd: entry.dir,
             stdio: "inherit",
           });
