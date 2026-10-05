@@ -114,6 +114,12 @@ jobs:
           NODE_AUTH_TOKEN: ""
         run: |
           PUBLISHED=0
+          NPM_TAG_ARGS=()
+          if [ -f .changeset/pre.json ] && [ "$(jq -r '.mode // ""' .changeset/pre.json)" = "pre" ]; then
+            PRERELEASE_TAG=$(jq -r '.tag // "rc"' .changeset/pre.json)
+            NPM_TAG_ARGS=(--tag "$PRERELEASE_TAG")
+            echo "Prerelease mode active: publishing under dist-tag '$PRERELEASE_TAG'"
+          fi
           for release_dir in .release/*; do
             if [ ! -f "$release_dir/package.json" ]; then
               continue
@@ -125,7 +131,7 @@ jobs:
             if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
               echo "$NAME@$VERSION already published, skipping"
             else
-              npm publish --provenance --access public "$release_dir"
+              npm publish --provenance --access public "${NPM_TAG_ARGS[@]}" "$release_dir"
               PUBLISHED=$((PUBLISHED + 1))
             fi
           done
@@ -161,8 +167,14 @@ jobs:
               NOTES="Release $TAG"
             fi
 
+            GH_RELEASE_ARGS=()
+            if [[ "$VERSION" == *-* ]]; then
+              GH_RELEASE_ARGS=(--prerelease)
+            fi
+
             gh release create "$TAG" \
               --title "$TAG" \
               --notes "$NOTES" \
-              --target "$RELEASE_COMMIT"
+              --target "$RELEASE_COMMIT" \
+              "${GH_RELEASE_ARGS[@]}"
           done
