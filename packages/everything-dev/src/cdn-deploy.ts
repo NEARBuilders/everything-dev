@@ -83,7 +83,7 @@ export function resolveCdnDeployInputs(input: {
         storageOrigin: storageOriginDefault,
         apiKey,
         error:
-          `bos.config.json sets cdn.origin to the local URL ${configCdnOrigin} — deploy bundle ` +
+          `the authored config sets cdn.origin to the local URL ${configCdnOrigin} — deploy bundle ` +
           "origins must be publicly reachable. Set BOS_BUNDLE_CDN_ORIGIN for a local deploy, " +
           "or fix cdn.origin (inherited via extends).",
       };

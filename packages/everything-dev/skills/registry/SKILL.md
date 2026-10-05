@@ -1,6 +1,6 @@
 ---
 name: registry
-description: Read and write the FastKV config registry efficiently — key layout, namespace=signer semantics, integrity, and composing published runtimes into local bos.config.json. Use when publishing configs, composing another runtime's UI/host/api/plugins, or debugging why a published config doesn't resolve.
+description: Read and write the FastKV config registry efficiently — key layout, namespace=signer semantics, integrity, and composing published runtimes into the local authored config. Use when publishing configs, composing another runtime's UI/host/api/plugins, or debugging why a published config doesn't resolve.
 metadata:
   sources: "packages/everything-dev/src/fastkv.ts,packages/everything-dev/src/publish.ts,packages/everything-dev/src/near-signer.ts,packages/everything-dev/src/registry-use.ts,packages/everything-dev/src/plugin.ts"
 ---
@@ -53,13 +53,13 @@ bos registry use v1.citynode.near/citynode.app --sections app.ui,plugins.apps
 ```
 
 - Composable sections: `app.ui`, `app.host`, `app.api`, `app.auth`, `plugins.<key>` — taken verbatim (production URL + integrity) from the published config.
-- Everything else in the local `bos.config.json` (account, domain, extends, other sections) is preserved.
+- Everything else in the local authored config (account, domain, extends, other sections) is preserved.
 - `--dry-run` previews; after writing, run `bos types gen` to refresh generated types.
 
 `extends` (inherit a whole runtime lineage) vs `registry use` (attach specific sections): extends merges the parent's config at resolution time; registry use copies concrete sections into your own config — pick extends for inheritance, registry use for à-la-carte composition.
 
 ## Common mistakes
 
-- **Config "missing" after publishing with the wrong key** — the write landed under the signing account's namespace, not the config's `account`. Sign with the account named in `bos.config.json`.
-- **Editing the committed bos.config.json URLs and expecting runtime changes** — the runtime source of truth is FastKV; the repo copy is the publish *input*.
+- **Config "missing" after publishing with the wrong key** — the write landed under the signing account's namespace, not the config's `account`. Sign with the account named in the authored config.
+- **Editing the committed authored config URLs and expecting runtime changes** — the runtime source of truth is FastKV; the repo copy is the publish *input*.
 - **Expecting near-cli-rs for publish** — signing is in-process; near-cli-rs is only needed for `bos key generate` (interactive keychain) and account management.

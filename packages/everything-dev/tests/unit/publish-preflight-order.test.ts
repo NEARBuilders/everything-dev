@@ -1,7 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyDeployResults } from "../../src/integrity";
+import { mergeAuthoredOverPublished } from "../../src/merge";
 import type { BosConfig } from "../../src/types";
 
 const {
@@ -15,6 +17,8 @@ const {
   uploadBundleMock,
   readBuildReportMock,
   platformUrlDeployEntriesMock,
+  pluginUiUrlDeployEntriesMock,
+  submitRegistryWriteMock,
   probeStorageOriginMock,
 } = vi.hoisted(() => ({
   buildWorkspaceTargetsMock: vi.fn(),
@@ -27,6 +31,8 @@ const {
   uploadBundleMock: vi.fn(),
   readBuildReportMock: vi.fn(),
   platformUrlDeployEntriesMock: vi.fn(() => []),
+  pluginUiUrlDeployEntriesMock: vi.fn(() => []),
+  submitRegistryWriteMock: vi.fn(),
   probeStorageOriginMock: vi.fn(),
 }));
 
@@ -46,7 +52,11 @@ vi.mock("../../src/fastkv", async (importOriginal) => {
 
 vi.mock("../../src/near-signer", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/near-signer")>();
-  return { ...actual, resolveSigningStrategy: resolveSigningStrategyMock };
+  return {
+    ...actual,
+    resolveSigningStrategy: resolveSigningStrategyMock,
+    submitRegistryWrite: submitRegistryWriteMock,
+  };
 });
 
 vi.mock("../../src/resolution/session", async (importOriginal) => {
@@ -62,7 +72,7 @@ vi.mock("../../src/storage-upload", () => ({
 
 vi.mock("../../src/platform-deploy", () => ({
   platformUrlDeployEntries: platformUrlDeployEntriesMock,
-  pluginUiUrlDeployEntries: vi.fn(() => []),
+  pluginUiUrlDeployEntries: pluginUiUrlDeployEntriesMock,
 }));
 
 vi.mock("../../src/version-manifest-deploy", async (importOriginal) => {
@@ -109,6 +119,38 @@ const baseInput = {
 let configDir: string;
 let savedEnv: Record<string, string | undefined>;
 
+const hostDeployEntry = {
+  url: "https://host-v2.example",
+  integrity: "sha384-host2",
+  urlField: "app.host.production",
+  integrityField: "app.host.integrity",
+} as const;
+
+function setupDeployTrain(): void {
+  process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
+  process.env.BOS_STORAGE_API_KEY = "api_ci_key";
+  buildWorkspaceTargetsMock.mockResolvedValue({
+    built: ["host"],
+    skipped: [],
+    deployResults: [{ key: "host", kind: "app", success: true }],
+  });
+  collectDistFilesMock.mockResolvedValue([]);
+  uploadWorkspaceDistMock.mockResolvedValue({
+    stored: 1,
+    totalBytes: 3,
+    integrity: { "remoteEntry.8f3ac1d2.js": "sha384-entry" },
+    storage: "s3",
+  });
+  readBuildReportMock.mockReturnValue({ entry: "remoteEntry.8f3ac1d2.js" });
+  uploadBundleMock.mockImplementation(async (input: { files: Array<{ path: string }> }) => ({
+    stored: 1,
+    totalBytes: 3,
+    integrity: { [input.files[0]!.path]: "sha384-manifest" },
+    storage: "s3",
+  }));
+  platformUrlDeployEntriesMock.mockReturnValue([hostDeployEntry]);
+}
+
 describe("publishToFastKv preflight ordering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -129,7 +171,7 @@ describe("publishToFastKv preflight ordering", () => {
       privateKey: "ed25519:test",
       source: "provided",
     });
-    openResolutionMock.mockResolvedValue({ config: bosConfig } as never);
+    openResolutionMock.mockResolvedValue({ config: bosConfig, rawConfig: bosConfig } as never);
     writeFileSync(join(configDir, "bos.config.json"), JSON.stringify(bosConfig, null, 2));
   });
 
@@ -377,5 +419,142 @@ describe("publishToFastKv preflight ordering", () => {
     expect(generateCodeArtifactsMock).not.toHaveBeenCalled();
     expect(buildWorkspaceTargetsMock).not.toHaveBeenCalled();
     expect(uploadWorkspaceDistMock).not.toHaveBeenCalled();
+  });
+
+  it("config-only publish on a TS-form project merges authored edits over the published config", async () => {
+    rmSync(join(configDir, "bos.config.json"));
+    writeFileSync(join(configDir, "bos.app.ts"), "export default {};");
+    const authored = {
+      account: "dev.everything.near",
+      domain: "dev.everything.dev",
+      title: "Edited Title",
+      app: {
+        host: { development: "local:host" },
+        ui: { development: "local:ui" },
+        api: { development: "local:api" },
+      },
+      plugins: { votes: { development: "local:plugins/votes" } },
+    };
+    const published = {
+      account: "dev.everything.near",
+      domain: "dev.everything.dev",
+      title: "Old Title",
+      app: {
+        host: { development: "local:host", production: "https://host.example" },
+        ui: {
+          development: "local:ui",
+          production: "https://ui.example",
+          integrity: "sha384-ui",
+        },
+        api: { development: "local:api", production: "https://api.example" },
+      },
+      plugins: {
+        votes: { development: "local:plugins/votes", production: "https://votes.example" },
+      },
+    };
+    const merged = mergeAuthoredOverPublished(published as never, authored as never);
+    let fetchCalls = 0;
+    fetchBosConfigFromFastKvMock.mockImplementation(async () => {
+      fetchCalls += 1;
+      return fetchCalls <= 2 ? structuredClone(published) : structuredClone(merged);
+    });
+    openResolutionMock.mockResolvedValue({ config: bosConfig, rawConfig: authored } as never);
+    submitRegistryWriteMock.mockResolvedValue({ success: true, txHash: "tx-1" });
+
+    const result = await publishToFastKv({ ...baseInput, configDir, build: false });
+
+    expect(result.status).toBe("published");
+    expect(result.publishConfig?.title).toBe("Edited Title");
+    expect((result.publishConfig as any).app.ui.production).toBe("https://ui.example");
+    expect((result.publishConfig as any).plugins.votes.production).toBe("https://votes.example");
+    expect(submitRegistryWriteMock).toHaveBeenCalledTimes(1);
+    const call = submitRegistryWriteMock.mock.calls[0]?.[0] as {
+      args: Record<string, string>;
+    };
+    const payload = JSON.parse(
+      call.args["apps/dev.everything.near/dev.everything.dev/bos.config.json"],
+    );
+    expect(payload.title).toBe("Edited Title");
+    expect(payload.app.ui.production).toBe("https://ui.example");
+    expect(existsSync(join(configDir, "bos.config.json"))).toBe(false);
+  });
+
+  it("config-only publish on a TS-form project with no published config does not crash", async () => {
+    rmSync(join(configDir, "bos.config.json"));
+    writeFileSync(join(configDir, "bos.app.ts"), "export default {};");
+    const raw = JSON.parse(JSON.stringify(bosConfig));
+    const payload = mergeAuthoredOverPublished({} as never, raw as never);
+    let fetchCalls = 0;
+    fetchBosConfigFromFastKvMock.mockImplementation(async () => {
+      fetchCalls += 1;
+      if (fetchCalls <= 2) throw new Error("No config found");
+      return JSON.parse(JSON.stringify(payload));
+    });
+    openResolutionMock.mockResolvedValue({ config: bosConfig, rawConfig: raw } as never);
+    submitRegistryWriteMock.mockResolvedValue({ success: true, txHash: "tx-1" });
+
+    const result = await publishToFastKv({ ...baseInput, configDir, build: false });
+
+    expect(result.status).toBe("published");
+  });
+
+  it("config-only publish on a TS-form project aborts when the registry is unreachable", async () => {
+    rmSync(join(configDir, "bos.config.json"));
+    writeFileSync(join(configDir, "bos.app.ts"), "export default {};");
+    fetchBosConfigFromFastKvMock.mockRejectedValue(new Error("fetch failed: ECONNRESET"));
+    openResolutionMock.mockResolvedValue({
+      config: bosConfig,
+      rawConfig: JSON.parse(JSON.stringify(bosConfig)),
+    } as never);
+
+    const result = await publishToFastKv({ ...baseInput, configDir, build: false });
+
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("Cannot read the currently published config");
+    expect(submitRegistryWriteMock).not.toHaveBeenCalled();
+  });
+
+  it("deploy write-back stays off the authoring surface for TS-form", async () => {
+    rmSync(join(configDir, "bos.config.json"));
+    writeFileSync(join(configDir, "bos.app.ts"), "export default {};");
+    setupDeployTrain();
+    const merged = applyDeployResults(bosConfig as unknown as Record<string, unknown>, [
+      hostDeployEntry,
+    ]);
+    let fetchCalls = 0;
+    fetchBosConfigFromFastKvMock.mockImplementation(async () => {
+      fetchCalls += 1;
+      return fetchCalls <= 2
+        ? JSON.parse(JSON.stringify(bosConfig))
+        : JSON.parse(JSON.stringify(merged));
+    });
+
+    const result = await publishToFastKv({ ...baseInput, configDir, packages: "all" });
+
+    expect(result.status).toBe("published");
+    expect((result.publishConfig as any).app.host.production).toBe("https://host-v2.example");
+    expect(existsSync(join(configDir, "bos.config.json"))).toBe(false);
+  });
+
+  it("deploy write-back still records pipeline state in bos.config.json for JSON-form", async () => {
+    setupDeployTrain();
+    const merged = applyDeployResults(bosConfig as unknown as Record<string, unknown>, [
+      hostDeployEntry,
+    ]);
+    let fetchCalls = 0;
+    fetchBosConfigFromFastKvMock.mockImplementation(async () => {
+      fetchCalls += 1;
+      return fetchCalls <= 2
+        ? JSON.parse(JSON.stringify(bosConfig))
+        : JSON.parse(JSON.stringify(merged));
+    });
+
+    const result = await publishToFastKv({ ...baseInput, configDir, packages: "all" });
+
+    expect(result.status).toBe("published");
+    const written = JSON.parse(readFileSync(join(configDir, "bos.config.json"), "utf-8")) as {
+      app: { host: { production?: string } };
+    };
+    expect(written.app.host.production).toBe("https://host-v2.example");
   });
 });

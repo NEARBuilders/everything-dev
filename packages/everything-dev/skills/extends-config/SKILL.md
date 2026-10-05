@@ -1,15 +1,17 @@
 ---
 name: extends-config
-description: How bos.config.json extends chains work, deep merge semantics, resolved config lifecycle, env-specific extends, and canonical field ordering. Use when debugging extends inheritance, configuring per-environment parents, understanding what dev writes vs publish writes, or reasoning about config merging.
+description: How the authored config's extends chains work (bos.app.ts preferred; legacy bos.config.json supported), deep merge semantics, resolved config lifecycle, env-specific extends, and canonical field ordering. Use when debugging extends inheritance, configuring per-environment parents, understanding what dev writes vs publish writes, or reasoning about config merging.
 metadata:
   sources: "packages/everything-dev/src/merge.ts,packages/everything-dev/src/config.ts,packages/everything-dev/src/shared-deps.ts,packages/everything-dev/src/types.ts"
 ---
+
+> **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
 
 # extends & Config Merging
 
 ## extends Field
 
-The `extends` field in `bos.config.json` specifies a parent config to inherit from. Supports two forms:
+The `extends` field in the authored config (`bos.app.ts`, or legacy `bos.config.json`) specifies a parent config to inherit from. Supports two forms:
 
 ### String (all environments use same parent)
 ```json
@@ -106,7 +108,7 @@ Tenant SSR is gated separately from inheritance:
 When `bos dev` or `bos build` runs:
 1. The full extends chain is resolved in memory
 2. The merged config is written to `.bos/bos.resolved-config.json`
-3. **`bos.config.json` is NOT modified** during dev
+3. **The authored config is NOT modified** during dev
 
 Structure:
 ```json
@@ -125,13 +127,13 @@ Structure:
 
 ### Build configs read resolved config first
 
-All build configs (ui/rsbuild.config.ts, host/rsbuild.config.ts, api/rspack.config.js, plugins/*/rspack.config.js) try `.bos/bos.resolved-config.json` first, falling back to `bos.config.json`.
+All build configs (ui/rsbuild.config.ts, host/rsbuild.config.ts, api/rspack.config.js, plugins/*/rspack.config.js) try `.bos/bos.resolved-config.json` first, falling back to the authored config.
 
 The `_resolved` metadata is stripped before use.
 
-### When bos.config.json IS written
+### When the authored config IS written
 
-| Command | Writes bos.config.json? | Why |
+| Command | Writes the authored config? | Why |
 |---------|------------------------|-----|
 | `bos dev` | No | Uses resolved config |
 | `bos build` | No | Uses resolved config |
@@ -142,7 +144,7 @@ The `_resolved` metadata is stripped before use.
 
 ### Remote host mode (bos->catalog)
 
-When host is remote, `syncResolvedSharedDeps()` reads versions from `bos.config.json` and writes them into `package.json` catalog. No resolved config is written — the remote host reads `bos.config.json` directly.
+When host is remote, `syncResolvedSharedDeps()` reads versions from the authored config and writes them into `package.json` catalog. No resolved config is written — the remote host reads the published config directly.
 
 ### `_resolved.resolvedAt`
 
@@ -177,8 +179,8 @@ Unknown keys go after known keys. `rebuildOrderedConfig()` is applied before eve
 From `packages/everything-dev/src/config.ts`:
 - `writeResolvedConfig(configDir, config, env, extendsChain?)` — writes `.bos/bos.resolved-config.json`
 - `loadResolvedConfig(configDir)` — reads resolved config, returns `BosConfig | null`
-- `resolveBosConfigPath(configDir)` — returns resolved config path if exists, else `bos.config.json`
-- `readBosConfigForBuild(configDir)` — reads resolved config stripping `_resolved`, falls back to `bos.config.json`
+- `resolveBosConfigPath(configDir)` — returns resolved config path if exists, else the authored config
+- `readBosConfigForBuild(configDir)` — reads resolved config stripping `_resolved`, falls back to the authored config
 
 From `packages/everything-dev/src/merge.ts`:
 - `mergeBosConfigWithExtends(parent, child)` — deep merge for extends chain

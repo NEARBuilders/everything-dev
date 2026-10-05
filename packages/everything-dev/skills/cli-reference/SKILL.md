@@ -5,6 +5,8 @@ metadata:
   sources: "packages/everything-dev/src/contract.ts,packages/everything-dev/src/contract.meta.ts,packages/everything-dev/src/cli.ts,packages/everything-dev/src/cli/catalog.ts"
 ---
 
+> **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
+
 # CLI Command Reference
 
 17 `bos` commands organised by workflow category.
@@ -29,7 +31,7 @@ bos dev --remote-plugins auth,registry  # force specific plugins remote
 
 ### `bos start`
 
-Start the production host. Loads config from `bos.config.json`, wires MF remotes, serves SSR.
+Start the production host. Loads the authored config (`bos.app.ts`), wires MF remotes, serves SSR.
 
 **Flags:** `--env <production|staging>` `--port <n>` `--account <id>` `--domain <domain>` `--no-interactive`
 
@@ -55,7 +57,7 @@ bos build --force               # rebuild even if up-to-date
 bos build --deploy              # build + write deploy URLs
 ```
 
-`--packages` accepts a comma-separated key list, `all` (default), or `local`. `local` selects only entries whose `bos.config.json` `development` field starts with `local:`, so the build set auto-tracks whatever apps and plugins live in this repo. CI deploy now invokes `bos publish --deploy --packages local` instead of a hand-maintained CSV.
+`--packages` accepts a comma-separated key list, `all` (default), or `local`. `local` selects only entries whose `development` field starts with `local:`, so the build set auto-tracks whatever apps and plugins live in this repo. CI deploy now invokes `bos publish --deploy --packages local` instead of a hand-maintained CSV.
 
 → [`publish-sync`](.) skill for full deploy+publish workflow.
 
@@ -66,7 +68,7 @@ Print the loaded configuration (plain or fully resolved).
 **Flags:** `--full`
 
 ```bash
-bos config        # print bos.config.json with env overrides applied
+bos config        # print the authored config with env overrides applied
 bos config --full # print fully resolved config (extends + deep merge)
 ```
 
@@ -131,7 +133,7 @@ Output includes installed vs latest versions for each workspace package, whether
 
 ### `bos publish`
 
-Publish `bos.config.json` to the FastKV on-chain registry. Optionally build and deploy workspaces first.
+Publish the resolved config to the FastKV on-chain registry. Optionally build and deploy workspaces first.
 
 **Flags:** `--deploy` `--dry-run` `--network <mainnet|testnet>` `--private-key <key>` `--env <production|staging>` `--packages <list|all|local>`
 
@@ -147,7 +149,7 @@ bos publish --network testnet        # publish to testnet registry
 
 ### `bos mf check`
 
-Verify Module Federation runtime compatibility across the published host + plugin bundles in `bos.config.json`. Fetches every `<remote>/mf-manifest.json`, asserts `metaData.pluginVersion` matches the host, and confirms each plugin provides the shared dependencies the host requires at compatible versions.
+Verify Module Federation runtime compatibility across the published host + plugin config. Fetches every `<remote>/mf-manifest.json`, asserts `metaData.pluginVersion` matches the host, and confirms each plugin provides the shared dependencies the host requires at compatible versions.
 
 ```bash
 bos mf check     # exits 0 if compatible, 1 with diagnostic output if not
@@ -190,7 +192,7 @@ Outputs the public key, private key, and registry contract address. The generate
 
 ### `bos plugin add`
 
-Add a plugin attachment to `bos.config.json` from a local path, BOS reference, or remote URL.
+Add a plugin attachment to the authored config from a local path, BOS reference, or remote URL.
 
 **Flags:** `<source>` (positional) `--as <alias>` `--production <url>`
 
@@ -206,7 +208,7 @@ bos plugin add local:plugins/my-plugin --production <prod-url>  # separate prod 
 
 ### `bos plugin remove`
 
-Remove a plugin attachment from `bos.config.json`.
+Remove a plugin attachment from the authored config (inherited parent plugins cannot be removed locally).
 
 **Flags:** `<key>` (positional)
 
@@ -226,7 +228,7 @@ Outputs each plugin's key, development source, production URL, local path, versi
 
 ### `bos plugin publish`
 
-Build a single plugin, then update `bos.config.json` with its deterministic image-native production URL (`https://<domain>/bundles/<account>/<gateway>/<key>/`).
+Build a single plugin, then pin its deterministic image-native production URL into the published config (`https://<domain>/bundles/<account>/<gateway>/<key>/`).
 
 **Flags:** `<key>` (positional)
 

@@ -4,7 +4,7 @@ import { Context, Effect } from "effect";
 import { probePortBindable } from "../app";
 import { buildCiInfraPlan, type CiInfraPlan } from "../cli/infra";
 import { getStatus } from "../cli/status";
-import { findConfigPath } from "../config";
+import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
 import { readDevLatestLog, resolveDevLatestFile } from "../dev-logs";
 import { fetchBosConfigFromFastKv } from "../fastkv";
 import { pointerFingerprint } from "../fingerprint";
@@ -26,7 +26,7 @@ export function registerOps(builder: BosBuilder) {
             status: "error" as const,
             packages: [],
             envFile: "missing" as const,
-            error: "No bos.config.json found in current directory",
+            error: `${MISSING_CONFIG_MESSAGE} in current directory`,
           };
         }
 

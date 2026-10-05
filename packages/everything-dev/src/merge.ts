@@ -189,4 +189,23 @@ export function rebuildOrderedConfig<T extends Record<string, unknown>>(config: 
   return ordered as T;
 }
 
+/**
+ * Deep child-wins merge used to overlay a freshly authored config on top of
+ * the currently published one — authored keys win, published-only pipeline
+ * state (bundle URLs, integrity) is preserved. Unlike the extends merge,
+ * plugin entries merge per-key so published URLs survive authored edits;
+ * removing a slot from the authored config therefore requires a deploy,
+ * which regenerates the payload from scratch.
+ */
+export function mergeAuthoredOverPublished(
+  published: BosConfigInput,
+  authored: BosConfigInput,
+): BosConfigInput {
+  const merged = mergeJsonValuesPreservingLocalOrder(authored, published) as Record<
+    string,
+    unknown
+  >;
+  return rebuildOrderedConfig(merged) as BosConfigInput;
+}
+
 export { bosConfigMerger };

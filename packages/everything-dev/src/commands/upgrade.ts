@@ -6,7 +6,7 @@ import { selectWorkspaceTargets } from "../build";
 import { syncTemplate } from "../cli/sync";
 import { upgradeTemplate } from "../cli/upgrade";
 import { generateCodeArtifacts } from "../code-artifacts";
-import { findConfigPath } from "../config";
+import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import { checkFederationCompat } from "../mf";
 import { openResolution } from "../resolution/session";
 import type { BosConfig } from "../types";
@@ -24,7 +24,7 @@ export function registerUpgrade(builder: BosBuilder) {
             updated: [],
             skipped: [],
             added: [],
-            error: "No bos.config.json found in current directory",
+            error: `${MISSING_CONFIG_MESSAGE} in current directory`,
           };
         }
 
@@ -57,7 +57,7 @@ export function registerUpgrade(builder: BosBuilder) {
           return {
             status: "error" as const,
             packages: [],
-            error: "No bos.config.json found in current directory",
+            error: `${MISSING_CONFIG_MESSAGE} in current directory`,
           };
         }
 
@@ -82,7 +82,7 @@ export function registerUpgrade(builder: BosBuilder) {
             fetched: [],
             skipped: [],
             failed: [],
-            error: "No bos.config.json found in current directory",
+            error: `${MISSING_CONFIG_MESSAGE} in current directory`,
           };
         }
 
@@ -102,7 +102,7 @@ export function registerUpgrade(builder: BosBuilder) {
             fetched: [],
             skipped: [],
             failed: [],
-            error: "Failed to load bos.config.json",
+            error: "Failed to load the authored config",
           };
         }
 
@@ -252,7 +252,7 @@ export function registerUpgrade(builder: BosBuilder) {
             checked: [],
             skipped: [],
             results: [],
-            error: "No bos.config.json found in current directory",
+            error: `${MISSING_CONFIG_MESSAGE} in current directory`,
           };
         }
 
@@ -264,7 +264,7 @@ export function registerUpgrade(builder: BosBuilder) {
             checked: [],
             skipped: [],
             results: [],
-            error: "Failed to load bos.config.json",
+            error: "Failed to load the authored config",
           };
         }
 
@@ -387,20 +387,9 @@ export function registerUpgrade(builder: BosBuilder) {
     }),
 
     mfCheck: builder.mfCheck.handler(async ({ input }) => {
-      const configPath = findConfigPath();
-      if (!configPath) {
-        return {
-          status: "fail" as const,
-          hostVersion: null,
-          hostReachable: false,
-          hostReason: "No bos.config.json found",
-          remotes: [],
-        };
-      }
-
-      let bosConfig: BosConfig | null = null;
+      let authored: BosConfig | null = null;
       try {
-        bosConfig = JSON.parse(readFileSync(configPath, "utf-8")) as BosConfig;
+        authored = (await readAuthoredConfigInput()) as BosConfig | null;
       } catch (e) {
         return {
           status: "fail" as const,
@@ -410,8 +399,17 @@ export function registerUpgrade(builder: BosBuilder) {
           remotes: [],
         };
       }
+      if (!authored) {
+        return {
+          status: "fail" as const,
+          hostVersion: null,
+          hostReachable: false,
+          hostReason: MISSING_CONFIG_MESSAGE,
+          remotes: [],
+        };
+      }
 
-      const report = await checkFederationCompat(bosConfig, {
+      const report = await checkFederationCompat(authored, {
         timeoutMs: input.timeoutMs,
       });
       return {

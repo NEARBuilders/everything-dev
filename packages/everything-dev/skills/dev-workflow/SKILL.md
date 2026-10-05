@@ -5,6 +5,8 @@ metadata:
   sources: "packages/everything-dev/src/service-descriptor.ts,packages/everything-dev/src/orchestrator.ts,packages/everything-dev/src/dev-logs.ts,packages/everything-dev/src/dev-session.ts,packages/everything-dev/src/process-registry.ts,packages/everything-dev/src/app.ts"
 ---
 
+> **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
+
 # everything-dev Development Workflow
 
 ## Starting Development
@@ -55,7 +57,7 @@ free port is found inside it. The standalone `bos dev` path does not pass a budg
 
 ## Service-Descriptor Architecture
 
-The orchestrator builds a `ServiceDescriptorMap` from `bos.config.json`. Each descriptor defines:
+The orchestrator builds a `ServiceDescriptorMap` from the resolved config. Each descriptor defines:
 - `key` — service identifier (host, ui, api, auth, plugin:*)
 - `source` — `"local"` or `"remote"` (determines if process is spawned or URL is probed)
 - `port` / `defaultPort` — TCP port for local services
@@ -78,7 +80,7 @@ The orchestrator:
 
 ## Contract Sync & Type Generation
 
-Plugin types are auto-generated from `bos.config.json` via `bos types gen`:
+Plugin types are auto-generated from the authored config via `bos types gen`:
 
 ```bash
 bos types gen   # Regenerate ui/src/lib/api-types.gen.ts and api/src/lib/plugins-types.gen.ts
@@ -95,15 +97,15 @@ bos types gen   # Regenerate ui/src/lib/api-types.gen.ts and api/src/lib/plugins
 2. Remote URL → fetches contract types from the deployed plugin's manifest
 3. Missing local path with no URL → skipped with a warning
 
-**Source of truth:** `bos.config.json`. If a plugin is listed there, its routes appear on `ApiContract`. If removed, TypeScript catches stale usage.
+**Source of truth:** the authored config (`bos.app.ts`). If a plugin is listed there, its routes appear on `ApiContract`. If removed, TypeScript catches stale usage.
 
-**After hand-editing `bos.config.json`:** Run `bos types gen` or restart `bos dev` to pick up changes.
+**After hand-editing the authored config:** Run `bos types gen` or restart `bos dev` to pick up changes.
 
 ## Runtime Config Loading
 
-The host reads `BOS_RUNTIME_CONFIG` at startup (resolved from `bos.config.json` by the CLI). `ConfigService` is an immutable Effect Layer — every service is built from that one snapshot.
+The host reads `BOS_RUNTIME_CONFIG` at startup (resolved from the authored config by the CLI). `ConfigService` is an immutable Effect Layer — every service is built from that one snapshot.
 
-**Override for testing**: Set `BOS_RUNTIME_CONFIG` env var to a JSON string or file path to bypass config loading from disk. Useful for testing with different configs without modifying `bos.config.json`.
+**Override for testing**: Set `BOS_RUNTIME_CONFIG` env var to a JSON string or file path to bypass config loading from disk. Useful for testing with different configs without modifying the authored config.
 
 On page refresh:
 1. Browser re-fetches HTML shell from host
@@ -116,9 +118,9 @@ This means a new deployment requires a host restart to pick up new URLs.
 
 `bos dev` and `bos build` write the fully-merged config to `.bos/bos.resolved-config.json` (gitignored). This file includes `_resolved` metadata with env, timestamp, and extends chain.
 
-**`bos.config.json` is NOT modified during dev.** Only `bos publish --deploy`, `bos plugin publish/add/remove`, and `bos sync` write to `bos.config.json`.
+**The authored config is NOT modified during dev.** Only `bos publish --deploy`, `bos plugin publish/add/remove`, and `bos sync` write to it (`bos.app.ts` for TS-form projects; legacy JSON children keep their `bos.config.json`).
 
-Build configs (rsbuild/rspack) read from `.bos/bos.resolved-config.json` first, falling back to `bos.config.json`. This allows slim child configs with `extends` to work correctly — the merged parent+child config is what the build sees.
+Build configs (rsbuild/rspack) read from `.bos/bos.resolved-config.json` first, falling back to the authored config. This allows slim child configs with `extends` to work correctly — the merged parent+child config is what the build sees.
 
 ## Debugging
 
@@ -161,14 +163,14 @@ bos dev                                # Start fresh
 ### UI not loading
 
 1. Check browser console for Module Federation errors
-2. `bos.config.json` — is `app.ui.development` correct?
+2. The authored config — is `app.ui.development` correct?
 3. Clear browser cache and hard reload (Cmd+Shift+R)
 
 ### Module Federation errors
 
 - Verify shared dependency versions match across package.json files
 - Clear browser cache (Cmd+Shift+R)
-- Check `bos.config.json` URLs are accessible
+- Check the config URLs (authored config / FastKV) are accessible
 
 ## Production Mode
 

@@ -64,7 +64,7 @@ bos publish --deploy
 
 ### 3. Create a descendant runtime that extends the base runtime
 
-Child runtime `bos.config.json`:
+Child runtime authored config:
 
 ```json
 {

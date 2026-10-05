@@ -10,13 +10,12 @@ async function loadBosConfigForSharedDeps(
   configDir: string,
   bosConfigPath: string,
 ): Promise<unknown> {
-  if (existsSync(bosConfigPath)) {
-    return JSON.parse(readFileSync(bosConfigPath, "utf-8"));
-  }
-
   const appDescriptorPath = join(configDir, "bos.app.ts");
   if (existsSync(appDescriptorPath)) {
     return loadAppDescriptorConfig(appDescriptorPath);
+  }
+  if (existsSync(bosConfigPath)) {
+    return JSON.parse(readFileSync(bosConfigPath, "utf-8"));
   }
 
   return JSON.parse(readFileSync(bosConfigPath, "utf-8"));
@@ -229,7 +228,7 @@ export async function syncResolvedSharedDeps(opts: {
   const bosConfig: unknown =
     opts.bosConfig ?? (await loadBosConfigForSharedDeps(opts.configDir, bosConfigPath));
   if (!isPlainObject(bosConfig)) {
-    throw new Error("bos.config.json must be an object");
+    throw new Error("the authored config must be an object");
   }
 
   const pkgJson = existsSync(packageJsonPath)
