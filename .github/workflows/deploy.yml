@@ -37,13 +37,21 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: "1.4.2"
+      - name: Guard — no stray bun artifacts
+        run: |
+          if [ -f bun.lock ]; then
+            echo "::error::bun.lock present — bun re-migrated the workspace (ADR 0026). Delete bun.lock and re-run pnpm install."
+            exit 1
+          fi
+      - name: Setup pnpm
+        uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
 
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
       - name: Install dependencies
-        run: bun install --frozen-lockfile --ignore-scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -55,7 +63,7 @@ jobs:
         # storage, FastKV publish with read-back confirmation, `runtime`-stage
         # image build pushed by SHA + latest tags, then a pull-only Railway
         # deploy pinned to the pushed digest via a generated thin Dockerfile.
-        run: bun run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}
+        run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}
 
       - name: Verify release-train identity (mf check)
         timeout-minutes: 5
@@ -65,7 +73,7 @@ jobs:
           # the deploy — CDN-mode bundles serve from cdn.everything.dev, so the
           # check passes once the config is published and the new bytes are live.
           attempts=10
-          until bun run bos mf check; do
+          until pnpm run bos mf check; do
             attempts=$((attempts - 1))
             if [ "$attempts" -le 0 ]; then
               echo "::error::Release-train identity check failed — bundles are inconsistent (deployment did not come up healthy or skew). See bos mf check output."
@@ -82,4 +90,4 @@ jobs:
         # deployed SHA's bos.config.json — SSR compose from the deployed ui,
         # doc-asset proxy, api ping, root document contract. mf check has
         # already gated the site being up and consistent above.
-        run: bun run --cwd host test:integration:remote
+        run: pnpm --filter host test:integration:remote

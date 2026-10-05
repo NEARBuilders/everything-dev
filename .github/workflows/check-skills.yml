@@ -46,13 +46,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: "1.4.2"
+      - name: Setup pnpm
+        uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
 
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
       - name: Install intent CLI
-        run: bun add -g @tanstack/intent
+        run: pnpm add -g @tanstack/intent
 
       # NOTE: this validate step is currently RED for both packages (~86
       # pre-existing snippet findings — mixed excerpt-parse pedantry and
@@ -71,7 +73,7 @@ jobs:
           set -o pipefail
           for pkg in packages/everything-dev packages/every-plugin packages/better-near-auth; do
             if intent stale "$pkg" --json 2>/dev/null | grep -q '"needsReview": true'; then
-              echo "::error::Skill drift detected in $pkg — run 'bunx @tanstack/intent@latest stale $pkg' locally and review"
+              echo "::error::Skill drift detected in $pkg — run 'pnpm dlx @tanstack/intent@latest stale $pkg' locally and review"
               exit 1
             fi
           done
@@ -86,13 +88,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: "1.4.2"
+      - name: Setup pnpm
+        uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
 
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
       - name: Install intent CLI
-        run: bun add -g @tanstack/intent
+        run: pnpm add -g @tanstack/intent
 
       - name: Check skills
         id: stale
