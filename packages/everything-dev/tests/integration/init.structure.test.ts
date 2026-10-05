@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import {
   buildChildAgentsMd,
   buildInitPatterns,
@@ -13,6 +14,20 @@ import { loadManifestNormalizationSpec } from "../../src/internal/manifest-norma
 import { writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
+
+function readChildWorkspacePackages(dir: string): string[] | undefined {
+  const yamlPath = join(dir, "pnpm-workspace.yaml");
+  if (!existsSync(yamlPath)) return undefined;
+  const doc = parseYaml(readFileSync(yamlPath, "utf-8")) as { packages?: string[] };
+  return doc.packages;
+}
+
+function readChildWorkspaceCatalog(dir: string): Record<string, string> | undefined {
+  const yamlPath = join(dir, "pnpm-workspace.yaml");
+  if (!existsSync(yamlPath)) return undefined;
+  const doc = parseYaml(readFileSync(yamlPath, "utf-8")) as { catalog?: Record<string, string> };
+  return doc.catalog;
+}
 const MANIFEST_SPEC = loadManifestNormalizationSpec(REPO_ROOT);
 
 const DEFAULT_OVERRIDES = ["ui", "api"] as const;
@@ -121,10 +136,7 @@ describe("bos init — structure", () => {
       const config = JSON.parse(readFileSync(join(noPluginsDir, "bos.config.json"), "utf-8"));
       expect(config.plugins).toEqual({});
 
-      const pkg = JSON.parse(readFileSync(join(noPluginsDir, "package.json"), "utf-8")) as {
-        workspaces?: { packages?: string[] };
-      };
-      expect(pkg.workspaces?.packages).toContain("plugins/*");
+      expect(readChildWorkspacePackages(noPluginsDir)).toContain("plugins/*");
     } finally {
       rmSync(noPluginsDir, { recursive: true, force: true });
     }
@@ -155,8 +167,8 @@ describe("bos init — structure", () => {
       module?: string;
       peerDependencies?: Record<string, string>;
       scripts?: Record<string, string>;
-      workspaces?: { catalog?: Record<string, string> };
     };
+    const rootCatalog = readChildWorkspaceCatalog(testDir);
     const uiPkg = JSON.parse(readFileSync(join(testDir, "ui", "package.json"), "utf-8")) as {
       devDependencies?: Record<string, string>;
     };
@@ -173,12 +185,8 @@ describe("bos init — structure", () => {
     expect(rootPkg.peerDependencies).toBeUndefined();
     expect(rootPkg.scripts?.version).toBe("changeset version");
     expect(rootPkg.scripts?.["sync-catalog"]).toBeUndefined();
-    expect(rootPkg.workspaces?.catalog?.["everything-dev"]).toBe(
-      MANIFEST_SPEC.rootCatalog["everything-dev"],
-    );
-    expect(rootPkg.workspaces?.catalog?.["every-plugin"]).toBe(
-      MANIFEST_SPEC.rootCatalog["every-plugin"],
-    );
+    expect(rootCatalog?.["everything-dev"]).toBe(MANIFEST_SPEC.rootCatalog["everything-dev"]);
+    expect(rootCatalog?.["every-plugin"]).toBe(MANIFEST_SPEC.rootCatalog["every-plugin"]);
     expect(uiPkg.devDependencies?.["every-plugin"]).toBe("catalog:");
     expect(uiPkg.devDependencies?.["everything-dev"]).toBe("catalog:");
     expect(apiPkg.dependencies?.["every-plugin"]).toBe("catalog:");
@@ -272,11 +280,10 @@ describe("bos init — structure", () => {
       });
 
       const pkg = JSON.parse(readFileSync(join(uiOnlyDir, "package.json"), "utf-8")) as {
-        workspaces?: { packages?: string[] };
         scripts?: Record<string, string>;
       };
 
-      expect(pkg.workspaces?.packages).toEqual(["ui"]);
+      expect(readChildWorkspacePackages(uiOnlyDir)).toEqual(["ui"]);
       expect(pkg.scripts?.["db:push"]).toBeUndefined();
       expect(pkg.scripts?.["test:api"]).toBeUndefined();
       expect(pkg.scripts?.["test:e2e"]).toBeUndefined();

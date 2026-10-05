@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { glob } from "glob";
+import { parse as parseYaml } from "yaml";
 import { loadAppDescriptorConfig } from "../config";
 import type { SyncOptions, SyncResult } from "../contract";
 import { materializeViaLayer } from "../infra/materializer";
@@ -19,7 +20,7 @@ import {
   extractSkillsBlock,
   personalizeConfig,
   resolveSourceDir,
-  runBunInstall,
+  runPnpmInstall,
   runTypesGen,
 } from "./init";
 import { readSnapshot, writeSnapshot } from "./snapshot";
@@ -29,7 +30,6 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   ".gitignore",
   "biome.json",
   "bos.config.json",
-  "bunfig.toml",
   "package.json",
   ".changeset/config.json",
   ".changeset/README.md",
@@ -441,23 +441,34 @@ async function getSelectedChildPlugins(
 }
 
 function hasPluginsWorkspace(projectDir: string): boolean {
-  const packageJsonPath = join(findWorkspaceRoot(projectDir)?.dir ?? projectDir, "package.json");
-  if (!existsSync(packageJsonPath)) return false;
-
-  try {
-    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
-      workspaces?: { packages?: string[] } | string[];
-    };
-    const workspaces = pkg.workspaces;
-    const packages = Array.isArray(workspaces)
-      ? workspaces
-      : Array.isArray(workspaces?.packages)
-        ? workspaces.packages
-        : [];
-    return packages.includes("plugins/*");
-  } catch {
-    return false;
+  const root = findWorkspaceRoot(projectDir);
+  if (!root) return false;
+  const rel = relative(root.dir, projectDir);
+  const baseDir = rel.startsWith("..") || rel === "" ? root.dir : projectDir;
+  for (const manifest of ["pnpm-workspace.yaml", "package.json"]) {
+    const manifestPath = join(baseDir, manifest);
+    if (!existsSync(manifestPath)) continue;
+    try {
+      const content = readFileSync(manifestPath, "utf-8");
+      const packages =
+        manifest === "pnpm-workspace.yaml"
+          ? (parseYaml(content) as { packages?: unknown } | null)?.packages
+          : (
+              JSON.parse(content) as {
+                workspaces?: { packages?: string[] } | string[];
+              }
+            ).workspaces;
+      const globs = Array.isArray(packages)
+        ? packages
+        : Array.isArray((packages as { packages?: string[] })?.packages)
+          ? (packages as { packages?: string[] }).packages
+          : [];
+      if (globs.includes("plugins/*")) return true;
+    } catch {
+      return false;
+    }
   }
+  return false;
 }
 
 export async function syncTemplate(projectDir: string, options: SyncOptions): Promise<SyncResult> {
@@ -772,7 +783,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
     });
 
     if (!options.noInstall) {
-      await runBunInstall(findWorkspaceRoot(projectDir)?.dir ?? projectDir);
+      await runPnpmInstall(findWorkspaceRoot(projectDir)?.dir ?? projectDir);
       await runTypesGen(projectDir);
     }
 

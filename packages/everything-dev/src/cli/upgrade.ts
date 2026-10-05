@@ -10,13 +10,14 @@ import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { saveBosConfig } from "../utils/save-config";
 import { findWorkspaceRoot } from "../workspace";
+import { readWorkspaceCatalog, writeWorkspaceCatalog } from "../workspace-catalog";
 import { readInstalledFrameworkVersion } from "./framework-version";
 import {
   buildChildRootScripts,
   fetchParentConfig,
   getParentOnlyScriptKeys,
   resolveCatalogChainSource,
-  runBunInstallForUpgrade,
+  runPnpmInstallForUpgrade,
   runTypesGen,
 } from "./init";
 import { syncTemplate } from "./sync";
@@ -86,10 +87,7 @@ function readRootPackageJson(projectDir: string): Record<string, unknown> {
 }
 
 function readRootCatalogEntry(projectDir: string, packageName: string): string | undefined {
-  const pkg = readRootPackageJson(projectDir) as {
-    workspaces?: { catalog?: Record<string, string> };
-  };
-  return pkg.workspaces?.catalog?.[packageName];
+  return readWorkspaceCatalog(workspaceDirOf(projectDir))[packageName];
 }
 
 function readCurrentPackageSpecifier(projectDir: string, packageName: string): string | undefined {
@@ -247,33 +245,28 @@ function syncRootCatalogWithParent(
   projectDir: string,
   parentCatalog: Record<string, string>,
 ): boolean {
-  const pkgPath = join(workspaceDirOf(projectDir), "package.json");
+  const workspaceDir = workspaceDirOf(projectDir);
+  const pkgPath = join(workspaceDir, "package.json");
   const pkg = readJsonFile<Record<string, unknown>>(pkgPath);
-  let modified = syncPackageObjectCatalogRefs(pkg, Object.keys(parentCatalog));
+  const modified = syncPackageObjectCatalogRefs(pkg, Object.keys(parentCatalog));
 
-  if (!pkg.workspaces || typeof pkg.workspaces !== "object") {
-    pkg.workspaces = { packages: [], catalog: {} };
-    modified = true;
-  }
-
-  const workspaces = pkg.workspaces as { packages?: string[]; catalog?: Record<string, string> };
-  if (!workspaces.catalog || typeof workspaces.catalog !== "object") {
-    workspaces.catalog = {};
-    modified = true;
-  }
-
+  let catalogChanged = false;
+  const catalog = readWorkspaceCatalog(workspaceDir);
   for (const [packageName, version] of Object.entries(parentCatalog)) {
-    if (workspaces.catalog[packageName] !== version) {
-      workspaces.catalog[packageName] = version;
-      modified = true;
+    if (catalog[packageName] !== version) {
+      catalog[packageName] = version;
+      catalogChanged = true;
     }
+  }
+  if (catalogChanged) {
+    writeWorkspaceCatalog(workspaceDir, catalog);
   }
 
   if (modified) {
     writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
   }
 
-  return modified;
+  return modified || catalogChanged;
 }
 
 async function readExtendedRootSource(projectDir: string): Promise<ExtendedRootSource> {
@@ -743,30 +736,14 @@ function setCatalogRef(field: Record<string, string> | undefined, packageName: s
 }
 
 async function findWorkspacePackageJsons(projectDir: string): Promise<string[]> {
-  const workspaceDir = workspaceDirOf(projectDir);
-  const rootPkgPath = join(workspaceDir, "package.json");
-  if (!existsSync(rootPkgPath)) return [];
-
-  const rootPkg = JSON.parse(readFileSync(rootPkgPath, "utf-8")) as Record<string, unknown>;
-  const workspaceConfig = rootPkg.workspaces as { packages?: string[] } | string[] | undefined;
-
-  const patterns: string[] = [];
-  if (Array.isArray(workspaceConfig)) {
-    patterns.push(...workspaceConfig);
-  } else if (workspaceConfig?.packages && Array.isArray(workspaceConfig.packages)) {
-    patterns.push(...workspaceConfig.packages);
-  }
-
-  if (patterns.length === 0) return [];
+  const root = findWorkspaceRoot(projectDir);
+  if (!root) return [];
 
   const pkgPaths: string[] = [];
-  for (const pattern of patterns) {
-    const matches = await glob(pattern, { cwd: workspaceDir, dot: false, absolute: false });
-    for (const match of matches) {
-      const pkgPath = join(workspaceDir, match, "package.json");
-      if (existsSync(pkgPath) && statSync(pkgPath).isFile()) {
-        pkgPaths.push(pkgPath);
-      }
+  for (const member of root.members) {
+    const pkgPath = join(member.dir, "package.json");
+    if (existsSync(pkgPath) && statSync(pkgPath).isFile()) {
+      pkgPaths.push(pkgPath);
     }
   }
 
@@ -1390,7 +1367,7 @@ export async function upgradeTemplate(
 
   if (needsInstall) {
     await timePhase(timings, "install dependencies", () =>
-      runBunInstallForUpgrade(workspaceDirOf(projectDir)),
+      runPnpmInstallForUpgrade(workspaceDirOf(projectDir)),
     );
   }
 

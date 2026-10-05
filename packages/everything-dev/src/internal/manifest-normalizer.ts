@@ -95,7 +95,7 @@ function normalizeDependencyMap(
       continue;
     }
 
-    if (version === "workspace:*") {
+    if (version.startsWith("workspace:")) {
       const frameworkVersion = spec.frameworkVersions[name];
       if (frameworkVersion) {
         map[name] = `^${frameworkVersion}`;
@@ -105,6 +105,15 @@ function normalizeDependencyMap(
 
       if (options.removeWorkspaceDeps?.includes(name)) {
         delete map[name];
+        modified = true;
+        continue;
+      }
+
+      // A workspace dep on a non-framework member (e.g. better-near-auth)
+      // cannot resolve in a generated child — the member does not exist
+      // there. The catalog pins the published version instead.
+      if (options.preserveCatalogRefs && spec.rootCatalog[name]) {
+        map[name] = "catalog:";
         modified = true;
       }
       continue;

@@ -8,14 +8,14 @@ vi.mock("execa", () => ({
   execa: execaMock,
 }));
 
-import { runBunInstallForUpgrade } from "../../src/cli/init";
+import { runPnpmInstallForUpgrade } from "../../src/cli/init";
 
-describe("runBunInstallForUpgrade", () => {
-  it("uses bun install --force to refresh lockfile resolutions", async () => {
-    await runBunInstallForUpgrade("/tmp/project");
+describe("runPnpmInstallForUpgrade", () => {
+  it("uses pnpm install --force to refresh lockfile resolutions", async () => {
+    await runPnpmInstallForUpgrade("/tmp/project");
 
     expect(execaMock).toHaveBeenCalledWith(
-      "bun",
+      "pnpm",
       ["install", "--force"],
       expect.objectContaining({
         cwd: "/tmp/project",

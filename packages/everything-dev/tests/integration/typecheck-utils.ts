@@ -210,9 +210,9 @@ export function runTypecheck(
   opts: { timeout?: number; raw?: boolean } = {},
 ): Promise<CommandResult> {
   const args = opts.raw
-    ? ["run", "--cwd", workspace, "tsc", "--noEmit"]
-    : ["run", "--cwd", workspace, "typecheck"];
-  return runCommand("bun", args, projectDir, opts.timeout ?? 120_000);
+    ? ["--dir", workspace, "exec", "tsc", "--noEmit"]
+    : ["--dir", workspace, "run", "typecheck"];
+  return runCommand("pnpm", args, projectDir, opts.timeout ?? 120_000);
 }
 
 export function assertTypecheckSuccess(result: CommandResult, workspace: string): void {

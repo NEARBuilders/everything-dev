@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execa } from "execa";
 import { globSync } from "glob";
+import { readWorkspaceCatalog } from "../../src/workspace-catalog";
 
 type FrameworkTarballs = {
   "every-plugin": string;
@@ -20,13 +21,10 @@ export function getFrameworkTarballs(repoRoot: string): Promise<FrameworkTarball
 async function buildFrameworkTarballs(repoRoot: string): Promise<FrameworkTarballs> {
   const tarballDir = mkdtempSync(join(tmpdir(), "everything-dev-framework-packages-"));
 
-  await execa("bun", ["run", "--cwd", "packages/every-plugin", "build"], { cwd: repoRoot });
-  await execa("bun", ["run", "--cwd", "packages/everything-dev", "build"], { cwd: repoRoot });
+  await execa("pnpm", ["--dir", "packages/every-plugin", "run", "build"], { cwd: repoRoot });
+  await execa("pnpm", ["--dir", "packages/everything-dev", "run", "build"], { cwd: repoRoot });
 
-  const rootPkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf-8")) as {
-    workspaces?: { catalog?: Record<string, string> };
-  };
-  const rootCatalog = rootPkg.workspaces?.catalog ?? {};
+  const rootCatalog = readWorkspaceCatalog(repoRoot);
 
   const everyPluginTarball = await stageAndPackFrameworkPackage({
     repoRoot,

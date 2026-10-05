@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { Effect } from "effect";
@@ -12,12 +13,11 @@ import {
   generateDatabaseMigrations,
   personalizeAgentsMd,
   personalizeConfig,
-  removeInitLockfile,
+  removeStrayLockfiles,
   resolveSourceDir,
-  runBunInstall,
+  runPnpmInstall,
   runTypesGen,
   scaffoldMinimalProject,
-  stripOrphanedWorkspacesFromLockfile,
   writeDevOverlayTemplate,
   writeInitSnapshot,
 } from "../cli/init";
@@ -31,6 +31,7 @@ import { timePhase } from "../progress";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import type { BosConfig, BosConfigInput, StarterLevel } from "../types";
+import { saveBosConfig } from "../utils/save-config";
 import type { BosBuilder } from "./shared";
 
 export async function fetchInitParent(
@@ -214,6 +215,16 @@ export function registerInit(builder: BosBuilder) {
               }),
             );
 
+            // The child's authored config is always generated, never copied:
+            // a TS-form parent's bos.app.ts imports everything-dev and cannot
+            // load before the child's install. Write the JSON form from the
+            // loaded parent config — the personalization +
+            // convertChildConfigToAppForm below produce the child's own
+            // authored bos.app.ts.
+            if (!existsSync(join(targetDir, "bos.config.json"))) {
+              await saveBosConfig(targetDir, parentConfig);
+            }
+
             await timePhase(timings, "personalize config", () =>
               personalizeConfig(targetDir, {
                 extendsAccount,
@@ -270,15 +281,14 @@ export function registerInit(builder: BosBuilder) {
             }),
           );
 
-          const lockfilePath = join(targetDir, "bun.lock");
-          const allowedWorkspaces = computeAllowedWorkspaces(overrides, plugins);
-          stripOrphanedWorkspacesFromLockfile(lockfilePath, allowedWorkspaces);
-          removeInitLockfile(lockfilePath);
+          // A stray lockfile (copied or left from a previous run) would pin
+          // stale framework resolutions — the fresh install re-resolves.
+          removeStrayLockfiles(targetDir);
 
           const initConfig = await timePhase(timings, "resolve config", () =>
             openResolution({ cwd: targetDir }).catch((error: unknown) => {
               console.warn(
-                "[init] Skipping config resolution — the child has no node_modules yet; `bos dev` resolves after `bun install`.",
+                "[init] Skipping config resolution — the child has no node_modules yet; `bos dev` resolves after `pnpm install`.",
                 error instanceof Error ? error.message : error,
               );
               return null;
@@ -295,7 +305,7 @@ export function registerInit(builder: BosBuilder) {
           });
 
           if (!input.noInstall) {
-            await timePhase(timings, "install dependencies", () => runBunInstall(targetDir));
+            await timePhase(timings, "install dependencies", () => runPnpmInstall(targetDir));
             await timePhase(timings, "generate types", () => runTypesGen(targetDir));
             await timePhase(timings, "generate migrations", () =>
               generateDatabaseMigrations(targetDir),
@@ -346,17 +356,4 @@ export function registerInit(builder: BosBuilder) {
       }
     }),
   };
-}
-
-function computeAllowedWorkspaces(overrides: string[], plugins?: string[]): string[] {
-  const workspaces: string[] = [];
-  for (const section of overrides) {
-    if (section === "host") workspaces.push("host");
-    if (section === "ui") workspaces.push("ui");
-    if (section === "api") workspaces.push("api");
-  }
-  if (plugins && plugins.length > 0) {
-    workspaces.push("plugins/*");
-  }
-  return workspaces;
 }

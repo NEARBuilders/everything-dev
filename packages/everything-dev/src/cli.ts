@@ -546,10 +546,10 @@ async function main() {
       console.log(colors.dim("  Next steps:"));
       console.log(colors.dim(`    cd ${result.directory}`));
       if (!initInput.noInstall) {
-        console.log(colors.dim("    bun run dev"));
+        console.log(colors.dim("    pnpm run dev"));
       } else {
-        console.log(colors.dim("    bun install"));
-        console.log(colors.dim("    bun run dev"));
+        console.log(colors.dim("    pnpm install"));
+        console.log(colors.dim("    pnpm run dev"));
       }
       console.log();
 
@@ -828,7 +828,7 @@ async function main() {
         }
         console.log(
           colors.dim(
-            "  Load matching intent skills: bunx @tanstack/intent@latest load everything-dev#...",
+            "  Load matching intent skills: pnpm dlx @tanstack/intent@latest load everything-dev#...",
           ),
         );
         console.log(colors.dim("  Review AGENTS.md — local updates may need merging."));
