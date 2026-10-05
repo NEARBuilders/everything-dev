@@ -18,7 +18,9 @@ const distCli = new URL("../dist/cli.cjs", import.meta.url);
 // Dev always runs the TS source through tsx with the `development` export
 // condition (source-first framework resolution per ADR 0018). Everything
 // else runs the built dist when it exists; a fresh checkout has no dist yet,
-// so the bootstrap build falls back to tsx + src.
+// so the bootstrap build falls back to tsx + src with the same condition —
+// the config chain's package-internal imports resolve source over a dist
+// that does not exist yet.
 if (cmd === "dev" && process.env.EVERY_PLUGIN_TSX !== "1") {
   const result = spawnSync(
     process.execPath,
@@ -41,7 +43,7 @@ if (cmd !== "dev" && existsSync(distCli)) {
 if (process.env.EVERY_PLUGIN_TSX !== "1") {
   const result = spawnSync(
     process.execPath,
-    ["--import", "tsx", binPath, ...process.argv.slice(2)],
+    ["--import", "tsx", "--conditions=development", binPath, ...process.argv.slice(2)],
     {
       stdio: "inherit",
       env: { ...process.env, EVERY_PLUGIN_TSX: "1" },

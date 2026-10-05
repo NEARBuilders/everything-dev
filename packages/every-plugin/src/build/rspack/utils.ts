@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { remoteName } from "every-plugin/identity";
+import { remoteName } from "../../identity";
 
 export interface PluginInfo {
   name: string;
