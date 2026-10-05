@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { glob } from "glob";
+import { readWorkspaceCatalog } from "../workspace-catalog";
 
 const FRAMEWORK_PACKAGES = ["every-plugin", "everything-dev"] as const;
 
@@ -53,11 +54,7 @@ function writeJson(filePath: string, value: PackageJson) {
 }
 
 export function loadManifestNormalizationSpec(sourceRootDir: string): NormalizationSpec {
-  const rootPackage = readJson<PackageJson>(join(sourceRootDir, "package.json"));
-  const rootCatalog = {
-    ...(((rootPackage.workspaces as { catalog?: Record<string, string> } | undefined)?.catalog ??
-      {}) as Record<string, string>),
-  };
+  const rootCatalog = readWorkspaceCatalog(sourceRootDir);
   const frameworkVersions: Record<string, string> = {};
 
   for (const packageName of FRAMEWORK_PACKAGES) {

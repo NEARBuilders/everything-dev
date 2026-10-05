@@ -1,7 +1,7 @@
 {
   "name": "@everything-dev/ai-plugin",
   "version": "0.1.0",
-  "description": "AI chat plugin — OpenAI-compatible streaming via oRPC + TanStack AI",
+  "description": "AI chat plugin \u2014 OpenAI-compatible streaming via oRPC + TanStack AI",
   "type": "module",
   "exports": {
     ".": {
@@ -20,6 +20,7 @@
     "@base-ui/react": "^1.8.0",
     "@orpc/client": "catalog:",
     "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
     "@phosphor-icons/react": "^2.1.10",
     "@tanstack/ai": "catalog:",
@@ -30,8 +31,8 @@
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "effect": "catalog:",
-    "every-plugin": "catalog:",
-    "everything-dev": "catalog:",
+    "every-plugin": "workspace:^",
+    "everything-dev": "workspace:^",
     "react": "catalog:",
     "react-dom": "catalog:",
     "sonner": "^2.0.7",
@@ -55,8 +56,8 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "dotenv": "^17.2.3",
-    "everything-dev": "catalog:",
-    "every-plugin": "catalog:",
+    "everything-dev": "workspace:^",
+    "every-plugin": "workspace:^",
     "tailwindcss": "^4.1.17",
     "typescript": "catalog:",
     "vitest": "catalog:"

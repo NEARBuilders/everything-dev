@@ -32,8 +32,9 @@ import { walkExtendsChain } from "../resolution/session";
 import type { BosConfig, BosConfigInput, ParentStarterConfig, StarterLevel } from "../types";
 import { saveBosConfig } from "../utils/save-config";
 import { computeSnapshotHash as computeHash } from "../utils/snapshot-hash";
+import { readWorkspaceCatalog as readWorkspaceCatalogFromDisk } from "../workspace-catalog";
 import { writeSnapshot } from "./snapshot";
-import { getExtendsRef, parseBosRef, readJsonFile } from "./utils/helpers";
+import { getExtendsRef, parseBosRef } from "./utils/helpers";
 
 export const INIT_ROOT_PATTERNS = [
   "bos.config.json",
@@ -76,13 +77,7 @@ export interface CatalogChainSource {
 }
 
 export function readWorkspaceCatalog(sourceDir: string): Record<string, string> {
-  const pkgPath = join(sourceDir, "package.json");
-  if (!existsSync(pkgPath)) {
-    return {};
-  }
-
-  const pkg = readJsonFile<{ workspaces?: { catalog?: Record<string, string> } }>(pkgPath);
-  return { ...pkg.workspaces?.catalog };
+  return readWorkspaceCatalogFromDisk(sourceDir);
 }
 
 export async function resolveCatalogChainSource(opts: {
@@ -986,25 +981,18 @@ export async function personalizeConfig(
     delete pkg.peerDependencies;
     delete pkg.patchedDependencies;
 
-    if (pkg.workspaces && typeof pkg.workspaces === "object") {
-      const ws = pkg.workspaces as { packages?: string[] };
-      if (Array.isArray(ws.packages)) {
-        ws.packages = ws.packages.filter((p: string) => {
-          if (p.startsWith("packages/")) return false;
-          if (p === "ui") return has("ui");
-          if (p === "api") return has("api");
-          if (p === "host") return has("host");
-          if (p.startsWith("plugins/")) return false;
-          return true;
-        });
-
-        if (has("plugins")) {
-          if (!ws.packages.includes("plugins/*")) {
-            ws.packages.push("plugins/*");
-          }
-        }
-      }
-    }
+    const childWorkspaces: string[] = [];
+    if (has("host")) childWorkspaces.push("host");
+    if (has("ui")) childWorkspaces.push("ui");
+    if (has("api")) childWorkspaces.push("api");
+    if (has("plugins")) childWorkspaces.push("plugins/*");
+    pkg.workspaces = {
+      packages: childWorkspaces,
+      catalog:
+        pkg.workspaces && typeof pkg.workspaces === "object"
+          ? ((pkg.workspaces as { catalog?: Record<string, string> }).catalog ?? {})
+          : {},
+    };
 
     if (!pkg.scripts || typeof pkg.scripts !== "object") {
       pkg.scripts = {};

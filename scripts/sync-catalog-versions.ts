@@ -1,23 +1,22 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  readWorkspaceCatalog,
+  writeWorkspaceCatalog,
+} from "../packages/everything-dev/src/workspace-catalog";
 
 const FRAMEWORK_PACKAGES = ["everything-dev", "every-plugin", "better-near-auth"];
 
 const rootDir = join(import.meta.dirname, "..");
-const rootPkgPath = join(rootDir, "package.json");
 
-const rootPkg = JSON.parse(readFileSync(rootPkgPath, "utf-8")) as {
-  workspaces?: { catalog?: Record<string, string> };
-};
-
-if (!rootPkg.workspaces?.catalog) {
-  console.error("No workspaces.catalog found in root package.json");
+const catalog = readWorkspaceCatalog(rootDir);
+if (Object.keys(catalog).length === 0) {
+  console.error("No catalog found in pnpm-workspace.yaml");
   process.exit(1);
 }
 
-const catalog = rootPkg.workspaces.catalog;
 let changed = false;
 
 for (const packageName of FRAMEWORK_PACKAGES) {
@@ -45,7 +44,7 @@ for (const packageName of FRAMEWORK_PACKAGES) {
 }
 
 if (changed) {
-  writeFileSync(rootPkgPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
+  writeWorkspaceCatalog(rootDir, catalog);
   console.log("Catalog versions synced.");
 } else {
   console.log("Catalog versions already up to date.");

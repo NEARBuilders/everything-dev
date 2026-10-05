@@ -18,9 +18,10 @@
   },
   "dependencies": {
     "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
-    "near-kit": "catalog:",
     "effect": "catalog:",
+    "near-kit": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
@@ -31,8 +32,8 @@
     "@types/node": "catalog:",
     "dotenv": "^17.2.3",
     "@proj-airi/unplugin-drizzle-orm-migrations": "^0.1.4",
-    "everything-dev": "catalog:",
-    "every-plugin": "catalog:",
+    "everything-dev": "workspace:^",
+    "every-plugin": "workspace:^",
     "host": "workspace:*",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "catalog:"

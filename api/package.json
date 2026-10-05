@@ -21,11 +21,12 @@
   "dependencies": {
     "@electric-sql/pglite": "catalog:",
     "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
     "drizzle-kit": "catalog:",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
-    "every-plugin": "catalog:",
+    "every-plugin": "workspace:^",
     "pg": "catalog:",
     "zod": "catalog:"
   },
@@ -38,7 +39,7 @@
     "@types/node": "catalog:",
     "@types/pg": "catalog:",
     "dotenv": "^17.2.3",
-    "everything-dev": "catalog:",
+    "everything-dev": "workspace:^",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "catalog:"
   },
