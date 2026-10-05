@@ -100,7 +100,7 @@ async function checkApiSpec() {
 
 async function checkMfCompat() {
   const result = docker(
-    ["exec", container, "bun", "./node_modules/everything-dev/dist/cli.mjs", "mf", "check"],
+    ["exec", container, "node", "./node_modules/everything-dev/dist/cli.mjs", "mf", "check"],
     { stdio: "pipe" },
   );
   if (result.status !== 0) {

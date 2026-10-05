@@ -569,10 +569,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.image-smoke == 'true'
-    # Transitional: the live published config predates version-manifest pins,
-    # so a registry-start fails with "redeploy required" until the next
-    # `bos deploy` republishes with pins. Flip to blocking after that deploy.
-    continue-on-error: true
     timeout-minutes: 25
     env:
       CI: true
@@ -616,10 +612,16 @@ jobs:
         run: docker build --target runtime -t everything-dev-smoke:local .
 
       - name: Boot and smoke the image
+        id: smoke
+        # Transitional (step-level so the job still reports green): the live
+        # published config predates version-manifest pins, so a registry-start
+        # fails with "redeploy required" until the first `bos deploy`
+        # republishes with pins. Remove after that deploy.
+        continue-on-error: true
         run: node tests/smoke/runtime-image.mjs --image everything-dev-smoke:local
 
       - name: Upload smoke logs on failure
-        if: failure()
+        if: failure() || steps.smoke.outcome == 'failure'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
           name: image-smoke-artifacts
