@@ -11,6 +11,7 @@ import {
 } from "../artifact-names";
 import { CONTRACT_TYPES_FILE, generateContractTypes } from "../contract-types";
 import { BuildReportPlugin } from "./build-report-plugin";
+import { ChunkCompletenessPlugin } from "./chunk-completeness-plugin";
 import { buildSharedDependencies } from "./module-federation";
 import { getPluginInfo } from "./utils";
 
@@ -142,6 +143,7 @@ export class EveryPluginBuild implements RspackPluginInstance {
     }).apply(compiler);
 
     new BuildReportPlugin().apply(compiler);
+    new ChunkCompletenessPlugin().apply(compiler);
 
     if (this.options.dts === false) {
       compiler.options.plugins = (compiler.options.plugins ?? []).filter(
@@ -187,6 +189,15 @@ export class EveryPluginBuild implements RspackPluginInstance {
     }
 
     this.ensureTypeScriptLoader(compiler);
+
+    if (!compiler.options.optimization) {
+      compiler.options.optimization = {};
+    }
+    // rspack 2.x splitChunks re-ids the final chunk graph while the federation
+    // get-factory codegen keeps pre-split ids — the entry then references
+    // chunks that were never emitted (ChunkCompletenessPlugin's exact failure
+    // mode). Splitting off keeps the emitted bundle self-consistent.
+    compiler.options.optimization.splitChunks = false;
 
     if (!compiler.options.resolve) {
       compiler.options.resolve = {};
