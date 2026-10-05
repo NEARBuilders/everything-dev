@@ -121,7 +121,7 @@ function LanguageSettings({ user }: { user: ProfileUser }) {
 
   return (
     <section className="flex flex-col gap-6">
-      <SectionHeader title="Language" description="Choose the language used across CityNode." />
+      <SectionHeader title="Language" description="Choose the language used across the app." />
       <div className="max-w-md">
         <Field>
           <FieldLabel htmlFor="settings-language">Display language</FieldLabel>

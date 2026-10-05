@@ -3,7 +3,7 @@ import type { Messages } from "@lingui/core";
 export const APP_LOCALES = ["en", "es", "fr", "zh"] as const;
 export type AppLocale = (typeof APP_LOCALES)[number];
 export const DEFAULT_APP_LOCALE: AppLocale = "en";
-export const APP_LOCALE_COOKIE = "citynode_locale";
+export const APP_LOCALE_COOKIE = "app_locale";
 export const APP_LOCALE_LABELS: Record<AppLocale, string> = {
   en: "English",
   es: "Español",
@@ -175,7 +175,7 @@ export const englishAppMessages = {
   "landing.steps.stake.body": "Your stake keeps the local validator online and earns rewards.",
   "landing.cta.title": "No node in your city yet?",
   "landing.cta.description": "Your organization proposes it and the network reviews it.",
-  "landing.cta.about": "About City Nodes",
+  "landing.cta.about": "About the network",
 } as const;
 
 export type AppMessageId = keyof typeof englishAppMessages;
@@ -338,7 +338,7 @@ const spanishAppMessages = {
     "Tu delegación mantiene el validador local en línea y genera recompensas.",
   "landing.cta.title": "¿Todavía no hay un nodo en tu ciudad?",
   "landing.cta.description": "Tu organización lo propone y la red lo revisa.",
-  "landing.cta.about": "Acerca de City Nodes",
+  "landing.cta.about": "Acerca de la red",
 } satisfies Record<AppMessageId, string>;
 
 const frenchAppMessages = {
@@ -499,7 +499,7 @@ const frenchAppMessages = {
     "Votre délégation maintient le validateur local en ligne et génère des récompenses.",
   "landing.cta.title": "Pas encore de nœud dans votre ville ?",
   "landing.cta.description": "Votre organisation le propose et le réseau l’examine.",
-  "landing.cta.about": "À propos de City Nodes",
+  "landing.cta.about": "À propos du réseau",
 } satisfies Record<AppMessageId, string>;
 
 const chineseAppMessages = {
@@ -657,7 +657,7 @@ const chineseAppMessages = {
   "landing.steps.stake.body": "你的质押可帮助本地验证节点保持在线并获得奖励。",
   "landing.cta.title": "你的城市还没有节点？",
   "landing.cta.description": "由你的组织提出申请，网络会进行审核。",
-  "landing.cta.about": "关于 City Nodes",
+  "landing.cta.about": "关于网络",
 } satisfies Record<AppMessageId, string>;
 
 const translatedMessages: Record<AppLocale, Partial<Record<AppMessageId, string>>> = {

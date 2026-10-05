@@ -1027,6 +1027,12 @@ async function deriveVersionManifestFields(
     apply: (resolved: ResolvedSlotVersion) => void,
   ): Promise<void> => {
     if (!slot || slot.source !== "remote" || !slot.url) return;
+    // A config without a production form (the image's baked boot fallback, or
+    // a dev resolution materialized under NODE_ENV=production) has no
+    // deployment artifacts to pin — the slot URL is the local listening
+    // fallback. Pin enforcement is for published configs.
+    const slotWithProduction = slotConfig as { production?: unknown } | undefined;
+    if (!slotWithProduction || slotWithProduction.production === undefined) return;
     const rawPin = slotConfig?.pin as { manifest?: unknown; integrity?: unknown } | undefined;
     const pin =
       rawPin &&

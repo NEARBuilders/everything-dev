@@ -1,6 +1,4 @@
-import { existsSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
-import { join } from "node:path";
 import process from "node:process";
 import { formatDuration } from "./cli/timing";
 import { resolveLocalDevelopmentPath } from "./config";
@@ -229,6 +227,10 @@ export async function buildWorkspaceTargets(opts: {
     ...process.env,
     NODE_ENV: opts.deploy ? "production" : "development",
   };
+  // Dist-first deploy builds (ADR 0018): a deploy build must never inherit a
+  // DEPLOY value from the operator's shell, and a dev build must never see one.
+  if (opts.deploy) env.DEPLOY = "true";
+  else delete env.DEPLOY;
 
   const orderedExisting = opts.deploy
     ? [

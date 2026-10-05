@@ -15,7 +15,7 @@ export async function saveBosConfig(
   config: BosConfig | BosConfigInput | Record<string, unknown>,
 ): Promise<void> {
   const entryPath = localConfigEntryPath(configDir);
-  if (entryPath && entryPath.endsWith(".app.ts")) {
+  if (entryPath?.endsWith(".app.ts")) {
     writeFileSync(entryPath, serializeAppDescriptorSource(config as BosConfigInput));
     return;
   }

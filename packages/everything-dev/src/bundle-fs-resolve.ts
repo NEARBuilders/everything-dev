@@ -12,13 +12,14 @@ import {
 import { isAppDescriptorPath } from "./config";
 
 /**
- * Local-first bundle resolution (ADR 0011 amendment): a self-contained
- * runtime image stages its own namespace under `BOS_BUNDLE_DIR` as
- * `bundles/<account>/<gateway>/<workspace>/…` and consumes those bytes
- * directly from disk instead of round-tripping through its own public
- * origin. The registry tier (children, `BOS_BUNDLE_DIR` unset) keeps the
- * network fetch — the namespace guard below only ever matches the runtime's
- * own account/gateway, never another runtime's layout.
+ * Local-first bundle resolution (ADR 0011 amendment; unified policy, ADR 0021
+ * amendment): a self-contained runtime image stages its own namespace under
+ * `BOS_BUNDLE_DIR` as `bundles/<account>/<gateway>/<workspace>/…` and consumes
+ * those bytes directly from disk; a miss falls through to the network, so a
+ * partially-staged namespace boots over the wire instead of failing. The
+ * registry tier (children, `BOS_BUNDLE_DIR` unset) keeps the network fetch —
+ * the namespace guard below only ever matches the runtime's own
+ * account/gateway, never another runtime's layout.
  */
 
 export interface BundleNamespace {
@@ -62,9 +63,6 @@ const MIME_TYPES: Record<string, string> = {
   ".xml": "application/xml",
 };
 
-const notFound = (): Response =>
-  new Response("Not Found", { status: 404, headers: { "content-type": "text/plain" } });
-
 export function bundleUrlToLocalPath(url: string, namespace: BundleNamespace): string | null {
   let parsed: URL;
   try {
@@ -98,7 +96,7 @@ export function bundleUrlToLocalPath(url: string, namespace: BundleNamespace): s
 export class BundleResolver extends Context.Service<
   BundleResolver,
   {
-    /** Resolve a fetch target from the staged namespace; null = not our namespace, fall through. */
+    /** Resolve a fetch target from the staged namespace; null = miss or not our namespace — fall through to the network. */
     readonly lookup: (input: string | URL | Request) => Effect.Effect<Response | null>;
   }
 >()("everything-dev/bundle-fs-resolve/BundleResolver") {
@@ -112,7 +110,7 @@ export class BundleResolver extends Context.Service<
         try: () => readFile(filePath),
         catch: (cause) => new BundleReadError({ path: filePath, cause }),
       }).pipe(Effect.catchTag("BundleReadError", () => Effect.succeed(null)));
-      if (bytes === null) return notFound();
+      if (bytes === null) return null;
       const name = path.basename(filePath);
       const contentType =
         MIME_TYPES[path.extname(name).toLowerCase()] ?? "application/octet-stream";
@@ -172,27 +170,33 @@ const staleResponse = (bytes: Uint8Array, url: string): Response => {
  * Installs the resolver as a global fetch interceptor — the one seam every
  * boot-time consumer shares (config manifest discovery, contract-type
  * fetches, orchestrator host loading, MF remoteEntry/identity probes).
- * Own-namespace URLs resolve from the staged directory; other `/bundles/…`
- * URLs get the stale-if-error cache; everything else falls through to the
- * original fetch untouched. Inert when neither a staged namespace nor a
- * cache is configured.
+ * One layered resolution policy: staged disk → network → stale-if-error.
+ * Own-namespace URLs resolve from the staged directory and fall through to
+ * the original fetch on a miss (a partially-staged namespace boots over the
+ * wire instead of failing); a miss never touches the write-through cache —
+ * for the own namespace the staged disk IS the resilience artifact. Foreign
+ * `/bundles/…` URLs get the network with the stale-if-error cache; every
+ * other URL falls through to the original fetch untouched. Inert when
+ * neither a staged namespace nor a cache is configured.
  */
 export function installGlobalBundleFetch(options: BundleFetchOptions): BundleFetchHandle {
   const namespace = options.namespace;
   const cacheDir = options.cacheDir;
   const runtime = namespace ? ManagedRuntime.make(BundleResolver.layer(namespace)) : null;
   const original: FetchImpl = globalThis.fetch;
-  const patched = ((input: Parameters<FetchImpl>[0], init?: Parameters<FetchImpl>[1]) => {
+  const patched = (async (input: Parameters<FetchImpl>[0], init?: Parameters<FetchImpl>[1]) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 
     if (namespace && bundleUrlToLocalPath(url, namespace)) {
       if (!runtime) throw new Error("unreachable: resolver runtime missing");
-      return runtime.runPromise(
+      const response = await runtime.runPromise(
         Effect.gen(function* () {
           const resolver = yield* BundleResolver;
           return yield* resolver.lookup(input);
         }),
       );
+      if (response !== null) return response;
+      return original(input, init);
     }
 
     if (cacheDir !== undefined && bundleCachePath(url, { cacheDir })) {

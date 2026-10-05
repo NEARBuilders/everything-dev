@@ -393,7 +393,10 @@ const stage = () => {
 
   // Namespace staging (plan 043): the same artifacts laid out at the exact
   // paths the /bundles/* FS route serves — bundles/<account>/<gateway>/<ws>/.
-  // The prod image's runtime points BOS_BUNDLE_DIR here.
+  // The prod image's runtime points BOS_BUNDLE_DIR here. The template plugin
+  // is not staged: it stays registered and is built + uploaded by the deploy
+  // train, so at boot its own-namespace miss falls through to the network
+  // (unified resolution policy) and it loads from the CDN like a child.
   const nsAccount = bosConfig.account;
   const nsGateway = bosConfig.domain;
   if (nsAccount && nsGateway) {
@@ -405,7 +408,9 @@ const stage = () => {
       ["api/dist", "api"],
       ["plugins/auth/ui/dist", "auth-ui"],
       ...(authWorkspace ? [[path.join(authWorkspace, "dist"), "auth"] as const] : []),
-      ...localPlugins.map(([key, workspace]) => [path.join(workspace, "dist"), key] as const),
+      ...localPlugins
+        .filter(([key]) => key !== "template")
+        .map(([key, workspace]) => [path.join(workspace, "dist"), key] as const),
     ]) {
       cpSync(path.join(root, from), path.join(ns, to), { recursive: true });
     }

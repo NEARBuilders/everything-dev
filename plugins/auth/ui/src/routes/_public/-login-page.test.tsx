@@ -86,7 +86,7 @@ describe("login page", () => {
     );
     renderLogin();
 
-    expect((await screen.findByTestId("login.heading")).textContent).toBe("Sign in to CityNode");
+    expect((await screen.findByTestId("login.heading")).textContent).toBe("Sign in to continue");
     fireEvent.click(screen.getByTestId("login.passkey-button"));
 
     expect(await screen.findByTestId("login.no-passkey-hint")).toBeTruthy();
@@ -96,11 +96,11 @@ describe("login page", () => {
 
   it("tells visitors coming from staking that signing in lets them stake", async () => {
     renderLogin(`/login?redirect=${encodeURIComponent("/stake?node=india")}`);
-    expect(await screen.findByText("Sign in to stake with a CityNode community.")).toBeTruthy();
+    expect(await screen.findByText("Sign in to stake with a community.")).toBeTruthy();
     cleanup();
     renderLogin();
     expect(await screen.findByText("Welcome back. Pick how you want to sign in.")).toBeTruthy();
-    expect(screen.queryByText("Sign in to stake with a CityNode community.")).toBeNull();
+    expect(screen.queryByText("Sign in to stake with a community.")).toBeNull();
   });
 
   it("creates an account with a passkey and continues to the redirect target", async () => {
@@ -183,7 +183,7 @@ describe("login page", () => {
     }));
     renderLogin("/login?method=phone");
 
-    expect((await screen.findByTestId("login.heading")).textContent).toBe("Sign in to CityNode");
+    expect((await screen.findByTestId("login.heading")).textContent).toBe("Sign in to continue");
     expect(screen.queryByTestId("device.user-code")).toBeNull();
   });
 });

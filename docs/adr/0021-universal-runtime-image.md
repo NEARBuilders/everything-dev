@@ -63,3 +63,23 @@ the identity selects the tier at boot.**
 - The root's boot stays local-first (ADR 0011 amendment 1) in every tier;
   registry-tier cold boots need the CDN reachable, warm boots survive
   outages from the cache.
+
+## Amendment (2026-10-04): unified resolution policy — one layered fallback
+
+The fetch interceptor began with two ad-hoc branches: own-namespace URLs
+resolved from the staged directory only (a miss 404'd), foreign-namespace
+URLs got the network with the stale-if-error cache. Two namespaces, two
+policies — and no way to boot a plugin whose dist the image doesn't carry.
+
+The policy is now uniform behind the same seam: **staged disk → network →
+stale-if-error**, with one scoping rule. An own-namespace miss falls through
+to the original network fetch (a partially-staged namespace boots over the
+wire instead of failing) but never touches the write-through cache — for the
+own namespace the staged disk IS the resilience artifact, so disk-present
+files always win and network bytes are never cached over them. Foreign
+namespaces keep write-through + stale-if-error exactly as before.
+
+Consequence: workspaces whose dists are not staged (the template plugin, and
+later any workspace the root stops carrying) boot from the CDN like a child
+tier would. The staged layout remains the deployment artifact; staged bytes
+remain authoritative over the network for the same URL.

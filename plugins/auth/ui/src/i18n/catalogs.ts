@@ -6,7 +6,7 @@ export const LOGIN_LOCALES = ["en", "es", "fr", "zh"] as const;
 export type LoginLocale = (typeof LOGIN_LOCALES)[number];
 
 export const DEFAULT_LOGIN_LOCALE: LoginLocale = "en";
-export const LOGIN_LOCALE_COOKIE = "citynode_locale";
+export const LOGIN_LOCALE_COOKIE = "app_locale";
 
 export const LOGIN_LOCALE_LABELS: Record<LoginLocale, string> = {
   en: "English",
@@ -16,9 +16,9 @@ export const LOGIN_LOCALE_LABELS: Record<LoginLocale, string> = {
 };
 
 export const englishLoginMessages = {
-  "auth.login.title": "Sign in to CityNode",
+  "auth.login.title": "Sign in to continue",
   "auth.login.subtitle": "Welcome back. Pick how you want to sign in.",
-  "auth.login.subtitle.stake": "Sign in to stake with a CityNode community.",
+  "auth.login.subtitle.stake": "Sign in to stake with a community.",
   "auth.login.language": "Language",
   "auth.login.passkey.savedLabel": "Saved passkey",
   "auth.login.passkey.savedPlaceholder": "Choose a saved passkey",
@@ -32,7 +32,7 @@ export const englishLoginMessages = {
   "auth.login.near.action": "Continue with NEAR",
   "auth.login.phone.action": "Sign in with your phone",
   "auth.login.phone.title": "Sign in with your phone",
-  "auth.login.phone.subtitle": "Scan with a phone that's signed in to CityNode.",
+  "auth.login.phone.subtitle": "Scan with a phone that's signed in.",
   "auth.login.create.title": "Create your account",
   "auth.login.create.subtitle.wallet":
     "One passkey on this device. We set up a NEAR wallet for you — no seed phrase.",
@@ -46,7 +46,7 @@ export const englishLoginMessages = {
   "auth.login.signIn": "Sign in",
   "auth.login.suspended": "This account has been suspended.",
   "auth.login.separator": "or",
-  "auth.login.success.create": "Welcome to CityNode",
+  "auth.login.success.create": "Welcome",
   "auth.login.success.near": "Signed in with NEAR",
   "auth.login.success.passkey": "Signed in with passkey",
   "auth.login.error.used": "Sign-in already used",
@@ -75,9 +75,9 @@ export type LoginMessageValues = Record<string, string | number>;
 export type LoginTranslator = (id: LoginMessageId, values?: LoginMessageValues) => string;
 
 const spanishLoginMessages = {
-  "auth.login.title": "Inicia sesión en CityNode",
+  "auth.login.title": "Inicia sesión para continuar",
   "auth.login.subtitle": "Te damos la bienvenida. Elige cómo quieres iniciar sesión.",
-  "auth.login.subtitle.stake": "Inicia sesión para delegar con una comunidad de CityNode.",
+  "auth.login.subtitle.stake": "Inicia sesión para delegar con una comunidad.",
   "auth.login.language": "Idioma",
   "auth.login.passkey.savedLabel": "Clave de acceso guardada",
   "auth.login.passkey.savedPlaceholder": "Elige una clave de acceso guardada",
@@ -92,7 +92,7 @@ const spanishLoginMessages = {
   "auth.login.near.action": "Continuar con NEAR",
   "auth.login.phone.action": "Iniciar sesión con tu teléfono",
   "auth.login.phone.title": "Iniciar sesión con tu teléfono",
-  "auth.login.phone.subtitle": "Escanea con un teléfono que tenga una sesión de CityNode abierta.",
+  "auth.login.phone.subtitle": "Escanea con un teléfono que tenga una sesión abierta.",
   "auth.login.create.title": "Crea tu cuenta",
   "auth.login.create.subtitle.wallet":
     "Una clave de acceso en este dispositivo. Configuraremos una billetera NEAR para ti, sin frase semilla.",
@@ -107,7 +107,7 @@ const spanishLoginMessages = {
   "auth.login.signIn": "Iniciar sesión",
   "auth.login.suspended": "Esta cuenta ha sido suspendida.",
   "auth.login.separator": "o",
-  "auth.login.success.create": "Te damos la bienvenida a CityNode",
+  "auth.login.success.create": "Te damos la bienvenida",
   "auth.login.success.near": "Sesión iniciada con NEAR",
   "auth.login.success.passkey": "Sesión iniciada con una clave de acceso",
   "auth.login.error.used": "Este inicio de sesión ya se utilizó",
@@ -132,9 +132,9 @@ const spanishLoginMessages = {
 } satisfies Record<LoginMessageId, string>;
 
 const frenchLoginMessages = {
-  "auth.login.title": "Se connecter à CityNode",
+  "auth.login.title": "Se connecter pour continuer",
   "auth.login.subtitle": "Ravi de vous revoir. Choisissez comment vous connecter.",
-  "auth.login.subtitle.stake": "Connectez-vous pour déléguer auprès d’une communauté CityNode.",
+  "auth.login.subtitle.stake": "Connectez-vous pour déléguer auprès d’une communauté.",
   "auth.login.language": "Langue",
   "auth.login.passkey.savedLabel": "Clé d’accès enregistrée",
   "auth.login.passkey.savedPlaceholder": "Choisissez une clé d’accès enregistrée",
@@ -149,7 +149,7 @@ const frenchLoginMessages = {
   "auth.login.near.action": "Continuer avec NEAR",
   "auth.login.phone.action": "Se connecter avec votre téléphone",
   "auth.login.phone.title": "Se connecter avec votre téléphone",
-  "auth.login.phone.subtitle": "Scannez avec un téléphone déjà connecté à CityNode.",
+  "auth.login.phone.subtitle": "Scannez avec un téléphone déjà connecté.",
   "auth.login.create.title": "Créer votre compte",
   "auth.login.create.subtitle.wallet":
     "Une clé d’accès sur cet appareil. Nous créons un portefeuille NEAR pour vous, sans phrase de récupération.",
@@ -164,7 +164,7 @@ const frenchLoginMessages = {
   "auth.login.signIn": "Se connecter",
   "auth.login.suspended": "Ce compte a été suspendu.",
   "auth.login.separator": "ou",
-  "auth.login.success.create": "Bienvenue sur CityNode",
+  "auth.login.success.create": "Bienvenue",
   "auth.login.success.near": "Connecté avec NEAR",
   "auth.login.success.passkey": "Connecté avec une clé d’accès",
   "auth.login.error.used": "Cette connexion a déjà été utilisée",
@@ -189,9 +189,9 @@ const frenchLoginMessages = {
 } satisfies Record<LoginMessageId, string>;
 
 const chineseLoginMessages = {
-  "auth.login.title": "登录 CityNode",
+  "auth.login.title": "登录以继续",
   "auth.login.subtitle": "欢迎回来。请选择登录方式。",
-  "auth.login.subtitle.stake": "登录后即可为 CityNode 社区质押。",
+  "auth.login.subtitle.stake": "登录后即可为社区质押。",
   "auth.login.language": "语言",
   "auth.login.passkey.savedLabel": "已保存的通行密钥",
   "auth.login.passkey.savedPlaceholder": "选择已保存的通行密钥",
@@ -204,7 +204,7 @@ const chineseLoginMessages = {
   "auth.login.near.action": "使用 NEAR 继续",
   "auth.login.phone.action": "使用手机登录",
   "auth.login.phone.title": "使用手机登录",
-  "auth.login.phone.subtitle": "使用已登录 CityNode 的手机扫描二维码。",
+  "auth.login.phone.subtitle": "使用已登录的手机扫描二维码。",
   "auth.login.create.title": "创建账户",
   "auth.login.create.subtitle.wallet":
     "在此设备上创建一个通行密钥。我们会为你设置 NEAR 钱包，无需助记词。",
@@ -217,7 +217,7 @@ const chineseLoginMessages = {
   "auth.login.signIn": "登录",
   "auth.login.suspended": "此账户已被停用。",
   "auth.login.separator": "或",
-  "auth.login.success.create": "欢迎使用 CityNode",
+  "auth.login.success.create": "欢迎",
   "auth.login.success.near": "已使用 NEAR 登录",
   "auth.login.success.passkey": "已使用通行密钥登录",
   "auth.login.error.used": "此登录请求已使用",

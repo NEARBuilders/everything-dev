@@ -9,7 +9,7 @@ import {
   type TestUser,
 } from "../helpers";
 
-const CLIENT_ID = "citynode-web";
+const CLIENT_ID = "app-web";
 const GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
 function authRequest(path: string, init: { method: string; body?: unknown; cookie?: string }) {

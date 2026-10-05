@@ -1,10 +1,13 @@
 #!/usr/bin/env bun
 /**
- * Start-command regression stack (ADR 0009): builds the deployment image
- * (Dockerfile `runtime` target — hermetic, the same artifact production
- * runs) and boots it with the regression test databases. The container
- * serves every dist internally; only the host port is mapped. No runner-side
- * builds, no FastKV, no NEAR credentials.
+ * Start-command regression stack (ADR 0009): builds the Dockerfile
+ * `regression` fixture — the staged-dists harness image, not the deployable
+ * `runtime` stage (ADR 0021) — and boots it with the regression test
+ * databases. The fixture serves every dist on container-internal static
+ * servers and boots the production host over them with a baked local config;
+ * the full internal port range is mapped so the runner's browser can reach
+ * those servers directly. No runner-side builds, no FastKV, no NEAR
+ * credentials.
  *
  * Usage: bun tests/regression/lib/start-container.mjs <ssr|csr>
  */
@@ -24,8 +27,8 @@ const log = (...lines) => console.log(`[start-container:${variant}]`, ...lines);
 const regressionEnv = computeRegressionEnv();
 const root = regressionEnv.repoRoot;
 const basePort = regressionEnv.basePort;
-const containerName = `citynode-regression-${variant}-${process.pid}`;
-const image = "citynode-regression:local";
+const containerName = `bos-regression-${variant}-${process.pid}`;
+const image = "bos-regression:local";
 
 const run = (cmd, args, options = {}) =>
   new Promise((resolve, reject) => {

@@ -35,10 +35,12 @@ conditions resolving framework packages to stale-or-absent `dist` trees,
 `better-near-auth` unbuilt, fresh-checkout route-generation notices). The start
 stack now builds and runs through the committed Dockerfile instead: a
 `regression` stage builds all workspaces hermetically and the container serves
-the staged dists internally, booting the production host over them. Only the
-host port is mapped; test databases and secrets arrive via env with the docker
-host gateway. The container build is the same artifact production deploys, and
-it is identical locally and in CI.
+the staged dists internally, booting the production host over them. The full
+internal port range is mapped (the fixture's static servers must be
+browser-reachable from the runner — not just the host port); test databases and
+secrets arrive via env with the docker host gateway. The container build shares
+the deploy train's dist-builder stage; the deployable universal image itself is
+the `runtime` stage (ADR 0021), exercised separately by the image smoke gate.
 
 ## Consequences
 

@@ -21,7 +21,10 @@ RUN bun run scripts/resolve-workspace-refs.ts
 
 # ── Dist build (ADR 0009): all workspaces the start stack serves ──
 # Forked BEFORE the prod stage strips sources — the ui/api/plugins builds run here.
+# DEPLOY=true selects dist-first resolution and drops source maps — the same
+# mode the deploy train's CDN uploads use, so image bytes ≡ CDN bytes.
 FROM builder AS dist-builder
+ENV DEPLOY=true
 RUN bun run scripts/regression/container-build.ts
 
 # ── Prod build: strip sources — the framework loads remotes at runtime ──
@@ -29,6 +32,11 @@ RUN bun run scripts/regression/container-build.ts
 # image bakes the generated config (dist-builder, ADR 0005) as the boot
 # fallback, and findConfigPath must not shadow it with the authored form.
 FROM builder AS prod-builder
+
+# Derived node_modules prune (ticket 03): keep the union of every workspace's
+# production dependency closure, delete the rest. Runs BEFORE the source
+# strip — the seeds are the workspace package.jsons.
+RUN bun scripts/prune-runtime-node-modules.ts /app
 
 RUN rm -rf host api ui plugins && rm -f bos.app.ts bos.dev.ts
 
