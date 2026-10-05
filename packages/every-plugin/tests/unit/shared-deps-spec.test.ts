@@ -23,18 +23,20 @@ const namesOf = (specs: readonly SharedDependencySpec[]) => specs.map((spec) => 
 describe("shared-deps-spec canonical list", () => {
   it("pins the core (server/runtime) list consolidated from the rspack and runtime copies", () => {
     expect(namesOf(CORE_SHARED_DEPS).sort()).toEqual(
-      [
-        "every-plugin",
-        "effect",
-        "zod",
-        "@orpc/contract",
-        "@orpc/client",
-        "@orpc/server",
-        "@orpc/openapi",
-        "@orpc/experimental-effect",
-        "@orpc/publisher",
-      ].sort(),
+      ["every-plugin", "effect", "zod", "@orpc/contract", "@orpc/client", "@orpc/server"].sort(),
     );
+  });
+
+  it("does not share the @orpc/openapi family — their share-scope consumption breaks plugin loading", () => {
+    // The v2 fleet-spec pass added @orpc/openapi, @orpc/experimental-effect,
+    // and @orpc/publisher; consuming them through the share scope crashed the
+    // plugin bundles at runtime (__webpack_modules__[r] is not a function —
+    // the runtime's import()-based provide hands the consumer an ESM namespace
+    // where a module factory is expected). They are bundled per workspace;
+    // the workspace package.json declarations stay (phantom-dep fix).
+    for (const name of ["@orpc/openapi", "@orpc/experimental-effect", "@orpc/publisher"]) {
+      expect(namesOf(CORE_SHARED_DEPS), `${name} must not be shared`).not.toContain(name);
+    }
   });
 
   it("pins the ui list consolidated from the rsbuild copy", () => {
@@ -76,7 +78,7 @@ describe("shared-deps-spec canonical list", () => {
   });
 
   it("resolves each divergence with the strictest sound policy", () => {
-    for (const name of ["zod", "@orpc/openapi", "@orpc/publisher"]) {
+    for (const name of ["zod"]) {
       const spec = CORE_SHARED_DEPS.find((s) => s.name === name);
       expect(spec?.critical, `${name} was range-tolerant in every copy`).toBe(false);
     }

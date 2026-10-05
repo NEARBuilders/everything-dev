@@ -138,9 +138,13 @@ export const loadRemoteWithRetry = <T>(
     const signature = `${classification.kind}::${classification.message}`;
     if (signature === lastSignature) return;
     lastSignature = signature;
+    // The message alone is rarely enough — a swallowed stack ("__webpack_modules__[r]
+    // is not a function") turned a one-line diagnosis into hours. Log it.
+    const stack = error instanceof Error ? error.stack : undefined;
     console.error(
       `[Plugins][${label}] ❌ ${classification.kind} failure (attempt ${attempt}): ${classification.message}` +
-        (classification.suggestion ? `\n[Plugins][${label}] → ${classification.suggestion}` : ""),
+        (classification.suggestion ? `\n[Plugins][${label}] → ${classification.suggestion}` : "") +
+        (stack ? `\n[Plugins][${label}] ${stack}` : ""),
     );
   };
 

@@ -67,14 +67,13 @@ export const CORE_SHARED_DEPS = [
   { name: "@orpc/contract", singleton: true, critical: true, resolution: "package" },
   { name: "@orpc/client", singleton: true, critical: true, resolution: "package" },
   { name: "@orpc/server", singleton: true, critical: true, resolution: "package" },
-  { name: "@orpc/openapi", singleton: true, critical: false, resolution: "package" },
-  {
-    name: "@orpc/experimental-effect",
-    singleton: true,
-    critical: true,
-    resolution: "package",
-  },
-  { name: "@orpc/publisher", singleton: true, critical: false, resolution: "package" },
+  // v1's proven sharing set, restored: @orpc/openapi, @orpc/experimental-effect,
+  // and @orpc/publisher joined this list in the v2 fleet-spec pass and their
+  // share-scope consumption broke plugin loading at runtime
+  // (__webpack_modules__[r] is not a function — the runtime's import()-based
+  // provides hand the consumer an ESM namespace where a module factory is
+  // expected). They stay declared in each workspace's package.json and are
+  // bundled per workspace instead.
 ] as const satisfies readonly SharedDependencySpec[];
 
 export type CoreSharedDepName = (typeof CORE_SHARED_DEPS)[number]["name"];

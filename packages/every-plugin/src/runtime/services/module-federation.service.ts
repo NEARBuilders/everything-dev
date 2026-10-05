@@ -32,9 +32,6 @@ const coreModuleLoaders: Record<CoreSharedDepName, () => Promise<unknown>> = {
   "@orpc/contract": () => import("@orpc/contract"),
   "@orpc/client": () => import("@orpc/client"),
   "@orpc/server": () => import("@orpc/server"),
-  "@orpc/openapi": () => import("@orpc/openapi"),
-  "@orpc/experimental-effect": () => import("@orpc/experimental-effect"),
-  "@orpc/publisher": () => import("@orpc/publisher"),
 };
 
 function buildSharedConfig(): Record<
