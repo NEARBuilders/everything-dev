@@ -65,10 +65,10 @@ describe("route-aware filtering", () => {
 
   it("derives absolute paths from the generated manifest", () => {
     const routes: ManifestRoute[] = [
-      manifestRoute({ id: "_public", isLayout: true, parentId: "__root" }),
+      manifestRoute({ id: "_public", type: "layout", parentId: "__root" }),
       manifestRoute({ id: "_public/about", path: "/about", parentId: "_public" }),
-      manifestRoute({ id: "_admin", isLayout: true }),
-      manifestRoute({ id: "_admin/_dashboard", isLayout: true, parentId: "_admin" }),
+      manifestRoute({ id: "_admin", type: "layout" }),
+      manifestRoute({ id: "_admin/_dashboard", type: "layout", parentId: "_admin" }),
       manifestRoute({
         id: "_admin/_dashboard/admin",
         path: "/admin",
@@ -84,7 +84,7 @@ describe("route-aware filtering", () => {
         path: "/things/",
         parentId: "_authenticated/_dashboard",
       }),
-      manifestRoute({ id: "_public/", path: "/", isIndex: true, parentId: "_public" }),
+      manifestRoute({ id: "_public/", path: "/", type: "index", parentId: "_public" }),
     ];
     expect(routePathsFromManifest(routes)).toEqual(
       new Set(["/about", "/admin", "/admin/system", "/things"]),

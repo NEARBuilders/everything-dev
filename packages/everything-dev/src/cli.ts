@@ -680,7 +680,14 @@ async function main() {
       } else {
         console.log(colors.green(`${icons.ok} Synced`));
       }
-      if (result.updated.length > 0 || result.added.length > 0 || result.conflicted.length > 0) {
+      const hasRetirement =
+        (result.retired?.length ?? 0) > 0 || (result.retiredConflicted?.length ?? 0) > 0;
+      if (
+        result.updated.length > 0 ||
+        result.added.length > 0 ||
+        result.conflicted.length > 0 ||
+        hasRetirement
+      ) {
         console.log(
           `  ${colors.dim("Sync results:")} ${result.updated.length} updated, ${result.added.length} added, ${result.conflicted.length} conflicted`,
         );
@@ -697,11 +704,20 @@ async function main() {
           if (result.backupDir) console.log(`    ${colors.dim(result.backupDir)}`);
           for (const f of result.conflicted) console.log(`    ${colors.dim(f)}`);
         }
+        if (hasRetirement) {
+          console.log(`  ${colors.yellow("Retired")} (replaced by generated stubs — ADR 0023):`);
+          if (result.retiredBackupDir) console.log(`    ${colors.dim(result.retiredBackupDir)}`);
+          for (const f of result.retiredConflicted ?? []) {
+            console.log(`    ${colors.dim(`${f} (backed up)`)}`);
+          }
+          for (const f of result.retired ?? []) console.log(`    ${colors.dim(f)}`);
+        }
       }
       if (
         result.updated.length === 0 &&
         result.added.length === 0 &&
-        result.conflicted.length === 0
+        result.conflicted.length === 0 &&
+        !hasRetirement
       ) {
         console.log(`  ${colors.dim("Already up to date")}`);
       }
@@ -750,8 +766,15 @@ async function main() {
       }
       if (result.sync) {
         const sync = result.sync;
+        const hasRetirement =
+          (sync.retired?.length ?? 0) > 0 || (sync.retiredConflicted?.length ?? 0) > 0;
         console.log(`  ${colors.dim("Sync results:")}`);
-        if (sync.updated.length > 0 || sync.added.length > 0 || sync.conflicted.length > 0) {
+        if (
+          sync.updated.length > 0 ||
+          sync.added.length > 0 ||
+          sync.conflicted.length > 0 ||
+          hasRetirement
+        ) {
           console.log(
             `  ${sync.updated.length} updated, ${sync.added.length} added, ${sync.conflicted.length} conflicted`,
           );
@@ -761,6 +784,14 @@ async function main() {
             );
             if (sync.backupDir) console.log(`    ${colors.dim(sync.backupDir)}`);
             for (const f of sync.conflicted) console.log(`    ${colors.dim(f)}`);
+          }
+          if (hasRetirement) {
+            console.log(`  ${colors.yellow("Retired")} (replaced by generated stubs — ADR 0023):`);
+            if (sync.retiredBackupDir) console.log(`    ${colors.dim(sync.retiredBackupDir)}`);
+            for (const f of sync.retiredConflicted ?? []) {
+              console.log(`    ${colors.dim(`${f} (backed up)`)}`);
+            }
+            for (const f of sync.retired ?? []) console.log(`    ${colors.dim(f)}`);
           }
         } else {
           console.log(`  ${colors.dim("Already up to date")}`);

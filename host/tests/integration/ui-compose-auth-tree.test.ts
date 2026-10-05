@@ -1,5 +1,6 @@
 import {
   constructTree,
+  type PluginManifest,
   type RouteConfigModule,
   type RouteOptionsBundle,
 } from "everything-dev/ui/manifest";
@@ -11,37 +12,38 @@ import { describe, expect, it } from "vitest";
  * composes into one host-built tree with URL-stable paths.
  */
 
-const CORE_MANIFEST = {
+const CORE_MANIFEST: PluginManifest = {
   name: "ui",
-  manifestVersion: 1,
+  manifestVersion: 2,
   routes: [
-    { id: "_public", isLayout: true, mount: "public", file: "_public.tsx" },
+    { id: "_public", type: "layout", mount: "public", file: "_public.tsx" },
     {
       id: "_public/index",
       path: "/",
-      isIndex: true,
+      type: "index",
       parentId: "_public",
       file: "_public/index.tsx",
     },
-    { id: "_authenticated", isLayout: true, mount: "authenticated", file: "_authenticated.tsx" },
+    { id: "_authenticated", type: "layout", mount: "authenticated", file: "_authenticated.tsx" },
   ],
 };
 
-const AUTH_MANIFEST = {
+const AUTH_MANIFEST: PluginManifest = {
   name: "auth",
-  manifestVersion: 1,
+  manifestVersion: 2,
   routes: [
-    { id: "_public/login", path: "/login", file: "_public/login.tsx" },
+    { id: "_public/login", path: "/login", type: "route", file: "_public/login.tsx" },
     {
       id: "_authenticated/settings",
       path: "/settings",
+      type: "route",
       parentId: "_authenticated",
       file: "_authenticated/settings.tsx",
     },
     {
       id: "_authenticated/settings/index",
       path: "/",
-      isIndex: true,
+      type: "index",
       parentId: "_authenticated/settings",
       file: "_authenticated/settings/index.tsx",
     },

@@ -27,6 +27,7 @@ import {
 } from "./router-defaults";
 import { RouterError } from "./router-error";
 import type {
+  AppRouterFactory,
   CreateRouterOptions,
   HeadData,
   RenderOptionsWithApi,
@@ -37,6 +38,14 @@ import type {
 export interface ServerRouterModuleOptions<TRouteTree extends AnyRoute = AnyRoute> {
   /** The app's generated route tree — the core-only fallback when no composed tree is passed. */
   defaultRouteTree?: TRouteTree;
+  /**
+   * The app's authored router factory — SSR parity: each request's router is
+   * minted through the same factory the client hydrates with, so notFound/
+   * pending/error options match. Absent, the framework's own factory runs.
+   */
+  createRouter?: AppRouterFactory;
+  /** The app's query client factory (staleTime, gcTime, …) — SSR parity with the client hydrator. Absent, the framework default. */
+  createQueryClient?: () => QueryClient;
 }
 
 type ServerRouterOptions<TRouteTree extends AnyRoute> = CreateRouterOptions & {
@@ -110,6 +119,10 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
     return { router, queryClient };
   };
 
+  // SSR parity seam: the app's authored factory (client and server mint
+  // through the same code) or the framework's own.
+  const buildRouter = options.createRouter ?? createRouter;
+
   const getRouteHead = async (
     pathname: string,
     context?: Partial<RouterContextWithApi> & { routeTree?: TRouteTree },
@@ -150,8 +163,9 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
     const handler = createRequestHandler({
       request,
       createRouter: () => {
-        const localQueryClient = queryClientRef ?? defaultQueryClient();
-        const { router } = createRouter({
+        const localQueryClient =
+          queryClientRef ?? options.createQueryClient?.() ?? defaultQueryClient();
+        const built = buildRouter({
           history,
           routeTree: renderOptions.routeTree as TRouteTree,
           basepath: renderOptions.basepath,
@@ -169,8 +183,8 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
             pluginNav: renderOptions.pluginNav,
           },
         });
-        queryClientRef = localQueryClient;
-        return router;
+        queryClientRef = built.queryClient ?? localQueryClient;
+        return built.router;
       },
     });
 

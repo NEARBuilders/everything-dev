@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { glob } from "glob";
 import { loadAppDescriptorConfig } from "../config";
@@ -41,21 +41,6 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   "ui/package.json",
   "ui/postcss.config.mjs",
   "ui/tsconfig.json",
-  "ui/src/app.ts",
-  "ui/src/components/document-fallback.tsx",
-  "ui/src/components/root-error.tsx",
-  "ui/src/components/root-not-found.tsx",
-  "ui/src/components/router-error.tsx",
-  "ui/src/entry.ts",
-  "ui/src/globals.d.ts",
-  "ui/src/hydrate.tsx",
-  "ui/src/providers/index.tsx",
-  "ui/src/hooks/index.ts",
-  "ui/src/lib/api.ts",
-  "ui/src/lib/auth.ts",
-  "ui/src/router.server.tsx",
-  "ui/src/router.tsx",
-  "ui/src/routes/__root.tsx",
   "api/package.json",
   "api/plugin.dev.ts",
   "api/rspack.config.js",
@@ -67,6 +52,22 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   "api/src/db/migrate.ts",
   "api/src/global.d.ts",
   "api/tests/types.d.ts",
+]);
+
+/**
+ * Files the scaffold previously sync-owned but has retired (ADR 0023) — the
+ * generated `.gen` bootstrap stubs replaced them. During sync: a local copy
+ * whose hash still matches the sync snapshot is deleted silently; a
+ * hand-modified (or never-snapshotted) copy is backed up, then deleted. The
+ * app's authored ui files (router.tsx, app.ts, lib, routes, components) are
+ * NOT retired — they leave the sync list as app-owned files, untouched.
+ */
+export const RETIRED_SYNC_FILES = new Set([
+  "ui/src/entry.ts",
+  "ui/src/globals.d.ts",
+  "ui/src/hydrate.tsx",
+  "ui/src/router.server.tsx",
+  "ui/src/compose.ts",
 ]);
 
 type PackageJson = Record<string, unknown>;
@@ -120,6 +121,48 @@ function backupFiles(projectDir: string, filePaths: string[]): string | null {
   }
 
   return backupDir;
+}
+
+export interface RetiredSyncFilesResult {
+  /** unmodified stub copies — deleted (in a real run) */
+  retired: string[];
+  /** hand-modified or never-snapshotted stub copies — backed up, then deleted */
+  retiredConflicted: string[];
+  backupDir: string | null;
+}
+
+/**
+ * Migrate a child off the retired bootstrap stub files (ADR 0023): unmodified
+ * copies are deleted silently, hand-modified copies are backed up first. In
+ * dry-run the actions are reported without touching the tree.
+ */
+export function retireSyncedFiles(
+  projectDir: string,
+  snapshotFiles: Record<string, string>,
+  opts: { dryRun: boolean },
+): RetiredSyncFilesResult {
+  const retired: string[] = [];
+  const retiredConflicted: string[] = [];
+
+  for (const destPath of RETIRED_SYNC_FILES) {
+    const localHash = computeLocalHash(projectDir, destPath);
+    if (localHash === null) continue;
+    if (localHash === snapshotFiles[destPath]) {
+      retired.push(destPath);
+    } else {
+      retiredConflicted.push(destPath);
+    }
+  }
+
+  if (opts.dryRun || (retired.length === 0 && retiredConflicted.length === 0)) {
+    return { retired, retiredConflicted, backupDir: null };
+  }
+
+  const backupDir = backupFiles(projectDir, retiredConflicted);
+  for (const destPath of [...retired, ...retiredConflicted]) {
+    rmSync(join(projectDir, destPath));
+  }
+  return { retired, retiredConflicted, backupDir };
 }
 
 function mergeStringMaps(
@@ -575,6 +618,13 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
     const snapshotFiles = snapshot?.files ?? {};
 
     for (const [destPath, filePath] of destToSource.entries()) {
+      if (!existsSync(join(sourceDir, filePath))) {
+        // The template no longer ships this file — it was retired from the
+        // scaffold. Leave the local copy untouched rather than crashing the
+        // sync (the old-CLI + new-template transitional combo).
+        skipped.push(destPath);
+        continue;
+      }
       const localHash = computeLocalHash(projectDir, destPath);
       const sourceHash = computeHash(
         buildSyncedFileContent(sourceDir, projectDir, filePath, undefined, childScripts),
@@ -635,20 +685,29 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
         }
       }
 
+      const retirement = retireSyncedFiles(projectDir, snapshotFiles, { dryRun: true });
+
       return {
         status: "dry-run",
         updated,
         skipped,
         added,
         conflicted,
+        retired: retirement.retired,
+        retiredConflicted: retirement.retiredConflicted,
       };
     }
 
+    // Migrate the child off the retired bootstrap stubs (ADR 0023) before any
+    // writes — a retired file is never in destToSource, so its snapshot entry
+    // drops out at the next writeSnapshot.
+    const retirement = retireSyncedFiles(projectDir, snapshotFiles, { dryRun: false });
+
     const filesToWrite = [...updated, ...added, ...conflicted];
 
-    let backupDir: string | undefined;
+    let backupDir: string | undefined = retirement.backupDir ?? undefined;
     if (filesToWrite.length > 0) {
-      backupDir = backupFiles(projectDir, filesToWrite) ?? undefined;
+      backupDir = backupFiles(projectDir, filesToWrite) ?? backupDir;
 
       for (const destPath of filesToWrite) {
         const sourcePath = destToSource.get(destPath) ?? destPath;
@@ -723,6 +782,9 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       skipped,
       added,
       conflicted,
+      retired: retirement.retired,
+      retiredConflicted: retirement.retiredConflicted,
+      retiredBackupDir: retirement.backupDir ?? undefined,
       backupDir,
     };
   } finally {

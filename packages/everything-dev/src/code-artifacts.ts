@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Effect, Schema } from "effect";
+import { emitCoreUiStubs } from "every-plugin/build/ui";
 import { CORE_UI_PLUGIN_KEY } from "every-plugin/ui/manifest";
 import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { type ContractBridgeStatus, syncApiContractBridge } from "./api-contract";
@@ -86,6 +87,13 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
   });
 
   for (const target of uiManifestTargets(runtimeConfig)) {
+    if (target.pluginName === CORE_UI_PLUGIN_KEY) {
+      yield* Effect.try({
+        try: () => emitCoreUiStubs(target.workspaceRoot),
+        catch: (cause) =>
+          new ArtifactGenError({ phase: `emit ui stubs (${target.pluginName})`, cause }),
+      });
+    }
     yield* Effect.tryPromise({
       try: () => generateUiManifest(target),
       catch: (cause) =>

@@ -3,6 +3,7 @@ import path from "node:path";
 import { Generator, getConfig } from "@tanstack/router-generator";
 import {
   MANIFEST_FILENAME,
+  MANIFEST_VERSION,
   type PluginManifest,
   PluginManifestSchema,
   ROUTE_CONFIG_FILENAME,
@@ -29,8 +30,6 @@ import { ROUTE_OPTION_KEYS } from "./route-config";
  * here (cross-plugin path collisions are enforced at construction time —
  * see `constructTree`).
  */
-
-const MANIFEST_VERSION = 1;
 
 export interface ManifestGeneratorOptions {
   /** ui source workspace root (ui/ or plugins/<id>/ui/) */
@@ -126,27 +125,30 @@ export async function generateUiManifest(
         );
         continue;
       }
-      routes.push({ id, isLayout: true, mount, file: node.filePath });
+      routes.push({ id, type: "layout", mount, file: node.filePath });
       continue;
     }
 
     const isIndex = node._fsRouteType === "static" && node.cleanedPath === "/";
     routes.push({
       id: idOf(node),
+      type: isIndex
+        ? "index"
+        : node._fsRouteType === "pathless_layout" || node._fsRouteType === "layout"
+          ? "layout"
+          : "route",
       path: isIndex
         ? "/"
         : node.cleanedPath === "/" || node.cleanedPath === ""
           ? undefined
           : node.cleanedPath,
-      isLayout: node._fsRouteType === "pathless_layout" || node._fsRouteType === "layout",
-      isIndex,
       file: node.filePath,
       parentId: node.parent && node.parent !== rootRouteNode ? idOf(node.parent) : undefined,
     });
   }
 
   for (const record of routes) {
-    if (record.isLayout && record.mount) continue;
+    if (record.type === "layout" && record.mount) continue;
     if (record.parentId) continue;
     const firstSegment = record.id.split("/")[0] ?? "";
     if (firstSegment.startsWith("_")) {
@@ -165,7 +167,7 @@ export async function generateUiManifest(
 
   const siblingPathClaims = new Map<string, string>();
   for (const record of routes) {
-    if (record.isLayout || record.path === undefined) continue;
+    if (record.type === "layout" || record.path === undefined) continue;
     const claimKey = `${record.parentId ?? ""}::${record.path}`;
     const claimant = siblingPathClaims.get(claimKey);
     if (claimant) {

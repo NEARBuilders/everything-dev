@@ -46,7 +46,13 @@ vi.mock("@module-federation/enhanced/runtime", () => ({
 }));
 vi.mock("../../src/ui/manifest", () => ({
   constructTree: composeMocks.constructTree,
-  ComposePayloadSchema: { safeParse: (payload: unknown) => ({ success: true, data: payload }) },
+  parsePluginManifest: (raw: unknown) => raw,
+  ComposePayloadSchema: {
+    safeParse: (payload: unknown) =>
+      payload && Array.isArray((payload as { remotes?: unknown }).remotes)
+        ? { success: true, data: payload }
+        : { success: false, error: { message: "malformed compose payload" } },
+  },
   CORE_UI_PLUGIN_KEY: "ui",
 }));
 
@@ -142,6 +148,70 @@ describe("client bootstrap", () => {
     expect(bootstrap.render).toHaveBeenCalledOnce();
   });
 
+  it("constructs the core-only tree when there is no compose payload", async () => {
+    composeMocks.constructTree.mockResolvedValue({
+      ...composedTree(),
+      manifests: [CORE_MANIFEST],
+      nav: { items: [] },
+    });
+
+    const { hydrate } = await loadHydrate();
+    await hydrate({
+      config: bootstrap.config as never,
+      routeConfig: async () => bootstrap.coreRouteConfig,
+      manifest: async () => CORE_MANIFEST,
+    });
+
+    // A plugin-free deployment carries no compose payload at all — the
+    // core-only tree IS the tree, built from the app's own manifest and
+    // route config. The router must never receive `undefined`.
+    expect(composeMocks.constructTree).toHaveBeenCalledOnce();
+    const input = composeMocks.constructTree.mock.calls[0]![0] as {
+      name: string;
+      plugins: Array<{ key: string; mfName: string }>;
+      resolve: (ref: { key: string }) => unknown;
+      rootOptions: unknown;
+    };
+    expect(input.name).toBe("core-fallback");
+    expect(input.plugins).toEqual([{ key: "ui", mfName: "ui" }]);
+    expect(input.rootOptions).toBe(bootstrap.coreRouteConfig.rootMeta);
+    expect(await input.resolve({ key: "ui" })).toMatchObject({
+      key: "ui",
+      manifest: CORE_MANIFEST,
+      routeConfig: bootstrap.coreRouteConfig,
+    });
+    expect(bootstrap.createRouter).toHaveBeenCalledWith(
+      expect.objectContaining({ routeTree: { id: "composed-tree" } }),
+    );
+  });
+
+  it("falls back to the core-only tree when the compose payload is malformed", async () => {
+    document.documentElement.setAttribute("data-everything-ssr", "");
+    composeMocks.constructTree.mockResolvedValue({
+      ...composedTree(),
+      manifests: [CORE_MANIFEST],
+      nav: { items: [] },
+    });
+    bootstrap.config = {
+      ...bootstrap.config,
+      ui: { name: "ui", compose: { digest: "digest-1", remotes: "not-an-array" } },
+    };
+
+    const { hydrate } = await loadHydrate();
+    await hydrate({
+      config: bootstrap.config as never,
+      routeConfig: async () => bootstrap.coreRouteConfig,
+      manifest: async () => CORE_MANIFEST,
+    });
+
+    expect(composeMocks.constructTree).toHaveBeenCalledOnce();
+    expect(bootstrap.createRouter).toHaveBeenCalledWith(
+      expect.objectContaining({ routeTree: { id: "composed-tree" } }),
+    );
+    expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
+    expect(bootstrap.render).toHaveBeenCalledOnce();
+  });
+
   it("composes the tree from the payload before createRouter", async () => {
     bootstrap.config = composeConfig();
     composeMocks.loadRemote.mockResolvedValue({ routeConfigLoaders: {} });
@@ -189,7 +259,49 @@ describe("client bootstrap", () => {
     );
   });
 
-  it("falls back to the core-only tree when a plugin route config fails to load", async () => {
+  it("mints the router and query client through the app's factories", async () => {
+    bootstrap.config = composeConfig();
+    composeMocks.loadRemote.mockResolvedValue({ routeConfigLoaders: {} });
+    composeMocks.constructTree.mockImplementation(
+      async (input: {
+        plugins: Array<{ key: string }>;
+        resolve: (ref: { key: string }) => unknown;
+      }) => {
+        for (const ref of input.plugins) await input.resolve(ref);
+        return composedTree();
+      },
+    );
+
+    const appQueryClient = { tag: "app-client" };
+    const appFactory = vi.fn(() => ({
+      router: { tag: "app-router" },
+      queryClient: appQueryClient,
+    }));
+    const createQueryClient = vi.fn(() => appQueryClient);
+
+    const { hydrate } = await loadHydrate();
+    await hydrate({
+      config: bootstrap.config as never,
+      routeConfig: async () => bootstrap.coreRouteConfig,
+      createRouter: appFactory as never,
+      createQueryClient: createQueryClient as never,
+    });
+
+    expect(createQueryClient).toHaveBeenCalledOnce();
+    expect(appFactory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        routeTree: { id: "composed-tree" },
+        context: expect.objectContaining({
+          queryClient: appQueryClient,
+          pluginNav: composedTree().nav,
+        }),
+      }),
+    );
+    expect(bootstrap.createRouter).not.toHaveBeenCalled();
+    expect(bootstrap.render).toHaveBeenCalledOnce();
+  });
+
+  it("drops the failed remote and composes the core-only subset (degraded, client-render)", async () => {
     document.documentElement.setAttribute("data-everything-ssr", "");
     bootstrap.config = composeConfig();
     composeMocks.loadRemote.mockRejectedValue(new Error("remote down"));
@@ -205,20 +317,82 @@ describe("client bootstrap", () => {
 
     await runHydrate(bootstrap.config);
 
-    // The degraded compose must still hand the router a REAL tree — the
-    // core-only construction (core manifest + core route config, no remotes)
-    // — never `undefined` (a router without a tree crashes on `__root__`).
-    expect(composeMocks.constructTree).toHaveBeenCalledTimes(2);
-    const fallbackInput = composeMocks.constructTree.mock.calls[1]![0] as {
+    // Per-source isolation: the broken remote drops ONLY its own routes —
+    // one construction over the core-only subset, never a second fallback.
+    expect(composeMocks.constructTree).toHaveBeenCalledTimes(1);
+    const input = composeMocks.constructTree.mock.calls[0]![0] as {
       name: string;
       plugins: Array<{ key: string; mfName: string }>;
     };
-    expect(fallbackInput.name).toBe("core-fallback");
-    expect(fallbackInput.plugins).toEqual([{ key: "ui", mfName: "ui" }]);
+    expect(input.name).toBe("client");
+    expect(input.plugins).toEqual([{ key: "ui", mfName: "ui" }]);
     expect(bootstrap.createRouter).toHaveBeenCalledWith(
       expect.objectContaining({ routeTree: { id: "composed-tree" } }),
     );
-    // Degraded compose must never hydrate over SSR'd HTML — client-render.
+    // The SSR'd tree included the dropped remote — hydration is unsafe, so
+    // the page client-renders the degraded tree.
+    expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
+    expect(bootstrap.render).toHaveBeenCalledOnce();
+  });
+
+  it("drops only the failed remote and composes the healthy subset", async () => {
+    document.documentElement.setAttribute("data-everything-ssr", "");
+    const IDEAS_MANIFEST = {
+      name: "ideas",
+      manifestVersion: 2,
+      routes: [{ id: "_public/ideas", path: "/ideas" }],
+    };
+    bootstrap.config = {
+      ...composeConfig(),
+      ui: {
+        ...composeConfig().ui,
+        compose: {
+          digest: "digest-1",
+          remotes: [
+            {
+              key: "auth",
+              name: "auth-ui",
+              entry: "https://cdn.example.com/auth-ui/remoteEntry.js",
+            },
+            {
+              key: "ideas",
+              name: "ideas-ui",
+              entry: "https://cdn.example.com/ideas-ui/remoteEntry.js",
+            },
+          ],
+          manifests: [CORE_MANIFEST, AUTH_MANIFEST, IDEAS_MANIFEST],
+        },
+      },
+    } as never;
+    composeMocks.loadRemote.mockImplementation(async (name: unknown) => {
+      if (String(name).startsWith("ideas-ui/")) throw new Error("remote down");
+      return { routeConfigLoaders: {} };
+    });
+    composeMocks.constructTree.mockImplementation(
+      async (input: {
+        plugins: Array<{ key: string }>;
+        resolve: (ref: { key: string }) => unknown;
+      }) => {
+        for (const ref of input.plugins) await input.resolve(ref);
+        return composedTree();
+      },
+    );
+
+    await runHydrate(bootstrap.config);
+
+    // the healthy remote composes; the broken one drops
+    expect(composeMocks.constructTree).toHaveBeenCalledOnce();
+    const input = composeMocks.constructTree.mock.calls[0]![0] as {
+      plugins: Array<{ key: string; mfName: string }>;
+    };
+    expect(input.plugins).toEqual([
+      { key: "ui", mfName: "ui" },
+      { key: "auth", mfName: "auth-ui" },
+    ]);
+    expect(bootstrap.createRouter).toHaveBeenCalledWith(
+      expect.objectContaining({ routeTree: { id: "composed-tree" } }),
+    );
+    // degraded (the SSR'd tree included the dropped remote) → client-render
     expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
     expect(bootstrap.render).toHaveBeenCalledOnce();
   });

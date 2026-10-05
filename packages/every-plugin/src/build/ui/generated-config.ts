@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { findBosConfigPath } from "../rspack/compose";
-import { getPluginInfo } from "../rspack/utils";
 
 const UI_DIR = "ui";
 const GENERATED_CONFIG_DIR = ".every-plugin";
@@ -66,10 +65,18 @@ export function pluginLayoutKey(cwd: string): string | null {
  */
 export function ensureGeneratedUiRsbuildConfig(cwd: string): string | null {
   if (!hasFolderFormUi(cwd)) return null;
+  // The manifest's name derives ONLY from the plugins/<key> layout key
+  // (ADR 0008 §2) — a non-derivable key fails the build loudly, never the
+  // container-name fallback that mis-keyed manifests.
+  const pluginId = pluginLayoutKey(cwd);
+  if (!pluginId) {
+    throw new Error(
+      `[every-plugin] cannot derive the ui's composition key from ${cwd} — no authored config (bos.app.ts / bos.config.json) found above a plugins/<key> directory. The manifest name is the layout key; the container name is never a fallback.`,
+    );
+  }
   const outDir = path.join(cwd, GENERATED_CONFIG_DIR);
   fs.mkdirSync(outDir, { recursive: true });
   const outPath = path.join(outDir, GENERATED_UI_CONFIG);
-  const pluginId = pluginLayoutKey(cwd) ?? getPluginInfo(cwd).normalizedName;
   const next = generatedUiConfig(pluginId);
   if (!fs.existsSync(outPath) || fs.readFileSync(outPath, "utf8") !== next) {
     fs.writeFileSync(outPath, next);
@@ -79,19 +86,19 @@ export function ensureGeneratedUiRsbuildConfig(cwd: string): string | null {
 
 const CORE_UI_MARKERS = {
   routes: "src/routes",
-  entry: "src/entry.ts",
   contract: "src/contract.ts",
 };
 
 /**
  * Workspace-form core ui: the workspace IS the ui (own package.json, route
- * tree, web entry) and is not plugin-shaped — the /api counterpart of the
- * plugin workspace form.
+ * tree) and is not plugin-shaped — the /api counterpart of the plugin
+ * workspace form. The entry stub is NOT a marker: it is generated
+ * (ADR 0023), so a fresh clone has no bootstrap stubs until the first
+ * generation pass.
  */
 export function hasCoreUiWorkspace(cwd: string = process.cwd()): boolean {
   return (
     fs.existsSync(path.join(cwd, CORE_UI_MARKERS.routes)) &&
-    fs.existsSync(path.join(cwd, CORE_UI_MARKERS.entry)) &&
     !fs.existsSync(path.join(cwd, CORE_UI_MARKERS.contract)) &&
     !fs.existsSync(path.join(cwd, "plugin.dev.ts"))
   );

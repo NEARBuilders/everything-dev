@@ -13,7 +13,7 @@ vi.mock("../../src/infra/materializer", async () => {
 });
 
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -157,26 +157,44 @@ describe("syncTemplate", () => {
     expect(readFileSync(appOwnedPath, "utf-8")).toBe("component override\n");
   });
 
-  it("delivers extracted fallbacks when upgrading a child that does not have them", async () => {
+  it("delivers config-level ui files but never app-owned ui sources", async () => {
     const projectDir = await scaffoldProject(["ui"]);
     tempDirs.push(projectDir);
-    const fallbacks = [
+    const configFile = "ui/tsconfig.json";
+    const appOwned = [
       "ui/src/components/document-fallback.tsx",
       "ui/src/components/root-error.tsx",
       "ui/src/components/root-not-found.tsx",
       "ui/src/components/router-error.tsx",
     ];
-    for (const file of fallbacks) unlinkSync(join(projectDir, file));
+    unlinkSync(join(projectDir, configFile));
+    for (const file of appOwned) unlinkSync(join(projectDir, file));
 
     const result = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
 
     expect(result.status).toBe("synced");
-    expect(result.added).toEqual(expect.arrayContaining(fallbacks));
-    for (const file of fallbacks) {
-      expect(readFileSync(join(projectDir, file), "utf-8")).toBe(
-        readFileSync(join(REPO_ROOT, file), "utf-8"),
-      );
+    expect(result.added).toContain(configFile);
+    expect(readFileSync(join(projectDir, configFile), "utf-8")).toBe(
+      readFileSync(join(REPO_ROOT, configFile), "utf-8"),
+    );
+    // App-owned ui sources are the child's — sync never re-adds them (ADR 0023).
+    for (const file of appOwned) {
+      expect(result.added).not.toContain(file);
+      expect(existsSync(join(projectDir, file))).toBe(false);
     }
+  });
+
+  it("retires stale bootstrap stubs — backed up, then deleted", async () => {
+    const projectDir = await scaffoldProject(["ui"]);
+    tempDirs.push(projectDir);
+    writeFileSync(join(projectDir, "ui", "src", "hydrate.tsx"), "export {};\n");
+
+    const result = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+
+    expect(result.status).toBe("synced");
+    expect(result.retiredConflicted).toContain("ui/src/hydrate.tsx");
+    expect(existsSync(join(projectDir, "ui", "src", "hydrate.tsx"))).toBe(false);
+    expect(result.backupDir).toBeDefined();
   });
 
   it("sync does not re-add plugin workspaces because it only manages framework-owned files", async () => {

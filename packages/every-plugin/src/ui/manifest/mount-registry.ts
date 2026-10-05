@@ -34,7 +34,7 @@ export type MountId = keyof typeof MOUNT_REGISTRY & string;
 export const MOUNTS = Object.keys(MOUNT_REGISTRY) as MountId[];
 
 /** Bump when the registry shape changes — invalidates all compose digests. */
-export const MOUNT_REGISTRY_VERSION = 4;
+export const MOUNT_REGISTRY_VERSION = 5;
 
 /** Migration aliases: legacy `_`-segment names → canonical mounts. */
 export const MOUNT_ALIASES: Record<string, MountId> = {

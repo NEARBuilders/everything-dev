@@ -1,8 +1,8 @@
 /**
  * Public UI surface — runtime helpers, client factories, and router types.
  *
- * ⚠️  DO NOT MODIFY THIS FILE.
- * It is framework-owned and will be overwritten by `bos sync` / `bos upgrade`.
+ * This file is yours — scaffolded once by `bos init`, never overwritten by
+ * `bos sync` (ADR 0023). Extend the `@/app` surface freely.
  *
  * Imports within this file must be relative paths (./lib/api, ./lib/auth).
  * Never import from "@/app" here — that would create a circular self-reference.
@@ -17,8 +17,12 @@
  *                        Router, and browser-side auth/API clients once.
  *                        Called from the host-rendered HTML shell.
  *
- *   router.tsx        — Client router factory. Consumes the context set up
- *                        during hydration. Uses browser history.
+ *   router.tsx        — Client router factory: the app's router policy seam
+ *                        (notFound/pending/error components, query timings).
+ *                        The hydrated client router and each SSR request's
+ *                        server router mint through it; the composed manifest
+ *                        tree arrives at call time and wins over the bundled
+ *                        core-only tree.
  *
  *   router.server.tsx — SSR router factory. Creates request-scoped server
  *                        router and server-side API/auth clients per request.

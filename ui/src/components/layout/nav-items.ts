@@ -194,8 +194,8 @@ export interface ManifestRoute {
   id: string;
   parentId?: string;
   path?: string;
-  isLayout?: boolean;
-  isIndex?: boolean;
+  /** Manifest contract v2 node kind (virtual-file-routes vocabulary). */
+  type?: "route" | "layout" | "index";
 }
 
 /**
@@ -221,7 +221,7 @@ export function routePathsFromManifest(routes: ManifestRoute[]): Set<string> {
   };
   return new Set(
     routes
-      .filter((route) => !route.isLayout && route.path)
+      .filter((route) => route.type !== "layout" && route.path)
       .map(resolve)
       .filter((p) => p !== "/"),
   );

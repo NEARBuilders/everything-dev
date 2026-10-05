@@ -27,6 +27,19 @@ export interface CreateRouterOptions<TApiClient = unknown, TSession = unknown> {
   routeTree?: unknown;
 }
 
+/**
+ * The app's authored router factory — the single router-policy seam, minting
+ * the hydrated client router AND each SSR request's router (parity). Apps
+ * type it against their concrete clients; the framework sees them opaquely
+ * (`any` at the boundary — the same contract shape the manifest option
+ * bundles use).
+ */
+export type AppRouterFactory = (
+  opts: CreateRouterOptions<any, any> & {
+    context: RouterContextWithApi<any, any> & { apiClient: any; authClient: any };
+  },
+) => { router: AnyRouter; queryClient?: QueryClient };
+
 export type HeadMeta = NonNullable<AnyRouteMatch["meta"]>[number];
 export type HeadLink = NonNullable<AnyRouteMatch["links"]>[number];
 export type HeadScript = NonNullable<AnyRouteMatch["headScripts"]>[number];

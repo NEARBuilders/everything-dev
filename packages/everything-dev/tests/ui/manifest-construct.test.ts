@@ -5,8 +5,9 @@ import {
   digestOf,
   type ResolvedPlugin,
   type RouteOptionsBundle,
+  type RouteRecord,
+  SUPPORTED_MANIFEST_VERSION,
 } from "../../src/ui/manifest/index";
-import type { RouteRecord } from "../../src/ui/manifest/manifest-schema";
 
 interface TestPlugin {
   key: string;
@@ -17,7 +18,11 @@ interface TestPlugin {
 
 const makePlugin = (plugin: TestPlugin): ResolvedPlugin => ({
   key: plugin.key,
-  manifest: { name: plugin.key, manifestVersion: 1, routes: plugin.routes },
+  manifest: {
+    name: plugin.key,
+    manifestVersion: SUPPORTED_MANIFEST_VERSION,
+    routes: plugin.routes,
+  },
   routeConfig: {
     routeConfigLoaders: Object.fromEntries(
       plugin.routes.map((record) => [record.id, async () => plugin.optionsById?.[record.id] ?? {}]),
@@ -34,7 +39,7 @@ const construct = (plugins: TestPlugin[], rootOptions?: RouteOptionsBundle) =>
     ...(rootOptions ? { rootOptions } : {}),
   });
 
-const mountLayout = (mount: string): RouteRecord => ({ id: `_${mount}`, isLayout: true, mount });
+const mountLayout = (mount: string): RouteRecord => ({ id: `_${mount}`, type: "layout", mount });
 const route = (id: string, path: string, extra: Partial<RouteRecord> = {}): RouteRecord => ({
   id,
   path,
@@ -79,7 +84,7 @@ describe("constructTree", () => {
       key: "ui",
       routes: [
         mountLayout("authenticated"),
-        { id: "_authenticated/_wizard", isLayout: true, parentId: "_authenticated" },
+        { id: "_authenticated/_wizard", type: "layout", parentId: "_authenticated" },
         route("_authenticated/_wizard/step", "/step", { parentId: "_authenticated/_wizard" }),
       ],
       optionsById: {
@@ -240,14 +245,14 @@ describe("constructTree", () => {
       key: "ui",
       routes: [
         mountLayout("authenticated"),
-        { id: "_authenticated/_dashboard", isLayout: true, parentId: "_authenticated" },
+        { id: "_authenticated/_dashboard", type: "layout", parentId: "_authenticated" },
         route("_authenticated/_dashboard/dashboard", "/dashboard", {
           parentId: "_authenticated/_dashboard",
         }),
         route("_authenticated/settings", "/settings", { parentId: "_authenticated" }),
         route("_authenticated/settings/", "/", {
           parentId: "_authenticated/settings",
-          isIndex: true,
+          type: "index",
         }),
         route("_authenticated/settings/profile", "/profile", {
           parentId: "_authenticated/settings",

@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "types": ["node"],
-    "lib": ["ESNext"],
+    "types": ["node", "@rsbuild/core/types"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "target": "ESNext",
     "module": "ESNext",
     "moduleDetection": "force",
@@ -28,7 +28,7 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*", "./ui/src/*"]
     }
   },
   "include": ["src/**/*", "plugin.dev.ts"],

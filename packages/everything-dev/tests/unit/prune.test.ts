@@ -64,6 +64,7 @@ describe("pruneUnusedUiFiles", () => {
     expect(result.pruned.sort()).toEqual([
       "ui/src/components/dead-card.test.tsx",
       "ui/src/components/dead-card.tsx",
+      "ui/src/components/document-fallback.tsx",
       "ui/src/components/ui/unused-primitive.tsx",
       "ui/src/lib/near-rpc-like.ts",
       "ui/src/lib/unused.ts",
@@ -84,12 +85,14 @@ describe("pruneUnusedUiFiles", () => {
     expect(barrel).not.toContain("DeadCard");
   });
 
-  it("keeps framework-owned fallback components without importing routes", () => {
+  it("keeps generated artifacts and root-level files; app-owned fallbacks prune when unreferenced", () => {
     const dir = scaffold();
 
     pruneUnusedUiFiles(dir, { log: () => {} });
 
-    expect(existsSync(join(dir, "ui/src/components/document-fallback.tsx"))).toBe(true);
+    // App-owned ui sources (ADR 0023) prune when nothing references them —
+    // the fallback components here are unreferenced by the fixture routes.
+    expect(existsSync(join(dir, "ui/src/components/document-fallback.tsx"))).toBe(false);
     expect(existsSync(join(dir, "ui/src/routeTree.gen.ts"))).toBe(true);
     expect(existsSync(join(dir, "ui/src/styles.css"))).toBe(true);
   });

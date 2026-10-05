@@ -2,6 +2,7 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parsePluginManifest } from "every-plugin/ui/manifest";
 import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { describe, expect, it } from "vitest";
 
@@ -19,64 +20,57 @@ async function withFixture(name: string, run: (dir: string) => Promise<void>): P
 
 const goldenManifest = {
   name: "auth",
-  manifestVersion: 1,
+  manifestVersion: 2,
   routes: [
-    { id: "_authenticated", isLayout: true, mount: "authenticated", file: "_authenticated.tsx" },
-    { id: "_public", isLayout: true, mount: "public", file: "_public.tsx" },
+    { id: "_authenticated", type: "layout", mount: "authenticated", file: "_authenticated.tsx" },
+    { id: "_public", type: "layout", mount: "public", file: "_public.tsx" },
     {
       id: "_authenticated/_dashboard",
-      isLayout: true,
+      type: "layout",
       parentId: "_authenticated",
       file: "_authenticated/_dashboard.tsx",
-      isIndex: false,
     },
     {
       id: "_authenticated/settings",
       path: "/settings",
-      isLayout: false,
+      type: "route",
       parentId: "_authenticated",
       file: "_authenticated/settings.tsx",
-      isIndex: false,
     },
     {
       id: "_public/login",
       path: "/login",
-      isLayout: false,
+      type: "route",
       parentId: "_public",
       file: "_public/login.tsx",
-      isIndex: false,
     },
     {
       id: "_public/",
       path: "/",
-      isLayout: false,
+      type: "index",
       parentId: "_public",
       file: "_public/index.tsx",
-      isIndex: true,
     },
     {
       id: "_authenticated/_dashboard/dashboard",
       path: "/dashboard",
-      isLayout: false,
+      type: "route",
       parentId: "_authenticated/_dashboard",
       file: "_authenticated/_dashboard/dashboard.tsx",
-      isIndex: false,
     },
     {
       id: "_authenticated/settings/profile",
       path: "/profile",
-      isLayout: false,
+      type: "route",
       parentId: "_authenticated/settings",
       file: "_authenticated/settings/profile.tsx",
-      isIndex: false,
     },
     {
       id: "_authenticated/settings/",
       path: "/",
-      isLayout: false,
+      type: "index",
       parentId: "_authenticated/settings",
       file: "_authenticated/settings/index.tsx",
-      isIndex: true,
     },
   ],
 };
@@ -169,5 +163,13 @@ describe("generateUiManifest", () => {
         /route "cli" .* must live under a mount/,
       );
     });
+  });
+
+  it("refuses manifests from an unsupported contract major at load time", () => {
+    const skewed = { ...goldenManifest, manifestVersion: goldenManifest.manifestVersion + 1 };
+    expect(() => parsePluginManifest(skewed)).toThrow(/manifest version/);
+    expect(parsePluginManifest(goldenManifest).manifestVersion).toBe(
+      goldenManifest.manifestVersion,
+    );
   });
 });

@@ -19,6 +19,28 @@ export interface CoreUiRsbuildConfigInput {
   account?: string;
 }
 
+/**
+ * The core ui's MF build surface — entry points and the declared exposes
+ * (ADR 0008 §2). Entries and the bootstrap exposes resolve to GENERATED
+ * stubs (ADR 0023); only surfaces with consumers are declared: the browser
+ * bootstrap, the shared component barrel, the SSR router module, the
+ * composition engine, and the generated route config.
+ */
+export const CORE_UI_WEB_ENTRY = "./src/entry.gen.ts";
+
+export const CORE_UI_WEB_EXPOSES: Record<string, string> = {
+  "./Hydrate": "./src/hydrate.gen.tsx",
+  "./components": "./src/components/index.ts",
+};
+
+export const CORE_UI_NODE_ENTRY = "./src/router.server.gen.tsx";
+
+export const CORE_UI_NODE_EXPOSES: Record<string, string> = {
+  "./Router": "./src/router.server.gen.tsx",
+  "./compose": "./src/compose.gen.ts",
+  "./routeConfig": "./src/routeConfig.gen.ts",
+};
+
 export function createCoreUiRsbuildConfig({ domain, account }: CoreUiRsbuildConfigInput = {}) {
   const workspaceRoot = process.cwd();
   const pkg = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "package.json"), "utf-8")) as {
@@ -31,19 +53,10 @@ export function createCoreUiRsbuildConfig({ domain, account }: CoreUiRsbuildConf
     role: "provider",
     manifestName: CORE_UI_PLUGIN_KEY,
     devPort: 3003,
-    webEntry: "./src/entry.ts",
-    webExposes: {
-      "./Hydrate": "./src/hydrate.tsx",
-      "./components": "./src/components/index.ts",
-      "./providers": "./src/providers/index.tsx",
-      "./hooks": "./src/hooks/index.ts",
-    },
-    nodeEntry: "./src/router.server.tsx",
-    nodeExposes: {
-      "./Router": "./src/router.server.tsx",
-      "./compose": "./src/compose.ts",
-      "./routeConfig": "./src/routeConfig.gen.ts",
-    },
+    webEntry: CORE_UI_WEB_ENTRY,
+    webExposes: CORE_UI_WEB_EXPOSES,
+    nodeEntry: CORE_UI_NODE_ENTRY,
+    nodeExposes: CORE_UI_NODE_EXPOSES,
     copy: [{ from: path.join(workspaceRoot, "public"), to: "./" }],
     define: {
       "import.meta.env.APP_NAME": JSON.stringify(domain),
