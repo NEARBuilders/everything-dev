@@ -61,14 +61,15 @@ func requireTestDatabases(t *testing.T) {
 	for _, port := range []int{5434, 5435} {
 		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second)
 		if err != nil {
-			t.Skipf("test database on port %d is not running — start it with `bun run test:db:up`", port)
+			t.Skipf("test database on port %d is not running — start it with `pnpm run test:db:up`", port)
 		}
 		conn.Close()
 	}
 }
 
-// buildDevCommand assembles a real `bos dev` CLI invocation from source (bun
-// cli.ts) on an explicit port block, with the test env layered on top:
+// buildDevCommand assembles a real `bos dev` CLI invocation from source
+// (node --import tsx cli.ts — the parent's own dev-script form) on an explicit
+// port block, with the test env layered on top:
 // .env.test's DB URLs and secret, port-derived origins, and the ephemeral-run
 // guards. interactive=false passes --no-interactive (signal-driven teardown
 // tests); interactive=true leaves the TUI to mount under the caller's pty.
@@ -105,7 +106,10 @@ func buildDevCommand(t *testing.T, basePort int, registryPath string, interactiv
 		"--plugin-port-start", strconv.Itoa(basePort+10),
 	)
 
-	cmd := exec.Command("bun", args...)
+	cmd := exec.Command("node", append([]string{
+		"--import", "tsx",
+		"--conditions=development",
+	}, args...)...)
 	cmd.Dir = repoRoot
 	cmd.Env = childEnv(overrides)
 
@@ -120,7 +124,7 @@ func buildDevCommand(t *testing.T, basePort int, registryPath string, interactiv
 	return cmd, logFile, repoRoot
 }
 
-// StartStack boots a real `bos dev` session from source (bun cli.ts) on an
+// StartStack boots a real `bos dev` session from source (tsx cli.ts) on an
 // explicit port block, waits for the host to answer /health, then waits for
 // the registry to carry the session's full childPids map. registryPath is
 // caller-owned: tests that boot multiple stacks pass the SAME path (like the
@@ -277,7 +281,7 @@ func (s *Stack) logTail(n int) string {
 func (s *Stack) RunBosKill() {
 	s.t.Helper()
 	cliPath := filepath.Join(s.repoRoot, "packages", "everything-dev", "src", "cli.ts")
-	cmd := exec.Command("bun", cliPath, "kill")
+	cmd := exec.Command("node", "--import", "tsx", "--conditions=development", cliPath, "kill")
 	cmd.Dir = s.repoRoot
 	base := os.Environ()
 	filtered := base[:0:0]

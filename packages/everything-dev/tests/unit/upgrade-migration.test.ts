@@ -373,7 +373,7 @@ describe("upgrade bos config migration", () => {
     expect(pkg.scripts?.version).toBe("changeset version");
     expect(pkg.scripts?.["sync-catalog"]).toBeUndefined();
     expect(pkg.scripts?.typecheck).toBe(
-      "bun run types:gen && if [ -d ui ]; then bun run --cwd ui typecheck; fi",
+      "pnpm run types:gen && if [ -d ui ]; then pnpm --dir ui run typecheck; fi",
     );
     expect(pkg.overrides).toBeUndefined();
     expect(pkg.workspaces?.packages).toEqual(["ui"]);
@@ -615,7 +615,7 @@ describe("upgrade bos config migration", () => {
       repository: "https://github.com/NEARBuilders/everything-dev",
       extendsChain: [],
     } as never);
-    vi.spyOn(initModule, "runBunInstallForUpgrade").mockResolvedValue();
+    vi.spyOn(initModule, "runPnpmInstallForUpgrade").mockResolvedValue();
     vi.spyOn(initModule, "runTypesGen").mockResolvedValue();
     vi.spyOn(syncModule, "syncTemplate").mockImplementation(async (dir, _options) => {
       await initModule.personalizeConfig(dir, {

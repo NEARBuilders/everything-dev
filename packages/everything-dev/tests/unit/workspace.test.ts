@@ -26,16 +26,6 @@ function makeRoot(layout: Record<string, Record<string, unknown>>): string {
   return dir;
 }
 
-function makeMember(
-  root: WorkspaceRoot,
-  name: string,
-  localDeps: readonly string[],
-): WorkspaceMember {
-  const member = root.members.find((entry) => entry.name === name);
-  if (!member) throw new Error(`fixture member ${name} missing`);
-  return { ...member, localDeps };
-}
-
 function makeRootFromMembers(rootDir: string, members: readonly WorkspaceMember[]): WorkspaceRoot {
   return { dir: rootDir, members };
 }

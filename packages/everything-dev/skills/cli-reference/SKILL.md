@@ -155,7 +155,7 @@ Verify Module Federation runtime compatibility across the published host + plugi
 bos mf check     # exits 0 if compatible, 1 with diagnostic output if not
 ```
 
-Use after redeploying any plugin to verify federation reachability before the next deploy. CI runs this on every push/PR; do not disable the gate. When it fails, redeploy the lagging plugin via `cd plugins/<key> && bun run deploy && bos publish --deploy`.
+Use after redeploying any plugin to verify federation reachability before the next deploy. CI runs this on every push/PR; do not disable the gate. When it fails, redeploy the lagging plugin via `cd plugins/<key> && pnpm run deploy && bos publish --deploy`.
 
 → [`publish-sync`](.) skill for the federation-compat failure mode and the recovery workflow.
 
@@ -242,7 +242,7 @@ bos plugin publish my-plugin
 
 ### `bos types gen`
 
-Generate and fetch type definitions from configured API and plugin contracts. Runs automatically on `bun install`, `bos dev`, `bos build`, `bos plugin add`, and `bos plugin remove`.
+Generate and fetch type definitions from configured API and plugin contracts. Runs automatically on `pnpm install`, `bos dev`, `bos build`, `bos plugin add`, and `bos plugin remove`.
 
 **Flags:** `--env <development|production>` `--dry-run`
 

@@ -1,6 +1,12 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
-import { remoteName } from "every-plugin/identity";
+import { remoteName } from "../../identity";
+
+// Bare `require` only exists under bun's ESM; node ESM needs an explicit
+// binding. tsx patches the module loader, so this require still loads the
+// plugin.dev.ts source.
+const require = createRequire(import.meta.url);
 
 export interface PluginInfo {
   name: string;

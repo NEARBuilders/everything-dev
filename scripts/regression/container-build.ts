@@ -234,7 +234,12 @@ const run = (cmd: string, args: string[], cwd: string, env: Record<string, strin
 
 const build = () => {
   console.log("[container-build] better-near-auth (production dist for prod-mode resolution)…");
-  run("bun", ["run", "build"], "packages/better-near-auth");
+  run("pnpm", ["run", "build"], "packages/better-near-auth");
+
+  console.log(
+    "[container-build] core ui bootstrap stubs (ADR 0023 — emitted by the train's code-artifact pass)…",
+  );
+  emitCoreUiStubs(path.join(root, "ui"));
 
   console.log(
     "[container-build] core ui bootstrap stubs (ADR 0023 — emitted by the train's code-artifact pass)…",
@@ -242,14 +247,14 @@ const build = () => {
   emitCoreUiStubs(path.join(root, "ui"));
 
   console.log("[container-build] core ui (web, then ssr — sequential environments)…");
-  run("bun", ["run", "build:client"], "ui");
-  run("bun", ["run", "build:ssr"], "ui");
+  run("pnpm", ["run", "build:client"], "ui");
+  run("pnpm", ["run", "build:ssr"], "ui");
 
   console.log("[container-build] host dist…");
-  run("bun", ["run", "build"], "host");
+  run("pnpm", ["run", "build"], "host");
 
   console.log("[container-build] api remote…");
-  run("bun", ["run", "build"], "api");
+  run("pnpm", ["run", "build"], "api");
 
   // app.auth is an app-slot, not a plugins.* entry — its workspace build
   // (`every-plugin build`) covers the api remote AND the folder-form ui.
@@ -257,12 +262,12 @@ const build = () => {
   if (typeof authDevelopment === "string" && authDevelopment.startsWith("local:")) {
     const authWorkspace = authDevelopment.slice("local:".length);
     console.log("[container-build] auth app-slot (api remote + folder-form ui)…");
-    run("bun", ["run", "build"], authWorkspace);
+    run("pnpm", ["run", "build"], authWorkspace);
   }
 
   for (const [key, workspace] of localPlugins) {
     console.log(`[container-build] plugin ${key} (api remote)…`);
-    run("bun", ["run", "build"], workspace);
+    run("pnpm", ["run", "build"], workspace);
   }
 };
 
@@ -393,7 +398,10 @@ const stage = () => {
 
   // Namespace staging (plan 043): the same artifacts laid out at the exact
   // paths the /bundles/* FS route serves — bundles/<account>/<gateway>/<ws>/.
-  // The prod image's runtime points BOS_BUNDLE_DIR here.
+  // The prod image's runtime points BOS_BUNDLE_DIR here. The template plugin
+  // is not staged: it stays registered and is built + uploaded by the deploy
+  // train, so at boot its own-namespace miss falls through to the network
+  // (unified resolution policy) and it loads from the CDN like a child.
   const nsAccount = bosConfig.account;
   const nsGateway = bosConfig.domain;
   if (nsAccount && nsGateway) {
@@ -405,7 +413,9 @@ const stage = () => {
       ["api/dist", "api"],
       ["plugins/auth/ui/dist", "auth-ui"],
       ...(authWorkspace ? [[path.join(authWorkspace, "dist"), "auth"] as const] : []),
-      ...localPlugins.map(([key, workspace]) => [path.join(workspace, "dist"), key] as const),
+      ...localPlugins
+        .filter(([key]) => key !== "template")
+        .map(([key, workspace]) => [path.join(workspace, "dist"), key] as const),
     ]) {
       cpSync(path.join(root, from), path.join(ns, to), { recursive: true });
     }

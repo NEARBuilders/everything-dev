@@ -6,7 +6,7 @@ import {
   buildInitPatterns,
   copyFilteredFiles,
   personalizeConfig,
-  runBunInstall,
+  runPnpmInstall,
 } from "../../src/cli/init";
 import { writeChildConfigFixture } from "../helpers/parent-config";
 import { getFrameworkTarballs, rewriteFrameworkPackageSpecs } from "./framework-packages";
@@ -59,11 +59,11 @@ describe.skipIf(process.env.CI !== "true")("bos init — full (install + typeche
     });
     rewriteFrameworkPackageSpecs(testDir, frameworkTarballs);
 
-    await runBunInstall(testDir);
+    await runPnpmInstall(testDir);
     writeGeneratedAuthStubs(testDir);
     expect(existsSync(join(testDir, "node_modules"))).toBe(true);
 
-    const typesGenResult = await runCommand("bun", ["run", "types:gen"], testDir);
+    const typesGenResult = await runCommand("pnpm", ["run", "types:gen"], testDir);
     expect(
       typesGenResult.code,
       `types:gen exited ${typesGenResult.code}\n--- stdout ---\n${typesGenResult.stdout}\n--- stderr ---\n${typesGenResult.stderr}`,

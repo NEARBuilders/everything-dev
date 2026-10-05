@@ -25,7 +25,7 @@ export async function seedOnboardingCodes(): Promise<{
     const unique = randomUUID().slice(0, 8);
     const organizer = await test.saveUser(
       test.createUser({
-        email: `regression-organizer-${unique}@citynode.test`,
+        email: `regression-organizer-${unique}@regression.test`,
         name: "Regression Organizer",
         emailVerified: true,
       }),

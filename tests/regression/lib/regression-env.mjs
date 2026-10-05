@@ -41,8 +41,13 @@ export function loadRegressionConfig(repoRoot) {
   }
 
   const result = spawnSync(
-    "bun",
-    ["--conditions=development", path.join(repoRoot, "tests/regression/lib/resolve-config.mjs")],
+    "node",
+    [
+      "--import",
+      "tsx",
+      "--conditions=development",
+      path.join(repoRoot, "tests/regression/lib/resolve-config.mjs"),
+    ],
     { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
   );
   if (result.status !== 0) {
@@ -109,8 +114,8 @@ export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
       throw new Error(
         `refusing to run: ${secret} resolves to the dev database. ` +
           "Regression tests must stay isolated from dev databases. " +
-          "Restore the generated .env.test (run `bun run bos dev` to regenerate), " +
-          "or start the test databases with `bun run test:db:up`, " +
+          "Restore the generated .env.test (run `pnpm run bos dev` to regenerate), " +
+          "or start the test databases with `pnpm run test:db:up`, " +
           "or set REGRESSION_ALLOW_DEV_DB=1 to override deliberately.",
       );
     }
@@ -153,9 +158,14 @@ export function regressionStackOptions(config, mode, env = process.env) {
     );
   }
   const { basePort } = config;
+  // node + tsx runs the CLI from source (bun's native TS execution is retired
+  // — ADR 0026); the development condition keeps framework packages resolving
+  // src over a possibly stale dist (ADR 0018).
+  const tsFromSource = ["--import", "tsx", "--conditions=development"];
   const command =
     mode === "backcompat"
       ? [
+          ...tsFromSource,
           "packages/everything-dev/src/cli.ts",
           "dev",
           "--no-interactive",
@@ -181,6 +191,7 @@ export function regressionStackOptions(config, mode, env = process.env) {
           String(basePort + 10),
         ]
       : [
+          ...tsFromSource,
           "packages/everything-dev/src/cli.ts",
           "dev",
           "--no-interactive",

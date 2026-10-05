@@ -14,6 +14,7 @@ import { pipeline } from "node:stream/promises";
 import { execa } from "execa";
 import { glob } from "glob";
 import { extract as tarExtract } from "tar";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   buildAuthContractStub,
   buildAuthExportStub,
@@ -32,8 +33,128 @@ import { walkExtendsChain } from "../resolution/session";
 import type { BosConfig, BosConfigInput, ParentStarterConfig, StarterLevel } from "../types";
 import { saveBosConfig } from "../utils/save-config";
 import { computeSnapshotHash as computeHash } from "../utils/snapshot-hash";
+import { readWorkspaceCatalog as readWorkspaceCatalogFromDisk } from "../workspace-catalog";
 import { writeSnapshot } from "./snapshot";
-import { getExtendsRef, parseBosRef, readJsonFile } from "./utils/helpers";
+import { getExtendsRef, parseBosRef } from "./utils/helpers";
+
+export const PNPM_PACKAGE_MANAGER = "pnpm@10.20.0";
+
+/**
+ * Transitive-singleton overrides every workspace in the fleet must agree on
+ * (ticket 05's deviation log: isolated resolution splits better-auth
+ * peer-context identities across the plugin fleet). Values derive from the
+ * catalog so sync keeps them current; keys absent from the catalog are left
+ * unpinned.
+ */
+const CHILD_OVERRIDE_KEYS = [
+  "@better-fetch/fetch",
+  "@rspack/core",
+  "better-auth",
+  "react",
+  "react-dom",
+] as const;
+
+/**
+ * The child's workspace manifest: pnpm-workspace.yaml is canonical (v2, ADR
+ * 0026) — packages globs synthesized from the child's override sections, the
+ * catalog merged over any local entry, plus the fleet-wide linker posture and
+ * singleton overrides. Re-running (sync/upgrade) merges instead of clobbering.
+ */
+export function writeChildWorkspaceYaml(
+  projectDir: string,
+  next: { packages: string[]; catalog: Record<string, string> },
+): boolean {
+  const yamlPath = join(projectDir, "pnpm-workspace.yaml");
+  let doc: {
+    packages?: string[];
+    catalog?: Record<string, string>;
+    nodeLinker?: string;
+    linkWorkspacePackages?: boolean;
+    ignoreScripts?: boolean;
+    overrides?: Record<string, string>;
+  } = {};
+  if (existsSync(yamlPath)) {
+    try {
+      const parsed = parseYaml(readFileSync(yamlPath, "utf-8"));
+      if (parsed && typeof parsed === "object") doc = parsed;
+    } catch {
+      doc = {};
+    }
+  }
+
+  let changed = !existsSync(yamlPath);
+  const packages = [...new Set([...(doc.packages ?? []), ...next.packages])].sort();
+  if (JSON.stringify(packages) !== JSON.stringify(doc.packages)) {
+    doc.packages = packages;
+    changed = true;
+  }
+
+  const catalog: Record<string, string> = { ...(doc.catalog ?? {}) };
+  for (const [name, version] of Object.entries(next.catalog)) {
+    if (catalog[name] !== version) {
+      catalog[name] = version;
+      changed = true;
+    }
+  }
+  if (
+    Object.keys(catalog).length > 0 &&
+    Object.keys(catalog).length !== Object.keys(doc.catalog ?? {}).length
+  ) {
+    changed = true;
+  }
+  if (changed || !doc.catalog) {
+    doc.catalog = Object.fromEntries(
+      Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b)),
+    );
+  }
+
+  if (doc.nodeLinker !== "hoisted") {
+    doc.nodeLinker = "hoisted";
+    changed = true;
+  }
+  if (doc.linkWorkspacePackages !== true) {
+    doc.linkWorkspacePackages = true;
+    changed = true;
+  }
+  if (doc.ignoreScripts !== true) {
+    doc.ignoreScripts = true;
+    changed = true;
+  }
+
+  const overrides: Record<string, string> = { ...(doc.overrides ?? {}) };
+  for (const key of CHILD_OVERRIDE_KEYS) {
+    if (catalog[key] && overrides[key] !== catalog[key]) {
+      overrides[key] = catalog[key];
+      changed = true;
+    }
+  }
+  if (Object.keys(overrides).length > 0) {
+    doc.overrides = Object.fromEntries(
+      Object.entries(overrides).sort(([a], [b]) => a.localeCompare(b)),
+    );
+  }
+
+  if (changed) {
+    writeFileSync(yamlPath, `${stringifyYaml(doc, { lineWidth: 0 }).trimEnd()}\n`);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Init must never reuse a lockfile left in the target (copied from a parent
+ * checkout or left by a previous run) — stale framework resolutions would
+ * survive the fresh install. Bun's bun.lock is deleted on sight (ADR 0026's
+ * silent-revert footgun); the child's own pnpm-lock.yaml is re-resolved.
+ */
+export function removeStrayLockfiles(projectDir: string): void {
+  for (const lockfile of ["pnpm-lock.yaml", "bun.lock"]) {
+    const lockfilePath = join(projectDir, lockfile);
+    if (existsSync(lockfilePath)) {
+      rmSync(lockfilePath, { force: true });
+    }
+  }
+}
 
 export const INIT_ROOT_PATTERNS = [
   "bos.config.json",
@@ -41,7 +162,6 @@ export const INIT_ROOT_PATTERNS = [
   ".env.example",
   ".gitignore",
   "biome.json",
-  "bunfig.toml",
   "Dockerfile",
   "railway.json",
   "railway.toml",
@@ -76,13 +196,7 @@ export interface CatalogChainSource {
 }
 
 export function readWorkspaceCatalog(sourceDir: string): Record<string, string> {
-  const pkgPath = join(sourceDir, "package.json");
-  if (!existsSync(pkgPath)) {
-    return {};
-  }
-
-  const pkg = readJsonFile<{ workspaces?: { catalog?: Record<string, string> } }>(pkgPath);
-  return { ...pkg.workspaces?.catalog };
+  return readWorkspaceCatalogFromDisk(sourceDir);
 }
 
 export async function resolveCatalogChainSource(opts: {
@@ -576,20 +690,20 @@ function buildRootTypecheckScript(sections: {
   host: boolean;
   plugins: boolean;
 }): string {
-  const commands = ["bun run types:gen"];
+  const commands = ["pnpm run types:gen"];
 
   if (sections.ui) {
-    commands.push("if [ -d ui ]; then bun run --cwd ui typecheck; fi");
+    commands.push("if [ -d ui ]; then pnpm --dir ui run typecheck; fi");
   }
   if (sections.api) {
-    commands.push("if [ -d api ]; then bun run --cwd api typecheck; fi");
+    commands.push("if [ -d api ]; then pnpm --dir api run typecheck; fi");
   }
   if (sections.host) {
-    commands.push("if [ -d host ]; then bun run --cwd host typecheck; fi");
+    commands.push("if [ -d host ]; then pnpm --dir host run typecheck; fi");
   }
   if (sections.plugins) {
     commands.push(
-      'if [ -d plugins ]; then for dir in plugins/*; do if [ -f "$dir/package.json" ]; then bun run --cwd "$dir" typecheck; fi; done; fi',
+      'if [ -d plugins ]; then for dir in plugins/*; do if [ -f "$dir/package.json" ]; then pnpm --dir "$dir" run typecheck; fi; done; fi',
     );
   }
 
@@ -636,32 +750,32 @@ export function buildChildRootScripts(sections: {
     changeset: "changeset",
     version: "changeset version",
     release: "echo 'Packages versioned - app release handled by workflow'",
-    "types:gen": "node node_modules/.bin/bos types gen",
+    "types:gen": "bos types gen",
     bos: "bos",
   };
 
   if (sections.api) {
-    scripts["db:push"] = "bun run --cwd api drizzle-kit push";
+    scripts["db:push"] = "pnpm --dir api exec drizzle-kit push";
     scripts["db:studio"] = "bos db:studio";
     scripts["db:doctor"] = "bos db:doctor";
     scripts["db:repair"] = "bos db:repair";
-    scripts["db:generate"] = "bun run --cwd api drizzle-kit generate";
-    scripts["db:migrate"] = "bun run --cwd api drizzle-kit migrate";
-    scripts["test:api"] = "bun run --cwd api test --if-present";
-    scripts["test:integration"] = "bun run --cwd api test tests/integration/ --if-present";
+    scripts["db:generate"] = "pnpm --dir api exec drizzle-kit generate";
+    scripts["db:migrate"] = "pnpm --dir api exec drizzle-kit migrate";
+    scripts["test:api"] = "pnpm --dir api run test --if-present";
+    scripts["test:integration"] = "pnpm --dir api run test tests/integration/ --if-present";
   }
 
   if (sections.host) {
-    scripts["test:e2e"] = "bun run --cwd host test --if-present";
+    scripts["test:e2e"] = "pnpm --dir host run test --if-present";
   }
 
   const testTargets: string[] = [];
-  if (sections.api) testTargets.push("bun run --cwd api test --if-present");
-  if (sections.host) testTargets.push("bun run --cwd host test --if-present");
-  if (sections.ui) testTargets.push("bun run --cwd ui test --if-present");
+  if (sections.api) testTargets.push("pnpm --dir api run test --if-present");
+  if (sections.host) testTargets.push("pnpm --dir host run test --if-present");
+  if (sections.ui) testTargets.push("pnpm --dir ui run test --if-present");
   if (sections.plugins) {
     testTargets.push(
-      'for d in plugins/*; do [ -f "$d/package.json" ] && bun run --cwd "$d" test --if-present; done',
+      'for d in plugins/*; do [ -f "$d/package.json" ] && pnpm --dir "$d" run test --if-present; done',
     );
   }
   scripts.test =
@@ -672,7 +786,7 @@ export function buildChildRootScripts(sections: {
   // Scripts key off the child's own override selection (what it runs locally),
   // not off resolved-config secrets — a ui-only child gets none of these.
   if (sections.api || sections.host) {
-    scripts["dev:postgres"] = "docker compose up -d --wait && bun run dev";
+    scripts["dev:postgres"] = "docker compose up -d --wait && pnpm run dev";
     scripts["dev:postgres:down"] = "docker compose down";
     scripts["dev:postgres:reset"] = "docker compose down -v && docker compose up -d --wait";
   }
@@ -982,29 +1096,21 @@ export async function personalizeConfig(
     }
     pkg.private = true;
     pkg.type = "module";
+    pkg.packageManager = PNPM_PACKAGE_MANAGER;
     delete pkg.module;
     delete pkg.peerDependencies;
     delete pkg.patchedDependencies;
 
-    if (pkg.workspaces && typeof pkg.workspaces === "object") {
-      const ws = pkg.workspaces as { packages?: string[] };
-      if (Array.isArray(ws.packages)) {
-        ws.packages = ws.packages.filter((p: string) => {
-          if (p.startsWith("packages/")) return false;
-          if (p === "ui") return has("ui");
-          if (p === "api") return has("api");
-          if (p === "host") return has("host");
-          if (p.startsWith("plugins/")) return false;
-          return true;
-        });
-
-        if (has("plugins")) {
-          if (!ws.packages.includes("plugins/*")) {
-            ws.packages.push("plugins/*");
-          }
-        }
-      }
-    }
+    const childWorkspaces: string[] = [];
+    if (has("host")) childWorkspaces.push("host");
+    if (has("ui")) childWorkspaces.push("ui");
+    if (has("api")) childWorkspaces.push("api");
+    if (has("plugins")) childWorkspaces.push("plugins/*");
+    const localCatalog =
+      pkg.workspaces && typeof pkg.workspaces === "object"
+        ? ((pkg.workspaces as { catalog?: Record<string, string> }).catalog ?? {})
+        : {};
+    delete pkg.workspaces;
 
     if (!pkg.scripts || typeof pkg.scripts !== "object") {
       pkg.scripts = {};
@@ -1016,6 +1122,7 @@ export async function personalizeConfig(
     for (const obsoleteScript of [
       ...getParentOnlyScriptKeys(destination),
       "init",
+      "prepare",
       "sync-catalog",
       "db:push",
       "db:studio",
@@ -1044,15 +1151,15 @@ export async function personalizeConfig(
       delete deps["everything-dev"];
     }
 
-    if (!pkg.workspaces || typeof pkg.workspaces !== "object") {
-      pkg.workspaces = { packages: [], catalog: {} };
-    }
-    const workspaces = pkg.workspaces as { packages?: string[]; catalog?: Record<string, string> };
-    if (!workspaces.catalog || typeof workspaces.catalog !== "object") {
-      workspaces.catalog = {};
-    }
+    const catalog: Record<string, string> = { ...localCatalog };
 
-    if (!pkg.dependencies) pkg.dependencies = {};
+    // The copied root manifest is the parent's — a monorepo root whose
+    // dependencies (workspace members, vendored links) do not exist in the
+    // child. The child root carries exactly the framework packages.
+    pkg.dependencies = {
+      "everything-dev": "catalog:",
+      "every-plugin": "catalog:",
+    };
     const deps = pkg.dependencies as Record<string, string>;
     const spec = opts.workspaceOpts?.sourceDir
       ? loadManifestNormalizationSpec(opts.workspaceOpts.sourceDir)
@@ -1061,10 +1168,10 @@ export async function personalizeConfig(
       const rootCatalogEverythingDev = spec.rootCatalog["everything-dev"];
       const rootCatalogEveryPlugin = spec.rootCatalog["every-plugin"];
       if (rootCatalogEverythingDev) {
-        workspaces.catalog["everything-dev"] = rootCatalogEverythingDev;
+        catalog["everything-dev"] = rootCatalogEverythingDev;
       }
       if (rootCatalogEveryPlugin) {
-        workspaces.catalog["every-plugin"] = rootCatalogEveryPlugin;
+        catalog["every-plugin"] = rootCatalogEveryPlugin;
       }
     }
     const frameworkCatalog = (
@@ -1075,12 +1182,14 @@ export async function personalizeConfig(
       })
     ).catalog;
     for (const [name, version] of Object.entries(frameworkCatalog)) {
-      workspaces.catalog[name] = version;
+      catalog[name] = version;
     }
     if (!deps["everything-dev"]) deps["everything-dev"] = "catalog:";
     if (!deps["every-plugin"]) deps["every-plugin"] = "catalog:";
 
     writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+
+    writeChildWorkspaceYaml(destination, { packages: childWorkspaces, catalog });
   }
 
   const apiTsConfigPath = join(destination, "api", "tsconfig.json");
@@ -1209,14 +1318,14 @@ function toRelativeImportPath(fromPath: string, toPath: string): string {
   return rel.startsWith(".") ? rel : `./${rel}`;
 }
 
-export async function runBunInstall(
+export async function runPnpmInstall(
   destination: string,
   opts?: {
     spinner?: { message: (msg: string) => void };
   },
 ): Promise<void> {
   await runWithProgress(
-    "bun",
+    "pnpm",
     ["install", "--ignore-scripts"],
     destination,
     opts?.spinner,
@@ -1224,14 +1333,14 @@ export async function runBunInstall(
   );
 }
 
-export async function runBunInstallForUpgrade(
+export async function runPnpmInstallForUpgrade(
   destination: string,
   opts?: {
     spinner?: { message: (msg: string) => void };
   },
 ): Promise<void> {
   await runWithProgress(
-    "bun",
+    "pnpm",
     ["install", "--force"],
     destination,
     opts?.spinner,
@@ -1290,50 +1399,6 @@ async function runWithProgress(
   } else {
     await child;
   }
-}
-
-export function stripOrphanedWorkspacesFromLockfile(
-  lockfilePath: string,
-  allowedWorkspaces: string[],
-): void {
-  if (!existsSync(lockfilePath)) return;
-
-  const content = readFileSync(lockfilePath, "utf-8");
-  let lockfile: Record<string, unknown>;
-  try {
-    lockfile = JSON.parse(content) as Record<string, unknown>;
-  } catch {
-    return;
-  }
-
-  const workspaces = lockfile.workspaces;
-  if (!workspaces || typeof workspaces !== "object") return;
-
-  const workspaceMap = workspaces as Record<string, unknown>;
-  const allowed = new Set(["", ...allowedWorkspaces]);
-
-  const keys = Object.keys(workspaceMap);
-  let changed = false;
-  for (const key of keys) {
-    if (allowed.has(key)) continue;
-    if (
-      allowedWorkspaces.some(
-        (pattern) => pattern.endsWith("/*") && key.startsWith(pattern.slice(0, -1)),
-      )
-    )
-      continue;
-    delete workspaceMap[key];
-    changed = true;
-  }
-
-  if (changed) {
-    writeFileSync(lockfilePath, `${JSON.stringify(lockfile, null, 2)}\n`);
-  }
-}
-
-export function removeInitLockfile(lockfilePath: string): void {
-  if (!existsSync(lockfilePath)) return;
-  rmSync(lockfilePath, { force: true });
 }
 
 export async function scaffoldMinimalProject(
@@ -1433,6 +1498,7 @@ export async function scaffoldMinimalProject(
     name: "monorepo",
     private: true,
     type: "module",
+    packageManager: PNPM_PACKAGE_MANAGER,
     scripts: buildChildRootScripts({
       ui: has("ui"),
       api: has("api"),
@@ -1444,12 +1510,10 @@ export async function scaffoldMinimalProject(
       "every-plugin": "catalog:",
     },
     devDependencies: {},
-    workspaces: {
-      packages: workspacePackages,
-      catalog,
-    },
   };
   writeFileSync(join(destination, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
+
+  writeChildWorkspaceYaml(destination, { packages: workspacePackages, catalog });
 
   writeFileSync(join(destination, ".gitignore"), generateGitignore());
 
@@ -1552,12 +1616,12 @@ export async function generateDatabaseMigrations(destination: string): Promise<v
     if (!scripts?.["db:generate"]) continue;
 
     const cwd = join(destination, workspaceDir);
-    await execCommand("bun", ["run", "db:generate"], cwd);
+    await execCommand("pnpm", ["--dir", "api", "exec", "drizzle-kit", "generate"], cwd);
   }
 }
 
 const COMMAND_TIMEOUTS: Record<string, number> = {
-  bun: 5 * 60_000,
+  pnpm: 5 * 60_000,
   docker: 5 * 60_000,
   node_modules: 2 * 60_000,
   tar: 60_000,
@@ -1593,8 +1657,8 @@ This document provides operational guidance for AI agents working in this everyt
 
 **Start Development:**
 \`\`\`bash
-bun install
-bun run dev
+pnpm install
+pnpm run dev
 \`\`\`
 
 **Check Status:**
@@ -1667,8 +1731,8 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
   parts.push(`## Development Workflow
 
 ### Starting Development
-1. \`bun install\`
-2. \`bun run dev\`
+1. \`pnpm install\`
+2. \`pnpm run dev\`
 3. \`bos dev\` creates \`.env\` on first run and starts local Postgres via docker compose when it is down`);
 
   parts.push(`### Debugging Issues
@@ -1683,7 +1747,7 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
 - Clear browser cache and retry
 
 **Type errors:**
-- Run \`bun run typecheck\``);
+- Run \`pnpm run typecheck\``);
 
   const changeLines: string[] = ["### Making Changes"];
   if (has("ui"))
@@ -1732,16 +1796,16 @@ The API plugin receives typed client factories for all other plugins via \`creat
 
 ### Generated Types
 
-\`api/src/lib/plugins-types.gen.ts\`, \`api/src/lib/auth-types.gen.ts\`, \`ui/src/lib/api-types.gen.ts\`, and \`ui/src/lib/auth-types.gen.ts\` are generated by \`bos types gen\` from \`bos.config.json\`. These files are gitignored and auto-regenerated on \`bun install\`, \`typecheck\`, \`bos dev\`, \`bos build\`, and bos plugin management commands.
+\`api/src/lib/plugins-types.gen.ts\`, \`api/src/lib/auth-types.gen.ts\`, \`ui/src/lib/api-types.gen.ts\`, and \`ui/src/lib/auth-types.gen.ts\` are generated by \`bos types gen\` from \`bos.config.json\`. These files are gitignored and auto-regenerated on \`pnpm install\`, \`typecheck\`, \`bos dev\`, \`bos build\`, and bos plugin management commands.
 
 If you hand-edit \`bos.config.json\`, run \`bos types gen\` or restart \`bos dev\` to regenerate.`);
   }
 
   const testCommands: string[] = [];
   if (has("api") || has("host") || has("ui")) {
-    testCommands.push("bun run test    # Run all tests");
-    testCommands.push("bun typecheck   # Type check all packages");
-    testCommands.push("bun lint        # Run linting");
+    testCommands.push("pnpm run test    # Run all tests");
+    testCommands.push("pnpm run typecheck   # Type check all packages");
+    testCommands.push("pnpm run lint        # Run linting");
   }
   if (testCommands.length > 0) {
     parts.push(`## Testing & Quality
@@ -1820,8 +1884,8 @@ Remotes in \`bos.config.json\` are **not hosted APIs** — they are code bundles
 **Process won't start:**
 \`\`\`bash
 bos kill        # Kill all tracked processes
-bun install     # Ensure dependencies
-bun run dev     # Restart
+pnpm install    # Ensure dependencies
+pnpm run dev    # Restart
 \`\`\`
 
 **Module Federation errors:**
@@ -1831,8 +1895,8 @@ bun run dev     # Restart
 
 **Database issues:**
 \`\`\`bash
-bun run db:push   # Push schema changes
-bun run db:studio # Open Drizzle Studio
+pnpm run db:push   # Push schema changes
+pnpm run db:studio # Open Drizzle Studio
 \`\`\`
 
 ## Environment
@@ -1992,7 +2056,7 @@ Remotes in \`bos.config.json\` are **not hosted APIs** — they are code bundles
 ### Run locally
 
 \`\`\`bash
-bun install
+pnpm install
 bos dev
 \`\`\`
 

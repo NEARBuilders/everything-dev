@@ -17,6 +17,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 import * as initModule from "../../src/cli/init";
 import {
   buildInitPatterns,
@@ -114,7 +115,7 @@ describe("syncTemplate", () => {
       }
       return { runtime: { plugins: {} } } as never;
     });
-    vi.spyOn(initModule, "runBunInstall").mockResolvedValue();
+    vi.spyOn(initModule, "runPnpmInstall").mockResolvedValue();
     vi.spyOn(initModule, "runTypesGen").mockResolvedValue();
   });
 
@@ -290,14 +291,14 @@ describe("syncTemplate", () => {
 
     expect(result.status).toBe("synced");
 
-    const pkg = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf-8")) as {
-      workspaces?: { packages?: string[] };
+    const wsDoc = parseYaml(readFileSync(join(projectDir, "pnpm-workspace.yaml"), "utf-8")) as {
+      packages?: string[];
     };
     const config = JSON.parse(readFileSync(join(projectDir, "bos.config.json"), "utf-8")) as {
       plugins?: Record<string, unknown>;
     };
 
-    expect(pkg.workspaces?.packages).toContain("plugins/*");
+    expect(wsDoc.packages).toContain("plugins/*");
     expect(config.plugins).toEqual({});
   });
 

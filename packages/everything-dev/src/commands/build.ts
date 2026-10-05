@@ -30,7 +30,7 @@ export function registerBuild(builder: BosBuilder) {
         ];
         return {
           status: "error" as const,
-          error: `Unknown build target(s): ${input.packages} — valid targets: ${allPackages.join(", ") || "none"} (framework packages build via the prerequisite train: bun run build <target>)`,
+          error: `Unknown build target(s): ${input.packages} — valid targets: ${allPackages.join(", ") || "none"} (framework packages build via the prerequisite train: pnpm run build <target>)`,
           built: [],
           skipped: [],
         };

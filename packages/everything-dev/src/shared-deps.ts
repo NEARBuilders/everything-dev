@@ -5,6 +5,7 @@ import { loadAppDescriptorConfig } from "./config";
 import { type BosEnv, isPlainObject, type ResolvedConfigMeta, rebuildOrderedConfig } from "./merge";
 import { type SharedDepConfig, SharedDepMapSchema } from "./types";
 import { findWorkspaceRoot } from "./workspace";
+import { readWorkspaceCatalog, writeWorkspaceCatalog } from "./workspace-catalog";
 
 async function loadBosConfigForSharedDeps(
   configDir: string,
@@ -19,13 +20,6 @@ async function loadBosConfigForSharedDeps(
   }
 
   return JSON.parse(readFileSync(bosConfigPath, "utf-8"));
-}
-
-interface PackageJson {
-  workspaces?: {
-    packages?: string[];
-    catalog?: Record<string, string>;
-  };
 }
 
 interface SharedDepRef {
@@ -219,10 +213,7 @@ export async function syncResolvedSharedDeps(opts: {
 }): Promise<SharedDepsSyncResult> {
   const bosConfigPath = join(opts.configDir, "bos.config.json");
   const resolvedConfigPath = join(opts.configDir, ".bos", "bos.resolved-config.json");
-  const packageJsonPath = join(
-    findWorkspaceRoot(opts.configDir)?.dir ?? opts.configDir,
-    "package.json",
-  );
+  const workspaceRoot = findWorkspaceRoot(opts.configDir)?.dir ?? opts.configDir;
   const generatedPath = join(opts.configDir, ".bos", "generated", "shared-deps.json");
 
   const bosConfig: unknown =
@@ -231,16 +222,12 @@ export async function syncResolvedSharedDeps(opts: {
     throw new Error("the authored config must be an object");
   }
 
-  const pkgJson = existsSync(packageJsonPath)
-    ? (JSON.parse(readFileSync(packageJsonPath, "utf-8")) as PackageJson)
-    : {};
-
   const originalBos = JSON.stringify(bosConfig);
-  const originalPkg = JSON.stringify(pkgJson);
+  const catalog = readWorkspaceCatalog(workspaceRoot);
+  const originalCatalog = JSON.stringify(catalog);
 
   const mode = opts.hostMode === "local" ? "catalog->bos" : "bos->catalog";
   const refsByName = collectSharedDepRefs(bosConfig);
-  const catalog = pkgJson.workspaces?.catalog ?? {};
 
   const resolvedDeps: Record<string, ResolvedSharedDep> = {};
 
@@ -289,15 +276,9 @@ export async function syncResolvedSharedDeps(opts: {
     };
   }
 
-  if (!pkgJson.workspaces) {
-    pkgJson.workspaces = { packages: [], catalog: {} };
-  }
-  pkgJson.workspaces.catalog = catalog;
-
   const nextBos = JSON.stringify(bosConfig);
-  const nextPkg = JSON.stringify(pkgJson);
   const bosConfigChanged = nextBos !== originalBos;
-  const catalogChanged = nextPkg !== originalPkg;
+  const catalogChanged = JSON.stringify(catalog) !== originalCatalog;
 
   if (bosConfigChanged) {
     const resolvedDir = dirname(resolvedConfigPath);
@@ -321,7 +302,7 @@ export async function syncResolvedSharedDeps(opts: {
   }
 
   if (catalogChanged) {
-    writeFileIfChanged(packageJsonPath, `${JSON.stringify(pkgJson, null, 2)}\n`);
+    writeWorkspaceCatalog(workspaceRoot, catalog);
   }
 
   const stableResolvedDeps = stableDepsObject(resolvedDeps);

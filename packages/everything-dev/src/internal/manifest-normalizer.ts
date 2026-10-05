@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { glob } from "glob";
+import { readWorkspaceCatalog } from "../workspace-catalog";
 
 const FRAMEWORK_PACKAGES = ["every-plugin", "everything-dev"] as const;
 
@@ -53,11 +54,7 @@ function writeJson(filePath: string, value: PackageJson) {
 }
 
 export function loadManifestNormalizationSpec(sourceRootDir: string): NormalizationSpec {
-  const rootPackage = readJson<PackageJson>(join(sourceRootDir, "package.json"));
-  const rootCatalog = {
-    ...(((rootPackage.workspaces as { catalog?: Record<string, string> } | undefined)?.catalog ??
-      {}) as Record<string, string>),
-  };
+  const rootCatalog = readWorkspaceCatalog(sourceRootDir);
   const frameworkVersions: Record<string, string> = {};
 
   for (const packageName of FRAMEWORK_PACKAGES) {
@@ -98,7 +95,7 @@ function normalizeDependencyMap(
       continue;
     }
 
-    if (version === "workspace:*") {
+    if (version.startsWith("workspace:")) {
       const frameworkVersion = spec.frameworkVersions[name];
       if (frameworkVersion) {
         map[name] = `^${frameworkVersion}`;
@@ -108,6 +105,16 @@ function normalizeDependencyMap(
 
       if (options.removeWorkspaceDeps?.includes(name)) {
         delete map[name];
+        modified = true;
+        continue;
+      }
+
+      // A workspace dep on a non-framework member (e.g. better-near-auth)
+      // cannot resolve in a generated child — the member does not exist
+      // there. Children keep the catalog: protocol (the catalog pins the
+      // published version); release staging resolves the real range.
+      if (spec.rootCatalog[name]) {
+        map[name] = options.preserveCatalogRefs ? "catalog:" : spec.rootCatalog[name];
         modified = true;
       }
       continue;

@@ -228,7 +228,7 @@ export const cliCommandMeta = {
           "Starter complexity: simple (public shell) or advanced (adds dashboard, orgs, admin)",
       },
       noInteractive: { description: "Skip prompts, use flags only" },
-      noInstall: { description: "Skip bun install" },
+      noInstall: { description: "Skip pnpm install" },
     },
   },
   sync: {
@@ -237,7 +237,7 @@ export const cliCommandMeta = {
     interactive: false,
     fields: {
       dryRun: { description: "Preview changes without writing files" },
-      noInstall: { description: "Skip bun install" },
+      noInstall: { description: "Skip pnpm install" },
     },
   },
   upgrade: {
@@ -246,7 +246,7 @@ export const cliCommandMeta = {
     interactive: true,
     fields: {
       dryRun: { description: "Preview changes without writing" },
-      noInstall: { description: "Skip bun install" },
+      noInstall: { description: "Skip pnpm install" },
       noSync: { description: "Only upgrade packages, skip template sync" },
     },
   },

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -115,15 +115,35 @@ describe("BundleResolver global fetch adapter", () => {
     expect(globalThis.fetch).toBe(originalFetch);
   });
 
-  it("returns 404 for own-namespace files that are not staged", async () => {
+  it("falls through to the original fetch for own-namespace files that are not staged", async () => {
+    const fallthrough = new Response("from-network", { status: 200 });
+    globalThis.fetch = async () => fallthrough;
     const handle = installGlobalBundleFetch({ namespace: NAMESPACE });
     try {
       const res = await fetch(
         "https://citynode.app/bundles/v1.citynode.near/citynode.app/apps/missing.js",
       );
-      expect(res.status).toBe(404);
+      expect(res).toBe(fallthrough);
     } finally {
       await handle.uninstall();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("own-namespace misses bypass the write-through cache", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "bundle-cache-"));
+    const fallthrough = new Response("from-network", { status: 200 });
+    globalThis.fetch = async () => fallthrough;
+    const handle = installGlobalBundleFetch({ namespace: NAMESPACE, cacheDir });
+    try {
+      const missing = "https://citynode.app/bundles/v1.citynode.near/citynode.app/apps/missing.js";
+      expect(await fetch(missing)).toBe(fallthrough);
+      expect(await fetch(missing)).toBe(fallthrough);
+      expect(existsSync(join(cacheDir, NAMESPACE.account, NAMESPACE.gateway, "apps"))).toBe(false);
+    } finally {
+      await handle.uninstall();
+      globalThis.fetch = originalFetch;
+      rmSync(cacheDir, { recursive: true, force: true });
     }
   });
 

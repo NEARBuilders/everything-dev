@@ -23,7 +23,7 @@ describe("every-plugin standalone dev server", () => {
   });
 
   it("serves health, static bundle, and oRPC endpoints", async () => {
-    child = spawn("bun", [path.join(__dirname, "../../bin/every-plugin-serve.mjs")], {
+    child = spawn(process.execPath, [path.join(__dirname, "../../bin/every-plugin-serve.mjs")], {
       cwd: FIXTURE_DIR,
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, PORT: String(SERVE_PORT) },

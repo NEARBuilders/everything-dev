@@ -35,7 +35,7 @@ export async function seedMemberFixtures({
     const unique = `${process.pid}`;
     const member = await test.saveUser(
       test.createUser({
-        email: `regression-member-${unique}@citynode.test`,
+        email: `regression-member-${unique}@regression.test`,
         name: "member.near",
         emailVerified: true,
       }),

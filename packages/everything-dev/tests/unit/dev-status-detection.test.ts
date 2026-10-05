@@ -3,7 +3,7 @@ import { detectStatus } from "../../src/orchestrator";
 import type { ServiceDescriptor } from "../../src/service-descriptor";
 
 const pluginDescriptor = {
-  command: "bun",
+  command: "pnpm",
   args: ["run", "dev"],
   readyPatterns: [/ready in/i, /compiled.*successfully/i, /Plugin dev server ready/i],
   errorPatterns: [/\bERROR in\b/, /failed to compile/i, /Module not found/i, /Cannot find module/i],
@@ -13,7 +13,7 @@ const pluginDescriptor = {
 
 describe("detectStatus false-positive guards (host/ui patterns)", () => {
   const hostDescriptor = {
-    command: "bun",
+    command: "pnpm",
     args: ["run", "dev"],
     readyPatterns: [/Host (dev|production) server running at/i, /Server running at/i],
     errorPatterns: [/\berror\b(?!s)/i, /\bfailed to\b/i, /\bbuild failed\b/i, /exception/i],
@@ -22,7 +22,7 @@ describe("detectStatus false-positive guards (host/ui patterns)", () => {
   } satisfies ServiceDescriptor;
 
   const uiDescriptor = {
-    command: "bun",
+    command: "pnpm",
     args: ["run", "dev"],
     readyPatterns: [/\bready\s+built in\b/i, /\bLocal:\b/i, /\bcompiled\b.*successfully/i],
     errorPatterns: [/\berror\b(?!s)/i, /\bfailed to\b/i, /\bbuild failed\b/i],

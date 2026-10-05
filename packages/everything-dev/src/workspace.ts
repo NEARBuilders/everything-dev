@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { parse } from "yaml";
 import { run } from "./utils/run";
 
 export interface WorkspaceMember {
@@ -68,6 +69,15 @@ function discoverWorkspaceRoot(dir: string): WorkspaceRoot | null {
 }
 
 function readWorkspaceRootAt(dir: string): WorkspaceRoot | null {
+  // v2 (ADR 0026): workspace globs live in pnpm-workspace.yaml. Pre-v2
+  // runtimes keep the package.json workspaces fallback.
+  const yamlPath = join(dir, "pnpm-workspace.yaml");
+  if (existsSync(yamlPath)) {
+    const doc = parse(readFileSync(yamlPath, "utf8")) as { packages?: unknown } | null;
+    const globs = workspaceGlobsFromYaml(doc?.packages);
+    if (globs) return readWorkspaceMembers(dir, globs);
+  }
+
   const manifestPath = join(dir, "package.json");
   if (!existsSync(manifestPath)) return null;
   const manifest = readManifest(manifestPath);
@@ -75,6 +85,16 @@ function readWorkspaceRootAt(dir: string): WorkspaceRoot | null {
   const globs = workspaceGlobs(manifest.workspaces);
   if (!globs) return null;
 
+  return readWorkspaceMembers(dir, globs);
+}
+
+function workspaceGlobsFromYaml(packages: unknown): string[] | null {
+  if (!Array.isArray(packages)) return null;
+  const globs = packages.filter((glob): glob is string => typeof glob === "string");
+  return globs.length > 0 ? globs : null;
+}
+
+function readWorkspaceMembers(dir: string, globs: readonly string[]): WorkspaceRoot {
   const memberDirs = matchMemberDirs(dir, globs);
   const drafts: { name: string; dir: string; manifest: Record<string, unknown> }[] = [];
   for (const memberDir of memberDirs) {
@@ -187,7 +207,15 @@ export function localDepsOf(
 export async function ensureFreshDeps(
   startDir: string,
   targetDirs: readonly string[],
-  opts?: { readonly force?: boolean },
+  opts?: {
+    readonly force?: boolean;
+    /** Build-mode contract for prerequisite children (ADR 0018): deploy
+     * builds run dist-first, so every build child — prerequisite or target —
+     * must receive the same env; a bundler-config workspace in the closure
+     * resolves differently without it. Callers that pass nothing keep the
+     * ambient env (dev-time staleness rebuilds). */
+    readonly env?: Record<string, string>;
+  },
 ): Promise<DepsReport> {
   const root = findWorkspaceRoot(startDir);
   if (!root) return { rebuilt: [], fresh: [] };
@@ -202,7 +230,13 @@ export async function ensureFreshDeps(
 
   if (rebuilt.length > 0) {
     const results = await Promise.allSettled(
-      rebuilt.map((member) => run("bun", ["run", "build"], { cwd: member.dir, capture: true })),
+      rebuilt.map((member) =>
+        run("pnpm", ["run", "build"], {
+          cwd: member.dir,
+          capture: true,
+          env: opts?.env,
+        }),
+      ),
     );
     const failures = results.flatMap((result, index) => {
       const value = result.status === "fulfilled" ? result.value : undefined;

@@ -58,7 +58,7 @@ function ensureUiServerBuild() {
   }
 
   try {
-    const result = spawnSync("bun", ["run", "build"], {
+    const result = spawnSync("pnpm", ["run", "build"], {
       cwd: uiDir,
       stdio: "inherit",
       env: { ...process.env, BUILD_TARGET: "server" },

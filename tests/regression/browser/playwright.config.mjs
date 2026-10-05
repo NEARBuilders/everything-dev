@@ -4,7 +4,7 @@ import { computeRegressionEnv } from "../lib/regression-env.mjs";
 
 const stallWatchdog = fileURLToPath(new URL("./helpers/stall-watchdog.mjs", import.meta.url));
 const mode = process.env.REGRESSION_MODE ?? "dev:ssr";
-const command = `bun run regression:${mode}`;
+const command = `pnpm run regression:${mode}`;
 
 const regressionEnv = computeRegressionEnv();
 
@@ -42,7 +42,9 @@ export default defineConfig({
     command,
     url: `${regressionEnv.baseUrl}/health`,
     reuseExistingServer: false,
-    timeout: 120_000,
+    // The pnpm-based image build + container boot outgrew the bun-era 2m
+    // budget; 5m keeps headroom (an early exit still fails the webServer).
+    timeout: 300_000,
     stdout: "pipe",
     stderr: "pipe",
     env: webServerEnv,

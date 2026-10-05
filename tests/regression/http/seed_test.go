@@ -66,7 +66,7 @@ func TestSeedRegressionData(t *testing.T) {
 
 	// Step 3: Set org A active
 	t.Run("approve_organization_fixtures", func(t *testing.T) {
-		cmd := exec.Command("bun", "tests/regression/lib/approve-test-organizations.ts", orgAID, orgBID)
+		cmd := exec.Command("node", "--import", "tsx", "tests/regression/lib/approve-test-organizations.ts", orgAID, orgBID)
 		cmd.Dir = regtest.RepoRoot()
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("approving organization fixtures: %v\n%s", err, output)

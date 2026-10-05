@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@effect/platform-bun": "4.0.0-rc.117",
     "@effect/platform-node": "4.0.0-rc.117",
     "@effect/platform-node-shared": "4.0.0-rc.117",
     "alchemy": "2.0.0-beta.79",

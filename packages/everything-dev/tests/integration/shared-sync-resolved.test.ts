@@ -6,6 +6,7 @@ import { getResolvedConfigPath } from "../../src/config";
 import type { ResolvedConfigMeta } from "../../src/merge";
 import { syncResolvedSharedDeps } from "../../src/shared-deps";
 import type { BosConfig } from "../../src/types";
+import { readWorkspaceCatalog } from "../../src/workspace-catalog";
 
 const VALID_CONFIG = {
   account: "test.near",
@@ -108,9 +109,9 @@ describe("shared sync resolved config", () => {
 
       expect(result.mode).toBe("bos->catalog");
 
-      const pkg = JSON.parse(readFileSync(join(remoteDir, "package.json"), "utf-8")) as any;
-      expect(pkg.workspaces.catalog["better-auth"]).toBe("1.6.9");
-      expect(pkg.workspaces.catalog["better-near-auth"]).toBe("1.5.0");
+      const catalog = readWorkspaceCatalog(remoteDir);
+      expect(catalog["better-auth"]).toBe("1.6.9");
+      expect(catalog["better-near-auth"]).toBe("1.5.0");
     } finally {
       rmSync(remoteDir, { recursive: true, force: true });
     }

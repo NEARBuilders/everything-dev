@@ -32,9 +32,9 @@ The key design: `CI` is the validation workflow. On a successful push to `main`,
 6. `regression-unit` / `regression-http` / `regression-framework` / `regression-browser` — the regression stack legs (path-gated)
 
 **Key design decisions:**
-- Generated types (`types:gen`) are produced on demand: `bun typecheck` chains `types:gen` first, `bos dev`/`bos build`/`bos publish` regenerate via `generateCodeArtifacts` — no postinstall hook exists (it was dead code under `ignore-scripts = true`).
+- Generated types (`types:gen`) are produced on demand: `pnpm run typecheck` chains `types:gen` first, `bos dev`/`bos build`/`bos publish` regenerate via `generateCodeArtifacts` — no postinstall hook exists (it was dead code under `--ignore-scripts` installs).
 - `detect-changes` uses native `git diff` (no third-party action). For `workflow_dispatch`, all tests run unconditionally.
-- Playwright browsers are cached by `bun.lock` hash — cache hit only installs system deps (~10s), miss does full install (~60-90s).
+- Playwright browsers are cached by `pnpm-lock.yaml` hash — cache hit only installs system deps (~10s), miss does full install (~60-90s).
 - `cancel-in-progress: true` is safe for CI — cancelled runs never trigger Deploy (the `workflow_run` gate requires `conclusion == 'success'`).
 - Skipped jobs in `needs` are non-blocking for the workflow result: `framework-tests`/`plugin-tests` may be skipped (no relevant changes) without failing CI.
 - Deploy reads its config from FastKV at runtime (`BOS_ACCOUNT`/`BOS_GATEWAY` on Railway), so nothing needs to be committed back after a deploy.
@@ -48,7 +48,7 @@ The key design: `CI` is the validation workflow. On a successful push to `main`,
 **Lifecycle:**
 
 ```
-1. Developer creates changeset          →  bun run changeset
+1. Developer creates changeset          →  pnpm run changeset
 2. Developer merges feature branch      →  Changesets land on main
 3. CI succeeds on main                   →  workflow_run triggers Deploy directly
                                              (Release is NOT triggered automatically)
@@ -67,10 +67,10 @@ The key design: `CI` is the validation workflow. On a successful push to `main`,
 
 **Trigger:** `workflow_run` (CI completed successfully on `main`), or `workflow_dispatch`.
 
-**Purpose:** Run the full deploy train with one command (`bun run bos deploy`): preflight (fail fast on config/signing/storage credentials before any build), staleness-checked prerequisite builds + workspace builds, bundle upload to the R2-backed storage at `cdn.everything.dev`, FastKV publish with read-back confirmation, `runtime`-stage image build pushed to GHCR by SHA + `latest` tags, and a pull-only Railway deploy pinned to the pushed digest (generated thin `FROM <image>@sha256:<digest>` Dockerfile — Railway never rebuilds, ADR 0021).
+**Purpose:** Run the full deploy train with one command (`pnpm run bos deploy`): preflight (fail fast on config/signing/storage credentials before any build), staleness-checked prerequisite builds + workspace builds, bundle upload to the R2-backed storage at `cdn.everything.dev`, FastKV publish with read-back confirmation, `runtime`-stage image build pushed to GHCR by SHA + `latest` tags, and a pull-only Railway deploy pinned to the pushed digest (generated thin `FROM <image>@sha256:<digest>` Dockerfile — Railway never rebuilds, ADR 0021).
 
 **Behavior:**
-- Runs `bun run bos deploy` — the CLI handles every leg; missing legs (no `ci.image`, no docker, no `RAILWAY_TOKEN`) degrade gracefully with a notice
+- Runs `pnpm run bos deploy` — the CLI handles every leg; missing legs (no `ci.image`, no docker, no `RAILWAY_TOKEN`) degrade gracefully with a notice
 - Checks out the exact commit CI validated (`github.event.workflow_run.head_sha`)
 - Keeps the mf-check retry loop and the remote smoke test as workflow-level verification
 - Does **not** commit anything back — the runtime fetches the published config from FastKV (`bos start` resolves `BOS_ACCOUNT`/`BOS_GATEWAY`); the authored `bos.app.ts` is the publish *input*, not the deploy output

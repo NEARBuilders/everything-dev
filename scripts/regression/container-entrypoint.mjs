@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Deployment container entrypoint (ADR 0009 amendment): serves the staged
  * dist servers on the container's own localhost, picks the render-variant

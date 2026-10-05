@@ -127,7 +127,41 @@ async function getReleaseTrainSkipReason(config: BosConfig): Promise<boolean> {
 }
 
 export async function getRuntimeRemoteScenarios(): Promise<RuntimeRemoteScenario[]> {
-  const config = await loadRawBosConfig();
+  let config: BosConfig;
+  try {
+    config = await loadRawBosConfig();
+  } catch {
+    // No generated config at the workspace root (fresh checkout, no `bos dev`
+    // yet) — the remote scenarios cannot resolve their targets; skip-all.
+    const noConfigReason =
+      "no bos.config.json at the workspace root — run `bos dev` to generate one";
+    return [
+      {
+        name: "remote-client",
+        title: "remote ui + remote api without ssr",
+        ssr: false,
+        proxy: false,
+        skipReason: noConfigReason,
+        available: false,
+      },
+      {
+        name: "remote-ssr",
+        title: "remote ui + remote api with ssr",
+        ssr: true,
+        proxy: false,
+        skipReason: noConfigReason,
+        available: false,
+      },
+      {
+        name: "remote-proxy",
+        title: "remote ui + proxy api without ssr",
+        ssr: false,
+        proxy: true,
+        skipReason: noConfigReason,
+        available: false,
+      },
+    ];
+  }
   const trainAvailable = await getReleaseTrainSkipReason(config);
   const remoteClientSkipReason = trainAvailable
     ? getScenarioSkipReason(config, "remote-client")

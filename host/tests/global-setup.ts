@@ -57,7 +57,7 @@ function ensureUiBuild(repoRoot: string) {
   // inherited env gives the SSR dist the asset-less public path it needs.
   // Framework sources resolve from src in tests (vite-tsconfig-paths), so no
   // train prerequisites are required here.
-  const result = spawnSync("bun", ["run", "build"], {
+  const result = spawnSync("pnpm", ["run", "build"], {
     cwd: uiDir,
     stdio: "inherit",
     env: { ...process.env },

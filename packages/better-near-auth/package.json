@@ -57,13 +57,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/NEARBuilders/citynode.app.git",
+    "url": "https://github.com/nearbuilders/everything-dev.git",
     "directory": "packages/better-near-auth"
   },
   "bugs": {
-    "url": "https://github.com/NEARBuilders/citynode.app/issues"
+    "url": "https://github.com/nearbuilders/everything-dev/issues"
   },
-  "homepage": "https://github.com/NEARBuilders/citynode.app/tree/main/packages/better-near-auth#readme",
+  "homepage": "https://github.com/nearbuilders/everything-dev/tree/main/packages/better-near-auth#readme",
   "engines": {
     "node": ">=24.0.0"
   },

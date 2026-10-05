@@ -10,8 +10,11 @@ import (
 	"time"
 )
 
-const readinessTimeoutDev  = 120 * time.Second
-const readinessTimeoutProd = 120 * time.Second
+// The pnpm-based image build + container boot outgrew the bun-era 2m budget
+// (the production host came up just past 2m in CI); 5m keeps headroom without
+// masking a wedged boot — an early process exit still fails fast.
+const readinessTimeoutDev = 120 * time.Second
+const readinessTimeoutProd = 300 * time.Second
 
 type fatalf interface {
 	Fatalf(string, ...any)

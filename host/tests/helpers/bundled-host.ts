@@ -39,7 +39,7 @@ let buildReady = false;
 loadHostTestEnv(workspaceRoot);
 
 function ensureBuild(cwd: string) {
-  const result = spawnSync("bun", ["run", "build"], {
+  const result = spawnSync("pnpm", ["run", "build"], {
     cwd,
     stdio: "inherit",
     env: { ...process.env },

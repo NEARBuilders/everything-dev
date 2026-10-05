@@ -87,14 +87,15 @@ const PLUGIN_ERROR_PATTERNS = [
 
 const SERVICE_CONFIGS = {
   host: {
-    command: "bun",
+    command: "pnpm",
     args: ["run", "dev"],
     // The host dev server runs on tsx (TS-capable node), so it can consume
     // framework package sources directly — NODE_OPTIONS makes node's
-    // resolver pick the `development` export condition. bun's --conditions
-    // flag (added in orchestrator.spawnDevProcess) does not reach this node
-    // child, so the env var is the seam here. rsbuild/rspack config loaders
-    // must NOT receive it: their .mjs config evaluation is not TS-capable.
+    // resolver pick the `development` export condition. The env var rides
+    // the spawn environment (ADR 0026 §2) and is inherited by the host's
+    // tsx children. rsbuild/rspack config loaders must NOT rely on it:
+    // their .mjs config evaluation resolves dist (freshness is the
+    // prerequisite train's job, ADR 0022).
     env: { NODE_OPTIONS: "--conditions=development" },
     readyPatterns: [/Host (dev|production) server running at/i, /Server running at/i],
     errorPatterns: [/\berror\b(?!s)/i, /\bfailed to\b/i, /\bbuild failed\b/i, /exception/i],
@@ -102,7 +103,7 @@ const SERVICE_CONFIGS = {
     readinessPath: "/health",
   },
   auth: {
-    command: "bun",
+    command: "pnpm",
     args: ["run", "dev"],
     readyPatterns: PLUGIN_READY_PATTERNS,
     errorPatterns: PLUGIN_ERROR_PATTERNS,
@@ -110,7 +111,7 @@ const SERVICE_CONFIGS = {
     readinessPath: "/remoteEntry.js",
   },
   ui: {
-    command: "bun",
+    command: "pnpm",
     args: ["run", "dev"],
     readyPatterns: [/\bready\s+built in\b/i, /\bLocal:\b/i, /\bcompiled\b.*successfully/i],
     errorPatterns: [/\berror\b(?!s)/i, /\bfailed to\b/i, /\bbuild failed\b/i],
@@ -118,7 +119,7 @@ const SERVICE_CONFIGS = {
     readinessPath: "/remoteEntry.js",
   },
   api: {
-    command: "bun",
+    command: "pnpm",
     args: ["run", "dev"],
     readyPatterns: PLUGIN_READY_PATTERNS,
     errorPatterns: PLUGIN_ERROR_PATTERNS,
@@ -249,7 +250,7 @@ export function buildServiceDescriptorMap(
           proxy: pluginConfig.proxy,
           variables: pluginConfig.variables,
           secrets: pluginConfig.secrets,
-          command: "bun",
+          command: "pnpm",
           args: ["run", "dev"],
           env: isFolderFormUi ? { BOS_UI_PORT: String(folderUiPort) } : undefined,
           uiPort: isFolderFormUi ? folderUiPort : undefined,
@@ -287,7 +288,7 @@ export function buildServiceDescriptorMap(
           localPath: pluginConfig.ui.localPath,
           port: uiPort,
           integrity: pluginConfig.ui.integrity,
-          command: "bun",
+          command: "pnpm",
           args: ["run", "dev"],
           readyPatterns: PLUGIN_READY_PATTERNS,
           errorPatterns: PLUGIN_ERROR_PATTERNS,

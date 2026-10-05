@@ -395,15 +395,8 @@ const spawnDevProcess = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     }
 
     const fullCwd = descriptor.localPath;
-    const command = descriptor.command ?? "bun";
-    const baseArgs = descriptor.args ?? ["run", "dev"];
-    // Source-first local dev: bun runtime chains (bun run → bin scripts →
-    // bun children) inherit the conditions flag, so framework packages
-    // (`every-plugin`, `everything-dev`) resolve their `development` export
-    // condition — TS source — instead of a possibly stale dist. Node-based
-    // children (tsx, rsbuild/rspack bins) ignore bun flags and keep dist
-    // resolution except where they are TS-capable (see the host env below).
-    const args = command === "bun" ? ["--conditions=development", ...baseArgs] : baseArgs;
+    const command = descriptor.command ?? "pnpm";
+    const args = descriptor.args ?? ["run", "dev"];
     const port = descriptor.port ?? descriptor.defaultPort;
     const name = descriptor.key;
 

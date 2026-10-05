@@ -48,7 +48,7 @@ export default async function globalSetup() {
   const unique = `${process.pid}`;
   const admin = await test.saveUser(
     test.createUser({
-      email: `regression-admin-${unique}@citynode.test`,
+      email: `regression-admin-${unique}@regression.test`,
       name: ADMIN_NAME,
       role: "admin",
       emailVerified: true,
@@ -70,7 +70,7 @@ export default async function globalSetup() {
 
   const logoutUser = await test.saveUser(
     test.createUser({
-      email: `regression-logout-${unique}@citynode.test`,
+      email: `regression-logout-${unique}@regression.test`,
       name: LOGOUT_NAME,
       emailVerified: true,
     }),

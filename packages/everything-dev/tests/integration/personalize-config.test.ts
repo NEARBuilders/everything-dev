@@ -2,7 +2,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildInitPatterns, copyFilteredFiles, personalizeConfig } from "../../src/cli/init";
+import { parse as parseYaml } from "yaml";
+import {
+  buildInitPatterns,
+  copyFilteredFiles,
+  PNPM_PACKAGE_MANAGER,
+  personalizeConfig,
+} from "../../src/cli/init";
 import { loadManifestNormalizationSpec } from "../../src/internal/manifest-normalizer";
 import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
@@ -141,7 +147,11 @@ describe("personalizeConfig with real root config", () => {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
       scripts?: Record<string, string>;
-      workspaces?: { packages?: string[]; catalog?: Record<string, string> };
+      packageManager?: string;
+    };
+    const wsDoc = parseYaml(readFileSync(join(testDir, "pnpm-workspace.yaml"), "utf-8")) as {
+      packages?: string[];
+      catalog?: Record<string, string>;
     };
 
     expect(pkg.dependencies?.["everything-dev"]).toBe("catalog:");
@@ -149,19 +159,17 @@ describe("personalizeConfig with real root config", () => {
     expect(pkg.devDependencies?.["everything-dev"]).toBeUndefined();
     expect(pkg.devDependencies?.["every-plugin"]).toBeUndefined();
     expect(pkg.scripts?.postinstall).toBeUndefined();
-    expect(pkg.scripts?.["types:gen"]).toBe("node node_modules/.bin/bos types gen");
+    expect(pkg.scripts?.["types:gen"]).toBe("bos types gen");
     expect(pkg.scripts?.bos).toBe("bos");
-    expect(pkg.workspaces?.packages).toEqual(expect.arrayContaining(["ui", "api", "plugins/*"]));
-    expect(pkg.workspaces?.packages).toHaveLength(3);
-    expect(pkg.workspaces?.packages).not.toContain("plugins/registry");
-    expect(pkg.workspaces?.packages).not.toContain("host");
-    expect(pkg.workspaces?.packages).not.toContain("packages/everything-dev");
-    expect(pkg.workspaces?.catalog?.["everything-dev"]).toBe(
-      MANIFEST_SPEC.rootCatalog["everything-dev"],
-    );
-    expect(pkg.workspaces?.catalog?.["every-plugin"]).toBe(
-      MANIFEST_SPEC.rootCatalog["every-plugin"],
-    );
+    expect(pkg.packageManager).toBe(PNPM_PACKAGE_MANAGER);
+    expect(pkg.workspaces).toBeUndefined();
+    expect(wsDoc.packages).toEqual(expect.arrayContaining(["ui", "api", "plugins/*"]));
+    expect(wsDoc.packages).toHaveLength(3);
+    expect(wsDoc.packages).not.toContain("plugins/registry");
+    expect(wsDoc.packages).not.toContain("host");
+    expect(wsDoc.packages).not.toContain("packages/everything-dev");
+    expect(wsDoc.catalog?.["everything-dev"]).toBe(MANIFEST_SPEC.rootCatalog["everything-dev"]);
+    expect(wsDoc.catalog?.["every-plugin"]).toBe(MANIFEST_SPEC.rootCatalog["every-plugin"]);
   });
 
   it("keeps host when requested while still stripping inherited metadata", async () => {

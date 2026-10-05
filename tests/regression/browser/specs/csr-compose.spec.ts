@@ -23,7 +23,7 @@ test.describe("CSR compose", () => {
 
     const signInHeading = page.getByTestId("login.heading");
     await expect(signInHeading).toBeVisible({ timeout: 15000 });
-    await expect(signInHeading).toHaveText("Sign in to CityNode");
+    await expect(signInHeading).toHaveText("Sign in to continue");
 
     // The payload must be present client-side with the auth remote registered.
     const compose = await page.evaluate(() => {
@@ -101,20 +101,20 @@ test.describe("CSR compose", () => {
     await expect(selector).toBeVisible({ timeout: 15000 });
     await selector.selectOption("es");
 
-    await expect(page.getByTestId("login.heading")).toHaveText("Inicia sesión en CityNode");
+    await expect(page.getByTestId("login.heading")).toHaveText("Inicia sesión para continuar");
     await expect(page.getByTestId("login.device-button")).toHaveText(
       "Iniciar sesión con tu teléfono",
     );
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
 
     const savedLocale = await context.cookies();
-    expect(savedLocale.find((cookie) => cookie.name === "citynode_locale")?.value).toBe("es");
+    expect(savedLocale.find((cookie) => cookie.name === "app_locale")?.value).toBe("es");
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await waitForApp(page);
 
     await expect(page.getByTestId("login.language-select")).toHaveValue("es");
-    await expect(page.getByTestId("login.heading")).toHaveText("Inicia sesión en CityNode");
+    await expect(page.getByTestId("login.heading")).toHaveText("Inicia sesión para continuar");
   });
 
   test("an account path renders the account page, not the sign-in page", async ({ page }) => {

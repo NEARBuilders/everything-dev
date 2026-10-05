@@ -2,10 +2,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 import {
-  removeInitLockfile,
+  PNPM_PACKAGE_MANAGER,
+  removeStrayLockfiles,
   scaffoldMinimalProject,
-  stripOrphanedWorkspacesFromLockfile,
+  writeChildWorkspaceYaml,
 } from "../../src/cli/init";
 
 vi.mock("../../src/http-client", async (importOriginal) => {
@@ -21,7 +23,7 @@ vi.mock("../../src/http-client", async (importOriginal) => {
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
 
-describe("scaffoldMinimalProject — catalog population", () => {
+describe("scaffoldMinimalProject — pnpm workspace synthesis", () => {
   let testDir: string;
 
   beforeAll(() => {
@@ -32,7 +34,7 @@ describe("scaffoldMinimalProject — catalog population", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("populates workspaces.catalog with framework versions", async () => {
+  it("writes pnpm-workspace.yaml with child globs + catalog, package.json stays pnpm-native", async () => {
     const parentConfig = {
       extends: "bos://dev.everything.near/everything.dev",
       app: {
@@ -55,21 +57,28 @@ describe("scaffoldMinimalProject — catalog population", () => {
 
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
       dependencies?: Record<string, string>;
-      workspaces?: { packages?: string[]; catalog?: Record<string, string> };
+      workspaces?: unknown;
+      packageManager?: string;
     };
     expect(pkg.dependencies?.["everything-dev"]).toBe("catalog:");
     expect(pkg.dependencies?.["every-plugin"]).toBe("catalog:");
-    expect(pkg.workspaces?.catalog).toBeDefined();
-    expect(Object.keys(pkg.workspaces?.catalog ?? {}).length).toBeGreaterThan(0);
+    expect(pkg.packageManager).toBe(PNPM_PACKAGE_MANAGER);
+    expect(pkg.workspaces).toBeUndefined();
 
-    expect(pkg.workspaces?.catalog?.["everything-dev"]).toBeDefined();
-    expect(pkg.workspaces?.catalog?.["every-plugin"]).toBeDefined();
-    expect(pkg.workspaces?.catalog?.["everything-dev"]).toMatch(/^\^\d+\.\d+\.\d+/);
-    expect(pkg.workspaces?.catalog?.["every-plugin"]).toMatch(/^\^?\d+/);
+    const doc = parseYaml(readFileSync(join(testDir, "pnpm-workspace.yaml"), "utf-8")) as {
+      packages?: string[];
+      catalog?: Record<string, string>;
+    };
+    expect(doc.packages).toContain("ui");
+    expect(doc.packages).toContain("api");
+    const catalog = doc.catalog ?? {};
+    expect(Object.keys(catalog).length).toBeGreaterThan(0);
+    expect(catalog["everything-dev"]).toMatch(/^\^\d+\.\d+\.\d+/);
+    expect(catalog["every-plugin"]).toMatch(/^\^?\d+/);
   });
 });
 
-describe("removeInitLockfile", () => {
+describe("removeStrayLockfiles", () => {
   let testDir: string;
 
   beforeAll(() => {
@@ -80,109 +89,64 @@ describe("removeInitLockfile", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("deletes copied bun.lock so init cannot reuse stale framework resolutions", () => {
-    const lockfilePath = join(testDir, "bun.lock");
-    writeFileSync(lockfilePath, JSON.stringify({ lockfileVersion: 1 }, null, 2));
+  it("deletes a copied bun.lock on sight and the child's pnpm-lock.yaml for re-resolution", () => {
+    const bunLock = join(testDir, "bun.lock");
+    const pnpmLock = join(testDir, "pnpm-lock.yaml");
+    writeFileSync(bunLock, JSON.stringify({ lockfileVersion: 1 }, null, 2));
+    writeFileSync(pnpmLock, "lockfileVersion: '9.0'\n");
 
-    removeInitLockfile(lockfilePath);
+    removeStrayLockfiles(testDir);
 
-    expect(existsSync(lockfilePath)).toBe(false);
+    expect(existsSync(bunLock)).toBe(false);
+    expect(existsSync(pnpmLock)).toBe(false);
   });
 
-  it("no-ops when bun.lock does not exist", () => {
-    const lockfilePath = join(testDir, "missing.lock");
-
-    expect(() => removeInitLockfile(lockfilePath)).not.toThrow();
+  it("no-ops when no lockfile exists", () => {
+    expect(() => removeStrayLockfiles(testDir)).not.toThrow();
   });
 });
 
-describe("stripOrphanedWorkspacesFromLockfile", () => {
+describe("writeChildWorkspaceYaml", () => {
   let testDir: string;
 
   beforeAll(() => {
-    testDir = mkdtempSync(join(tmpdir(), "bos-lockfile-strip-"));
+    testDir = mkdtempSync(join(tmpdir(), "bos-init-workspace-yaml-"));
   });
 
   afterAll(() => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("strips orphaned workspaces from bun.lock keeping only allowed ones", () => {
-    const lockfile = {
-      lockfileVersion: 1,
-      workspaces: {
-        "": { name: "monorepo", dependencies: {} },
-        ui: { name: "ui", dependencies: {} },
-        api: { name: "api", dependencies: {} },
-        host: { name: "host", dependencies: {} },
-        "packages/everything-dev": { name: "everything-dev", dependencies: {} },
-        "packages/every-plugin": { name: "every-plugin", dependencies: {} },
-        "plugins/apps": { name: "apps", dependencies: {} },
-      },
-      packages: {},
+  it("creates the manifest when missing and merges on re-run", () => {
+    expect(
+      writeChildWorkspaceYaml(testDir, {
+        packages: ["ui", "plugins/*"],
+        catalog: { react: "^19.2.4" },
+      }),
+    ).toBe(true);
+
+    expect(
+      writeChildWorkspaceYaml(testDir, {
+        packages: ["ui", "api"],
+        catalog: { react: "^19.3.0", effect: "4.0.0-rc.117" },
+      }),
+    ).toBe(true);
+
+    const doc = parseYaml(readFileSync(join(testDir, "pnpm-workspace.yaml"), "utf-8")) as {
+      packages?: string[];
+      catalog?: Record<string, string>;
     };
-
-    const lockfilePath = join(testDir, "bun.lock");
-    writeFileSync(lockfilePath, JSON.stringify(lockfile, null, 2));
-
-    stripOrphanedWorkspacesFromLockfile(lockfilePath, ["ui", "api"]);
-
-    const stripped = JSON.parse(readFileSync(lockfilePath, "utf-8")) as {
-      workspaces: Record<string, unknown>;
-    };
-
-    const workspaceKeys = Object.keys(stripped.workspaces);
-    expect(workspaceKeys).toContain("");
-    expect(workspaceKeys).toContain("ui");
-    expect(workspaceKeys).toContain("api");
-    expect(workspaceKeys).not.toContain("host");
-    expect(workspaceKeys).not.toContain("packages/everything-dev");
-    expect(workspaceKeys).not.toContain("packages/every-plugin");
-    expect(workspaceKeys).not.toContain("plugins/apps");
+    expect(doc.packages).toEqual(["api", "plugins/*", "ui"]);
+    expect(doc.catalog?.react).toBe("^19.3.0");
+    expect(doc.catalog?.effect).toBe("4.0.0-rc.117");
   });
 
-  it("preserves lockfile when all workspaces are allowed", () => {
-    const lockfile = {
-      lockfileVersion: 1,
-      workspaces: {
-        "": { name: "monorepo" },
-        ui: { name: "ui" },
-        api: { name: "api" },
-      },
-      packages: {},
-    };
-
-    const lockfilePath = join(testDir, "bun-lock-all.lock");
-    writeFileSync(lockfilePath, JSON.stringify(lockfile, null, 2));
-
-    stripOrphanedWorkspacesFromLockfile(lockfilePath, ["ui", "api"]);
-
-    const result = JSON.parse(readFileSync(lockfilePath, "utf-8")) as {
-      workspaces: Record<string, unknown>;
-    };
-
-    expect(Object.keys(result.workspaces)).toEqual(["", "ui", "api"]);
-  });
-
-  it("no-ops when lockfile does not exist", () => {
-    const nonexistent = join(testDir, "nonexistent.lock");
-    expect(() => stripOrphanedWorkspacesFromLockfile(nonexistent, ["ui", "api"])).not.toThrow();
-  });
-
-  it("no-ops when lockfile is not valid JSON", () => {
-    const lockfilePath = join(testDir, "bun-invalid.lock");
-    writeFileSync(lockfilePath, "this is not json {{{");
-
-    expect(() => stripOrphanedWorkspacesFromLockfile(lockfilePath, ["ui", "api"])).not.toThrow();
-  });
-
-  it("no-ops when lockfile has no workspaces key", () => {
-    const lockfilePath = join(testDir, "bun-no-ws.lock");
-    writeFileSync(lockfilePath, JSON.stringify({ lockfileVersion: 1 }));
-
-    expect(() => stripOrphanedWorkspacesFromLockfile(lockfilePath, ["ui", "api"])).not.toThrow();
-
-    const result = JSON.parse(readFileSync(lockfilePath, "utf-8"));
-    expect(result.workspaces).toBeUndefined();
+  it("no-ops when nothing changes", () => {
+    expect(
+      writeChildWorkspaceYaml(testDir, {
+        packages: ["ui", "api"],
+        catalog: { react: "^19.3.0", effect: "4.0.0-rc.117" },
+      }),
+    ).toBe(false);
   });
 });

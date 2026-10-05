@@ -5,7 +5,7 @@ import packageJson from "./package.json" with { type: "json" };
 import { syncExports } from "./scripts/sync-exports.ts";
 import { entries } from "./tsdown-entries.ts";
 
-const SHEBANG = "#!/usr/bin/env bun\n";
+const SHEBANG = "#!/usr/bin/env node\n";
 
 await syncExports();
 

@@ -129,6 +129,9 @@ describe("init starter levels", () => {
     expect(existsSync(join(projectDir, "bos.app.ts"))).toBe(true);
     const source = readFileSync(join(projectDir, "bos.app.ts"), "utf-8");
     expect(source).toContain(`"starter": "simple"`);
+    // The authored TS form is the child's only config surface — the JSON
+    // intermediate is converted and removed, never left beside bos.app.ts.
+    expect(existsSync(join(projectDir, "bos.config.json"))).toBe(false);
   });
 
   it("records the level in the sync snapshot", async () => {
