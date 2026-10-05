@@ -313,7 +313,7 @@ builder.createThing
   });
 ```
 
-See `references/api-keys.md` for the full API key route table, permission schema, and management examples.
+See [api-keys](references/api-keys.md) for the full API key route table, permission schema, and management examples.
 
 ## OpenAPI / REST
 
