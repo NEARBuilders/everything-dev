@@ -231,7 +231,7 @@ export const devBootstrap = (
     let configMayHaveChanged = false;
     if (sharedSync.catalogChanged) {
       yield* step(timings, "install", () =>
-        run("bun", ["install"], { cwd: findWorkspaceRoot(session.root)?.dir ?? session.root }),
+        run("pnpm", ["install"], { cwd: findWorkspaceRoot(session.root)?.dir ?? session.root }),
       );
       configMayHaveChanged = true;
     }

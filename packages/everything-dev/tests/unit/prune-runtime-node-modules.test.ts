@@ -5,6 +5,7 @@ import {
   computeKeepSet,
   expandWorkspaceGlobs,
   pruneNodeModules,
+  readWorkspacePackageGlobs,
 } from "../../../../scripts/prune-runtime-node-modules";
 
 const tmpRoot = join(import.meta.dirname, ".prune-fixture");
@@ -91,6 +92,21 @@ describe("pruneNodeModules", () => {
       "e",
       "f",
     ]);
+  });
+});
+
+describe("readWorkspacePackageGlobs", () => {
+  it("reads pnpm-workspace.yaml packages first, then the legacy workspaces field", () => {
+    mkdirSync(tmpRoot, { recursive: true });
+    writeFileSync(join(tmpRoot, "pnpm-workspace.yaml"), "packages:\n  - api\n  - packages/*\n");
+    expect(readWorkspacePackageGlobs(tmpRoot)).toEqual(["api", "packages/*"]);
+
+    rmSync(join(tmpRoot, "pnpm-workspace.yaml"));
+    writeFileSync(
+      join(tmpRoot, "package.json"),
+      JSON.stringify({ workspaces: { packages: ["ui", "host"] } }),
+    );
+    expect(readWorkspacePackageGlobs(tmpRoot)).toEqual(["ui", "host"]);
   });
 });
 

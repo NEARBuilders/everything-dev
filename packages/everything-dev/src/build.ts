@@ -11,9 +11,9 @@ import { colors, icons } from "./utils/theme";
 import { ensureFreshDeps, findWorkspaceRoot } from "./workspace";
 
 const buildCommands: Record<string, { cmd: string; args: string[] }> = {
-  host: { cmd: "bun", args: ["run", "build"] },
-  ui: { cmd: "bun", args: ["run", "build"] },
-  api: { cmd: "bun", args: ["run", "build"] },
+  host: { cmd: "npm", args: ["run", "build"] },
+  ui: { cmd: "npm", args: ["run", "build"] },
+  api: { cmd: "npm", args: ["run", "build"] },
 };
 
 export type WorkspaceTarget = {
@@ -117,7 +117,7 @@ async function buildOneWorkspace(
   env: Record<string, string>,
   opts: { verbose?: boolean },
 ): Promise<WorkspaceBuildOutcome> {
-  const buildConfig = buildCommands[ws.key] ?? { cmd: "bun", args: ["run", "build"] };
+  const buildConfig = buildCommands[ws.key] ?? { cmd: "npm", args: ["run", "build"] };
   const verbose = opts.verbose ?? false;
   const startTime = Date.now();
 
@@ -203,7 +203,7 @@ export async function buildWorkspaceTargets(opts: {
     extendsChain: [],
   });
   if (sharedSync.catalogChanged) {
-    await run("bun", ["install"], {
+    await run("pnpm", ["install"], {
       cwd: findWorkspaceRoot(opts.configDir)?.dir ?? opts.configDir,
     });
   }
@@ -288,7 +288,7 @@ export async function buildWorkspaceTargets(opts: {
   } else {
     for (const resolved of orderedExisting) {
       const buildConfig = buildCommands[resolved.key] ?? {
-        cmd: "bun",
+        cmd: "npm",
         args: ["run", "build"],
       };
 

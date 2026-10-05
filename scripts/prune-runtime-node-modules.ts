@@ -16,8 +16,21 @@
  */
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { parse } from "yaml";
 
 const DEP_FIELDS = ["dependencies", "optionalDependencies"] as const;
+
+export function readWorkspacePackageGlobs(root: string): string[] {
+  const yamlPath = join(root, "pnpm-workspace.yaml");
+  if (existsSync(yamlPath)) {
+    const doc = parse(readFileSync(yamlPath, "utf8")) as { packages?: string[] } | null;
+    if (Array.isArray(doc?.packages)) return doc.packages;
+  }
+  const pkg = readPackageJson(join(root, "package.json"));
+  const legacy = pkg?.workspaces;
+  if (Array.isArray(legacy)) return legacy;
+  return Array.isArray(legacy?.packages) ? legacy.packages : [];
+}
 
 type Platform = { platform: string; arch: string; musl: boolean };
 
@@ -135,7 +148,7 @@ function main(): void {
   const rootPkg = readPackageJson(join(root, "package.json"));
   if (!rootPkg) throw new Error(`no package.json at ${root}`);
 
-  const workspacePatterns: string[] = rootPkg.workspaces?.packages ?? rootPkg.workspaces ?? [];
+  const workspacePatterns = readWorkspacePackageGlobs(root);
   const workspaceDirs = expandWorkspaceGlobs(root, workspacePatterns);
   const seedPackageJsons = [
     join(root, "package.json"),

@@ -202,7 +202,7 @@ export async function ensureFreshDeps(
 
   if (rebuilt.length > 0) {
     const results = await Promise.allSettled(
-      rebuilt.map((member) => run("bun", ["run", "build"], { cwd: member.dir, capture: true })),
+      rebuilt.map((member) => run("npm", ["run", "build"], { cwd: member.dir, capture: true })),
     );
     const failures = results.flatMap((result, index) => {
       const value = result.status === "fulfilled" ? result.value : undefined;

@@ -133,7 +133,8 @@ export async function getRuntimeRemoteScenarios(): Promise<RuntimeRemoteScenario
   } catch {
     // No generated config at the workspace root (fresh checkout, no `bos dev`
     // yet) — the remote scenarios cannot resolve their targets; skip-all.
-    const noConfigReason = "no bos.config.json at the workspace root — run `bos dev` to generate one";
+    const noConfigReason =
+      "no bos.config.json at the workspace root — run `bos dev` to generate one";
     return [
       {
         name: "remote-client",
