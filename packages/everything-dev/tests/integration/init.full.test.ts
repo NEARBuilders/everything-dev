@@ -63,7 +63,7 @@ describe.skipIf(process.env.CI !== "true")("bos init — full (install + typeche
     writeGeneratedAuthStubs(testDir);
     expect(existsSync(join(testDir, "node_modules"))).toBe(true);
 
-    const typesGenResult = await runCommand("bun", ["run", "types:gen"], testDir);
+    const typesGenResult = await runCommand("pnpm", ["run", "types:gen"], testDir);
     expect(
       typesGenResult.code,
       `types:gen exited ${typesGenResult.code}\n--- stdout ---\n${typesGenResult.stdout}\n--- stderr ---\n${typesGenResult.stderr}`,
