@@ -11,9 +11,9 @@ import { colors, icons } from "./utils/theme";
 import { ensureFreshDeps, findWorkspaceRoot } from "./workspace";
 
 const buildCommands: Record<string, { cmd: string; args: string[] }> = {
-  host: { cmd: "npm", args: ["run", "build"] },
-  ui: { cmd: "npm", args: ["run", "build"] },
-  api: { cmd: "npm", args: ["run", "build"] },
+  host: { cmd: "pnpm", args: ["run", "build"] },
+  ui: { cmd: "pnpm", args: ["run", "build"] },
+  api: { cmd: "pnpm", args: ["run", "build"] },
 };
 
 export type WorkspaceTarget = {
@@ -117,7 +117,7 @@ async function buildOneWorkspace(
   env: Record<string, string>,
   opts: { verbose?: boolean },
 ): Promise<WorkspaceBuildOutcome> {
-  const buildConfig = buildCommands[ws.key] ?? { cmd: "npm", args: ["run", "build"] };
+  const buildConfig = buildCommands[ws.key] ?? { cmd: "pnpm", args: ["run", "build"] };
   const verbose = opts.verbose ?? false;
   const startTime = Date.now();
 
@@ -211,18 +211,9 @@ export async function buildWorkspaceTargets(opts: {
   // Prerequisite train: every target's local workspace deps get fresh dists
   // before the target builds (runtime subpaths resolve from dist — ADR 0018;
   // bundler-config factories resolve from src, so the config chain cannot go
-  // stale). Fresh members no-op; failures are loud.
-  const depsReport = await ensureFreshDeps(
-    opts.configDir,
-    existing.map((entry) => entry.path),
-    { force: opts.deploy },
-  );
-  if (depsReport.rebuilt.length > 0) {
-    console.log(
-      `  ${colors.dim(`prerequisites: rebuilt ${depsReport.rebuilt.map((member) => member.name).join(", ")}`)}`,
-    );
-  }
-
+  // stale). Fresh members no-op; failures are loud. Deploy prerequisite
+  // builds run in the same build mode as the target builds below — one env
+  // contract for every deploy build child.
   const env: Record<string, string> = {
     ...process.env,
     NODE_ENV: opts.deploy ? "production" : "development",
@@ -231,6 +222,17 @@ export async function buildWorkspaceTargets(opts: {
   // DEPLOY value from the operator's shell, and a dev build must never see one.
   if (opts.deploy) env.DEPLOY = "true";
   else delete env.DEPLOY;
+
+  const depsReport = await ensureFreshDeps(
+    opts.configDir,
+    existing.map((entry) => entry.path),
+    { force: opts.deploy, env },
+  );
+  if (depsReport.rebuilt.length > 0) {
+    console.log(
+      `  ${colors.dim(`prerequisites: rebuilt ${depsReport.rebuilt.map((member) => member.name).join(", ")}`)}`,
+    );
+  }
 
   const orderedExisting = opts.deploy
     ? [
@@ -288,7 +290,7 @@ export async function buildWorkspaceTargets(opts: {
   } else {
     for (const resolved of orderedExisting) {
       const buildConfig = buildCommands[resolved.key] ?? {
-        cmd: "npm",
+        cmd: "pnpm",
         args: ["run", "build"],
       };
 

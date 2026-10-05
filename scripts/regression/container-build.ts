@@ -234,7 +234,7 @@ const run = (cmd: string, args: string[], cwd: string, env: Record<string, strin
 
 const build = () => {
   console.log("[container-build] better-near-auth (production dist for prod-mode resolution)…");
-  run("npm", ["run", "build"], "packages/better-near-auth");
+  run("pnpm", ["run", "build"], "packages/better-near-auth");
 
   console.log(
     "[container-build] core ui bootstrap stubs (ADR 0023 — emitted by the train's code-artifact pass)…",
@@ -247,14 +247,14 @@ const build = () => {
   emitCoreUiStubs(path.join(root, "ui"));
 
   console.log("[container-build] core ui (web, then ssr — sequential environments)…");
-  run("npm", ["run", "build:client"], "ui");
-  run("npm", ["run", "build:ssr"], "ui");
+  run("pnpm", ["run", "build:client"], "ui");
+  run("pnpm", ["run", "build:ssr"], "ui");
 
   console.log("[container-build] host dist…");
-  run("npm", ["run", "build"], "host");
+  run("pnpm", ["run", "build"], "host");
 
   console.log("[container-build] api remote…");
-  run("npm", ["run", "build"], "api");
+  run("pnpm", ["run", "build"], "api");
 
   // app.auth is an app-slot, not a plugins.* entry — its workspace build
   // (`every-plugin build`) covers the api remote AND the folder-form ui.
@@ -262,12 +262,12 @@ const build = () => {
   if (typeof authDevelopment === "string" && authDevelopment.startsWith("local:")) {
     const authWorkspace = authDevelopment.slice("local:".length);
     console.log("[container-build] auth app-slot (api remote + folder-form ui)…");
-    run("npm", ["run", "build"], authWorkspace);
+    run("pnpm", ["run", "build"], authWorkspace);
   }
 
   for (const [key, workspace] of localPlugins) {
     console.log(`[container-build] plugin ${key} (api remote)…`);
-    run("npm", ["run", "build"], workspace);
+    run("pnpm", ["run", "build"], workspace);
   }
 };
 

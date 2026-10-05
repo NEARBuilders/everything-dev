@@ -1265,9 +1265,6 @@ importers:
       everything-dev:
         specifier: workspace:^
         version: link:../../packages/everything-dev
-      host:
-        specifier: workspace:*
-        version: link:../../host
       vite-tsconfig-paths:
         specifier: ^5.1.4
         version: 5.1.4(typescript@7.0.2)(vite@8.3.2(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))

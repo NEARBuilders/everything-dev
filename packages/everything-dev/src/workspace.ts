@@ -207,7 +207,15 @@ export function localDepsOf(
 export async function ensureFreshDeps(
   startDir: string,
   targetDirs: readonly string[],
-  opts?: { readonly force?: boolean },
+  opts?: {
+    readonly force?: boolean;
+    /** Build-mode contract for prerequisite children (ADR 0018): deploy
+     * builds run dist-first, so every build child — prerequisite or target —
+     * must receive the same env; a bundler-config workspace in the closure
+     * resolves differently without it. Callers that pass nothing keep the
+     * ambient env (dev-time staleness rebuilds). */
+    readonly env?: Record<string, string>;
+  },
 ): Promise<DepsReport> {
   const root = findWorkspaceRoot(startDir);
   if (!root) return { rebuilt: [], fresh: [] };
@@ -222,7 +230,13 @@ export async function ensureFreshDeps(
 
   if (rebuilt.length > 0) {
     const results = await Promise.allSettled(
-      rebuilt.map((member) => run("npm", ["run", "build"], { cwd: member.dir, capture: true })),
+      rebuilt.map((member) =>
+        run("pnpm", ["run", "build"], {
+          cwd: member.dir,
+          capture: true,
+          env: opts?.env,
+        }),
+      ),
     );
     const failures = results.flatMap((result, index) => {
       const value = result.status === "fulfilled" ? result.value : undefined;
