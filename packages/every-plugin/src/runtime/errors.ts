@@ -46,6 +46,25 @@ const extractErrorMessage = (error: unknown): string => {
   return String(error);
 };
 
+/**
+ * The deepest Error along the cause chain — the original throw site. Wrapper
+ * errors (PluginRuntimeError, ModuleFederationError) carry their own stacks
+ * (the wrapping frames); diagnosis needs the cause's stack (the actual
+ * failing module inside the evaluated remote entry).
+ */
+export const deepestErrorStack = (error: unknown): string | undefined => {
+  let current = error;
+  let deepest: string | undefined;
+  let hops = 0;
+  while (current instanceof Error && hops < 8) {
+    if (current.stack) deepest = current.stack;
+    current = (current as { cause?: unknown }).cause as unknown;
+    hops += 1;
+  }
+  if (current instanceof Error && current.stack) deepest = current.stack;
+  return deepest;
+};
+
 const formatValidationIssue = (issue: any, index: number, maxDisplay: number): string => {
   if (index >= maxDisplay) return "";
 

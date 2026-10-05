@@ -13,6 +13,7 @@ import { Duration, Effect, Schedule } from "effect";
 import type { PluginRuntimeError } from "./runtime/errors";
 import {
   classifyPluginFailure,
+  deepestErrorStack,
   type PluginFailureClassification,
   toPluginRuntimeError,
 } from "./runtime/errors";
@@ -138,9 +139,10 @@ export const loadRemoteWithRetry = <T>(
     const signature = `${classification.kind}::${classification.message}`;
     if (signature === lastSignature) return;
     lastSignature = signature;
-    // The message alone is rarely enough — a swallowed stack ("__webpack_modules__[r]
-    // is not a function") turned a one-line diagnosis into hours. Log it.
-    const stack = error instanceof Error ? error.stack : undefined;
+    // The message alone is rarely enough, and the wrapper's own stack points
+    // at the wrapping frames — log the DEEPEST cause's stack (the original
+    // throw site inside the evaluated remote entry).
+    const stack = deepestErrorStack(error);
     console.error(
       `[Plugins][${label}] ❌ ${classification.kind} failure (attempt ${attempt}): ${classification.message}` +
         (classification.suggestion ? `\n[Plugins][${label}] → ${classification.suggestion}` : "") +
