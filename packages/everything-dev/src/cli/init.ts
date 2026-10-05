@@ -96,7 +96,10 @@ export function writeChildWorkspaceYaml(
       changed = true;
     }
   }
-  if (Object.keys(catalog).length > 0 && Object.keys(catalog).length !== Object.keys(doc.catalog ?? {}).length) {
+  if (
+    Object.keys(catalog).length > 0 &&
+    Object.keys(catalog).length !== Object.keys(doc.catalog ?? {}).length
+  ) {
     changed = true;
   }
   if (changed || !doc.catalog) {
