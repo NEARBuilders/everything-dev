@@ -80,13 +80,13 @@ async function stageAndPackFrameworkPackage(opts: {
     if (!deps || typeof deps !== "object") continue;
     const record = deps as Record<string, string>;
     for (const [name, spec] of Object.entries(record)) {
-      if (spec === "catalog:") {
+      if (spec.startsWith("workspace:")) {
         if (opts.otherFrameworkTarballs?.[name]) {
           record[name] = pathToFileURL(opts.otherFrameworkTarballs[name]).href;
         } else if (opts.rootCatalog[name]) {
           record[name] = opts.rootCatalog[name];
         }
-      } else if (spec === "workspace:*") {
+      } else if (spec === "catalog:") {
         if (opts.otherFrameworkTarballs?.[name]) {
           record[name] = pathToFileURL(opts.otherFrameworkTarballs[name]).href;
         } else if (opts.rootCatalog[name]) {

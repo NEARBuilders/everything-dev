@@ -159,7 +159,7 @@ describe("personalizeConfig with real root config", () => {
     expect(pkg.devDependencies?.["everything-dev"]).toBeUndefined();
     expect(pkg.devDependencies?.["every-plugin"]).toBeUndefined();
     expect(pkg.scripts?.postinstall).toBeUndefined();
-    expect(pkg.scripts?.["types:gen"]).toBe("node node_modules/.bin/bos types gen");
+    expect(pkg.scripts?.["types:gen"]).toBe("bos types gen");
     expect(pkg.scripts?.bos).toBe("bos");
     expect(pkg.packageManager).toBe(PNPM_PACKAGE_MANAGER);
     expect(pkg.workspaces).toBeUndefined();

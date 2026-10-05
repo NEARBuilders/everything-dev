@@ -111,9 +111,10 @@ function normalizeDependencyMap(
 
       // A workspace dep on a non-framework member (e.g. better-near-auth)
       // cannot resolve in a generated child — the member does not exist
-      // there. The catalog pins the published version instead.
-      if (options.preserveCatalogRefs && spec.rootCatalog[name]) {
-        map[name] = "catalog:";
+      // there. Children keep the catalog: protocol (the catalog pins the
+      // published version); release staging resolves the real range.
+      if (spec.rootCatalog[name]) {
+        map[name] = options.preserveCatalogRefs ? "catalog:" : spec.rootCatalog[name];
         modified = true;
       }
       continue;

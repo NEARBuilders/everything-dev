@@ -40,17 +40,39 @@ import { getExtendsRef, parseBosRef } from "./utils/helpers";
 export const PNPM_PACKAGE_MANAGER = "pnpm@10.20.0";
 
 /**
+ * Transitive-singleton overrides every workspace in the fleet must agree on
+ * (ticket 05's deviation log: isolated resolution splits better-auth
+ * peer-context identities across the plugin fleet). Values derive from the
+ * catalog so sync keeps them current; keys absent from the catalog are left
+ * unpinned.
+ */
+const CHILD_OVERRIDE_KEYS = [
+  "@better-fetch/fetch",
+  "@rspack/core",
+  "better-auth",
+  "react",
+  "react-dom",
+] as const;
+
+/**
  * The child's workspace manifest: pnpm-workspace.yaml is canonical (v2, ADR
  * 0026) — packages globs synthesized from the child's override sections, the
- * catalog merged over any local entry. Re-running (sync/upgrade) merges
- * instead of clobbering.
+ * catalog merged over any local entry, plus the fleet-wide linker posture and
+ * singleton overrides. Re-running (sync/upgrade) merges instead of clobbering.
  */
 export function writeChildWorkspaceYaml(
   projectDir: string,
   next: { packages: string[]; catalog: Record<string, string> },
 ): boolean {
   const yamlPath = join(projectDir, "pnpm-workspace.yaml");
-  let doc: { packages?: string[]; catalog?: Record<string, string> } = {};
+  let doc: {
+    packages?: string[];
+    catalog?: Record<string, string>;
+    nodeLinker?: string;
+    linkWorkspacePackages?: boolean;
+    ignoreScripts?: boolean;
+    overrides?: Record<string, string>;
+  } = {};
   if (existsSync(yamlPath)) {
     try {
       const parsed = parseYaml(readFileSync(yamlPath, "utf-8"));
@@ -60,7 +82,7 @@ export function writeChildWorkspaceYaml(
     }
   }
 
-  let changed = false;
+  let changed = !existsSync(yamlPath);
   const packages = [...new Set([...(doc.packages ?? []), ...next.packages])].sort();
   if (JSON.stringify(packages) !== JSON.stringify(doc.packages)) {
     doc.packages = packages;
@@ -74,13 +96,42 @@ export function writeChildWorkspaceYaml(
       changed = true;
     }
   }
-  if (changed) {
+  if (Object.keys(catalog).length > 0 && Object.keys(catalog).length !== Object.keys(doc.catalog ?? {}).length) {
+    changed = true;
+  }
+  if (changed || !doc.catalog) {
     doc.catalog = Object.fromEntries(
       Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b)),
     );
   }
 
-  if (changed || !existsSync(yamlPath)) {
+  if (doc.nodeLinker !== "hoisted") {
+    doc.nodeLinker = "hoisted";
+    changed = true;
+  }
+  if (doc.linkWorkspacePackages !== true) {
+    doc.linkWorkspacePackages = true;
+    changed = true;
+  }
+  if (doc.ignoreScripts !== true) {
+    doc.ignoreScripts = true;
+    changed = true;
+  }
+
+  const overrides: Record<string, string> = { ...(doc.overrides ?? {}) };
+  for (const key of CHILD_OVERRIDE_KEYS) {
+    if (catalog[key] && overrides[key] !== catalog[key]) {
+      overrides[key] = catalog[key];
+      changed = true;
+    }
+  }
+  if (Object.keys(overrides).length > 0) {
+    doc.overrides = Object.fromEntries(
+      Object.entries(overrides).sort(([a], [b]) => a.localeCompare(b)),
+    );
+  }
+
+  if (changed) {
     writeFileSync(yamlPath, `${stringifyYaml(doc, { lineWidth: 0 }).trimEnd()}\n`);
     return true;
   }
@@ -696,7 +747,7 @@ export function buildChildRootScripts(sections: {
     changeset: "changeset",
     version: "changeset version",
     release: "echo 'Packages versioned - app release handled by workflow'",
-    "types:gen": "node node_modules/.bin/bos types gen",
+    "types:gen": "bos types gen",
     bos: "bos",
   };
 
