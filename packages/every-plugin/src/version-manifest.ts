@@ -14,7 +14,7 @@ const SRI = z.string().regex(/^sha384-[A-Za-z0-9+/=]+$/);
 
 export const WorkspaceVersionManifestSchema = z.object({
   version: z.string().regex(/^[0-9a-f]{16}$/),
-  builtAt: z.string(),
+  builtAt: z.string().optional(),
   gitSha: z.string().optional(),
   entry: z.string().min(1),
   entryIntegrity: SRI,
@@ -38,7 +38,10 @@ export const WorkspaceVersionManifestSchema = z.object({
 export type WorkspaceVersionManifest = z.infer<typeof WorkspaceVersionManifestSchema>;
 
 export interface VersionManifestInput {
-  builtAt: string;
+  /** Omit: a per-build timestamp makes the same version id map to different
+   * manifest bytes per machine, breaking the pin's SRI against the image's
+   * staged copy and the CDN's immutability for republished versions. */
+  builtAt?: string;
   gitSha?: string;
   entry: string;
   entryIntegrity: string;

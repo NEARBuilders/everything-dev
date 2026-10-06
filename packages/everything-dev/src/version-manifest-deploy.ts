@@ -39,7 +39,6 @@ export function composeWorkspaceVersionManifest(input: {
   const ssrIntegrity = ssrEntry ? integrityMap[`ssr/${ssrEntry}`] : undefined;
 
   return composeVersionManifest({
-    builtAt: new Date().toISOString(),
     entry: report.entry,
     entryIntegrity,
     ...(ssrEntry && ssrIntegrity
