@@ -60,3 +60,11 @@ metadata:
 - If neighboring files use `function Component()`, don't use `const Component: React.FC = () =>`
 - If neighboring files group imports by type (React, third-party, local), do the same
 - Consistent file structure within a directory is more important than personal preference
+
+## The tasks you will actually be given
+
+**"Review my new component for style."** Check four things: file is kebab-case with a PascalCase named export, classes use semantic tokens (`bg-background`, `text-muted-foreground`) not hardcoded colors, no inline comments, imports use `@/` aliases grouped like the neighbors.
+
+**"Where does this shared component go?"** `ui/src/components/ui/<name>.tsx`, named export, added to `ui/src/components/index.ts`. Feature-specific components stay colocated with the route that uses them.
+
+**"Is this file name ok?"** Lowercase kebab-case for every file and directory, including routes. PascalCase file names are the only hard violation; route path segments follow TanStack conventions (`_` prefix for layouts).

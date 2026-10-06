@@ -22,6 +22,35 @@ const INTENT_COMMAND = "npx @tanstack/intent@latest load everything-dev";
 
 const INTENT_REGISTRY_URL = "https://tanstack.com/intent/registry/everything-dev";
 
+const SKILL_FAMILY = [
+  {
+    pkg: "everything-dev",
+    skills: [
+      "talk-to-the-app",
+      "add-a-route",
+      "ui-integration",
+      "plugin-development",
+      "api-and-auth",
+      "dev-workflow",
+      "extends-config",
+      "init-upgrade",
+      "publish-sync",
+      "registry",
+      "super-app",
+      "code-style",
+      "cli-reference",
+    ],
+  },
+  {
+    pkg: "every-plugin",
+    skills: ["plugin-development", "plugin-client", "plugin-testing"],
+  },
+  {
+    pkg: "better-near-auth",
+    skills: ["auth-plugin", "client", "siwn", "relay", "subaccount", "tanstack"],
+  },
+];
+
 export const Route = createFileRoute("/_public/skill")({
   loader: async ({ context }) => {
     const runtimeConfig = context.runtimeConfig;
@@ -149,6 +178,47 @@ function SkillPage() {
           Browse the Intent registry
           <ArrowUpRightIcon />
         </Button>
+      </section>
+
+      <section
+        className="flex flex-col gap-4 border-t border-border pt-10"
+        data-testid="skill.family"
+      >
+        <h2 className="text-lg font-medium text-foreground">The skill family</h2>
+        <p className="text-sm text-muted-foreground">
+          Load ONE skill for the task in front of you — each covers its common case and points to
+          references for the rest. Served at
+          <code className="mx-1 font-mono text-xs">
+            /skills/&lt;package&gt;/&lt;skill&gt;/SKILL.md
+          </code>
+          or loadable with TanStack Intent.
+        </p>
+        <div className="grid gap-4 md:grid-cols-3">
+          {SKILL_FAMILY.map((group) => (
+            <div
+              key={group.pkg}
+              className="flex flex-col gap-2 rounded-2xl border border-border p-4"
+              data-testid={`skill.family-${group.pkg}`}
+            >
+              <h3 className="font-mono text-sm font-medium text-foreground">{group.pkg}</h3>
+              <ul className="flex flex-col gap-1">
+                {group.skills.map((skill) => (
+                  <li key={skill}>
+                    <a
+                      href={`/skills/${group.pkg}/${skill}/SKILL.md`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                      data-testid={`skill.family-${group.pkg}-${skill}`}
+                    >
+                      {skill}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="flex flex-col gap-6 border-t border-border pt-10">

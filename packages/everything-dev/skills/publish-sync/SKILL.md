@@ -244,3 +244,22 @@ bos kill               # Kill all tracked processes
 pnpm install           # Reinstall deps
 bos dev                # Restart
 ```
+
+## The tasks you will actually be given
+
+**"Ship one plugin only."** `bos plugin publish <key>` (builds + pins the deterministic URL + publishes config), then `bos mf check` from the repo root to confirm federation compatibility.
+
+**"Roll back a bad publish."** `bos rollback --previous` — republishes a verified FastKV snapshot without touching git; the manual path is `git checkout <ref> -- bos.app.ts` + `bos publish`.
+
+**"Deploy my own runtime under my own account."** NEAR account + `bos key generate` → `NEAR_PRIVATE_KEY`; authored config sets your `account` + `extends` the parent and keeps `domain` as the parent gateway; `bos publish --deploy`; run the image with `BOS_ACCOUNT` / `BOS_GATEWAY`.
+
+## What comes back when it refuses
+
+| word | do |
+|---|---|
+| publish returns `status: "error"` before signing | preflight failed — key resolution (no `NEAR_PRIVATE_KEY` / credentials / keychain) or the registry read; run `bos publish --dry-run` to see the plan |
+| config resolves to nothing at `bos://<account>/<gateway>` | namespace = signer — the tx was signed by a different account than the config's `account`; sign with the publisher's key (see the `registry` skill) |
+| `integrity mismatch for <url>` | the remote entry's SRI hash diverges from the published config — redeploy that workspace and republish; the host blocks HTML/SSR on mismatch and client-renders without the remote |
+| `N plugin(s) failed to load` at host startup | `bos mf check` — a plugin's `metaData.pluginVersion` lags the host; republish that plugin |
+| `missing-local-path` error on `--packages local` | a selected entry has no `development: local:` (remote-only) — it can't be rebuilt from this repo; drop it from the selection |
+| publish prints nothing / skips | FastKV already holds an identical config — a free no-op, nothing to fix |

@@ -2,7 +2,7 @@
 name: plugin-testing
 description: Test every-plugin modules with vitest and the plugin runtime. Use when writing or modifying plugin tests under plugins/*/src/__tests__/ or plugins/*/tests/.
 metadata:
-  sources: "src/index.ts,src/runtime/index.ts"
+  sources: "src/index.ts,src/runtime/index.ts,src/runtime/errors.ts,plugins/_template/tests/setup.ts"
 ---
 
 # every-plugin Testing
@@ -225,3 +225,22 @@ export default defineConfig({
 - Forgetting `vite-tsconfig-paths` plugin — package subpath imports like `every-plugin/errors` won't resolve
 - Omitting the `registry` object when calling `createPluginRuntime(...)` — the runtime requires explicit plugin entries
 - Testing only happy paths — always test error channels (Effect failures, ORPCError throws)
+
+## The tasks you will actually be given
+
+**"Add an integration test for a new route"** — in `plugins/<your-plugin>/tests/integration/plugin.test.ts`, follow the `_template` pattern (`plugins/_template/tests/setup.ts`): call `await getPluginClient({ userId: "user123" })` — it boots `createPluginRuntime` with the registry keyed by the package.json `name`, config from `plugin.dev.ts`, and an HTTP server that maps `x-test-user`/`x-test-session` headers to context. Then drive the route through the client and assert the response. Run with `cd plugins/<your-plugin> && pnpm test` (script `vitest run`, `testTimeout: 30000` in `vitest.config.ts`).
+
+**"Prove a service method fails with the right ORPC code"** — follow `plugins/_template/tests/unit/things-service.test.ts`: build a fresh layer with `DatabaseLive('pglite:<mkdtemp dir>')` and `Layer.succeed(PluginIdTag, "<pluginId>")`, run the failing effect through `Effect.runPromiseExit` + `Cause.squash`, then `expect(error).toBeInstanceOf(ORPCError)` and `expect(error.code).toBe("CONFLICT")` (or `NOT_FOUND`). Clean the temp dir in `afterEach`.
+
+**"A test fails at `usePlugin` with a validation error"** — the config comes from `plugin.dev.ts` via `tests/setup.ts` (`TEST_CONFIG`). The runtime validates `variables` and `secrets` against the plugin's zod schemas (`validate-config` / `validate-secrets` → `PluginRuntimeError` with a `zodError` cause). Fix the config in `plugin.dev.ts`, not the test.
+
+## What comes back when it fails
+
+| Error word / shape you see | Meaning | Action |
+|---|---|---|
+| `Plugin ID '<id>' not found in registry.` (`PluginRuntimeError`, operation `validate-plugin-id`) | the `usePlugin` key does not match a registry entry | make the registry key the package.json `name` (as `tests/setup.ts` does), then read again |
+| `PluginRuntimeError` with operation `validate-config` / `validate-secrets` and a Zod cause | `TEST_CONFIG` violates the plugin's schemas | fix `plugin.dev.ts`; do not loosen the schemas to make tests pass |
+| `ModuleFederationError` | only when loading a remote URL — in-process tests (`module: Plugin`) never produce it | if you see it, your registry entry points at a URL instead of the imported module |
+| `Cannot find module` for `every-plugin/...` subpaths | `vite-tsconfig-paths` missing from `vitest.config.ts` plugins | add it (see the Vitest Config section) |
+| Test hangs past 30s | default `testTimeout: 30000`; a streaming handler's `for await` never terminates | pass `signal`/`maxResults` limits like `_template`'s `listenBackground`, or abort the iterator |
+| Scoped resource still alive after tests finish | `runtime.shutdown()` (or `_template`'s `teardown()`) never ran | call it in `afterAll` |

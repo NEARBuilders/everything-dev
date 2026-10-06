@@ -2,7 +2,7 @@
 name: api-and-auth
 description: API architecture, oRPC contracts, auth middleware, plugin-client composition, session handling, and client-side auth. Use when adding API routes, creating middleware, calling other plugins in-process, or integrating auth in routes and UI.
 metadata:
-  sources: "api/src/index.ts,api/src/contract.ts,packages/everything-dev/src/api/auth-middleware.ts,host/src/services/auth.ts,host/src/services/plugins.ts,host/src/program.ts,ui/src/lib/auth.ts,ui/src/lib/api.ts"
+  sources: "api/src/index.ts,api/src/contract.ts,packages/everything-dev/src/api/auth-middleware.ts,packages/every-plugin/src/errors.ts,host/src/services/auth.ts,host/src/services/plugins.ts,host/src/program.ts,ui/src/lib/auth.ts,ui/src/lib/api.ts"
 ---
 
 # API Architecture & Auth
@@ -423,3 +423,21 @@ for await (const event of iterator) {
 ## How Routes Are Mounted
 
 The host (`host/src/program.ts`) creates RPC and OpenAPI handlers from each plugin's router, mounted at `/api/rpc/<plugin-namespace>`. The session middleware runs on `/api/*` before the RPC handlers, ensuring context is set.
+
+## The tasks you will actually be given
+
+**"Add an admin-only route."** Contract declares `.errors({ UNAUTHORIZED, FORBIDDEN })`; handler is `.effect(function* ...)` and guards with `return yield* Effect.fail(errors.UNAUTHORIZED({ apiKeyProvided: !!context.apiKey }))` — note all-optional error shapes still need an explicit `data: {}`. For shared middleware shapes, see `packages/everything-dev/src/api/auth-middleware.ts`.
+
+**"Call the auth plugin from my route."** `getAuthClient(services, { reqHeaders: context.reqHeaders })` then `await authClient.getSession()` — in-process, no HTTP roundtrip.
+
+**"Wire an SSE route."** Contract: `.output(eventIterator(Schema))`. Handler: async generator that subscribes to the publisher and yields per event, filtering server-side on `pluginId`/query params.
+
+## What comes back when it fails
+
+| word | do |
+|---|---|
+| `Type 'DecoratedMiddleware'…` on `.use()` | middleware typing does not compose with the `.use()` builder — use the local-middleware pattern (`plugins/proposals/src`) |
+| `UNAUTHORIZED` type error on the fail call | its `data` requires `{ apiKeyProvided: boolean }`; all-optional error shapes still need explicit `data: {}` |
+| runtime 401 with what looks like a valid session | the session middleware resolution returned nulls — check `GET /api/auth/getSession` before blaming the route |
+| `tsc` clean but Effect diagnostics | run `pnpm run lint:effect` (oxlint type-aware) — floating effects and tag mismatches surface there |
+| `ModuleFederationError` / `N plugin(s) failed to load` at startup | the API plugin itself failed to load — `bos mf check`, republish the lagging plugin, restart the host |

@@ -63,3 +63,20 @@ bos registry use v1.citynode.near/citynode.app --sections app.ui,plugins.apps
 - **Config "missing" after publishing with the wrong key** — the write landed under the signing account's namespace, not the config's `account`. Sign with the account named in the authored config.
 - **Editing the committed authored config URLs and expecting runtime changes** — the runtime source of truth is FastKV; the repo copy is the publish *input*.
 - **Expecting near-cli-rs for publish** — signing is in-process; near-cli-rs is only needed for `bos key generate` (interactive keychain) and account management.
+
+## The tasks you will actually be given
+
+**"Attach a section from another runtime."** `bos registry use <account>/<gateway> --sections app.ui,plugins.apps --dry-run` first, then the real run, then `bos types gen` to refresh generated types.
+
+**"Debug: my publish isn't visible."** Fetch the exact read URL (`https://kv.main.fastnear.com/v0/latest/dev.everything.near/<account>/apps%2F<account>%2F<gateway>%2Fbos.config.json`) and compare the response's `predecessor_id` to the account you signed with.
+
+**"Publish without double-spending gas."** Just run `bos publish` — `isConfigAlreadyPublished` skips identical configs before signing, and `waitForPublishedConfig` confirms the read-back (~120s timeout).
+
+## What comes back when it refuses
+
+| word | do |
+|---|---|
+| read 404 / config "missing" right after publish | the write landed under the signer's namespace, not the config's `account` — sign with the account named in the authored config (`bos key generate` FCAK, or the wallet/delegate) |
+| publish errors before signing | preflight failed — key resolution or registry URL; check `NEAR_PRIVATE_KEY` / `BOS_NEAR_PRIVATE_KEY` / `~/.near-credentials/<network>/<account>.json` |
+| `waitForPublishedConfig` timeout | the read-back didn't match within ~120s — fetch the URL by hand; if `predecessor_id` is wrong, the wrong key signed |
+| relayer-signed publish invisible | a relayer signing its own tx writes to the *relayer's* namespace — there is no sign-on-behalf; use the publisher's FCAK or a NEP-366 delegate |

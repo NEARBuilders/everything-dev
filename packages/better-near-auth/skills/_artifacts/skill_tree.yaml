@@ -42,9 +42,12 @@ skills:
     domain: 'client'
     path: 'skills/client/SKILL.md'
     description: 'Set up the siwnClient plugin, configure wallet connection, use authClient.near actions for sign-in, account management, delegate action building, and relay submission'
+    references:
+      - 'references/client-actions.md'
     sources:
       - 'elliotBraem/better-near-auth:src/client.ts'
       - 'elliotBraem/better-near-auth:src/types.ts'
+      - 'elliotBraem/better-near-auth:src/index.ts'
       - 'elliotBraem/better-near-auth:README.md'
       - 'elliotBraem/better-near-auth:LLM.txt'
   - name: 'TanStack Router integration'
@@ -103,3 +106,4 @@ skills:
       - 'elliotBraem/better-near-auth:examples/auth.everything.dev/api/src/index.ts'
       - 'elliotBraem/better-near-auth:examples/auth.everything.dev/api/src/lib/auth.ts'
       - 'elliotBraem/better-near-auth:examples/auth.everything.dev/api/src/lib/context.ts'
+      - 'elliotBraem/better-near-auth:src/index.ts'

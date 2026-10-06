@@ -2,7 +2,7 @@
 name: init-upgrade
 description: bos init, bos sync, and bos upgrade workflows — template download, snapshot-based conflict detection, package version bumps, and how init/sync select and own files. Use when scaffolding new projects, syncing upstream changes, or upgrading framework packages.
 metadata:
-  sources: "packages/everything-dev/src/cli/init.ts,packages/everything-dev/src/cli/sync.ts,packages/everything-dev/src/cli/upgrade.ts,packages/everything-dev/src/cli/snapshot.ts,packages/everything-dev/src/merge.ts"
+  sources: "packages/everything-dev/src/cli/init.ts,packages/everything-dev/src/cli/sync.ts,packages/everything-dev/src/cli/upgrade.ts,packages/everything-dev/src/cli/snapshot.ts,packages/everything-dev/src/cli.ts,packages/everything-dev/src/merge.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
@@ -199,3 +199,20 @@ All writes to the authored config enforce `BOS_CONFIG_ORDER`:
 `extends` → `account` → `domain` → `title` → `description` → `testnet` → `staging` → `repository` → `ci` → `app` → `plugins`
 
 Unknown keys go after known keys. See `everything-dev#extends-config` for full ordering details.
+
+## The tasks you will actually be given
+
+**"Scaffold a child that extends the base runtime."** `bos init --extends bos://<parent-account>/<gateway> --account <you>.near --domain <your.domain> --no-interactive`, then customize `account` / `domain` / `app.ui` in the authored config; init's tail runs `pnpm install` + `bos types gen` (unless `--no-install`).
+
+**"Sync reports conflicted files."** Your local edits diverged from the snapshot; upgrade applies the template version and leaves your copy in `.bos/sync-backup/` — diff and merge back, or `bos sync --force` deliberately.
+
+**"Upgrade framework packages."** `bos upgrade --dry-run` first, then `bos upgrade` — it bumps the root catalog, rewrites workspace refs to `catalog:`, syncs the template, and rewrites legacy imports.
+
+## What comes back when it refuses
+
+| word | do |
+|---|---|
+| file listed as `conflicted` in sync results | local file modified since the snapshot AND the template changed — take the template version (your copy is backed up at `.bos/sync-backup/`) or re-apply your change on top |
+| sync keeps skipping my file | app-owned files that diverged from the snapshot are skipped without `--force`; framework-owned files always update when the template changes |
+| `Circular extends detected while resolving upgrade source` | the upgrade source's extends chain loops — resolve from a non-cyclic parent |
+| init copies fewer files than expected | `buildInitPatterns` filters to the selected plugins + their routes; pass `--overrides ui,api,host` to widen the scaffold |

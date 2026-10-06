@@ -2,7 +2,7 @@
 name: super-app
 description: Build shared-host, shared-API super apps with tenant-specific UI composition. Use when setting up a base runtime plus custom tenant apps, configuring fixed-core multi-tenancy, reasoning about extends-based runtime lineage, or deciding what tenants can override today.
 metadata:
-  sources: "host/src/services/tenant-runtime.ts,host/src/program.ts,host/src/services/federation.server.ts,packages/everything-dev/src/config.ts"
+  sources: "host/src/services/tenant-runtime.ts,host/src/services/binding-resolver.ts,host/src/program.ts,host/src/services/federation.server.ts,packages/everything-dev/src/config.ts"
 ---
 
 # Super Apps
@@ -168,3 +168,20 @@ After publishing config changes that affect the base host runtime, restart the h
 - Use `everything-dev#extends-config` for deep-merge and resolved-config semantics.
 - Use `everything-dev#publish-sync` for publish and deploy steps.
 - Use this `super-app` skill when the question is specifically about the shared-host, shared-API multi-tenant architecture.
+
+## The tasks you will actually be given
+
+**"Set up a shared-host tenant."** Base: `bos init --overrides ui,api,host` then `bos publish --deploy`. Child: authored config with `extends` + its own `account`/`domain`, override `app.ui` only, publish it; register the tenant row with the right allow flags in the DB.
+
+**"Tenant overrides are not applying."** Walk the checklist in order: config exists in FastKV → extends the base runtime → tenant record allow flags set → host logs (`cat .bos/logs/host.log`) → integrity hashes on the tenant remotes valid.
+
+**"This tenant needs SSR."** Set `allow_ssr` on the tenant record — the host's BindingResolver reads permissions from `GET /tenants/bindings` (cached 30s); without the flag the tenant falls back to client rendering.
+
+## What comes back when it refuses
+
+| word | do |
+|---|---|
+| tenant config missing in FastKV | the host silently serves the base runtime — no error surfaces to the browser; verify the published path and the signer namespace |
+| `Tenant resolution is unavailable: the API plugin failed to load` | the BindingResolver can't reach `/api/tenants/bindings` — check `GET /api/_health` and the startup plugin-load errors, republish the API |
+| integrity rejection of a tenant remote | HTML/SSR requests block immediately, assets fall back — redeploy the tenant bundle and republish so the SRI matches |
+| overrides still stale after publishing | the host boots one base snapshot and caches tenant configs — restart the host (or wait out the cache TTL) |

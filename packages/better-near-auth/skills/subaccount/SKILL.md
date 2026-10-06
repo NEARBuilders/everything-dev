@@ -454,3 +454,27 @@ subAccount: { parentKey: "ed25519:..." }
 secrets: { parentKey: "ed25519:..." }
 subAccount: { parentAccount: "myapp.near" }
 ```
+
+## The tasks you will actually be given
+
+**"Give every signed-in user a sub-account under our parent."**
+Configure `siwn({ subAccount: { parentAccount, parentHasFullAccess: true, minDeposit } })` (plus `relayer` or `secrets.parentKey`), then on the client run `checkSubAccountAvailability({ subAccountName })` → `createSubAccount({ subAccountName, publicKey })`.
+
+**"Deploy our contract into each new sub-account and initialize it."**
+Add `deploy: { fromPublished: { accountId } }` and `init: { methodName: "init", args: (ctx) => ({ owner: ctx.userAccountId }) }` to `subAccount` — dynamic `init.args` requires the raw library, not `bos.config.json` (static args objects are fine there).
+
+**"onCreated writes rows to my own DB — make a failure clean up."**
+Wrap your writes in `onCreated` and mirror cleanup in `onRollback` (delete only your own records — the plugin already deletes internal DB rows and runs `deleteAccount({ beneficiary: parentAccount })` on-chain).
+
+## What comes back when it refuses
+
+| What you see | Where it comes from | Action |
+| --- | --- | --- |
+| `Sub-account creation unavailable on <network>: no parent account configured...` (503) | No `subAccount.parentAccount` and no named relayer | Stop — set `parentAccount` or use an explicit relayer |
+| `Sub-account creation unavailable on <network>: parent key not configured for <parent>...` (503) | Parent set but no `secrets.parentKey` and no explicit relayer key | Stop — provide `secrets.parentKey` server-side |
+| `Sub-account parent differs from relayer account. Provide secrets.parentKey to sign as the parent account.` (503) | Parent ≠ relayer, no parent key | Stop — server secret fix |
+| `Account <id> already exists on <network>` (409) | `createSubAccount` for an existing name | Stop — check `checkSubAccountAvailability` first |
+| Availability `reason: "not-configured"` | No parent (or implicit hex parent) configured | Stop — fix server config |
+| Availability `reason: "taken"` / `"too-long"` | On-chain lookup / 64-char limit (`<name>.<parent>` length) | Stop — pick a shorter/new name |
+| `Must have a linked NEAR wallet to check sub-account availability` (400) | No session-linked NEAR account | Tell the user to sign in with NEAR first |
+| `Sub-account created but post-creation failed: <msg>` (500) | `onCreated` threw — rollback already ran (DB rows deleted, on-chain account deleted) | Stop — fix the side effect that threw, then have the user retry creation |

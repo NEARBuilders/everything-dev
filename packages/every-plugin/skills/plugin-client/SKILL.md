@@ -447,3 +447,23 @@ See the `extends-config` skill for deep merge semantics, per-environment extends
 - **Not saving the API key secret** — `authClient.apiKey.create()` returns the full key string (`edk_...`) only once. Subsequent calls to `list` or `update` return only the prefix and metadata.
 - **Plugin key vs plugin name confusion** — the client namespace is the `bos.config.json` `plugins` key (e.g., `"apps"`), not the Module Federation `name` field. They often match but are not guaranteed to.
 - **Forgetting to regenerate types** — after adding/removing plugins in `bos.config.json`, run `bos types gen` or restart `bos dev`. Stale `api-types.gen.ts` will have missing or wrong namespace keys.
+
+## The tasks you will actually be given
+
+**"Call a plugin route from a script"** — create a key in the UI under `/settings/api-keys` (the full `edk_...` secret is shown once — copy it), then use the external `RPCLink` + `x-api-key` snippet from the External / Standalone API Client section above. The procedure path is `POST {hostUrl}/api/rpc/{pluginKey}/{procedure}` — e.g. `client.registry.listRegistryApps({ limit: 24 })`.
+
+**"Wire a typed API call into a UI route"** — import `useApiClient` from `@/app`, call `apiClient.<pluginKey>.<procedure>()`. If the namespace key is missing in the types, the plugin was added/removed without regenerating: run `bos types gen` (or restart `pnpm run dev`), never hand-edit `ui/src/lib/api-types.gen.ts`.
+
+**"Set up a typed client for another language"** — pull the spec from `GET {hostUrl}/api/spec.json` and run the openapi codegen commands in the OpenAPI / REST section above.
+
+## What comes back when it refuses
+
+| Error word / shape you see | Meaning | Action |
+|---|---|---|
+| 401 `UNAUTHORIZED` "Authentication required" with `data: { hint: "Sign in or provide an API key" }` | no session cookie and no API key reached the middleware | sign in, or attach `x-api-key: edk_...` |
+| 401 `UNAUTHORIZED` "API key required" with `data: { authType: "apiKey", hint: "Provide a valid API key via x-api-key header" }` | the route is `requireApiKey(...)`-protected and your key was absent — usually `Authorization: Bearer` was used instead | switch to the `x-api-key` header |
+| 403 `FORBIDDEN` "API key lacks permission: <resource>:<action>" with `data: { requiredPermissions, keyPermissions }` | the key's `permissions` map does not cover every required resource/action — partial matches are rejected | re-create (server-side) or update the key with the needed permissions |
+| 403 `FORBIDDEN` "Requires role: ..." / "Requires organization role: ..." | session role gate | sign in with an account holding the role; a key cannot satisfy these |
+| 403 `FORBIDDEN` "Organization requires platform-admin approval" | the org's `status` is not `"active"` | stop — needs platform-admin approval, no client-side fix |
+| `authClient.apiKey.list` / `update` return only `prefix` and metadata | expected — the full secret is returned once at `create` | create a new key; the old secret is unrecoverable |
+| Browser request blocked by CORS despite a valid key | session cookies not sent (`credentials: "include"` missing) or origin not allowed by `CORS_ORIGIN` | add `credentials: "include"` to the fetch wrapper, or fix `CORS_ORIGIN` |

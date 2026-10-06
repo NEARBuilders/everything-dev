@@ -2,7 +2,7 @@
 name: dev-workflow
 description: Development workflow for everything-dev projects using bos dev, bos start, and the Module Federation runtime. Use when starting dev servers, debugging hot reload, or understanding the service-descriptor architecture.
 metadata:
-  sources: "packages/everything-dev/src/service-descriptor.ts,packages/everything-dev/src/orchestrator.ts,packages/everything-dev/src/dev-logs.ts,packages/everything-dev/src/dev-session.ts,packages/everything-dev/src/process-registry.ts,packages/everything-dev/src/app.ts"
+  sources: "packages/everything-dev/src/service-descriptor.ts,packages/everything-dev/src/orchestrator.ts,packages/everything-dev/src/dev-logs.ts,packages/everything-dev/src/dev-session.ts,packages/everything-dev/src/process-registry.ts,packages/everything-dev/src/app.ts,packages/everything-dev/src/infra/preflight.ts,packages/everything-dev/src/dev-program.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
@@ -198,3 +198,21 @@ planned `bos dev --workspaces` orchestrator), `ports`, optional `budget`, `start
 orchestrator owns registry entries.
 
 Process tracking uses `~/.cache/everything-dev/pids.json` (global, atomic writes).
+
+## The tasks you will actually be given
+
+**"Start dev on my own ports."** `bos dev --port 3100` (api 3101, auth 3102, ui 3103, plugins 3110+ derive from the base). Explicit `--*-port` flags are pinned and persisted; derived ones are not.
+
+**"My change didn't show up."** Match the change type to the reload path: UI and API hot-reload instantly; auth/plugins/config changes need `bos kill && bos dev`; stale generated types need `pnpm run typecheck`.
+
+**"API is down."** `bos ps` → read `.bos/logs/api.log` → `curl http://localhost:3001/remoteEntry.js` — in that order.
+
+## What comes back when it fails
+
+| word | do |
+|---|---|
+| `Infra preflight failed: …` | the DB preflight probes localhost ports and auto-runs `docker compose up -d --wait` when every failure is a down local service — if it still fails, start Postgres (`pnpm run dev:postgres`) and read the failure messages |
+| `PortAllocationError` on an explicit port | the pinned port is occupied and allocation fails loudly — free it or pick another; it never silently moves an explicit choice |
+| `+100` port-shift notice at startup | expected drift: the preferred block was busy, holders are named in the notice, nothing is persisted — restarts re-try the preferred base |
+| service stuck in `starting` | probe its readiness path directly (e.g. `curl http://localhost:3003/remoteEntry.js`) and read `.bos/logs/<service>.log` |
+| stale registry entries blocking restart | `bos ps` / `bos kill` prune dead PIDs on read; to wipe manually: `rm ~/.cache/everything-dev/pids.json` |

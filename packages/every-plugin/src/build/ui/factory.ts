@@ -12,6 +12,33 @@ import path from "node:path";
 import { CORE_UI_PLUGIN_KEY } from "../../ui/manifest/contract";
 import { createUiRsbuildConfig } from "./rsbuild-config";
 
+/**
+ * The platform skill family ships inside the framework packages' npm tarballs
+ * (`files: ["skills"]`), so resolving them from `node_modules` gives the core
+ * ui the same copies in the parent workspace (pnpm symlinks) and every
+ * generated child repo (published tarball). Served at `/skills/<pkg>/<skill>`.
+ */
+const SKILL_PACKAGES = ["everything-dev", "every-plugin", "better-near-auth"] as const;
+
+export function platformSkillCopies(workspaceRoot: string): Array<{
+  from: string;
+  to: string;
+  globOptions: { ignore: string[] };
+}> {
+  return SKILL_PACKAGES.flatMap((name) => {
+    const from = path.join(workspaceRoot, "node_modules", name, "skills");
+    return fs.existsSync(from)
+      ? [
+          {
+            from,
+            to: `./skills/${name}`,
+            globOptions: { ignore: ["**/_artifacts/**"] },
+          },
+        ]
+      : [];
+  });
+}
+
 export interface CoreUiRsbuildConfigInput {
   /** Authored config domain — stamped as `import.meta.env.APP_NAME`. */
   domain?: string;
@@ -57,7 +84,10 @@ export function createCoreUiRsbuildConfig({ domain, account }: CoreUiRsbuildConf
     webExposes: CORE_UI_WEB_EXPOSES,
     nodeEntry: CORE_UI_NODE_ENTRY,
     nodeExposes: CORE_UI_NODE_EXPOSES,
-    copy: [{ from: path.join(workspaceRoot, "public"), to: "./" }],
+    copy: [
+      { from: path.join(workspaceRoot, "public"), to: "./" },
+      ...platformSkillCopies(workspaceRoot),
+    ],
     define: {
       "import.meta.env.APP_NAME": JSON.stringify(domain),
       "import.meta.env.APP_ACCOUNT": JSON.stringify(account),

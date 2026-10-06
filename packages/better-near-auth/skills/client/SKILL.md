@@ -18,6 +18,7 @@ sources:
   - "elliotBraem/better-near-auth:src/types.ts"
   - "elliotBraem/better-near-auth:README.md"
   - "elliotBraem/better-near-auth:LLM.txt"
+  - "elliotBraem/better-near-auth:src/index.ts"
 ---
 
 # Better-Near-Auth — Client Integration
@@ -229,51 +230,7 @@ const result = await authClient.near.view({
 
 ## Client Actions Reference
 
-### authClient.near
-
-| Method | Returns | Description |
-| ------ | ------- | ----------- |
-| `nonce(params)` | `Promise<Response<NonceResponse>>` | Request nonce from server |
-| `verify(params)` | `Promise<Response<VerifyResponse>>` | Verify NEP-413 signature |
-| `getProfile(accountId?)` | `Promise<Response<Profile>>` | Get NEAR profile |
-| `view(params)` | `Promise<Response<ViewResponse>>` | Server-side contract view call |
-| `getAccountId()` | `string \| null` | The user's NEAR account ID. Prefers the live NearConnect connection; falls back to the primary SIWN-linked account on the session (`session.user.nearAccount`). Persists across disconnects. |
-| `getState()` | `{ accountId, publicKey, networkId } \| null` | Wallet state |
-| `isWalletConnected()` | `boolean` | Whether wallet is actively connected |
-| `detectNearAccount()` | `Promise<{ accountId, publicKey, networkId } \| null>` | Silently probe for a previously authorized wallet without prompting |
-| `ensureConnected()` | `Promise<boolean>` | Reconnect wallet if disconnected |
-| `disconnect()` | `Promise<void>` | Disconnect wallet |
-| `link(callbacks?)` | `Promise<void>` | Link NEAR account to session |
-| `unlink(params)` | `Promise<Response>` | Unlink NEAR account |
-| `listAccounts()` | `Promise<Response>` | List linked NEAR accounts |
-| `setPrimaryAccount(params)` | `Promise<Response<SetPrimaryAccountResponse>>` | Set primary linked NEAR account |
-| `createSubAccount(params)` | `Promise<Response<CreateSubAccountResponse>>` | Create a sub-account |
-| `checkSubAccountAvailability(params)` | `Promise<Response<CheckSubAccountAvailabilityResponse>>` | Check if a sub-account name is available |
-| `buildSignedDelegateAction(receiverId, buildActions)` | `Promise<string>` | Build + sign delegate action, returns base64 payload |
-| `relayTransaction({ payload })` | `Promise<Response<RelayResponse>>` | Submit delegate action to relayer |
-| `getRelayStatus(txHash)` | `Promise<Response<RelayStatusResponse>>` | Check relayed tx status |
-| `getRelayerInfo()` | `Promise<Response<RelayerInfo>>` | Get relayer info and balance |
-| `relayHistory()` | `Promise<Response<RelayHistoryResponse>>` | List relayed transactions |
-| `setNetwork(network)` | `void` | Switch active network (mainnet/testnet) |
-| `getNetwork()` | `"mainnet" \| "testnet"` | Get currently active network |
-| `getSupportedNetworks()` | `("mainnet" \| "testnet")[]` | List supported networks |
-| `getRecipient(network?)` | `string` | Get configured recipient for a network |
-| `getNearClient()` | `Near` | Access near-kit Near instance (throws on server). Returns the `Near` client for direct transactions. |
-
-### authClient.signIn
-
-| Method | Description |
-| ------ | ----------- |
-| `near(callbacks?)` | Connect wallet, sign message, verify — single popup |
-
-### Callback Interface
-
-```typescript
-interface AuthCallbacks {
-  onSuccess?: () => void;
-  onError?: (error: Error & { status?: number; code?: string }) => void;
-}
-```
+See [client-actions](references/client-actions.md) for the full `authClient.near.*` method table, `authClient.signIn.near`, and the `AuthCallbacks` interface (`onSuccess` / `onError`).
 
 ## Common Mistakes
 
@@ -493,3 +450,32 @@ await authClient.near.createSubAccount({
 Always check availability first to avoid unnecessary server round-trips and 409 CONFLICT errors. The availability check is cheap (regex + length check client-side, then RPC account lookup server-side).
 
 Source: src/client.ts:537-548, src/index.ts:1406-1412
+
+## The tasks you will actually be given
+
+**"Add NEAR wallet sign-in and show the connected account in the header."**
+Create one `authClient` with `siwnClient({ recipient })` (in this repo that factory lives in `packages/everything-dev/src/ui/auth.ts`, re-exported by `ui/src/lib/auth.ts`), call `authClient.signIn.near({ onSuccess, onError })`, and render `useNearAccountId(authClient)` from `better-near-auth/react` — never `getAccountId()` during render (not reactive).
+
+**"Let users write on-chain without paying gas."**
+`const payload = await authClient.near.buildSignedDelegateAction(receiverId, builder)` → `await authClient.near.relayTransaction({ payload })` → poll `authClient.near.getRelayStatus(txHash)` until `status` is `"completed"` or `"failed"`.
+
+**"Create a per-user sub-account after sign-in."**
+`checkSubAccountAvailability({ subAccountName })` first — the client returns `{ available: false, reason: "invalid" }` locally for bad names — then `createSubAccount({ subAccountName, publicKey })` with the user's key.
+
+**"The account ID disappears when the user disconnects the wallet."**
+Read `useNearAccountId(authClient)` instead of `getState().accountId` — the getter falls back to the primary SIWN-linked session account (`session.user.nearAccount`) when NearConnect is disconnected or uninitialized. Use `isWalletConnected()` only to decide whether signing is possible.
+
+## What comes back when it refuses
+
+| What you see | Where it comes from | Action |
+| --- | --- | --- |
+| `Wallet not initialized for <net> — this operation requires a browser environment` | Signing op called during SSR (`ensureConnected`, `buildSignedDelegateAction`, `signWithWallet`) | Stop — gate the call behind a client-only component/effect |
+| `Wallet sign-in was cancelled or failed` | User closed the wallet popup | Tell the user; retry on demand, not automatically |
+| `NEAR network changed while signing in` / `while connecting wallet` | Active network switched mid-flow | Retry once once the network is stable |
+| `No NEAR account found — please sign in with your NEAR wallet` | Signing op with no wallet or session account | Tell the user to sign in |
+| `Wallet connection required — please approve the connection to sign` | Wallet disconnected; `ensureConnected` prompt declined | Tell the user to approve the reconnect prompt |
+| `Unauthorized: Invalid signature` (401, from verify) | Client recipient ≠ server `siwn()` recipient | Stop — fix `siwnClient({ recipient })`; the signature is valid, just for the wrong recipient |
+| `Unauthorized: Nonce already used (replay attack detected)` (401) | Nonce replayed | Retry once with a fresh nonce from the `/near/nonce` endpoint |
+| `No NEAR account linked to session` (401, relay/sub-account) | No SIWN-linked primary account | Tell the user to sign in |
+| Availability `reason`: `taken`, `too-long`, `not-configured` | Server lookup in src/index.ts | Stop — pick another name (`not-configured` means fix server config) |
+| 409 `Account <id> already exists on <network>` | `createSubAccount` without availability check | Stop — check availability first |

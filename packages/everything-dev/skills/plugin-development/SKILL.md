@@ -2,7 +2,7 @@
 name: plugin-development
 description: Build, register, and deploy plugins within everything.dev. Covers the _template scaffold, contract/service/index pattern, database setup with Drizzle, authored-config registration, plugin UI/sidebar, and CLI workflow. Use when creating new plugins, adding database-backed routes, or deploying plugins to production.
 metadata:
-  sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,packages/every-plugin/src/build/rspack,plugins/_template/plugin.dev.ts,plugins/_template/src/db/schema.ts,plugins/_template/src/db/layer.ts,api/src/db/index.ts,api/src/db/migrate.ts,packages/every-plugin/src/plugin.ts"
+  sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,packages/every-plugin/src/build/rspack,plugins/_template/plugin.dev.ts,plugins/_template/src/db/schema.ts,plugins/_template/src/db/layer.ts,api/src/db/index.ts,api/src/db/migrate.ts,packages/every-plugin/src/plugin.ts,packages/everything-dev/src/cli.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
@@ -395,3 +395,21 @@ Builds the plugin, pins the deterministic image-native production URL into the p
 3. `bos types gen`
 4. `bos dev` to develop
 5. `bos plugin publish` to deploy
+
+## The tasks you will actually be given
+
+**"Add a DB-backed route."** Schema in `src/db/schema.ts` → `drizzle-kit generate` → inside `initialize`, build the repo with `buildScoped(RepoTag, RepoLive.pipe(Layer.provide(DatabaseLive(config.secrets.YOURPLUGIN_DATABASE_URL))))` → handler is `.effect(function* ...)` and does `yield* RepoTag`.
+
+**"Register and deploy a new plugin."** `bos plugin add local:plugins/your-plugin` (writes the authored config + regenerates types) → `pnpm run typecheck` → `bos plugin publish your-plugin` → restart the host.
+
+**"Expose a service to the host, not just oRPC."** Set `servicesTag` on the plugin definition — handlers keep accessing it with `yield* Tag` as normal.
+
+## What comes back when it fails
+
+| word | do |
+|---|---|
+| pool dead / connection released right after startup | a transient scope — you extracted the driver instead of building the service via `buildScoped(...)` inside `initialize`; rebuild it that way (see [database](references/database.md)) |
+| `ModuleFederationError` / `__webpack_modules__[e].call` in the browser | the deployed `mf-manifest.json` is older than the host's federation runtime — `bos mf check`, then `bos plugin publish <key>`, restart the host |
+| migration never runs | migrations execute inside `DatabaseLive`'s scoped layer at plugin boot — confirm the plugin booted and the `<YOU>_DATABASE_URL` secret resolves |
+| handler can't see `context.userId` | the context zod schema is a filter — declare every field you use or the host's value is stripped |
+| stale types in `plugins-client.gen.ts` | `bos types gen` (or `pnpm run typecheck`) after editing any contract |

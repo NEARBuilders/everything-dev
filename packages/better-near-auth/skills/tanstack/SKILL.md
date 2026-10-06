@@ -422,3 +422,30 @@ authClient: createAuthClient({ runtimeConfig: renderOptions.runtimeConfig }),
 `getHostUrl()`, `getAccount()`, and `getNetworkId()` read `window.__RUNTIME_CONFIG__` by default. On the server, `window` is undefined, so they throw. Always pass `{ runtimeConfig }` when calling `createAuthClient()` in `router.server.tsx` or `getRouteHead()`.
 
 Source: auth.ts:18-27
+
+## The tasks you will actually be given
+
+**"Scaffold auth for a new SSR TanStack Router app."**
+Create one `lib/auth.ts` exporting `createAuthClient()` (with `siwnClient({ recipient, networkId })` and `credentials: "include"`), the `AuthClient` type, `useAuthClient()`, and `sessionQueryOptions` — then put `authClient: createAuthClient({ runtimeConfig })` in the router context of both `router.server.tsx` and `hydrate.tsx`.
+
+**"Wallet state is lost after navigation."**
+Something is calling a factory per render/call, creating fresh `nearState`/`walletConnected` atoms. Make `createAuthClient` a create-once router-context singleton and read it with `useAuthClient()`; never call it inside components.
+
+**"Sign-in works, but authenticated routes bounce to /login on SSR."**
+The server-side client can't see cookies: pass `runtimeConfig` in `router.server.tsx` and forward request headers (`credentials: "include"` alone is not enough for SSR), then guard with `ensureQueryData(sessionQueryOptions(...))` in `beforeLoad`.
+
+**"Direct writes fail with the wallet asking to reconnect."**
+Call `await authClient.near.ensureConnected()` before `getNearClient()...send()` — `buildSignedDelegateAction` does this for you; direct `.send()` does not.
+
+## What comes back when it refuses
+
+| What you see | Where it comes from | Action |
+| --- | --- | --- |
+| `Wallet not initialized for <net> — this operation requires a browser environment` | `ensureConnected` / `buildSignedDelegateAction` / `signIn.near` called during SSR | Stop — gate the call behind a client-only component or effect |
+| `No NEAR account found — please sign in with your NEAR wallet` | Signing op before any wallet or session account | Tell the user to sign in |
+| `Wallet connection required — please approve the connection to sign` | `ensureConnected` prompt declined | Tell the user to approve the wallet prompt |
+| `NEAR network changed while signing in` | Network switched mid-sign-in | Retry once after the network settles |
+| `Wallet sign-in was cancelled or failed` | Popup closed by the user | Tell the user; retry on demand, not automatically |
+| `Session gas keys are not enabled on this deployment` | `addSessionGasKey()` on a server without the gas-key config | Stop — server-side config, not a client fix |
+| Redirect loop to `/login` on SSR | Missing `headers`/`runtimeConfig` in the server `createAuthClient` call | Stop — fix the `router.server.tsx` context wiring |
+| Wallet state (accountId) vanishes after client navigation | Multiple `siwnClient()` instances, each with its own atom | Stop — collapse to one router-context client |
