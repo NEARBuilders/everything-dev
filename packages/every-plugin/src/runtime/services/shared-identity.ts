@@ -1,7 +1,7 @@
 import { isEffectCriticalSharedDep } from "../../shared-deps-spec";
 
 interface IdentityManifest {
-  metaData?: { pluginVersion?: string };
+  metaData?: { pluginVersion?: string; name?: string };
   shared?: Array<{ name: string; version?: string }>;
 }
 

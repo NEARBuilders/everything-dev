@@ -94,6 +94,36 @@ const createModuleFederationInstance = Effect.cached(
   }),
 );
 
+// A built container's runtime code looks up its own chunks through the node
+// runtime's entry-URL fallback keyed by the container's SELF name
+// (`mf-manifest.json` metaData.name — the composition key, e.g.
+// "everything-dev_registry-plugin"), while the host registers the remote
+// under the plugin id ("registry"). When those differ, the fallback misses,
+// resolveUrl returns null, and the node runtime hands back an empty chunk as
+// if it had loaded — the exposed module then requires ids nothing registered
+// ("__webpack_modules__[r] is not a function"). Registering and loading the
+// remote under the container's own name keeps that lookup a hit.
+const remoteSelfNames = new Map<string, string>();
+
+const resolveRemoteSelfName = (pluginId: string, url: string) =>
+  Effect.gen(function* () {
+    const memoKey = `${pluginId}@${url}`;
+    const memo = remoteSelfNames.get(memoKey);
+    if (memo) return memo;
+
+    let selfName: string | null = null;
+    try {
+      const manifest = yield* Effect.promise(() => fetchRemoteIdentityManifest(url));
+      selfName = manifest?.metaData?.name?.trim() || null;
+    } catch {
+      selfName = null;
+    }
+
+    const resolved = selfName ?? getNormalizedRemoteName(pluginId);
+    remoteSelfNames.set(memoKey, resolved);
+    return resolved;
+  });
+
 export interface ModuleFederationServiceShape {
   registerRemote: (pluginId: string, url: string) => Effect.Effect<void, ModuleFederationError>;
   loadRemoteConstructor: (
@@ -146,9 +176,9 @@ export const ModuleFederationServiceDefault = Layer.effect(
     return {
       registerRemote: (pluginId: string, url: string) =>
         Effect.gen(function* () {
-          yield* Effect.logDebug(`[MF][${pluginId}] Registering`);
+          const remoteName = yield* resolveRemoteSelfName(pluginId, url);
+          yield* Effect.logDebug(`[MF][${pluginId}] Registering as "${remoteName}"`);
 
-          const remoteName = getNormalizedRemoteName(pluginId);
           const type = url.endsWith("/mf-manifest.json")
             ? ("manifest" as const)
             : url.endsWith(`/${DEV_ENTRY_FILENAME}`)
@@ -177,7 +207,7 @@ export const ModuleFederationServiceDefault = Layer.effect(
 
       loadRemoteConstructor: (pluginId: string, url: string) =>
         Effect.gen(function* () {
-          const remoteName = getNormalizedRemoteName(pluginId);
+          const remoteName = yield* resolveRemoteSelfName(pluginId, url);
           yield* Effect.logDebug(`[MF][${pluginId}] Loading remote ${remoteName}`);
 
           const identityError = yield* Effect.promise(() =>
