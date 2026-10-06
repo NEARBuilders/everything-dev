@@ -36,6 +36,7 @@ sources:
   - "elliotBraem/better-near-auth:examples/auth.everything.dev/api/src/index.ts"
   - "elliotBraem/better-near-auth:examples/auth.everything.dev/api/src/lib/auth.ts"
   - "elliotBraem/better-near-auth:examples/auth.everything.dev/api/src/lib/context.ts"
+  - "elliotBraem/better-near-auth:src/index.ts"
 ---
 
 # Better-Near-Auth — Auth Plugin (everything.dev)
@@ -348,3 +349,25 @@ interface AuthRequestContext {
 
 - **Cause**: Only scalar fields survive JSON round-trip (`bos.config.json`). Function-typed fields (`extendTx`, `onCreated`, `onRollback`, dynamic `init.args`) and binary data (`deploy.wasm`) cannot be expressed in a config file.
 - **Fix**: Use `bos.config.json` for `parentAccount`, `parentHasFullAccess`, `minDeposit`, `deploy.fromPublished`, static `init.args`. Configure `extendTx` / `onCreated` / `onRollback` / dynamic `init.args` / raw wasm through `siwn()` directly on the server instead of through the plugin.
+
+## The tasks you will actually be given
+
+**"Add NEAR sign-in to my everything-dev app and protect the settings pages."**
+Register auth under `app.auth` in `bos.config.json` with `variables.siwn.recipients.{mainnet,testnet}`, keep `ui/src/lib/auth.ts` as the re-export of `everything-dev/ui/auth` (`createAuthClient`, `useAuthClient`, `sessionQueryOptions`), and add an `_authenticated.tsx` layout that runs `sessionQueryOptions(context.authClient, context.session)` in `beforeLoad` and redirects to `/login`.
+
+**"My plugin needs the signed-in user's NEAR account."**
+In the plugin's `initialize` composed with auth, call `const auth = await plugins.auth({ context })` then `auth.getAuthContext()`; or in a route use the `requireAuth` middleware from `createAuthMiddleware(builder)` and read `context.userId` / `context.near.primaryAccountId` from the narrowed context.
+
+**"`authClient.near.client` no longer compiles."**
+Removed in 1.8.1 — switch to `authClient.near.getNearClient()` (throws on the server, so call it only in client-side handlers).
+
+## What comes back when it refuses
+
+| What you see | Where it comes from | Action |
+| --- | --- | --- |
+| `Unauthorized: Invalid signature` (401) | Server `siwn()` recipient differs from the UI `siwnClient({ recipient })` | Stop — align `variables.siwn.recipient(s)` with the server config; retrying never helps |
+| `getSession()` returns null on every SSR render | `createAuthClient({ runtimeConfig })` called without `headers: request.headers` | Stop — pass headers (and `cspNonce`) from `renderOptions` |
+| Session cache stale after passkey/social sign-in | Query cached with `staleTime: 60s`; only NEAR flows auto-notify (1.8.2+) | Refresh once: `setQueryData(["session"], fresh)` then `invalidateQueries({ queryKey: ["session"] })` |
+| `Sub-account creation unavailable on <network>: parent key not configured...` (503) | `variables.siwn.subAccount` set but no `secrets.parentKey` server-side | Tell the user — the parent key is a server secret, not a config-file field |
+| `This NEAR account is already linked to another user` (400) | NEAR account bound to a different user row | Stop — tell the user; do not retry |
+| `Cannot unlink last authentication method. Link another account first.` (400) | Last auth method on the user | Tell the user to link another account first |

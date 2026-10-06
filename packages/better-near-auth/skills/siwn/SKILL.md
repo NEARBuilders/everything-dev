@@ -397,3 +397,31 @@ The creation transaction must be signed by the parent account. If `parentAccount
 Source: src/index.ts:1403-1415, src/index.ts:1420-1423
 
 See also: [subaccount skill](../subaccount/SKILL.md)
+
+## The tasks you will actually be given
+
+**"Add NEAR wallet sign-in to my Better Auth server."**
+Add `siwn({ recipient, apiKey: process.env.FASTNEAR_API_KEY })` to `plugins` in the `betterAuth()` call (in this repo: `plugins/auth/src/auth-instance.ts`), run `npx @better-auth/cli generate` for the `nearAccount`/`relayedTransaction`/`relayerKey` tables, then wire the client with a matching `siwnClient({ recipient })`.
+
+**"Sign-in works on mainnet but fails for testnet accounts."**
+Use `recipients: { mainnet, testnet }` instead of a single `recipient` — the plugin resolves per network (network is auto-detected from the account suffix: `.testnet` → testnet, otherwise mainnet).
+
+**"Show the user's NEAR profile (name/avatar)."**
+Rely on the default FastNear KV → NEAR Social lookup, or pass `getProfile: async (accountId) => ...` to `siwn()` to return a `Profile` (or `null`) from your own source.
+
+**"Only certain function-call keys should be able to sign in."**
+Pass `validateLimitedAccessKey: async ({ accountId, publicKey, recipient }) => boolean` — return `false` to reject the key with `Unauthorized: Invalid function call access key`.
+
+## What comes back when it refuses
+
+| What you see | Where it comes from | Action |
+| --- | --- | --- |
+| `Unauthorized: Invalid recipient` (401) | Signed recipient ≠ server `siwn()` recipient | Stop — align both sides; retrying cannot fix a config mismatch |
+| `Unauthorized: Invalid signature` (401) | Signature fails NEP-413 verification | Retry the sign-in once (user may have signed a stale prompt); if it repeats, stop and check recipient/callbackUrl |
+| `Invalid nonce` (400) | Nonce missing, not hex, or not 32 bytes | Retry once with a fresh nonce from `POST /near/nonce` |
+| `Unauthorized: Nonce already used (replay attack detected)` (401) | Nonce replayed | Retry once with a fresh nonce — never reuse |
+| `Network ID mismatch with account ID` (400) | `networkId` ≠ suffix-detected network (e.g. `.near` claimed as testnet) | Stop — pass the network matching the account suffix |
+| `Unauthorized: Invalid function call access key` (401) | FAK not scoped to the recipient | Stop — or relax via `validateLimitedAccessKey` |
+| `Nonce must be exactly 32 bytes` | Custom `getNonce` returns wrong length | Stop — fix the custom generator |
+| `This NEAR account is already linked to another user` (400) | Account bound to a different user | Stop — tell the user |
+| `Cannot unlink last authentication method. Link another account first.` (400) | Last auth method | Tell the user to link first |

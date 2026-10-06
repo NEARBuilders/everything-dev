@@ -2,7 +2,7 @@
 name: plugin-development
 description: Build every-plugin modules with oRPC contracts, Effect services, and Module Federation. Use when creating or modifying plugins under plugins/ or the _template scaffold.
 metadata:
-  sources: "src/plugin.ts,src/errors.ts,src/types.ts"
+  sources: "src/plugin.ts,src/errors.ts,src/types.ts,src/runtime/errors.ts,src/runtime/services/module-federation.service.ts,src/runtime/index.ts,plugins/_template/src/index.ts"
 ---
 
 # every-plugin Development
@@ -273,3 +273,22 @@ export default {
 - Using `Effect.runPromise` inside `Effect.gen` — use `yield*` instead for proper error channel
 - Putting business logic in `createRouter` — keep it in the service class, router is just glue
 - Using `Effect.provide(Tag, Layer.scoped(...))` inside `initialize` for long-lived resources — creates a transient scope that releases the resource immediately after initialization. Use `buildScoped(Tag, Layer.scoped(...))` instead
+
+## The tasks you will actually be given
+
+**"Add a route to a plugin"** — e.g. a `deleteItem` procedure. Add it to `plugins/<your-plugin>/src/contract.ts` (`.route({ method: "DELETE", path: "/items/{id}" }).input(...).errors(Errors)`), add a method on the service class, then wire it in `src/index.ts` as `deleteItem: builder.deleteItem.effect(function* ({ input, context, errors }) { ... })` — check `context.userId` first and fail with `errors.UNAUTHORIZED(...)` / `errors.NOT_FOUND(...)` inside the generator, mirroring `plugins/_template/src/index.ts` (`getById`, `deleteThing`). Verify with `cd plugins/<your-plugin> && pnpm test`, then `pnpm run typecheck` (regenerates `plugins-types.gen.ts` for cross-plugin consumers).
+
+**"Ship a new plugin"** — copy `plugins/_template/` to `plugins/<key>/`, set `name` in its package.json (this is the registry id tests use), fill in `plugin.dev.ts` (port; plugins start at 3010), and register it in the authored config with `Plugin("<key>").path("plugins/<key>", { ... })` (see `bos.app.ts`). Run `bos types gen` or restart `pnpm run dev`, then deploy with `cd plugins/<key> && bos plugin publish <key>`.
+
+**"A plugin fails to load in the host"** — capture the error words and match them in the table below; shared-identity failures are confirmed with `bos mf check` and fixed by rebuilding/redeploying the one plugin.
+
+## What comes back when it fails
+
+| Error word / shape you see | Meaning | Action |
+|---|---|---|
+| `ModuleFederationError` with "shared identity mismatch" (or the plugin's `mf-manifest.json` reports an older `pluginVersion` than the host) | plugin bundle built against a different `@module-federation/runtime`, or missing a `shared[]` dep the host requires | rebuild + redeploy that one plugin (`cd plugins/<key> && bos plugin publish <key>`); confirm with `bos mf check`. Stop editing code — this is a build/deploy problem |
+| `No valid plugin constructor found for '<id>'` / `missing the required 'binding' property` | the remote module's export was not created by `createPlugin()` | `export default createPlugin({...})` from `src/index.ts`, rebuild |
+| `PluginRuntimeError` with operation `validate-config` or `validate-secrets` and a Zod cause | runtime config violates the plugin's `variables`/`secrets` schemas (secrets hydrate into variables, then re-validate) | fix `plugin.dev.ts` in dev, or the runtime config entry; read the Zod issue paths in the error |
+| `Plugin ID '<id>' not found in registry.` | registry key mismatch | align the key used with the plugins/ directory key and package.json `name` |
+| 401 `UNAUTHORIZED` with data `{ apiKeyProvided: boolean, ... }` | no session or API key reached the handler (see `every-plugin/errors`) | caller-side problem — sign in or send `x-api-key`; do not catch it in the plugin |
+| 503 `SERVICE_UNAVAILABLE` / 502 `CONNECTION_ERROR` shapes from `every-plugin/errors` | upstream dependency of the service failed | surface them via `.errors(...)` on the contract, not ad-hoc ORPCError codes |

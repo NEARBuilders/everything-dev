@@ -188,3 +188,20 @@ From `packages/everything-dev/src/merge.ts`:
 - `resolveExtendsRef(extendsField, env)` — resolve string|object extends for a given env
 - `rebuildOrderedConfig(config)` — enforce canonical ordering
 - `BOS_CONFIG_ORDER` — ordered field names
+
+## The tasks you will actually be given
+
+**"Remove a plugin I inherited."** Set it to `null` in the authored config's `plugins` — the null sentinel deletes it from the merged result. Deleting the entry entirely just inherits the parent's.
+
+**"Different parent for staging."** Object-form `extends` keyed by env (`development` / `staging` / `production`); the fallback chain is requested env → `production` → first defined value.
+
+**"Why doesn't the runtime see my config edit?"** Dev reads `.bos/bos.resolved-config.json` (regenerated on every `bos dev`); production reads FastKV. The authored config is only the publish input — `bos publish` is the write.
+
+## What comes back when it refuses
+
+| word | do |
+|---|---|
+| `CircularExtendsError` — "Circular extends detected: A -> B -> A" | stop — the extends chain loops; restructure so no runtime extends itself transitively |
+| `Circular dependency detected among: … dependsOn` | build-order cycle in the build train — fix the `dependsOn` declarations in the authored config |
+| inherited plugin still present after "removing" it | deep merge keeps parent plugins unless nulled — you need the explicit `null` sentinel, keyed exactly as the parent's plugin key |
+| your section is missing from `.bos/bos.resolved-config.json` | ordering never drops keys — if it's absent, the authored config or its parent didn't define it; check the `extends` chain with `bos config --full` |

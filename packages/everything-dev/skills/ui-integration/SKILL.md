@@ -409,3 +409,21 @@ function Component() {
 - Shared UI components: `ui/src/components/ui/` — semantic, reusable primitives
 - Feature components: colocated with the route that uses them
 - Exports from `ui/src/components/index.ts` for shared components
+
+## The tasks you will actually be given
+
+**"Add a page that lists data."** File under `ui/src/routes/` (nest under `_layout/_authenticated/` to inherit the guard) → `loader` calls `apiClient.<plugin>.<proc>(...)` from context → component reads `Route.useLoaderData()` → add the sidebar entry in `ui/src/components/layout/nav-items.ts`.
+
+**"Add an auth-only page."** Nest under `_layout/_authenticated/` — the guard's `beforeLoad` already redirects to `/login?redirect=<path>`; return `{ auth: … }` from `beforeLoad` to type the context downstream.
+
+**"Call the API in a component."** `const apiClient = useApiClient()` for one-shot calls; `const orpc = useOrpc()` when you want `useQuery`/`useMutation` caching.
+
+## What comes back when it fails
+
+| word | do |
+|---|---|
+| `ORPCError` with `code: "UNAUTHORIZED"` in the browser | the session middleware resolved nulls — check `authClient.getSession()`; if the guard should have caught it, verify the route actually nests under `_layout/_authenticated/` |
+| `Route.` or `apiClient.<plugin>` has no types | generated types are stale — `pnpm run typecheck` (regenerates `api-types.gen.ts`) or restart `bos dev` |
+| `TimeoutError` on `page.waitForURL` after a `<Link>` click (browser tests) | client-side nav never fires `load` — pass `{ waitUntil: "commit" }` |
+| client-only value crashes SSR | wrap it: `useClientValue(() => getAppName(), "app")` from `@/hooks` |
+| edits to `*.gen.*` files keep vanishing | they are generated stubs — change the source (`router.tsx`, `app.ts`, the contracts) instead |

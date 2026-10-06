@@ -4,7 +4,15 @@
 
 ## Skills
 
-- [Skill](/skill.md): Agent-ready prompt for talking to, running, editing, and publishing this runtime.
+- [Skill](/skill.md): Entry-point router — pick the one skill for the task in front of you. Load ONE skill, not all.
+- [Talk to the app](/skills/everything-dev/talk-to-the-app/SKILL.md): MCP, REST, oRPC RPC, API keys, discovery — work the running app without cloning it.
+- [Add a route](/skills/everything-dev/add-a-route/SKILL.md): one complete API endpoint end to end — contract, router, UI route, typecheck, publish.
+- [UI integration](/skills/everything-dev/ui-integration/SKILL.md): file-based routing, API client, auth client, SSR hydration, sidebar.
+- [Plugin development](/skills/everything-dev/plugin-development/SKILL.md): build, register, and deploy plugins in this repo.
+- [API and auth](/skills/everything-dev/api-and-auth/SKILL.md): auth middleware, plugin-client composition, session handling.
+- [Auth plugin](/skills/better-near-auth/auth-plugin/SKILL.md): mount and consume better-near-auth; SIWN, API keys, organizations, passkeys.
+- [every-plugin skills](/skills/every-plugin/plugin-development/SKILL.md): the oRPC/Effect/Module Federation machinery under every plugin.
+- All 20 skills: `/skills/{everything-dev,every-plugin,better-near-auth}/<skill>/SKILL.md` — also loadable with `npx @tanstack/intent@latest load <package>#<skill>`.
 
 ## API
 

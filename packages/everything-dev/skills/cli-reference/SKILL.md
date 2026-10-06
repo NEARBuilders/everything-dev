@@ -267,3 +267,11 @@ bos db studio my-plugin   # open for a custom plugin
 ```
 
 Requires the `DATABASE_URL` secret to be set on the target plugin. Uses the plugin's drizzle.config.ts for schema discovery.
+
+## The tasks you will actually be given
+
+**"Regenerate the types."** `bos types gen` — or just `pnpm run typecheck`, which regenerates first and then checks. Never hand-edit `*.gen.ts` files.
+
+**"Which command deploys?"** `pnpm run deploy` (the full train: preflight → build → upload → publish → image). Config-only is `bos publish`; one plugin is `bos plugin publish <key>`.
+
+**"What is running right now?"** `bos ps` for tracked dev processes, `bos status` for health and versions, `ls .bos/logs/` for per-service logs.

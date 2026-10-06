@@ -336,4 +336,27 @@ The ephemeral relayer encrypts its private key using HKDF-SHA256 derived from `B
 
 Source: src/utils.ts:21-41, src/index.ts:133
 
+## The tasks you will actually be given
+
+**"Set up gasless transactions for our dev server."**
+Add `relayer: { whitelistedContracts: ["myapp.near"] }` to `siwn()` (omit `accountId` for ephemeral mode), restart, read the account ID from the `[siwn] Relayer initialized: ... (ephemeral)` startup log, and send NEAR to that implicit account — every relay fails until it is funded.
+
+**"Relay a write for the signed-in user."**
+Build the payload with `authClient.near.buildSignedDelegateAction(receiverId, builder)` (client), then `POST /near/relay` via `relayTransaction({ payload })`; confirm with `getRelayStatus(txHash)`.
+
+**"A user's relay was submitted but never landed."**
+Poll `GET /near/relay-status/:txHash` until `"completed"` or `"failed"`, and check `GET /near/relay-history` (rows live in the `relayedTransaction` table, written with `status: "pending"` at submit time).
+
+## What comes back when it refuses
+
+| What you see | Where it comes from | Action |
+| --- | --- | --- |
+| `Relayer not configured` (503) | `ensureRelayer` returned no state — config not passed or `BETTER_AUTH_SECRET` missing | Stop — check the `[siwn] Relayer initialized` startup log first |
+| `Contract <receiverId> is not whitelisted for relay` (403) | `whitelistedContracts` check in src/index.ts | Stop — add the receiverId to `relayer.whitelistedContracts` or the user must pick another contract |
+| `Transaction gas (...) exceeds relayer limit (...)` (400) | `maxGasPerTransaction` sum over all actions | Stop — lower the action gas or raise the limit |
+| `Transaction deposit (...) exceeds relayer limit (...)` (400) | `maxDepositPerTransaction` sum over functionCall/transfer deposits | Stop — same as above for deposits |
+| `Delegate action sender does not match session account` (401) | `senderId` ≠ primary linked account | Stop — rebuild the payload for the session's account; do not retry |
+| 500 wrapping an RPC error (logged server-side, generic message on the wire) | `relayOnChain` threw — usually the unfunded ephemeral relayer | Tell the user after funding; do not blind-retry |
+| `Relayer accountId "..." is set for <network> but no privateKey was provided. Falling back to ephemeral mode.` (startup warning) | Explicit config missing `privateKey` | Stop — supply the key or drop `accountId` deliberately |
+
 

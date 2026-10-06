@@ -24,12 +24,26 @@ func TestAgentSurface(t *testing.T) {
 		regtest.MustContain(t, body, "/api/mcp")
 		regtest.MustContain(t, body, "x-api-key")
 		regtest.MustContain(t, body, "/settings/api-keys")
+	})
 
-		ct := ""
-		for _, line := range strings.Split(body, "\n") {
-			_ = line
+	t.Run("skill_family_served", func(t *testing.T) {
+		for _, path := range []string{
+			"/skills/everything-dev/add-a-route/SKILL.md",
+			"/skills/everything-dev/talk-to-the-app/SKILL.md",
+			"/skills/every-plugin/plugin-development/SKILL.md",
+			"/skills/better-near-auth/client/SKILL.md",
+		} {
+			status, _, body := regtest.GetRaw(t, client, baseURL+path)
+			regtest.MustStatus(t, status, 200, body)
+			regtest.MustContain(t, body, "name:")
 		}
-		_ = ct
+	})
+
+	t.Run("skill_md_mentions_router_loads_one_skill", func(t *testing.T) {
+		status, _, body := regtest.GetRaw(t, client, baseURL+"/skill.md")
+		regtest.MustStatus(t, status, 200, body)
+		regtest.MustContain(t, body, "/skills/everything-dev/talk-to-the-app/SKILL.md")
+		regtest.MustContain(t, body, "load ONE skill")
 	})
 
 	t.Run("well_known_mcp_json", func(t *testing.T) {

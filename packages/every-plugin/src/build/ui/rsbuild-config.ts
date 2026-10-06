@@ -38,7 +38,11 @@ export interface UiRsbuildConfigOptions {
   webExposes: Record<string, string>;
   nodeEntry: string;
   nodeExposes: Record<string, string>;
-  copy?: Array<{ from: string; to: string }>;
+  copy?: Array<{
+    from: string;
+    to: string;
+    globOptions?: { ignore?: string[] };
+  }>;
   define?: Record<string, string>;
   /** routes dir relative to the rsbuild cwd — folder-form ui sources live at
    * `ui/src/routes` while the build runs from the plugin root */
