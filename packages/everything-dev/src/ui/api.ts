@@ -12,6 +12,7 @@ export type ApiClient<T extends RouterContract = RouterContract> = ContractRoute
 export interface ClientServiceConfig {
   hostUrl: string;
   rpcBase: `/${string}`;
+  connectionError?: () => { title: string; description: string };
 }
 
 type ClientRouterContext = {
@@ -40,9 +41,13 @@ function createRpcLink(config: ClientServiceConfig, url: `/${string}`, headers?:
           ) {
             void import("sonner")
               .then(({ toast }) => {
-                toast.error("Unable to connect to API", {
-                  id: "api-connection-error",
+                const message = config.connectionError?.() ?? {
+                  title: "Unable to connect to API",
                   description: "The API is currently unavailable. Please try again later.",
+                };
+                toast.error(message.title, {
+                  id: "api-connection-error",
+                  description: message.description,
                 });
               })
               .catch(() => {});

@@ -19,6 +19,7 @@ import {
 } from "@tanstack/react-router/ssr/server";
 import { createApiClient } from "./api";
 import { createAuthClient } from "./auth";
+import { type LocaleOptions, readAcceptLanguage, resolveLocale } from "./locale";
 import { collectHeadData } from "./router";
 import {
   defaultNotFoundComponent,
@@ -46,6 +47,8 @@ export interface ServerRouterModuleOptions<TRouteTree extends AnyRoute = AnyRout
   createRouter?: AppRouterFactory;
   /** The app's query client factory (staleTime, gcTime, …) — SSR parity with the client hydrator. Absent, the framework default. */
   createQueryClient?: () => QueryClient;
+  /** Locale negotiation for SSR — resolves the request-scoped locale into router context. */
+  locale?: LocaleOptions;
 }
 
 type ServerRouterOptions<TRouteTree extends AnyRoute> = CreateRouterOptions & {
@@ -86,6 +89,7 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
           }),
         session: context?.session,
         cspNonce,
+        locale: context?.locale,
         pluginNav: context?.pluginNav,
       },
       ...(cspNonce ? { ssr: { nonce: cspNonce } } : {}),
@@ -146,6 +150,7 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
         authClient:
           context?.authClient ?? createAuthClient({ runtimeConfig, cspNonce: context?.cspNonce }),
         session: context?.session,
+        locale: context?.locale,
       },
     });
 
@@ -181,6 +186,13 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
             session: renderOptions.session,
             cspNonce: renderOptions.cspNonce,
             pluginNav: renderOptions.pluginNav,
+            locale: options.locale
+              ? resolveLocale({
+                  ...options.locale,
+                  cookie: request.headers.get("cookie") ?? "",
+                  browserLocales: readAcceptLanguage(request.headers.get("accept-language")),
+                })
+              : undefined,
           },
         });
         queryClientRef = built.queryClient ?? localQueryClient;
@@ -200,6 +212,8 @@ export function createServerRouterModule<TRouteTree extends AnyRoute = AnyRoute>
         ),
       }),
     );
+
+    if (options.locale) response.headers.append("Vary", "Cookie, Accept-Language");
 
     return {
       stream: response.body!,

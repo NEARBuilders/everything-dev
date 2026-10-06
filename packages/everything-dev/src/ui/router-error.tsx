@@ -4,7 +4,15 @@
  * the app's UI kit, so primitives are plain markup + semantic tokens.
  */
 
-export function RouterError({ error, reset }: { error: Error; reset?: () => void }) {
+export function RouterError({
+  error,
+  reset,
+  messages,
+}: {
+  error: Error;
+  reset?: () => void;
+  messages?: { title: string; body: string; home: string; retry: string };
+}) {
   return (
     <div
       className="flex min-h-96 flex-1 items-center justify-center bg-background px-4 py-16"
@@ -18,9 +26,11 @@ export function RouterError({ error, reset }: { error: Error; reset?: () => void
           </svg>
         </div>
         <div className="flex flex-col gap-3">
-          <h1 className="text-3xl font-semibold text-foreground">This page didn’t load</h1>
+          <h1 className="text-3xl font-semibold text-foreground">
+            {messages?.title ?? "This page didn’t load"}
+          </h1>
           <p className="text-base text-muted-foreground">
-            Something went wrong on our side. Try again, or head back home.
+            {messages?.body ?? "Something went wrong on our side. Try again, or head back home."}
           </p>
         </div>
         <div className="flex flex-wrap justify-center gap-3">
@@ -29,7 +39,7 @@ export function RouterError({ error, reset }: { error: Error; reset?: () => void
             data-testid="router-error-home"
             className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
           >
-            Back home
+            {messages?.home ?? "Back home"}
           </a>
           <button
             type="button"
@@ -37,7 +47,7 @@ export function RouterError({ error, reset }: { error: Error; reset?: () => void
             data-testid="router-error-retry"
             className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-medium text-foreground"
           >
-            Try again
+            {messages?.retry ?? "Try again"}
           </button>
         </div>
         <details className="w-full text-left text-sm text-muted-foreground">

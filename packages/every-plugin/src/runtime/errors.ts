@@ -25,6 +25,22 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly zodError: z.ZodError;
 }> {}
 
+const stringifyUnknown = (value: unknown): string => {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
+    return `${value}`;
+  }
+  if (typeof value === "symbol") return value.description ?? "";
+  try {
+    return JSON.stringify(value) ?? "[Unserializable value]";
+  } catch {
+    return "[Unserializable value]";
+  }
+};
+
 const extractErrorMessage = (error: unknown): string => {
   if (!error) return "Unknown error";
 
@@ -43,7 +59,7 @@ const extractErrorMessage = (error: unknown): string => {
     return String((error as any).message);
   }
 
-  return String(error);
+  return stringifyUnknown(error);
 };
 
 /**
@@ -95,7 +111,7 @@ const formatDataPreview = (data: unknown, maxLength = 100): string => {
 
     return `${str.slice(0, maxLength)}...`;
   } catch {
-    return String(data).slice(0, maxLength);
+    return stringifyUnknown(data).slice(0, maxLength);
   }
 };
 
@@ -257,7 +273,7 @@ export interface PluginLoadFailureInfo {
   pluginUrl?: string;
   /** failing runtime stage when the cause is stage-attributed */
   operation?: string;
-  kind: PluginFailureKind | string;
+  kind: string;
   retryable: boolean;
   message: string;
   suggestion?: string;

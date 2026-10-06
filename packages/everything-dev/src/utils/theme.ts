@@ -11,7 +11,7 @@ const truecolorRamp =
     const rgb = (code: string) => [1, 3, 5].map((i) => parseInt(code.slice(i, i + 2), 16));
     const [r1, g1, b1] = rgb(from);
     const [r2, g2, b2] = rgb(to);
-    const chars = [...text];
+    const chars = Array.from(text);
     const total = chars.filter((ch) => ch !== "\n").length;
     let seen = 0;
     return chars

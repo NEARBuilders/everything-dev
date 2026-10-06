@@ -65,7 +65,6 @@ export {
   type NearClientAtoms,
   type NearNetwork,
   type NearState,
-  readSessionNearAccountId,
 } from "./store.js";
 
 export interface AuthCallbacks {

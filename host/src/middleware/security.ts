@@ -122,6 +122,9 @@ export class SecurityMiddleware extends Context.Service<
           }
         },
         skip: (c) => {
+          if (c.req.path === "/health" && (c.req.method === "GET" || c.req.method === "HEAD")) {
+            return true;
+          }
           const { pathname } = new URL(c.req.url);
           const lastSegment = pathname.split("/").pop() ?? "";
           return STATIC_ASSET_PATTERN.test(lastSegment);

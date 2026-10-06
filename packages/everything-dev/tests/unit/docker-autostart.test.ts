@@ -1,6 +1,28 @@
-import { describe, expect, it } from "vitest";
-import { isDockerTestMode, shouldAutoStartDocker, takeTail } from "../../src/infra/docker";
+import { describe, expect, it, vi } from "vitest";
+import {
+  isDockerTestMode,
+  runDockerComposeUp,
+  shouldAutoStartDocker,
+  takeTail,
+} from "../../src/infra/docker";
 import type { PreflightFailure } from "../../src/infra/preflight";
+
+const command = vi.hoisted(() => vi.fn());
+vi.mock("execa", () => ({ execa: command }));
+
+describe("runDockerComposeUp", () => {
+  it("preserves line boundaries and failure diagnostics from both output streams", async () => {
+    command.mockResolvedValue({
+      exitCode: 1,
+      stdout: "Starting database\n",
+      stderr: "\u001b[31mDatabase failed\u001b[0m\nCheck credentials\n",
+    });
+    expect(await runDockerComposeUp("/test/project")).toEqual({
+      ok: false,
+      tail: "Starting database\nDatabase failed\nCheck credentials",
+    });
+  });
+});
 
 const unreachable = (secret: string): PreflightFailure => ({
   secret,

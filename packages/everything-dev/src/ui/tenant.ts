@@ -112,53 +112,69 @@ export interface TenantUiOverride {
 
 export const INTEGRITY_PATTERN = /^sha384-[A-Za-z0-9+/=]+$/;
 
-const optionalUrl = z
-  .string()
-  .trim()
-  .url("must be a valid URL")
-  .or(z.literal(""))
-  .transform((value) => value.trim());
+export const defaultTenantConfigDraftMessages = {
+  url: "must be a valid URL",
+  integrity: "must look like sha384-… (base64)",
+  manifest: "must look like versions/<version-id>.json",
+  title: "title is required",
+  description: "description is required",
+  uiPair: "a UI bundle needs both its URL and its integrity (direct hash or manifest pin)",
+  integrityMode:
+    "choose one integrity mode — a direct entry hash or a version-manifest pin, not both",
+  pinPair: "a version-manifest pin needs both the manifest filename and its integrity",
+  ssrPair: "an SSR bundle needs both its URL and its integrity hash",
+};
 
-const optionalIntegrity = z
-  .string()
-  .trim()
-  .regex(INTEGRITY_PATTERN, "must look like sha384-… (base64)")
-  .or(z.literal(""));
-
-const optionalManifestName = z
-  .string()
-  .trim()
-  .regex(/^versions\/[0-9a-f]{16}\.json$/, "must look like versions/<version-id>.json")
-  .or(z.literal(""));
-
-export const tenantConfigDraftSchema = z
-  .object({
-    title: z.string().trim().min(1, "title is required"),
-    description: z.string().trim().min(1, "description is required"),
-    repository: optionalUrl,
-    uiProduction: optionalUrl,
-    uiIntegrity: optionalIntegrity,
-    uiManifest: optionalManifestName,
-    uiPinIntegrity: optionalIntegrity,
-    ssrUrl: optionalUrl,
-    ssrIntegrity: optionalIntegrity,
-  })
-  .refine((draft) => !!draft.uiProduction === !!(draft.uiIntegrity || draft.uiManifest), {
-    message: "a UI bundle needs both its URL and its integrity (direct hash or manifest pin)",
-    path: ["uiIntegrity"],
-  })
-  .refine((draft) => !draft.uiIntegrity || !draft.uiManifest, {
-    message: "choose one integrity mode — a direct entry hash or a version-manifest pin, not both",
-    path: ["uiManifest"],
-  })
-  .refine((draft) => !!draft.uiManifest === !!draft.uiPinIntegrity, {
-    message: "a version-manifest pin needs both the manifest filename and its integrity",
-    path: ["uiPinIntegrity"],
-  })
-  .refine((draft) => !!draft.ssrUrl === !!draft.ssrIntegrity, {
-    message: "an SSR bundle needs both its URL and its integrity hash",
-    path: ["ssrIntegrity"],
-  });
+export function createTenantConfigDraftSchema(
+  messages: Partial<typeof defaultTenantConfigDraftMessages> = {},
+) {
+  const copy = { ...defaultTenantConfigDraftMessages, ...messages };
+  const optionalUrl = z
+    .string()
+    .trim()
+    .url(copy.url)
+    .or(z.literal(""))
+    .transform((value) => value.trim());
+  const optionalIntegrity = z
+    .string()
+    .trim()
+    .regex(INTEGRITY_PATTERN, copy.integrity)
+    .or(z.literal(""));
+  const optionalManifestName = z
+    .string()
+    .trim()
+    .regex(/^versions\/[0-9a-f]{16}\.json$/, copy.manifest)
+    .or(z.literal(""));
+  return z
+    .object({
+      title: z.string().trim().min(1, copy.title),
+      description: z.string().trim().min(1, copy.description),
+      repository: optionalUrl,
+      uiProduction: optionalUrl,
+      uiIntegrity: optionalIntegrity,
+      uiManifest: optionalManifestName,
+      uiPinIntegrity: optionalIntegrity,
+      ssrUrl: optionalUrl,
+      ssrIntegrity: optionalIntegrity,
+    })
+    .refine((draft) => !!draft.uiProduction === !!(draft.uiIntegrity || draft.uiManifest), {
+      message: copy.uiPair,
+      path: ["uiIntegrity"],
+    })
+    .refine((draft) => !draft.uiIntegrity || !draft.uiManifest, {
+      message: copy.integrityMode,
+      path: ["uiManifest"],
+    })
+    .refine((draft) => !!draft.uiManifest === !!draft.uiPinIntegrity, {
+      message: copy.pinPair,
+      path: ["uiPinIntegrity"],
+    })
+    .refine((draft) => !!draft.ssrUrl === !!draft.ssrIntegrity, {
+      message: copy.ssrPair,
+      path: ["ssrIntegrity"],
+    });
+}
+export const tenantConfigDraftSchema = createTenantConfigDraftSchema();
 
 export type TenantConfigDraft = z.infer<typeof tenantConfigDraftSchema>;
 

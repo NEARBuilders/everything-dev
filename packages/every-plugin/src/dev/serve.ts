@@ -206,7 +206,7 @@ export async function startPluginDevServer(
   }
 
   const handlers: { rpc: any; api: any } = { rpc: null, api: null };
-  const effectContextHolder: { context: unknown | null } = { context: null };
+  const effectContextHolder: { context: unknown } = { context: null };
   let runtime: { shutdown: () => Promise<void> } | null = null;
 
   const pathnameOf = (req: http.IncomingMessage): string =>

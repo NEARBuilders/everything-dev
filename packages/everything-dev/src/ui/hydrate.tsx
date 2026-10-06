@@ -11,7 +11,7 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 import type { ClientRuntimeConfig } from "../types";
-import { createApiClient } from "./api";
+import { type ClientServiceConfig, createApiClient } from "./api";
 import { createAuthClient } from "./auth";
 import {
   CORE_UI_PLUGIN_KEY,
@@ -78,6 +78,8 @@ export interface CoreHydrateOptions {
   createQueryClient?: () => QueryClient;
   /** Overrides the runtime config source (tests, embeds). */
   config?: ClientRuntimeConfig;
+  /** Localized copy for the API connection-failure toast (see `createApiClient`). */
+  apiConnectionError?: ClientServiceConfig["connectionError"];
 }
 
 interface ComposedTree {
@@ -321,9 +323,11 @@ export async function hydrate(options: CoreHydrateOptions) {
         queryClient: client,
         runtimeConfig,
         cspNonce,
+        locale: isServerRendered() ? document.documentElement.lang : undefined,
         apiClient: createApiClient({
           hostUrl: runtimeConfig.hostUrl,
           rpcBase: runtimeConfig.rpcBase,
+          connectionError: options.apiConnectionError,
         }),
         authClient: createAuthClient({ runtimeConfig, cspNonce }),
       },
@@ -360,10 +364,35 @@ export async function hydrate(options: CoreHydrateOptions) {
       );
     }
 
+    if (composed?.degraded) {
+      const { toast } = await import("sonner");
+      toast.error("Some application features couldn't load", {
+        id: "application-compose-error",
+        description: "Plugin pages are unavailable. Reload to try again.",
+        duration: Number.POSITIVE_INFINITY,
+        action: { label: "Reload", onClick: () => window.location.reload() },
+      });
+    }
+
     console.log("[Hydrate] Complete!");
   })().catch((error) => {
     console.error("[Hydrate] Failed:", error);
     window.__EVERYTHING_DEV_HYDRATE_PROMISE__ = undefined;
+    const message = document.createElement("main");
+    message.setAttribute("role", "alert");
+    message.dataset.testid = "application-startup-error";
+    message.className =
+      "min-h-screen flex flex-col items-center justify-center gap-4 bg-background text-foreground p-6";
+    const heading = document.createElement("h1");
+    heading.textContent = "The application couldn't load";
+    const detail = document.createElement("p");
+    detail.textContent = "Check your connection and reload to try again.";
+    const retry = document.createElement("button");
+    retry.textContent = "Reload";
+    retry.className = "rounded-md border border-border px-4 py-2";
+    retry.addEventListener("click", () => window.location.reload());
+    message.append(heading, detail, retry);
+    document.body.replaceChildren(message);
     throw error;
   });
 

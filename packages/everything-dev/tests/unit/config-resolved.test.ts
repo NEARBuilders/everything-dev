@@ -13,6 +13,7 @@ import {
   writeResolvedConfig,
 } from "../../src/config";
 import { openResolution } from "../../src/resolution/session";
+import { BosConfigInputSchema } from "../../src/types";
 
 vi.mock("../../src/version-manifest-resolve", () => ({
   resolveSlotVersion: vi.fn(async () => ({
@@ -53,6 +54,16 @@ vi.mock("../../src/http-client", async (importOriginal) => {
       throw new Error("[test] network disabled — stub fetchEff");
     }) as unknown as typeof actual.fetchEff,
   };
+});
+
+describe("authored staging configuration", () => {
+  it("preserves the staging account used by the key publication prompt", () => {
+    const parsed = BosConfigInputSchema.parse({
+      account: "production.near",
+      staging: { domain: "staging.example.test", account: "staging.near" },
+    });
+    expect(parsed.staging).toEqual({ domain: "staging.example.test", account: "staging.near" });
+  });
 });
 
 describe("findConfigPath cache", () => {

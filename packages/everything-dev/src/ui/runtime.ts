@@ -29,6 +29,12 @@ export function getCspNonce() {
   return window.__CSP_NONCE__;
 }
 
+export function getAppName(config?: Partial<ClientRuntimeConfig>): string {
+  const runtimeConfig =
+    config ?? (typeof window === "undefined" ? undefined : window.__RUNTIME_CONFIG__);
+  return runtimeConfig?.runtime?.title ?? runtimeConfig?.account ?? "";
+}
+
 export function buildRuntimeHref(pathname: string, runtimeConfig?: Partial<ClientRuntimeConfig>) {
   const basePath = runtimeConfig?.runtime?.runtimeBasePath ?? "/";
   if (basePath === "/") {

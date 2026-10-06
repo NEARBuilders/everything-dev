@@ -13,7 +13,12 @@ import { killProcessGroupEscalating, reapGroup } from "../../src/process-kill";
 import { isPidAlive } from "../../src/process-registry";
 
 let tempDir = mkdtempSync(join(tmpdir(), "process-kill-"));
-const cleanup: string[] = [];
+const cleanup: number[] = [];
+
+function processGroupId(pid: number | undefined): number {
+  if (pid === undefined) throw new Error("Child process did not expose a pid");
+  return -pid;
+}
 
 const fakeLsof = (script: string): string => {
   const path = join(tempDir, `lsof-${Math.random().toString(36).slice(2)}`);
@@ -23,7 +28,7 @@ const fakeLsof = (script: string): string => {
 
 const spawnSleeper = (): { pid: number; wait: Promise<void> } => {
   const child = spawn("sleep", ["300"], { detached: true, stdio: "ignore" });
-  cleanup.push(-child.pid);
+  cleanup.push(processGroupId(child.pid));
   return {
     pid: child.pid,
     wait: new Promise((resolve) => child.once("exit", resolve)),
@@ -119,7 +124,7 @@ describe("process-kill escalation", () => {
     const path = join(tempDir, `parent-${Date.now()}.sh`);
     writeFileSync(path, script, { mode: 0o755 });
     const parent = spawn(path, { detached: true, stdio: "ignore" });
-    cleanup.push(-parent.pid);
+    cleanup.push(processGroupId(parent.pid));
     await new Promise((resolve) => setTimeout(resolve, 300));
     const members = await groupMembersOf(parent.pid);
     expect(members.length).toBeGreaterThanOrEqual(2);
@@ -155,7 +160,7 @@ function spawnSleeperWithSigtermIgnored(): { pid: number; wait: Promise<void> } 
   const path = join(tempDir, `sleeper-${Date.now()}.sh`);
   writeFileSync(path, script, { mode: 0o755 });
   const child = spawn(path, { detached: true, stdio: "ignore" });
-  cleanup.push(-child.pid);
+  cleanup.push(processGroupId(child.pid));
   return {
     pid: child.pid,
     wait: new Promise((resolve) => child.once("exit", resolve)),

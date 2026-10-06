@@ -9,6 +9,25 @@ import {
   useMemo,
   useSyncExternalStore,
 } from "react";
+import { matchLocale, resolveLocale, serializeLocaleCookie } from "./locale";
+
+export { Trans } from "@lingui/react";
+export {
+  matchLocale,
+  readAcceptLanguage,
+  readLocaleCookie,
+  resolveLocale,
+  serializeLocaleCookie,
+} from "./locale";
+export { createMessageCatalogs } from "./message-catalogs";
+
+type SharedLocaleState = {
+  cookieName: string;
+  locale: string;
+  selectLocale: (locale: string) => Promise<void>;
+};
+
+const SharedLocaleContext = createContext<SharedLocaleState | null>(null);
 
 type LocaleStore = {
   get: () => string;
@@ -33,61 +52,6 @@ function createLocaleStore(initialLocale: string): LocaleStore {
       return () => listeners.delete(listener);
     },
   };
-}
-
-export function readLocaleCookie(cookie: string, cookieName: string): string | undefined {
-  for (const part of cookie.split(";")) {
-    const [name, ...valueParts] = part.trim().split("=");
-    if (name !== cookieName) continue;
-    try {
-      return decodeURIComponent(valueParts.join("="));
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-export function matchLocale<const Locale extends string>(
-  candidate: string | null | undefined,
-  locales: readonly Locale[],
-): Locale | undefined {
-  if (!candidate) return undefined;
-  const normalized = candidate.toLowerCase();
-  const exact = locales.find((locale) => locale.toLowerCase() === normalized);
-  if (exact) return exact;
-  const base = normalized.split("-")[0];
-  return locales.find((locale) => locale.toLowerCase() === base);
-}
-
-export function resolveLocale<const Locale extends string>({
-  preferredLocale,
-  cookie,
-  browserLocales,
-  locales,
-  defaultLocale,
-  cookieName,
-}: {
-  preferredLocale?: string | null;
-  cookie: string;
-  browserLocales: readonly string[];
-  locales: readonly Locale[];
-  defaultLocale: Locale;
-  cookieName: string;
-}): Locale {
-  const preferred = matchLocale(preferredLocale, locales);
-  if (preferred) return preferred;
-  const saved = matchLocale(readLocaleCookie(cookie, cookieName), locales);
-  if (saved) return saved;
-  for (const browserLocale of browserLocales) {
-    const matched = matchLocale(browserLocale, locales);
-    if (matched) return matched;
-  }
-  return defaultLocale;
-}
-
-export function serializeLocaleCookie(cookieName: string, locale: string, secure: boolean): string {
-  return `${cookieName}=${encodeURIComponent(locale)}; Path=/; Max-Age=31536000; SameSite=Lax${secure ? "; Secure" : ""}`;
 }
 
 export function createLocaleRuntime<const Locale extends string>({
@@ -122,11 +86,12 @@ export function createLocaleRuntime<const Locale extends string>({
       cookieName,
     });
 
-  const getStore = (preferredLocale?: string | null) => {
-    if (typeof window === "undefined") return createLocaleStore(detectLocale(preferredLocale));
+  const getStore = (initialLocale?: string | null) => {
+    const initial = matchLocale(initialLocale, locales) ?? detectLocale();
+    if (typeof window === "undefined") return createLocaleStore(initial);
     const existing = browserStores.get(cookieName);
     if (existing) return existing;
-    const store = createLocaleStore(detectLocale(preferredLocale));
+    const store = createLocaleStore(initial);
     browserStores.set(cookieName, store);
     return store;
   };
@@ -134,37 +99,60 @@ export function createLocaleRuntime<const Locale extends string>({
   function LocaleProvider({
     children,
     messages,
+    initialLocale,
     preferredLocale,
     onLocaleChange,
   }: {
     children: ReactNode;
     messages: (locale: Locale) => Messages;
+    initialLocale?: string | null;
     preferredLocale?: string | null;
     onLocaleChange?: (locale: Locale) => void | Promise<void>;
   }) {
-    const store = useMemo(() => getStore(preferredLocale), []);
-    const locale = useSyncExternalStore(store.subscribe, store.get, () => defaultLocale) as Locale;
+    const parent = useContext(SharedLocaleContext);
+    const sharedParent = parent?.cookieName === cookieName ? parent : null;
+    const resolvedInitial =
+      matchLocale(preferredLocale, locales) ??
+      matchLocale(initialLocale, locales) ??
+      matchLocale(sharedParent?.locale, locales);
+    const serverLocale = resolvedInitial ?? defaultLocale;
+    const store = useMemo(() => getStore(resolvedInitial), []);
+    const locale = useSyncExternalStore(store.subscribe, store.get, () => serverLocale) as Locale;
     const i18n = useMemo(
       () => setupI18n({ locale, messages: { [locale]: messages(locale) } }),
       [locale, messages],
     );
 
     useEffect(() => {
+      if (sharedParent) return;
       const resolved = matchLocale(preferredLocale, locales);
-      if (resolved) store.set(resolved);
-    }, [preferredLocale, store]);
+      if (resolved) {
+        Reflect.set(
+          document,
+          "cookie",
+          serializeLocaleCookie(cookieName, resolved, window.location.protocol === "https:"),
+        );
+        store.set(resolved);
+      }
+    }, [preferredLocale, sharedParent, store]);
 
     useEffect(() => {
+      if (sharedParent) return;
       const previousLocale = document.documentElement.lang;
       document.documentElement.lang = locale;
       return () => {
         document.documentElement.lang = previousLocale;
       };
-    }, [locale]);
+    }, [locale, sharedParent]);
 
     const selectLocale = useCallback(
       async (nextLocale: Locale) => {
         if (!locales.includes(nextLocale)) return;
+        if (sharedParent && !onLocaleChange) {
+          await sharedParent.selectLocale(nextLocale);
+          return;
+        }
+        if (onLocaleChange) await onLocaleChange(nextLocale);
         if (typeof document !== "undefined") {
           Reflect.set(
             document,
@@ -177,16 +165,28 @@ export function createLocaleRuntime<const Locale extends string>({
           );
         }
         store.set(nextLocale);
-        await onLocaleChange?.(nextLocale);
       },
-      [onLocaleChange, store],
+      [onLocaleChange, sharedParent, store],
     );
 
     const value = useMemo(() => ({ locale, selectLocale }), [locale, selectLocale]);
+    const sharedValue = useMemo(
+      () => ({
+        cookieName,
+        locale,
+        selectLocale: async (next: string) => {
+          const matched = matchLocale(next, locales);
+          if (matched) await selectLocale(matched);
+        },
+      }),
+      [locale, selectLocale],
+    );
     return (
-      <LocaleContext.Provider value={value}>
-        <I18nProvider i18n={i18n}>{children}</I18nProvider>
-      </LocaleContext.Provider>
+      <SharedLocaleContext.Provider value={sharedValue}>
+        <LocaleContext.Provider value={value}>
+          <I18nProvider i18n={i18n}>{children}</I18nProvider>
+        </LocaleContext.Provider>
+      </SharedLocaleContext.Provider>
     );
   }
 
@@ -204,5 +204,8 @@ export function createLocaleRuntime<const Locale extends string>({
     );
   }
 
-  return { LocaleProvider, useLocale, useTranslation, detectLocale };
+  const getLocale = (): Locale =>
+    matchLocale(browserStores.get(cookieName)?.get(), locales) ?? detectLocale();
+
+  return { LocaleProvider, useLocale, useTranslation, detectLocale, getLocale };
 }

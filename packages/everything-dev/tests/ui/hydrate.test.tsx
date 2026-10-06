@@ -8,6 +8,7 @@ const bootstrap = vi.hoisted(() => ({
   createRouter: vi.fn(() => ({ router: {} })),
   render: vi.fn(),
   hydrateRoot: vi.fn(),
+  toastError: vi.fn(),
   coreRouteConfig: {
     routeConfigLoaders: {},
     rootMeta: { head: () => ({ meta: [{ name: "core", content: "1" }] }) },
@@ -33,6 +34,8 @@ vi.mock("react-dom/client", () => ({
   createRoot: () => ({ render: bootstrap.render }),
   hydrateRoot: bootstrap.hydrateRoot,
 }));
+
+vi.mock("sonner", () => ({ toast: { error: bootstrap.toastError } }));
 
 const composeMocks = vi.hoisted(() => ({
   loadRemote: vi.fn(),
@@ -121,11 +124,30 @@ const runHydrate = async (config: Record<string, unknown>) => {
 };
 
 describe("client bootstrap", () => {
+  it("forwards the SSR document language into the composed router context", async () => {
+    const previousLocale = document.documentElement.lang;
+    document.documentElement.lang = "fr";
+    document.documentElement.setAttribute("data-everything-ssr", "");
+    try {
+      await runHydrate(bootstrap.config);
+      expect(bootstrap.createRouter).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: expect.objectContaining({ locale: "fr" }),
+        }),
+      );
+    } finally {
+      document.documentElement.lang = previousLocale;
+    }
+  });
+
   it("rejects missing config before loading the router and can retry", async () => {
     bootstrap.config.hostUrl = "";
     await expect(runHydrate(bootstrap.config)).rejects.toThrow("Missing hostUrl or rpcBase");
     expect(bootstrap.routerLoads).toBe(0);
     expect(bootstrap.createRouter).not.toHaveBeenCalled();
+    expect(
+      document.querySelector('[data-testid="application-startup-error"]')?.textContent,
+    ).toContain("Reload");
     expect(window.__EVERYTHING_DEV_HYDRATE_PROMISE__).toBeUndefined();
 
     bootstrap.config.hostUrl = "https://example.test";
@@ -333,6 +355,13 @@ describe("client bootstrap", () => {
     // the page client-renders the degraded tree.
     expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
     expect(bootstrap.render).toHaveBeenCalledOnce();
+    expect(bootstrap.toastError).toHaveBeenCalledWith(
+      "Some application features couldn't load",
+      expect.objectContaining({
+        duration: Number.POSITIVE_INFINITY,
+        action: expect.objectContaining({ label: "Reload" }),
+      }),
+    );
   });
 
   it("drops only the failed remote and composes the healthy subset", async () => {
@@ -416,5 +445,6 @@ describe("client bootstrap", () => {
     );
     expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
     expect(bootstrap.render).toHaveBeenCalledOnce();
+    expect(bootstrap.toastError).toHaveBeenCalledOnce();
   });
 });

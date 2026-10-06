@@ -25,7 +25,7 @@ const bannedSession = {
   session: { id: "session-1", activeOrganizationId: null },
 } as unknown as SessionData;
 
-function createAuthClientMock(responses: Array<SessionData | null>): AuthClient {
+function createAuthClientMock(responses: Array<SessionData>): AuthClient {
   let call = 0;
   return {
     getSession: vi.fn(async () => {
@@ -41,7 +41,7 @@ function createContext(queryClient: QueryClient, authClient: AuthClient) {
     queryClient,
     authClient,
     apiClient: {} as ApiClient,
-    session: undefined as SessionData | null | undefined,
+    session: undefined as SessionData,
   };
 }
 

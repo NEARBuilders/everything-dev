@@ -8,6 +8,7 @@ export interface RouterContext<TSession = unknown> {
   runtimeConfig?: Partial<ClientRuntimeConfig>;
   session?: TSession;
   cspNonce?: string;
+  locale?: string;
   /** nav manifest derived from composed routes' staticData.nav */
   pluginNav?: NavManifest;
 }

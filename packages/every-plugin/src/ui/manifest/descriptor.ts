@@ -45,7 +45,7 @@ export function App(input: AppInput): AppInput {
   return input;
 }
 
-export function Plugin<K extends keyof KnownPlugins & string>(
+export function Plugin<K extends Extract<keyof KnownPlugins, string>>(
   name: K,
 ): {
   local: (path: string) => PluginRefInput;

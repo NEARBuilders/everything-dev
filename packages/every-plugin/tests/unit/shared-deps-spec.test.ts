@@ -50,6 +50,7 @@ describe("shared-deps-spec canonical list", () => {
         "@tanstack/react-router",
         "@lingui/core",
         "@lingui/react",
+        "sonner",
         "everything-dev/ui/auth",
         "everything-dev/ui/i18n",
       ].sort(),
@@ -168,9 +169,10 @@ describe("consumer derivation (structural — replaces the drift sync test)", ()
   it("rsbuild config factory derives from the ui spec", () => {
     const provider = createUiSharedDeps({ role: "provider" });
     const consumer = createUiSharedDeps({ role: "consumer" });
-    expect(Object.keys(provider).sort()).toEqual(namesOf(UI_SHARED_DEPS).sort());
-    expect(Object.keys(consumer).sort()).toEqual(namesOf(UI_SHARED_DEPS).sort());
-    for (const spec of UI_SHARED_DEPS) {
+    const requiredSpecs = UI_SHARED_DEPS.filter((spec) => !("optional" in spec && spec.optional));
+    expect(Object.keys(provider).sort()).toEqual(namesOf(requiredSpecs).sort());
+    expect(Object.keys(consumer).sort()).toEqual(namesOf(requiredSpecs).sort());
+    for (const spec of requiredSpecs) {
       const entry = provider[spec.name];
       expect(entry).toBeDefined();
       expect(entry?.singleton).toBe(true);

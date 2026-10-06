@@ -21,9 +21,11 @@ function expectNoHydrationFailure(pageErrors: string[]) {
 }
 
 for (const scenario of scenarios) {
-  const suite = scenario.available ? test.describe : test.describe.skip;
+  const describeScenario = scenario.available
+    ? test.describe
+    : (title: string, fn: () => void) => test.describe.skip(title, fn);
 
-  suite(`Remote runtime browser smoke: ${scenario.title}`, () => {
+  describeScenario(`Remote runtime browser smoke: ${scenario.title}`, () => {
     test.describe.configure({ mode: "serial" });
 
     let runtime: RuntimeRemoteHost;

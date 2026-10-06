@@ -100,7 +100,7 @@ export class ApiContractResolver extends Context.Service<
 >()("everything-dev/api-contract/ApiContractResolver") {
   static readonly layer: Layer.Layer<ApiContractResolver> = Layer.effect(
     ApiContractResolver,
-    Effect.gen(function* () {
+    Effect.sync(() => {
       const manifest = Effect.fn("ApiContractResolver.manifest")(function* (
         apiBaseUrl: string,
       ): Effect.fn.Return<ApiPluginManifest, ApiManifestFetchError | ApiManifestFormatError> {

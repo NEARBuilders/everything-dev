@@ -6,6 +6,7 @@ import {
   computeSsrEntryIntegrity,
   computeSubresourceIntegrity,
   computeUiEntryIntegrity,
+  createTenantConfigDraftSchema,
   diffDraft,
   draftUiOverride,
   emptyTenantConfigDraft,
@@ -160,6 +161,40 @@ describe("gatewayForAccount", () => {
 });
 
 describe("tenantConfigDraftSchema", () => {
+  it("uses localized pin validation while preserving bundle constraints", () => {
+    const schema = createTenantConfigDraftSchema({
+      manifest: "Formato de manifiesto no válido",
+      pinPair: "Falta la integridad del manifiesto",
+      integrityMode: "Elige un modo de integridad",
+    });
+    const draft = {
+      ...emptyTenantConfigDraft,
+      title: "Chicago",
+      description: "Chicago",
+      uiProduction: "https://cdn.example.com/ui",
+      uiManifest: "versions/8f3ac1d2feedbeef.json",
+    };
+    const pin = schema.safeParse(draft);
+    expect(pin.error?.issues).toContainEqual(
+      expect.objectContaining({
+        path: ["uiPinIntegrity"],
+        message: "Falta la integridad del manifiesto",
+      }),
+    );
+    const malformed = schema.safeParse({ ...draft, uiManifest: "versions/invalid.json" });
+    expect(malformed.error?.issues).toContainEqual(
+      expect.objectContaining({ path: ["uiManifest"], message: "Formato de manifiesto no válido" }),
+    );
+    const mixed = schema.safeParse({
+      ...draft,
+      uiPinIntegrity: "sha384-pin",
+      uiIntegrity: "sha384-direct",
+    });
+    expect(mixed.error?.issues).toContainEqual(
+      expect.objectContaining({ path: ["uiManifest"], message: "Elige un modo de integridad" }),
+    );
+  });
+
   it("accepts a metadata-only draft", () => {
     const result = tenantConfigDraftSchema.safeParse({
       ...emptyTenantConfigDraft,
@@ -431,7 +466,7 @@ describe("integrity preflight", () => {
 
   const stubBundle = (content: string) => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes("remoteEntry.server.js")) return new Response(`${content}-server`);
       return new Response(content);
     });
@@ -473,7 +508,7 @@ describe("integrity preflight", () => {
   it("verifies a pinned slot by SRI-comparing the manifest document", async () => {
     const manifestBody = JSON.stringify({ entry: "remoteEntry.aaa.js" });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.endsWith("versions/8f3ac1d2feedbeef.json")) {
         return new Response(manifestBody);
       }
@@ -502,7 +537,7 @@ describe("integrity preflight", () => {
 
   it("rejects the html landing page a bare base url serves", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url === "https://cdn.example.com/ui/remoteEntry.js")
         return new Response("console.log('hi')");
       return new Response("<!doctype html>landing page");

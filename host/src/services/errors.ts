@@ -20,7 +20,14 @@ export class FederationError extends Data.TaggedError("FederationError")<{
   override get message() {
     if (this.detail) return this.detail;
     const raw = this.cause instanceof FederationError ? this.cause.cause : this.cause;
-    const detail = raw instanceof Error ? raw.message : String(raw ?? "");
+    const detail =
+      raw instanceof Error
+        ? raw.message
+        : typeof raw === "string"
+          ? raw
+          : raw == null
+            ? ""
+            : (JSON.stringify(raw) ?? "[Unserializable value]");
     return `Failed to load ${this.remoteName}${this.remoteUrl ? ` from ${this.remoteUrl}` : ""}: ${detail}`;
   }
 }
@@ -32,7 +39,14 @@ export class PluginError extends Data.TaggedError("PluginError")<{
 }> {
   override get message() {
     const raw = this.cause instanceof PluginError ? this.cause.cause : this.cause;
-    const detail = raw instanceof Error ? raw.message : String(raw ?? "");
+    const detail =
+      raw instanceof Error
+        ? raw.message
+        : typeof raw === "string"
+          ? raw
+          : raw == null
+            ? ""
+            : (JSON.stringify(raw) ?? "[Unserializable value]");
     return `Plugin ${this.pluginName ?? "unknown"}${this.pluginUrl ? ` at ${this.pluginUrl}` : ""} failed: ${detail}`;
   }
 }

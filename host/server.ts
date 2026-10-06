@@ -34,4 +34,4 @@ try {
 // server boots so SSR container loads and any config fetches route through it.
 installBundleFetchFromEnv({});
 
-runServerBlocking({ config });
+await runServerBlocking({ config });

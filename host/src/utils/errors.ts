@@ -27,7 +27,7 @@ export function extractErrorDetails(error: unknown): {
           details.cause = `[Effect Cause] ${JSON.stringify(error.cause)}`;
         }
       } else {
-        details.cause = String(error.cause);
+        details.cause = JSON.stringify(error.cause) ?? "[Unserializable cause]";
       }
     }
 
@@ -51,5 +51,10 @@ export function extractErrorDetails(error: unknown): {
     return { message: JSON.stringify(error) };
   }
 
-  return { message: String(error) };
+  if (typeof error === "string") return { message: error };
+  if (typeof error === "symbol") return { message: error.description ?? "" };
+  if (typeof error === "number" || typeof error === "bigint" || typeof error === "boolean") {
+    return { message: `${error}` };
+  }
+  return { message: "Unknown error" };
 }

@@ -295,7 +295,7 @@ export const runDevSession = (
         ),
         Effect.tapError((err) =>
           Effect.sync(() => {
-            callbacks.onLog(pkg, `Failed to start: ${err}`, true);
+            callbacks.onLog(pkg, `Failed to start: ${String(err)}`, true);
             callbacks.onStatus(pkg, "error");
           }),
         ),
@@ -462,11 +462,18 @@ const runApp = (
   process.on("SIGINT", handleSignal);
   process.on("SIGTERM", handleSignal);
 
-  Effect.runPromiseExit(program).then((exit) => {
-    clearInterval(orphanWatch);
-    if (forceExitTimer) clearTimeout(forceExitTimer);
-    process.exit(Exit.isSuccess(exit) ? 0 : 1);
-  });
+  void Effect.runPromiseExit(program)
+    .then((exit) => {
+      clearInterval(orphanWatch);
+      if (forceExitTimer) clearTimeout(forceExitTimer);
+      process.exit(Exit.isSuccess(exit) ? 0 : 1);
+    })
+    .catch((error: unknown) => {
+      clearInterval(orphanWatch);
+      if (forceExitTimer) clearTimeout(forceExitTimer);
+      console.error("[Dev] Failed to observe application exit:", error);
+      process.exit(1);
+    });
 };
 
 export const devApp = runApp;

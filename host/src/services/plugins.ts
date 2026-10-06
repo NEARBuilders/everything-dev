@@ -184,14 +184,14 @@ function formatError(error: unknown): string {
     if (error.cause instanceof Error) {
       msg += ` (caused by: ${error.cause.message || error.cause.name})`;
     } else if (error.cause) {
-      msg += ` (caused by: ${String(error.cause)})`;
+      msg += ` (caused by: ${error.cause instanceof Error ? error.cause.message : (JSON.stringify(error.cause) ?? "[Unserializable cause]")})`;
     }
     return msg;
   }
   if (typeof error === "object" && error !== null) {
     const err = error as Record<string, unknown>;
-    if (err.message) return String(err.message);
-    if (err._tag) return `[${err._tag}] ${JSON.stringify(error)}`;
+    if (typeof err.message === "string") return err.message;
+    if (typeof err._tag === "string") return `[${err._tag}] ${JSON.stringify(error)}`;
     return JSON.stringify(error);
   }
   return String(error);
@@ -584,7 +584,7 @@ export const initializePlugins = Effect.gen(function* () {
         secrets: {},
       });
 
-      const mfInstance = (runtime as any).__mfInstance as any | undefined;
+      const mfInstance = (runtime as any).__mfInstance as any;
       if (mfInstance) {
         installIntegrityFetchHook(mfInstance, integrityRegistry);
       }
