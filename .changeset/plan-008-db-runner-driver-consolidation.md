@@ -1,9 +1,9 @@
 ---
 "api": patch
 "host": patch
-"plugins/proposals": patch
-"plugins/votes": patch
-"plugins/auth": patch
+"@everything-dev/proposals-plugin": patch
+"@everything-dev/votes-plugin": patch
+"@everything-dev/auth-plugin": patch
 "@every-plugin/template": patch
 "everything-dev": minor
 ---
