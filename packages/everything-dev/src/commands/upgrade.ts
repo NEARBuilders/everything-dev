@@ -10,6 +10,7 @@ import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from 
 import { checkFederationCompat } from "../mf";
 import { openResolution } from "../resolution/session";
 import type { BosConfig } from "../types";
+import { describeError } from "../utils/error";
 import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";
 
@@ -45,7 +46,7 @@ export function registerUpgrade(builder: BosBuilder) {
           updated: [],
           skipped: [],
           added: [],
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),
@@ -67,7 +68,7 @@ export function registerUpgrade(builder: BosBuilder) {
         return {
           status: "error" as const,
           packages: [],
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),
@@ -238,7 +239,7 @@ export function registerUpgrade(builder: BosBuilder) {
           fetched: [],
           skipped: [],
           failed: [],
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),
@@ -381,7 +382,7 @@ export function registerUpgrade(builder: BosBuilder) {
           checked: [],
           skipped: [],
           results: [],
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),

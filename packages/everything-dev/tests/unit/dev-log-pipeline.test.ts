@@ -346,6 +346,51 @@ describe("createLogPipeline broadcast", () => {
     expect(file[0]).toContain("}");
   });
 
+  it("groups an rsbuild build error split across stderr and stdout into one error event", () => {
+    const { pipeline, display, exported } = makePipeline();
+    pipeline.ingest({ source: "ui", line: "start   build started..." });
+    pipeline.ingest({ source: "ui", line: "error   Build error: ", isError: true });
+    pipeline.ingest({
+      source: "ui",
+      line: "File: data-uri virtual module (import%20%7B%20init%20%7D%20fr...)",
+    });
+    pipeline.ingest({
+      source: "ui",
+      line: "  × Package subpath './dist/client/hmr.js' is not defined by \"exports\" in /x/node_modules/@rsbuild/core/package.json",
+    });
+    pipeline.ingest({
+      source: "ui",
+      line: "Timed out or failed: wait for process readiness: Process failed: ui",
+      isError: true,
+    });
+    pipeline.ingest({ source: "ui", line: "ready   built in 1.4s" });
+    pipeline.flush();
+
+    expect(exported).toHaveLength(2);
+    expect(exported[0]).toContain("Build error:");
+    expect(exported[0]).toContain("File: data-uri virtual module");
+    expect(exported[0]).toContain("Package subpath './dist/client/hmr.js'");
+    expect(exported[1]).toBe("Timed out or failed: wait for process readiness: Process failed: ui");
+    expect(display.every((d) => d.isError)).toBe(true);
+  });
+
+  it("surfaces bundler × error lines printed on stdout without a stderr header", () => {
+    const { pipeline, exported } = makePipeline();
+    pipeline.ingest({ source: "auth", line: "  × Module not found: Can't resolve './missing'" });
+    pipeline.flush();
+
+    expect(exported).toEqual(["  × Module not found: Can't resolve './missing'"]);
+  });
+
+  it("does not swallow unrelated lines after an error header that has a message", () => {
+    const { pipeline, file } = makePipeline();
+    pipeline.ingest({ source: "ui", line: "error   build failed in 2.04s", isError: true });
+    pipeline.ingest({ source: "ui", line: "  indented info line" });
+    pipeline.flush();
+
+    expect(file).toEqual(["error   build failed in 2.04s", "  indented info line"]);
+  });
+
   it("separates multi-line blocks per source", () => {
     const { pipeline, file } = makePipeline();
     pipeline.ingest({ source: "api", line: "[INFO] (api) Request context" });

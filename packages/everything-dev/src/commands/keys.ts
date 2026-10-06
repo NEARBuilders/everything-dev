@@ -23,6 +23,7 @@ import {
 } from "../near-cli";
 import { getNetworkIdForAccount } from "../network";
 import type { ResolutionSession } from "../resolution/session";
+import { describeError } from "../utils/error";
 import { colors } from "../utils/theme";
 import { type BosBuilder, BosDepsTag } from "./shared";
 
@@ -114,7 +115,7 @@ export function registerKeys(builder: BosBuilder) {
           contract,
           allowance: input.allowance,
           functionNames: PUBLISH_FUNCTION_NAMES,
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),
@@ -200,7 +201,7 @@ export function registerKeys(builder: BosBuilder) {
         return {
           status: "error" as const,
           siteUrl: input.site ?? "",
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),
@@ -244,7 +245,7 @@ export function registerKeys(builder: BosBuilder) {
           status: "error" as const,
           revokedApiKey: false,
           removedPublishKey: false,
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),

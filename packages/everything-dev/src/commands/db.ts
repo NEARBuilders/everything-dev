@@ -1,5 +1,6 @@
 import { Context, Effect } from "effect";
 import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
+import { describeError } from "../utils/error";
 import { type BosBuilder, BosDepsTag } from "./shared";
 
 export function registerDb(builder: BosBuilder) {
@@ -36,7 +37,7 @@ export function registerDb(builder: BosBuilder) {
           plugin: input.plugin,
           source: "remote" as const,
           section: "",
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),
@@ -82,7 +83,7 @@ export function registerDb(builder: BosBuilder) {
           appliedHashCount: 0,
           expectedTables: [],
           missingTables: [],
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),
@@ -112,9 +113,9 @@ export function registerDb(builder: BosBuilder) {
       } catch (error) {
         return {
           status: "error" as const,
-          message: error instanceof Error ? error.message : "Unknown error",
+          message: describeError(error),
           diagnosis: null,
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),

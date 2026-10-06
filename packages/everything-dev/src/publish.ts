@@ -31,6 +31,7 @@ import { openResolution } from "./resolution/session";
 import { verifyRollbackSnapshot } from "./rollback";
 import { collectDistFiles, uploadBundle, uploadWorkspaceDist } from "./storage-upload";
 import type { BosConfig, BosConfigInput, PublishConfig, RuntimeConfig } from "./types";
+import { describeError } from "./utils/error";
 import { padRight } from "./utils/string";
 import { colors, icons } from "./utils/theme";
 import { composeWorkspaceVersionManifest, readBuildReport } from "./version-manifest-deploy";
@@ -268,7 +269,7 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
       strategy = await resolveSigningStrategy({ privateKey: input.privateKey, account, network });
       console.log(`  Signing via ${colors.cyan(describeSigningStrategy(strategy))}`);
     } catch (error) {
-      return fail(error instanceof Error ? error.message : "Unknown error");
+      return fail(describeError(error));
     }
   }
 

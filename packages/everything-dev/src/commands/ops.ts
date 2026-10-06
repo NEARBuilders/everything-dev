@@ -12,6 +12,7 @@ import { ownerOfPort } from "../infra/port-ownership";
 import { killProcessGroupEscalating, reapGroup } from "../process-kill";
 import { isPidAlive, pruneDeadEffect, readRegistry, unregisterPid } from "../process-registry";
 import { openResolution } from "../resolution/session";
+import { describeError } from "../utils/error";
 import { computeDeployedVersionStatus, type DeployedVersionStatus } from "../version-status";
 import { type BosBuilder, type BosDeps, BosDepsTag } from "./shared";
 
@@ -41,7 +42,7 @@ export function registerOps(builder: BosBuilder) {
           status: "error" as const,
           packages: [],
           envFile: "missing" as const,
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),
@@ -87,7 +88,7 @@ export function registerOps(builder: BosBuilder) {
         return {
           status: "error" as const,
           entries: [],
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),
@@ -170,7 +171,7 @@ export function registerOps(builder: BosBuilder) {
           status: "error" as const,
           killed: [],
           skipped: [],
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),

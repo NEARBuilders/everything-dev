@@ -48,6 +48,7 @@ import { syncResolvedSharedDeps } from "./shared-deps";
 import { isRegistryStart, resolveStartConfigSource } from "./start-config-source";
 import type { BosConfig, SourceMode } from "./types";
 import { BosConfigSchema } from "./types";
+import { describeError } from "./utils/error";
 import { run } from "./utils/run";
 import { ensureFreshDeps, findWorkspaceRoot } from "./workspace";
 
@@ -440,9 +441,9 @@ export const startBootstrap = (
         try: () => resolvePublishedConfig(account, domain, input.registry),
         catch: (error) =>
           new StartFetchFailed({
-            message: `Failed to fetch config for bos://${account}/${domain}: ${
-              error instanceof Error ? error.message : "Unknown error"
-            }\nExpected URL: ${expectedUrl}`,
+            message: `Failed to fetch config for bos://${account}/${domain}: ${describeError(
+              error,
+            )}\nExpected URL: ${expectedUrl}`,
           }),
       });
       if (remoteConfig) {

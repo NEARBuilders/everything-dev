@@ -62,6 +62,13 @@ export function toEffectLogLevel(level: LogLevel): EffectLogLevel {
 
 const STACK_FRAME_RE = /^\s+at\s/;
 
+const OPEN_ERROR_HEADER_RE = /^(?:error\b.*|.*\b(?:Build|Compile|Compilation) error)\s*:\s*$/i;
+
+const ERROR_DETAIL_RE =
+  /^(?:\s+\S|\s*[×│╭╰├┌└╷╵|]|File:|help:|Caused by|Module not found|Can't resolve|Package subpath)/;
+
+const MAX_ERROR_BLOCK_LINES = 60;
+
 const countBraces = (line: string): number => {
   let count = 0;
   for (const ch of line) {
@@ -111,7 +118,13 @@ const feedLine = (
     return null;
   }
 
-  const isContinuation = state.openBraces > 0 || STACK_FRAME_RE.test(line) || /^\s*\{/.test(line);
+  const inErrorBlock =
+    OPEN_ERROR_HEADER_RE.test(state.pending[0] ?? "") &&
+    state.pending.length < MAX_ERROR_BLOCK_LINES &&
+    ERROR_DETAIL_RE.test(line);
+
+  const isContinuation =
+    inErrorBlock || state.openBraces > 0 || STACK_FRAME_RE.test(line) || /^\s*\{/.test(line);
 
   if (isContinuation) {
     const closeOnBalance = state.openBraces > 0;
@@ -151,6 +164,7 @@ export function normalizeLines(lines: string[]): string[] {
 }
 
 const WARN_RE = /(?:^|\s)WARN\b|\[WARN\]|(?:^|\s)\w*Warning:/i;
+const BUNDLER_ERROR_RE = /^(?:error\s{2,}|\s*×\s)/;
 const DEBUG_RE = /(?:^|\s)DEBUG\b|\[DEBUG\]/i;
 
 const EXIT_LINE_RE =
@@ -214,7 +228,7 @@ export function classifyEvent(raw: RawLogLine): LogEvent {
   const category = classifyCategory(text);
 
   let level: LogLevel;
-  let isError = raw.isError === true;
+  let isError = raw.isError === true || BUNDLER_ERROR_RE.test(text);
 
   if (exitMatch) {
     if (exitMatch[2]) {
@@ -223,7 +237,7 @@ export function classifyEvent(raw: RawLogLine): LogEvent {
       level = exitMatch[1] === "0" ? "info" : "error";
     }
     isError = level === "error";
-  } else if (WARN_RE.test(text)) {
+  } else if (WARN_RE.test(text.split("\n", 1)[0] ?? "")) {
     level = "warn";
     isError = false;
   } else if (DEBUG_RE.test(text)) {
