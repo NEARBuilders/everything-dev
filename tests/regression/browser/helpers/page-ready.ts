@@ -31,10 +31,10 @@ export function collectErrors(page: Page): PageErrors {
 
 export async function waitForApp(page: Page): Promise<void> {
   await page.waitForSelector("#root", { timeout: 30000 });
-  const hasRuntimeConfig = await page.evaluate(() => {
-    return typeof window.__RUNTIME_CONFIG__ !== "undefined";
-  });
-  expect(hasRuntimeConfig).toBeTruthy();
+  await page.waitForFunction(
+    () => typeof (window as { __RUNTIME_CONFIG__?: unknown }).__RUNTIME_CONFIG__ !== "undefined",
+    { timeout: 30000 },
+  );
 
   try {
     await page.waitForFunction(
