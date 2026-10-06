@@ -2,7 +2,14 @@ import { createServer, request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createServer as createProbeServer } from "node:net";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { RATE_LIMIT_MAX } from "../../src/middleware/security";
+
+// The security module reads its env at import time — pin a small burst
+// budget here so the loops below stay fast regardless of production defaults.
+vi.hoisted(() => {
+  process.env.RATE_LIMIT_MAX = "100";
+});
+
+import { RATE_LIMIT_MAX, RATE_LIMIT_MUTATION_MAX } from "../../src/middleware/security";
 import { runServer, type ServerHandle } from "../../src/program";
 import type { RuntimeConfig } from "../../src/services/config";
 import { getAvailablePort } from "../helpers/ports";
@@ -114,17 +121,97 @@ describe("host rate limiting", () => {
     }
   });
 
-  it("keeps forwarded clients isolated and still limits page requests", async () => {
+  it("keys forwarded clients by the LAST proxy hop and still limits page requests", async () => {
+    // Only the last x-forwarded-for hop is trusted (our proxy appends the
+    // real client); two clients sharing a first hop but differing in the
+    // last hop must land in separate buckets.
     const headers = { "x-forwarded-for": "192.0.2.1, 10.0.0.1" };
     for (let i = 0; i < RATE_LIMIT_MAX; i++) {
       expect((await get("/api/ping", "127.0.0.1", headers)).status).toBe(200);
     }
     expect((await get("/", "127.0.0.1", headers)).status).toBe(429);
-    expect((await get("/api/ping", "127.0.0.1", { "x-forwarded-for": "192.0.2.2" })).status).toBe(
+    expect(
+      (await get("/api/ping", "127.0.0.1", { "x-forwarded-for": "192.0.2.1, 10.0.0.2" })).status,
+    ).toBe(200);
+  });
+
+  it("answers document navigations with an HTML retry page instead of JSON", async () => {
+    const headers = { "x-forwarded-for": "192.0.2.9" };
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) {
+      await get("/api/ping", "127.0.0.1", headers);
+    }
+    const page = await get("/", "127.0.0.1", { ...headers, accept: "text/html" });
+    expect(page.status).toBe(429);
+    expect(page.headers["content-type"]).toContain("text/html");
+    expect(page.body).toContain("Too many requests");
+    expect(page.body).toContain("<!DOCTYPE html>");
+    const api = await get("/api/ping", "127.0.0.1", headers);
+    expect(api.status).toBe(429);
+    expect(api.headers["content-type"]).toContain("application/json");
+    expect(JSON.parse(api.body)).toEqual({
+      error: "Too many requests, please try again later.",
+    });
+  });
+
+  it("applies the stricter mutation tier to non-RPC API writes without touching reads", async () => {
+    const write = { "x-forwarded-for": "192.0.2.20", "content-type": "application/json" };
+    for (let i = 0; i < RATE_LIMIT_MUTATION_MAX; i++) {
+      expect(
+        (
+          await rawRequest(`${origin}/api/ping`, {
+            method: "POST",
+            localAddress: "127.0.0.1",
+            headers: write,
+            agent: false,
+          })
+        ).status,
+      ).toBe(200);
+    }
+    expect(
+      (
+        await rawRequest(`${origin}/api/ping`, {
+          method: "POST",
+          localAddress: "127.0.0.1",
+          headers: write,
+          agent: false,
+        })
+      ).status,
+    ).toBe(429);
+    // oRPC transport is exempt from the mutation tier...
+    expect(
+      (
+        await rawRequest(`${origin}/api/rpc/example`, {
+          method: "POST",
+          localAddress: "127.0.0.1",
+          headers: write,
+          agent: false,
+        })
+      ).status,
+    ).toBe(200);
+    // ...and reads keep their own bucket after the write bucket saturated.
+    expect((await get("/api/ping", "127.0.0.1", { "x-forwarded-for": "192.0.2.20" })).status).toBe(
       200,
     );
   });
 });
+
+async function rawRequest(
+  url: string,
+  options: import("node:http").RequestOptions,
+): Promise<{ status: number; headers: import("node:http").IncomingHttpHeaders; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request(url, options, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => {
+        body += chunk;
+      });
+      res.on("end", () => resolve({ status: res.statusCode!, headers: res.headers, body }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 async function localAddressAvailable(address: string): Promise<boolean> {
   return new Promise((resolve) => {

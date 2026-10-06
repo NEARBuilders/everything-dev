@@ -56,7 +56,7 @@ function createRpcLink(config: ClientServiceConfig, url: `/${string}`, headers?:
       }),
     ],
     fetch(fetchUrl: RequestInfo | URL, options?: RequestInit) {
-      return fetch(fetchUrl, {
+      return fetchWithRateLimitRetry(fetchUrl, {
         ...options,
         credentials: "include",
         headers: headers
@@ -65,6 +65,31 @@ function createRpcLink(config: ClientServiceConfig, url: `/${string}`, headers?:
       });
     },
   });
+}
+
+const RATE_LIMIT_MAX_RETRIES = 3;
+const RATE_LIMIT_RETRY_CAP_MS = 2_000;
+
+/**
+ * A 429 from the host's edge limiter is transient saturation, not an
+ * application failure — retry within the server's `Retry-After` (capped) so
+ * queries and the session check self-heal instead of surfacing errors.
+ */
+async function fetchWithRateLimitRetry(
+  fetchUrl: RequestInfo | URL,
+  options?: RequestInit,
+): Promise<Response> {
+  let response = await fetch(fetchUrl, options);
+  for (let attempt = 1; attempt <= RATE_LIMIT_MAX_RETRIES && response.status === 429; attempt++) {
+    const retryAfterSeconds = Number(response.headers.get("retry-after"));
+    const delay =
+      Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? Math.min(retryAfterSeconds * 1000, RATE_LIMIT_RETRY_CAP_MS)
+        : 100 * attempt;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    response = await fetch(fetchUrl, options);
+  }
+  return response;
 }
 
 function buildClient<T extends RouterContract>(

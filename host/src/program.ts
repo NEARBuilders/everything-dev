@@ -94,6 +94,7 @@ export const createStartServer = (onReady?: () => void) =>
     app.use("/*", security.cors);
     app.use("/*", security.csrf);
     app.use("/*", security.rateLimit);
+    app.use("/*", security.rateLimitMutation);
     app.use("*", security.csp);
 
     if (ssrEnabled) {

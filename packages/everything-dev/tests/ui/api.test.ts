@@ -171,3 +171,35 @@ describe("context hooks", () => {
     expect(usePluginClients()).toEqual({});
   });
 });
+
+describe("rate-limit retry", () => {
+  it("retries a 429 with backoff until the request succeeds", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      if (calls < 3) {
+        return new Response("{}", { status: 429, headers: { "retry-after": "0" } });
+      }
+      return new Response(JSON.stringify({ json: "pong" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const clients = createServiceClients(cfg, ["api"]);
+    await pingClient(clients.api);
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after the retry budget and surfaces the 429", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return new Response("{}", { status: 429, headers: { "retry-after": "0" } });
+    }) as unknown as typeof fetch;
+
+    const clients = createServiceClients(cfg, ["api"]);
+    await expect((clients.api as { ping(): Promise<unknown> }).ping()).rejects.toThrow();
+    expect(calls).toBe(4);
+  });
+});

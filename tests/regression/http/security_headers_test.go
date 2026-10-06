@@ -118,46 +118,58 @@ func TestRateLimiting(t *testing.T) {
 	time.Sleep(1200 * time.Millisecond)
 
 	// Fire 150 requests concurrently so they all land inside a single 1000ms
-	// sliding window. The regression env sets RATE_LIMIT_MAX=100, so the burst
-	// must trip it. 150 > 100 guarantees at least one 429.
+	// window. The regression env pins RATE_LIMIT_WINDOW_MS=1000 and
+	// RATE_LIMIT_MAX=100.
 	const workers = 10
 	const perWorker = 15
 
-	var (
-		mu                 sync.Mutex
-		got200, got429     bool
-		lastRateLimitBody  string
-		wg                 sync.WaitGroup
-	)
-
-	// Use a plain client (no cookie jar) per worker; http.Client is safe for
-	// concurrent use but jars are not.
-	for w := 0; w < workers; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			plain := &http.Client{}
-			for i := 0; i < perWorker; i++ {
-				resp, err := plain.Get(baseURL + "/health")
-				if err != nil {
-					continue
+	// burst fires `path` concurrently with plain (no cookie jar) clients and
+	// records which statuses were observed.
+	burst := func(path string) (got200, got429 bool, lastRateLimitBody string) {
+		var (
+			mu sync.Mutex
+			wg sync.WaitGroup
+		)
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				plain := &http.Client{}
+				for i := 0; i < perWorker; i++ {
+					resp, err := plain.Get(baseURL + path)
+					if err != nil {
+						continue
+					}
+					b, _ := io.ReadAll(resp.Body)
+					resp.Body.Close()
+					mu.Lock()
+					if resp.StatusCode == 200 {
+						got200 = true
+					}
+					if resp.StatusCode == 429 {
+						got429 = true
+						lastRateLimitBody = string(b)
+					}
+					mu.Unlock()
 				}
-				b, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				mu.Lock()
-				if resp.StatusCode == 200 {
-					got200 = true
-				}
-				if resp.StatusCode == 429 {
-					got429 = true
-					lastRateLimitBody = string(b)
-				}
-				mu.Unlock()
-			}
-		}()
+			}()
+		}
+		wg.Wait()
+		return got200, got429, lastRateLimitBody
 	}
-	wg.Wait()
 
+	// Health probes are exempt from the limiter — the burst must never trip
+	// it, no matter how large (Kubernetes probes share the client budget).
+	probe200, probe429, _ := burst("/health")
+	if !probe200 {
+		t.Fatal("expected health probes to answer 200")
+	}
+	if probe429 {
+		t.Fatal("health probes must be exempt from the rate limit")
+	}
+
+	// A regular API endpoint is limited: 150 > 100 guarantees at least one 429.
+	got200, got429, lastRateLimitBody := burst("/api/ping")
 	if !got200 {
 		t.Fatal("expected at least one 200 in the burst before the rate limit applies")
 	}
@@ -170,6 +182,6 @@ func TestRateLimiting(t *testing.T) {
 
 	// After the sliding window passes the server must recover.
 	time.Sleep(1200 * time.Millisecond)
-	status, _, body := regtest.GetRaw(t, client, baseURL+"/health")
+	status, _, body := regtest.GetRaw(t, client, baseURL+"/api/ping")
 	regtest.MustStatus(t, status, 200, body)
 }
