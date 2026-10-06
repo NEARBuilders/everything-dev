@@ -1,79 +1,71 @@
-import { ArrowSquareOutIcon, HammerIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { cn } from "cn";
 import type { ClientRuntimeConfig } from "everything-dev/types";
 import { getRepository } from "@/app";
+import underConstructionImage from "@/assets/under-construction.gif";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface UnderConstructionProps {
-  label?: string;
   sourceFile?: string;
   url?: string;
   tooltip?: string;
   className?: string;
-  onClick?: () => void;
-  skipNavigation?: boolean;
-  pressed?: boolean;
   runtimeConfig?: Partial<ClientRuntimeConfig>;
 }
 
 export function UnderConstruction({
-  label,
   sourceFile,
   url,
   tooltip,
   className,
-  onClick,
-  skipNavigation,
-  pressed,
   runtimeConfig,
 }: UnderConstructionProps) {
-  const resolveOutlink = () => {
-    if (url) return url;
-    const repository = getRepository(runtimeConfig);
-    if (!repository) return undefined;
-    return sourceFile ? `${repository}/blob/main/${sourceFile}` : repository;
-  };
-  const hasOutlink = Boolean(resolveOutlink());
+  const repository = getRepository(runtimeConfig);
+  const outlink =
+    url ??
+    (repository ? (sourceFile ? `${repository}/blob/main/${sourceFile}` : repository) : undefined);
 
-  const handleClick = () => {
-    onClick?.();
-    const outlink = resolveOutlink();
-    if (skipNavigation || !outlink) return;
-    setTimeout(() => {
-      window.open(outlink, "_blank", "noopener,noreferrer");
-    }, 150);
-  };
+  const image = (
+    <img
+      src={underConstructionImage}
+      alt="Under construction"
+      width={459}
+      height={28}
+      className="block h-auto w-full"
+    />
+  );
+
+  if (!outlink) {
+    return (
+      <div className={cn("w-full max-w-md", className)} data-testid="under-construction">
+        {image}
+      </div>
+    );
+  }
 
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger
-          className={cn("block cursor-pointer", className)}
-          onClick={handleClick}
-          data-pressed={pressed || undefined}
-          aria-label={
-            skipNavigation || !hasOutlink
-              ? label
-                ? `${label} under construction`
-                : "under construction"
-              : label
-                ? `${label} under construction - view source`
-                : "under construction - view source"
+          render={
+            <a
+              href={outlink}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Under construction - view source"
+              data-testid="under-construction"
+              className={cn("block w-full max-w-md", className)}
+            >
+              {image}
+            </a>
           }
-        >
-          <span className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-muted px-3 py-4 text-center text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
-            <HammerIcon className="size-5" aria-hidden="true" />
-            <span>In progress</span>
+        />
+        <TooltipContent side="top" sideOffset={8}>
+          <span className="flex items-center gap-1.5">
+            {tooltip ?? "See the code and contribute"}
+            <ArrowSquareOutIcon className="size-3" />
           </span>
-        </TooltipTrigger>
-        {!skipNavigation && hasOutlink && (
-          <TooltipContent side="top" sideOffset={6}>
-            <span className="flex items-center gap-1.5">
-              {tooltip ?? "See the code and contribute"}
-              <ArrowSquareOutIcon className="size-3" />
-            </span>
-          </TooltipContent>
-        )}
+        </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

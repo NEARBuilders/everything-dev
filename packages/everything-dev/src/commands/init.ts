@@ -31,6 +31,7 @@ import { timePhase } from "../progress";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import type { BosConfig, BosConfigInput, StarterLevel } from "../types";
+import { describeError } from "../utils/error";
 import { saveBosConfig } from "../utils/save-config";
 import type { BosBuilder } from "./shared";
 
@@ -351,7 +352,7 @@ export function registerInit(builder: BosBuilder) {
           overrides: input.overrides,
           filesCopied: 0,
           timings: [],
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: describeError(error),
         };
       }
     }),

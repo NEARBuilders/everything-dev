@@ -17,7 +17,7 @@ code {
 }
 
 :root {
-  --radius: 0.45rem;
+  --radius: 0rem;
   --background: oklch(0.99 0.002 240);
   --foreground: oklch(0.22 0.02 250);
   --card: oklch(1 0 0);
@@ -69,6 +69,18 @@ code {
   --sidebar-accent-foreground: oklch(0.22 0.02 250);
   --sidebar-border: oklch(0.92 0.005 240);
   --sidebar-ring: oklch(0.62 0.12 172);
+  --face: oklch(0.945 0.004 240);
+  --bevel-light: oklch(1 0 0);
+  --bevel-shade: oklch(0.22 0.02 250 / 32%);
+  --bevel-raised: 0 0 0 1px var(--bevel-shade), inset 1px 1px 0 var(--bevel-light), inset -1px -1px 0 var(--bevel-shade);
+  --bevel-pressed: 0 0 0 1px var(--bevel-shade), inset 1px 1px 0 var(--bevel-shade), inset -1px -1px 0 var(--bevel-light);
+  --bevel-sunken: 0 0 0 1px var(--bevel-shade), inset 1px 1px 0 var(--bevel-shade), inset 0 0 0 0 transparent;
+  --bevel-window: 0 0 0 1px var(--bevel-shade), inset 1px 1px 0 var(--bevel-light), 0 12px 32px -16px var(--bevel-shade);
+  --window-inset: 0px;
+  --titlebar-bg: var(--muted);
+  --titlebar-fg: var(--foreground);
+  --press-duration: 0ms;
+  --release-duration: 120ms;
 }
 
 .dark {
@@ -123,6 +135,9 @@ code {
   --sidebar-accent-foreground: oklch(0.96 0.004 240);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.72 0.13 170);
+  --face: oklch(0.255 0.012 250);
+  --bevel-light: oklch(1 0 0 / 22%);
+  --bevel-shade: oklch(0 0 0 / 50%);
 }
 
 @theme inline {
@@ -193,6 +208,7 @@ code {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-face: var(--face);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -264,4 +280,52 @@ code {
 
 .animate-subtitle-cycle {
   animation: subtitle-cycle 4s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+@utility bevel-raised {
+  --tw-shadow: var(--bevel-raised);
+  box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@utility bevel-pressed {
+  --tw-shadow: var(--bevel-pressed);
+  box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@utility bevel-sunken {
+  --tw-shadow: var(--bevel-sunken);
+  box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@utility bevel-window {
+  --tw-shadow: var(--bevel-window);
+  box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@utility bevel-none {
+  --tw-shadow: 0 0 #0000;
+  box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@utility bg-titlebar {
+  background: var(--titlebar-bg);
+  color: var(--titlebar-fg);
+}
+
+@utility p-window {
+  padding: var(--window-inset);
+}
+
+@utility text-emboss {
+  text-shadow: 1px 1px 0 var(--bevel-light);
+}
+
+@utility transition-bevel {
+  transition-property: box-shadow, background-color, color;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  transition-duration: var(--release-duration);
+
+  &:active {
+    transition-duration: var(--press-duration);
+  }
 }

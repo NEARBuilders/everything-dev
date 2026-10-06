@@ -30,6 +30,6 @@ describe("Bulletin", () => {
         runtimeConfig={{ repository: "https://github.com/example/example" }}
       />,
     );
-    expect(html).toContain("In progress");
+    expect(html).toContain('href="https://github.com/example/example"');
   });
 });

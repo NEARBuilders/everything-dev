@@ -32,6 +32,7 @@ Format: context → decision → consequences, one file per decision.
 | [0024](./0024-composition-stays-manifest-based.md) | Composition stays manifest-based; route chunks load lazily | Accepted |
 | [0025](./0025-auth-identity-value-classes.md) | Auth identity values derive from the runtime config | Accepted |
 | [0026](./0026-pnpm-workspace-node-runtime-v2.md) | pnpm workspace, node runtime — one toolchain for parent and children (v2) | Accepted |
+| [0027](./0027-every-app-is-a-node.md) | Every app is a node — nested plugin addresses, on-chain ownership, follow by default | Accepted |
 
 
 Skipped numbers: 0006 exists; there are no gaps otherwise. 0015–0018 were
@@ -42,7 +43,7 @@ low-reference file in each pair moved (see git history).
 ## Number assignment discipline
 
 - Take the next free number (`ls docs/adr/ | sort -n | tail -1`, then +1 —
-  next free is **0026**). Never reuse a number, even for a rejected ADR.
+  next free is **0028**). Never reuse a number, even for a rejected ADR.
 - When citing an ADR in code, plans, changesets, or AGENTS.md, cite the
   number **with the filename** if the context could be ambiguous.
 - Superseded ADRs stay in place with a `Superseded by` status link to the

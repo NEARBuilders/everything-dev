@@ -1,12 +1,62 @@
 # everything.dev
 
-The open runtime for apps on NEAR — composed from published config and loaded through a shared host, UI, and API runtime.
+The open runtime for apps on NEAR — every app is a node, owned by a NEAR account, composed from published config and run by a shared runtime.
+
+## Nodes
+
+**Node**:
+An app published at `bos://<account>/<gateway>` — its config is signed by `<account>` and authored with `App(...)`. Every app is a node; "node" names its place in the graph, "app" names what it is.
+_Avoid_: runtime (that's the package that runs nodes), tenant, project
+
+**Root node**:
+`bos://dev.everything.near/everything.dev` — the node every other node ultimately extends.
+_Avoid_: base runtime, platform, parent app
+
+**Child node**:
+A node addressed under another node's path, `bos://<account>/<gateway>/plugins/<id>` — usually a plugin published from its parent's repo, runnable on its own and composable into any node.
+_Avoid_: embedded plugin (a plugin that has not yet published as a node), sub-app
+
+**Gateway**:
+The second segment of a node address; for a top-level node, usually its domain.
+_Avoid_: name, slug
+
+**Owner**:
+The NEAR account that signs a node's config — a single-key account or a multisig (Sputnik DAOs are multisigs). Ownership is whatever is true on-chain.
+_Avoid_: organization (an organization links to an owner; it never is one), admin
+
+**Address**:
+Where a node is reached: a subdomain of its parent's domain, or its own domain.
+_Avoid_: URL, host
+
+**Hosting**:
+What serves a node: the shared host, a sandbox, or a standalone deployment. Independent of Address.
+_Avoid_: tier, instance
+
+**Extends**:
+A node inheriting its parent node's config, child-wins merged.
+_Avoid_: fork, inherit
+
+**Composition**:
+A node pulling another node's surfaces in as one of its `plugins`; the composed node plays the **plugin** role. References follow the composed node's latest publish unless pinned.
+_Avoid_: install, import, dependency
+
+**Surface**:
+One loadable part of a node — host, UI, API, or auth.
+_Avoid_: remote (the Module Federation transport word), workspace (the repo directory), slot
+
+**Contract**:
+The API shape a node provides or requires, identified by its published contract types; what makes swapping one node's UI over another node's API checkable.
+_Avoid_: interface, schema
+
+**Node card**:
+A node's public self-description — title, extends, surfaces, contracts, skill, MCP endpoint, and source — published with its config.
+_Avoid_: manifest (that's the build artifact), metadata
 
 ## Language
 
 **Runtime**:
-A published app configuration (`bos.app.ts` authored, resolved through `extends`) that the host loads as remotes.
-_Avoid_: app (ambiguous between the runtime and a tenant), project
+The `everything-dev` package and host process that loads a node's surfaces and runs it. `RuntimeConfig` in code is a historical name for a node's resolved config.
+_Avoid_: app or node (those are what the runtime runs), base runtime
 
 **SlotResolver**:
 The host's entry-URL seam (`entryUrls` in `everything-dev/ui/slot`) — one pure derivation from a stamped config slot (`EntrySlot`) to the URLs each surface loads: `web` (browser entry — bustered fixed name in development, pin-derived hashed outside it), `ssr` (server container entry; undefined when the slot has no SSR coordinates), and `browserManifest` (the pin-derived hashed mf-manifest, structurally absent for local slots — atomic-deploys 08). Surfaces resolve lazily and throw loudly outside development naming slot + surface; buster arithmetic (integrity for web, ssrIntegrity→containerVersion for the server) lives inside the module, never at call sites.
@@ -26,24 +76,24 @@ _Avoid_: sync file, template file (sync no longer carries ui source)
 
 ## Organization access
 
+**Organization**:
+A group of people who act together; it links to one or more Owners so its members can work on those owners' nodes.
+_Avoid_: owner, org account
+
+**Linked Account**:
+An Owner an organization has proven control of — a single-key account the member has signed in with, or a multisig the member belongs to on-chain. An account links to at most one organization.
+_Avoid_: DAO link, connected wallet
+
 **Team**:
-A named sub-group within an organization that shares access to the organization's feature areas.
+A named sub-group within an organization.
 _Avoid_: team account, team wallet
 
 **Active Team**:
-The Team currently selected for a user's organization work.
+The Team a user is currently acting as.
 _Avoid_: current team, team account
 
-**Feature Area**:
-A product capability that an organization can grant to a Team.
-_Avoid_: permission, role
-
-**Team Workspace**:
-The organization view scoped to an Active Team and its granted feature areas.
-_Avoid_: organization account
-
 **Gateway Origin**:
-The canonical base runtime origin for a network, where every passkey ceremony takes place regardless of which domain the member arrived from.
+The root node's origin for a network, where every passkey ceremony takes place regardless of which domain the member arrived from.
 _Avoid_: base URL, main domain
 
 **Device Link**:

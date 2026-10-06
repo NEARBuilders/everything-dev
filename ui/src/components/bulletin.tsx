@@ -34,9 +34,9 @@ export function Bulletin({ content, className, runtimeConfig }: BulletinProps) {
       />
       <div className="flex justify-end border-t border-info-muted-foreground/15 pt-3">
         <UnderConstruction
-          label="new features"
           tooltip="See what we're building"
           runtimeConfig={runtimeConfig}
+          className="max-w-48"
         />
       </div>
     </section>

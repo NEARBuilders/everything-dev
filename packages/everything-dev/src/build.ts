@@ -5,6 +5,7 @@ import { resolveLocalDevelopmentPath } from "./config";
 import type { WorkspaceDeployResult } from "./contract";
 import { syncResolvedSharedDeps } from "./shared-deps";
 import type { BosConfig, BosPluginRef, RuntimeConfig } from "./types";
+import { describeError } from "./utils/error";
 import { run } from "./utils/run";
 import { padRight } from "./utils/string";
 import { colors, icons } from "./utils/theme";
@@ -273,7 +274,7 @@ export async function buildWorkspaceTargets(opts: {
           key: ws.key,
           kind: ws.kind,
           success: false,
-          error: result.reason?.message ?? "Unknown error",
+          error: describeError(result.reason),
         });
       }
     }
