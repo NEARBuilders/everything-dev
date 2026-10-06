@@ -1,64 +1,34 @@
-// @vitest-environment jsdom
-
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MotionConfig } from "framer-motion";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { UnderConstruction } from "./under-construction";
 
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
-
 describe("UnderConstruction", () => {
-  it("renders on the server within the existing reduced-motion provider", () => {
+  it("links the GIF to the source file in the configured repository", () => {
     const html = renderToStaticMarkup(
-      <MotionConfig reducedMotion="always">
-        <UnderConstruction label="Library" url="https://example.test/source" pressed />
-      </MotionConfig>,
-    );
-    expect(html).toContain('aria-label="Library under construction - view source"');
-    expect(html).toContain("In progress");
-    expect(html).not.toContain("<img");
-  });
-
-  it("preserves the delayed source link and click callback", () => {
-    vi.useFakeTimers();
-    const onClick = vi.fn();
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
-    render(
-      <UnderConstruction label="Library" url="https://example.test/source" onClick={onClick} />,
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Library under construction - view source" }),
-    );
-    expect(onClick).toHaveBeenCalledOnce();
-    expect(open).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(150));
-    expect(open).toHaveBeenCalledWith(
-      "https://example.test/source",
-      "_blank",
-      "noopener,noreferrer",
-    );
-  });
-
-  it("keeps a local action from opening the source link", () => {
-    vi.useFakeTimers();
-    const onClick = vi.fn();
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
-    render(
       <UnderConstruction
-        label="Library"
-        url="https://example.test/source"
-        skipNavigation
-        onClick={onClick}
+        sourceFile="ui/src/routes/_public/index.tsx"
+        runtimeConfig={{ repository: "https://github.com/example/example" }}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Library under construction" }));
-    act(() => vi.advanceTimersByTime(150));
-    expect(onClick).toHaveBeenCalledOnce();
-    expect(open).not.toHaveBeenCalled();
+    expect(html).toContain(
+      'href="https://github.com/example/example/blob/main/ui/src/routes/_public/index.tsx"',
+    );
+    expect(html).toContain("<img");
+  });
+
+  it("prefers an explicit url over the repository", () => {
+    const html = renderToStaticMarkup(
+      <UnderConstruction
+        url="https://example.test/source"
+        runtimeConfig={{ repository: "https://github.com/example/example" }}
+      />,
+    );
+    expect(html).toContain('href="https://example.test/source"');
+  });
+
+  it("renders the GIF without a link when there is nowhere to send people", () => {
+    const html = renderToStaticMarkup(<UnderConstruction runtimeConfig={{}} />);
+    expect(html).toContain("<img");
+    expect(html).not.toContain("<a");
   });
 });

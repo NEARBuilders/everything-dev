@@ -73,6 +73,7 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-face: var(--face);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -80,4 +81,65 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@utility bevel-raised {
+  --tw-shadow: var(--bevel-raised);
+  box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@utility bevel-pressed {
+  --tw-shadow: var(--bevel-pressed);
+  box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@utility bevel-sunken {
+  --tw-shadow: var(--bevel-sunken);
+  box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@utility bevel-window {
+  --tw-shadow: var(--bevel-window);
+  box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@utility bevel-none {
+  --tw-shadow: 0 0 #0000;
+  box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+@utility bg-titlebar {
+  background: var(--titlebar-bg);
+  color: var(--titlebar-fg);
+}
+
+@utility p-window {
+  padding: var(--window-inset);
+}
+
+@utility text-emboss {
+  text-shadow: 1px 1px 0 var(--bevel-light);
+}
+
+@utility bg-dither {
+  background-image: repeating-conic-gradient(var(--bevel-mid) 0 25%, transparent 0 50%);
+  background-size: 2px 2px;
+}
+
+@utility press-shift-label {
+  translate: var(--label-offset) var(--label-offset);
+}
+
+@utility press-shift-button {
+  translate: var(--button-offset) var(--button-offset);
+}
+
+@utility transition-bevel {
+  transition-property: box-shadow, translate, background-color, color;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  transition-duration: var(--release-duration);
+
+  &:active {
+    transition-duration: var(--press-duration);
+  }
 }

@@ -56,8 +56,8 @@ test.describe("plugin route chunk laziness", () => {
     const beforeNavigation = await authJsResources();
     expect(beforeNavigation.length, "compose must register the auth remote").toBeGreaterThan(0);
 
-    // Client-navigate into the plugin route via the header's sign-in link.
-    const signIn = page.getByTestId("public-header-signin");
+    // Client-navigate into the plugin route via the landing sign-in button.
+    const signIn = page.getByTestId("landing-primary");
     await expect(signIn).toBeVisible();
     await signIn.click();
 

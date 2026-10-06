@@ -23,6 +23,8 @@ function PublicLayout() {
   const { data: session = contextSession } = useQuery(sessionQueryOptions(auth));
   const focused = isFocusedPublicPath(pathname);
 
+  if (pathname === "/" || pathname.startsWith("/prototype/")) return <Outlet />;
+
   if (session?.user && !focused) {
     return (
       <AppShell

@@ -90,4 +90,5 @@ export { ScrollArea, ScrollBar } from "./ui/scroll-area";
 export { Skeleton } from "./ui/skeleton";
 export { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 export { Textarea } from "./ui/textarea";
+export { Window, WindowBody, WindowTitleBar } from "./ui/window";
 export { UnderConstruction } from "./under-construction";
