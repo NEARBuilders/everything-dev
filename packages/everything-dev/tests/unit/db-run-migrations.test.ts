@@ -1,7 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 import { migrate as apiMigrate } from "../../../../api/src/db/migrate";
 import { migrate as proposalsMigrate } from "../../../../plugins/proposals/src/db/migrate";
@@ -23,6 +23,8 @@ type Runner = (
   schemaName?: string,
 ) => Effect.Effect<number, DatabaseError>;
 
+const apiMigrationRunner: Runner = apiMigrate;
+
 function migration(idx: number, tag: string, statements: string[]): Migration {
   return {
     idx,
@@ -40,6 +42,17 @@ function makeDb() {
 
 const JOURNAL = { schema: "drizzle", table: "__drizzle_migrations", slug: "test" } as const;
 
+async function runMigration(effect: Effect.Effect<number, DatabaseError>): Promise<number> {
+  const exit = await Effect.runPromiseExit(effect);
+  if (Exit.isSuccess(exit)) return exit.value;
+  throw Cause.squash(exit.cause);
+}
+
+function runApiMigration(db: MigrationDatabase, migrations: Migration[]): Promise<number> {
+  const effect = apiMigrationRunner(db, migrations, JOURNAL);
+  return runMigration(effect);
+}
+
 describe("db migration runners (008 characterization)", () => {
   it("fresh schema: sequential migrations apply, journal tracks hashes, rerun is a no-op", async () => {
     const db = makeDb();
@@ -51,10 +64,10 @@ describe("db migration runners (008 characterization)", () => {
       ]),
     ];
 
-    const applied = await Effect.runPromise(apiMigrate(db as never, migrations, JOURNAL) as never);
+    const applied = await runApiMigration(db as unknown as MigrationDatabase, migrations);
     expect(applied).toBe(2);
 
-    const rerun = await Effect.runPromise(apiMigrate(db as never, migrations, JOURNAL) as never);
+    const rerun = await runApiMigration(db as unknown as MigrationDatabase, migrations);
     expect(rerun).toBe(0);
 
     const rows = (await db.execute(
@@ -76,7 +89,7 @@ describe("db migration runners (008 characterization)", () => {
         ]),
       ];
 
-      const applied = await Effect.runPromise(runner(db, migrations, JOURNAL));
+      const applied = await runMigration(runner(db, migrations, JOURNAL));
       expect(applied).toBe(1);
 
       const exists = (await db.execute(
@@ -95,7 +108,7 @@ describe("db migration runners (008 characterization)", () => {
       migration(1, "fresh", ['CREATE TABLE "t_fresh" (id int)']),
     ];
 
-    const applied = await Effect.runPromise(apiMigrate(db as never, migrations, JOURNAL) as never);
+    const applied = await runApiMigration(db as unknown as MigrationDatabase, migrations);
     expect(applied).toBe(2);
 
     const journal = (await db.execute(

@@ -144,7 +144,9 @@ export async function mountMcpRoute(
               resolvedPath = resolvedPath.replace(`{${key}}`, encodeURIComponent(String(value)));
             } else if (queryParamNames.includes(key)) {
               if (value !== undefined && value !== null) {
-                queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+                const encodedValue =
+                  typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+                queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(encodedValue)}`);
               }
             } else {
               bodyFields[key] = value;

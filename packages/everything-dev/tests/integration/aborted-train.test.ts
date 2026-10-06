@@ -204,6 +204,16 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
   beforeEach(async () => {
     storage = new MockStorage();
     await storage.ready;
+    const originalFetch = globalThis.fetch.bind(globalThis);
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const inputUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url = new URL(inputUrl);
+      if (url.origin === "https://cdn.example.test") {
+        return originalFetch(new URL(`${url.pathname}${url.search}`, storage.origin), init);
+      }
+      return originalFetch(input, init);
+    });
     configDir = mkdtempSync(join(tmpdir(), "bos-aborted-train-"));
     savedEnv = {
       BOS_BUNDLE_CDN_ORIGIN: process.env.BOS_BUNDLE_CDN_ORIGIN,
@@ -241,6 +251,7 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     storage.close();
     rmSync(configDir, { recursive: true, force: true });
     for (const [key, value] of Object.entries(savedEnv)) {

@@ -58,6 +58,7 @@ export function createRouter<
           cspNonce: opts.context.cspNonce,
         }),
       session: opts.context.session,
+      locale: opts.context.locale,
     },
     ...(cspNonce ? { ssr: { nonce: cspNonce } } : {}),
     defaultPreload: "intent",

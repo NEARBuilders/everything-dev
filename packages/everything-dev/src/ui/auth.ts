@@ -156,9 +156,10 @@ export function sessionQueryOptions(authClient: AuthClient) {
   return {
     queryKey: sessionQueryKey,
     queryFn: async () => {
-      const { data: session } = await authClient.getSession({
+      const { data: session, error } = await authClient.getSession({
         query: { disableCookieCache: true },
       });
+      if (error) throw new Error(error.message || "Unable to load your session");
       return session ?? null;
     },
     staleTime: 60 * 1000,

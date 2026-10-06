@@ -142,7 +142,7 @@ export const PluginLoaderServiceDefault = Layer.effect(
 
           yield* moduleFederationService.registerRemote(pluginId, resolvedUrl).pipe(
             Effect.tapError((error) =>
-              Effect.logError(`Plugin ${pluginId} failed during register-remote: ${error}`),
+              Effect.logError(`Plugin ${pluginId} failed during register-remote: ${String(error)}`),
             ),
             Effect.mapError((error) =>
               toPluginRuntimeError(error, pluginId, undefined, "register-remote"),
@@ -155,7 +155,7 @@ export const PluginLoaderServiceDefault = Layer.effect(
             .loadRemoteConstructor(pluginId, resolvedUrl)
             .pipe(
               Effect.tapError((error) =>
-                Effect.logError(`Plugin ${pluginId} failed during load-remote: ${error}`),
+                Effect.logError(`Plugin ${pluginId} failed during load-remote: ${String(error)}`),
               ),
               Effect.mapError((error) =>
                 toPluginRuntimeError(error, pluginId, undefined, "load-remote"),
@@ -298,7 +298,9 @@ export const PluginLoaderServiceDefault = Layer.effect(
                   ),
             ),
             Effect.tapError((error) =>
-              Effect.logError(`Plugin ${plugin.id} failed during initialize-plugin: ${error}`),
+              Effect.logError(
+                `Plugin ${plugin.id} failed during initialize-plugin: ${String(error)}`,
+              ),
             ),
             Effect.mapError((error) =>
               toPluginRuntimeError(error, plugin.id, undefined, "initialize-plugin"),

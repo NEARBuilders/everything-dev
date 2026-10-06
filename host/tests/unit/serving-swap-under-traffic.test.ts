@@ -72,7 +72,7 @@ const ssrEntryBytes = (gen: number) => `console.log('ssr entry gen ${gen}');`;
 const sriOf = (bytes: string) => `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
 
 const fakeCdnFetch = async (input: string | URL | Request): Promise<Response> => {
-  const url = String(input);
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   const genMatch = url.match(/gen-(\d+)/);
   if (url.endsWith("/manifest.gen.json")) {
     return new Response(JSON.stringify(CORE_MANIFEST), { status: 200 });

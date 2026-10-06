@@ -29,7 +29,7 @@ export const MOUNT_REGISTRY = {
   team: { label: "team", gate: "team", parameterized: true, implemented: false },
 } satisfies Record<string, MountDef>;
 
-export type MountId = keyof typeof MOUNT_REGISTRY & string;
+export type MountId = Extract<keyof typeof MOUNT_REGISTRY, string>;
 
 export const MOUNTS = Object.keys(MOUNT_REGISTRY) as MountId[];
 

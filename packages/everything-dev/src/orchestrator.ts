@@ -153,11 +153,22 @@ const patchConsole = (name: string, callbacks: ProcessCallbacks): (() => void) =
           const parts = [`${arg.name}: ${arg.message}`];
           if (arg.cause instanceof Error)
             parts.push(`(cause: ${arg.cause.name}: ${arg.cause.message})`);
-          else if (arg.cause) parts.push(`(cause: ${String(arg.cause)})`);
+          else if (arg.cause) {
+            const cause = arg.cause;
+            parts.push(
+              `(cause: ${cause instanceof Error ? cause.message : typeof cause === "string" ? cause : (JSON.stringify(cause) ?? "[Unserializable cause]")})`,
+            );
+          }
           if (isError && arg.stack) parts.push(arg.stack);
           return parts.join("\n");
         }
-        return typeof arg === "object" ? JSON.stringify(arg, null, 2) : String(arg);
+        if (arg === null) return "null";
+        if (typeof arg === "string") return arg;
+        if (typeof arg === "number" || typeof arg === "bigint" || typeof arg === "boolean")
+          return `${arg}`;
+        if (typeof arg === "symbol") return arg.description ?? "";
+        if (typeof arg === "undefined") return "undefined";
+        return JSON.stringify(arg, null, 2) ?? "[Unserializable value]";
       })
       .join(" ");
   };
@@ -272,7 +283,7 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
           }
         } catch (e) {
           warnOutsideEffect(
-            `[Orchestrator] Failed to fetch or parse manifest from ${manifestUrl}, falling back to remoteEntryUrl: ${e}`,
+            `[Orchestrator] Failed to fetch or parse manifest from ${manifestUrl}, falling back to remoteEntryUrl: ${String(e)}`,
           );
         }
         return remoteEntryUrl;

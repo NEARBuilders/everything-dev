@@ -1,6 +1,6 @@
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { Config, Context, Effect, Layer } from "effect";
-import type { MiddlewareHandler } from "hono";
+import type { Context as HonoContext, MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { NONCE, secureHeaders } from "hono/secure-headers";
 import { rateLimiter } from "hono-rate-limiter";
@@ -9,7 +9,8 @@ import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
 
 export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 900_000;
-export const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 300;
+export const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 2000;
+export const RATE_LIMIT_MUTATION_MAX = Number(process.env.RATE_LIMIT_MUTATION_MAX) || 60;
 export const BODY_LIMIT_MAX = Number(process.env.BODY_LIMIT_MAX) || 10 * 1024 * 1024;
 export const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS) || 30_000;
 
@@ -31,6 +32,89 @@ export function storageUploadTimeoutMs(): number {
 export const STATIC_ASSET_PATTERN =
   /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|md|webmanifest|woff2?|ttf|eot|webp|avif|map|txt|xml)$/i;
 
+/**
+ * Edge-limited transports that own their throttling: oRPC (all procedure
+ * calls are POSTs — a method-based mutation tier would collapse the whole
+ * API into the strict bucket), Better-Auth (its core limiter is enabled in
+ * production), and MCP (agents are legitimately chatty).
+ */
+const SENSITIVE_MUTATION_EXEMPT_PREFIXES = ["/api/rpc/", "/api/auth/", "/api/mcp"];
+
+export function clientKeyOf(c: HonoContext): string {
+  // The trusted proxy appends the real client address as the LAST hop;
+  // earlier entries are client-controlled and must not be trusted as an
+  // identity (rotating a spoofed first hop would mint unlimited keys).
+  const forwarded = c.req.header("x-forwarded-for");
+  if (forwarded) {
+    const hops = forwarded.split(",");
+    return hops[hops.length - 1]!.trim();
+  }
+  try {
+    const info = getConnInfo(c);
+    return info.remote.address ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+export function isProbeOrStatic(c: HonoContext): boolean {
+  if (c.req.path === "/health" && (c.req.method === "GET" || c.req.method === "HEAD")) {
+    return true;
+  }
+  const { pathname } = new URL(c.req.url);
+  const lastSegment = pathname.split("/").pop() ?? "";
+  return STATIC_ASSET_PATTERN.test(lastSegment);
+}
+
+export function isSensitiveMutation(c: HonoContext): boolean {
+  if (c.req.method === "GET" || c.req.method === "HEAD" || c.req.method === "OPTIONS") {
+    return false;
+  }
+  if (!c.req.path.startsWith("/api/")) {
+    return false;
+  }
+  return !SENSITIVE_MUTATION_EXEMPT_PREFIXES.some(
+    (prefix) =>
+      c.req.path === prefix || c.req.path.startsWith(`${prefix}/`) || c.req.path.startsWith(prefix),
+  );
+}
+
+export function rateLimitExceededResponse(c: HonoContext): Response {
+  const acceptsHtml = (c.req.header("accept") ?? "").includes("text/html");
+  if (acceptsHtml) {
+    return c.html(rateLimitPage(c.req.path), 429);
+  }
+  return c.json({ error: "Too many requests, please try again later." }, 429);
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function rateLimitPage(path: string): string {
+  const safePath = escapeHtml(path);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Too many requests</title>
+</head>
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0d10;color:#e5e7eb;font-family:system-ui,-apple-system,sans-serif">
+<main role="alert" style="text-align:center;padding:2rem;max-width:28rem">
+<h1 style="font-size:1.5rem;font-weight:600;margin:0 0 .75rem">Too many requests</h1>
+<p style="color:#9ca3af;margin:0 0 1.5rem">You&rsquo;re going faster than we can handle. Please wait a moment, then try again.</p>
+<a href="${safePath}" style="color:#60a5fa">Try again</a>
+</main>
+</body>
+</html>`;
+}
+
 export function getCspStrict(isDev: boolean): boolean {
   return process.env.CSP_STRICT === "false" ? false : !isDev;
 }
@@ -41,6 +125,7 @@ export class SecurityMiddleware extends Context.Service<
     cors: MiddlewareHandler;
     csrf: MiddlewareHandler;
     rateLimit: MiddlewareHandler;
+    rateLimitMutation: MiddlewareHandler;
     csp: MiddlewareHandler;
   }
 >()("host/SecurityMiddleware") {
@@ -109,23 +194,18 @@ export class SecurityMiddleware extends Context.Service<
       const rateLimit: MiddlewareHandler = rateLimiter({
         windowMs: RATE_LIMIT_WINDOW_MS,
         limit: RATE_LIMIT_MAX,
-        keyGenerator: (c) => {
-          const forwarded = c.req.header("x-forwarded-for");
-          if (forwarded) {
-            return forwarded.split(",")[0]!.trim();
-          }
-          try {
-            const info = getConnInfo(c);
-            return info.remote.address ?? "unknown";
-          } catch {
-            return "unknown";
-          }
-        },
-        skip: (c) => {
-          const { pathname } = new URL(c.req.url);
-          const lastSegment = pathname.split("/").pop() ?? "";
-          return STATIC_ASSET_PATTERN.test(lastSegment);
-        },
+        keyGenerator: (c) => clientKeyOf(c),
+        skip: (c) => isProbeOrStatic(c) || isSensitiveMutation(c),
+        handler: (c) => rateLimitExceededResponse(c),
+        message: { error: "Too many requests, please try again later." },
+      });
+
+      const rateLimitMutation: MiddlewareHandler = rateLimiter({
+        windowMs: RATE_LIMIT_WINDOW_MS,
+        limit: RATE_LIMIT_MUTATION_MAX,
+        keyGenerator: (c) => clientKeyOf(c),
+        skip: (c) => isProbeOrStatic(c) || !isSensitiveMutation(c),
+        handler: (c) => rateLimitExceededResponse(c),
         message: { error: "Too many requests, please try again later." },
       });
 
@@ -208,7 +288,7 @@ export class SecurityMiddleware extends Context.Service<
         })(c, next);
       };
 
-      return { cors: corsHandler, csrf, rateLimit, csp };
+      return { cors: corsHandler, csrf, rateLimit, rateLimitMutation, csp };
     }),
   );
 }

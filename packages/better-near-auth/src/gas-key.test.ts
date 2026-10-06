@@ -126,7 +126,7 @@ function setupClient(initial: unknown, fetchRoutes: Record<string, unknown> = {}
 }
 
 async function setActiveNetworkTestnet(actions: ReturnType<typeof setupClient>["actions"]) {
-  await actions.near.setNetwork("testnet");
+  actions.near.setNetwork("testnet");
 }
 
 function setSignedIn(plugin: ReturnType<typeof setupClient>["plugin"], accountId = "test.testnet") {

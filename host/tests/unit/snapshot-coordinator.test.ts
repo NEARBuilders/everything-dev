@@ -81,7 +81,7 @@ vi.mock("../../src/services/ui-compose", async (importOriginal) => {
 
 beforeAll(() => {
   const fakeCdnFetch = async (input: string | URL | Request): Promise<Response> => {
-    const url = String(input);
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.endsWith("/remoteEntry.cf71.js")) return new Response(entryBytes, { status: 200 });
     return new Response("not found", { status: 404 });
   };

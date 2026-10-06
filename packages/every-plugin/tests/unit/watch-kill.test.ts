@@ -19,7 +19,7 @@ const makeFakeChild = (opts: FakeChildOptions = {}) => {
       child.killed = true;
       if (exitsOnSignal === signal) {
         child.exitCode = 0;
-        for (const listener of [...exitListeners]) listener();
+        for (const listener of exitListeners) listener();
       }
     },
     addListener: (_event: "exit", listener: () => void) => {

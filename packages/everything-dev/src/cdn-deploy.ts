@@ -162,7 +162,7 @@ export async function probeStorageOrigin(
   try {
     response = await fetchImpl(probeUrl, { headers: { accept: "application/json" } });
   } catch (error) {
-    return `unreachable (${error instanceof Error ? error.message : error})`;
+    return `unreachable (${String(error instanceof Error ? error.message : error)})`;
   }
   if (!response.ok) {
     return `GET /.well-known/mcp.json responded ${response.status}`;

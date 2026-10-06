@@ -64,7 +64,7 @@ describe("uploadBundle", () => {
     const headers = new Headers(captured!.init.headers);
     expect(headers.get("x-api-key")).toBe("edk_test");
     expect(headers.get("content-type")).toBe("application/json");
-    const body = JSON.parse(String(captured!.init.body));
+    const body = JSON.parse(await new Response(captured!.init.body).text());
     expect(body.account).toBe("v1.citynode.near");
     expect(body.files[0].contentBase64).toBe(Buffer.from("entry").toString("base64"));
     expect(result.integrity["remoteEntry.js"]).toBe("sha384-abc");
@@ -219,7 +219,7 @@ describe("uploadWorkspaceDist", () => {
   it("batches files across requests under the per-request ceiling and merges integrity", async () => {
     const calls: number[][] = [];
     globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
-      const body = JSON.parse(String(init!.body));
+      const body = JSON.parse(await new Response(init!.body).text());
       calls.push(body.files.map((f: { path: string }) => f.path.length));
       return new Response(
         JSON.stringify({

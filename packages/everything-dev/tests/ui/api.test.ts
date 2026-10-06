@@ -10,7 +10,10 @@ import {
 
 const contextHolder = vi.hoisted(() => ({
   context: {} as ClientRouterContext,
+  notifyError: vi.fn(),
 }));
+
+vi.mock("sonner", () => ({ toast: { error: contextHolder.notifyError } }));
 
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ options: { context: contextHolder.context } }),
@@ -43,6 +46,7 @@ function pingClient(client: unknown) {
 
 beforeEach(() => {
   stubFetch();
+  contextHolder.notifyError.mockClear();
 });
 
 afterEach(() => {
@@ -80,6 +84,47 @@ describe("browser singleton", () => {
 
   afterEach(() => {
     (globalThis as { window?: unknown }).window = originalWindow;
+  });
+
+  it("resolves connection notices when the request fails so language changes are respected", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    let language = "es";
+    const connectionError = vi.fn(() => ({
+      title: language === "es" ? "Conexión no disponible" : "Connexion indisponible",
+      description: language === "es" ? "Inténtalo de nuevo." : "Réessayez.",
+    }));
+    const client = createApiClient({
+      hostUrl: "https://translated.test",
+      rpcBase: "/api/rpc",
+      connectionError,
+    });
+    expect(connectionError).not.toHaveBeenCalled();
+    await pingClient(client);
+    await vi.waitFor(() =>
+      expect(contextHolder.notifyError).toHaveBeenLastCalledWith("Conexión no disponible", {
+        id: "api-connection-error",
+        description: "Inténtalo de nuevo.",
+      }),
+    );
+    language = "fr";
+    await pingClient(client);
+    await vi.waitFor(() =>
+      expect(contextHolder.notifyError).toHaveBeenLastCalledWith("Connexion indisponible", {
+        id: "api-connection-error",
+        description: "Réessayez.",
+      }),
+    );
+  });
+
+  it("keeps the default connection notice for apps without a message resolver", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await pingClient(createApiClient({ hostUrl: "https://offline.test", rpcBase: "/api/rpc" }));
+    await vi.waitFor(() =>
+      expect(contextHolder.notifyError).toHaveBeenCalledWith("Unable to connect to API", {
+        id: "api-connection-error",
+        description: "The API is currently unavailable. Please try again later.",
+      }),
+    );
   });
 
   it("memoizes per endpoint", () => {
@@ -124,5 +169,37 @@ describe("context hooks", () => {
   it("usePluginClients falls back to an empty object", () => {
     contextHolder.context = {};
     expect(usePluginClients()).toEqual({});
+  });
+});
+
+describe("rate-limit retry", () => {
+  it("retries a 429 with backoff until the request succeeds", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      if (calls < 3) {
+        return new Response("{}", { status: 429, headers: { "retry-after": "0" } });
+      }
+      return new Response(JSON.stringify({ json: "pong" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+
+    const clients = createServiceClients(cfg, ["api"]);
+    await pingClient(clients.api);
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after the retry budget and surfaces the 429", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls += 1;
+      return new Response("{}", { status: 429, headers: { "retry-after": "0" } });
+    }) as unknown as typeof fetch;
+
+    const clients = createServiceClients(cfg, ["api"]);
+    await expect((clients.api as { ping(): Promise<unknown> }).ping()).rejects.toThrow();
+    expect(calls).toBe(4);
   });
 });

@@ -108,17 +108,21 @@ describe("device login client", () => {
     expect(approval.accountId).toBe("alice.near");
 
     const claim = calls.find((call) => call.url.includes("/device-link/claim"));
-    expect(JSON.parse(String(claim?.init.body ?? "{}"))).toMatchObject({
-      token: "session-token-1",
-      client_id: "bos-cli",
-    });
+    expect(JSON.parse((await new Response(claim?.init.body ?? null).text()) || "{}")).toMatchObject(
+      {
+        token: "session-token-1",
+        client_id: "bos-cli",
+      },
+    );
 
     const keyCreate = calls.find((call) => call.url.includes("/api-key/create"));
     const keyHeaders = new Headers(keyCreate?.init.headers);
     expect(keyHeaders.get("cookie")).toBe(CLAIMED_COOKIE);
     expect(keyHeaders.get("origin")).toBe(SITE);
 
-    const keyBody = JSON.parse(String(keyCreate?.init.body ?? "{}")) as {
+    const keyBody = JSON.parse(
+      (await new Response(keyCreate?.init.body ?? null).text()) || "{}",
+    ) as {
       configId: string;
       name: string;
       expiresIn: number;

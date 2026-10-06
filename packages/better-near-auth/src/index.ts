@@ -1783,7 +1783,7 @@ export const siwn = (options: SIWNPluginOptions) => {
             return ctx.json(RelayStatusResponse.parse({ status: "pending" }));
           } catch (error: unknown) {
             console.warn(
-              `[siwn] relay status lookup failed, reporting pending: ${error instanceof Error ? error.message : error}`,
+              `[siwn] relay status lookup failed, reporting pending: ${String(error instanceof Error ? error.message : error)}`,
             );
             return ctx.json(RelayStatusResponse.parse({ status: "pending" }));
           }

@@ -29,7 +29,7 @@ let remoteConfigs: Record<string, unknown> = {};
 function setRemoteConfigs(...entries: Array<Record<string, unknown>>) {
   remoteConfigs = {};
   for (const entry of entries) {
-    remoteConfigs[`bos://${entry.account}/${entry.domain}`] = entry;
+    remoteConfigs[`bos://${String(entry.account)}/${String(entry.domain)}`] = entry;
   }
 }
 

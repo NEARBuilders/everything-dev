@@ -198,7 +198,7 @@ export interface FederationCompatReport {
 }
 
 function parseSemver(v: unknown): { major: number; minor: number; patch: number } | null {
-  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(String(v ?? ""));
+  const m = typeof v === "string" ? /^(\d+)\.(\d+)\.(\d+)/.exec(v) : null;
   return m ? { major: +m[1]!, minor: +m[2]!, patch: +m[3]! } : null;
 }
 

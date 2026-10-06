@@ -200,7 +200,7 @@ describe("openResolution", () => {
           production: "https://stage.test/host",
           pin: {
             manifest: `versions/${hostEntry}.json`,
-            integrity: `sha384-${await createHash("sha384").update(JSON.stringify(hostManifest)).digest("base64")}`,
+            integrity: `sha384-${createHash("sha384").update(JSON.stringify(hostManifest)).digest("base64")}`,
           },
         },
       },
