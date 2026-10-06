@@ -426,7 +426,7 @@ Source: auth.ts:18-27
 ## The tasks you will actually be given
 
 **"Scaffold auth for a new SSR TanStack Router app."**
-Create one `lib/auth.ts` exporting `createAuthClient()` (with `siwnClient({ recipient, networkId })` and `credentials: "include"`), the `AuthClient` type, `useAuthClient()`, and `sessionQueryOptions` — then put `authClient: createAuthClient({ runtimeConfig })` in the router context of both `router.server.tsx` and `hydrate.tsx`.
+Create one `ui/src/lib/auth.ts` exporting `createAuthClient()` (with `siwnClient({ recipient, networkId })` and `credentials: "include"`), the `AuthClient` type, `useAuthClient()`, and `sessionQueryOptions` — then put `authClient: createAuthClient({ runtimeConfig })` in the router context of both `router.server.tsx` and `hydrate.tsx`.
 
 **"Wallet state is lost after navigation."**
 Something is calling a factory per render/call, creating fresh `nearState`/`walletConnected` atoms. Make `createAuthClient` a create-once router-context singleton and read it with `useAuthClient()`; never call it inside components.
