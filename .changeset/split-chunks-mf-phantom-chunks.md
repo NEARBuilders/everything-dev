@@ -16,3 +16,11 @@ Fix plugin load failures under rspack 2.2.8 + MF runtime 2.9.x ("__webpack_modul
   null, and the loader hand back an empty chunk as if it had loaded — the
   exposed module then required ids nothing registered. An integration test
   registers the fixture under a mismatched alias key to pin this.
+- Module ids are now named (context-relative requests) instead of
+  rspack's default deterministic hashes, which fold machine-absolute paths
+  into the id space: the same source built different ids on the host deploy
+  train and inside the image's dist-builder stage, so a mixed-generation
+  load (CDN-pinned entry + staged chunks) spliced two incompatible id
+  spaces. FixMfDataUriPlugin now also rewrites the data-URI runtime module's
+  machine-absolute node_modules imports to bare specifiers, with resolve
+  aliases restoring on-disk resolution.

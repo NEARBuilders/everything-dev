@@ -13,7 +13,7 @@ import { CONTRACT_TYPES_FILE, generateContractTypes } from "../contract-types";
 import { BuildReportPlugin } from "./build-report-plugin";
 import { ChunkCompletenessPlugin } from "./chunk-completeness-plugin";
 import { buildSharedDependencies } from "./module-federation";
-import { getPluginInfo } from "./utils";
+import { getPluginInfo, mfDataUriAliases } from "./utils";
 
 export interface EveryPluginBuildOptions {
   dts?: boolean;
@@ -198,6 +198,15 @@ export class EveryPluginBuild implements RspackPluginInstance {
     // chunks that were never emitted (ChunkCompletenessPlugin's exact failure
     // mode). Splitting off keeps the emitted bundle self-consistent.
     compiler.options.optimization.splitChunks = false;
+    // The default deterministic module ids hash module identifiers that embed
+    // absolute resource paths, so the same source builds to different id
+    // spaces on different machines (host deploy train vs the image's
+    // dist-builder stage). A mixed-generation load — CDN-pinned entry +
+    // staged chunks — then splices two incompatible id spaces and fails with
+    // "__webpack_modules__[r] is not a function". Named ids derive from
+    // context-relative requests, keeping builds machine-independent and the
+    // two generations semantically identical.
+    compiler.options.optimization.moduleIds = "named";
 
     if (!compiler.options.resolve) {
       compiler.options.resolve = {};
@@ -246,6 +255,18 @@ export class EveryPluginBuild implements RspackPluginInstance {
       bufferutil: false,
       "utf-8-validate": false,
     };
+    // The MF runtime's data-URI module imports its pieces by bare specifier
+    // after FixMfDataUriPlugin strips the machine-absolute node_modules
+    // prefix — alias them back to this machine's on-disk copies so the build
+    // resolves identically everywhere while the identifier stays
+    // machine-independent.
+    const alias = mfDataUriAliases();
+    if (Object.keys(alias).length > 0) {
+      compiler.options.resolve.alias = {
+        ...compiler.options.resolve.alias,
+        ...alias,
+      };
+    }
   }
 
   private ensureTypeScriptLoader(compiler: Compiler) {

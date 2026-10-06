@@ -24,19 +24,13 @@ export class FixMfDataUriPlugin implements RspackPluginInstance {
     const prefix = request.substring(0, contentStart);
     const rawContent = request.substring(contentStart);
 
-    if (isAlreadyEncoded(rawContent)) return;
-
-    const decoded = safeDecode(rawContent);
+    // The MF runtime's generated data-URI module imports its runtime pieces
+    // by absolute node_modules paths (`require.resolve` output), which differ
+    // per machine. Rewriting them to bare specifiers keeps the module — and
+    // therefore the module id space — machine-independent; the composition
+    // aliases the specifiers to their on-disk targets for resolution.
+    const decoded = safeDecode(rawContent).replace(/(["'])\/[^"']*?\/node_modules\//g, "$1");
     resolveData.request = prefix + encodeURIComponent(decoded);
-  }
-}
-
-function isAlreadyEncoded(content: string): boolean {
-  try {
-    const decoded = decodeURIComponent(content);
-    return decoded !== content;
-  } catch {
-    return false;
   }
 }
 
