@@ -9,7 +9,7 @@ This repository uses the following workflows:
 - `CI` — lint, audit, typecheck, framework tests, and regression
 - `Deploy` — the full deploy train via `bos deploy` (build → bundle upload → FastKV publish → GHCR image push → Railway, production, triggered directly by CI)
 - `Staging` — the same train against the staging env (`--env staging`, triggered by push to the `staging` branch)
-- `Release` — changeset versioning and npm publish (manual only, for framework packages)
+- `Release` — changeset versioning and npm publish (runs on push to `main`, canonical changesets flow)
 
 The key design: `CI` is the validation workflow. On a successful push to `main`, the `Deploy` workflow triggers automatically via `workflow_run` — no dispatch token, no notify job, and it checks out the exact SHA that CI validated (`workflow_run.head_sha`).
 
@@ -41,7 +41,7 @@ The key design: `CI` is the validation workflow. On a successful push to `main`,
 
 ### Release (`release.yml`)
 
-**Trigger:** `workflow_dispatch` only (manual).
+**Trigger:** Push to `main`, or `workflow_dispatch` (manual retry).
 
 **Purpose:** Consume changesets, create version PRs, and publish framework packages to npm.
 
@@ -50,16 +50,23 @@ The key design: `CI` is the validation workflow. On a successful push to `main`,
 ```
 1. Developer creates changeset          →  pnpm run changeset
 2. Developer merges feature branch      →  Changesets land on main
-3. CI succeeds on main                   →  workflow_run triggers Deploy directly
-                                             (Release is NOT triggered automatically)
-4. Developer manually triggers Release  →  Creates/updates "chore: version packages" PR
-5. Team merges Version Packages PR      →  CI triggers Release again via workflow_dispatch
-                                             No changesets remain (hasChangesets=false)
-                                             ↓
-                                             npm publish --provenance --access public
-                                             ↓
-                                             GitHub Releases created for each package
+3. CI succeeds on main                  →  workflow_run triggers Deploy directly
+4. Release runs on every push to main   →  pending changesets: opens/updates
+                                           the "chore: version packages" PR
+5. Team merges Version Packages PR      →  no changesets remain (hasChangesets=false)
+                                           ↓
+                                           pnpm run release (scripts/publish-release-packages.ts)
+                                           ↓
+                                           npm publish --provenance --access public
+                                           (rc dist-tag while .changeset/pre.json pre mode is on)
+                                           ↓
+                                           GitHub Releases created for each package
+6. Final release after RC               →  add a changeset, `pnpm changeset pre exit`,
+                                           merge the final version PR (no -rc suffix,
+                                           no --prerelease flag)
 ```
+
+This is the canonical [changesets/action](https://github.com/changesets/changesets) setup: the same workflow both opens the version PR (when changesets are pending) and publishes (when they are not) — merging the version PR *is* the release. The publish logic lives in `scripts/publish-release-packages.ts` via `pnpm run release`. Generated child repos use the separate template at `.github/templates/workflows/release.yml` (`workflow_run`-triggered on CI success, version-PR + workspace GitHub Releases, no npm publish).
 
 **npm publishing uses OIDC trusted publishing** — no `NPM_TOKEN` secret needed. `NODE_AUTH_TOKEN` is set to empty string, and `npm publish --provenance` authenticates via the OIDC token provisioned by `id-token: write` permission and `actions/setup-node` with `registry-url`.
 
