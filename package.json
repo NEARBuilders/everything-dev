@@ -28,7 +28,7 @@
     "changeset": "changeset",
     "version": "changeset version && pnpm run sync-catalog",
     "sync-catalog": "node --import tsx scripts/sync-catalog-versions.ts",
-    "release": "echo 'Packages versioned - skipping npm publish'",
+    "release": "node --import tsx scripts/publish-release-packages.ts",
     "db:push": "pnpm --filter api exec drizzle-kit push",
     "db:studio": "bos db:studio",
     "db:generate": "pnpm --filter api exec drizzle-kit generate",
