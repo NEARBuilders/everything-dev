@@ -49,9 +49,9 @@ export interface ResolutionRequest {
 }
 
 export interface ResolutionIo {
-  fetchBosConfig?(this: void, bosUrl: string, registry?: string): Promise<unknown>;
-  readFileOrNull?(this: void, path: string): Promise<string | null>;
-  importModule?(this: void, path: string): Promise<Record<string, unknown>>;
+  fetchBosConfig?(bosUrl: string, registry?: string): Promise<unknown>;
+  readFileOrNull?(path: string): Promise<string | null>;
+  importModule?(path: string): Promise<Record<string, unknown>>;
 }
 
 export interface RuntimeSources {
@@ -72,9 +72,9 @@ export interface WalkLink {
 }
 
 interface ResolvedIo {
-  fetchBosConfig: (this: void, bosUrl: string, registry?: string) => Promise<unknown>;
-  readFileOrNull: (this: void, path: string) => Promise<string | null>;
-  importModule: (this: void, path: string) => Promise<Record<string, unknown>>;
+  fetchBosConfig: (bosUrl: string, registry?: string) => Promise<unknown>;
+  readFileOrNull: (path: string) => Promise<string | null>;
+  importModule: (path: string) => Promise<Record<string, unknown>>;
 }
 
 interface EntryDispatch {
@@ -91,7 +91,7 @@ interface WalkOptions {
   io: ResolvedIo;
   collectCatalogs: boolean;
   visit?: (link: WalkLink) => Promise<void>;
-  registerCleanup?: (this: void, fn: () => Promise<void>) => void;
+  registerCleanup?: (fn: () => Promise<void>) => void;
 }
 
 interface SessionParts {
@@ -265,9 +265,11 @@ function dispatchEntry(request: ResolutionRequest | undefined, cwd: string): Ent
   }
 
   if (request?.sourceDir) {
-    const configPath = join(resolve(request.sourceDir), "bos.config.json");
+    const sourceRoot = resolve(request.sourceDir);
+    const configPath = findConfigPath(sourceRoot);
+    if (!configPath) return null;
     const baseDir = dirname(configPath);
-    return { entry: configPath, baseDir, root: baseDir, path: configPath, remote: false };
+    return { entry: configPath, baseDir, root: sourceRoot, path: configPath, remote: false };
   }
 
   const configPath = findConfigPath(cwd);
@@ -471,8 +473,8 @@ export async function walkExtendsChain(
     io?: ResolutionIo;
     registry?: string;
     collectCatalogs?: boolean;
-    visit(this: void, link: WalkLink): Promise<void>;
-    registerCleanup?(this: void, fn: () => Promise<void>): void;
+    visit(link: WalkLink): Promise<void>;
+    registerCleanup?(fn: () => Promise<void>): void;
   },
 ): Promise<{ chain: string[]; config: BosConfigInput }> {
   const baseDir = entry.startsWith("bos://") ? process.cwd() : dirname(entry);

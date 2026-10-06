@@ -49,19 +49,6 @@ describe("createUiSharedDeps", () => {
     expect(deps["everything-dev/ui/auth"]?.requiredVersion).toMatch(/^\d+\.\d+\.\d+/);
   });
 
-  it("connects plugin notifications to the provider's toast store when declared", () => {
-    const dependencies = { sonner: "^2.0.7" };
-    const provider = createUiSharedDeps({ dependencies, role: "provider" });
-    const consumer = createUiSharedDeps({ dependencies, role: "consumer" });
-    expect(provider.sonner).toMatchObject({ singleton: true, strictVersion: true });
-    expect(consumer.sonner).toMatchObject({
-      import: false,
-      requiredVersion: provider.sonner?.version,
-    });
-    expect(provider.sonner?.version).toMatch(/^\d+\.\d+\.\d+/);
-    expect(createUiSharedDeps().sonner).toBeUndefined();
-  });
-
   it("can relax strictVersion (core-shell parity mode)", () => {
     const deps = createUiSharedDeps({ strictVersion: false });
     expect(deps.react?.requiredVersion).toBe(false);
