@@ -213,11 +213,30 @@ function defaultSecretValue(
   return databases.get(secret)?.url ?? redisConfigs.get(secret)?.url ?? "";
 }
 
+/**
+ * Plugin `*_DATABASE_URL` secrets share the API database (the platform's
+ * two-database contract), so they are not rendered as template entries —
+ * the host falls back to `API_DATABASE_URL` when they are unset.
+ */
+function isFallbackDatabaseSecret(secret: string): boolean {
+  return (
+    secret.endsWith("_DATABASE_URL") &&
+    secret !== "API_DATABASE_URL" &&
+    secret !== "AUTH_DATABASE_URL"
+  );
+}
+
 function renderEnvFile(
   groups: SecretGroup[],
   options: { forExample: boolean; devHostPort?: number },
 ): string {
-  const allSecrets = groups.flatMap((group) => group.secrets);
+  const rendered = groups
+    .map((group) => ({
+      section: group.section,
+      secrets: group.secrets.filter((secret) => !isFallbackDatabaseSecret(secret)),
+    }))
+    .filter((group) => group.secrets.length > 0);
+  const allSecrets = rendered.flatMap((group) => group.secrets);
   const databaseMap = new Map(
     buildConventionalDatabases(allSecrets).map((entry) => [entry.secret, entry]),
   );
@@ -230,7 +249,7 @@ function renderEnvFile(
     "",
   ];
 
-  for (const group of groups) {
+  for (const group of rendered) {
     lines.push(`# ${group.section}`);
     for (const secret of group.secrets) {
       lines.push(`${secret}=${defaultSecretValue(secret, databaseMap, redisMap, options)}`);

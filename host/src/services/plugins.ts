@@ -154,10 +154,28 @@ export function secretsFromEnv(
   });
 }
 
-export function readDbSecret(
-  key: string,
-): Effect.Effect<Redacted.Redacted<string>, Config.ConfigError> {
-  return Config.Redacted(key).pipe(Config.withDefault(Redacted.make("unset")));
+/**
+ * Plugin `*_DATABASE_URL` secrets fall back to the shared API database — the
+ * platform's two-database contract (`AUTH_DATABASE_URL` + `API_DATABASE_URL`
+ * only; plugins isolate their tables in `plugin_<slug>` schemas). Explicit
+ * per-plugin values always win.
+ */
+export function resolveSecretsWithDatabaseFallback(
+  keys: string[],
+): Effect.Effect<Record<string, string>, Config.ConfigError> {
+  return Effect.gen(function* () {
+    const secrets = unredactSecrets(yield* secretsFromEnv(keys));
+    const missingDbKeys = keys.filter((k) => k.endsWith("_DATABASE_URL") && !secrets[k]);
+    if (missingDbKeys.length === 0) return secrets;
+
+    const apiDbUrl = yield* Config.Redacted("API_DATABASE_URL").pipe(Config.option);
+    if (Option.isNone(apiDbUrl)) return secrets;
+    const fallback = Redacted.value(apiDbUrl.value);
+    if (fallback.length === 0) return secrets;
+
+    for (const key of missingDbKeys) secrets[key] = fallback;
+    return secrets;
+  });
 }
 
 function formatError(error: unknown): string {
@@ -410,10 +428,14 @@ function loadPluginEntryEffect(
         ? "AUTH_DATABASE_URL"
         : "API_DATABASE_URL"
       : pluginDbSecretKey;
-    const dbSecret = secretKey ? yield* readDbSecret(secretKey) : null;
 
     const variables: Record<string, unknown> = { ...baseVariables, ...entry.config.variables };
-    const secrets = unredactSecrets(yield* secretsFromEnv(entry.config.secrets ?? []));
+    const secrets = yield* resolveSecretsWithDatabaseFallback(entry.config.secrets ?? []);
+    const dbSecret = secretKey
+      ? secrets[secretKey]
+        ? Redacted.make(secrets[secretKey])
+        : null
+      : null;
     const args: [unknown, unknown?] = [{ variables, secrets }];
     if (pluginsClient) args.push(pluginsClient);
 
@@ -425,14 +447,12 @@ function loadPluginEntryEffect(
     }).pipe(
       Effect.mapError((error) => {
         if (dbSecret !== null && secretKey) {
-          const url = Redacted.value(dbSecret);
-          const maskedUrl = url === "unset" ? "unset" : maskDbUrl(url);
           return new PluginBootstrapError({
             pluginKey: entry.key,
             pluginUrl: entry.config.url,
-            stage: url === "unset" ? "init" : "db-migration",
+            stage: "db-migration",
             dbSecret: secretKey,
-            dbUrlMasked: maskedUrl,
+            dbUrlMasked: maskDbUrl(Redacted.value(dbSecret)),
             execution: "local-host-process",
             cause: error,
           });

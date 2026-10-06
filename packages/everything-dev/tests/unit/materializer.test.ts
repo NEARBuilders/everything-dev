@@ -101,6 +101,22 @@ describe("InfraMaterializer Tag + Layer", () => {
     expect(envExample).toContain("CORS_ORIGIN=http://localhost:3000");
   });
 
+  it(".env.example omits plugin database secrets (shared API database fallback)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "bos-materializer-db-"));
+    tempDirs.push(dir);
+
+    await materializeAll(dir, buildRuntimeConfig());
+
+    const envExample = readFileSync(join(dir, ".env.example"), "utf-8");
+    expect(envExample).toContain("API_DATABASE_URL=");
+    expect(envExample).toContain("AUTH_DATABASE_URL=");
+    expect(envExample).not.toContain("EXAMPLE_DATABASE_URL");
+    expect(envExample).not.toContain("# plugins.example");
+
+    const envTest = readFileSync(join(dir, ".env.test"), "utf-8");
+    expect(envTest).toContain("EXAMPLE_DATABASE_URL=");
+  });
+
   it("materializer is idempotent — re-running does not bump mtimes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "bos-materializer-"));
     tempDirs.push(dir);

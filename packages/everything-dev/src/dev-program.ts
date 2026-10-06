@@ -418,7 +418,6 @@ export const startBootstrap = (
 
     const sessionRoot = deps.session?.root ?? process.cwd();
 
-    yield* ensureEnvStep(projectEnv, sessionRoot);
     yield* loadEnvStep(projectEnv, sessionRoot);
 
     yield* emitProgress({ phase: "config", status: "running" });
@@ -497,13 +496,6 @@ export const startBootstrap = (
       runtimeConfig.env = "staging";
     }
 
-    yield* Effect.tryPromise({
-      try: () => materializeViaLayer(sessionRoot, runtimeConfig),
-      catch: (cause) => new DevStepError({ phase: "materialize infra", cause }),
-    });
-    yield* ensureEnvStep(projectEnv, sessionRoot);
-    yield* loadEnvStep(projectEnv, sessionRoot);
-
     yield* emitProgress({ phase: "generate artifacts", status: "running" });
     yield* Effect.tryPromise({
       try: () =>
@@ -554,7 +546,10 @@ export const startBootstrap = (
     }
     for (const plugin of Object.values(runtimeConfig.plugins ?? {})) {
       if (plugin.secrets) {
-        for (const s of plugin.secrets) requiredSecrets.add(s);
+        for (const s of plugin.secrets) {
+          if (s.endsWith("_DATABASE_URL")) continue;
+          requiredSecrets.add(s);
+        }
       }
     }
 

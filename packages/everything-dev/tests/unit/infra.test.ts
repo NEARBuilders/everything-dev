@@ -79,7 +79,7 @@ describe("generated env templates", () => {
 
     expect(envExample).toContain("API_DATABASE_URL");
     expect(envExample).toContain("AUTH_DATABASE_URL");
-    expect(envExample).toContain("EXAMPLE_DATABASE_URL");
+    expect(envExample).not.toContain("EXAMPLE_DATABASE_URL");
     expect(envExample).toContain("PAYMENT_API_URL");
 
     expect(envExample).toContain("# app.host");
@@ -94,9 +94,6 @@ describe("generated env templates", () => {
     );
     expect(envExample).toContain("BETTER_AUTH_SECRET=");
     expect(envExample).toContain("# plugins.example");
-    expect(envExample).toContain(
-      "EXAMPLE_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5432/api_db",
-    );
     expect(envExample).toContain("PAYMENT_API_URL=");
 
     // docker-compose.yml is a static committed file — the materializer
@@ -167,9 +164,7 @@ describe("generated env templates", () => {
     expect(env).toContain(
       "AUTH_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5433/auth_db",
     );
-    expect(env).toContain(
-      "EXAMPLE_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5432/api_db",
-    );
+    expect(env).not.toContain("EXAMPLE_DATABASE_URL");
     expect(env).toContain("PAYMENT_API_URL=");
     expect(env).toContain("CORS_ORIGIN=http://localhost:3000");
     expect(env).toMatch(/BETTER_AUTH_SECRET=.+/);
