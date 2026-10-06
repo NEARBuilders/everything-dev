@@ -317,7 +317,6 @@ function pinDist(distDir: string, ssrDistDir?: string): SlotPin {
   }
   const ssrReport = ssrDistDir ? readBuildReport(ssrDistDir) : null;
   const manifest = composeVersionManifest({
-    builtAt: new Date().toISOString(),
     entry: report.entry,
     entryIntegrity: sri384(readFileSync(path.join(root, distDir, report.entry))),
     ...(ssrReport
