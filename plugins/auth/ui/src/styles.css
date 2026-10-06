@@ -121,21 +121,8 @@
   text-shadow: 1px 1px 0 var(--bevel-light);
 }
 
-@utility bg-dither {
-  background-image: repeating-conic-gradient(var(--bevel-mid) 0 25%, transparent 0 50%);
-  background-size: 2px 2px;
-}
-
-@utility press-shift-label {
-  translate: var(--label-offset) var(--label-offset);
-}
-
-@utility press-shift-button {
-  translate: var(--button-offset) var(--button-offset);
-}
-
 @utility transition-bevel {
-  transition-property: box-shadow, translate, background-color, color;
+  transition-property: box-shadow, background-color, color;
   transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
   transition-duration: var(--release-duration);
 

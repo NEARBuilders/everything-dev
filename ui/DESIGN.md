@@ -11,8 +11,8 @@ read this before building or changing a page.
 
 Modern space, type and layout, with the frame borrowed from Windows 95/98-era software
 (RollerCoaster Tycoon): raised bevel buttons that press in, window title bars, sunken
-panels for inputs and code. Settled on the `prototype/retro-frames` branch as variant A,
-"Soft frames": a 1px bevel plus a 1px outline, nothing louder. No desktop metaphor — no
+panels for inputs and code. "Soft frames" won the retro-frames prototype over louder
+Win98 and Tycoon variants: a 1px bevel plus a 1px outline. No desktop metaphor — no
 draggable windows, taskbar or desktop icons.
 
 - Everything is square: `--radius` is `0`, so the whole `rounded-*` scale resolves to 0.

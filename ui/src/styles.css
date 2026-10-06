@@ -7,9 +7,6 @@
 @import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
-@custom-variant retro-soft (&:where([data-retro="soft"] *));
-@custom-variant retro-classic (&:where([data-retro="classic"] *));
-@custom-variant retro-tycoon (&:where([data-retro="tycoon"] *));
 
 body {
   @apply m-0 font-sans antialiased;
@@ -74,9 +71,7 @@ code {
   --sidebar-ring: oklch(0.62 0.12 172);
   --face: oklch(0.945 0.004 240);
   --bevel-light: oklch(1 0 0);
-  --bevel-mid: oklch(1 0 0 / 55%);
   --bevel-shade: oklch(0.22 0.02 250 / 32%);
-  --bevel-dark: oklch(0.22 0.02 250 / 88%);
   --bevel-raised: 0 0 0 1px var(--bevel-shade), inset 1px 1px 0 var(--bevel-light), inset -1px -1px 0 var(--bevel-shade);
   --bevel-pressed: 0 0 0 1px var(--bevel-shade), inset 1px 1px 0 var(--bevel-shade), inset -1px -1px 0 var(--bevel-light);
   --bevel-sunken: 0 0 0 1px var(--bevel-shade), inset 1px 1px 0 var(--bevel-shade), inset 0 0 0 0 transparent;
@@ -84,8 +79,6 @@ code {
   --window-inset: 0px;
   --titlebar-bg: var(--muted);
   --titlebar-fg: var(--foreground);
-  --label-offset: 0px;
-  --button-offset: 0px;
   --press-duration: 0ms;
   --release-duration: 120ms;
 }
@@ -144,9 +137,7 @@ code {
   --sidebar-ring: oklch(0.72 0.13 170);
   --face: oklch(0.255 0.012 250);
   --bevel-light: oklch(1 0 0 / 22%);
-  --bevel-mid: oklch(1 0 0 / 9%);
   --bevel-shade: oklch(0 0 0 / 50%);
-  --bevel-dark: oklch(0 0 0 / 92%);
 }
 
 @theme inline {
@@ -291,31 +282,6 @@ code {
   animation: subtitle-cycle 4s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
-/* prototype/retro-frames intensities; soft frames is the default in :root */
-[data-retro="classic"] {
-  --bevel-raised: inset -1px -1px 0 var(--bevel-dark), inset 1px 1px 0 var(--bevel-light), inset -2px -2px 0 var(--bevel-shade), inset 2px 2px 0 var(--bevel-mid);
-  --bevel-pressed: inset -1px -1px 0 var(--bevel-light), inset 1px 1px 0 var(--bevel-dark), inset -2px -2px 0 var(--bevel-mid), inset 2px 2px 0 var(--bevel-shade);
-  --bevel-sunken: inset -1px -1px 0 var(--bevel-light), inset 1px 1px 0 var(--bevel-shade), inset -2px -2px 0 var(--bevel-mid), inset 2px 2px 0 var(--bevel-dark);
-  --bevel-window: inset -1px -1px 0 var(--bevel-dark), inset 1px 1px 0 var(--bevel-mid), inset -2px -2px 0 var(--bevel-shade), inset 2px 2px 0 var(--bevel-light);
-  --window-inset: 4px;
-  --titlebar-bg: linear-gradient(90deg, var(--info), var(--brand-strong));
-  --titlebar-fg: var(--info-foreground);
-  --label-offset: 1px;
-  --button-offset: 0px;
-}
-
-[data-retro="tycoon"] {
-  --bevel-raised: 0 0 0 2px var(--bevel-dark), inset 3px 3px 0 var(--bevel-light), inset -3px -3px 0 var(--bevel-shade), 4px 4px 0 2px var(--bevel-dark);
-  --bevel-pressed: 0 0 0 2px var(--bevel-dark), inset 3px 3px 0 var(--bevel-shade), inset -3px -3px 0 var(--bevel-light), 0 0 0 2px var(--bevel-dark);
-  --bevel-sunken: 0 0 0 2px var(--bevel-dark), inset 3px 3px 0 var(--bevel-shade), inset -2px -2px 0 var(--bevel-light);
-  --bevel-window: 0 0 0 2px var(--bevel-dark), inset 3px 3px 0 var(--bevel-light), inset -3px -3px 0 var(--bevel-shade), 6px 6px 0 2px var(--bevel-dark);
-  --window-inset: 6px;
-  --titlebar-bg: linear-gradient(180deg, var(--brand), color-mix(in oklch, var(--brand), var(--brand-strong) 65%));
-  --titlebar-fg: var(--brand-foreground);
-  --label-offset: 0px;
-  --button-offset: 4px;
-}
-
 @utility bevel-raised {
   --tw-shadow: var(--bevel-raised);
   box-shadow: var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000), var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
@@ -354,21 +320,8 @@ code {
   text-shadow: 1px 1px 0 var(--bevel-light);
 }
 
-@utility bg-dither {
-  background-image: repeating-conic-gradient(var(--bevel-mid) 0 25%, transparent 0 50%);
-  background-size: 2px 2px;
-}
-
-@utility press-shift-label {
-  translate: var(--label-offset) var(--label-offset);
-}
-
-@utility press-shift-button {
-  translate: var(--button-offset) var(--button-offset);
-}
-
 @utility transition-bevel {
-  transition-property: box-shadow, translate, background-color, color;
+  transition-property: box-shadow, background-color, color;
   transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
   transition-duration: var(--release-duration);
 
