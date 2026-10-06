@@ -613,11 +613,6 @@ jobs:
 
       - name: Boot and smoke the image
         id: smoke
-        # Transitional (step-level so the job still reports green): the live
-        # published config predates version-manifest pins, so a registry-start
-        # fails with "redeploy required" until the first `bos deploy`
-        # republishes with pins. Remove after that deploy.
-        continue-on-error: true
         run: node tests/smoke/runtime-image.mjs --image everything-dev-smoke:local
 
       - name: Upload smoke logs on failure
