@@ -176,6 +176,8 @@ export const englishAppMessages = {
   "landing.cta.title": "No node in your city yet?",
   "landing.cta.description": "Your organization proposes it and the network reviews it.",
   "landing.cta.about": "About the network",
+  "error.apiConnection.title": "Can't reach the API",
+  "error.apiConnection.description": "The API is currently unavailable. Please try again later.",
 } as const;
 
 export type AppMessageId = keyof typeof englishAppMessages;
@@ -339,6 +341,9 @@ const spanishAppMessages = {
   "landing.cta.title": "¿Todavía no hay un nodo en tu ciudad?",
   "landing.cta.description": "Tu organización lo propone y la red lo revisa.",
   "landing.cta.about": "Acerca de la red",
+  "error.apiConnection.title": "No se puede conectar con la API",
+  "error.apiConnection.description":
+    "La API no está disponible en este momento. Inténtalo de nuevo más tarde.",
 } satisfies Record<AppMessageId, string>;
 
 const frenchAppMessages = {
@@ -500,6 +505,9 @@ const frenchAppMessages = {
   "landing.cta.title": "Pas encore de nœud dans votre ville ?",
   "landing.cta.description": "Votre organisation le propose et le réseau l’examine.",
   "landing.cta.about": "À propos du réseau",
+  "error.apiConnection.title": "Impossible de joindre l'API",
+  "error.apiConnection.description":
+    "L'API est actuellement indisponible. Veuillez réessayer plus tard.",
 } satisfies Record<AppMessageId, string>;
 
 const chineseAppMessages = {
@@ -658,6 +666,8 @@ const chineseAppMessages = {
   "landing.cta.title": "你的城市还没有节点？",
   "landing.cta.description": "由你的组织提出申请，网络会进行审核。",
   "landing.cta.about": "关于网络",
+  "error.apiConnection.title": "无法连接 API",
+  "error.apiConnection.description": "API 目前不可用。请稍后重试。",
 } satisfies Record<AppMessageId, string>;
 
 const translatedMessages: Record<AppLocale, Partial<Record<AppMessageId, string>>> = {

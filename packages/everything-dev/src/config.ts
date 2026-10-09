@@ -499,7 +499,7 @@ export function resolveBosConfigPath(configDir: string): string {
   return join(configDir, "bos.config.json");
 }
 
-export function readBosConfigForBuild(configDir: string): Record<string, unknown> {
+export async function readBosConfigForBuild(configDir: string): Promise<Record<string, unknown>> {
   const resolvedPath = getResolvedConfigPath(configDir);
   if (existsSync(resolvedPath)) {
     try {
@@ -510,10 +510,14 @@ export function readBosConfigForBuild(configDir: string): Record<string, unknown
       }
     } catch (e) {
       console.warn(
-        `[Config] Failed to parse _resolved.json, falling back to bos.config.json: ${e}`,
+        `[Config] Failed to parse _resolved.json, falling back to the authored config: ${e}`,
       );
     }
   }
+  // Form-aware fallback: the authored `bos.app.ts` descriptor is canonical —
+  // a TS-form child has no committed bos.config.json to parse.
+  const authored = await readLocalAuthoredConfigInput(configDir);
+  if (authored) return authored as unknown as Record<string, unknown>;
   const bosConfigPath = join(configDir, "bos.config.json");
   return JSON.parse(readFileSync(bosConfigPath, "utf-8")) as Record<string, unknown>;
 }

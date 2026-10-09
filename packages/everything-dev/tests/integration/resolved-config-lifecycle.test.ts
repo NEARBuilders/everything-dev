@@ -61,10 +61,10 @@ describe("resolved config lifecycle", () => {
     expect(loaded!.account).toBe("test.near");
   });
 
-  it("readBosConfigForBuild strips _resolved metadata", () => {
+  it("readBosConfigForBuild strips _resolved metadata", async () => {
     writeResolvedConfig(testDir, VALID_CONFIG as any, "production", ["bos://parent/test"]);
 
-    const result = readBosConfigForBuild(testDir);
+    const result = await readBosConfigForBuild(testDir);
     expect(result._resolved).toBeUndefined();
     expect(result.account).toBe("test.near");
   });
@@ -113,12 +113,12 @@ describe("resolved config lifecycle", () => {
     expect(keys[keys.length - 1]).toBe("shared");
   });
 
-  it("readBosConfigForBuild falls back to bos.config.json", () => {
+  it("readBosConfigForBuild falls back to bos.config.json", async () => {
     const fallbackDir = mkdtempSync(join(tmpdir(), "bos-lifecycle-buildfb-"));
     try {
       writeFileSync(join(fallbackDir, "bos.config.json"), `${JSON.stringify(VALID_CONFIG)}\n`);
 
-      const result = readBosConfigForBuild(fallbackDir);
+      const result = await readBosConfigForBuild(fallbackDir);
       expect(result.account).toBe("test.near");
     } finally {
       rmSync(fallbackDir, { recursive: true, force: true });

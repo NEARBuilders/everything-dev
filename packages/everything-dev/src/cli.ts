@@ -80,6 +80,36 @@ function normalizeVersion(v: string): string {
   return v.replace(/^[\^~>=v]+/, "").trim();
 }
 
+const RETIRED_BOOTSTRAP_STUBS = [
+  "ui/src/entry.ts",
+  "ui/src/hydrate.tsx",
+  "ui/src/router.server.tsx",
+  "ui/src/compose.ts",
+];
+
+/**
+ * Hand-modified bootstrap stubs retire as conflicted (backed up, then
+ * deleted) — print the mechanical port into the authored seams (ADR 0023).
+ */
+function printStubMigrationGuide(retiredConflicted: string[] | undefined) {
+  const handModified = (retiredConflicted ?? []).filter((f) => RETIRED_BOOTSTRAP_STUBS.includes(f));
+  if (handModified.length === 0) return;
+  console.log(`  ${colors.yellow("Port your stub customizations into the authored seams:")}`);
+  console.log(
+    `    ${colors.dim("- defaultErrorComponent / defaultPendingComponent / defaultNotFoundComponent")}`,
+  );
+  console.log(
+    `    ${colors.dim("  → set them inside the createRouter factory in ui/src/router.tsx (after ...opts)")}`,
+  );
+  console.log(
+    `    ${colors.dim("- apiConnectionError copy + SSR locale config (locales, defaultLocale, cookieName)")}`,
+  );
+  console.log(
+    `    ${colors.dim("  → export apiConnectionError / appLocale from ui/src/app.ts (see the scaffold template)")}`,
+  );
+  console.log(`    ${colors.dim("  backed-up originals: .bos/sync-backup/<timestamp>/")}`);
+}
+
 function printTimingSummary(timings: Array<{ name: string; durationMs: number }> | undefined) {
   if (!timings || timings.length === 0) return;
 
@@ -711,6 +741,7 @@ async function main() {
             console.log(`    ${colors.dim(`${f} (backed up)`)}`);
           }
           for (const f of result.retired ?? []) console.log(`    ${colors.dim(f)}`);
+          printStubMigrationGuide(result.retiredConflicted);
         }
       }
       if (
@@ -792,6 +823,7 @@ async function main() {
               console.log(`    ${colors.dim(`${f} (backed up)`)}`);
             }
             for (const f of sync.retired ?? []) console.log(`    ${colors.dim(f)}`);
+            printStubMigrationGuide(sync.retiredConflicted);
           }
         } else {
           console.log(`  ${colors.dim("Already up to date")}`);
