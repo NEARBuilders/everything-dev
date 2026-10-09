@@ -213,7 +213,7 @@ type HandlerFn<R = unknown> = (opts: {
 
 type MockRoute = {
   effect: (fn: (opts: any) => Generator<any, any, any>) => HandlerFn;
-  use: (mw: MiddlewareFn) => { handler: <R>(h: HandlerFn<R>) => HandlerFn<R> };
+  use: (mw: MiddlewareFn) => MockRoute;
   handler: <R>(h: HandlerFn<R>) => HandlerFn<R>;
 };
 
@@ -222,28 +222,48 @@ interface MockBuilder {
   [route: string]: MockRoute;
 }
 
+function createChainedRoute(mws: Array<MiddlewareFn>): MockRoute {
+  const runChain = async (opts: {
+    context: Record<string, unknown>;
+    input?: Record<string, unknown>;
+  }) => {
+    let context = opts.context;
+    for (const mw of mws) {
+      const result = await mw({
+        context,
+        next: (ctx) => ctx,
+      });
+      context = { ...context, ...result.context };
+    }
+    return { ...opts, context };
+  };
+  return {
+    effect:
+      (fn) => async (opts: { context: Record<string, unknown>; input?: Record<string, unknown> }) =>
+        runEffect(fn, await runChain(opts)),
+    handler:
+      <R>(handler: HandlerFn<R>): HandlerFn<R> =>
+      async (opts) =>
+        handler(await runChain(opts)),
+    use: (mw) => createChainedRoute([...mws, mw]),
+  };
+}
+
+function runEffect(
+  fn: (opts: any) => Generator<any, any, any>,
+  opts: { context: Record<string, unknown>; input?: Record<string, unknown> },
+): Promise<unknown> {
+  return Effect.runPromise(
+    Effect.gen(() => fn(opts)).pipe(
+      Effect.provideContext(opts.context["effect/context"] as Context.Context<any>),
+    ),
+  );
+}
+
 function createMockBuilder(): MockBuilder {
   const routeProxy: MockRoute = {
-    effect: (fn) => (opts) =>
-      Effect.runPromise(
-        Effect.gen(() => fn(opts)).pipe(
-          Effect.provideContext(opts.context["effect/context"] as Context.Context<any>),
-        ),
-      ),
-    use: (mw: MiddlewareFn) => ({
-      handler:
-        <R>(handler: HandlerFn<R>): HandlerFn<R> =>
-        async (opts: { context: Record<string, unknown>; input?: Record<string, unknown> }) => {
-          const result = await mw({
-            context: opts.context,
-            next: (ctx) => ctx,
-          });
-          return handler({
-            ...opts,
-            context: { ...opts.context, ...result.context },
-          });
-        },
-    }),
+    effect: (fn) => (opts) => runEffect(fn, opts),
+    use: (mw: MiddlewareFn) => createChainedRoute([mw]),
     handler: <R>(fn: HandlerFn<R>) => fn,
   };
 

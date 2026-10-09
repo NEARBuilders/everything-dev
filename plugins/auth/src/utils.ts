@@ -118,36 +118,63 @@ export function serializeTeamAreas(areas: string[]): string {
   return JSON.stringify({ areas: [...new Set(areas)] });
 }
 
+export function parseMemberRoles(role: string | null | undefined): string[] {
+  if (!role) return [];
+  return role
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export interface EmailVisibilityContext {
   user?: { id?: string; role?: string | null } | null;
   userId?: string | null;
   reqHeaders?: HeaderInput;
 }
 
-export async function canReadMemberEmails(
-  services: {
-    auth: {
-      api: {
-        hasPermission: (args: {
-          headers: Headers;
-          body: { organizationId?: string; permissions: Record<string, string[]> };
-        }) => Promise<{ success: boolean }>;
-      };
+export interface OrgPermissionServices {
+  auth: {
+    api: {
+      hasPermission: (args: {
+        headers: Headers;
+        body: { organizationId?: string; permissions: Record<string, string[]> };
+      }) => Promise<{ success: boolean }>;
     };
-  },
+  };
+}
+
+export interface OrgPermissionResult {
+  permitted: boolean;
+  failure?: ORPCError<string, unknown>;
+}
+
+export async function hasOrgPermission(
+  services: OrgPermissionServices,
   context: EmailVisibilityContext,
-  organizationId?: string,
-): Promise<boolean> {
-  if (context.user?.role === "admin") return true;
+  organizationId: string | undefined,
+  permissions: Record<string, string[]>,
+): Promise<OrgPermissionResult> {
+  if (context.user?.role === "admin") return { permitted: true };
   try {
     const result = await services.auth.api.hasPermission({
       headers: createHeaders(context.reqHeaders),
-      body: { organizationId, permissions: { email: ["read"] } },
+      body: { organizationId, permissions },
     });
-    return result.success === true;
-  } catch {
-    return false;
+    return { permitted: result.success === true };
+  } catch (error) {
+    return { permitted: false, failure: toORPCError(error) };
   }
+}
+
+export async function canReadMemberEmails(
+  services: OrgPermissionServices,
+  context: EmailVisibilityContext,
+  organizationId?: string,
+): Promise<boolean> {
+  const { permitted } = await hasOrgPermission(services, context, organizationId, {
+    email: ["read"],
+  });
+  return permitted;
 }
 
 export function visibleEmail(

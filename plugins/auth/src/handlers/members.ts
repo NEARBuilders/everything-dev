@@ -1,9 +1,32 @@
 import { ORPCError } from "@orpc/server";
-import { eq } from "drizzle-orm";
-import { Context } from "effect";
+import { and, eq } from "drizzle-orm";
+import { Context, Effect } from "effect";
 import * as schema from "../db/schema";
 import { AuthServicesTag } from "../service-types";
-import { canReadMemberEmails, createHeaders, safeAuthApi, visibleEmail } from "../utils";
+import {
+  canReadMemberEmails,
+  createHeaders,
+  hasOrgPermission,
+  parseMemberRoles,
+  safeAuthApi,
+  toORPCError,
+  visibleEmail,
+} from "../utils";
+
+const attemptAuth = <A>(run: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: run,
+    catch: (error) => toORPCError(error),
+  });
+
+const attemptDb = <A>(run: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: run,
+    catch: (error) =>
+      new ORPCError("INTERNAL_SERVER_ERROR", {
+        message: error instanceof Error ? error.message : "Database error",
+      }),
+  });
 
 export function createMemberHandlers(builder: any, requireAuth: any) {
   return {
@@ -114,51 +137,97 @@ export function createMemberHandlers(builder: any, requireAuth: any) {
         };
       }),
 
-    addMember: builder.addMember
-      .use(requireAuth)
-      .handler(async ({ input, context }: { input: any; context: any }) => {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        const headers = createHeaders(context.reqHeaders);
-        const session = input.organizationId
-          ? null
-          : await safeAuthApi(() => services.auth.api.getSession({ headers }));
-        const activeSession = session
-          ? await services.db.query.session.findFirst({
+    addMember: builder.addMember.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }: {
+      input: any;
+      context: any;
+    }) {
+      const services = yield* AuthServicesTag;
+      const headers = createHeaders(context.reqHeaders);
+      const session = input.organizationId
+        ? null
+        : yield* attemptAuth(() => services.auth.api.getSession({ headers }));
+      const activeSession = session
+        ? yield* attemptDb(() =>
+            services.db.query.session.findFirst({
               where: eq(schema.session.id, session.session.id),
-            })
-          : null;
-        const organizationId = input.organizationId ?? activeSession?.activeOrganizationId;
-        if (!organizationId) {
-          throw new ORPCError("BAD_REQUEST", { message: "No active organization" });
-        }
-        const organization = await services.db.query.organization.findFirst({
-          where: eq(schema.organization.id, organizationId),
-        });
-        if (!organization) {
-          throw new ORPCError("NOT_FOUND", { message: "Organization not found" });
-        }
-        if (organization.status !== "active") {
-          throw new ORPCError("FORBIDDEN", { message: "Organization approval is required" });
-        }
-        const result = await safeAuthApi(() =>
-          services.auth.api.addMember({
-            headers,
-            body: {
-              userId: input.userId,
-              role: input.role,
-              organizationId,
-            },
-          }),
+            }),
+          )
+        : null;
+      const organizationId = input.organizationId ?? activeSession?.activeOrganizationId;
+      if (!organizationId) {
+        return yield* Effect.fail(
+          new ORPCError("BAD_REQUEST", { message: "No active organization" }),
         );
-        return {
-          id: result.id,
-          userId: result.userId,
-          organizationId: result.organizationId,
-          role: result.role,
-          createdAt:
-            result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
-        };
-      }),
+      }
+      if (context.user?.role !== "admin") {
+        const { permitted, failure } = yield* Effect.promise(() =>
+          hasOrgPermission(services, context, organizationId, { member: ["create"] }),
+        );
+        if (
+          failure &&
+          (failure.code === "INTERNAL_SERVER_ERROR" || failure.code === "SERVICE_UNAVAILABLE")
+        ) {
+          return yield* Effect.fail(failure);
+        }
+        if (!permitted) {
+          return yield* Effect.fail(
+            new ORPCError("FORBIDDEN", {
+              message: "Only organization owners and admins can add members",
+            }),
+          );
+        }
+        if (input.role === "owner") {
+          const caller = yield* attemptDb(() =>
+            services.db.query.member.findFirst({
+              where: and(
+                eq(schema.member.organizationId, organizationId),
+                eq(schema.member.userId, context.userId),
+              ),
+            }),
+          );
+          if (!parseMemberRoles(caller?.role).includes("owner")) {
+            return yield* Effect.fail(
+              new ORPCError("FORBIDDEN", { message: "Only organization owners can add owners" }),
+            );
+          }
+        }
+      }
+      const organization = yield* attemptDb(() =>
+        services.db.query.organization.findFirst({
+          where: eq(schema.organization.id, organizationId),
+        }),
+      );
+      if (!organization) {
+        return yield* Effect.fail(
+          new ORPCError("NOT_FOUND", { message: "Organization not found" }),
+        );
+      }
+      if (organization.status !== "active") {
+        return yield* Effect.fail(
+          new ORPCError("FORBIDDEN", { message: "Organization approval is required" }),
+        );
+      }
+      const result = yield* attemptAuth(() =>
+        services.auth.api.addMember({
+          headers,
+          body: {
+            userId: input.userId,
+            role: input.role,
+            organizationId,
+          },
+        }),
+      );
+      return {
+        id: result.id,
+        userId: result.userId,
+        organizationId: result.organizationId,
+        role: result.role,
+        createdAt: result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
+      };
+    }),
 
     removeMember: builder.removeMember
       .use(requireAuth)
