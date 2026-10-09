@@ -274,6 +274,7 @@ export function registerDeploy(builder: BosBuilder) {
         network: input.network,
         privateKey: input.privateKey,
         registry: input.registry,
+        fullUpload: input.fullUpload,
       });
 
       if (result.status === "error") {

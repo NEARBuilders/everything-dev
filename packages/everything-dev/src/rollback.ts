@@ -61,6 +61,24 @@ function pinOf(ref: PinnedSlotRef): { manifest: string; integrity: string } | nu
   return manifest && integrity ? { manifest, integrity } : null;
 }
 
+export interface SlotPinRef {
+  slot: string;
+  /** the slot's production base URL (…/bundles/<account>/<gateway>/<workspace>/) */
+  base: string;
+  pin: { manifest: string; integrity: string };
+}
+
+/** Every pinned slot with both a production base and a verifiable pin. */
+export function collectSlotPinRefs(config: BosConfigInput): SlotPinRef[] {
+  return collectPinnedSlots(config)
+    .map(({ slot, ref }) => {
+      const pin = pinOf(ref);
+      const base = typeof ref.production === "string" ? ref.production : undefined;
+      return pin && base ? { slot, base, pin } : null;
+    })
+    .filter((entry): entry is SlotPinRef => entry !== null);
+}
+
 async function verifySlot(
   slot: string,
   ref: PinnedSlotRef,

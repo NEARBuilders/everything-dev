@@ -116,6 +116,12 @@ const baseInput = {
   privateKey: "ed25519:0000000000000000000000000000000000000000000000000000000000000000",
 };
 
+/** A minimal real dist file — the merged SRI map is built from actual dist files. */
+const HOST_DIST_FILE = {
+  path: "remoteEntry.8f3ac1d2.js",
+  bytes: new TextEncoder().encode("entry"),
+};
+
 let configDir: string;
 let savedEnv: Record<string, string | undefined>;
 
@@ -134,7 +140,7 @@ function setupDeployTrain(): void {
     skipped: [],
     deployResults: [{ key: "host", kind: "app", success: true }],
   });
-  collectDistFilesMock.mockResolvedValue([]);
+  collectDistFilesMock.mockResolvedValue([HOST_DIST_FILE]);
   uploadWorkspaceDistMock.mockResolvedValue({
     stored: 1,
     totalBytes: 3,
@@ -249,7 +255,7 @@ describe("publishToFastKv preflight ordering", () => {
       skipped: [],
       deployResults: [{ key: "host", kind: "app", success: true }],
     });
-    collectDistFilesMock.mockResolvedValue([]);
+    collectDistFilesMock.mockResolvedValue([HOST_DIST_FILE]);
     uploadWorkspaceDistMock.mockResolvedValue({
       stored: 1,
       totalBytes: 3,
@@ -291,7 +297,7 @@ describe("publishToFastKv preflight ordering", () => {
       skipped: ["host", "ui", "api"],
       deployResults: [{ key: "votes", kind: "plugin", success: true }],
     });
-    collectDistFilesMock.mockResolvedValue([]);
+    collectDistFilesMock.mockResolvedValue([HOST_DIST_FILE]);
     uploadWorkspaceDistMock.mockResolvedValue({
       stored: 1,
       totalBytes: 3,
@@ -324,7 +330,7 @@ describe("publishToFastKv preflight ordering", () => {
       skipped: [],
       deployResults: [{ key: "host", kind: "app", success: true }],
     });
-    collectDistFilesMock.mockResolvedValue([]);
+    collectDistFilesMock.mockResolvedValue([HOST_DIST_FILE]);
     uploadWorkspaceDistMock.mockResolvedValue({
       stored: 1,
       totalBytes: 3,
@@ -354,7 +360,7 @@ describe("publishToFastKv preflight ordering", () => {
       skipped: [],
       deployResults: [{ key: "host", kind: "app", success: true }],
     });
-    collectDistFilesMock.mockResolvedValue([]);
+    collectDistFilesMock.mockResolvedValue([HOST_DIST_FILE]);
     uploadWorkspaceDistMock.mockResolvedValue({
       stored: 1,
       totalBytes: 3,
@@ -379,7 +385,7 @@ describe("publishToFastKv preflight ordering", () => {
       skipped: [],
       deployResults: [{ key: "host", kind: "app", success: true }],
     });
-    collectDistFilesMock.mockResolvedValue([]);
+    collectDistFilesMock.mockResolvedValue([HOST_DIST_FILE]);
     uploadWorkspaceDistMock.mockResolvedValue({
       stored: 1,
       totalBytes: 3,
@@ -404,6 +410,7 @@ describe("publishToFastKv preflight ordering", () => {
         pin: {
           file: expect.stringMatching(/^versions\/[0-9a-f]{16}\.json$/),
           integrity: "sha384-manifest",
+          storage: "s3",
         },
       }),
     );

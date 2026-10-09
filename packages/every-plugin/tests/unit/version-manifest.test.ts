@@ -89,4 +89,54 @@ describe("composeVersionManifest", () => {
     });
     expect(a.version).toBe(b.version);
   });
+
+  it("canonicalization is key-order insensitive inside the files map too", () => {
+    const a = composeVersionManifest({
+      entry: "e.js",
+      entryIntegrity: "sha384-aaa",
+      files: { "a.js": "sha384-aaa", "b.js": "sha384-bbb" },
+    });
+    const b = composeVersionManifest({
+      entry: "e.js",
+      entryIntegrity: "sha384-aaa",
+      files: { "b.js": "sha384-bbb", "a.js": "sha384-aaa" },
+    });
+    expect(a.version).toBe(b.version);
+  });
+});
+
+describe("files digest map", () => {
+  const base = { entry: "remoteEntry.8f3ac1d2.js", entryIntegrity: "sha384-aaa" };
+
+  it("is recorded on the manifest and participates in the version hash", () => {
+    const withoutFiles = composeVersionManifest(base);
+    const withFiles = composeVersionManifest({
+      ...base,
+      files: { "remoteEntry.8f3ac1d2.js": "sha384-bbb" },
+    });
+    expect(withFiles.files).toEqual({ "remoteEntry.8f3ac1d2.js": "sha384-bbb" });
+    expect(withFiles.version).not.toBe(withoutFiles.version);
+  });
+
+  it("identical files map → same version id; any changed file → a new one", () => {
+    const withFiles = composeVersionManifest({
+      ...base,
+      files: { "a.js": "sha384-bbb", "b.js": "sha384-ccc" },
+    });
+    const same = composeVersionManifest({
+      ...base,
+      files: { "b.js": "sha384-ccc", "a.js": "sha384-bbb" },
+    });
+    expect(same.version).toBe(withFiles.version);
+
+    const changedFile = composeVersionManifest({
+      ...base,
+      files: { "a.js": "sha384-ddd", "b.js": "sha384-ccc" },
+    });
+    expect(changedFile.version).not.toBe(withFiles.version);
+  });
+
+  it("rejects file entries that are not sha384 SRIs", () => {
+    expect(() => composeVersionManifest({ ...base, files: { "a.js": "md5-nope" } })).toThrow();
+  });
 });

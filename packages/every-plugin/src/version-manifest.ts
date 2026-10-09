@@ -34,6 +34,13 @@ export const WorkspaceVersionManifestSchema = z.object({
   assets: z.record(z.string(), SRI).optional(),
   /** shared-dependency versions this build was built against */
   shared: z.record(z.string(), z.string()).optional(),
+  /**
+   * Full per-file digest map of the dist (object path → served-object SRI).
+   * Written by `every-plugin`-based deploys so the next deploy can diff against
+   * it and skip re-uploading unchanged files; readers that predate the field
+   * ignore it (zod strips unknown keys). Participates in the version hash.
+   */
+  files: z.record(z.string(), SRI).optional(),
 });
 export type WorkspaceVersionManifest = z.infer<typeof WorkspaceVersionManifestSchema>;
 
@@ -49,6 +56,7 @@ export interface VersionManifestInput {
   browserManifest?: { file: string; integrity: string };
   assets?: Record<string, string>;
   shared?: Record<string, string>;
+  files?: Record<string, string>;
 }
 
 /**

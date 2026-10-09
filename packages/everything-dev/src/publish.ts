@@ -11,6 +11,15 @@ import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "./con
 import type { WorkspaceDeployResult } from "./contract";
 import { ensureDelegateKey, submitRegistryWriteDelegated } from "./delegate-signer";
 import {
+  diffWorkspaceFiles,
+  localSriMap,
+  mergedFileIntegrity,
+  type PreviousPin,
+  pinsFromDeployState,
+  pinsFromPublishedConfig,
+  upsertDeployStatePins,
+} from "./deploy-diff";
+import {
   buildRegistryConfigUrlForNetwork,
   fetchBosConfigFromFastKv,
   getRegistryNamespaceForNetwork,
@@ -29,11 +38,17 @@ import { getNetworkIdForAccount } from "./network";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform-deploy";
 import { openResolution } from "./resolution/session";
 import { verifyRollbackSnapshot } from "./rollback";
-import { collectDistFiles, uploadBundle, uploadWorkspaceDist } from "./storage-upload";
+import {
+  collectDistFiles,
+  type DistFile,
+  uploadBundle,
+  uploadWorkspaceDist,
+} from "./storage-upload";
 import type { BosConfig, BosConfigInput, PublishConfig, RuntimeConfig } from "./types";
 import { padRight } from "./utils/string";
 import { colors, icons } from "./utils/theme";
 import { composeWorkspaceVersionManifest, readBuildReport } from "./version-manifest-deploy";
+import { resolveSlotVersion } from "./version-manifest-resolve";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -47,6 +62,17 @@ function sleep(ms: number): Promise<void> {
  * undefined when the dist predates hashed entry names (no report / no entry
  * SRI) — the caller aborts the train: uploaded workspaces must pin.
  */
+/**
+ * The manifest's own storage backend — when every dist file was diff-skipped
+ * it is the only upload of the leg, so it is the only signal for the
+ * memory-backend abort below.
+ */
+export interface VersionManifestPin {
+  file: string;
+  integrity: string;
+  storage?: "s3" | "memory";
+}
+
 async function pinWorkspaceVersionManifest(input: {
   origin: string;
   apiKey?: string;
@@ -56,12 +82,15 @@ async function pinWorkspaceVersionManifest(input: {
   report: ReturnType<typeof readBuildReport>;
   ssrReport: ReturnType<typeof readBuildReport>;
   integrityMap: Record<string, string>;
-}): Promise<{ file: string; integrity: string } | undefined> {
+  /** full per-file SRI map of the dist — recorded for the next deploy's diff */
+  files?: Record<string, string>;
+}): Promise<VersionManifestPin | undefined> {
   if (!input.report) return undefined;
   const versionManifest = composeWorkspaceVersionManifest({
     report: input.report,
     ssrReport: input.ssrReport,
     integrityMap: input.integrityMap,
+    ...(input.files ? { files: input.files } : {}),
   });
   if (!versionManifest) return undefined;
 
@@ -84,7 +113,83 @@ async function pinWorkspaceVersionManifest(input: {
   console.log(
     `    ${colors.dim(`${padRight("", 28)} version manifest ${manifestFile} (SRI pinned)`)}`,
   );
-  return { file: manifestFile, integrity: manifestIntegrity };
+  return { file: manifestFile, integrity: manifestIntegrity, storage: manifestUpload.storage };
+}
+
+interface DiffUploadOutcome {
+  result: {
+    stored: number;
+    totalBytes: number;
+    integrity: Record<string, string>;
+    storage?: "s3" | "memory";
+  };
+  /** per-file SRI map covering the whole dist (uploaded → server SRI, skipped → previous manifest SRI) */
+  fileIntegrity: Record<string, string>;
+  uploaded: number;
+  skipped: number;
+  total: number;
+}
+
+/**
+ * One workspace's upload leg with skip-unchanged diffing: resolve the previous
+ * manifest's `files` map, hash the local dist, upload only new/changed files,
+ * and return the merged per-file SRI map for the version manifest. Any failure
+ * to resolve the previous map degrades to a full upload.
+ */
+async function diffUploadWorkspace(input: {
+  origin: string;
+  apiKey?: string;
+  account: string;
+  gateway: string;
+  workspace: string;
+  files: DistFile[];
+  base: string;
+  previousPin: PreviousPin | undefined;
+}): Promise<DiffUploadOutcome> {
+  const localSri = localSriMap(input.files);
+  let uploadFiles = input.files;
+  let prevFiles: Record<string, string> | undefined;
+  if (input.previousPin) {
+    try {
+      const resolved = await resolveSlotVersion({ base: input.base, pin: input.previousPin });
+      if (resolved.files) {
+        const diff = diffWorkspaceFiles(input.files, localSri, resolved.files);
+        prevFiles = resolved.files;
+        uploadFiles = diff.upload;
+        if (diff.skipped > 0) {
+          console.log(
+            `    ${colors.dim(`${padRight(input.workspace, 28)} ${diff.skipped} unchanged file(s) — skipping (manifest diff)`)}`,
+          );
+        }
+      }
+    } catch {
+      console.log(
+        `    ${colors.dim(`${padRight(input.workspace, 28)} previous manifest unusable — uploading everything`)}`,
+      );
+    }
+  }
+
+  console.log(
+    `    ${padRight(input.workspace, 28)} uploading ${uploadFiles.length} of ${input.files.length} files (${formatBundleMb(uploadFiles)}) → ${input.base}`,
+  );
+  const result =
+    uploadFiles.length > 0
+      ? await uploadWorkspaceDist({
+          origin: input.origin,
+          apiKey: input.apiKey,
+          account: input.account,
+          gateway: input.gateway,
+          workspace: input.workspace,
+          files: uploadFiles,
+        })
+      : { stored: 0, totalBytes: 0, integrity: {}, storage: undefined };
+  return {
+    result,
+    fileIntegrity: mergedFileIntegrity(input.files, result.integrity, prevFiles),
+    uploaded: result.stored,
+    skipped: input.files.length - uploadFiles.length,
+    total: input.files.length,
+  };
 }
 
 function formatBundleMb(files: Array<{ bytes: Uint8Array }>): string {
@@ -162,6 +267,8 @@ interface PublishToFastKvInput {
   privateKey?: string;
   wallet?: boolean;
   registry?: string;
+  /** Skip the diff upload and re-upload every dist file (escape hatch). */
+  fullUpload?: boolean;
 }
 
 interface PublishToFastKvResult {
@@ -500,6 +607,20 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
   const urlOrigin = plan.cdnOrigin ?? `https://${gateway}`;
   const deployTargets = (built ?? []).filter((key) => targets.includes(key));
   const platformEntries: DeployResultEntry[] = [];
+  const fullUpload = input.fullUpload === true || process.env.BOS_FULL_UPLOAD === "1";
+  // Previous per-workspace pins for the diff upload: the local pointer wins
+  // (written after every confirmed publish), the published config is the
+  // fallback. Neither → full upload.
+  const prevPins: Record<string, PreviousPin> = fullUpload
+    ? {}
+    : {
+        ...pinsFromPublishedConfig(
+          (plan.publishedConfig ?? {}) as BosConfigInput,
+          account,
+          gateway,
+        ),
+        ...pinsFromDeployState(configDir, account, gateway),
+      };
 
   console.log();
   console.log(`  CDN deploy — uploading workspace dists to ${storageOrigin}...`);
@@ -508,22 +629,21 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     if (!ws) continue;
 
     const distFiles = await collectDistFiles(join(ws.path, "dist"));
-    const totalMb = formatBundleMb(distFiles);
-    console.log(
-      `    ${padRight(key, 28)} uploading ${distFiles.length} files (${totalMb}) → ${urlOrigin}/bundles/${account}/${gateway}/${key}/`,
-    );
+    const workspaceBase = `${urlOrigin}/bundles/${account}/${gateway}/${key}/`;
     const startedAt = Date.now();
     // an upload failure aborts the train as a structured error — the
     // previously published version stays fully live (ticket 05)
-    let result: Awaited<ReturnType<typeof uploadWorkspaceDist>>;
+    let outcome: DiffUploadOutcome;
     try {
-      result = await uploadWorkspaceDist({
+      outcome = await diffUploadWorkspace({
         origin: storageOrigin,
         apiKey: storageApiKey,
         account,
         gateway,
         workspace: key,
         files: distFiles,
+        base: workspaceBase,
+        previousPin: prevPins[key],
       });
     } catch (error) {
       return {
@@ -538,9 +658,10 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     const report = readBuildReport(join(ws.path, "dist"));
     const ssrReport = readBuildReport(join(ws.path, "dist", "ssr"));
     // the entry SRI keyed by the build report's hashed name
-    const integrity = report ? result.integrity[report.entry] : undefined;
-    const ssrIntegrity = ssrReport?.entry ? result.integrity[`ssr/${ssrReport.entry}`] : undefined;
-    const fileCount = result.stored;
+    const integrity = report ? outcome.fileIntegrity[report.entry] : undefined;
+    const ssrIntegrity = ssrReport?.entry
+      ? outcome.fileIntegrity[`ssr/${ssrReport.entry}`]
+      : undefined;
 
     const manifestPointer = await pinWorkspaceVersionManifest({
       origin: storageOrigin,
@@ -550,7 +671,8 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
       workspace: key,
       report,
       ssrReport,
-      integrityMap: result.integrity,
+      integrityMap: outcome.fileIntegrity,
+      files: outcome.fileIntegrity,
     });
     if (!manifestPointer) {
       return {
@@ -563,7 +685,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
       };
     }
 
-    if (result.storage === "memory") {
+    if (outcome.result.storage === "memory" || manifestPointer.storage === "memory") {
       return {
         status: "error",
         registryUrl,
@@ -576,7 +698,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     }
 
     console.log(
-      `    ${colors.green(icons.ok)} ${padRight(key, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}/ (${fileCount} files, ${formatDuration(Date.now() - startedAt)})`,
+      `    ${colors.green(icons.ok)} ${padRight(key, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}/ (${outcome.uploaded} uploaded, ${outcome.skipped} skipped, ${formatDuration(Date.now() - startedAt)})`,
     );
 
     platformEntries.push(
@@ -605,29 +727,26 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
       const uiName = resolveUiRuntimeName(rawUi, join(ws.path, "ui"), key);
       let uiIntegrity: string | undefined;
       let uiSsrIntegrity: string | undefined;
-      let uiFileCount: number | undefined;
-      let uiManifestPointer: { file: string; integrity: string } | undefined;
+      let uiManifestPointer: VersionManifestPin | undefined;
       if (existsSync(uiDistDir)) {
         const uiDistFiles = await collectDistFiles(uiDistDir);
-        console.log(
-          `    ${padRight(`${key}-ui`, 28)} uploading ${uiDistFiles.length} files (${formatBundleMb(uiDistFiles)}) → ${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/`,
-        );
         const uiStartedAt = Date.now();
-        const uiResult = await uploadWorkspaceDist({
+        const uiOutcome = await diffUploadWorkspace({
           origin: storageOrigin,
           apiKey: storageApiKey,
           account,
           gateway,
           workspace: `${key}-ui`,
           files: uiDistFiles,
+          base: `${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/`,
+          previousPin: prevPins[`${key}-ui`],
         });
         const uiReport = readBuildReport(uiDistDir);
         const uiSsrReport = readBuildReport(join(uiDistDir, "ssr"));
-        uiIntegrity = uiReport ? uiResult.integrity[uiReport.entry] : undefined;
+        uiIntegrity = uiReport ? uiOutcome.fileIntegrity[uiReport.entry] : undefined;
         uiSsrIntegrity = uiSsrReport?.entry
-          ? uiResult.integrity[`ssr/${uiSsrReport.entry}`]
+          ? uiOutcome.fileIntegrity[`ssr/${uiSsrReport.entry}`]
           : undefined;
-        uiFileCount = uiResult.stored;
 
         uiManifestPointer = await pinWorkspaceVersionManifest({
           origin: storageOrigin,
@@ -637,7 +756,8 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
           workspace: `${key}-ui`,
           report: uiReport,
           ssrReport: uiSsrReport,
-          integrityMap: uiResult.integrity,
+          integrityMap: uiOutcome.fileIntegrity,
+          files: uiOutcome.fileIntegrity,
         });
         if (!uiManifestPointer) {
           return {
@@ -650,8 +770,20 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
           };
         }
 
+        if (uiOutcome.result.storage === "memory" || uiManifestPointer.storage === "memory") {
+          return {
+            status: "error",
+            registryUrl,
+            built,
+            skipped,
+            deployResults,
+            error:
+              "The receiving instance is serving bundle storage from memory (BOS_STORAGE_* R2 credentials are not configured there) — uploaded bytes would be lost on restart. Aborting before publish.",
+          };
+        }
+
         console.log(
-          `    ${colors.green(icons.ok)} ${padRight(`${key}-ui`, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/ (${uiFileCount} files, ${formatDuration(Date.now() - uiStartedAt)})`,
+          `    ${colors.green(icons.ok)} ${padRight(`${key}-ui`, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/ (${uiOutcome.uploaded} uploaded, ${uiOutcome.skipped} skipped, ${formatDuration(Date.now() - uiStartedAt)})`,
         );
       } else {
         console.log(
@@ -748,6 +880,23 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     `    ${colors.dim(`+ per-deploy manifest ${manifestKey.split("/").pop()} (audit trail)`)}`,
   );
 
+  // Record the live pins for the next deploy's diff upload — only after the
+  // config is confirmed published, so the pointer never claims undeployed state.
+  const persistDeployState = () => {
+    try {
+      const pins = pinsFromPublishedConfig(publishPayload as BosConfigInput, account, gateway);
+      if (Object.keys(pins).length > 0) {
+        upsertDeployStatePins(configDir, account, gateway, pins);
+      }
+    } catch (error) {
+      console.log(
+        colors.dim(
+          `  Note: could not update .bos/deploy-state.json — ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
+  };
+
   try {
     const alreadyPublished = await isConfigAlreadyPublished({
       account,
@@ -757,6 +906,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     });
     if (alreadyPublished) {
       console.log("  Already up to date — skipping transaction");
+      persistDeployState();
       return {
         status: "published",
         registryUrl,
@@ -828,6 +978,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
       publishConfig: publishPayload,
       registry: input.registry,
     });
+    persistDeployState();
 
     return {
       status: "published",
