@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import {
   type WorkspaceVersionManifest,
   WorkspaceVersionManifestSchema,
 } from "every-plugin/version-manifest";
+import { bundleUrlToStagedPath, resolveContained } from "./bundle-path";
 
 /**
  * Version-manifest slot resolution (atomic-deploys 04): a config slot's
@@ -48,6 +51,70 @@ function fetchText(url: string, fetchImpl: typeof fetch): Promise<string> {
   });
 }
 
+function slotVersionFromManifest(
+  base: string,
+  manifest: WorkspaceVersionManifest,
+): ResolvedSlotVersion {
+  const trimmedBase = base.replace(/\/$/, "");
+  return {
+    entryUrl: `${trimmedBase}/${manifest.entry}`,
+    entryIntegrity: manifest.entryIntegrity,
+    ...(manifest.browserManifest
+      ? { browserManifestUrl: `${trimmedBase}/${manifest.browserManifest.file}` }
+      : {}),
+    ...(manifest.ssr
+      ? {
+          ssrEntryUrl: `${trimmedBase}/${manifest.ssr.entry}`,
+          ssrIntegrity: manifest.ssr.integrity,
+        }
+      : {}),
+    ...(manifest.files ? { files: manifest.files } : {}),
+  };
+}
+
+/**
+ * Staged-slot preference (ADR 0020/0021 self-contained tier): when a runtime
+ * stages its own namespace under `BOS_BUNDLE_DIR`, a slot resolves from the
+ * staged dist's own version manifest instead of the config's pin — pinned
+ * manifest bytes that predate the image (deploy lag after a release bump)
+ * cannot exist in the staged namespace, so their hashed files would 404 the
+ * disk and fall through to the network, where the stale immutable bytes
+ * still answer 200 and boot a foreign build. The staged manifest is trusted
+ * (staged by the image build itself) and skipped entirely when the slot is
+ * absent from the staged namespace or the pinned manifest is present (the
+ * normal healthy case, which keeps the pin's SRI check).
+ */
+function readStagedSlotVersion(base: string, pin: SlotPin): ResolvedSlotVersion | null {
+  const bundleDir = process.env.BOS_BUNDLE_DIR;
+  if (!bundleDir) return null;
+
+  const slotDir = bundleUrlToStagedPath(base, bundleDir);
+  if (!slotDir || !existsSync(slotDir)) return null;
+
+  const pinnedManifestPath = resolveContained(slotDir, pin.manifest);
+  if (!pinnedManifestPath || existsSync(pinnedManifestPath)) return null;
+
+  const versionsDir = path.join(slotDir, "versions");
+  if (!existsSync(versionsDir)) return null;
+  const manifests = readdirSync(versionsDir)
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => path.join(versionsDir, name))
+    .filter((file) => statSync(file).isFile())
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs || (a < b ? -1 : 1));
+  if (manifests.length === 0) return null;
+  const manifestPath = manifests[0];
+  if (!manifestPath) return null;
+
+  try {
+    const manifest = WorkspaceVersionManifestSchema.parse(
+      JSON.parse(readFileSync(manifestPath, "utf8")),
+    );
+    return slotVersionFromManifest(base, manifest);
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveSlotVersion(input: {
   base: string;
   pin: SlotPin;
@@ -59,6 +126,12 @@ export async function resolveSlotVersion(input: {
   const cached = cache.get(key);
   if (cached) return cached;
 
+  const staged = readStagedSlotVersion(input.base, input.pin);
+  if (staged) {
+    cache.set(key, staged);
+    return staged;
+  }
+
   const manifestUrl = `${input.base.replace(/\/$/, "")}/${input.pin.manifest.replace(/^\//, "")}`;
   const body = await fetchText(manifestUrl, input.fetchImpl ?? fetch);
   const computed = `sha384-${createHash("sha384").update(body).digest("base64")}`;
@@ -69,22 +142,7 @@ export async function resolveSlotVersion(input: {
   }
   const manifest: WorkspaceVersionManifest = WorkspaceVersionManifestSchema.parse(JSON.parse(body));
 
-  const resolved: ResolvedSlotVersion = {
-    entryUrl: `${input.base.replace(/\/$/, "")}/${manifest.entry}`,
-    entryIntegrity: manifest.entryIntegrity,
-    ...(manifest.browserManifest
-      ? {
-          browserManifestUrl: `${input.base.replace(/\/$/, "")}/${manifest.browserManifest.file}`,
-        }
-      : {}),
-    ...(manifest.ssr
-      ? {
-          ssrEntryUrl: `${input.base.replace(/\/$/, "")}/${manifest.ssr.entry}`,
-          ssrIntegrity: manifest.ssr.integrity,
-        }
-      : {}),
-    ...(manifest.files ? { files: manifest.files } : {}),
-  };
+  const resolved = slotVersionFromManifest(input.base, manifest);
   cache.set(key, resolved);
   return resolved;
 }

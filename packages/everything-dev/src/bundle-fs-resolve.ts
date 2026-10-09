@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { cacheControlOf } from "every-plugin/build/artifact-names";
+import { bundleUrlToStagedPath } from "./bundle-path";
 import {
   bundleCachePath,
   bundleCacheRoot,
@@ -63,31 +64,17 @@ const MIME_TYPES: Record<string, string> = {
   ".xml": "application/xml",
 };
 
+/**
+ * Own-namespace path for a bundle URL: the shared URL→staged-path mapping,
+ * narrowed to the runtime identity — a URL whose encoded namespace differs
+ * from `namespace.account`/`namespace.gateway` must fall to the network/cache
+ * path, never serve a sibling namespace's staged bytes.
+ */
 export function bundleUrlToLocalPath(url: string, namespace: BundleNamespace): string | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+  const filePath = bundleUrlToStagedPath(url, namespace.bundleDir);
+  if (!filePath) return null;
 
-  const prefix = `/bundles/${encodeURIComponent(namespace.account)}/${encodeURIComponent(namespace.gateway)}/`;
-  if (!parsed.pathname.startsWith(prefix)) return null;
-
-  let rest: string;
-  try {
-    rest = decodeURIComponent(parsed.pathname.slice(prefix.length));
-  } catch {
-    return null;
-  }
-  if (!rest || rest.endsWith("/")) return null;
-
-  // BOS_BUNDLE_DIR holds `<account>/<gateway>/<workspace>/…` directly (the
-  // same layout host/src/routes/bundles.ts serves) — resolve and contain
-  // within the OWN namespace, never a sibling one.
   const nsDir = path.resolve(namespace.bundleDir, namespace.account, namespace.gateway);
-  const filePath = path.resolve(nsDir, rest);
   if (filePath !== nsDir && !filePath.startsWith(nsDir + path.sep)) return null;
 
   return filePath;

@@ -81,6 +81,32 @@ describe("fetchRemoteIdentityManifest", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("splits base and manifest path for content-hashed production entry URLs", async () => {
+    let requested: string | null = null;
+    globalThis.fetch = (async (input: unknown) => {
+      requested = String(input);
+      return new Response(JSON.stringify({ metaData: {}, shared: [] }), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    await fetchRemoteIdentityManifest(
+      "https://cdn.example/bundles/a.near/g.app/auth/remoteEntry.258b301cd767558d.js",
+    );
+    expect(requested).toBe("https://cdn.example/bundles/a.near/g.app/auth/mf-manifest.json");
+    globalThis.fetch = originalFetch;
+  });
+
+  it("keeps directory-style bases intact and appends the manifest path", async () => {
+    let requested: string | null = null;
+    globalThis.fetch = (async (input: unknown) => {
+      requested = String(input);
+      return new Response(JSON.stringify({ metaData: {}, shared: [] }), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    await fetchRemoteIdentityManifest("https://cdn.example/bundles/a.near/g.app/auth/");
+    expect(requested).toBe("https://cdn.example/bundles/a.near/g.app/auth/mf-manifest.json");
+    globalThis.fetch = originalFetch;
+  });
+
   it("returns null on non-OK responses", async () => {
     globalThis.fetch = (async () =>
       new Response("not found", {
