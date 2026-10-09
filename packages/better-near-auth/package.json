@@ -57,7 +57,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nearbuilders/everything-dev.git",
+    "url": "https://github.com/NEARBuilders/everything-dev",
     "directory": "packages/better-near-auth"
   },
   "bugs": {
