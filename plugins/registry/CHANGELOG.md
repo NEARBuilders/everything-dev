@@ -1,5 +1,47 @@
 # @everything-dev/registry-plugin
 
+## 1.5.0-rc.0
+
+### Minor Changes
+
+- d57b8f4: Upgrade build toolchain to Rspack 2.2 / Rsbuild 2.2 / Module Federation 2.9
+
+  Version catalog bumps: @rspack/core + @rspack/cli → 2.2.6, @rsbuild/core → 2.2.8,
+  @rsbuild/plugin-react → 2.1.0, @module-federation/\* → latest 2.x (enhanced 2.9.0,
+  node 2.7.50). @module-federation/runtime-tools and @rspack/dev-server are now
+  explicit dependencies where used.
+
+  BREAKING (every-plugin): EveryPluginDevServer removed from every-plugin/build/rspack.
+  Plugin dev serving is now standalone — `every-plugin-serve` (supervised
+  `rspack build --watch` + plain node:http server with the same contract: health,
+  remoteEntry statics, oRPC RPC/OpenAPI, sibling composition, effect context).
+  Plugin dev scripts use `every-plugin-serve` instead of `rspack serve`.
+  EveryPluginBuild carries the build-side responsibilities only.
+
+  Deploy note: `bos mf check` compares host and remote pluginVersion exactly, so
+  after the 2.9.0 host deploys, remote-only plugins must be redeployed on
+  Module Federation 2.9.0 to stay compatible.
+
+### Patch Changes
+
+- d57b8f4: Build output hardening for the platform deploy path.
+
+  - Show all stdout during deploy builds (not just chunks matching a provider regex). Chunks can split across boundaries so a filtered URL never matched — deploy builds now pass all stdout through unconditionally.
+  - Extract build-result classification as a pure function from the build attempt, making the exit-code classification testable without spawning processes.
+  - Fix variable shadowing where inner `const result` shadowed the outer `await run(...)` binding.
+  - Remove the unnecessary per-workspace env copy.
+
+- d57b8f4: Fix testnet FastKV registry namespace defaulting to mainnet account
+
+  - Testnet namespace was hardcoded to `dev.everything.near` (a mainnet account) instead of `dev.allthethings.testnet`. Publishing to testnet submitted transactions against the wrong contract.
+  - Remove `REGISTRY_FASTKV_*_NAMESPACE` and `REGISTRY_FASTKV_*_URL` env var overrides — URLs and namespaces are now hardcoded constants.
+  - Add `--registry` flag to `bos publish`, `bos deploy`, and `bos key generate` to override the FastKV registry contract account at the CLI level.
+  - Clean up `plugins/apps` RegistryConfigService to drop the env var fallback, relying on the `registryNamespace` bos.config.json variable.
+
+- d57b8f4: Rework the node lifecycle prototype at `/prototype-staking-poc` into a signer-aware clock with twelve ordered stations: apply, approve, publish the tenant, lock the endowment's NEAR, stake the pool from its lockup, stake the team's own NEAR, register the team wallet in veNEAR, assign the endowment's delegation, vote in House of Stake, unstake the pool, take the vote back, and unstake the team's stake. Each station declares its signer, so when the Trezu treasury changes between acts the row prompts you to connect before it can sign; one click runs everything the connected role can sign. DAO-signed actions are routed through the cycle as sputnik-dao proposals. Approving a staged proposal now always goes through the connected Trezu wallet — a mismatched treasury is disconnected and reconnected as the proposal's DAO before the vote is signed — and a station only reads done once none of its proposals still await votes; skipped stations say why. The admin "node applications" cleanup panel is gone.
+
+  Tenant URLs across the dashboard, the public node page, the directory, the registry detail, and the prototype now build through a single dev-aware helper that resolves `<label>.localhost` against the host's binding resolver in development and `https://<label>.<gateway>` in production. The host's binding resolver now maps `<label>.localhost` onto the gateway alias when NODE_ENV is not production, so dev clicks on tenant links land on the right tenant instead of the base runtime. The server-side `buildOpenUrl` in the apps plugin refuses to fabricate a public URL for `*.localhost`/loopback hosts.
+
 ## 1.4.2
 
 ### Patch Changes

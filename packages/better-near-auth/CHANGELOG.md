@@ -1,5 +1,73 @@
 # better-near-auth
 
+## 2.0.0-rc.0
+
+### Major Changes
+
+- d57b8f4: Adopt the Effect DevTools toolchain: native TypeScript 7 (`@effect/tsgo`) with the Effect language-service plugin, and Oxlint with type-aware Effect rules.
+
+  TypeScript peer/dev ranges are narrowed to `^7.0.2` (no more `^5` support): `every-plugin`, `better-near-auth`, and `@everything-dev/auth-plugin` now require TypeScript 7, and `everything-dev` moves its devDependency to `^7.0.2`. Builds are unaffected (rspack/rsbuild transpile); typechecks and the editor language service run on the patched TS 7 native compiler.
+
+  TS 7 compatibility fixes: the test-plugin fixture consumes the built `every-plugin` declarations, and a new root `tsconfig.base.json` consolidates shared compiler options across parent-owned workspace tsconfigs (scaffolded `ui/`/`api/`/`plugins/*` tsconfigs stay self-contained since they are copied verbatim into child projects).
+
+  Contract declarations move into the plugin build entirely: `every-plugin build`/`deploy`/`dev` regenerate `types/contract.d.ts` from `src/contract.ts` via the patched TypeScript 7 binary whenever it is stale (rspack watch keeps dev types fresh automatically), and `EmitPluginManifest` embeds the fresh file with a verified sha256. The per-workspace `tsconfig.contract.json` files are removed — `bos sync` migrates child projects, and `every-plugin types` regenerates manually. `bos typecheck` now regenerates client-stub types itself before type-checking, so the root `types:gen` script is gone. Remote plugin-manifest fetches during `types gen` retry on transient network failures.
+
+### Minor Changes
+
+- d57b8f4: Vendor better-near-auth into the monorepo at packages/better-near-auth and bump to a minor release: add ML-DSA-65 (post-quantum) NEP-413 signature verification for passkey-derived NEAR keys, move to near-kit ^0.19.0 APIs (fromNearConnect, InMemoryKeyStore, parseKey), add optional react peer dependency with nanostores-backed react/store entrypoints, and expose `development` export conditions so workspace consumers typecheck and build against src.
+
+  The package is now published from this repo via changesets (repository/bugs/homepage point at NEARBuilders/citynode.app).
+
+- d57b8f4: Add mobile-to-desktop sign-in and passkey-based NEAR wallets:
+
+  - RFC 8628 device authorization flow (official Better Auth `deviceAuthorization` plugin, first-party session path with a configurable `deviceLink.clientId` variable — default `everything-dev`, citynode.app overrides with `citynode-web`), a `/device-link/claim` endpoint that exchanges the polled session token for an httpOnly cookie, and auth-plugin UI pages for QR pairing (`/login` "sign in with phone"), `/device` code verification, and `/device/approve` approval.
+  - Passkey sign-in through the official `@better-auth/passkey` plugin: session-less first-time registration (generated-email user via `registration.resolveUser`) with a sign-in orchestration that creates the credential on first use, plus "sign in with passkey" buttons on `/login` and `/onboard`.
+  - NEP-616 deterministic (`0s…`) passkey wallet support: `/near/link-passkey-wallet` verifies a NEP-413 assertion against the user's stored passkey credentials server-side (challenge binding, user-verification enforced, nonce replay protection) and links the derived account — no public key crosses the wire, no on-chain lookup needed. `/near/verify` also accepts passkey wallet-contract accounts.
+  - `siwnClient` gains a `wallets` option for registering near-connect sandbox wallet executors.
+  - Organization onboarding stations: capped, expiring onboarding codes (named after an event) with QR pairing, live redemption status, and event-team membership. Station codes always grant plain membership — revocation now rejects prior redeemers too, and the plaintext code is displayed once at creation.
+
+- d57b8f4: NEAR account management on the sign-in methods page, and a phone-free mobile login:
+
+  - The "Sign in with your phone" option is now desktop-only — on mobile viewports the login page shows passkey and NEAR wallet only, and the "no passkey found" hint drops the phone suggestion.
+  - The NEAR wallet section in Settings → Sign-in methods manages every linked NEAR account, not just the active one: make an account primary, unlink an account (with confirmation), or link another named account at any time.
+  - When the user has a passkey and the network supports a Passkey Wallet, an account with no linked NEAR account can create one derived from their passkey (`auth.near.linkPasskeyWallet`) — no seed phrase. Linking now uses the dedicated `near.link` action instead of a full sign-in ceremony.
+  - better-near-auth: exports `isDeterministicAccountId` so consumers can recognize Passkey Wallet (`0s…`) accounts without duplicating the NEP-616 format.
+
+- d57b8f4: Single-ceremony passkey sign-up with a linked Passkey Wallet:
+
+  - A passkey registration begun without a session now ends signed in, with the Passkey Wallet derived from the new credential linked as the member's primary NEAR account — one biometric prompt. It applies only to a user created by that registration who owns exactly that credential; "add a passkey" while signed in never mints a session or changes the primary NEAR account. The verify-registration response carries `passkeyWallet` (`linked` or `unavailable`).
+  - Registration asks for a discoverable, user-verified ES256 or EdDSA credential; registrations and sign-ins without user verification, or with a key that cannot derive a Passkey Wallet, are refused (`PASSKEY_UNSUPPORTED_AUTHENTICATOR` / `PASSKEY_USER_VERIFICATION_REQUIRED`).
+  - The passkey plugin accepts every configured Gateway Origin of the runtime's network (`passkey.gatewayOrigins.{mainnet,testnet}`), with the rpID unchanged. The network comes from the runtime account.
+  - better-near-auth: Passkey Wallet linking is one operation (`linkPasskeyWalletFromCredential`) shared by `/near/link-passkey-wallet` and the sign-up hook. Linking uses the new `passkeyWalletNetwork` option instead of a hard-coded mainnet; a network with no passkey wallet factory skips linking and reports `PASSKEY_WALLET_UNAVAILABLE`. `getPasskeyWalletFactory` and `isPasskeyWalletAvailable` are exported.
+  - everything-dev: `signInWithPasskey` no longer falls through to registration; use the new `createAccountWithPasskey` to create an account. `isPasskeyAutofillAvailable` and `isUnsupportedAuthenticatorError` support browser autofill and unsupported-authenticator messaging.
+  - Users created by abandoned passkey registrations (older than an hour, with no passkey, NEAR account, account, session or phone number) are swept every 15 minutes, with their personal organization.
+  - The login page offers passkey autofill and points to Sign in with phone or a NEAR wallet when no passkey is found; the onboarding page offers "Create account" and "I already have an account", notes when no passkey wallet exists on the network, and offers an optional display name after joining.
+
+- d57b8f4: Self-heal the ephemeral relayer key when decryption fails. The `relayer_key` row is encrypted under `BETTER_AUTH_SECRET` (HKDF → AES-256-GCM); after a secret rotation every boot failed with `Cipher job failed` / `OperationError` and the relay stayed permanently disabled until the rows were deleted by hand. Since a GCM auth-tag mismatch means the private key is already unrecoverable, `initRelayer` now deletes the undecryptable row and generates a fresh ephemeral keypair, warning loudly with the stranded implicit account id (fund the new account to re-enable gasless relay). Only the decrypt call is treated as recovery-worthy — transient failures elsewhere in the recovery path never delete the stored key.
+- d57b8f4: Session gas keys (NEP-611) are the primary gasless write path, and the legacy sub-account relayer-FCAK config is removed.
+
+  New: `siwn({ sessionGasKey })` (flat or dual-network, like the relayer) — scope (`receiverId`/`methodNames`), top-up fund amount and threshold, per-user lifetime cap, and nonce-lane count. New session-gated endpoints: `POST /near/gas-key/fund` (Sponsor-signed `TransferToGasKey` under on-chain scope/balance verification and the lifetime cap, recorded in a `fundedGasKey` table), `POST /near/gas-key/info`, and `GET /near/gas-key/scope`. The client gains `addSessionGasKey` (wallet-signed Bootstrap `AddKey` with `gasKeyInfo`, refused for wallets whose manifest lacks `features.gasKeys`), `sendWithGasKey` (local signing on rotating nonce lanes through a wallet-less client), `refreshGasKeyInfo`, `ensureGasKeyFunded`, `isGasKeyWalletSupported`, and `getGasKeyScope`; a `gasKeyState` atom joins the client atoms. The wallet connector is now `@hot-labs/near-connect` (installed from the gas-key-capable fork `elliotBraem/near-connect#v0.12.0-fork.2` — the fork line gas-key wallets run); near-kit is bumped to ^0.20.2.
+
+  Removed: `SubAccountConfig.addRelayerFCAK` / `relayerFCAK` and the `NEAR_SUB_ACCOUNT_PARENT_KEY_*` secret plumbing — session gas keys are the only key-sponsorship mechanism. Sub-account creation still works with an explicit relayer whose account is the parent, or a parent key passed directly via `siwn({ secrets: { parentKey } })`. See ADR 0017 for the model (session gas keys first, relayer fallback).
+
+- f5f1a5f: Upgrade all six skills with "the tasks you will actually be given" walkthroughs and grounded refusal-word → action tables (NEP-413 verify, nonce/replay, relay limits, sub-account rollback, session and wallet-connection failures), and extract the client skill's 50-line action tables into `references/client-actions.md`.
+
+### Patch Changes
+
+- d57b8f4: Compile login catalogs before loading them into Lingui, preserve the NEP-413 callback URL throughout wallet signing and verification, and keep local plugin manifests and source-first runtime loading working on Windows.
+- c520871: Stringify unknown throwables safely in plugin error messages.
+- 4d8efd1: Unify the `@tanstack/intent` devDependency on the workspace catalog (was a stale `^0.0.40` pin) and refresh the `auth-plugin` skill's version anchors to 1.10.x (library_version, compatibility table). Re-export `readSessionNearAccountId` from `better-near-auth/client` — the SIWN client skill teaches importing it there (the session-linked account narrowing helper was previously internal to `store.js`).
+- 9191ab3: De-brand sweep across the shipped surface: the better-near-auth package's repository/bugs/homepage URLs now point at nearbuilders/everything-dev. In the app surface, login copy is fully generic in all four locales (en/es/fr/zh), the locale cookie is renamed from `citynode_locale` to `app_locale` (saved-language loss is pre-launch acceptable), and the settings language description no longer names the product. Regression infrastructure (image/container names, seed emails) is neutralized; the onboarding-code key salt is unchanged for crypto continuity.
+- d57b8f4: Enforce the configured network recipient for signed authentication and ignore wallet callbacks from inactive networks.
+- d57b8f4: Confirm the SIWN auth relayer is in `RelayerEphemeralConfig` ("Ephemeral with settings") mode: a rich-object `relayer` block in `bos.config.json → app.auth.variables.siwn` with `whitelistedContracts`, `maxGasPerTransaction`, and `maxDepositPerTransaction` and no `accountId` / `privateKey`. better-near-auth 1.9.0's `initRelayer` resolves this to an auto-generated ED25519 keypair on first startup, encrypted with `BETTER_AUTH_SECRET` (HKDF-SHA256 → AES-256-GCM) and persisted in the `relayerKey` table.
+
+  The vestigial `NEAR_RELAYER_PRIVATE_KEY` line is removed from `.env.example` in favor of an inline comment pointing operators at `/admin/relayer` (which surfaces a "needs funding" prompt using `getRelayerInfo().enabled === false` once the auto-generated implicit account has zero balance). Operators funding the implicit account via `authClient.near.getNearClient().transfer()` enables relay without ever leaving the existing ephemeral-mode config.
+
+  AGENTS.md gains a "SIWN Auth Relayer" subsection under "Common Patterns" documenting the operational rules (funding flow, parent-key requirement for sub-account creation, why the implicit relayer account can't own sub-accounts, and the path back to `RelayerExplicitConfig` if a named-account relayer is needed).
+
+- d57b8f4: Accept NEAR wallet sign-ins whose NEP-413 signature omits the optional callback URL (e.g. Intear Wallet), which were rejected as "Invalid signature" since the callback URL started being verified.
+- d57b8f4: Switch the wallet connector from `@fastnear/near-connect` back to the `@hot-labs/near-connect` lineage, installed from the gas-key-capable fork `elliotBraem/near-connect#v0.12.0-fork.2` (github tag). The fork natively provides gas-key actions (`AddKey` with `gasKeyInfo`, `TransferToGasKey`, `WithdrawFromGasKey`), the `features.gasKeys` manifest flag, `cspNonce` sandbox support, and the iframe dispose guard that previously had to be restored via a tracked patch — `patchedDependencies` and the patch file are dropped, and near-kit's `fromNearConnect` peer typing is satisfied directly. No API surface changes.
+
 ## 1.10.2
 
 ### Patch Changes

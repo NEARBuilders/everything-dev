@@ -1,6 +1,6 @@
 {
   "name": "@everything-dev/registry-plugin",
-  "version": "1.4.2",
+  "version": "1.5.0-rc.0",
   "description": "Registry plugin for discovering and publishing apps via NEAR FastKV",
   "type": "module",
   "exports": {

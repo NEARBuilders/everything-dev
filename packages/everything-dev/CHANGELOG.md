@@ -1,5 +1,775 @@
 # everything-dev
 
+## 2.0.0-rc.0
+
+### Major Changes
+
+- d57b8f4: Consolidated `bos deploy` — one command runs the full train, and `bos publish` is config-only (ADR 0020/0021).
+
+  **`everything-dev` (breaking):**
+
+  - `bos deploy` is the full train: preflight (config → auth guards → signing → storage/CDN credentials → registry reachability, all before any build) → staleness-checked build train → bundle upload to the R2-backed storage → FastKV publish with read-back confirmation → `runtime` image build pushed to GHCR by short-SHA and `latest` tags (image name: `ci.image` in `bos.config.json`, `BOS_IMAGE` env, or derived from `repository`) → pull-only Railway deploy pinned to the pushed digest via a generated thin `FROM <image>@sha256:<digest>` Dockerfile in `.bos/deploy/` (`RAILWAY_DOCKERFILE_PATH`). Missing legs (no `ci.image`, no docker, no `RAILWAY_TOKEN`) degrade gracefully with a notice — child repos get build+upload+publish only.
+  - `bos publish` no longer builds or uploads — it re-publishes the current `bos.config.json` and confirms the read-back. The `--deploy` and `--packages` options are removed (`bos build --deploy` is gone too); use `bos deploy`.
+  - `DeployResultSchema` replaces the required `redeployed` boolean with optional `image`/`service`; the deploy command's `railway redeploy` branch (which re-deployed the _old_ image) is deleted.
+  - Storage-mode disclosure: the bundle upload response carries `storage: "s3" | "memory"`; `bos deploy` hard-fails when the receiving instance only has in-memory storage (bytes would be lost on restart).
+  - Scaffolded children get `"deploy": "bos deploy"` and single-command deploy/staging workflow templates.
+
+  **`api`:** `POST /api/storage/bundles` responses include `storage: "s3" | "memory"` reflecting the resolved bundle-storage backend.
+
+- d57b8f4: Effect-native plugins: `.effect()` handlers, Layer-returning `initialize`, router merging, and direct package imports. Implements `plans/infra/effect-native-plugins.md` (the handler-idiom half of the oRPC v2 + Effect 4 migration).
+
+  **every-plugin — breaking `createPlugin` API**
+
+  - `initialize` returns an Effect `Layer` instead of a deps record. The runtime builds the Layer in the plugin's lifecycle scope and exposes services through the oRPC context (`effect/context`), so handlers access them with `yield* Tag` in `.effect()` generators or `Context.get(context["effect/context"], Tag)` in plain/streaming handlers. `Layer.buildWithScope` + `Context.get` extraction in plugin code is gone.
+  - `createRouter(builder, plugins)` — the deps parameter is removed. Sibling plugin entries in `plugins` carry `{ client, router }` for cross-plugin router merging (nesting a sibling's router also surfaces its routes in the host's OpenAPI spec and MCP tools).
+  - `shutdown` is removed — Layer finalizers scoped to the plugin handle teardown.
+  - New optional `servicesTag` on the plugin definition lets the host read a plugin's services from the built Effect context without importing the plugin module (used by the host to mount the auth plugin's Better Auth handler).
+  - `@orpc/experimental-effect` (`.effect()` builder extension) and `@orpc/openapi` `.route()` extension are pre-loaded by the runtime; plugins import `oc`, `ORPCError`, `zod`, `effect` directly and the `every-plugin/orpc`, `every-plugin/effect`, `every-plugin/zod` re-export barrels (plus the `runEffect`/`flattenError` bridges) are deleted.
+  - `@orpc/openapi`, `@orpc/experimental-effect`, and `@orpc/publisher` are now Module Federation shared singletons.
+  - `InitializedPlugin.context` (deps record) is replaced by `InitializedPlugin.effectContext`; `usePlugin`'s `createClient` injects `effect/context` so server-side/SSR calls work with `.effect()` handlers.
+
+  **Host**
+
+  - `/api/rpc/*` and `/api` handlers inject the serving plugin's Effect context; the base API handler receives the merged context of all initialized plugins so merged sub-routers resolve their own services. MCP tool invocations get the same injection.
+
+  **API plugin**
+
+  - The four template-plugin passthrough handlers and their re-declared schemas are deleted; the template router is merged directly as `things`, so its routes appear under `/api` OpenAPI docs and MCP automatically.
+
+  **Plugins**
+
+  - `_template` (reference implementation), `apps`, `auth`, `proposals`, and `votes` migrated to the new API. Streaming handlers stay async generators and read services synchronously from the injected Effect context.
+  - `bos upgrade`'s `ensureEffectImports` codemod now rewrites legacy `every-plugin/effect` imports to `effect` directly.
+
+  **Atomic deploy required** — unchanged from the parent migration: old remote plugins are incompatible and all remotes must be redeployed together (`bos publish --deploy`).
+
+- d57b8f4: Migrate the framework to Effect 4 (`4.0.0-rc.112`) and oRPC v2 (`2.0.0-beta.35`).
+
+  **every-plugin**
+
+  - Layer-based plugin `initialize`: services are built with `Layer.mergeAll` + `Layer.buildWithScope` inside an `Effect.gen`, replacing the removed `tools.buildService` API. `PluginServicesTools` is gone.
+  - `Context.Tag` replaced by `Context.Service<Self, Shape>()("id")` throughout.
+  - Effect 4 API migration: `Effect.either` removed (use tagged results or `runPromiseExit`), `Effect.catchAll` → `Effect.catch`, `Effect.async` → `Effect.callback`, `Layer.scoped` → `Layer.effect`, `Cause.isInterruptedOnly` → `Cause.hasInterruptsOnly`, `Fiber.RuntimeFiber` → `Fiber.Fiber`.
+  - `PLUGIN_ERROR_STATUS_MAP` now spreads oRPC v2's `COMMON_ERROR_STATUS_MAP` (providing a map replaces the default entirely) and keeps the v1 TIMEOUT → 504 / CONNECTION_ERROR → 502 overrides.
+  - `getMajorMinorVersion` preserves prerelease segments (`4.0.0-rc.112` → `^4.0.0-rc.112`) so Module Federation requiredVersion ranges keep host/plugin lockstep on RC builds.
+  - Publisher retention option renamed to `resume: { enabled, seconds }`.
+
+  **everything-dev**
+
+  - CLI runtime fully migrated to Effect 4; the orchestrator no longer depends on `@effect/platform`/`@effect/experimental` (no Effect 4 release) and spawns processes via `child_process.spawn` with `Effect.callback` exit handling and `Stream.fromReadableStream` output pipelines.
+  - `bos upgrade` codemod rewrites `Effect.provide(Layer)` call sites to the v4 `Layer.buildWithScope` + `Context.get` pattern and emits balanced-import rewrites.
+  - Contract parsing reads zod 4 schema internals (`def` instead of `_def`) and oRPC v2 `~orpc.inputSchemas[0]`, fixing boolean/negated flag parsing.
+
+  **Host / API / plugins / UI**
+
+  - All workspaces on the same Effect 4 + oRPC v2 versions via the catalog. oRPC v2 OpenAPI generator/reference plugin wiring, RPCLink `origin`/`url` split, `errorStatusMap` on all handlers.
+  - Breaking change for deployed remotes: hosts and plugins must be redeployed together (`bos publish --deploy`). v1 remote bundles are incompatible with the v2 host.
+
+- d57b8f4: Manifest composition replaces route-tree grafting as the composed-SSR model (plan 034, ADR 0007/0008). The host constructs the ENTIRE route graph from generated manifests (`manifest.gen.json` + `routeConfig.gen.ts` per ui source) through the core ui's `./compose` engine; `defineUiPlugin`, the `./tree` expose, `composeApp`/`graftCopy`, the v1 mount registry, the homegrown digest, and the dedicated `ui-ssr`/`plugin-ui-ssr` dev servers are deleted. `bos dev --ssr` now composes from source manifests in the host process (no extra servers or probes); `BOS_UI_COMPOSE` is gone. Client runtime config changes shape: `ui.compose` is now `{ digest, remotes: [{key, name, entry}], manifests }` and `ui.composeDigest` is removed. Plugin ui remotes consume shared deps with `import: false` (the core provides); mounts are registry v2 (`public`/`authenticated`/`admin` implemented, `org`/`team` declared) and root-level pathless layouts.
+- d57b8f4: Plugin identity unified and shared dependencies specified once.
+
+  **every-plugin**: new `every-plugin/identity` — one derivation for npm/remote/container names from the config layout key (`remoteName`, `containerName`, `identity`, `pluginLayoutKey`, `resolveDevPluginId`); `plugin.dev.ts` no longer carries `pluginId` (the dev server derives it from the workspace `package.json`, fixing the `dependsOn` sibling lookup). New `every-plugin/shared-deps-spec` — the canonical shared-dependency lists, criticality, and version resolution; unresolved versions now **fail the build loudly** (`SharedDependencyResolutionError`) instead of silently degrading to `*`/`latest` and disabling the strict-singleton guard; all four consumers (rspack, rsbuild, runtime mf-config, host pre-registration) derive from it. The `apps` plugin is renamed `registry` (dir, package `@everything-dev/registry-plugin`, config attachment key `plugins.registry`, `apiClient.registry.*`) — the attachment-key rename is a published-config break; land it with the bundle deploy.
+
+  **everything-dev**: consumes both modules; scaffold (`_template`) stops emitting `pluginId`.
+
+- d57b8f4: `bos plugin publish <key>` joins the atomic-deploy train — full parity with
+  `bos deploy` scoped to one plugin: preflight (storage/CDN credentials +
+  signing) fails fast before any build, then build → upload to the R2-backed
+  storage → compose + pin the workspace's version manifest → config write-back
+  → FastKV publish + read-back confirmation. Breaking: the image-native
+  `applyPluginPublishUrl` path is deleted — a plugin publish ships real bytes
+  to the storage origin; it requires the storage credentials (BOS_STORAGE_API_KEY
+  or a bos login session) it previously skipped. Tenant UI overrides are
+  pin-aware: the org node-config editor accepts and verifies a
+  `pin: { manifest, integrity }` (the "fetch bundle" flow copies the pin from
+  the deployed config), and the host verifies tenant override entries at their
+  pin-derived hashed URLs instead of the fixed entry name. The dormant
+  local-production config helper (`prepareLocalProductionConfig`, ADR 0009) is
+  deleted.
+- d57b8f4: The slot pin gets an explicit representation: config slots carry
+  `pin: { manifest, integrity }` (the versioned WorkspaceVersionManifest
+  filename + that document's SRI) instead of the overloaded flat pair — the
+  top-level `integrity` is now always a direct entry SRI, only for unpinned
+  fixed-name slots. Breaking: the flat `manifest` key is retired (deploy
+  write-backs scrub it), and outside development every remote slot MUST pin a
+  version manifest — an unpinned remote slot fails config resolution loudly
+  (pre-pin configs are pre-atomic-deploy and not servable). Fixed-name entry
+  fallbacks are development-only at every consumer (host html shell, head
+  scripts, SSR entry loads, compose webEntry); a production slot without a
+  derived `entryUrl` fails loudly. Extends merge treats the pin atomically (a
+  child pin replaces the parent's whole). Also adds `resolveEntryUrlForEnv`
+  to `every-plugin/ui/manifest` — the shared consumer contract for entry-URL
+  resolution.
+- 9191ab3: pnpm workspace, node runtime — the v2 clean break (ADR 0026)
+
+  - `bos init` emits pnpm-native children: `pnpm-workspace.yaml` (synthesized
+    globs + merged catalog), a `packageManager` field, pnpm filters in every
+    generated script, and pnpm prose in AGENTS.md/onboarding. The child's
+    authored config is always the generated `bos.app.ts` (never a copied
+    `bos.config.json`, never bunfig). Installs run `pnpm install --ignore-scripts`;
+    stray `bun.lock`/`pnpm-lock.yaml` are removed so installs re-resolve.
+  - The orchestrator spawns node/pnpm: dev services launch through `pnpm run dev`
+    (host via `NODE_OPTIONS=--conditions=development`; plugins through
+    `every-plugin dev`'s tsx path), the bun-flag chaining is gone.
+  - Workspace-root discovery reads `pnpm-workspace.yaml` first (package.json
+    `workspaces` stays the pre-v2 fallback) — fixes the prerequisite train
+    silently no-oping after the catalog moved.
+  - Non-framework `workspace:` deps normalize to `catalog:` in generated
+    children (pnpm does not link catalog-indirect workspace members).
+  - Child CI templates are pnpm/node (`pnpm/action-setup` + node 24, `pnpm audit`
+    with `AUDIT_STRICT` gating, stray-bun guard).
+
+### Minor Changes
+
+- d57b8f4: Atomic deploys phase A (tickets 01-02 of .scratch/atomic-deploys): builds emit content-hashed entrypoints (`remoteEntry.[contenthash].js`, `remoteEntry.server.[contenthash].js`), immutable hashed `mf-manifest.json` and `style.css` copies, and a per-dist `build-report.json` for the deploy leg — fixed-name entry aliases are fully retired (hard break; dev servers keep the fixed dev names as the dev serving contract). Bundle cache classification now treats any content-hashed name as immutable regardless of base name. New `every-plugin/version-manifest` export defines the immutable per-deploy `WorkspaceVersionManifest` document, and config slots accept a `manifest` pointer (versioned manifest filename) — the deploy unit for atomic, additive deploys.
+- d57b8f4: Atomic deploys phase A completed (tickets 03-04 of .scratch/atomic-deploys): the deploy leg now composes an immutable per-workspace version manifest from the server-computed SRI map, uploads it additively at `versions/<id>.json`, and pins slots by manifest pointer (`manifest` + the manifest's SRI) — a dist that cannot pin (no build report / no entry SRI) aborts the train instead of writing fallback pointer entries (hard break). Upload transport hardened: status-0 retries on fresh connections (`connection: close`, 5 attempts, backoff+jitter), retryable statuses capped at 3. Resolution derives entry-level fields (`entryUrl`, hashed browser-manifest `entry`, entry SRI, `ssrEntryUrl`) from the version manifest behind a content-addressed per-pin cache; consumers (host html/head/ui-compose/plugins SSR loads/federation SSR entries/mf type inference, hydrate manifest registration) prefer the derived hashed URLs with fixed-name fallbacks only for dev and local slots.
+- d57b8f4: Fix auth plugin remote load by resolving its MF container name from its `plugin.manifest.json` (mirrors the resolution `plugins.*` already use). Without this, in remote mode the host registered the auth remote under the slot key `"auth"` while the container's self-name was `everything-dev_auth-plugin`, causing `@module-federation/node`'s chunk-URL fallback to silently return empty chunks and throwing `ModuleFederationError: undefined is not an object (evaluating '__webpack_modules__[e].call')` — the only plugin to fail. Bos configs can set an explicit `app.auth.name` to pin the remote name.
+- 95261fe: Finish ADR 0023: the generated bootstrap stubs now read two authored override exports from `ui/src/app.ts` — `appLocale` (SSR locale negotiation: locales, defaultLocale, cookieName) and `apiConnectionError` (localized API connection-failure toast copy). Default error/pending/not-found components are set inside the authored `createRouter` factory in `ui/src/router.tsx`. Hard break to v2: children that hand-customized `hydrate.tsx` / `router.server.tsx` get them backed up and deleted by `bos sync`/`bos upgrade`, and must port the customizations into the authored seams (the sync output prints the port guide; originals land in `.bos/sync-backup/<timestamp>/`).
+- 1d0bfff: Authored `bos.app.ts` is now the canonical config form. `findConfigPath` prefers `bos.app.ts` over a legacy `bos.config.json` when both coexist — a generated write-back file can no longer shadow the authored descriptor.
+
+  Publish fixes for TS-form projects:
+
+  - Config-only `bos publish` no longer crashes with ENOENT when no `bos.config.json` exists. It resolves the authored config via the resolution session and merges authored hand-edits over the currently published FastKV config (child-wins), so live bundle URLs and integrity carry over while authored edits win. Removing a slot from the authored config still requires `bos deploy`, which regenerates the payload from scratch. When the registry read fails (unreachable — as opposed to a genuine first publish), config-only publish aborts instead of publishing a URL-less payload that would wipe live bundle URLs.
+  - The deploy train no longer writes the URL-injected config back to the authoring root for TS-form projects — pipeline state stays in FastKV. Legacy JSON-form children keep the existing `bos.config.json` write-back.
+  - The FastKV registry key remains `apps/<account>/<gateway>/bos.config.json` (unchanged wire format).
+
+  Config-mutating commands (`bos plugin add`/`remove`, `bos upgrade`, `bos registry use`) now write the authored form: TS-form projects are edited in place via the descriptor serializer (authored leaf + delta, no inherited values baked in); JSON-form children unchanged, except `plugin remove` of a parent-inherited plugin now writes a null-sentinel override (the descriptor form cannot express removal, so TS-form projects get explicit guidance instead). Swept hardcoded `bos.config.json` paths to the form-aware helpers (`bos status`, `bos mf check`, shared-deps, bundle-fetch identity) and neutralized "No bos.config.json found" error wording (shared `MISSING_CONFIG_MESSAGE`).
+
+- d57b8f4: `bos.app.ts` is operative: the config loader accepts the authored TS descriptor alongside `bos.config.json` (JSON preferred when both coexist, so the parent's pipeline-written state is untouched; a TS-only child is the new child form). The authored descriptor materializes into the same `BosConfigInput` the pipeline consumes — import-extends (an imported parent descriptor is an inlined parent) and `bos://`/file extends refs flow into the existing JSON extends chain unchanged, so publish/sync canonicalize the resolved config to JSON for FastKV with identical resolution. `bos init` scaffolds children with the TS config form by default: the personalized config materializes into an authored `bos.app.ts` and the JSON copy is removed; `bos sync` reads TS-form children through the same materialization and never injects the parent's JSON into them. Golden-fixture coverage extended: the materialization round-trip (descriptor → config input → descriptor) is proven lossless outside `extends`/`name`, and a TS-authored child is proven to resolve identically to the equivalent JSON child. ADR 0005 status advances to Accepted (phase 1). Closes #188.
+- d57b8f4: `bos dev` reads the `bos.app.ts`/`bos.dev.ts` pair: development opens pick up a root `bos.dev.ts` overlay (a `Partial<AppDescriptor>`, child-wins, never published); malformed overlays fail loudly naming the file. CLI internals: plugin.ts decomposed into per-command modules, the dev/start result carries session data (pendingSession channel deleted), `keyPublish` prompts via the shell (additive `removeOldKeys` input, piped-stdin defaults to Y as before), and the init flow fetches the parent config once.
+- d57b8f4: `bos login` — sign in with your NEAR account through the hosted site via the OAuth 2.0 Device Flow (RFC 8628), the same flow the site's QR pairing uses: the CLI requests a device code, you approve at `/login/device` in any browser (same machine or not — it works over SSH and headless), and the CLI mints its credential from the approved session. `--key` exports a scoped FastKV publish key to `~/.near-credentials`; the gasless delegate key is approved in the browser on the same page (wallet signs the `addKey`). `bos logout` revokes the credential. `bos publish --wallet` publishes gaslessly via a NEP-366 delegate action through the platform relayer. New `publish.auth` config surface (`session` | `key` | `custody`). The auth server's device-authorization plugin now serves the flow at `/login/device` (moved from `/device` — nothing had shipped against the old path) and accepts any non-empty `client_id` (public-client device flow — user approval is the trust boundary; the code↔client binding is still enforced at the token endpoint). The site's `/login` now preserves full redirect targets including query strings.
+- d57b8f4: `bos rollback`: republish an earlier config snapshot from the registry's publish history. `fetchConfigHistory` reads the FastData exact-key history (newest-first, limit 1–200). Before republishing, every pinned slot's version manifest must still serve and match its SRI — a gone or mismatched byte refuses with a per-slot report and `--force` cannot override it (force only admits pre-Phase-A snapshots with no verifiable pins, which are warned loudly). The target is stamped `rolledBackFrom` (additive config field) so publish dedup treats the rollback as distinct state, and an identical-to-live target short-circuits. No flags → interactive selection over the history listing; `--previous` and `--version <block-height>` for scripts.
+- d57b8f4: Add a `bos typecheck` command that runs TypeScript type checking across all local workspaces (host, ui, api, auth, and every plugin with a `tsconfig.json`), streaming errors inline and failing with a non-zero exit if any workspace fails. Root `bun run typecheck` now delegates to it.
+
+  - New `bos typecheck [packages]` aggregates pass/fail across all configured local workspaces instead of stopping at the first error.
+  - Framework source hardened for strict consumer configs (`noUncheckedIndexedAccess`): safe non-null assertions in `contract.ts`, `fastkv.ts`, and `api-contract.ts`.
+  - `plugins/apps` tsconfig aligned with the plugin template (`types: ["node"]`, DOM lib) so its typecheck passes.
+
+- 96928b0: Release workflow adopts the canonical changesets flow: `release.yml` now runs on every push to `main` — pending changesets open or update the `chore: version packages` PR automatically, and merging it publishes the packages to npm (under the `rc` dist-tag while `.changeset/pre.json` pre mode is active) and creates GitHub Releases. The manual `workflow_dispatch` trigger remains for retries; the `force_release` and `ref` inputs are gone. Publishing moved from inline workflow steps into `scripts/publish-release-packages.ts` (`pnpm run release`), porting the build → stage → publish → release logic verbatim, including the already-published/existing-release skip guards.
+- ## d57b8f4: Child bundle storage (ADR 0020): `POST /api/storage/bundles` uploads workspace dists to the platform storage (session or API-key auth, account-pinned, path allowlist, traversal rejection, 64 MB ceiling, server-side SRI) backed by an S3-compatible client (R2 in production via `BOS_STORAGE_*`, in-memory fallback). `bos publish` gains the CDN deploy path: with the CDN origin resolved (env or the base's inherited bundle URLs), dists upload in batched requests and every bundle URL (root's own included) points at the CDN origin with integrity fields; the credential rides the `bos login` session or `BOS_STORAGE_API_KEY`.
+- d57b8f4: `bos init` delivers a child-sized docker-compose (api + api-test Postgres,
+  no auth databases — auth is inherited via extends) and only when the api or
+  host workspace is overridden locally.
+- d57b8f4: `bos init` now scaffolds the agent workflow layer into child repos: `.agents/skills/` (the mattpocock workflow skills verbatim — grill → spec → tickets → implement/tdd → code-review — plus the repo-authored `everything-dev-app` orientation glue skill), `docs/agents/` tracker/triage/domain conventions, and `skills-lock.json` provenance. All of it is framework-owned under `bos sync` (updates with upstream drift, child-added skills left untouched). The child `AGENTS.md`, `skill.md`, and `llms.txt` surface the workflow skills so a fresh agent session discovers them unprompted.
+
+  Also fixes `bos init` crashing on TS-form children (`bos.app.ts`): shared-deps sync and config resolution no longer require a `bos.config.json` that the authored-config conversion intentionally removes — the init flow passes the converted config explicitly and tolerates resolution before the first `bun install`.
+
+- d57b8f4: Add shared internationalization support for CityNode with English, Spanish, French, and Chinese catalogs.
+
+  - Detect and persist a global locale across the main and auth UI bundles.
+  - Localize login, public navigation, landing, discovery, and community application flows.
+  - Save signed-in language preferences in account settings.
+  - Format public dates and numbers with the active locale and document the translation workflow.
+
+- d57b8f4: Upgrade build toolchain to Rspack 2.2 / Rsbuild 2.2 / Module Federation 2.9
+
+  Version catalog bumps: @rspack/core + @rspack/cli → 2.2.6, @rsbuild/core → 2.2.8,
+  @rsbuild/plugin-react → 2.1.0, @module-federation/\* → latest 2.x (enhanced 2.9.0,
+  node 2.7.50). @module-federation/runtime-tools and @rspack/dev-server are now
+  explicit dependencies where used.
+
+  BREAKING (every-plugin): EveryPluginDevServer removed from every-plugin/build/rspack.
+  Plugin dev serving is now standalone — `every-plugin-serve` (supervised
+  `rspack build --watch` + plain node:http server with the same contract: health,
+  remoteEntry statics, oRPC RPC/OpenAPI, sibling composition, effect context).
+  Plugin dev scripts use `every-plugin-serve` instead of `rspack serve`.
+  EveryPluginBuild carries the build-side responsibilities only.
+
+  Deploy note: `bos mf check` compares host and remote pluginVersion exactly, so
+  after the 2.9.0 host deploys, remote-only plugins must be redeployed on
+  Module Federation 2.9.0 to stay compatible.
+
+- d57b8f4: `bos init` scaffolds a commented `bos.app.ts` and a `bos.dev.ts` dev-overlay
+  starter next to it.
+- f9d2dce: Per-remote failure isolation in composition (ADR 0024 §5): a plugin source that cannot produce a usable manifest — fetch failure with no last-good snapshot, unparsable content, or an identity mismatch with its config key — now drops itself with a warning and the healthy subset composes, instead of the whole composition failing (SSR 500) or all remotes degrading to the core-only tree. The digest and the client payload are computed over the healthy set in canonical (sorted) order, so server-side drops hydrate cleanly; a client-side drop degrades to client-render. The core source failing stays a loud failure.
+- d57b8f4: Migrations serialize on a journal-scoped Postgres advisory transaction lock (ADR 0019): the dev double-boot (plugin dev-server + the host's in-process load), parallel test files, and overlapping production replicas converge on the journal instead of colliding in pg_catalog — a blocked migrator waits (bounded by `lock_timeout`) and then applies nothing the winner committed. SAVEPOINT-based duplicate-DDL tolerance stays as defense-in-depth for non-participants (`drizzle-kit`), the journal-init retry stage is absorbed into the locked transaction, and the regression pre-migration mirror takes the same lock. Fixes the flaky dev-stack plugin-boot failure that served stacks without a failed plugin.
+- d57b8f4: Config pipeline is Effect-native (ADR 0009 §6): `loadResolvedConfig`, `resolveRuntimePlugins`, and `buildRuntimeConfig` run as `Effect.fn` cores with a typed error channel — `Schema.TaggedError` classes (`ConfigLoadError`, `CircularExtendsError`, `ConfigNotLoadedError`, `ConfigNotfoundError`, `ConfigExtendsError`, `ArtifactGenError`) replace thrown `Error` strings, all with identical messages and `instanceof Error`, so no caller changes. Exported signatures stay Promise-based (bridges); the `*Effect` exports are available for Effect callers. `code-artifacts.ts` gains the same treatment (`generateCodeArtifactsEffect`). Behavior-preserving: resolution outputs, warning discipline, and cache side effects are pinned by the existing suite.
+- d57b8f4: Serve a client compose payload on the no-SSR client shell so CSR deployments compose plugin UI routes. Previously `runtimeConfig.ui.compose` was only embedded when SSR rendered the page, so default `bos dev` (no `--ssr`) and any CSR-only runtime (no `ui.ssr`) fell back to the bundled core-only route tree — plugin routes like the auth plugin's `/login` were absent and dynamic core routes (`_public/$accountId`) swallowed the path instead. The shell now embeds the same manifests + digest + plugin web entries the SSR path uses (built without touching MF loaders); when no plugin declares a ui, or the payload cannot be built (warn-logged), the shell keeps the bundled core-only tree.
+- d57b8f4: DB driver honors libpq `sslmode` from the connection string — `require`/`prefer`/`allow` encrypt without certificate verification (managed providers hand out unverifiable certs), `verify-ca`/`verify-full` verify, bare non-local URLs keep verification on, and `DB_SSL_REJECT_UNAUTHORIZED` still overrides. Fixes production deploys that began failing the moment TLS verification was flipped on by default.
+- d57b8f4: Deploy origin safety: `bos.config.json` gains an authored `cdn.origin` (inherited via extends) that `bos deploy` requires before uploading — the dev-resolved `host.url` is never promoted to a published bundle URL again, a `bos login` session pinned to a local site is a hard error, and the upload origin is probed (`/.well-known/mcp.json`) in preflight so a wrong-port target fails before the build train. Config-only publishes (`bos publish`) require no origins.
+- d57b8f4: Add mobile-to-desktop sign-in and passkey-based NEAR wallets:
+
+  - RFC 8628 device authorization flow (official Better Auth `deviceAuthorization` plugin, first-party session path with a configurable `deviceLink.clientId` variable — default `everything-dev`, citynode.app overrides with `citynode-web`), a `/device-link/claim` endpoint that exchanges the polled session token for an httpOnly cookie, and auth-plugin UI pages for QR pairing (`/login` "sign in with phone"), `/device` code verification, and `/device/approve` approval.
+  - Passkey sign-in through the official `@better-auth/passkey` plugin: session-less first-time registration (generated-email user via `registration.resolveUser`) with a sign-in orchestration that creates the credential on first use, plus "sign in with passkey" buttons on `/login` and `/onboard`.
+  - NEP-616 deterministic (`0s…`) passkey wallet support: `/near/link-passkey-wallet` verifies a NEP-413 assertion against the user's stored passkey credentials server-side (challenge binding, user-verification enforced, nonce replay protection) and links the derived account — no public key crosses the wire, no on-chain lookup needed. `/near/verify` also accepts passkey wallet-contract accounts.
+  - `siwnClient` gains a `wallets` option for registering near-connect sandbox wallet executors.
+  - Organization onboarding stations: capped, expiring onboarding codes (named after an event) with QR pairing, live redemption status, and event-team membership. Station codes always grant plain membership — revocation now rejects prior redeemers too, and the plaintext code is displayed once at creation.
+
+- f151e1b: Differential bundle uploads: each deploy's version manifest now records the dist's full per-file SRI map (`files`), the next deploy hashes its local dist against it and re-uploads only new or changed files. Previous pins resolve from a new `.bos/deploy-state.json` pointer (written after every confirmed publish) with the published config as fallback; any unusable previous manifest degrades to a full upload. `--full-upload` / `BOS_FULL_UPLOAD=1` bypasses the diff.
+- d57b8f4: Adopt the Effect DevTools toolchain: native TypeScript 7 (`@effect/tsgo`) with the Effect language-service plugin, and Oxlint with type-aware Effect rules.
+
+  TypeScript peer/dev ranges are narrowed to `^7.0.2` (no more `^5` support): `every-plugin`, `better-near-auth`, and `@everything-dev/auth-plugin` now require TypeScript 7, and `everything-dev` moves its devDependency to `^7.0.2`. Builds are unaffected (rspack/rsbuild transpile); typechecks and the editor language service run on the patched TS 7 native compiler.
+
+  TS 7 compatibility fixes: the test-plugin fixture consumes the built `every-plugin` declarations, and a new root `tsconfig.base.json` consolidates shared compiler options across parent-owned workspace tsconfigs (scaffolded `ui/`/`api/`/`plugins/*` tsconfigs stay self-contained since they are copied verbatim into child projects).
+
+  Contract declarations move into the plugin build entirely: `every-plugin build`/`deploy`/`dev` regenerate `types/contract.d.ts` from `src/contract.ts` via the patched TypeScript 7 binary whenever it is stale (rspack watch keeps dev types fresh automatically), and `EmitPluginManifest` embeds the fresh file with a verified sha256. The per-workspace `tsconfig.contract.json` files are removed — `bos sync` migrates child projects, and `every-plugin types` regenerates manually. `bos typecheck` now regenerates client-stub types itself before type-checking, so the root `types:gen` script is gone. Remote plugin-manifest fetches during `types gen` retry on transient network failures.
+
+- d57b8f4: Complete folder-form plugin UI sources: a `ui/` directory with route files but no own `package.json` is now built entirely by the plugin's `every-plugin dev`/`build` (a generated rsbuild config under `.every-plugin/`), replacing the separate plugin-ui workspace.
+
+  - Dev orchestrator passes `BOS_UI_PORT` to the plugin dev process — including the auth app slot, whose `plugin:auth` descriptor is never spawned — so the plugin ui dev server always listens on the port the runtime config advertises (previously it auto-picked a port, breaking client-side compose of plugin routes)
+  - Folder-form ui builds output to the ui source root's `dist/` (web + `ssr/` containers), matching what the host's local SSR container server and manifest reads expect
+  - Generated rsbuild config now carries a `deployLabel`
+  - `bos dev` warns and suggests a single restart when its build step finds the everything-dev dist stale — the running CLI keeps the previously imported build, so orchestrator changes are one session behind without it
+  - New `csr` browser-regression mode (`regression:start:csr` / `test:regression:browser:csr`): the dev stack without `--ssr`, running a focused spec set that pins client-side manifest composition of plugin routes (including a no-CSP-violation assertion) — the default dev path was previously untested by the regression suite
+
+- d57b8f4: Foreign-namespace bundle resilience for the child tier (ADR 0011 amendment): the host's `/bundles/*` route falls through to a proxy + stale-if-error disk cache for namespaces mapped from the runtime config's slot URLs — a base-origin outage now degrades to serving last-known-good bytes (`x-bundle-cache: stale`) instead of a hard 502. The CLI fetch adapter gains the same cache for boot-time outbound fetches (one cache root, two entrances, `BOS_BUNDLE_CACHE_DIR`, default `.bos/bundle-cache` — deliberately separate from `BOS_BUNDLE_DIR`: cached bytes are a resilience artifact, never a deployment). Never enabled for plain dev sessions; cached bytes serve only when the origin fails, so normal operation keeps serving fresh.
+- d57b8f4: Framework UI files children receive as byte-identical copies move into the `everything-dev` package as ui subpaths — hydrate (client bootstrap), router-client (client router factory), router-server (SSR router module), entry (web entry runner), and router-error (the generic error boundary). Child copies shrink to thin wiring stubs that inject only the app's generated artifacts (`routeTree.gen`, `routeConfig.gen`, `styles.css`) and join the framework-owned sync set. The framework router/hydrate modules import the package's own api/auth/runtime/manifest surfaces; compose payload digest parity is unchanged (the hydrate suite ports to the package and keeps the digest-mismatch fallback coverage). `RouterContextWithApi` gains the optional `authClient` the routers already threaded. Closes #186.
+- d57b8f4: Hermetic boot for image-native runtimes (ADR 0011 amendment — the image consumes what it stages): a self-contained runtime resolves its own-namespace bundle URLs (`https://<domain>/bundles/<account>/<gateway>/…`) from `BOS_BUNDLE_DIR` on disk instead of round-tripping through its own public origin, so a cold boot no longer depends on the gateway, DNS, or the host being up. Registry-tier children are unaffected — remotes still load from their published URLs. `BOS_BUNDLE_DIR`-less environments see zero behavior change.
+
+  Also fixes the production crash-loop class this exposed: port allocation no longer reserves ports for remote-source services (they spawn nothing locally), a stale PID-registry claim (PID reuse across container restarts) can no longer wedge a pinned port — claims record the process generation and are pruned when it no longer matches — and Docker healthcheck start-periods no longer kill a cold boot mid-startup. `bos start` reports `InfraError`/`DevStepError` failures instead of escaping them as unhandled rejections.
+
+- d57b8f4: Image-native artifacts: the runtime image stages every workspace's dists and the host serves them same-origin from `/bundles/<account>/<gateway>/<workspace>/…` (`BOS_BUNDLE_DIR`). The publish writes deterministic bundle URLs — no CLI session, no uploads, no CDN provider. Deploy workflow: publish (config to FastKV) → `railway up` (image build ships the artifacts) → `bos mf check` gate. Supersedes the DB-backed bundle storage pre-release (ADR 0011).
+- d57b8f4: `bos init` prunes unreferenced ui sources for ui-override children. After copying the parent's ui workspace, a static import graph seeded from framework-owned files and the copied routes walks `@/` and relative imports — named imports through the components barrel keep only the named exports' files; a namespace import keeps everything it exports. Unreachable lib/component/provider files are deleted (their tests go with them, orphaned tests whose subject doesn't exist get cleaned up, empty directories collapse, and the components barrel loses the dead export statements). Framework-owned files, generated types, and route files are never pruned. The init snapshot records the post-prune state, so `bos sync` never re-adds pruned files. On the citynode template this removes the whole app-detail family, four unused shadcn primitives, and dead lib files for every fresh child.
+- d57b8f4: Add `--env staging` flag to `bos key generate`.
+
+  - `bos key generate --env staging` resolves the staging account from `bos.config.json`'s `staging.account` field (falling back to the top-level `account` if unset), matching the behavior of `bos publish --env staging`.
+  - The network is inferred from the resolved account (`.testnet` suffix → testnet, else mainnet), same as before.
+  - CLI output now suggests the correct GitHub Actions secret name: `NEAR_TESTNET_PRIVATE_KEY` for staging, `NEAR_PRIVATE_KEY` for production.
+  - The `KeyPublishResult` now includes an `env` field indicating which environment the key was generated for.
+
+- c520871: Deepen i18n: locale negotiation from `citynode_locale` cookie + `Accept-Language` (with q-values) during SSR, `Vary: Cookie, Accept-Language` on localized responses, request-scoped locale in router context, a shared locale selection across the main UI and auth bundle runtimes, and localized router-error/API-connection/tenant-validation copy.
+- f9d2dce: Manifest contract v2 (ADR 0024): route records adopt the TanStack virtual-file-routes vocabulary — `type: "route" | "layout" | "index"` replaces the `isLayout`/`isIndex` booleans — and the manifest version is enforced at every load: the host's manifest loads and the client's compose-payload parse reject a skewed major with one diagnostic (a version-skewed payload degrades to the core-only tree instead of silently mis-constructing). The folder-form ui's composition key now derives solely from the `plugins/<key>` layout — a non-derivable key fails the build loudly instead of silently falling back to the container name (the drift that mis-keyed manifests). Mount registry version bumps to 5, invalidating all compose digests once.
+- d57b8f4: `bos publish` signs FastKV registry transactions in-process via near-kit.
+
+  - Replaces the near-cli-rs shell-out: the publish transaction is built and signed with `near-kit` directly (no external binary, no curl|sh installer in CI, no key passed through argv).
+  - Key resolution: explicit key or `NEAR_PRIVATE_KEY` / `BOS_NEAR_PRIVATE_KEY` env, falling back to the near-cli-rs credentials file at `~/.near-credentials/<network>/<account>.json`; when neither exists on an interactive terminal, signing falls back to the near-cli-rs OS keychain (`sign-with-keychain`) so existing local keys keep working; actionable error when nothing is available.
+  - Real transaction hashes come from the RPC outcome instead of regex-parsing CLI output. The transaction is submitted with `waitUntil: "NONE"`: FastKV writes are action-indexed (the namespace contract need not exist or execute — a `CodeDoesNotExist` execution outcome is expected), so publish succeeds when the indexer reflects the write, verified by the confirmation loop. Submission-level failures (invalid signature, exhausted allowance) still abort with actionable errors.
+  - Publishes are skipped when FastKV already holds an identical config (`isConfigAlreadyPublished`), saving allowance and the confirmation wait.
+  - `near-cli.ts` is slimmed to key management (`bos key generate`); CI workflows drop the NEAR CLI install steps.
+
+- d57b8f4: No-watch regression stacks: `BOS_NO_WATCH=1` makes every local service build once and serve the built output instead of running rspack/rsbuild watchers — the regression suite needs no hot reload, and the watchers were the stack's heaviest processes (freezing shared CI runners under their accumulated footprint ~26 tests in). Plugin API services run a one-shot `rspack build` and serve `dist` statically; folder-form ui sources build once and serve the ui source root's `dist` on `BOS_UI_PORT`; the core ui gains a `dev:built` script (`rsbuild build && rsbuild preview`). Local `bos dev` stays watch-mode. The CI regression suite also splits into two parallel jobs (SSR + CSR), each with its own 20-minute budget and a resource watchdog logging memory/top processes to the failure artifacts.
+- d57b8f4: One row per plugin in the `bos dev` service table: `plugin-ui:*` companion rows merge into their parent as an inline `· ui :<port>` annotation (the `auth` app slot shows as one PLUGINS row, e.g. `AUTH (local) running :3002 · ui :3011`), SERVICES lists only host/api/ui, and a merged row counts as ready only when both its api and ui surfaces are ready. Auth-mirror detection now exists in exactly one shared helper (`isAuthMirrorPluginEntry`) — the inline copies in the infra planner, DAG, and api contract bridge are deleted.
+- d57b8f4: Single-ceremony passkey sign-up with a linked Passkey Wallet:
+
+  - A passkey registration begun without a session now ends signed in, with the Passkey Wallet derived from the new credential linked as the member's primary NEAR account — one biometric prompt. It applies only to a user created by that registration who owns exactly that credential; "add a passkey" while signed in never mints a session or changes the primary NEAR account. The verify-registration response carries `passkeyWallet` (`linked` or `unavailable`).
+  - Registration asks for a discoverable, user-verified ES256 or EdDSA credential; registrations and sign-ins without user verification, or with a key that cannot derive a Passkey Wallet, are refused (`PASSKEY_UNSUPPORTED_AUTHENTICATOR` / `PASSKEY_USER_VERIFICATION_REQUIRED`).
+  - The passkey plugin accepts every configured Gateway Origin of the runtime's network (`passkey.gatewayOrigins.{mainnet,testnet}`), with the rpID unchanged. The network comes from the runtime account.
+  - better-near-auth: Passkey Wallet linking is one operation (`linkPasskeyWalletFromCredential`) shared by `/near/link-passkey-wallet` and the sign-up hook. Linking uses the new `passkeyWalletNetwork` option instead of a hard-coded mainnet; a network with no passkey wallet factory skips linking and reports `PASSKEY_WALLET_UNAVAILABLE`. `getPasskeyWalletFactory` and `isPasskeyWalletAvailable` are exported.
+  - everything-dev: `signInWithPasskey` no longer falls through to registration; use the new `createAccountWithPasskey` to create an account. `isPasskeyAutofillAvailable` and `isUnsupportedAuthenticatorError` support browser autofill and unsupported-authenticator messaging.
+  - Users created by abandoned passkey registrations (older than an hour, with no passkey, NEAR account, account, session or phone number) are swept every 15 minutes, with their personal organization.
+  - The login page offers passkey autofill and points to Sign in with phone or a NEAR wallet when no passkey is found; the onboarding page offers "Create account" and "I already have an account", notes when no passkey wallet exists on the network, and offers an optional display name after joining.
+
+- d57b8f4: Sunset the DB bundle flow and Zephyr (plan 043 Phase B, ADR 0011) — the image is the deployment.
+
+  - Delete the platform bundle storage: the `bundle_objects` table (migration squashed pre-release), the `BundleStorage` service, `POST /api/storage/bundles`, the oRPC `serveBundle` route, and its host bodyLimit scoping. `/bundles/*` is served from the runtime image's filesystem via `BOS_BUNDLE_DIR` (Phase A) — with it unset, bundle URLs no longer fall through to any storage route.
+  - Remove Zephyr entirely: the `withPluginDeploy`/`withZephyr` attach points, `BOS_CDN_PROVIDER`/`DEPLOY`/`FORCE_COLOR` env wiring, deploy-output parsing (`[BOS_DEPLOY]` lines, `ZE…` errors, retry backoff), the `deploy.cdn` config field, the `--cdn` flag, and zephyr build plugins from the catalog and all workspaces. `bos publish --deploy` unconditionally writes deterministic `https://<domain>/bundles/<account>/<gateway>/<workspace>/` URLs.
+  - `bos plugin publish <key>` now builds the plugin and writes its deterministic bundle URL (no deploy script, no integrity hash).
+  - Workspace `deploy` scripts are removed — `bos build --deploy` is the only deploy path.
+
+- d57b8f4: Consolidate the migration runner and DB driver into `everything-dev/db` (advisor plan 008).
+
+  **Root-cause fix for the boot race** (`duplicate key value violates unique constraint "pg_type_typname_nsp_index"` on `drizzle.__drizzle_migrations` when plugins booted concurrently against one shared database): `ensureMigrationTable`'s retry used `Effect.retry(..., until: isRetryableMigrationError)` — in Effect, `until` means _stop_ retrying when the predicate is true, so the race error the retry was built to absorb got zero retries (verified: 1 attempt with `until`, 4 with `while`). The shared runner now uses `while: isRetryableMigrationError`. `plugins/auth` had no retry at all and now inherits the shared one.
+
+  **Shared runner** (`everything-dev/db`): `runMigrations(db, migrations, opts) => Effect<MigrationReport, DatabaseError>` with SAVEPOINT/ROLLBACK/RELEASE duplicate-DDL tolerance (fixes the proposals/votes bare-`continue` 25P02 aborted-transaction bug — the fix previously lived only in api and never propagated), retryable-SQLSTATE journal-init backoff, hash-tracked idempotence, and the duplicate-table preflight. `detectDrift`/`loadMigrations`/`loadMigrationsFromDisk` move with it; `loadMigrations` takes the bundler's virtual-module loader as an option so the shared package never names `virtual:drizzle-migrations.sql`.
+
+  **Shared driver** (`everything-dev/db`): `createDatabaseDriver(url, schema, namespace?)` — engine by URL scheme (`pglite:`/`:memory:` → PGlite, else postgres), protocol-level `search_path`, **one-time** `CREATE SCHEMA` via `pool.connect()` (replaces votes/proposals' per-connection `on("connect")` handler that re-raced `CREATE SCHEMA IF NOT EXISTS` on every connection), env-driven pool config (`DB_POOL_MAX` etc.), idempotent close (drops auth's `pool.end()` stack-trace noise). Plus `pluginSchemaName(pluginId)` and a single shared `DatabaseError`.
+
+  **Workspaces**: api/votes/proposals/auth `db/migrate.ts` and `db/index.ts` become thin sync-propagated adapters (< 40 lines; `bos sync` copies api's canonical copies verbatim into plugins). `plugins/_template` aligns fully to the standard flow: `migrator.ts` deleted (renamed to `migrate.ts`), canonical layer adopted, journal standardized to `drizzle.__drizzle_migrations` (pre-existing tables are auto-recorded by the preflight; the old in-schema `drizzle_migrations` table is frozen, matching 017/D6), and the `TemplateDatabase` alias is dropped. `adoptPublicTables` is deliberately **not** ported: it was a one-time boot-time `ALTER TABLE ... SET SCHEMA` relocation for pre-schema-isolation databases (live dev DB has zero `public` tables); legacy adoption stays with the fail-closed `detectDrift`/`bos db doctor` path, never boot-time magic.
+
+  **Drivers stay excluded from the bundle graph**: the shared driver dynamic-imports engines (`pg`, `@electric-sql/pglite`, `drizzle-orm/*`) via bare specifiers, and everything-dev's tsdown config adds them to `deps.neverBundle`. This matters beyond hygiene: tsdown's unbundle mode otherwise rewrites dynamic imports into relative paths into its vendored `dist/node_modules/` copies, which (a) defeats rspack's `externals: ["pg", "@electric-sql/pglite"]` (externals match bare requests only), dragging pglite's `pglite.wasm`/`pglite.data`/`initdb.wasm` binaries into the MF dev bundles where they fail to resolve or parse as JS, and (b) makes node resolve `drizzle-orm` from the vendored `dist/node_modules/drizzle-orm` (nearest node_modules wins) whose copied layout breaks ESM resolution in the host process. Every workspace with a database already declares `@electric-sql/pglite` + `drizzle-orm` as its own dependencies, so bare runtime imports resolve everywhere — dev, prod MF bundles (via rspack externals), and `bos init` scaffolds.
+
+  Regression suite added at `packages/everything-dev/tests/unit/db-run-migrations.test.ts`: fresh-schema, partial-overlap savepoint path (previously failed on proposals/votes with 25P02), duplicate-preflight journal recording, and a retry-semantics test pinning 3+ gen-runs on `23505`.
+
+- d57b8f4: Plugin build framework consolidation: `EveryPluginComposedBuild` (the rspack stack — manifest emission + Module Federation + MF data-URI fix — in one composed plugin) and `createPluginBaseConfig()` replace per-workspace config boilerplate. New `every-plugin <dev|types|build|deploy>` CLI is the plugin package contract, absorbing the `build:types → tsc → rspack` chain; per-workspace scripts shrink to one-liners and `every-plugin-serve` bin is a single source import. Per-workspace `rspack.config.js` files are deleted — the CLI synthesizes the composed config (opt-in typed `build.config.ts` overrides). `deploy` builds the same as `build` — deploy URLs are written by `bos publish --deploy` (image-native), not by build hooks.
+- 9191ab3: Node-based universal image (ADR 0026 ticket 04)
+
+  - All five Dockerfile stages run `node:24-alpine` with pinned pnpm — no `oven/bun` base remains. The runtime `CMD` boots `bos start` on node (the start stack loads the host/api/plugins in-process through Module Federation; no child spawns on that path).
+  - The dist-builder's workspace builds and the deploy train's build leg spawn `npm run build` (was `bun run`), and shared-deps catalog changes run `pnpm install`.
+  - The every-plugin bin re-execs through tsx: `dev` carries the `development` condition; other commands run the built dist when present (fresh checkouts fall back to tsx + src for the bootstrap build).
+  - The image prune script reads workspace globs from pnpm-workspace.yaml.
+
+- c520871: Publish gate: before writing to the registry, every pinned slot's bytes are fetched from its production URL and checked against the pin's SRI. A publish whose pinned bytes are missing or mismatched is blocked instead of silently republishing broken pointers.
+- d57b8f4: Purge the stale public surface: delete dead every-plugin exports (`PluginMetadataRegistry`, `LegacyPluginRuntimeConfig`, `PluginConstructor`, `ERROR_PATTERNS`, `getPluginSharedDependenciesVersionRange`, and the deprecated `createLocalPluginRuntime` / `createTestPluginRuntime` / `PluginMap` / `InferBindingsFromMap` testing helpers), restore the `bos upgrade` legacy dist-import rewrite to its original `everything-dev/dist/` → `everything-dev/` pattern (the mapping table had degenerated to an identity rewrite that could never fire), and replace the dead subaccount workflow in generated child AGENTS.md with the DAO-owned tenant flow.
+- d57b8f4: Add `bos registry use` — compose sections from a published runtime into local `bos.config.json`.
+
+  - `bos registry use <account>/<gateway> --sections app.ui,app.host,plugins.<key>` fetches the published config from FastKV and merges the selected sections (production URLs + integrity) into the local config, preserving everything else (account, domain, extends, development URLs).
+  - `--dry-run` previews the merge; unknown sections fail with the list of composable sections available on the remote runtime.
+  - After writing, run `bos types gen` to refresh generated types.
+  - Ships with a new `registry` skill documenting the FastKV key layout, the namespace=signer law, and efficient registry read/write patterns.
+
+- d57b8f4: Regression hardening for silent stack failure: plugin database pools now run with connection-level `lock_timeout` (10s, `DB_LOCK_TIMEOUT_MS`) and `idle_in_transaction_session_timeout` (30s, `DB_IDLE_TX_TIMEOUT_MS`) so a wedged lock wait or leaked transaction fails fast and names itself instead of hanging the pool — `ALTER DATABASE` never reaches connections that already exist. The auth handler gets a server-side deadline (`AUTH_TIMEOUT_MS`, default 30s) answering 504 instead of hanging the caller when Better Auth wedges, and the dev orchestrator now logs child exits that happen after a service reported ready — an OOM-killed or crashed service no longer disappears into total silence.
+- d57b8f4: Atomic deploys tickets 05-06: (1) an aborted deploy train is now a structured `{status:"error"}` — upload failures no longer propagate raw out of `bos deploy`, and the train-level tracer (real `publishToFastKv` against a mock storage origin with batch-500 and socket-kill injections) proves the previously published version stays fully live: pointer untouched, pinned bytes byte-identical + SRI-verified, retention across a completed v2 switch. (2) The host gains a `RuntimeSnapshot` service — an atomic Ref over the UI/SSR base state (config + compose state + deployment fingerprint) with `get`/`swap`/`modify` (a throwing modify leaves the state untouched); the SSR fallback and static-asset request paths resolve per-request against the snapshot's current base config via the new `getBaseConfig` seam, so in-flight requests keep the state they captured (session-level blue/green) and ticket 07's swap coordinator can adopt a new published pointer without a restart.
+- d57b8f4: Simplify the contributor getting-started flow to two commands: `bun install && bun run dev`. When the `bos dev` DB preflight finds local Postgres down (and every failure is an unreachable local service, `docker-compose.yml` exists, docker is reachable, and the stack is not test-mode), it now starts the compose services itself (`docker compose up -d --wait`) and re-probes once before failing. `.env` was already auto-created on first run — docs no longer tell you to copy it by hand, and `bos init`'s printed next steps drop the manual docker line.
+
+  The dev bootstrap is also quieter: docker compose output is captured instead of drawn over the spinner (its tail is shown only when compose fails), the compose step renders as "Starting local Postgres..." on the spinner, and bootstrap-phase Effect INFO logs (e.g. `[env] ... updated` drift lines) no longer print to the console by default — pass `--log-level info` (or set `BOS_LOG_LEVEL` / `DEBUG=1`) to restore them. Warnings and errors always print.
+
+- d57b8f4: Fix the recurring post-sign-in redirect loop structurally: the session read path and auth redirect policy now have one owner (`everything-dev/ui/auth`), shared across the core ui and plugin ui remotes as a strict Module Federation singleton. A mixed deploy can no longer run two divergent session-read copies whose guard decisions disagree into "Too many redirects" — the login guard and the authenticated guard read through exactly one module, and a version mismatch fails loudly at load instead of silently loading a second copy. Child projects receive the consolidated guards via `bos sync` (`ui/src/lib/auth-guards.ts`, `ui/src/lib/plugin-path.ts`, and the plugin's drifted `session-cache.ts` copy exit sync ownership). See ADR 0018.
+
+  Also kills the silent dist-staleness class for build tooling: the bundler-configuration factories (`every-plugin/ui/mf-build`, `every-plugin/build/rspack`) resolve from source under bun (the workspace runtime) while node/npm consumers resolve the immutable published dist, and the `everything-dev/ui/mf-build` re-export shim is deleted (`ui/rsbuild.config.ts` imports `every-plugin/ui/mf-build` directly, like the generated plugin configs already do). Shipped code still resolves dist, with `bos build`/`bos deploy` unconditionally staleness-checking the framework prerequisites before any target — the train is the only supported build path.
+
+- d57b8f4: Source-first local dev for the framework packages plus quieter builds.
+
+  **every-plugin**
+
+  - Silenced route-generator build warnings: colocated `*.test`/`*.spec` route files are excluded from route scans via `routeFileIgnorePattern` (prefix with `-` to fully opt out), and the node-environment UI build no longer races the web environment writing `src/routeTree.gen.ts` (its write goes to a scratch path).
+  - `every-plugin dev` re-execs with `--conditions=development` (guarded by `EVERY_PLUGIN_DEV_CONDITIONS=1`) so the runtime resolves framework packages from TS source.
+  - Plugin rspack builds resolve `every-plugin`/`everything-dev`/`better-near-auth` through the `development` export condition (TS source) for all local flows; the gate is `DEPLOY !== "true"` (the rspack CLI defaults NODE_ENV to production even for dev watch). Adds json and `.js`→`.ts` extensionAlias rules to make source-resolved packages (package.json imports, node-style specifiers) bundler-compatible. Deploy builds keep the dist-first snapshot that ships.
+
+  **everything-dev**
+
+  - `bos dev` spawns services with `bun --conditions=development`, so bun-runtime chains (plugin dev servers, MF runtime requires) consume framework sources directly; the host dev server gets `NODE_OPTIONS=--conditions=development` (tsx is TS-capable node).
+  - Root `dev*`/`bos` scripts run the CLI with the development condition, so the CLI itself starts from source on fresh clones without a prebuilt dist.
+  - The quiet dist rebuilds at `bos dev` bootstrap remain: rsbuild/rspack config loaders (jiti / native `.mjs` import) are conditions-inert and require dist.
+
+- f5f1a5f: Add task-shaped skills `talk-to-the-app` (MCP/REST/RPC surfaces, API-key auth, discovery) and `add-a-route` (one complete contract → Effect handler → UI client → route → publish slice), and rework the public `/skill.md` into an entry-point router over the full 20-skill family with shared facts, pairings, and rules to work by. Every existing skill gains "the tasks you will actually be given" walkthroughs and grounded error-word → action tables.
+- d57b8f4: `bos init` api-override children now receive a slim generic API shell (ping,
+  db plumbing, middleware wiring) instead of the parent's full domain API.
+- d57b8f4: Atomic deploys tickets 07-08: the host gains a `SnapshotCoordinator` (adopt the published FastKV pointer: derive via version manifests, pre-warm a fresh compose state, SRI-verify pinned entries, atomically swap the RuntimeSnapshot — any failure leaves the live snapshot untouched) and a `SnapshotWatch` supervised fiber replacing the setInterval integrity monitor (pointer poll → adopt on fingerprint change; per-tick entry SRI verification with re-adopt-then-alert on mismatch; production-only).
+- d57b8f4: Atomic deploys watch hardening: the adopt transaction serializes through a semaphore (concurrent adopts cannot race the swap), the watch interval reads `BOS_SNAPSHOT_WATCH_INTERVAL_MS` (default 30s), extends-ref slots re-read their parent config from FastKV and verify against the parent's latest integrity (the upstream-republish detection the old monitor had, ported into the watch tick), the tick rides the host logger, and an unchanged-pointer verification failure alerts directly (re-adopting an identical pointer cannot heal serving-side corruption). The legacy setInterval integrity monitor is deleted — the watch fiber covers it.
+- d57b8f4: SSR loader calls to plugin APIs now carry a per-call deadline (15s, opt-in at the `createPluginsClient` call site and enabled for the SSR render path). A wedged plugin endpoint rejects into the route's error boundary and closes the stream — the page degrades to an error instead of a never-ending suspended stream that hangs browsers and regression suites. The better-auth client surface is deliberately left unwrapped (its client objects carry non-call function-valued members).
+- d57b8f4: `bos init` gains starter levels: `--level simple|advanced` (default `simple`).
+  Simple scaffolds the public shell only; both levels exclude parent-only
+  product routes. The chosen level persists in `bos.app.ts` and the sync
+  snapshot.
+- d57b8f4: Static docker-compose — infra auto-provisioning removed. The committed `docker-compose.yml` (api 5432, auth 5433, api-test 5434, auth-test 5435; project-scoped volumes) is now a plain template file that `bos init` copies like `Dockerfile`/`railway.toml` — nothing in the CLI generates or rewrites it, and sync treats it as hand-managed (skipped if locally modified). `.env.example`/`.env.test` still render from the runtime's secrets, but database URLs are mapped by convention (auth secret → auth db, every other `*_DATABASE_URL` → the shared api db; test twins on 5434/5435) instead of crawling resolved-config secrets with origin/port maps. `bos infra export` (CI plan) emits the same conventional services. Dev port state no longer persists postgres/redis ports — only explicit `devPorts` pins (ADR 0012); `bos dev` still picks a free port when the conventional one is busy. Existing projects keep their current docker-compose.yml untouched (it is never overwritten again); adopting the static file is opt-in and renames containers/volumes, so copy old volume data first (migration snippet in the file header).
+- d57b8f4: Stream-driven ANSI TUI for `bos dev` — drops ink and React from the CLI package. The interactive view is now a pure render function over a single session-state holder with a hand-rolled alt-screen renderer (raw-stdin `q`/`l`/`ctrl+c` keys, terminal fully restored on exit); the piped/non-TTY fallback reuses the same render helpers and prints incrementally, deleting the duplicated streaming view. `ink`, `react`/`react-dom` (peer), `gradient-string`, and their type packages are removed from the manifest; the banner gradient is a small truecolor ramp.
+- d57b8f4: Complete organization teams and wallet invitations across the auth plugin, API, and dashboard. Team workspaces now carry feature-area context through node mutation authorization, and organization owners can invite either an email address or a NEAR account, target a team, and manage wallet-aware pending invitations. Invitees can accept email or wallet invitations from the dashboard or claim link and land in the targeted workspace.
+- d57b8f4: Tenant draft/url helpers move into the framework: `everything-dev/ui/tenant` is the single owner of the tenant origin construction (`buildTenantUrl`, `tenantLabel`, `isLocalHostname`), the node-config draft helpers (schema, diff, bundle entry resolution, sha384 integrity preflight), and the new `gatewayForAccount` — which derives the gateway for an owner account from the runtime config (the runtime's gateway when the account is on the runtime's network, null otherwise) instead of hardcoding per-network domains. The app-owned `ui/src/lib/tenant-url.ts` and `ui/src/lib/tenant-config-draft.ts` copies are deleted; call sites (tenant live site, node config, node directory, app detail runtime, staking poc) import from the package, so children stop receiving the copies via `bos init` and versions flow through the catalog / changeset release. Closes #184.
+- d57b8f4: Generated infra now includes isolated test databases alongside dev databases. `docker-compose.yml` gains `postgres-api-test` (port 5434, `api_test_db`) and `postgres-auth-test` (port 5435, `auth_test_db`) services, and a committed `.env.test` maps every `*_DATABASE_URL` secret and `BETTER_AUTH_SECRET` to the test databases. Test suites load `.env.test` instead of `.env`, so regression runs (which drop and reseed plugin schemas) can never touch dev data. The infra planner also skips persisting port state when `NODE_ENV=test` or `BOS_TEST=1`, in addition to the existing `BOS_NO_PERSIST_PORTS=1`, preventing test runs from repinning dev ports.
+- d57b8f4: Add a typed mount contract for ui plugin grafting: `defineUiPlugin({ name, mounts, tree })` declares a plugin's ui surface against the canonical `MountId` union (derived from `MOUNT_REGISTRY`, with `MOUNTS` exported). Root `_mount` declarations are validated at construction — typos and undeclared mounts throw with the offending route id and a closest-mount hint instead of silently never grafting; raw `routeTree` exports keep working via the derivation fallback. `MOUNT_REGISTRY_VERSION` bumped to `2026-09-19.1` (invalidates all compose digests).
+- d57b8f4: Type `rpcBase` as a root-prefixed path at the runtime-config schema source (`z.templateLiteral`), drop the unchecked `/${string}` casts in the client factories, and pass DAO transaction args to near-kit without the `Record<string, never>` cast.
+- f9d2dce: Invert router control: the app's authored router factory is now load-bearing. The client hydrator accepts `createRouter` and `createQueryClient` (framework factories remain the fallback), and the SSR router module mints each request's router through the same factory — so notFound/pending/error components, scroll behavior, and query timings are app-customizable for the first time, with server/client parity.
+- f9d2dce: The core ui's bootstrap stubs are now generated, not authored: the web entry, hydrate bootstrap, SSR router module, compose expose, and globals are emitted as `.gen`-suffixed, gitignored files by the framework's code-artifact generation pass (`bos dev`/`build`/`typecheck`), regenerated from the installed package version. The build surface retargets to the generated paths and core-ui detection no longer requires an entry stub. Sync drops the retired stub files from its ownership list and tolerates templates that no longer ship a file. Per ADR 0023.
+- d57b8f4: UI route grafting foundation: grafted ui-plugin composition, digest-cached SSR compose, plugin ui SSR fields, mf-build shared surface
+
+  Adds `everything-dev/ui/compose` (`composeApp`, mount registry, deterministic graft order, staticData.nav manifest, digest helper, compose cache) and `everything-dev/ui/mf-build` (`createUiSharedDeps` catalog-enforced singleton list, `pluginUiDeployFields`, engine entries) subpath exports. `plugins.<id>.ui` gains `ssr`/`ssrIntegrity` fields so plugin ui remotes contribute server route-tree exposes; the core `ui` remote now also exposes `./tree` for grafting. Host gains `services/ui-compose.ts` (digest-keyed composed tree cache wired into the SSR handler — opt-in via `BOS_UI_COMPOSE=1` until grafted-route client composition ships) and CSP origins for plugin ui remotes.
+
+- d57b8f4: The core UI rsbuild config is synthesized when the ui workspace has no local `rsbuild.config.ts` — the every-plugin generated-config model. The ui package's dev/build/preview scripts route through the new `bos-ui` bin (`everything-dev/ui-build`), which honors a local `rsbuild.config.ts` as an override and otherwise generates one from the shared `every-plugin/ui/mf-build` factory (provider role, `CORE_UI_PLUGIN_KEY`, the web/node exposes, public copy, and the `APP_NAME`/`APP_ACCOUNT` defines derived from the resolved runtime config). The config drops from the scaffold: `bos init` no longer copies it and `bos sync` treats an existing child config as app-owned. Closes #187. Also raises the ui lib target to ES2024 (`Promise.withResolvers`).
+- f9d2dce: Sync stops managing every ui source file — the app owns its ui after init (ADR 0023): `router.tsx` (the router policy seam, including the query-timings export), `app.ts` (the `@/app` surface), lib, routes, components, providers, and hooks are scaffolded once and never overwritten. `bos sync`/`bos upgrade` migrate children off the retired bootstrap stubs: unmodified copies are deleted silently, hand-modified copies are backed up first, and the result reports both. Framework behavior flows through package versions from here.
+- d57b8f4: Unified dev-session log pipeline: normalize → classify → level-filter → broadcast to the screen tail, log file, and `l`/shutdown export. Adds `bos dev --log-level` (error|warn|info|debug, overrides `BOS_LOG_LEVEL`; `DEBUG` still shows everything), collapses multi-line Effect Logger objects and stack traces, folds `LOG_NOISE_PATTERNS` into the classifier, collapses `[Database]` startup runs to a single `db ready` event per plugin, and logs clean SIGTERM quits at info instead of `[ERR]`. The log file now always receives every line.
+- 9191ab3: Deploy-identical dist builds, unified bundle resolution, pin-enforcement fix
+
+  - `bos deploy` workspace builds are now dist-first with no source maps (DEPLOY=true) — the same mode the universal image's dist-builder uses, so image bytes and CDN-uploaded bytes are built identically.
+  - The universal image's prod-builder prunes node_modules to the union of every workspace's production dependency closure (dev-only-deletion; nothing hand-curated).
+  - The bundle fetch interceptor resolves own-namespace URLs with one layered policy — staged disk → network — so a partially-staged namespace boots over the wire instead of 404ing; own-namespace misses never touch the write-through cache (stays scoped to foreign namespaces). Template-plugin dist leaves the image and loads from the CDN as a consequence (ADR 0021 amendment).
+  - Pin enforcement no longer fires on configs without a production form — the image's baked boot fallback no longer crashes `bos start` under NODE_ENV=production before the registry fetch runs.
+  - CI gains a runtime-image smoke gate: boots the built image the way production does (env identity → published config → staged bundles), asserts health/SSR/API + `bos mf check`, and prints image size.
+
+- ## d57b8f4: Universal runtime image (ADR 0021): tier auto-detection — an identity whose namespace is not staged under `BOS_BUNDLE_DIR` drops to registry tier (network fetch + `BOS_BUNDLE_CACHE_DIR` stale-if-error cache) instead of deterministically 404ing own-namespace URLs; the host's `/bundles/*` FS route is namespace-scoped (foreign namespaces fall through to the proxy handler). Dockerfile: the deployable stage is named `runtime` (last, default target); the regression fixture is `regression`. The deploy train pushes the image to GHCR by SHA-tagged digest and Railway deploys the pushed digest.
+- 3e47fea: Version-aware runtime image tags: `bos deploy` now pushes the exact `v<version>` tag (and a floating `v<major>` tag on stable releases) alongside `sha-<short>`. `:latest` is held while the workspace version is a prerelease — the Docker analog of the npm `rc` dist-tag — so deployments pulling `:latest` keep serving the last stable image until a stable release moves it.
+- d57b8f4: Atomic deploys tickets 09-10: the MF integrity fetch hook now treats an SRI mismatch like an origin failure — last-known-good bytes from the bundle cache serve instead (with `x-bundle-cache: stale`) and corrupted origin bytes are never written into the cache; the host process installs the outbound bundle-fetch tier (staged own-namespace reads + stale-if-error). The host serves `GET /.well-known/version` with the deploy fingerprint, which rides the client config; a soft-refresh banner (`version-refresh-banner`) polls it for signed-in sessions and offers a reload when a newer deploy is served.
+- d57b8f4: Version observability (atomic-deploys 12): `GET /.well-known/version` now returns the per-slot manifest pins from the adopted pointer and the watch fiber's last-tick outcome beside the fingerprint; `pointerFingerprint`/`slotPins` are shared so CLI and host compute the same identity. Every publish writes the per-deploy manifest key (audit trail, previously wallet-only), prints the fingerprint + pins, and returns them. `bos deploy --status` lists recent publishes newest-first from the manifests key family; `bos status` reports the deployed-vs-served fingerprint delta — the split-brain detector. The admin dashboard gains a version card (`admin-version-card`) reading the version endpoint, and `/llms.txt` + `/skill.md` document the surface for agents.
+
+### Patch Changes
+
+- d57b8f4: Add platform-admin node structure and validator reporting pages, plus a proposal review queue with approve and reasoned reject actions. Ensure remote auth contracts without additional type exports receive a generated fallback so repository typechecks remain usable.
+- d57b8f4: Audit and fix agent information flow for first-load discovery.
+
+  - Rewrote `ui/public/skill.md` with two explicit agent modes: talk to the app via MCP/REST (with API key auth instructions), and clone & modify (with AGENTS.md reference, architecture notes about Module Federation code bundles, and regression test info).
+  - Expanded `ui/public/llms.txt` to include API, MCP, auth, and repository source sections.
+  - Added `/.well-known/mcp.json` host route for MCP discovery (server name, endpoint, transport, auth scheme).
+  - Deleted stale `LLM.txt` (superseded by AGENTS.md).
+  - Created `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md` to resolve dangling AGENTS.md references.
+  - Added agent communication surface section and `.agents/skills/` workflow skills mention to AGENTS.md.
+  - Added `/settings/api-keys` route with API key create/list/delete UI and API Keys tab in settings layout.
+  - Exposed auth and plugin router routes as MCP tools (in addition to base API) in `mountMcpRoute`.
+  - Updated `buildChildAgentsInstructions` in init.ts with MCP/API-key sections and "remotes are code bundles" note.
+  - Added child `llms.txt` and `skill.md` template generation in init.ts `personalizeConfig`.
+  - Added MCP endpoint regression test (`mcp_test.go`), agent surface content tests (`agent_surface_test.go`), and browser test for settings API keys page.
+
+- c520871: The API client retries rate-limited (429) responses up to three times, honoring the server's `Retry-After` (capped at 2s) before failing — transient edge saturation self-heals in queries and the session check instead of surfacing errors.
+- d57b8f4: **BREAKING for child projects (sync-surface change):** `createAuthMiddleware` moved framework-home — it is now exported from the new `everything-dev/api` subpath (src in dev, dist in prod, mirroring `everything-dev/ui/auth`) and is generic over the workspace's auth context (`createAuthMiddleware<AuthContext>(builder)`); the five near-identical copies (`api/src/lib/auth.ts`, `plugins/*/src/lib/auth.ts`) are deleted and `bos sync` no longer owns or restores `lib/auth.ts` paths. Child projects: import `{ createAuthMiddleware }` from `everything-dev/api` and source `AuthContext`/`AuthOrganizationContext` types from the generated `auth-types.gen.ts` (`AuthPluginContext` is the same type the old copies aliased). Out of scope, unchanged: the `DecoratedMiddleware`/`.use()` typing limitation advisor-plan 007 noted.
+- d57b8f4: Port allocation is now atomic block allocation (ADR 0012 §3/§4): `bos dev --port N` derives the whole layout deterministically (api N+1, auth N+2, ui N+3, plugins N+10…) and the block is probed and acquired as a unit — a busy port anywhere in the block moves the entire block (+100) instead of shifting only the ports after it, so layouts can never end up half-shifted. Explicitly-passed port flags are pinned: if that exact port is occupied, allocation fails loudly naming the port and holder instead of silently drifting it. When the block does drift, a prominent notice lists who holds the preferred range (live sibling sessions via registry claims, foreign processes via the lsof ownership probe). Only explicitly-passed port flags are persisted to `.bos/infra-state.json` (merged with previous explicit choices) — drift is never persisted, so restarts always re-try the preferred base. Registry entries gain a lease key + refcount-ready shape (backward compatible) for the upcoming shared-plugin broker. Deletes the production-dead divergent allocator (`prepareDevelopmentRuntimeConfig`) and the destructive `.env`-rewriting dead materializer path whose test certified `BETTER_AUTH_SECRET` rotation and user-key loss.
+- d57b8f4: fix(auth): derive cookie Secure from the baseURL protocol, not NODE_ENV
+
+  The regression container serves http://localhost:<port> in production mode.
+  `advanced.defaultCookieAttributes.secure: isProduction` forced the `Secure`
+  attribute onto every better-auth cookie (spreading after the baseURL-derived
+  value), so cookies set over plain http were never sent back — sign-in
+  succeeded but every session-bearing request 401'd. The Secure attribute and
+  the `__Secure-` name prefix now derive together from the baseURL protocol via
+  `advanced.useSecureCookies`: https deployments (production, staging) are
+  unchanged, http origins issue sendable cookies.
+
+- d57b8f4: Fix `bos dev` stacks whose `app.auth` plugin has a local folder-form ui (`plugins/auth/ui`): the atomic port-block allocator (ADR 0012) stopped reserving a `plugin-ui:auth` port for the auth mirror, so the runtime config advertised an empty auth ui url — the browser could never load the auth remote and the `/login` page never rendered (both dev regression browser suites failed). The mirror's ui surface now gets a block-allocated port again and the planner patches `plugins.auth.ui.url` with it. Regression stack logs drop the colon (`regression-dev-ssr.log`) so failed-run artifact uploads no longer bounce off upload-artifact's invalid-character check.
+- d57b8f4: `bos kill` is now as disciplined as the session's own teardown: it escalates SIGTERM → 5s → SIGKILL on the process group (the old single-signal kill left anything that ignores SIGTERM — rspack watchers especially — alive forever), reaps orphaned child processes even when the session's own pid is already dead (a SIGKILLed orchestrator used to leave its whole detached tree unkillable by any `bos` command), verifies every claimed port is actually releasable before unregistering (reporting the surviving holder's pid and command when it isn't), and is idempotent. New `bos dev` sessions adopt the same way: at startup they reap orphaned children from dead same-project sessions before allocating ports, so a stale session can no longer poison the next run. Fixes a registry bug where unregistering a dead session's pid was a silent no-op (the entry stayed in `~/.cache/everything-dev/pids.json` forever). Adds an ownership probe (`lsof`-based) used in the port-still-bound reporting.
+- d57b8f4: Build output hardening for the platform deploy path.
+
+  - Show all stdout during deploy builds (not just chunks matching a provider regex). Chunks can split across boundaries so a filtered URL never matched — deploy builds now pass all stdout through unconditionally.
+  - Extract build-result classification as a pure function from the build attempt, making the exit-code classification testable without spawning processes.
+  - Fix variable shadowing where inner `const result` shadowed the outer `await run(...)` binding.
+  - Remove the unnecessary per-workspace env copy.
+
+- d57b8f4: Update `buildSignedDelegateAction` callbacks in the citynode UI to the two-argument `(builder, receiverId)` form required by `better-near-auth` 1.10.x and the documented `near-connect` skill, and pass `receiverId` into `functionCall` in place of the previously hard-coded `prepared.data.contractId`. This matches the new callback signature in both signature shape and behaviour since `buildSignedDelegateAction` forwards its receiverId to the builder callback.
+
+  Make `init.full.test.ts` permissive about custom UI/API implementations: it now scaffolds `["template"]` only (no proposals, votes, apps), writes a permissive gen-file stub after `types:gen` runs, and only typechecks `api` and `plugins/_template`. The full UI scaffold typecheck moved out of the regression because `ContractRouterClient<T>` reproduces its conditional shape for any stubbed `T`, and pinning the typecheck against citynode-specific plugin-namespace calls would couple the regression to a specific configuration.
+
+  Restore the missing `checkCdnProviderDeployable` export from `packages/everything-dev/src/build.ts` so the framework tarball build (a prerequisite of the test) no longer fails on the pre-existing broken `publish.ts → build` re-export.
+
+- 9191ab3: The build train's children run pnpm, not npm (ADR 0026 completion): `buildWorkspaceTargets` (target + default spawn), `ensureFreshDeps` (prerequisite rebuilds), and the container dist builder spawn `pnpm run build` instead of `npm run build`. The deploy CLI is itself a pnpm run-script, so pnpm exported its workspace settings (`node-linker`, `catalog`, `link-workspace-packages`, `overrides`, …) as `npm_config_*` env vars — every npm child then warned `Unknown env config` (one wall of warnings per workspace, and npm's next major drops unknown env configs). pnpm children read those settings natively; the warnings are gone and the fleet posture is uniform.
+- d57b8f4: `bos build` reports unknown/unsatisfiable targets instead of a bare "[CLI] Unknown error": invalid target names get "Unknown build target(s): … — valid targets: …" (framework packages build via the prerequisite train), remote-only/no-match selections get "Nothing to build — no local targets matched: …", and a missing bos.config.json says so. `BuildResultSchema` now carries the `error` field the CLI already tried to print.
+- d57b8f4: CI overhaul: workflow_run deploys, no commit-back, drop dead postinstall everywhere.
+
+  - Deploy/staging workflows (repo + child templates) trigger via `workflow_run` on CI success and check out the exact CI-validated SHA; the notify/`repository_dispatch` job is gone.
+  - The "Commit and push bos.config.json updates" step is removed from deploy/staging — the runtime fetches config from FastKV via `BOS_ACCOUNT`/`BOS_GATEWAY`, so deployment URLs never need committing (everything-dev#243).
+  - All `bun run postinstall` steps removed from every workflow; child scaffolding no longer writes a `postinstall` script (dead code under `ignore-scripts = true`; `bun typecheck`, `bos dev`, `bos build`, and `bos publish` regenerate types on demand).
+  - `release.yml` drops unused `packages: write`; `docker.yml` drops its never-called `workflow_call` trigger; `@railway/cli` is pinned; missing job timeouts added.
+
+- d57b8f4: CLI hygiene batch (plan 041): removed two dead `@effect/platform` dependencies (zero imports, one peer-incompatible with the vendored effect pin); `zod` is now a real dependency of the published package (the CLI imports it at boot; it was peer-only, which crashes under strict-peer installers); `@types/node` and `vitest` now follow the root catalog; the CLI flag parser reads its input schemas from an exported, compile-checked `commandOptionSchemas` map instead of reaching into oRPC's private `~orpc` internals through an `any` cast; AGENTS.md no longer documents a nonexistent `bos info` command; and the snapshot-hash helper, duplicate-object SQLSTATE list, and NEAR CLI install check each exist in exactly one place.
+- d57b8f4: Invalidate configuration discovery caches and safely search relative paths through the filesystem root. Treat duplicate runtime dependencies as a single graph edge.
+- 95261fe: Consumer-coupling fixes: the deploy image leg skips with a notice when no Dockerfile exists at the config root (children fetch the universal image — ADR 0020/0021) and `bos init` no longer scaffolds a Dockerfile into fresh children; `bos pluginAdd` with a remote URL switches the plugin to remote (drops a conflicting `development: local:` entry — dual local-dev/prod-URL mode is now hand-edit only); the typegen write pass sweeps stale per-plugin `plugins-client.gen.ts` / `auth-types.gen.ts` and `.bos/generated/plugins/<key>` dirs for plugins that flipped local→remote or were removed; the local api/auth contract fallbacks fail loudly instead of emitting imports to missing files; config reads fall back form-aware — `readBosConfigForBuild` prefers the materialized resolved snapshot, then the authored `bos.app.ts` descriptor, then legacy `bos.config.json`, and `bos registry use` reads the authored descriptor before the legacy JSON.
+- d57b8f4: Fix `bos sync` leaking parent-only root `package.json` scripts into child projects. When syncing the root package, scripts are now filtered to the child-appropriate set generated by `buildChildRootScripts`, so parent-specific commands (regression tests, etc.) no longer appear in child projects and child script values (e.g. `typecheck`) stay correct.
+- d57b8f4: Tenant creation on the admin dashboard now requires connecting a sputnik-dao account via the Trezu wallet (separate from the existing SIWN session wallet). The connected DAO account owns the new tenant: `tenants.accountId` is the DAO, `bos.config.json` is published at `bos://<dao>/<gateway>` and inherits the platform base. The API gains `requireAdmin` + a server-side `get_policy` view call that confirms the session user's primary NEAR account appears in an explicit DAO policy group before accepting the create. `tenants.owner_kind` (default `platform`) is added to flag DAO-owned rows and to gate the DAO-aware republish flow.
+
+  The platform subaccount flow (`siwn.subAccount.*`, `NEAR_SUB_ACCOUNT_PARENT_KEY_*`) is removed. Existing tenants created before this update keep working — the host is account-agnostic — but the admin wizard is now DAO-only.
+
+- d57b8f4: Fix `db studio` for local plugins: `SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string`.
+
+  drizzle-kit loads drizzle.config.ts through its bundled tsx CJS transform, which defines `import.meta.url` but not `import.meta.dirname` — so plugin configs derived their migration slug from `npm_package_name ?? "unknown"`, looked up a nonexistent secret (`UNKNOWN_DATABASE_URL`), and silently fell back to a `pglite:` pseudo-URL that the pg driver parsed into a passwordless connection.
+
+  The database tooling is rebuilt around explicit database identity:
+
+  - New pure primitives in `everything-dev/db`: `workspaceIdentityFromModuleUrl` / `workspaceIdentityFromWorkspaceDir` (slug, secret name, journal coordinates, workspace dir — derived once from the workspace `package.json`) and `resolveDatabaseUrl` (env → nearest `.env` → loud error for connection-requiring drizzle-kit commands → in-memory pglite placeholder only for `generate`/`check`).
+  - All workspace drizzle configs (`api`, `auth`, `proposals`, `votes`, `_template`) now derive identity from their own module location and fail loudly when the database secret is missing, instead of silently migrating an empty in-memory database.
+  - `DatabaseBindings` and `DrizzleKit` Effect services: typed resolution of plugin → database binding and a single spawn choke point that materializes the canonical secret into every drizzle-kit child process (also fixes the latent same bug in `db repair`).
+  - `bos db studio` now runs through the services; behavior of the CLI output is unchanged.
+
+- d57b8f4: Fix host crash after login caused by a pg-pool search_path race.
+
+  - The `on("connect")` handler in `api/src/db/index.ts` and `plugins/_template/src/db/index.ts` ran `CREATE SCHEMA` and `SET search_path` concurrently with the first query on each fresh connection. pg-pool does not await `on("connect")`, so after idle connections closed (30s timeout) the next query (e.g. `listRootNodes`) could land before `SET search_path`, hitting `relation "nodes" does not exist` in the `public` schema. The concurrent `client.query()` calls also produced `Connection terminated` errors (the deprecation warnings at startup were the same root cause).
+  - Set `search_path` at the protocol level via the pool's `options` config (`-c search_path=<schema>,public`) so every connection has it before any query. Move `CREATE SCHEMA IF NOT EXISTS` to a one-time `pool.connect()` call before returning the driver, eliminating the race entirely.
+  - Add `uncaughtException` and `unhandledRejection` handlers in `host/src/program.ts` so a dropped DB connection logs an error instead of killing the host process (which cascaded to SIGTERM of all dev services).
+  - Fix Docker healthcheck to specify the correct database (`pg_isready -U everythingdev -d api_db` / `-d auth_db`), eliminating the `FATAL: database "everythingdev" does not exist` log spam every 3s.
+  - Harden `bos db:studio` local path to pass the resolved `*_DATABASE_URL` explicitly to the spawned drizzle-kit process, fixing the `SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string` error when dotenv `override: false` left a stale empty shell env value in place.
+
+- d57b8f4: fix(db): treat `*.railway.internal` database hosts as local (no TLS verification)
+
+  `resolvePoolSsl` verified certificates for any bare non-local URL, but Railway
+  private-network Postgres (`auth-db.railway.internal`, `api-db.railway.internal`, …)
+  presents a self-signed certificate chain no client CA bundle can verify — plugin
+  and auth boots failed at migration/driver with `self signed certificate in
+certificate chain`. Those hosts are VPC-scoped private traffic, so they now fall
+  into the same no-TLS bucket as `localhost` / `host.docker.internal`.
+
+- d57b8f4: Client compose degradation builds a real core-only route tree. When client composition
+  failed (a plugin remote's chunk load error, a digest mismatch) the hydrate bootstrap
+  passed `routeTree: undefined` to `createRouter`, leaving the router's `routesById`
+  unset — every page then crashed with `Cannot read properties of undefined (reading
+'__root__')` instead of degrading. Compose failure or digest mismatch now constructs
+  the core-only tree from the payload's core manifest plus the app route config and
+  client-renders it (never hydrates over SSR'd composed HTML); a router created without
+  any tree fails loudly at creation instead of crashing cryptically during render.
+- d57b8f4: Deploy folder-form plugin uis and harden SSR composition against ui-less remotes.
+
+  - **Folder-form plugin ui deploy**: `bos publish --deploy` now uploads `<plugin>/ui/dist` (web `remoteEntry.js` + `ssr/remoteEntry.server.js`) as its own bundle key (`<key>-ui`) and pins `<slot>.<key>.ui.production` / `.integrity` / `.ssr` / `.ssrIntegrity` in `bos.config.json`. Previously these fields were never written, so a deployed plugin ui (e.g. `app.auth.ui`) resolved with an empty production URL and production boot crashed.
+  - **SSR composition guard**: the host skips plugin ui sources with no production URL (logged warning naming the plugin) instead of crashing SSR composition with `TypeError: fetch() URL is invalid` from a relative `/mf-manifest.json` fetch.
+  - **Config resolution guard**: a remote ui target with no URL drops out of runtime resolution entirely instead of resolving to `{ source: "remote", url: "" }`.
+
+- d57b8f4: Fix `run()` capturing empty stdout for successful subprocesses — the deploy image leg falsely failed with "Failed to resolve the current git SHA". Reads the settled execa result instead of the promise object, and reports missing binaries (ENOENT) as failures instead of exit code 0.
+- d57b8f4: Remove deploy lock feature and add `bos infra export` command.
+
+  - Removed `bos deploy lock acquire/release/inspect` commands and FastKV-backed deploy lock logic. Concurrent deploys now follow last-write-wins semantics (harmless redundancy for Railway redeploy).
+  - `bos infra export [--target ci|local] [--network mainnet|testnet]` emits `{env, services, account, gateway, project, generatedAt}` JSON. The deploy workflow consumes this to populate `$GITHUB_ENV` instead of repeating `API_DATABASE_URL`, `AUTH_DATABASE_URL`, and `CORS_ORIGIN` literals. Host port comes from `BOS_CI_HOST_PORT` env or `runtimeConfig.host.port`.
+  - `buildOriginMap` now derives plugin origins from `runtimeConfig.plugins[id].extendsRef` / `runtimeConfig.auth?.extendsRef` (already populated by `loadResolvedConfig`), removing the duplicate raw-JSON read and the parent-runtime fallback logic.
+  - New tests cover the CI plan builder and the resolved-config origin lookup.
+
+- 9191ab3: Deploy prerequisite builds run in the deploy build mode. `ensureFreshDeps`' children (the prerequisite train) now receive the same `DEPLOY=true` / `NODE_ENV=production` env as the target builds they precede — previously they ran with the invoking shell's ambient env, so a bundler-config workspace in the prerequisite closure (host, force-rebuilt via the registry plugin's dependency edge) loaded its rsbuild config in source-first mode and died in jiti before any output. The build-mode contract now lives at one seam: `buildWorkspaceTargets` builds the env once and both the prerequisite loop and the target loops receive it. Also drops the vestigial `"host": "workspace:*"` devDependency from `plugins/registry` — nothing imports host; it only dragged host into every deploy's prerequisite closure for a doomed duplicate build.
+- d57b8f4: Dev bootstrap rewritten as one Effect program (`ShellEnv`/`ProjectEnv` as services).
+
+  - `bos dev` and `bos start` run `planInfra → loadProjectEnv → syncEnvFile → mergeEnvTiers → preflight` inside a single Effect program with tagged error channels (`DevStepError`, `DevConfigMissing`, `DevPreflightFailed`, `StartFetchFailed`, …); the oRPC handlers are now thin `Effect.runPromise` seams. Progress events and phase timings are unchanged.
+  - `ShellEnv` is a `Context.Service` captured as the program's first step — before any `.env` loading — and handed to the spawn side through the parked dev session; the module-scope `shell-env.ts` snapshot and `cli/infra.ts`'s `loadProjectEnv`/`ensureEnvFile`/`syncEnvFile` loose helpers are gone (unified behind `ProjectEnv`, which also serves the database-bindings `loadEnv` delegate).
+  - Pure merge helpers (`composeSpawnEnv`, `mergeGeneratedOverFileEnv`) stay pure functions; three-tier precedence (shell > generated > `.env`) is unit-tested at the single merge point. No behavior change to the spawn env the regression harness injects.
+
+- f151e1b: `bos dev`'s log pipeline now promotes rsbuild/rspack build diagnostics (`File: …` and `× …` lines) to error level. rsbuild writes the `Build error:` title to stderr with an empty message and the actual diagnostics to stdout, which the default warn display filter dropped — the dashboard showed an unhelpful bare `Build error:` while the cause was only visible in `.bos/logs/dev-latest-*.log`.
+- d57b8f4: `bos logs` resolves the newest session's log by session start time (parsed from the file header) instead of file mtime, with a pid tie-break — fixes wrong-session resolution when mtimes tie on coarse-grained CI filesystems or when an older session has written more recently.
+- d57b8f4: Dev-stack origin/precedence fixes, log ergonomics, and composed-SSR hardening.
+
+  - **Generated env wins at spawn time**: the planner's `envGenerated` (CORS_ORIGIN, DB URLs) is now provided to the orchestrator and overlaid on the spawned services' env — a stale `CORS_ORIGIN` pinned in `.env` can no longer break Better Auth's trusted origins when dev ports drift (e.g. host on :3008 while `.env` says :3000, which made every post-login session check fail with "Something went wrong before the app layout could render").
+  - **bos-owned `.env` lines auto-refresh** on port drift (only keys the generator owns; user-added lines untouched), with a `[env]` log line per change. `loadProjectEnv` now runs before the env merge so preflight sees the real values.
+  - **Auth origin diagnostics**: the host logs the effective Better Auth origin + trustedOrigins at boot and warns when `CORS_ORIGIN` does not include the host origin.
+  - **SSR error visibility**: every SSR response carries an `x-request-id`; composition/stream failures log it, the CSR-shell fallback renders it, and the router's `defaultOnCatch` logs caught render errors server-side. The shell also escapes the error message and page title (HTML injection).
+  - **Manifest fetch cache**: remote plugin manifests are TTL-cached (30s) with a last-good snapshot fallback — one flaky plugin host no longer 500s every SSR request, and the digest variant cache no longer sits behind per-request fetches.
+  - **Variant cache invalidation**: composed SSR variants key on the structural digest PLUS a deployment fingerprint (SSR integrity in prod, local manifest mtime in dev), so code-only redeploys and dev rebuilds recompose instead of serving a stale tree forever. A server-side digest cross-check fails loudly if the engine's digest disagrees with the manifest inputs.
+  - **Share-scope + module-cache fixes**: expose loads bypass the MF runtime module cache when a remote's entry URL changed (no more mixed-version composed trees after integrity bumps), and share-scope initialization is serialized across concurrent loads.
+  - **Composition guards**: cross-plugin path collisions under the same parent are hard errors (also enforced per-workspace at manifest generation, as the generator docblock always claimed), and layout routes declaring options composition would drop (loader/beforeLoad/head/staticData) fail loudly instead of being silently ignored.
+  - **Log ergonomics**: multi-line log entries are prefixed per line in `.bos/logs` (Effect's pretty-printed JSON no longer breaks the `[source]` prefix), MF registration/constructor spam is demoted out of logs and the TUI unless `DEBUG=1`, and a new `bos logs [service] [--follow] [--tail N]` command reads the dev session log.
+
+- d57b8f4: Fix dev process-tree teardown leaking detached service processes.
+
+  - Service kill now signals the child's whole process group (SIGTERM, then group SIGKILL after a 3s grace) instead of SIGTERM-ing only the direct child. The old path relied on a group-SIGKILL fallback that only ran if the direct child ignored SIGTERM — wrappers that exited quickly left their detached grandchildren (rspack/tsx) un-signaled and orphaned.
+  - The 5s force-exit now group-SIGKills every known child before exiting, so a slow graceful shutdown can no longer strand services mid-teardown.
+  - The PID registry now records child pids per session, and `bos kill` signals each child's process group, so `bos kill --signal SIGKILL` reaps full trees even when the CLI process is already gone.
+  - Browser regression harness no longer reuses a pre-existing server (`reuseExistingServer: false`) and kills stale port squatters before boot (mirroring the Go HTTP harness), so aborted runs can't poison the next run with a half-dead stack.
+
+- d57b8f4: Dev-session display/lifecycle defect batch (plan 037 phase 3):
+
+  - Piped/non-TTY sessions no longer freeze after the 100th log event — printing is sequence-based, not array-position-based, so CI and `| tee` runs keep streaming for the whole session.
+  - `--interactive` with a non-TTY stdin now falls back to the incremental (non-alt-screen) renderer instead of crashing on `setRawMode`; interactive mode additionally requires the output side to be a TTY.
+  - A service child that dies after becoming ready now flips its table row to "failed" (unclean exits only — the polite SIGTERM/SIGINT quit still renders cleanly); previously the row kept showing "running" for a dead service.
+  - Status detection: ready patterns win over error patterns on overlapping lines, and the host/ui error patterns no longer match benign lines like "compiled successfully (0 errors)" or "build finished: 0 failed" (`\berror\b(?!s)`, `\bfailed to\b`, `\bbuild failed\b`).
+  - A spawn failure (e.g. ENOENT on the command) surfaces immediately as a "Spawn failed" error log + failed row, instead of a silent 90-second "starting" hang.
+  - Per-session log filenames (`dev-<ts>-<pid>.log`, `dev-latest-<pid>.log`): two concurrent `bos dev` sessions in one project no longer truncate each other's logs; `bos logs` resolves the newest session's file by mtime.
+  - The plugin row's UI annotation no longer renders `ui :0` when the ui port is unset.
+
+- d57b8f4: `bos dev`/`bos start` sessions can now be quit at any lifecycle phase. Previously a shutdown request during startup (services still starting, up to the ~120s readiness window) succeeded a deferred nothing observed and the 5-second force exit ran a no-op kill — orphaning every detached service child (the "zombie session squatting ports" class). The kill finalizer and emergency kill are now registered before the first child spawns and cover each handle incrementally as it spawns, and the startup phase races against shutdown so a quit request interrupts service startup, kills everything spawned so far, and exits cleanly (code 0). Also: remote-host sessions no longer list their own process as a child (a force exit used to SIGKILL the CLI itself, exit 137); unhandled defects now exit non-zero (previously `bos dev` always exited 0, so harnesses could not detect failure); and the 5-second force-exit timer is re-armed at finalizer entry so a large log export is no longer SIGKILLed mid-print.
+- d57b8f4: The dev TUI's quit path escalates like signals do: the first `q`/Ctrl+C (or `l`) starts the polite shutdown with the 5-second force-exit timer armed, and a second press force-kills even when graceful teardown is wedged — previously the quit path succeeded the shutdown deferred without any timer and swallowed every further key press, so a hung teardown froze the terminal with no escape. The terminal (cursor, alt-screen, raw mode) is also restored on every exit path, including force exit.
+
+  The interactive repaint is now viewport-bounded: the frame is capped to the terminal height (log tail trims to fit), lines are clipped to the terminal width with ANSI-aware truncation, and repaints no longer clear the whole screen (`\x1b[H` + erase-below instead of `\x1b[2J`) — long log lines no longer overflow the alt-screen into scrollback.
+
+  Also fixes a pre-existing typecheck failure in `service-descriptor.ts` (the `SERVICE_CONFIGS` record indexing made every lookup possibly-undefined under `noUncheckedIndexedAccess`, breaking the descriptor spreads).
+
+- d57b8f4: Dev TUI display hardening: every repaint now erases to end of line (`\x1b[K`), so rows that shrink between frames (the ready summary, status text, log tail) no longer leave residue from earlier frames mid-row. The renderer also stops painting entirely after unmount — late log events and the final flush can no longer repaint a stale frame onto the shell after quitting — and unmount is idempotent, so calling it twice (e.g. from both `restoreView` and the session finalizer) restores the terminal exactly once. Shutdown/force-exit messages now print after the alt-screen is restored, so "[Dev] Shutting down..." is actually visible instead of being written into the TUI frame and destroyed.
+- d57b8f4: Harden Device Link sign-in from phone to desktop:
+
+  - The device token endpoint now records a single-use claim for the session token it issues (stored hashed, bound to the client id, ~60s expiry). `/device-link/claim` now requires `client_id`, sets the cookie only for an unconsumed, unexpired claim issued to that client, and consumes it; arbitrary session tokens are refused. `bos login` sends its client id with the claim.
+  - Device code requests are accepted only from the configured `deviceLink.clientId` and the bos CLI (`bos-cli`); any other client id is rejected.
+  - The desktop session starts in the organization the member most recently joined.
+  - The login redirect sanitizer allows the device approval path, so a signed-out phone signs in and returns to approval with its `user_code`; login redirects now navigate by `href` so query strings survive.
+  - After a Device Link sign-in the desktop offers "add a passkey on this device"; dismissal is remembered per device.
+  - The onboarding success screen replaces "Set up your NEAR wallet" with a "Continue on your computer" step pointing at the Gateway Origin.
+
+- 4d8efd1: Consolidate the plan tree under `docs/plans/`: merge `advisor-plans/` (the advisor audit queue) and `plans/` into one directory — audit plans sit flat, thematic subdirectories (beta-v2, wayfinder, prototypes, deploy-agents-rebuild, extensions, infra, offline, v1-current) and `done/` hold the rest. Plans markdown is now first-class tracked (the old `plans/` gitignore regime silently dropped new files). Rewrite the `/improve` skill to write plans into `docs/plans/` (advisor-plans fallback removed). Fix stale `metadata.sources` in the `api-and-auth`, `plugin-development`, and `ui-integration` skills, and point the scaffolded AGENTS.md text at `GLOSSARY.md` (renamed from `CONTEXT.md` to match the upstream skill ecosystem).
+- 95261fe: Pull postgres/redis images from the ECR Public mirror. The CI infra-export plan, the scaffolded `docker-compose.yml`, and this repo's workflows/Dockerfile now reference `public.ecr.aws/docker/library/*` instead of Docker Hub — GitHub-hosted runners (and any CI behind shared egress IPs) were hitting Docker Hub's unauthenticated 100-pulls-per-6h rate limit before any `docker login` step could run. CI service images in this repo's workflows are additionally digest-pinned (`repo:tag@sha256:<digest>`) and kept current by a Renovate regex manager; generated/local artifacts keep floating tags.
+- d57b8f4: Effect hardening pass 2 (#151): compose and client-config caches live behind host server-layer services with scoped finalizers; federation/local-dist teardown is owned by `FederationLifecycle` (manual `reset*` exports removed); local-container and orchestrator readiness probes use `Schedule` + `Effect.timeout` with the same cadences. Also skips plugin ui sources with no production URL so SSR composition does not crash on a relative manifest fetch (aligns with open #265).
+- 95261fe: Adopt the Effect idioms left after the lint cleanup (port of citynode.app#328): `timedPhase` (Effect.fn + Clock + Effect.exit) replaces the async `timePhase` internals — `ProgressEvent` drops its unused `message` field; `isDebug` consolidates the ad-hoc `DEBUG` checks; `devBootstrap`/`startBootstrap` drop the `BootstrapHelpers` injection (the module-level `resolveProxyUrl` is called directly); host compose, federation, and plugin loading convert to `Effect.fn` generators; core and plugin route configs share one `routeConfigLoaders` validation (a routeConfig expose missing it now fails loudly, including for core ui loads); `enforceCacheLimit` generalizes to the stored value type so the compose variants cache uses it.
+- d57b8f4: Add staleness-aware quiet build for the workspace `better-near-auth` package. `bos build` and `bos dev` now build `packages/better-near-auth` dist alongside every-plugin/everything-dev so production rspack plugin builds that bundle `better-near-auth` resolve its `dist` output.
+- d57b8f4: Fail-loud sweep in the dev session: descriptor env now rides the generated tier (shell-exported values keep outranking it, as documented and test-pinned) instead of silently outranking everything via a post-spawn `Object.assign`; a failed `.env` load propagates into the database-binding error instead of proceeding fire-and-forget; `bos logs --follow` refuses to watch a missing/unknown log file and stops cleanly when the followed file is rotated or deleted (the readFile rejection is handled); warning suppression around runtime-config builds is failure-safe via a release finalizer at both the development and start sites; `DB_LOCK_TIMEOUT_MS`/`DB_IDLE_TX_TIMEOUT_MS`/`DB_STATEMENT_TIMEOUT_MS` parse defensively (explicit `0` disables, garbage fails the boot); and the start path now passes the generated env tier through to the session instead of silently running with an empty one.
+- d57b8f4: Fix dev/regression builds shipping hashed MF entry names, and make the regression start fixture pin its slots. `isBuildInvocation` now keys on an explicit `BOS_DEV_SERVER=1` stamp (dev servers mark their own bundler children) instead of NODE_ENV/DEPLOY — vitest's `test` env and the bundler CLIs' `production` default can no longer misclassify a dev server, and every non-dev build (local, host-test, container, deploy) emits content-hashed entries + build reports. The host rsbuild config adopts the same hashed-entry + report contract, making `app.host` pinnable by the deploy train. Slot pins resolve against the slot's remote base (`remoteUrl`), not the host's listening URL. The regression container-build composes per-slot version manifests (local SRI) and stamps `pin: {manifest, integrity}` into the variant configs — ADR 0009 amendment: pins are the only production slot shape — and the version manifests' `ssr.entry` carries its `ssr/` path segment so derived `ssrEntryUrl` points at the real bytes.
+- d57b8f4: Fix stale workspace dist breaking dev servers and false "Process failed" statuses in bos dev.
+
+  After moving plugin sources into the repo, `bos dev` showed TEMPLATE/API as failed although both servers ran: rspack dev servers bundle workspace packages from their `dist` exports, and `bos dev` skipped rebuilding `packages/everything-dev` whenever a dist existed — so new exports (e.g. `isRetryableMigrationError`) were missing from dev bundles, producing ESModulesLinkingWarning and silently inactive fixes. Separately, the plugin error pattern `/error/i` matched the substring "Error" inside identifiers in warning text, marking healthy servers as failed, and the sticky error status ignored later "ready" signals.
+
+  - `bos dev` now rebuilds `everything-dev`/`every-plugin` dists when stale (newest source/package.json mtime vs dist entry) instead of skipping whenever dist exists.
+  - Plugin error patterns tightened to real compile-failure signals (`ERROR in`, `failed to compile`, `Module not found`, `Cannot find module`) — no more false failures from warning text.
+  - A later "ready" signal now clears an earlier "Process failed" status, matching rspack watch-mode recovery.
+  - New `suppressPgQueryQueueDeprecation()` (host + api boot): silences pg's once-per-process query-queue deprecation from pg-pool's internal dispatch while re-printing every other process warning (Node's default warning handler is removed first, since it prints even with listeners attached).
+
+- d57b8f4: Fix the tenant publish plane: the apps plugin no longer overrides the registry namespace, so tenant config publishes (including DAO-owned tenants via the Trezu flow) now target the global `dev.everything.near` registry that `bos://` resolution and the host's tenant loader actually read. Previously the wizard wrote configs into a project-local FastKV trie that the host could never resolve.
+
+  Tenant discovery moves to the project database: a new public `GET /tenants/apps` route lists active tenants with their primary hostname and attached geographic node, and the landing-page directory is now powered by it (rows link via their stored binding hostname instead of deriving `slug.gateway`). The wizard's publish re-check reuses the shared `buildRegistryConfigUrl` helper, and a pinned test guards the publish contract against future namespace drift.
+
+- d57b8f4: Fix hardcoded port 3000 in production runtime config causing binding resolver to fail.
+
+  - `buildRuntimeConfig` hardcoded `host.url` and `host.port` to `http://localhost:3000` in production, ignoring `process.env.PORT`. When Railway (or any platform) sets `PORT` to a different value, the HTTP server listened on the correct port but `config.host.url` still pointed at 3000. The binding resolver uses `config.host.url` to fetch `/api/tenants/bindings` from itself, hitting the wrong port and getting 503.
+  - Now reads `process.env.PORT` with a fallback to `DEFAULT_HOST_PORT` (3000) for both `hostListeningUrl` and `host.port`.
+  - Also fixes Dockerfile `HEALTHCHECK` and `CMD` to use `${PORT:-3000}` so the container probes and starts on the platform-injected port.
+  - Removes remote image reference from `railway.toml` so Railway builds from the local Dockerfile instead of pulling a stale prebuilt image.
+
+- d57b8f4: Add --registry flag to bos start, remove dead postinstall from Dockerfile
+
+  - Thread `--registry` override through `resolveRemoteConfigChain` and `fetchPublishedConfig` so `bos start` can override the FastKV registry contract when fetching remote config.
+  - Remove `RUN bun run postinstall` from Dockerfile — the script was removed from package.json in a prior commit but the Dockerfile was never updated, causing Docker builds to fail.
+
+- d57b8f4: Fix testnet FastKV registry namespace defaulting to mainnet account
+
+  - Testnet namespace was hardcoded to `dev.everything.near` (a mainnet account) instead of `dev.allthethings.testnet`. Publishing to testnet submitted transactions against the wrong contract.
+  - Remove `REGISTRY_FASTKV_*_NAMESPACE` and `REGISTRY_FASTKV_*_URL` env var overrides — URLs and namespaces are now hardcoded constants.
+  - Add `--registry` flag to `bos publish`, `bos deploy`, and `bos key generate` to override the FastKV registry contract account at the CLI level.
+  - Clean up `plugins/apps` RegistryConfigService to drop the env var fallback, relying on the `registryNamespace` bos.config.json variable.
+
+- d57b8f4: Add a `backcompat` regression test mode (`bun run test:regression:backcompat`) that boots a local host while loading the last published UI/API/plugin bundles via Module Federation, verifying the new host works against existing published bundles. Regression commands (`dev`, `prod`, `backcompat`) now run both HTTP and browser suites each time instead of stopping when the HTTP suite fails.
+- d57b8f4: Fix fresh-clone dev flow: commit docker-compose.yml, boot CLI from source, drop postinstall.
+
+  - Commit `docker-compose.yml` (was gitignored and generated only after preflight, creating a chicken-and-egg where `bun run dev` exited before the file was written). Provisions `postgres-api` (5432/api*db) and `postgres-auth` (5433/auth_db); plugins isolate via `plugin*<pluginId>`schemas sharing`api_db`.
+  - Add `paths` to `packages/everything-dev/tsconfig.json` mapping `every-plugin` and subpath exports to source files so bun's runtime resolver finds them without pre-built dist. Fresh clones no longer need a manual `bun run --cwd packages/every-plugin build` before `bun run dev`.
+  - Remove `postinstall: "bun run types:gen"` from root `package.json` — it was already dead code (`bunfig.toml` sets `ignore-scripts = true`). Gen files are produced on-demand by `bos dev`, `bos build`, and `bun typecheck`.
+  - Update `AGENTS.md` Quick Reference to include `docker compose up -d --wait` and document the plugin schema isolation model.
+
+- d57b8f4: Generate `plugins-client.gen.ts` for local auth plugins during `bos types gen`. Previously the per-plugin client types were only written for entries in the `plugins` map, so a vendored local auth plugin importing generated `PluginsClient` types failed typecheck on fresh checkouts (the file existed only as a gitignored local leftover). The generated-files report now also resolves paths from each plugin's `localPath`, so `_template` is reported correctly and the auth plugin's generated file is listed.
+- d57b8f4: Local stacks now export the host origin as `BASE_URL` (dev orchestrator env + regression stack env), so the auth plugin's Better Auth instance stops falling back to the hardcoded `http://localhost:3000`. Previously every baseURL-derived URL — invite-email accept links, passkey RP-id derivation, callback URLs — pointed at port 3000 while the stack actually ran on the configured host port, breaking any non-3000 deployment of a local stack.
+
+  Regression test databases also get a DB-level `lock_timeout` (10s): postgres lock waits are unbounded by default, so one lingering transaction could stall every later request touching the same rows for minutes with no error.
+
+- d57b8f4: Post-sign-in redirect loop fix ("Too many redirects" after a successful login). The login page navigated to the redirect target before the refreshed session landed in the query cache, and the authed route guards read that cache via `ensureQueryData`, which returns a stale value immediately — so the guard bounced the just-signed-in user back to `/login`, the login route bounced them forward again, and the two guards ping-ponged past TanStack Router's 20-redirect limit into a root-boundary "Application error". Three fixes:
+
+  - The login page (and the device-pairing claim path) now refresh the session cache **authoritatively** — `getSession({ query: { disableCookieCache: true } })`, since the Better Auth session cookie cache can still serve the pre-sign-in signed-out snapshot for up to 5 minutes — and seed the `["session"]` query before navigating.
+  - Route guards (`requireSession`/`requireAdmin`, `_authenticated`, `_admin`) read the session via `queryClient.query()`, which **awaits** the refetch when the cached value is stale instead of trusting it.
+  - Banned users no longer ping-pong: the login route skips its authed-visitor redirect for banned sessions, breaking the `/login#banned` ↔ `/dashboard` cycle.
+
+  Covered by router-level regression tests (plugins/auth/ui `login.test.tsx`, ui `auth-guards.test.ts`) and a browser regression in `tests/regression/browser/specs/auth-redirect.spec.ts`.
+
+- d57b8f4: Modernize the ui plugin remote rsbuild configs to environments-based dual-target builds.
+
+  - `plugins/auth/ui` and the core `ui` workspace now use one `rsbuild.config.ts` with `environments: { web, node }`. The `web` environment emits `remoteEntry.js` (client MF remote); the `node` environment emits `dist/ssr/remoteEntry.server.js` (commonjs container for SSR composition). Both load through the official `@module-federation/rsbuild-plugin` — `target: "node"` applies the upstream SSR recipe (node runtime plugin, CJS container, `async-node` chunk loading) instead of hand-rolled rspack config.
+  - Shared singleton contracts unify on `createUiSharedDeps` (`react`, `react-dom`, `@orpc/*`, `@tanstack/react-query/router`), so the core ui remote now also enforces strict version identity (previously `strictVersion: false` locally).
+  - Client builds of the core `ui` remote and plugin ui remotes emit rspack `crossOriginLoading: "anonymous"`, so async-chunk load errors from cross-origin plugin remotes surface with real detail instead of a masked `Script error.`.
+  - Dev keeps two rsbuild dev processes (`--environment web` / `--environment node`): the SSR dev origin must be the artifact root — with one combined dev server the MF runtime anchors the node environment's `publicPath` at the shared origin root and the node chunks resolve onto the web environment's JSONP chunks (`self is not defined`). The dedicated `ui-ssr` / `plugin-ui-ssr:<id>` dev services and `uiSsr` port allocations remain.
+  - `packages/everything-dev` federation tests re-encode the shared-instance invariants (one composition instance per process; integrity bumps re-register the remote in place), and the regression browser suite gains a bounded composed-SSR readiness probe (`REGRESSION_SSR_PROBE_TIMEOUT_MS`, default 90s) for early, diagnostic exits when the stack cannot start.
+
+- d57b8f4: Require platform-admin approval for self-service organizations, expose pending and rejected request status, and prevent unapproved organizations from being activated or linked to tenants. Personal signup organizations remain active.
+
+  Block direct member additions before approval and preserve shared organizations when the original requester's account is removed.
+
+  Enforce organization approval through shared authorization middleware and infer organization status in the UI from the auth API contract.
+
+- d57b8f4: Add organization onboarding stations: an owner/admin creates a capped, expiring onboarding code (named after an event) from the org page's new Onboard tab, and displays it as a QR. People scan it with a phone, land on `/onboard`, and join the organization — plus the event's team (find-or-create by event name) — by signing in with a passkey wallet or an existing NEAR wallet. Includes live redemption status (joined list polled every 2s), code revocation, idempotent redemption, and membership-capacity enforcement. Also fixes the stale `development` export condition for `everything-dev/ui/manifest-generator` left by the manifest refactor.
+- d57b8f4: Reorganize `plans/` directory: consolidate prototypes under `plans/prototypes/`, group plans into `beta-v2/`, `extensions/`, `infra/`, `offline/`, `v1-current/` subdirectories. Fetch full prototype source from `prototype/route-merging` branch (85 source files). Fold `react-native-migration.md` into `beta-v2/native.md`. Fix TOML/JSON publishing contradiction in composable plan. Mark wayfinder tickets 01 and 02 as resolved, 06 as partially resolved. Rewrite `plans/README.md` index with new structure and ticket status table.
+- f151e1b: `bos init` now pins generated child projects to the parent workspace's pnpm (`pnpm@12.10.1`), matching the pnpm 10 → 12 toolchain cut-over; a unit test pins the constant to the root `package.json` `packageManager` field so the two can't drift again. Previously children were pinned to `pnpm@10.20.0`, whose packageManager auto-switch path fails against the new pin.
+- d57b8f4: Harden the #119/#120/#121 landing train: `bos login` registers the credential handoff before the browser can reach the callback (fixes a race that silently dropped the credential) and delivers it via loopback POST instead of URL query (the minted API key no longer appears in browser history), `bos publish --wallet` no longer constructs a dummy signing strategy, generated rspack configs skip `withPluginDeploy` when no `bos.config.json` is reachable and reuse the single shared config-path walker, and UI route grafting shallow-copies plugin subtree roots so cached plugin trees can be recomposed under different mounts.
+- d57b8f4: Fix dev sessions being unquittable from their own terminal: Bun's TTY stdin never enters flowing mode from a bare `data` listener attach, so with the TUI's raw mode on (ISIG disabled) neither `q` nor Ctrl-C reached the key handler and no SIGINT was generated either. The renderer now resumes stdin after enabling raw mode (and pauses on unmount). Quit-path hygiene rides along: the signal handler delegates to the same shutdown path the TUI uses, emergency kill reuses `reapGroup`, the force-exit re-arm got an honest name, and `l` (export logs) no longer counts toward the quit escalation. New framework regression tests drive a real pty: press `q`, press Ctrl-C, and assert the whole stack dies.
+- d57b8f4: Make host/plugin failures visible and stop one failed plugin from taking down the API.
+
+  Production incident: at boot, `proposals`/`votes`/`template` plugins failed their `CREATE SCHEMA IF NOT EXISTS "drizzle"` migration on the shared journal schema (concurrent boot migrations race on `pg_namespace`; `IF NOT EXISTS` is not race-safe). The API plugin then died because its initialize unconditionally called the failed template plugin's client factory (failed plugins get a throwing stub). The host served `/api/*` as 503, so the BindingResolver's self-fetch of `/api/tenants/bindings` failed and every tenant-domain request (e.g. `chicago.citynode.app`) broke, while Railway healthchecks stayed green.
+
+  - API plugin initialize now tolerates failed dependency plugins: the template client is optional and template-backed routes return their existing clean "not included in this deployment" errors instead of crashing the whole API.
+  - Journal migration init (`CREATE SCHEMA`/`CREATE TABLE`) is retried with backoff and tolerates duplicate-object/unique-violation races in `api`, `proposals`, `votes`, and the `_template` scaffold (shared `isRetryableMigrationError` predicate in `everything-dev/db`).
+  - `/health` now returns a JSON summary (`status`, `api`, `auth`, error detail) instead of hardcoded `OK` — always 200, so Railway healthchecks stay green and the UI keeps serving, but the degraded state is observable.
+  - When the API plugin fails to load, the host logs a prominent startup banner listing available/failed plugins and the consequences (all `/api/*` → 503, tenant bindings unavailable), and the `/api/*` 503 stub body now includes the plugin-load error detail.
+  - BindingResolver failure handling: HTTP 503 from `/api/tenants/bindings` is reported as "API plugin is not available on this host" with a pointer to `/api/_health`, failures are negative-cached for 10s to avoid refetch storms, and stale bindings are still served when available.
+  - Plugin bootstrap errors are never empty again: `unwrapErrorMessage` falls back through error name, `_tag`/JSON, and finally `"unknown error"`, and any plugin declaring a `*_DATABASE_URL` secret now gets a masked DB-URL hint in the failure log (previously auth/API only).
+
+- d57b8f4: Keep proposal, profile, tenant, Thing, and stake views fresh after mutations; preserve the current session when revoking other sessions; and clean up live subscriptions safely. Split complex dashboard, admin, and settings components while preserving workflow state, and improve shared loading, error, accessibility, and bootstrap behavior.
+
+  Sync the shared document and router fallback components into existing child projects alongside the framework router updates.
+
+- d57b8f4: Fix the browser regression teardown stall. Playwright's webServer shutdown hung ~2 minutes after the last test (the stall watchdog hard-exited, failure output never printed) and left the stack alive as port squatters. Two changes in `start-stack.mjs`:
+
+  - Stack output is written to `.bos/logs/regression-<mode>.log` instead of inheriting the webServer's piped stdio — the service tree held playwright's stdout/stderr fds open, so teardown's EOF wait never resolved until the watchdog killed the run. The log rides the existing `.bos/logs/**` failure artifact.
+  - SIGTERM/SIGINT now escalate: the signal is forwarded to the child's process group and, if the stack hasn't exited within 5s, the group is SIGKILLed and the runner exits — a wedged graceful shutdown can no longer hold the webServer open (mirrors the dev orchestrator's own force-exit).
+  - The dev/start orchestrator gains an orphan watch: when its parent chain is SIGKILLed out from under it (playwright tree-kills the webServer — no signal handler runs), the orchestrator detects the reparenting within 200ms and force-exits, reaping the whole service tree. This also covers shell aborts leaving zombie stacks that poison the next run's ports.
+
+  The stall watchdog's runner snapshot also works on macOS (`free` and GNU `ps --sort` are Linux-only; BSD `ps -axo` fallback).
+
+- d57b8f4: Config resolution rewritten around an explicit ResolutionSession: `openResolution()` / `fromParts()` replace the process-global config cache and its suppress/drain/resume warning protocol. All bos commands now thread the session explicitly; warnings from config resolution print instead of being silently dropped on some paths; `bos dev` with no config fails before the install/build steps instead of after; `--config-path` boots stage artifacts beside the config file; circular `extends` errors are tagged and carry the full chain for both local and remote chains.
+- d57b8f4: Security hardening batch (plan 039):
+
+  - Plugin keys are validated at the config boundary (`[a-zA-Z0-9._-]` required) — keys flow into shell invocations and generated TypeScript imports, so a hostile key from a remote/extended runtime config could execute commands or break out of generated code strings. `bos db studio` no longer spawns drizzle-kit through a shell.
+  - TLS certificate verification is now ON by default for non-local database connections (`DB_SSL_REJECT_UNAUTHORIZED=false` is the documented opt-out for self-signed deployments).
+  - SRI verification fails closed: a fetch failure during verification now throws instead of counting as verified, and a hash computation failure during deploy retries with backoff and then keeps the previous integrity field instead of deleting it from the published config.
+  - The exported NEAR publish key file is tightened to mode 0600; `bos key publish` warns loudly when the private key goes to non-interactive stdout (CI logs persist it).
+  - Env-sync drift logs mask credentials in `*_DATABASE_URL`/`*_SECRET`/`*_KEY` values.
+
+- d57b8f4: Add self-deployed development docs to AGENTS.md and child project scaffold.
+
+  - Document the independent self-deployment workflow: create a NEAR account via near-cli-rs, generate a publish key with `bos key generate`, set `extends` in `bos.config.json`, `bos publish --deploy`, and run your own Railway host with `BOS_ACCOUNT` + `BOS_GATEWAY` (same gateway, own account).
+  - Explain that `BOS_GATEWAY` is the FastKV lookup key, not the DNS domain — keeping the same gateway while using your own account inherits the base platform via `extends` and overrides only what you change.
+  - Document subaccount creation setup with near-cli-rs: named account requirement, full access key export, `NEAR_SUB_ACCOUNT_PARENT_KEY` secrets, and `siwn` variable updates.
+  - Add a near-cli-rs quick reference table.
+  - Include the self-deploy section in the scaffolded child project AGENTS.md template (`bos init`).
+  - Add a "Self-Deployed / Tenant Publishing" subsection to the `publish-sync` skill.
+
+- c520871: A failing `getSession` request no longer caches `null` as "signed out" — the session query errors instead, so a transient auth-service outage can't sign the UI out client-side.
+- d57b8f4: fix(auth): single authoritative session read path — post-sign-in redirect loop
+
+  All session reads (route guards, the login route's beforeLoad, useQuery
+  observers, the post-sign-in refresh) now share one queryFn that always calls
+  `getSession({ query: { disableCookieCache: true } })`, so every redirect
+  decision sees the same authoritative answer and the login ↔ dashboard
+  ping-pong ("Too many redirects") is structurally impossible. The
+  post-sign-in refresh (`refreshSessionCache`) overrides staleness so a fresh
+  signed-out cache entry written by an observer moments earlier cannot
+  short-circuit it. Removed the redundant authed-redirect triggers on the
+  login page (component-level `<Navigate>`, loader prefetch), the dead
+  `rejectAuthed` guard, and the bootstrap WeakSet bookkeeping in
+  `resolveSessionFromCache`. The server-side better-auth session cookie cache
+  is disabled outright: it was prod-only (dev and prod behaved differently)
+  and delayed revocation/ban visibility for up to its maxAge. The login
+  redirect sanitizer now rejects `/login…` targets, closing the last possible
+  self-referential redirect loop.
+
+- d57b8f4: Confirm the SIWN auth relayer is in `RelayerEphemeralConfig` ("Ephemeral with settings") mode: a rich-object `relayer` block in `bos.config.json → app.auth.variables.siwn` with `whitelistedContracts`, `maxGasPerTransaction`, and `maxDepositPerTransaction` and no `accountId` / `privateKey`. better-near-auth 1.9.0's `initRelayer` resolves this to an auto-generated ED25519 keypair on first startup, encrypted with `BETTER_AUTH_SECRET` (HKDF-SHA256 → AES-256-GCM) and persisted in the `relayerKey` table.
+
+  The vestigial `NEAR_RELAYER_PRIVATE_KEY` line is removed from `.env.example` in favor of an inline comment pointing operators at `/admin/relayer` (which surfaces a "needs funding" prompt using `getRelayerInfo().enabled === false` once the auto-generated implicit account has zero balance). Operators funding the implicit account via `authClient.near.getNearClient().transfer()` enables relay without ever leaving the existing ephemeral-mode config.
+
+  AGENTS.md gains a "SIWN Auth Relayer" subsection under "Common Patterns" documenting the operational rules (funding flow, parent-key requirement for sub-account creation, why the implicit relayer account can't own sub-accounts, and the path back to `RelayerExplicitConfig` if a named-account relayer is needed).
+
+- d57b8f4: Fix misleading "UI-SSR running" dashboard line when SSR is off.
+
+  - Gate the `ui-ssr` service descriptor in `buildServiceDescriptors` on `runtimeConfig.ui.ssrUrl` being truthy, aligning the planner path with `service-descriptor.ts` which already correctly omits `ui-ssr` when `ssr === false`.
+  - Previously the planner always added `ui-ssr` to `orchestrator.packages` (it only checked `resolvedPorts.uiSsr`, which is always allocated), so the orchestrator treated the missing descriptor as a "Remote" service and immediately marked it `ready` — printing "UI-SSR running" even though no `bun run dev:ssr` process was spawned.
+
+- c520871: Parse the authored `staging` block through `BosConfigInputSchema` — previously the interface accepted it but the schema dropped it during validation.
+- d57b8f4: Publish stamps the built MF container name into folder-form plugin ui slots (`app.<id>.ui.name` / `plugins.<id>.ui.name`) so fully-remote boots register the remote under the name the deployed container actually exposes. Previously the config carried only the authored fallback name (e.g. `auth-ui`), which broke SSR compose against CDN bundles built as `_everything_dev_auth_plugin`.
+- d57b8f4: Start-command regression stack fixes (the deployment-image path):
+
+  - The regression container's fixture config now injects the auth plugin's `baseUrl` variable (`http://localhost:<port>`, the bos start ingress). The domain-derived `https://` baseURL made better-auth set Secure cookies that no http client (Go jar or browser) can send back: sign-in succeeded but every session-bearing request 401'd. The config variable wins over the host's domain derivation by construction — production stacks are untouched.
+  - The auth plugin's better-auth core rate limiter can be disabled via `BETTER_AUTH_RATE_LIMIT_DISABLED=1` — production defaults it on with a single shared per-path bucket when no client IP is resolvable, which the regression suite's `/api/auth/*` traffic trips within seconds.
+  - The regression container now forwards the harness's `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX`, and `BODY_LIMIT_MAX` into the image — without them the host's middlewares ran defaults, so the oversized-body pin got a 404 (no procedure match for a 70KB text body) instead of 413, and the rate-limit burst never saw a 429.
+
+- d57b8f4: fix(everything-dev): keep localhost origins in local production starts
+
+  The production-start localhost-origin purge now fires only for registry-fetched
+  starts (`BOS_ACCOUNT`/`BOS_GATEWAY` — real deployments, where a localhost
+  `CORS_ORIGIN`/`BASE_URL` is a stray dev leftover). Explicit `--config-path`
+  starts (the regression harness) and bare local `bos start` runs keep their
+  injected origins: the in-process host's auth seam reads them from
+  `process.env`, and an https fallback there made better-auth issue Secure
+  cookies no http client could send back — sign-in succeeded but every
+  session-bearing request 401'd, and untrusted origins rejected writes with
+  `INVALID_ORIGIN`.
+
+- d57b8f4: Fix the start-command stack mounting auth as a generic plugin: `normalizeToNodes`'s plugins loop overwrote the dedicated `auth` DAG node (kind `"auth"`) with `kind:"plugin"` whenever the runtime config carried the auth mirror — which start/production resolution always does (the mirror's url is filled; in dev it stays empty, so dev was safe only by accident). With the node mistyped, the host never assigned `plugins.auth`/`authClient`, so `/api/auth/*` was never mounted: every better-auth route (anonymous sign-in, get-session, organizations, api keys) returned plain-text 404, and the body-limit/rate-limit regression tests cascaded. The plugins loop now skips the auth mirror — the same rule the host's plugin loading and the service descriptors already apply.
+- d57b8f4: Per-PUT retry and 4-way concurrency for bundle storage; storage timeout hint fires for all 408s.
+
+  - **Per-object retry** (`api`): `aws4fetch` signs and sends but never retries — one keep-alive reset over a slow uplink killed entire multi-hundred-file bundle batches (`fetch failed` mid-sequence, after earlier files had already PUT successfully). `S3StorageClient.put/get` now run through a retry helper (3 attempts, 250ms/500ms backoff) that retries transient failures — network errors (undici's `fetch failed`, with the `cause` code surfaced, e.g. `fetch failed (ECONNRESET)`) and 429/5xx responses — and fails fast on definitive rejections (401/403) with the R2 response body included.
+  - **4-way PUT concurrency** (`api`): the storage route uploads files through `Effect.forEach(..., { concurrency: 4 })` instead of sequentially — 736 sequential round-trips were minutes of pure latency.
+  - **Timeout hint** (`everything-dev`): the `BOS_STORAGE_UPLOAD_TIMEOUT_MS` hint now fires for the storage route's own 408 body ("Bundle upload timed out"), not just the general API timeout's "Request timeout".
+  - **Env docs**: `.env.example` regains the ADR 0020 storage section (BOS*STORAGE*\* / CDN deploy vars) plus the new `BOS_STORAGE_UPLOAD_TIMEOUT_MS`.
+
+- d57b8f4: Fix bundle-upload timeouts that broke CDN publishes mid-deploy.
+
+  - **Storage upload timeout**: `/api/storage/bundles` is exempt from the general 30s API timeout and gets its own much longer budget (`BOS_STORAGE_UPLOAD_TIMEOUT_MS`, default 10 min). Large batched uploads (receiving + SRI-hashing + storing the `ui` dist) routinely exceeded 30s, so the host aborted mid-upload with `500 {"error":"Request timeout"}` and the publish died after partially re-uploading workspaces — leaving the CDN serving bytes that no longer matched the published config's SRI hashes.
+  - **Upload retries**: `uploadBundle` retries up to 3 attempts with backoff on retryable failures (network errors, 408/429/5xx); non-retryable statuses (401/403/413) fail immediately as before. Retries are idempotent (the storage route overwrites by workspace+path and recomputes SRI server-side). A timeout failure now hints at `BOS_STORAGE_UPLOAD_TIMEOUT_MS`.
+  - **Build warning**: `loadAppDescriptorConfig`'s runtime-resolved dynamic import is marked `webpackIgnore` so bundlers stop warning "Critical dependency: the request of a dependency is an expression".
+
+- ed70808: Two-database contract: production deployments now need only `AUTH_DATABASE_URL` and `API_DATABASE_URL`; plugin `*_DATABASE_URL` secrets fall back to the shared API database (per-plugin tables isolate in `plugin_<slug>` schemas). Explicit per-plugin values still win.
+
+  - `bos start` no longer manufactures `.env`/`.env.example`/`.env.test` at boot — the production container previously generated a dev-convention `.env` (localhost Postgres URLs) and dotenv-loaded it, feeding plugin DB secrets unreachable URLs (`ECONNREFUSED`). `bos start` only loads an operator-provided `.env`; `bos dev`/`bos init` keep the bootstrap.
+  - Plugin `*_DATABASE_URL` secrets missing from the host environment resolve to `API_DATABASE_URL` (host plugin composition).
+  - Generated `.env.example` omits plugin database secrets (they are fallback-covered); `.env.test` keeps explicit test-database values for isolation.
+
+- 8a06f6b: Introduce typed Effect errors across host, CLI, and plugin runtimes. `every-plugin`'s `Plugin.initialize` contract now types its layer error channel as `Error` and its failure channel as `PluginRuntimeError` (mapped via `toPluginRuntimeError`), and `PluginRuntimeError` exposes a readable message. `everything-dev` gains exported `OrchestratorError` and `encodeRuntimeConfig` — `BOS_RUNTIME_CONFIG` is now schema-encoded with undefined fields omitted (undefined array entries become null) instead of raw `JSON.stringify` — plus tagged error conversions in migrations, preflight, integrity, near-cli, and storage-upload, and schema-validated migration journal loading.
+- f9d2dce: Trim the core ui's declared MF surface to consumed exposes (drop `./providers` and `./hooks`), construct the core-only tree on the client when a deployment carries no compose payload or a malformed one (plugin-free CSR apps no longer crash on "no route tree"), and correct ownership headers. The ui globals ambient file is trimmed to the rsbuild types reference.
+- d57b8f4: Make `app.host.production` optional in the resolved-config schema (ADR 0005 — deploy state, absent until the first publish writes it). This unblocks runtimes authored via `bos.app.ts` without a committed `bos.config.json`: the descriptor-to-config conversion fills `development` only, and deploy legs materialize `production` on first publish.
+- d57b8f4: Verification & speed (plan 040): the root `bun run test` chain now includes the framework suites (`test:framework` — everything-dev + every-plugin), so a green root run actually exercises the CLI package. `bos dev`/`bos start` no longer block service spawn on the outdated-packages check (npm registry + FastKV round trips, up to ~10s with retries) — the warning prints late via stderr instead (TTY-preserving). The two config test suites stub their network boundary (`http-client`/`fastkv`/`api-contract`) instead of doing real DNS-resolution retries (~15s saved per run, environment-independent).
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [95261fe]
+- Updated dependencies [c520871]
+- Updated dependencies [4d8efd1]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [9191ab3]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [f151e1b]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [9191ab3]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [c520871]
+- Updated dependencies [9191ab3]
+- Updated dependencies [4d8efd1]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [f151e1b]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [f9d2dce]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [784fcad]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [f5f1a5f]
+- Updated dependencies [f5f1a5f]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [c23dfb6]
+- Updated dependencies [ed70808]
+- Updated dependencies [8a06f6b]
+- Updated dependencies [f9d2dce]
+- Updated dependencies [f9d2dce]
+- Updated dependencies [9191ab3]
+- Updated dependencies [d57b8f4]
+  - every-plugin@3.0.0-rc.0
+  - better-near-auth@2.0.0-rc.0
+
 ## 1.53.2
 
 ### Patch Changes
