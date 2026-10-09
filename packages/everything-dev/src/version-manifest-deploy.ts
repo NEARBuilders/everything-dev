@@ -29,8 +29,10 @@ export function composeWorkspaceVersionManifest(input: {
   report: BuildEntryReport;
   ssrReport?: BuildEntryReport | null;
   integrityMap: Record<string, string>;
+  /** full per-file SRI map of the dist — recorded for the next deploy's diff */
+  files?: Record<string, string>;
 }): WorkspaceVersionManifest | null {
-  const { report, ssrReport, integrityMap } = input;
+  const { report, ssrReport, integrityMap, files } = input;
 
   const entryIntegrity = integrityMap[report.entry];
   if (!entryIntegrity) return null;
@@ -55,5 +57,6 @@ export function composeWorkspaceVersionManifest(input: {
     ...(report.css && integrityMap[report.css]
       ? { assets: { css: integrityMap[report.css]! } }
       : {}),
+    ...(files ? { files } : {}),
   });
 }

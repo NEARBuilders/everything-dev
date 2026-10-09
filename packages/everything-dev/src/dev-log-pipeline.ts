@@ -153,6 +153,11 @@ export function normalizeLines(lines: string[]): string[] {
 const WARN_RE = /(?:^|\s)WARN\b|\[WARN\]|(?:^|\s)\w*Warning:/i;
 const DEBUG_RE = /(?:^|\s)DEBUG\b|\[DEBUG\]/i;
 
+// rspack/rsbuild write the "Build error:" title to stderr with an empty
+// message and the actual diagnostics (`File: …`, `× …`) to stdout. Promote
+// those diagnostic lines so they pass the default warn display filter.
+const BUILD_DIAGNOSTIC_RE = /^(?:File: |\s*[×✖]\s)/;
+
 const EXIT_LINE_RE =
   /^Process exited (?:after|before) ready \((?:exit code: (\d+)|signal: ([A-Z]+))\)/;
 
@@ -193,6 +198,7 @@ const CATEGORY_PATTERNS: Array<{ category: LogCategory; patterns: RegExp[] }> = 
       /webpack/i,
       /\bHMR\b/,
       /building for production/i,
+      BUILD_DIAGNOSTIC_RE,
     ],
   },
   {
@@ -223,6 +229,9 @@ export function classifyEvent(raw: RawLogLine): LogEvent {
       level = exitMatch[1] === "0" ? "info" : "error";
     }
     isError = level === "error";
+  } else if (BUILD_DIAGNOSTIC_RE.test(text)) {
+    level = "error";
+    isError = true;
   } else if (WARN_RE.test(text)) {
     level = "warn";
     isError = false;

@@ -242,6 +242,12 @@ export const DeployOptionsSchema = z.object({
   privateKey: z.string().optional(),
   service: z.string().optional(),
   registry: z.string().optional(),
+  fullUpload: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Re-upload every dist file instead of diffing unchanged files against the previous deploy",
+    ),
 });
 
 export const DeployManifestListEntrySchema = z.object({

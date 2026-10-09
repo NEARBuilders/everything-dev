@@ -3,10 +3,14 @@
 FROM node:24-alpine AS builder
 WORKDIR /app
 
-# pnpm pinned by the root package.json packageManager field. Installed
-# directly (not via corepack) so the image build never depends on
-# corepack's interactive download prompt.
-RUN npm install -g pnpm@10.20.0
+# pnpm comes from Corepack — the root package.json `packageManager` field is
+# the single version source (ADR 0026 §5: the universal image is node-based
+# with corepack pnpm). The download prompt is off because image builds have
+# no TTY; the warm-up run resolves the pinned pnpm into Corepack's cache in
+# its own layer so `COPY . .` busts never re-download it.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+COPY package.json ./
+RUN corepack enable && pnpm --version
 
 # NOTE (ADR 0026): pnpm settings live in pnpm-workspace.yaml (ignoreScripts,
 # nodeLinker=hoisted, linkWorkspacePackages) — no .npmrc is required.
@@ -48,19 +52,42 @@ RUN node --import tsx scripts/prune-runtime-node-modules.ts /app
 
 RUN rm -rf host api ui plugins && rm -f bos.app.ts bos.dev.ts pnpm-workspace.yaml
 
+# Framework package copies carry only their runtime surface: dist + manifest
+# (banner/version reads). src/, skills/, and dev metadata never load in the
+# start stack — the image resolves dist under every condition (ADR 0018).
+RUN rm -rf packages/everything-dev/src packages/everything-dev/skills \
+           packages/everything-dev/CHANGELOG.md packages/everything-dev/README.md \
+           packages/everything-dev/tsconfig*.json packages/everything-dev/vitest.config.ts \
+    packages/every-plugin/src packages/every-plugin/skills \
+           packages/every-plugin/CHANGELOG.md packages/every-plugin/README.md \
+           packages/every-plugin/tsconfig*.json packages/every-plugin/vitest*.ts \
+           packages/every-plugin/bin
+
 # Clean broken workspace symlinks (the stripped workspaces leave dead links)
 RUN find node_modules -maxdepth 1 -type l ! -exec test -e {} \; -print -delete 2>/dev/null || true
+
+# ── Shared runtime base (ADR 0021): hardened user + env both final stages
+# inherit. The probe uses node's built-in fetch — no curl in the runtime
+# layers.
+FROM node:24-alpine AS runtime-base
+WORKDIR /app
+
+RUN addgroup -g 1001 -S appgroup && adduser -S appuser -u 1001
+
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
 
 # ── Regression fixture (ADR 0009): the browser-suite harness image ──
 # Serves the staged dists on container-local static servers and boots the
 # production host over a baked local config (--config-path). Built explicitly
 # with `docker build --target regression` — not the deployment artifact.
-FROM node:24-alpine AS regression
-WORKDIR /app
+FROM runtime-base AS regression
 
-RUN apk add --no-cache curl
+ENV PORT=4100
+EXPOSE 4100
 
-RUN addgroup -g 1001 -S appgroup && adduser -S appuser -u 1001
+HEALTHCHECK --interval=10s --timeout=3s --start-period=180s --retries=5 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4100)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 COPY --from=dist-builder --chown=appuser:appgroup /app/node_modules ./node_modules
 COPY --from=dist-builder --chown=appuser:appgroup /app/package.json .
@@ -78,14 +105,6 @@ RUN mkdir -p .bos/generated .bos/logs && \
     chown -R appuser:appgroup .bos && \
     chown appuser:appgroup /app
 
-ENV NODE_ENV=production
-ENV HOST=0.0.0.0
-ENV PORT=4100
-EXPOSE 4100
-
-HEALTHCHECK --interval=10s --timeout=3s --start-period=180s --retries=5 \
-  CMD curl -f http://localhost:4100/health || exit 1
-
 USER appuser
 ENTRYPOINT ["node", "scripts/regression/container-entrypoint.mjs"]
 
@@ -98,12 +117,7 @@ ENTRYPOINT ["node", "scripts/regression/container-entrypoint.mjs"]
 # it (ADR 0020: all bundle distribution lives on the CDN — the image keeps
 # the boot role). One container = the whole start stack; only the host port
 # is mapped. Databases and secrets arrive via env at `docker run`.
-FROM node:24-alpine AS runtime
-WORKDIR /app
-
-RUN apk add --no-cache curl
-
-RUN addgroup -g 1001 -S appgroup && adduser -S appuser -u 1001
+FROM runtime-base AS runtime
 
 COPY --from=prod-builder --chown=appuser:appgroup /app/node_modules ./node_modules
 COPY --from=prod-builder --chown=appuser:appgroup /app/package.json .
@@ -129,15 +143,13 @@ RUN mkdir -p .bos/generated .bos/logs .bos/bundle-cache && \
     chown -R appuser:appgroup .bos && \
     chown appuser:appgroup /app
 
-ENV NODE_ENV=production
 ENV PORT=3000
-ENV HOST=0.0.0.0
 # BOS_ENV: set to "staging" to enable staging mode (uses staging domain for BOS_GATEWAY)
 # Defaults to "production" if unset.
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=120s --retries=3 \
-  CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 USER appuser
 CMD ["sh", "-c", "node ./node_modules/everything-dev/dist/cli.mjs start --no-interactive --port ${PORT:-3000}"]

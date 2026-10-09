@@ -20,9 +20,10 @@ const {
   buildWorkspaceTargetsMock: vi.fn(),
 }));
 
-vi.mock("../../src/rollback", () => ({
-  verifyRollbackSnapshot: verifyRollbackSnapshotMock,
-}));
+vi.mock("../../src/rollback", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/rollback")>();
+  return { ...actual, verifyRollbackSnapshot: verifyRollbackSnapshotMock };
+});
 
 vi.mock("../../src/fastkv", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/fastkv")>();

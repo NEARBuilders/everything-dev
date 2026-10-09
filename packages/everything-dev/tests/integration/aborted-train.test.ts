@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,6 +53,8 @@ const sriOf = (content: Buffer | string) =>
 /** Mock storage origin: the /api/storage/bundles route contract (server-computed SRI) + GET serving + mcp probe + failure injection. */
 class MockStorage {
   readonly objects = new Map<string, { bytes: Buffer; sri: string }>();
+  /** every successfully stored batch (workspace + object paths) — upload-count assertions */
+  readonly batches: Array<{ workspace: string; paths: string[] }> = [];
   private failBatches = 0;
   private killSockets = false;
   private readonly server: Server;
@@ -148,6 +150,10 @@ class MockStorage {
           integrity[file.path] = sri;
           totalBytes += bytes.byteLength;
         }
+        this.batches.push({
+          workspace: body.workspace,
+          paths: body.files.map((f) => f.path),
+        });
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({ stored: body.files.length, totalBytes, integrity, storage: "s3" }),
@@ -375,5 +381,118 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     const v1Manifest = storage.get("v1.citynode.near", "citynode.app", "ui", v1Ui.pin.manifest);
     expect(v1Manifest!.bytes.toString("utf8")).toContain("mf-manifest");
     expect(v1Manifest!.sri).toBe(v1Ui.pin.integrity);
+  });
+
+  it("an unchanged redeploy diff-skips every dist file and republishes nothing", async () => {
+    const dist = join(configDir, "ui", "dist");
+    writeDist(dist, "v1");
+    const first = await runDeploy();
+    expect(first.status).toBe("published");
+    const v1Ui = (publishedPayloads[0] as { app: { ui: Record<string, string> } }).app.ui;
+    const batchesAfterFirst = storage.batches.length;
+
+    const second = await runDeploy();
+
+    expect(second.status).toBe("published");
+    // identical published config → no new transaction
+    expect(publishedPayloads).toHaveLength(1);
+    // only the (idempotent) manifest upload ran; every dist file diff-skipped
+    const secondBatches = storage.batches.slice(batchesAfterFirst);
+    expect(secondBatches.map((batch) => batch.workspace)).toEqual(["ui"]);
+    expect(secondBatches[0]!.paths).toEqual([v1Ui.pin.manifest]);
+    // the pointer file recorded the live pin for the next diff
+    const state = JSON.parse(
+      readFileSync(join(configDir, ".bos", "deploy-state.json"), "utf8"),
+    ) as { apps: Record<string, Record<string, { manifest: string; integrity: string }>> };
+    expect(state.apps["v1.citynode.near/citynode.app"].ui).toEqual({
+      manifest: v1Ui.pin.manifest,
+      integrity: v1Ui.pin.integrity,
+    });
+  });
+
+  it("a redeploy with one added file uploads only that file and carries the unchanged SRIs", async () => {
+    const dist = join(configDir, "ui", "dist");
+    writeDist(dist, "v1");
+    await runDeploy();
+    const v1Ui = (publishedPayloads[0] as { app: { ui: Record<string, string> } }).app.ui;
+    const v1Manifest = JSON.parse(
+      storage
+        .get("v1.citynode.near", "citynode.app", "ui", v1Ui.pin.manifest)!
+        .bytes.toString("utf8"),
+    ) as { files: Record<string, string> };
+    const batchesAfterFirst = storage.batches.length;
+
+    const addedPath = "static/js/async/added.1a2b3c4d.js";
+    mkdirSync(join(dist, "static/js/async"), { recursive: true });
+    writeFileSync(join(dist, addedPath), "console.log('added');");
+    const result = await runDeploy();
+
+    expect(result.status).toBe("published");
+    expect(publishedPayloads).toHaveLength(2);
+    const v2Ui = (publishedPayloads[1] as { app: { ui: Record<string, string> } }).app.ui;
+    // the files map changed → a new version id, even though the entry is unchanged
+    expect(v2Ui.pin.manifest).not.toBe(v1Ui.pin.manifest);
+
+    // exactly the added file + the manifest crossed the wire — unchanged files skipped
+    const uploaded = storage.batches.slice(batchesAfterFirst).flatMap((batch) => batch.paths);
+    expect([...uploaded].sort()).toEqual([addedPath, v2Ui.pin.manifest].sort());
+
+    // the new manifest's files map covers the whole dist: the added file gets a
+    // server-computed SRI, unchanged files carry the previous manifest's SRI
+    const v2Manifest = JSON.parse(
+      storage
+        .get("v1.citynode.near", "citynode.app", "ui", v2Ui.pin.manifest)!
+        .bytes.toString("utf8"),
+    ) as { files: Record<string, string> };
+    expect(v2Manifest.files[addedPath]).toBe(sriOf("console.log('added');"));
+    expect(v2Manifest.files["remoteEntry.js"]).toBe(v1Manifest.files["remoteEntry.js"]);
+  });
+
+  it("BOS_FULL_UPLOAD=1 bypasses the diff and re-uploads every dist file", async () => {
+    const dist = join(configDir, "ui", "dist");
+    writeDist(dist, "v1");
+    await runDeploy();
+    const batchesAfterFirst = storage.batches.length;
+
+    process.env.BOS_FULL_UPLOAD = "1";
+    try {
+      const result = await runDeploy();
+      expect(result.status).toBe("published");
+      const uploaded = storage.batches.slice(batchesAfterFirst).flatMap((batch) => batch.paths);
+      expect(uploaded).toContain("remoteEntry.js");
+      expect(uploaded).toContain("mf-manifest.json");
+    } finally {
+      delete process.env.BOS_FULL_UPLOAD;
+    }
+  });
+
+  it("a broken pointer degrades to a full upload instead of a broken deploy", async () => {
+    const dist = join(configDir, "ui", "dist");
+    writeDist(dist, "v1");
+    await runDeploy();
+    const batchesAfterFirst = storage.batches.length;
+
+    mkdirSync(join(configDir, ".bos"), { recursive: true });
+    writeFileSync(
+      join(configDir, ".bos", "deploy-state.json"),
+      JSON.stringify({
+        version: 1,
+        apps: {
+          "v1.citynode.near/citynode.app": {
+            ui: {
+              manifest: "versions/0000000000000000.json",
+              integrity: sriOf("no-such-object"),
+            },
+          },
+        },
+      }),
+    );
+
+    const result = await runDeploy();
+
+    expect(result.status).toBe("published");
+    const uploaded = storage.batches.slice(batchesAfterFirst).flatMap((batch) => batch.paths);
+    expect(uploaded).toContain("remoteEntry.js");
+    expect(uploaded).toContain("mf-manifest.json");
   });
 });

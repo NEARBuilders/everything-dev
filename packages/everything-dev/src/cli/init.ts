@@ -37,7 +37,7 @@ import { readWorkspaceCatalog as readWorkspaceCatalogFromDisk } from "../workspa
 import { writeSnapshot } from "./snapshot";
 import { getExtendsRef, parseBosRef } from "./utils/helpers";
 
-export const PNPM_PACKAGE_MANAGER = "pnpm@10.20.0";
+export const PNPM_PACKAGE_MANAGER = "pnpm@12.10.1";
 
 /**
  * Transitive-singleton overrides every workspace in the fleet must agree on

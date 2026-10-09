@@ -23,6 +23,9 @@ export interface ResolvedSlotVersion {
   /** Absolute URL of the content-hashed SSR entry, when present. */
   ssrEntryUrl?: string;
   ssrIntegrity?: string;
+  /** Full per-file digest map of the dist (object path → SRI), when the
+   * pinned manifest carries one — the diff base for skip-unchanged uploads. */
+  files?: Record<string, string>;
 }
 
 export interface SlotPin {
@@ -80,6 +83,7 @@ export async function resolveSlotVersion(input: {
           ssrIntegrity: manifest.ssr.integrity,
         }
       : {}),
+    ...(manifest.files ? { files: manifest.files } : {}),
   };
   cache.set(key, resolved);
   return resolved;
