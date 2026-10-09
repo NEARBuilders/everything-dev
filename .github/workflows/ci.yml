@@ -30,6 +30,7 @@ jobs:
       regression-browser: ${{ steps.changes.outputs.regression-browser }}
       regression-unit: ${{ steps.changes.outputs.regression-unit }}
       image-smoke: ${{ steps.changes.outputs.image-smoke }}
+      workflows: ${{ steps.changes.outputs.workflows }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -43,14 +44,17 @@ jobs:
             git fetch origin "${{ github.base_ref }}" --depth=1
             BASE="origin/${{ github.base_ref }}"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "everything-dev=true" >> "$GITHUB_OUTPUT"
-            echo "every-plugin=true" >> "$GITHUB_OUTPUT"
-            echo "host=true" >> "$GITHUB_OUTPUT"
-            echo "regression-http=true" >> "$GITHUB_OUTPUT"
-            echo "regression-framework=true" >> "$GITHUB_OUTPUT"
-            echo "regression-browser=true" >> "$GITHUB_OUTPUT"
-            echo "regression-unit=true" >> "$GITHUB_OUTPUT"
-            echo "image-smoke=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "everything-dev=true"
+              echo "every-plugin=true"
+              echo "host=true"
+              echo "regression-http=true"
+              echo "regression-framework=true"
+              echo "regression-browser=true"
+              echo "regression-unit=true"
+              echo "image-smoke=true"
+              echo "workflows=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           else
             BEFORE="${{ github.event.before }}"
@@ -63,52 +67,60 @@ jobs:
           fi
 
           if ! DIFF=$(git diff --name-only "$BASE" HEAD); then
-            echo "everything-dev=true" >> "$GITHUB_OUTPUT"
-            echo "every-plugin=true" >> "$GITHUB_OUTPUT"
-            echo "host=true" >> "$GITHUB_OUTPUT"
-            echo "regression-http=true" >> "$GITHUB_OUTPUT"
-            echo "regression-framework=true" >> "$GITHUB_OUTPUT"
-            echo "regression-browser=true" >> "$GITHUB_OUTPUT"
-            echo "regression-unit=true" >> "$GITHUB_OUTPUT"
-            echo "image-smoke=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "everything-dev=true"
+              echo "every-plugin=true"
+              echo "host=true"
+              echo "regression-http=true"
+              echo "regression-framework=true"
+              echo "regression-browser=true"
+              echo "regression-unit=true"
+              echo "image-smoke=true"
+              echo "workflows=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if echo "$DIFF" | grep -qE '^tests/regression/lib/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json)$|^\.github/workflows/ci\.yml$'; then
+          if echo "$DIFF" | grep -qE '^tests/regression/lib/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/'; then
             echo "regression-unit=true" >> "$GITHUB_OUTPUT"
           else
             echo "regression-unit=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^Dockerfile$|^scripts/|^host/|^api/|^ui/|^plugins/|^packages/|^tests/|^bos\.config\.json$|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json)$|^\.github/workflows/ci\.yml$'; then
+          if echo "$DIFF" | grep -qE '^\.github/workflows/|^\.github/templates/workflows/'; then
+            echo "workflows=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "workflows=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$DIFF" | grep -qE '^Dockerfile$|^scripts/|^host/|^api/|^ui/|^plugins/|^packages/|^tests/|^bos\.config\.json$|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts)$|^\.github/workflows/ci\.yml$'; then
             echo "image-smoke=true" >> "$GITHUB_OUTPUT"
           else
             echo "image-smoke=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^packages/everything-dev/|^packages/every-plugin/|^packages/better-near-auth/|^api/|^plugins/|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json)$|^\.github/workflows/ci.yml$'; then
+          if echo "$DIFF" | grep -qE '^packages/everything-dev/|^packages/every-plugin/|^packages/better-near-auth/|^api/|^plugins/|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci.yml$'; then
             echo "everything-dev=true" >> "$GITHUB_OUTPUT"
           else
             echo "everything-dev=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^packages/every-plugin/|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json)$|^\.github/workflows/ci.yml$'; then
+          if echo "$DIFF" | grep -qE '^packages/every-plugin/|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json)$|^\.github/workflows/ci.yml$'; then
             echo "every-plugin=true" >> "$GITHUB_OUTPUT"
           else
             echo "every-plugin=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^host/|^ui/|^packages/|^bos\.config\.json$|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json)$|^\.github/workflows/ci\.yml$'; then
+          if echo "$DIFF" | grep -qE '^host/|^ui/|^packages/|^bos\.config\.json$|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
             echo "host=true" >> "$GITHUB_OUTPUT"
           else
             echo "host=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(http|lib)/|^host/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^bos\.config\.json$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json)$|^\.github/workflows/ci\.yml$'; then
+          if echo "$DIFF" | grep -qE '^tests/regression/(http|lib)/|^host/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^bos\.config\.json$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
             echo "regression-http=true" >> "$GITHUB_OUTPUT"
           else
             echo "regression-http=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(framework|lib)/|^packages/everything-dev/src/|^packages/every-plugin/src/|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json)$|^\.github/workflows/ci\.yml$'; then
+          if echo "$DIFF" | grep -qE '^tests/regression/(framework|lib)/|^packages/everything-dev/src/|^packages/every-plugin/src/|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
             echo "regression-framework=true" >> "$GITHUB_OUTPUT"
           else
             echo "regression-framework=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(browser|lib)/|^host/|^ui/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^bos\.config\.json$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json)$|^\.github/workflows/ci\.yml$'; then
+          if echo "$DIFF" | grep -qE '^tests/regression/(browser|lib)/|^host/|^ui/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^bos\.config\.json$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
             echo "regression-browser=true" >> "$GITHUB_OUTPUT"
           else
             echo "regression-browser=false" >> "$GITHUB_OUTPUT"
@@ -183,11 +195,33 @@ jobs:
       - name: Run typecheck
         run: pnpm run typecheck
 
-      # The build train: staleness-checked quiet prerequisites
-      # (every-plugin / everything-dev / better-near-auth) + the template
-      # plugin target — contract types + manifest pipeline in one call.
-      - name: Build template plugin via the train (contract types + manifest pipeline)
+      # Staleness-checked prerequisite builds + the template plugin target —
+      # contract types + manifest pipeline in one command.
+      - name: Build template plugin (contract types + manifest pipeline)
         run: pnpm run build template
+
+  workflows-lint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.workflows == 'true'
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0 (Node 24)
+        with:
+          go-version: "1.22"
+
+      # Guards the consumer reusable workflows: child repos call them by ref,
+      # so a syntax or schema error here breaks children the moment they sync
+      # the wrapper templates.
+      - name: Lint workflow files (actionlint)
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          "$(go env GOPATH)/bin/actionlint" -color .github/workflows/*.yml .github/templates/workflows/*.yml
 
   framework-tests:
     name: Framework tests
@@ -210,7 +244,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build framework dists via the train
+      - name: Build framework dists
         run: pnpm run build template
 
       - name: Test everything-dev
@@ -239,7 +273,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin dist via the train
+      - name: Build every-plugin dist
         run: pnpm run build template
 
       - name: Test every-plugin
@@ -268,7 +302,7 @@ jobs:
       - name: Patch Effect TypeScript-Go (tsgo) and Oxlint
         run: pnpm run prepare
 
-      - name: Build framework dists via the train
+      - name: Build framework dists
         run: pnpm run build template
 
       - name: Test host
@@ -303,8 +337,9 @@ jobs:
       fail-fast: false
       matrix:
         # dev = the dev server; start = the deployment image (ADR 0009).
-        # http is render-mode-blind, so it runs on :ssr only. The start leg
-        # pays the docker build, hence the longer timeout.
+        # The HTTP suite is identical for SSR and CSR, so it runs on :ssr
+        # only. The start variant pays the docker build, hence the longer
+        # timeout.
         include:
           - command: dev
             timeout: 15
@@ -366,7 +401,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin dist via the train
+      - name: Build every-plugin dist
         if: matrix.command == 'dev'
         run: pnpm run build template
 
@@ -437,7 +472,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin dist via the train
+      - name: Build every-plugin dist
         run: pnpm run build template
 
       - name: Run framework regression suite
@@ -456,8 +491,8 @@ jobs:
       fail-fast: false
       matrix:
         # start:* = the deployment image via `bos start --config` (full suite);
-        # dev:* = the dev server, smoke-only (ADR 0009). The start legs pay
-        # the docker build, hence the longer timeout.
+        # dev:* = the dev server, smoke-only (ADR 0009). The start variants
+        # pay the docker build, hence the longer timeout.
         include:
           - mode: start:ssr
             slug: start-ssr
@@ -522,7 +557,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin dist via the train
+      - name: Build every-plugin dist
         if: startsWith(matrix.mode, 'dev:')
         run: pnpm run build template
 
@@ -543,6 +578,9 @@ jobs:
 
       - name: Resource watchdog
         run: |
+          # $(date) must expand inside the inner bash on every loop iteration —
+          # single quotes are intentional.
+          # shellcheck disable=SC2016
           nohup bash -c 'while true; do
             echo "=== watchdog $(date -u +%H:%M:%S) ==="
             free -m

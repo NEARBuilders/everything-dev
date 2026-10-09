@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,12 @@ const { runMock } = vi.hoisted(() => ({ runMock: vi.fn() }));
 
 vi.mock("../../src/utils/run", () => ({ run: runMock }));
 
-import { buildAndPushImage, deployImageToRailway, resolveImageRef } from "../../src/image-deploy";
+import {
+  buildAndPushImage,
+  computeImageTags,
+  deployImageToRailway,
+  resolveImageRef,
+} from "../../src/image-deploy";
 
 describe("resolveImageRef", () => {
   it("prefers ci.image from bos.config.json", () => {
@@ -44,6 +49,37 @@ describe("resolveImageRef", () => {
   });
 });
 
+describe("computeImageTags", () => {
+  it("always pins the sha tag", () => {
+    expect(computeImageTags({ shortSha: "cf2ab4d13" })).toEqual({
+      tags: ["sha-cf2ab4d13"],
+      pushLatest: true,
+    });
+  });
+
+  it("adds the exact prerelease tag and holds latest", () => {
+    expect(computeImageTags({ shortSha: "cf2ab4d13", version: "2.0.0-rc.0" })).toEqual({
+      tags: ["sha-cf2ab4d13", "v2.0.0-rc.0"],
+      pushLatest: false,
+      latestHoldReason: "v2.0.0-rc.0 is a prerelease — :latest still serves the last stable image",
+    });
+  });
+
+  it("adds exact and floating major tags plus latest on stable releases", () => {
+    expect(computeImageTags({ shortSha: "cf2ab4d13", version: "2.0.0" })).toEqual({
+      tags: ["sha-cf2ab4d13", "v2.0.0", "v2"],
+      pushLatest: true,
+    });
+  });
+
+  it("keeps latest behavior for unknown versions", () => {
+    expect(computeImageTags({ shortSha: "cf2ab4d13", version: "not-a-version" })).toEqual({
+      tags: ["sha-cf2ab4d13"],
+      pushLatest: true,
+    });
+  });
+});
+
 describe("buildAndPushImage", () => {
   let configDir: string;
 
@@ -58,6 +94,12 @@ describe("buildAndPushImage", () => {
 
   function ok(stdout = "") {
     return { stdout, stderr: "", exitCode: 0 };
+  }
+
+  function writeWorkspaceVersion(version: string) {
+    const pkgDir = join(configDir, "packages", "everything-dev");
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ version }));
   }
 
   it("builds the runtime stage with sha and latest tags and captures the digest", async () => {
@@ -77,6 +119,8 @@ describe("buildAndPushImage", () => {
     expect(result).toEqual({
       image: "ghcr.io/acme/app",
       tag: "sha-cf2ab4d13",
+      tags: ["sha-cf2ab4d13"],
+      latestPushed: true,
       digest: "sha256:abc123",
     });
     expect(runMock).toHaveBeenCalledWith(
@@ -96,6 +140,76 @@ describe("buildAndPushImage", () => {
     const pushes = runMock.mock.calls.filter((c) => c[0] === "docker" && c[1][0] === "push");
     expect(pushes.map((c) => c[1][1])).toEqual([
       "ghcr.io/acme/app:sha-cf2ab4d13",
+      "ghcr.io/acme/app:latest",
+    ]);
+  });
+
+  it("holds latest and pushes the exact tag for a prerelease workspace version", async () => {
+    writeWorkspaceVersion("2.0.0-rc.0");
+    runMock.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "git") return ok("cf2ab4d13");
+      if (cmd === "docker" && args[0] === "build") return undefined;
+      if (cmd === "docker" && args[0] === "push") {
+        return ok("digest: sha256:def456");
+      }
+      return ok();
+    });
+
+    const result = await buildAndPushImage({ image: "ghcr.io/acme/app", configDir });
+
+    expect(result).toEqual({
+      image: "ghcr.io/acme/app",
+      tag: "sha-cf2ab4d13",
+      tags: ["sha-cf2ab4d13", "v2.0.0-rc.0"],
+      latestPushed: false,
+      digest: "sha256:def456",
+    });
+    expect(runMock).toHaveBeenCalledWith(
+      "docker",
+      [
+        "build",
+        "--target",
+        "runtime",
+        "-t",
+        "ghcr.io/acme/app:sha-cf2ab4d13",
+        "-t",
+        "ghcr.io/acme/app:v2.0.0-rc.0",
+        ".",
+      ],
+      { cwd: configDir },
+    );
+    const pushes = runMock.mock.calls.filter((c) => c[0] === "docker" && c[1][0] === "push");
+    expect(pushes.map((c) => c[1][1])).toEqual([
+      "ghcr.io/acme/app:sha-cf2ab4d13",
+      "ghcr.io/acme/app:v2.0.0-rc.0",
+    ]);
+  });
+
+  it("pushes exact, major, and latest tags for a stable workspace version", async () => {
+    writeWorkspaceVersion("2.0.0");
+    runMock.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "git") return ok("cf2ab4d13");
+      if (cmd === "docker" && args[0] === "build") return undefined;
+      if (cmd === "docker" && args[0] === "push") {
+        return ok("digest: sha256:fa7891");
+      }
+      return ok();
+    });
+
+    const result = await buildAndPushImage({ image: "ghcr.io/acme/app", configDir });
+
+    expect(result).toEqual({
+      image: "ghcr.io/acme/app",
+      tag: "sha-cf2ab4d13",
+      tags: ["sha-cf2ab4d13", "v2.0.0", "v2"],
+      latestPushed: true,
+      digest: "sha256:fa7891",
+    });
+    const pushes = runMock.mock.calls.filter((c) => c[0] === "docker" && c[1][0] === "push");
+    expect(pushes.map((c) => c[1][1])).toEqual([
+      "ghcr.io/acme/app:sha-cf2ab4d13",
+      "ghcr.io/acme/app:v2.0.0",
+      "ghcr.io/acme/app:v2",
       "ghcr.io/acme/app:latest",
     ]);
   });

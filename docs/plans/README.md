@@ -27,6 +27,7 @@ docs/plans/
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
+| 049 | Workflow hardening + consumer reusable workflows | P1 | M | — | DONE (PR #316 — post-merge consumer-repo smoke + versioned-ref upgrade tracked in the plan) |
 | 016 | Shared Effect test helpers + port 0 | P2 | S-M | [done/001](./done/001-buildscoped-helper.md) | TODO |
 | 004 | oRPC boundary typing (as-any chain, config generics, api inline type) | P1 | M | [done/001](./done/001-buildscoped-helper.md) | TODO |
 | 007 | createAuthMiddleware consolidation | P2 | M | [done/002](./done/002-effect-bridge-dedupe.md) | TODO |

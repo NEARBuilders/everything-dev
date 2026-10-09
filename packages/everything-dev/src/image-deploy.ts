@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "./utils/run";
 import { colors, icons } from "./utils/theme";
@@ -46,16 +46,78 @@ function parseDigest(pushOutput: string): string | undefined {
   return match?.[1];
 }
 
+const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
+
+/**
+ * The runtime framework version baked into the image is the workspace source's
+ * `everything-dev` package version — the image builds from `configDir`, so that
+ * file is the truth. Missing (child repos without the workspace) → undefined.
+ */
+function readFrameworkVersion(configDir: string): string | undefined {
+  try {
+    const raw = readFileSync(
+      join(configDir, "packages", "everything-dev", "package.json"),
+      "utf-8",
+    );
+    const pkg = JSON.parse(raw) as { version?: unknown };
+    return typeof pkg.version === "string" && SEMVER_PATTERN.test(pkg.version)
+      ? pkg.version
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export interface ImageTags {
+  /** Exact refs to build and push, in push order (latest excluded). */
+  tags: string[];
+  /** Push `:latest` after the pinned tags. */
+  pushLatest: boolean;
+  /** Human-readable reason when `latest` is held. */
+  latestHoldReason?: string;
+}
+
+/**
+ * Tag scheme (ADR 0021): `sha-<short>` always; the exact `v<version>` tag; a
+ * floating major tag (`v2`) on stable releases only. `latest` is held during
+ * prereleases (npm's `rc` dist-tag analog) so existing deployments pinned to
+ * `:latest` keep serving the last stable image.
+ */
+export function computeImageTags(input: { shortSha: string; version?: string }): ImageTags {
+  const tags = [`sha-${input.shortSha}`];
+  const match = input.version?.trim().match(SEMVER_PATTERN);
+  if (!match) {
+    return { tags, pushLatest: true };
+  }
+  const [, major, minor, patch, prerelease] = match;
+  const exact = prerelease
+    ? `v${major}.${minor}.${patch}-${prerelease}`
+    : `v${major}.${minor}.${patch}`;
+  if (prerelease) {
+    return {
+      tags: [...tags, exact],
+      pushLatest: false,
+      latestHoldReason: `${exact} is a prerelease — :latest still serves the last stable image`,
+    };
+  }
+  return { tags: [...tags, exact, `v${major}`], pushLatest: true };
+}
+
 export interface ImageDeployResult {
   image: string;
+  /** Primary pinned tag (the sha tag). */
   tag: string;
+  /** All tags pushed, including the primary. */
+  tags: string[];
+  latestPushed: boolean;
   digest?: string;
 }
 
 /**
- * Image leg (ADR 0021): build the runtime stage, tag sha-<short> + latest,
- * push both, and capture the digest. Callers skip the leg with a notice when
- * no image is configured (child repos get build+upload+publish only).
+ * Image leg (ADR 0021): build the runtime stage, tag `sha-<short>` + version
+ * tags, push them, capture the digest, and push `:latest` unless the version
+ * is a prerelease. Callers skip the leg with a notice when no image is
+ * configured (child repos get build+upload+publish only).
  */
 export async function buildAndPushImage(input: {
   image: string;
@@ -73,53 +135,63 @@ export async function buildAndPushImage(input: {
       `Failed to resolve the current git SHA in ${input.configDir} (exit code ${shaResult?.exitCode ?? "unknown"}${detail ? `: ${detail}` : ""})`,
     );
   }
-  const tag = `sha-${shortSha}`;
 
-  console.log(`  Building runtime image ${colors.cyan(`${input.image}:${tag}`)}...`);
+  const version = readFrameworkVersion(input.configDir);
+  const { tags, pushLatest, latestHoldReason } = computeImageTags({ shortSha, version });
+  const refs = tags.map((tag) => `${input.image}:${tag}`);
+  const latestRef = `${input.image}:latest`;
+  const buildRefs = pushLatest ? [...refs, latestRef] : refs;
+
+  console.log(
+    `  Building runtime image ${colors.cyan(buildRefs.join(", "))}${pushLatest ? "" : colors.yellow(" (latest held)")}`,
+  );
   await run(
     "docker",
-    [
-      "build",
-      "--target",
-      "runtime",
-      "-t",
-      `${input.image}:${tag}`,
-      "-t",
-      `${input.image}:latest`,
-      ".",
-    ],
+    ["build", "--target", "runtime", ...buildRefs.flatMap((ref) => ["-t", ref]), "."],
     { cwd: input.configDir },
   );
 
-  console.log(`  Pushing ${colors.cyan(`${input.image}:${tag}`)} and ${colors.cyan(":latest")}...`);
-  const pushSha = await run("docker", ["push", `${input.image}:${tag}`], {
-    cwd: input.configDir,
-    capture: true,
-  });
-  if (!pushSha || pushSha.exitCode !== 0) {
-    throw new Error(
-      `docker push ${input.image}:${tag} failed with exit code ${pushSha?.exitCode ?? "unknown"}`,
-    );
-  }
-  const pushLatest = await run("docker", ["push", `${input.image}:latest`], {
-    cwd: input.configDir,
-    capture: true,
-  });
-  if (!pushLatest || pushLatest.exitCode !== 0) {
-    throw new Error(
-      `docker push ${input.image}:latest failed with exit code ${pushLatest?.exitCode ?? "unknown"}`,
-    );
-  }
-  if (input.verbose && pushSha.stdout.trim()) {
-    console.log(colors.dim(pushSha.stdout.trim()));
+  console.log(`  Pushing ${colors.cyan(refs.join(", "))}...`);
+  let digest: string | undefined;
+  for (const ref of refs) {
+    const push = await run("docker", ["push", ref], {
+      cwd: input.configDir,
+      capture: true,
+    });
+    if (!push || push.exitCode !== 0) {
+      throw new Error(`docker push ${ref} failed with exit code ${push?.exitCode ?? "unknown"}`);
+    }
+    digest ??= parseDigest(push.stdout);
+    if (input.verbose && push.stdout.trim()) {
+      console.log(colors.dim(push.stdout.trim()));
+    }
   }
 
-  const digest = parseDigest(pushSha.stdout) ?? parseDigest(pushLatest.stdout);
+  let latestPushed = false;
+  if (pushLatest) {
+    const pushLatestRef = await run("docker", ["push", latestRef], {
+      cwd: input.configDir,
+      capture: true,
+    });
+    if (!pushLatestRef || pushLatestRef.exitCode !== 0) {
+      throw new Error(
+        `docker push ${latestRef} failed with exit code ${pushLatestRef?.exitCode ?? "unknown"}`,
+      );
+    }
+    digest ??= parseDigest(pushLatestRef.stdout);
+    if (input.verbose && pushLatestRef.stdout.trim()) {
+      console.log(colors.dim(pushLatestRef.stdout.trim()));
+    }
+    latestPushed = true;
+  } else {
+    console.log(colors.yellow(`  latest held: ${latestHoldReason}`));
+  }
+
   if (!digest) {
     console.log(colors.yellow("  Could not capture the image digest from push output"));
   }
 
-  return { image: input.image, tag, digest };
+  return { image: input.image, tag: tags[0], tags, latestPushed, digest };
 }
 
 /**
