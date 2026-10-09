@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { Context } from "effect";
+import { Effect } from "effect";
 import * as schema from "../db/schema";
 import {
   isNearNetwork,
@@ -9,7 +9,8 @@ import {
   normalizeNearAccountId,
 } from "../near-invitations";
 import { AuthServicesTag } from "../service-types";
-import { canReadMemberEmails, createHeaders, safeAuthApi } from "../utils";
+import { canReadMemberEmails, createHeaders } from "../utils";
+import { attemptAuth } from "./attempts";
 
 function resolveInvitee(input: { email?: string; nearAccountId?: string; nearNetwork?: string }) {
   if (!!input.email === !!input.nearAccountId) {
@@ -59,183 +60,223 @@ function toInvitation(invitation: any) {
   };
 }
 
+async function getInvitationOrNull(services: any, headers: Headers, id: string) {
+  try {
+    const stored = await services.db.query.invitation.findFirst({
+      where: eq(schema.invitation.id, id),
+    });
+    if (stored?.nearAccountId) {
+      const session = await services.auth.api.getSession({ headers });
+      if (!session?.user) return null;
+      const pending = await listPendingNearInvitations(services.db, session.user.id);
+      const match = pending.find((row) => row.invitation.id === id);
+      if (!match) return null;
+      const inviter = await services.db.query.user.findFirst({
+        where: eq(schema.user.id, match.invitation.inviterId),
+      });
+      return {
+        ...toInvitation(match.invitation),
+        organizationName: match.organizationName,
+        organizationSlug: match.organizationSlug,
+        inviterName: inviter?.name ?? null,
+        inviterEmail: null,
+      };
+    }
+    const invitation = await services.auth.api.getInvitation({
+      headers,
+      query: { id },
+    });
+    if (!invitation) return null;
+    const inviter = await services.db.query.user.findFirst({
+      where: eq(schema.user.id, invitation.inviterId),
+    });
+    return {
+      ...toInvitation(invitation),
+      organizationName: invitation.organizationName,
+      organizationSlug: invitation.organizationSlug,
+      inviterName: inviter?.name ?? null,
+      inviterEmail: null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function createInvitationHandlers(builder: any, requireAuth: any) {
   return {
-    inviteMember: builder.inviteMember
-      .use(requireAuth)
-      .handler(async ({ input, context }: { input: any; context: any }) => {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        const result = await safeAuthApi(() =>
-          services.auth.api.createInvitation({
-            headers: createHeaders(context.reqHeaders),
-            body: {
-              ...resolveInvitee(input),
-              role: input.role,
-              organizationId: input.organizationId,
-              resend: input.resend,
-              ...(input.teamId ? { teamId: input.teamId } : {}),
-            },
-          }),
-        );
-        return toInvitation(result);
-      }),
+    inviteMember: builder.inviteMember.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }: {
+      input: any;
+      context: any;
+    }) {
+      const services = yield* AuthServicesTag;
+      const result = yield* attemptAuth(() =>
+        services.auth.api.createInvitation({
+          headers: createHeaders(context.reqHeaders),
+          body: {
+            ...resolveInvitee(input),
+            role: input.role,
+            organizationId: input.organizationId,
+            resend: input.resend,
+            ...(input.teamId ? { teamId: input.teamId } : {}),
+          },
+        }),
+      );
+      return toInvitation(result);
+    }),
 
-    getInvitation: builder.getInvitation.handler(
-      async ({ input, context }: { input: any; context: any }) => {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        const headers = createHeaders(context.reqHeaders ?? {});
-        try {
-          const stored = await services.db.query.invitation.findFirst({
-            where: eq(schema.invitation.id, input.id),
-          });
-          if (stored?.nearAccountId) {
-            const session = await services.auth.api.getSession({ headers });
-            if (!session?.user) return null;
-            const pending = await listPendingNearInvitations(services.db, session.user.id);
-            const match = pending.find((row) => row.invitation.id === input.id);
-            if (!match) return null;
-            const inviter = await services.db.query.user.findFirst({
-              where: eq(schema.user.id, match.invitation.inviterId),
-            });
-            return {
-              ...toInvitation(match.invitation),
-              organizationName: match.organizationName,
-              organizationSlug: match.organizationSlug,
-              inviterName: inviter?.name ?? null,
-              inviterEmail: null,
-            };
-          }
-          const invitation = await services.auth.api.getInvitation({
-            headers,
-            query: { id: input.id },
-          });
-          if (!invitation) return null;
-          const inviter = await services.db.query.user.findFirst({
-            where: eq(schema.user.id, invitation.inviterId),
-          });
-          return {
-            ...toInvitation(invitation),
-            organizationName: invitation.organizationName,
-            organizationSlug: invitation.organizationSlug,
-            inviterName: inviter?.name ?? null,
-            inviterEmail: null,
-          };
-        } catch {
-          return null;
-        }
-      },
-    ),
+    getInvitation: builder.getInvitation.effect(function* ({
+      input,
+      context,
+    }: {
+      input: any;
+      context: any;
+    }) {
+      const services = yield* AuthServicesTag;
+      const headers = createHeaders(context.reqHeaders ?? {});
+      return yield* Effect.promise(() => getInvitationOrNull(services, headers, input.id));
+    }),
 
-    listInvitations: builder.listInvitations
-      .use(requireAuth)
-      .handler(async ({ input, context }: { input: any; context: any }) => {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        const emailAllowed = await canReadMemberEmails(services, context, input?.organizationId);
-        const result = await safeAuthApi(() =>
-          services.auth.api.listInvitations({
-            headers: createHeaders(context.reqHeaders),
-            query: {
-              organizationId: input.organizationId,
-            },
-          }),
-        );
-        return (result ?? []).map((inv: any) => ({
+    listInvitations: builder.listInvitations.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }: {
+      input: any;
+      context: any;
+    }) {
+      const services = yield* AuthServicesTag;
+      const emailAllowed = yield* Effect.promise(() =>
+        canReadMemberEmails(services, context, input?.organizationId),
+      );
+      const result = yield* attemptAuth(() =>
+        services.auth.api.listInvitations({
+          headers: createHeaders(context.reqHeaders),
+          query: {
+            organizationId: input.organizationId,
+          },
+        }),
+      );
+      return (result ?? []).map((inv: any) => ({
+        ...toInvitation(inv),
+        ...(emailAllowed ? { email: inv.email } : { email: null }),
+      }));
+    }),
+
+    listUserInvitations: builder.listUserInvitations.use(requireAuth).effect(function* ({
+      context,
+    }: {
+      context: any;
+    }) {
+      const services = yield* AuthServicesTag;
+      const [emailInvitations, walletInvitations] = yield* Effect.all([
+        context.user?.emailVerified === false
+          ? Effect.succeed([])
+          : attemptAuth(() =>
+              services.auth.api.listUserInvitations({
+                headers: createHeaders(context.reqHeaders),
+              }),
+            ),
+        Effect.promise(() => listPendingNearInvitations(services.db, context.userId)),
+      ]);
+      return [
+        ...(emailInvitations ?? []).map((inv: any) => ({
           ...toInvitation(inv),
-          ...(emailAllowed ? { email: inv.email } : { email: null }),
-        }));
-      }),
+          ...(inv.organizationName ? { organizationName: inv.organizationName } : {}),
+          ...(inv.organizationSlug ? { organizationSlug: inv.organizationSlug } : {}),
+        })),
+        ...walletInvitations.map((row: any) => ({
+          ...toInvitation(row.invitation),
+          organizationName: row.organizationName,
+          organizationSlug: row.organizationSlug,
+        })),
+      ];
+    }),
 
-    listUserInvitations: builder.listUserInvitations
-      .use(requireAuth)
-      .handler(async ({ context }: { context: any }) => {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        const [emailInvitations, walletInvitations] = await Promise.all([
-          context.user?.emailVerified === false
-            ? Promise.resolve([])
-            : safeAuthApi(() =>
-                services.auth.api.listUserInvitations({
-                  headers: createHeaders(context.reqHeaders),
-                }),
-              ),
-          listPendingNearInvitations(services.db, context.userId),
-        ]);
-        return [
-          ...(emailInvitations ?? []).map((inv: any) => ({
-            ...toInvitation(inv),
-            ...(inv.organizationName ? { organizationName: inv.organizationName } : {}),
-            ...(inv.organizationSlug ? { organizationSlug: inv.organizationSlug } : {}),
-          })),
-          ...walletInvitations.map((row) => ({
-            ...toInvitation(row.invitation),
-            organizationName: row.organizationName,
-            organizationSlug: row.organizationSlug,
-          })),
-        ];
-      }),
+    cancelInvitation: builder.cancelInvitation.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }: {
+      input: any;
+      context: any;
+    }) {
+      const services = yield* AuthServicesTag;
+      yield* attemptAuth(() =>
+        services.auth.api.cancelInvitation({
+          headers: createHeaders(context.reqHeaders),
+          body: { invitationId: input.invitationId },
+        }),
+      );
+      return { success: true };
+    }),
 
-    cancelInvitation: builder.cancelInvitation
-      .use(requireAuth)
-      .handler(async ({ input, context }: { input: any; context: any }) => {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        await safeAuthApi(() =>
-          services.auth.api.cancelInvitation({
-            headers: createHeaders(context.reqHeaders),
-            body: { invitationId: input.invitationId },
-          }),
-        );
-        return { success: true };
-      }),
+    acceptInvitation: builder.acceptInvitation.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }: {
+      input: any;
+      context: any;
+    }) {
+      const services = yield* AuthServicesTag;
+      yield* attemptAuth(() =>
+        services.auth.api.acceptInvitation({
+          headers: createHeaders(context.reqHeaders),
+          body: { invitationId: input.invitationId },
+        }),
+      );
+      return { success: true };
+    }),
 
-    acceptInvitation: builder.acceptInvitation
-      .use(requireAuth)
-      .handler(async ({ input, context }: { input: any; context: any }) => {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        await safeAuthApi(() =>
-          services.auth.api.acceptInvitation({
-            headers: createHeaders(context.reqHeaders),
-            body: { invitationId: input.invitationId },
-          }),
-        );
-        return { success: true };
-      }),
+    acceptNearInvitation: builder.acceptNearInvitation.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }: {
+      input: any;
+      context: any;
+    }) {
+      const services = yield* AuthServicesTag;
+      yield* attemptAuth(() =>
+        services.auth.api.acceptNearInvitation({
+          headers: createHeaders(context.reqHeaders),
+          body: { invitationId: input.invitationId },
+        }),
+      );
+      return { success: true };
+    }),
 
-    acceptNearInvitation: builder.acceptNearInvitation
-      .use(requireAuth)
-      .handler(async ({ input, context }: { input: any; context: any }) => {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        await safeAuthApi(() =>
-          services.auth.api.acceptNearInvitation({
-            headers: createHeaders(context.reqHeaders),
-            body: { invitationId: input.invitationId },
-          }),
-        );
-        return { success: true };
-      }),
+    rejectNearInvitation: builder.rejectNearInvitation.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }: {
+      input: any;
+      context: any;
+    }) {
+      const services = yield* AuthServicesTag;
+      yield* attemptAuth(() =>
+        services.auth.api.rejectNearInvitation({
+          headers: createHeaders(context.reqHeaders),
+          body: { invitationId: input.invitationId },
+        }),
+      );
+      return { success: true };
+    }),
 
-    rejectNearInvitation: builder.rejectNearInvitation
-      .use(requireAuth)
-      .handler(async ({ input, context }: { input: any; context: any }) => {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        await safeAuthApi(() =>
-          services.auth.api.rejectNearInvitation({
-            headers: createHeaders(context.reqHeaders),
-            body: { invitationId: input.invitationId },
-          }),
-        );
-        return { success: true };
-      }),
-
-    rejectInvitation: builder.rejectInvitation
-      .use(requireAuth)
-      .handler(async ({ input, context }: { input: any; context: any }) => {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        await safeAuthApi(() =>
-          services.auth.api.rejectInvitation({
-            headers: createHeaders(context.reqHeaders),
-            body: { invitationId: input.invitationId },
-          }),
-        );
-        return { success: true };
-      }),
+    rejectInvitation: builder.rejectInvitation.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }: {
+      input: any;
+      context: any;
+    }) {
+      const services = yield* AuthServicesTag;
+      yield* attemptAuth(() =>
+        services.auth.api.rejectInvitation({
+          headers: createHeaders(context.reqHeaders),
+          body: { invitationId: input.invitationId },
+        }),
+      );
+      return { success: true };
+    }),
   };
 }
