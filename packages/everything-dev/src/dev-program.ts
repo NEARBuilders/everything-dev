@@ -37,7 +37,7 @@ import { planInfra } from "./infra/planner";
 import { preflightLocalInfra } from "./infra/preflight";
 import type { InfraPlan } from "./infra/types";
 import { mergeGeneratedOverFileEnv } from "./orchestrator";
-import { type ProgressEvent, pluginEvents, timedPhase } from "./progress";
+import { emitProgress, timedPhase } from "./progress";
 import { openResolution, type ResolutionSession, walkExtendsChain } from "./resolution/session";
 import {
   type AppOrchestrator,
@@ -127,9 +127,6 @@ export function resolveProxyUrl(bosConfig: BosConfig | null): string | null {
   if (apiConfig.production && isValidProxyUrl(apiConfig.production)) return apiConfig.production;
   return null;
 }
-
-const emitProgress = (event: ProgressEvent) =>
-  Effect.sync(() => pluginEvents.emit("progress", event));
 
 const step = <A>(timings: PhaseTiming[], name: string, fn: () => Promise<A>) =>
   timedPhase(

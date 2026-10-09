@@ -57,6 +57,8 @@
 
 export { getBaseStyles } from "everything-dev/ui/head";
 
+import type { ApiConnectionErrorCopy } from "everything-dev/ui/api";
+import { type LocaleOptions, matchLocale } from "everything-dev/ui/i18n";
 import {
   buildPublishedAccountHref,
   buildPublishedGatewayHref,
@@ -64,6 +66,13 @@ import {
   getCspNonce,
   getRuntimeConfig,
 } from "everything-dev/ui/runtime";
+import {
+  APP_LOCALE_COOKIE,
+  APP_LOCALES,
+  type AppLocale,
+  DEFAULT_APP_LOCALE,
+  getAppMessages,
+} from "./i18n/catalogs";
 
 export {
   buildPublishedAccountHref,
@@ -115,17 +124,6 @@ export function getAppName(config?: RuntimeConfigInput): string {
  * (ADR 0023). Locale config feeds SSR negotiation; the API connection copy
  * feeds the client toast. Customize the values here, never the stubs.
  */
-import type { ApiConnectionErrorCopy } from "everything-dev/ui/api";
-import type { LocaleOptions } from "everything-dev/ui/i18n";
-import { matchLocale } from "everything-dev/ui/i18n";
-import {
-  APP_LOCALE_COOKIE,
-  APP_LOCALES,
-  type AppLocale,
-  DEFAULT_APP_LOCALE,
-  getAppMessages,
-} from "./i18n/catalogs";
-
 export const appLocale: LocaleOptions<AppLocale> = {
   locales: APP_LOCALES,
   defaultLocale: DEFAULT_APP_LOCALE,

@@ -523,13 +523,8 @@ export const loadUiComposeModule = Effect.fn("loadUiComposeModule")(function* (
   });
 });
 
-/** The core ui's generated import map (`./routeConfig` expose). */
-export const loadCoreUiRouteConfig = Effect.fn("loadCoreUiRouteConfig")(function* (
-  entry: EntrySlot,
-  env: BosEnv,
-) {
-  return yield* loadValidatedRouteConfig(entry, env);
-});
+/** The core ui's generated import map (`./routeConfig` expose) — validated identically to plugin ui loads. */
+export const loadCoreUiRouteConfig = loadUiRouteConfig;
 
 export const loadRouterModule = Effect.fn("loadRouterModule")(
   function* (config: RuntimeConfig, localEntry?: EntrySlot) {

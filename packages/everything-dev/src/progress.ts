@@ -10,7 +10,7 @@ export type ProgressEvent = {
 
 export const pluginEvents = new EventEmitter();
 
-const emitProgress = (event: ProgressEvent) =>
+export const emitProgress = (event: ProgressEvent) =>
   Effect.sync(() => {
     pluginEvents.emit("progress", event);
   });

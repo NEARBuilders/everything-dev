@@ -350,9 +350,14 @@ values there, never in the stubs:
 // ui/src/app.ts
 import type { ApiConnectionErrorCopy } from "everything-dev/ui/api";
 import type { LocaleOptions } from "everything-dev/ui/i18n";
-import { APP_LOCALES, APP_LOCALE_COOKIE, DEFAULT_APP_LOCALE } from "./i18n/catalogs";
+import {
+  type AppLocale,
+  APP_LOCALES,
+  APP_LOCALE_COOKIE,
+  DEFAULT_APP_LOCALE,
+} from "./i18n/catalogs";
 
-export const appLocale: LocaleOptions = {
+export const appLocale: LocaleOptions<AppLocale> = {
   locales: APP_LOCALES,
   defaultLocale: DEFAULT_APP_LOCALE,
   cookieName: APP_LOCALE_COOKIE,

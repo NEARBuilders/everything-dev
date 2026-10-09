@@ -398,14 +398,15 @@ const logBootstrapError = Effect.fn("logBootstrapError")(function* (err: PluginB
   }
 });
 
-const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (
-  runtime: any,
-  entry: RuntimePluginEntry,
-  integrityRegistry: IntegrityRegistry,
-  env: BosEnv,
-  pluginsClient?: Record<string, unknown>,
-  baseVariables?: Record<string, unknown>,
-) {
+const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (params: {
+  runtime: any;
+  entry: RuntimePluginEntry;
+  integrityRegistry: IntegrityRegistry;
+  env: BosEnv;
+  pluginsClient?: Record<string, unknown>;
+  baseVariables?: Record<string, unknown>;
+}) {
+  const { runtime, entry, integrityRegistry, env, pluginsClient, baseVariables } = params;
   if (entry.config.integrity) {
     integrityRegistry.registerEntry(entry.config.url, entry.config.integrity);
   }
@@ -637,14 +638,14 @@ export const initializePlugins = Effect.fn("initializePlugins")(
 
       yield* Effect.logInfo(`[Plugins][${key}] Loading (${entry.config.name})`);
 
-      const result = yield* loadPluginEntryEffect(
+      const result = yield* loadPluginEntryEffect({
         runtime,
         entry,
         integrityRegistry,
-        config.env,
-        Object.keys(nodePluginsClient).length > 0 ? nodePluginsClient : undefined,
+        env: config.env,
+        pluginsClient: Object.keys(nodePluginsClient).length > 0 ? nodePluginsClient : undefined,
         baseVariables,
-      ).pipe(
+      }).pipe(
         Effect.catchTag("PluginBootstrapError", (err: PluginBootstrapError) =>
           Effect.gen(function* () {
             yield* logBootstrapError(err);
