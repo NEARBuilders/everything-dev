@@ -7,7 +7,6 @@ import { FixMfDataUriPlugin } from "../../build/rspack";
 import { createUiSharedDeps } from "../../shared-deps-spec";
 import { sanitizeContainerName } from "../../ui/manifest/contract";
 import { isBuildInvocation, uiEntryFilename } from "../artifact-names";
-import { mfDataUriAliases } from "../rspack/utils";
 import { hashArtifactsPlugin } from "./hash-artifacts-plugin";
 import { MANIFEST_FILENAME, restoreManifestPublicPath } from "./index";
 import { uiManifestGenPlugin } from "./manifest-plugin";
@@ -128,7 +127,6 @@ export function createUiRsbuildConfig(options: UiRsbuildConfigOptions): RsbuildC
           },
           resolve: {
             ...config.resolve,
-            alias: { ...mfDataUriAliases(), ...config.resolve?.alias },
             fallback: { bufferutil: false, "utf-8-validate": false },
           },
           infrastructureLogging: { level: "error" },
@@ -209,7 +207,6 @@ export function createUiRsbuildConfig(options: UiRsbuildConfigOptions): RsbuildC
           output: { ...config.output, uniqueName: `${normalizedName}_server` },
           resolve: {
             ...config.resolve,
-            alias: { ...mfDataUriAliases(), ...config.resolve?.alias },
             fallback: { bufferutil: false, "utf-8-validate": false },
           },
           externals: [/^node:/],

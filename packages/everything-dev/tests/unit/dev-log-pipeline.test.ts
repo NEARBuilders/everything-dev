@@ -205,6 +205,50 @@ describe("classifyEvent", () => {
     const event = classifyEvent({ source: "host", line: "something unexpected", isError: true });
     expect(event.level).toBe("error");
   });
+
+  it("promotes rsbuild stdout diagnostics (File:/×) to error so they pass the warn filter", () => {
+    const file = classifyEvent({
+      source: "ui",
+      line: "File: data-uri virtual module (import%20%7B%20init%20%7D%20fr...)",
+      isError: false,
+    });
+    expect(file.level).toBe("error");
+    expect(file.category).toBe("build");
+
+    const detail = classifyEvent({
+      source: "ui",
+      line: "  × Package subpath './dist/client/hmr.js' is not defined by \"exports\" in …/package.json",
+      isError: false,
+    });
+    expect(detail.level).toBe("error");
+    expect(detail.category).toBe("build");
+  });
+
+  it("surfaces build diagnostics on the display tail at the default warn level", () => {
+    const display: string[] = [];
+    const file: string[] = [];
+    const pipeline = createLogPipeline({
+      sinks: {
+        display: (event) => display.push(event.line),
+        file: (event) => file.push(event.line),
+        export: () => {},
+      },
+    });
+    for (const raw of toRaw(
+      [
+        "File: data-uri virtual module (import%20%7B%20init%20%7D%20fr...)",
+        "  × Package subpath './dist/client/hmr.js' is not defined by \"exports\"",
+      ],
+      "ui",
+    ))
+      pipeline.ingest(raw);
+    pipeline.ingest({ source: "ui", line: "error   Build error: ", isError: true });
+    pipeline.flush();
+
+    expect(file).toHaveLength(3);
+    expect(display).toHaveLength(3);
+    expect(display.join("\n")).toContain("Package subpath");
+  });
 });
 
 describe("resolveLogLevel", () => {

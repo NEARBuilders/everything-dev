@@ -13,7 +13,7 @@ import { CONTRACT_TYPES_FILE, generateContractTypes } from "../contract-types";
 import { BuildReportPlugin } from "./build-report-plugin";
 import { ChunkCompletenessPlugin } from "./chunk-completeness-plugin";
 import { buildSharedDependencies } from "./module-federation";
-import { getPluginInfo, mfDataUriAliases } from "./utils";
+import { getPluginInfo } from "./utils";
 
 export interface EveryPluginBuildOptions {
   dts?: boolean;
@@ -255,18 +255,6 @@ export class EveryPluginBuild implements RspackPluginInstance {
       bufferutil: false,
       "utf-8-validate": false,
     };
-    // The MF runtime's data-URI module imports its pieces by bare specifier
-    // after FixMfDataUriPlugin strips the machine-absolute node_modules
-    // prefix — alias them back to this machine's on-disk copies so the build
-    // resolves identically everywhere while the identifier stays
-    // machine-independent.
-    const alias = mfDataUriAliases();
-    if (Object.keys(alias).length > 0) {
-      compiler.options.resolve.alias = {
-        ...compiler.options.resolve.alias,
-        ...alias,
-      };
-    }
   }
 
   private ensureTypeScriptLoader(compiler: Compiler) {
