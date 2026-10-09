@@ -44,15 +44,17 @@ jobs:
             git fetch origin "${{ github.base_ref }}" --depth=1
             BASE="origin/${{ github.base_ref }}"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "everything-dev=true" >> "$GITHUB_OUTPUT"
-            echo "every-plugin=true" >> "$GITHUB_OUTPUT"
-            echo "host=true" >> "$GITHUB_OUTPUT"
-            echo "regression-http=true" >> "$GITHUB_OUTPUT"
-            echo "regression-framework=true" >> "$GITHUB_OUTPUT"
-            echo "regression-browser=true" >> "$GITHUB_OUTPUT"
-            echo "regression-unit=true" >> "$GITHUB_OUTPUT"
-            echo "image-smoke=true" >> "$GITHUB_OUTPUT"
-            echo "workflows=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "everything-dev=true"
+              echo "every-plugin=true"
+              echo "host=true"
+              echo "regression-http=true"
+              echo "regression-framework=true"
+              echo "regression-browser=true"
+              echo "regression-unit=true"
+              echo "image-smoke=true"
+              echo "workflows=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           else
             BEFORE="${{ github.event.before }}"
@@ -65,15 +67,17 @@ jobs:
           fi
 
           if ! DIFF=$(git diff --name-only "$BASE" HEAD); then
-            echo "everything-dev=true" >> "$GITHUB_OUTPUT"
-            echo "every-plugin=true" >> "$GITHUB_OUTPUT"
-            echo "host=true" >> "$GITHUB_OUTPUT"
-            echo "regression-http=true" >> "$GITHUB_OUTPUT"
-            echo "regression-framework=true" >> "$GITHUB_OUTPUT"
-            echo "regression-browser=true" >> "$GITHUB_OUTPUT"
-            echo "regression-unit=true" >> "$GITHUB_OUTPUT"
-            echo "image-smoke=true" >> "$GITHUB_OUTPUT"
-            echo "workflows=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "everything-dev=true"
+              echo "every-plugin=true"
+              echo "host=true"
+              echo "regression-http=true"
+              echo "regression-framework=true"
+              echo "regression-browser=true"
+              echo "regression-unit=true"
+              echo "image-smoke=true"
+              echo "workflows=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if echo "$DIFF" | grep -qE '^tests/regression/lib/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/'; then
@@ -574,6 +578,9 @@ jobs:
 
       - name: Resource watchdog
         run: |
+          # $(date) must expand inside the inner bash on every loop iteration —
+          # single quotes are intentional.
+          # shellcheck disable=SC2016
           nohup bash -c 'while true; do
             echo "=== watchdog $(date -u +%H:%M:%S) ==="
             free -m
