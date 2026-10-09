@@ -232,8 +232,8 @@ describe("ticket 12 pins (no runtime debug)", () => {
 
 describe("host registration policy helpers", () => {
   it("normalizes config-declared entries with the host defaults", () => {
-    expect(toHostSharedEntry("every-plugin", { version: "2.10.1", singleton: true })).toEqual({
-      version: "2.10.1",
+    expect(toHostSharedEntry("every-plugin", { version: "9.9.9", singleton: true })).toEqual({
+      version: "9.9.9",
       shareScope: "default",
       shareConfig: {
         singleton: true,

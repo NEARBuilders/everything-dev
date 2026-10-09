@@ -31,7 +31,11 @@ on:
 jobs:
   validate:
     name: Validate intent skills
-    if: github.event_name == 'pull_request'
+    # Changeset release PRs bump every package version at once, so `stale`
+    # structurally reports version drift there — the library_version markers
+    # mean "reviewed against this published version" and are reconciled by the
+    # review job below (or its review PR) after the release actually publishes.
+    if: github.event_name == 'pull_request' && github.head_ref != 'changeset-release/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
