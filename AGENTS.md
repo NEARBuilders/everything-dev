@@ -278,7 +278,7 @@ Two resolution rules keep this safe (ADR 0018): **bundler-configuration code res
 bos sync              # Pull updates from published config/template state
 bos upgrade           # Check for new versions, update, then sync
 bos publish           # Re-publish the resolved config to FastKV (config-only; authored hand-edits merge over what's live)
-bos deploy            # Full train: preflight → build → upload bundles → publish config → image → Railway
+bos deploy            # Deploy train: preflight → build → upload bundles → publish config → image (pre-pushed digest or local docker build) → Railway
 ```
 
 **Check Status:**
@@ -488,7 +488,7 @@ This repo is the parent platform, not a generated child project.
 **Release flow:**
 - CI is the validation workflow. On successful push to `main`, the Deploy workflow triggers automatically via `workflow_run` and checks out the exact SHA CI validated.
 - `release.yml` runs on every push to `main` (canonical changesets flow): pending changesets → it opens/updates the `chore: version packages` PR; none → it publishes the packages to npm (under the `rc` dist-tag while `.changeset/pre.json` pre mode is active) and creates GitHub Releases. `workflow_dispatch` remains for manual retries.
-- `deploy.yml` runs `pnpm run bos deploy` — the single command runs the whole train: preflight (config/signing/storage credentials, fail fast before any build), workspace builds, bundle upload to the R2-backed storage, FastKV publish with read-back confirmation, the `runtime` image stage pushed to GHCR by SHA + version tags — `latest` is held during prereleases so `:latest` keeps serving the last stable image (`ci.image` in the authored config), and a pull-only Railway deploy pinned to the pushed digest (generated thin `FROM <image>@sha256:<digest>` Dockerfile — ADR 0021). Nothing is committed back — the runtime fetches the published config from FastKV.
+- `deploy.yml` deploys in two jobs, image first: an `image` job builds the `runtime` stage and pushes it to GHCR by SHA + version tags — `latest` is held during prereleases so `:latest` keeps serving the last stable image (`ci.image`/`repository` in the authored config; tags mirror `computeImageTags` in `packages/everything-dev/src/image-deploy.ts`) — *before* anything is published, so a failed image push cannot leave a partially published deploy. The `deploy` job then runs `pnpm run bos deploy` — preflight (config/signing/storage credentials, fail fast before any build), workspace builds, bundle upload to the R2-backed storage, FastKV publish with read-back confirmation, and a pull-only Railway deploy pinned to the pre-pushed digest (passed as `BOS_IMAGE_DIGEST`; generated thin `FROM <image>@sha256:<digest>` Dockerfile — ADR 0021). Without a digest (e.g. local runs) `bos deploy` still builds and pushes the image itself when docker is available. Nothing is committed back — the runtime fetches the published config from FastKV.
 - Generated child repos use a simpler flow: both Release and Deploy trigger directly from CI success via `workflow_run` (no npm publish, no Docker).
 
 **Create changeset:**
