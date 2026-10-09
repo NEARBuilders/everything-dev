@@ -74,7 +74,7 @@ This is the canonical [changesets/action](https://github.com/changesets/changese
 
 **Trigger:** `workflow_run` (CI completed successfully on `main`), or `workflow_dispatch`.
 
-**Purpose:** Run the full deploy train with one command (`pnpm run bos deploy`): preflight (fail fast on config/signing/storage credentials before any build), staleness-checked prerequisite builds + workspace builds, bundle upload to the R2-backed storage at `cdn.everything.dev`, FastKV publish with read-back confirmation, `runtime`-stage image build pushed to GHCR by SHA + `latest` tags, and a pull-only Railway deploy pinned to the pushed digest (generated thin `FROM <image>@sha256:<digest>` Dockerfile — Railway never rebuilds, ADR 0021).
+**Purpose:** Run the full deploy train with one command (`pnpm run bos deploy`): preflight (fail fast on config/signing/storage credentials before any build), staleness-checked prerequisite builds + workspace builds, bundle upload to the R2-backed storage at `cdn.everything.dev`, FastKV publish with read-back confirmation, `runtime`-stage image build pushed to GHCR by SHA + version tags (`latest` held during prereleases), and a pull-only Railway deploy pinned to the pushed digest (generated thin `FROM <image>@sha256:<digest>` Dockerfile — Railway never rebuilds, ADR 0021).
 
 **Behavior:**
 - Runs `pnpm run bos deploy` — the CLI handles every leg; missing legs (no `ci.image`, no docker, no `RAILWAY_TOKEN`) degrade gracefully with a notice

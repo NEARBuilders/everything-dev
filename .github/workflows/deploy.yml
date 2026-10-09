@@ -61,7 +61,8 @@ jobs:
         # One command runs the whole train (ADR 0020/0021): staleness-checked
         # prerequisite builds + workspace dists, bundle upload to the R2-backed
         # storage, FastKV publish with read-back confirmation, `runtime`-stage
-        # image build pushed by SHA + latest tags, then a pull-only Railway
+        # image build pushed by SHA + version tags (latest held on prereleases),
+        # then a pull-only Railway
         # deploy pinned to the pushed digest via a generated thin Dockerfile.
         run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}
 
