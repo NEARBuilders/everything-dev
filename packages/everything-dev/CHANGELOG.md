@@ -1,5 +1,20 @@
 # everything-dev
 
+## 2.0.0-rc.2
+
+### Minor Changes
+
+- a3f6c55: Split the runtime image leg out of the deploy train
+
+  - `bos deploy` gains `--image-digest` (or `BOS_IMAGE_DIGEST`): when set, the image build/push leg is skipped and the Railway deploy pins a thin `FROM <image>@<digest>` Dockerfile to the pre-pushed digest. Without a digest the behavior is unchanged — the image is built and pushed locally when docker is available.
+  - The production Deploy workflow now runs two jobs, image first: an `image` job builds the `runtime` stage and pushes it to GHCR (sha-<short>, exact version tag, floating v<major> + `:latest` on stable — `:latest` held during prereleases) and outputs the captured digest; the `deploy` job passes `BOS_IMAGE`/`BOS_IMAGE_DIGEST` so the config/bundle publish only happens for a deploy whose image is already in the registry, and a failed image push no longer leaves a partially published deploy.
+  - `staging.yml` and the consumer workflows are unchanged: `bos deploy` still builds and pushes the image itself when no digest is provided, and child repos (no Dockerfile) degrade exactly as before.
+
+### Patch Changes
+
+- a3f6c55: `everything-dev/ui/auth`'s published types collapsed to `any`: when the dts build ran while a workspace dependency's dist types (better-near-auth) were missing or unresolvable, rolldown-plugin-dts silently emitted `createAuthClient(options?): any`, poisoning `AuthClient`, `SessionData`, `Organization`, `Passkey`, and the session query types for every npm consumer (this shipped in 2.0.0-rc.1). The emitted declaration also referenced `RelayedTransactionT` without importing it. The everything-dev build now guards both ends: it fails fast when the workspace dependencies' dist types are missing (`pnpm --filter better-near-auth build` fixes it) and fails the build if the emitted `createAuthClient` return type collapses to `any`.
+- a3f6c55: Three export subpaths shipped pointing at unpublished `./src/` files — `./fingerprint`, `./version-manifest-resolve`, and `./ui/version-check` — so every consumer outside the monorepo (notably child repos, whose scaffolded `ui/src/components/version-refresh-banner.tsx` imports `everything-dev/ui/version-check`) failed to resolve them at typecheck and runtime. All three now follow the canonical exports shape used by every other subpath: a `development` condition mapping to `src` plus dist fallbacks (`./dist/*.d.mts` / `.mjs` / `.cjs`). Release staging also now fails loudly when any export target still points at `./src/` after development conditions are stripped, instead of publishing a dangling path.
+
 ## 2.0.0-rc.1
 
 ### Patch Changes
