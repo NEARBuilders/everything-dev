@@ -8,6 +8,13 @@ on:
       - "docs/**"
       - ".changeset/**"
   pull_request:
+    # Mirrors the push filter. Docs-only PRs run the dedicated Docs Check
+    # workflow (which also validates links against renamed/deleted targets);
+    # changeset-only PRs need no validation at all.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".changeset/**"
   workflow_dispatch:
 
 concurrency:
@@ -188,9 +195,6 @@ jobs:
 
       - name: Check agent skills lock
         run: pnpm run skills:check
-
-      - name: Check docs links
-        run: pnpm run docs:check
 
       - name: Run typecheck
         run: pnpm run typecheck

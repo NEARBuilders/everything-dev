@@ -33,12 +33,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      deploy: ${{ steps.tip.outputs.current }}
+      deploy: ${{ steps.tip.outputs.current == 'true' && steps.relevance.outputs.relevant == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
 
       - name: Verify the CI-validated commit is still the main tip
         id: tip
@@ -51,6 +52,37 @@ jobs:
           else
             echo "current=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Skipping deploy — main advanced past the CI-validated commit ($SHA → $TIP). The queued run for the new tip deploys instead."
+          fi
+
+      # Relevance gate: skip the full deploy train when the merged diff touches
+      # no runtime-affecting paths (docs/tests/workflows/changesets only).
+      # Merge commits (PR merges) diff exactly the PR's files; single-commit
+      # direct pushes too. Any uncertainty errs toward deploying, and manual
+      # dispatches always deploy.
+      - name: Check the diff for runtime-relevant paths
+        id: relevance
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git rev-parse HEAD^ >/dev/null 2>&1; then
+            echo "::notice::No parent commit — assuming runtime-relevant"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          FILES="$(git diff --name-only HEAD^ HEAD)"
+          if [ -z "$FILES" ]; then
+            echo "::notice::Empty first-parent diff (merge-tangle history) — assuming runtime-relevant"
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if echo "$FILES" | grep -qE '^Dockerfile$|^railway\.toml$|^scripts/|^host/|^api/|^ui/|^plugins/|^packages/|^bos\.app\.ts$|^bos\.dev\.ts$|^bos\.config\.json$|^biome\.json$|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json)$|^\.github/workflows/(ci|deploy|release)\.yml$|^\.github/templates/'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping deploy — the merged diff touches no runtime-relevant paths:"
+            while IFS= read -r f; do echo "  $f"; done <<< "$FILES"
           fi
 
   deploy:
