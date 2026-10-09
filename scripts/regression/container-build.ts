@@ -266,8 +266,8 @@ const build = () => {
   }
 
   assertFederationTrain("api/dist");
-  if (authWorkspace) assertFederationTrain(path.join(authWorkspace, "dist"));
-  for (const [, workspace] of localPlugins) assertFederationTrain(path.join(workspace, "dist"));
+  if (authWorkspace) assertFederationTrain(`${authWorkspace}/dist`);
+  for (const [, workspace] of localPlugins) assertFederationTrain(`${workspace}/dist`);
 };
 
 // Every built remote must carry the same `every-plugin` share version as the
@@ -277,6 +277,8 @@ const build = () => {
 const frameworkTrain = JSON.parse(
   readFileSync(path.join(root, "packages/every-plugin/package.json"), "utf8"),
 ).version as string;
+
+const trainCheckedDists: string[] = [];
 
 function assertFederationTrain(distDir: string): void {
   const manifestPath = path.join(root, distDir, "mf-manifest.json");
@@ -294,9 +296,11 @@ function assertFederationTrain(distDir: string): void {
     throw new Error(
       `[container-build] ${distDir} was built against every-plugin@${stamped ?? "unknown"} ` +
         `but the framework train is ${frameworkTrain} — the plugin build resolved a stale ` +
-        `every-plugin. Rebuild so all remotes stamp the same framework version.`,
+        `every-plugin (checked so far, all matching: ${trainCheckedDists.join(", ") || "none"}). ` +
+        `Rebuild so all remotes stamp the same framework version.`,
     );
   }
+  trainCheckedDists.push(distDir);
   console.log(`[container-build] ${distDir} stamps every-plugin@${stamped} ✓`);
 }
 
