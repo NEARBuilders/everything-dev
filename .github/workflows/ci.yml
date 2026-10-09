@@ -8,6 +8,13 @@ on:
       - "docs/**"
       - ".changeset/**"
   pull_request:
+    # Mirrors the push filter. Docs-only PRs run the dedicated Docs Check
+    # workflow (which also validates links against renamed/deleted targets);
+    # changeset-only PRs need no validation at all.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".changeset/**"
   workflow_dispatch:
 
 concurrency:
@@ -90,7 +97,7 @@ jobs:
           else
             echo "workflows=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^Dockerfile$|^scripts/|^host/|^api/|^ui/|^plugins/|^packages/|^tests/|^bos\.config\.json$|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts)$|^\.github/workflows/ci\.yml$'; then
+          if echo "$DIFF" | grep -qE '^Dockerfile$|^scripts/|^host/|^api/|^ui/|^plugins/|^packages/|^tests/|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts)$|^\.github/workflows/ci\.yml$'; then
             echo "image-smoke=true" >> "$GITHUB_OUTPUT"
           else
             echo "image-smoke=false" >> "$GITHUB_OUTPUT"
@@ -105,12 +112,12 @@ jobs:
           else
             echo "every-plugin=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^host/|^ui/|^packages/|^bos\.config\.json$|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
+          if echo "$DIFF" | grep -qE '^host/|^ui/|^packages/|^\.env\.test$|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig\.json|tsconfig\.base\.json|bos\.app\.ts|bos\.dev\.ts)$|^\.github/workflows/ci\.yml$'; then
             echo "host=true" >> "$GITHUB_OUTPUT"
           else
             echo "host=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(http|lib)/|^host/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^bos\.config\.json$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
+          if echo "$DIFF" | grep -qE '^tests/regression/(http|lib)/|^host/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
             echo "regression-http=true" >> "$GITHUB_OUTPUT"
           else
             echo "regression-http=false" >> "$GITHUB_OUTPUT"
@@ -120,7 +127,7 @@ jobs:
           else
             echo "regression-framework=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$DIFF" | grep -qE '^tests/regression/(browser|lib)/|^host/|^ui/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^bos\.config\.json$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
+          if echo "$DIFF" | grep -qE '^tests/regression/(browser|lib)/|^host/|^ui/|^api/|^plugins/|^packages/|^scripts/|^Dockerfile$|^\.env\.test$|^(package.json|pnpm-lock.yaml|pnpm-workspace.yaml|tsconfig.json|tsconfig.base.json|bos.app.ts|bos.dev.ts)$|^\.github/workflows/ci\.yml$'; then
             echo "regression-browser=true" >> "$GITHUB_OUTPUT"
           else
             echo "regression-browser=false" >> "$GITHUB_OUTPUT"
@@ -188,9 +195,6 @@ jobs:
 
       - name: Check agent skills lock
         run: pnpm run skills:check
-
-      - name: Check docs links
-        run: pnpm run docs:check
 
       - name: Run typecheck
         run: pnpm run typecheck

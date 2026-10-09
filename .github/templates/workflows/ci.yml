@@ -12,6 +12,12 @@ on:
       - "docs/**"
       - ".changeset/**"
   pull_request:
+    # Docs-only PRs cannot affect lint/typecheck/tests; changeset-only PRs
+    # have nothing to validate here.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".changeset/**"
   workflow_dispatch:
 
 permissions:

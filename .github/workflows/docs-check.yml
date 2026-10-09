@@ -1,0 +1,43 @@
+name: Docs Check
+
+# The docs link check lives here — outside CI's lint-and-typecheck — so CI can
+# path-ignore markdown entirely. The script is zero-dependency (node: builtins
+# plus git check-ignore), so the whole workflow is checkout + node, no install.
+#
+# Runs on every PR (not just docs paths): broken references are also caused by
+# renaming/deleting a file the markdown points at — docs-surface paths alone
+# miss those.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    # Post-merge runs duplicate the PR check for code merges; docs paths still
+    # get validated on direct md pushes.
+    paths:
+      - "**.md"
+      - "docs/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  docs-link-check:
+    name: Docs link check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Check docs links
+        run: node scripts/docs-link-check.mjs
