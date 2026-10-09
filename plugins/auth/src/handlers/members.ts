@@ -1,9 +1,15 @@
 import { ORPCError } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Context } from "effect";
 import * as schema from "../db/schema";
 import { AuthServicesTag } from "../service-types";
-import { canReadMemberEmails, createHeaders, safeAuthApi, visibleEmail } from "../utils";
+import {
+  canReadMemberEmails,
+  createHeaders,
+  safeAuthApi,
+  toORPCError,
+  visibleEmail,
+} from "../utils";
 
 export function createMemberHandlers(builder: any, requireAuth: any) {
   return {
@@ -130,6 +136,42 @@ export function createMemberHandlers(builder: any, requireAuth: any) {
         const organizationId = input.organizationId ?? activeSession?.activeOrganizationId;
         if (!organizationId) {
           throw new ORPCError("BAD_REQUEST", { message: "No active organization" });
+        }
+        if (context.user?.role !== "admin") {
+          const permission = await services.auth.api
+            .hasPermission({
+              headers,
+              body: { organizationId, permissions: { member: ["create"] } },
+            })
+            .catch((error: unknown) => {
+              const mapped = toORPCError(error);
+              if (
+                mapped.code === "INTERNAL_SERVER_ERROR" ||
+                mapped.code === "SERVICE_UNAVAILABLE"
+              ) {
+                throw mapped;
+              }
+              return null;
+            });
+          if (permission?.success !== true) {
+            throw new ORPCError("FORBIDDEN", {
+              message: "Only organization owners and admins can add members",
+            });
+          }
+          if (input.role === "owner") {
+            const caller = await services.db.query.member.findFirst({
+              where: and(
+                eq(schema.member.organizationId, organizationId),
+                eq(schema.member.userId, context.userId),
+              ),
+            });
+            const callerRoles = caller?.role.split(",").map((role) => role.trim()) ?? [];
+            if (!callerRoles.includes("owner")) {
+              throw new ORPCError("FORBIDDEN", {
+                message: "Only organization owners can add owners",
+              });
+            }
+          }
         }
         const organization = await services.db.query.organization.findFirst({
           where: eq(schema.organization.id, organizationId),
