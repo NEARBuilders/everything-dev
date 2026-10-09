@@ -15,7 +15,10 @@ permissions:
 
 jobs:
   release:
-    name: Publish Packages
+    name: Process Changesets
+    # Dispatches must run against main — a manual run on a feature branch
+    # would open version PRs (or publish) from the wrong source.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -37,8 +40,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin
-        run: pnpm --filter every-plugin build
+      # No pre-build here: `pnpm run release`
+      # (scripts/publish-release-packages.ts) builds every publishable
+      # workspace itself before staging and publishing.
 
       - name: Create Release PR or Publish to npm
         uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b # v1.8.0

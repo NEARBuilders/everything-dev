@@ -1,5 +1,9 @@
 name: Deploy
 
+# Thin wrapper — the shared implementation lives in the base runtime repo
+# (NEARBuilders/everything-dev). This repo owns triggers, secret policy, and
+# working directory. The @main ref matches the sync trust model: bos sync
+# already tracks the parent's main for all framework-owned files.
 on:
   workflow_run:
     workflows: [CI]
@@ -12,47 +16,15 @@ on:
         type: boolean
         default: false
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
 permissions:
   contents: read
+  packages: write
 
 jobs:
   deploy:
-    name: Deploy Production
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
-      BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-
-      - name: Guard — no stray bun artifacts
-        run: |
-          if [ -f bun.lock ]; then
-            echo "::error::bun.lock present — bun re-migrated the workspace (ADR 0026). Delete bun.lock and re-run pnpm install."
-            exit 1
-          fi
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
-
-      - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
-      - name: Deploy (build → upload → publish → image → Railway)
-        timeout-minutes: 25
-        run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}
+    name: Deploy
+    uses: NEARBuilders/everything-dev/.github/workflows/consumer-deploy.yml@main
+    with:
+      working_directory: .
+      verbose: ${{ inputs.verbose == true }}
+    secrets: inherit

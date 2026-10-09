@@ -21,9 +21,42 @@ permissions:
   packages: write
 
 jobs:
+  # Deploy gate: only fresh CI runs of a push to main, and only while the
+  # validated commit is still the tip of main. Manual dispatches must run
+  # against main; stale runs are skipped (the queued run for the new tip
+  # deploys instead).
+  gate:
+    name: Verify deploy is current
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      deploy: ${{ steps.tip.outputs.current }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Verify the CI-validated commit is still the main tip
+        id: tip
+        run: |
+          git fetch --no-tags origin main
+          TIP="$(git rev-parse origin/main)"
+          SHA="$(git rev-parse HEAD)"
+          if [ "$SHA" = "$TIP" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping deploy — main advanced past the CI-validated commit ($SHA → $TIP). The queued run for the new tip deploys instead."
+          fi
+
   deploy:
     name: Deploy Production
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    needs: [gate]
+    if: needs.gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -58,29 +91,30 @@ jobs:
 
       - name: Deploy (preflight → build → upload → publish → image → Railway)
         timeout-minutes: 50
-        # One command runs the whole train (ADR 0020/0021): staleness-checked
-        # prerequisite builds + workspace dists, bundle upload to the R2-backed
-        # storage, FastKV publish with read-back confirmation, `runtime`-stage
-        # image build pushed by SHA + version tags (latest held on prereleases),
-        # then a pull-only Railway
-        # deploy pinned to the pushed digest via a generated thin Dockerfile.
+        # One command runs the whole deployment (ADR 0020/0021):
+        # staleness-checked prerequisite builds + workspace dists, bundle
+        # upload to the R2-backed storage, FastKV publish with read-back
+        # confirmation, `runtime`-stage image build pushed by SHA + version
+        # tags (latest held on prereleases), then a pull-only Railway deploy
+        # pinned to the pushed digest via a generated thin Dockerfile.
         run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}
 
-      - name: Verify release-train identity (mf check)
+      - name: Verify bundle compatibility (bos mf check)
         timeout-minutes: 5
         run: |
-          # Gate the release train: all host/plugin bundles must agree on shared-dep
-          # versions (exact for effect-critical deps) and pluginVersion. Runs AFTER
-          # the deploy — CDN-mode bundles serve from cdn.everything.dev, so the
-          # check passes once the config is published and the new bytes are live.
+          # Gate the deployment: all host/plugin bundles must agree on
+          # shared-dep versions (exact for effect-critical deps) and
+          # pluginVersion. Runs AFTER the deploy — CDN-mode bundles serve
+          # from cdn.everything.dev, so the check passes once the config is
+          # published and the new bytes are live.
           attempts=10
           until pnpm run bos mf check; do
             attempts=$((attempts - 1))
             if [ "$attempts" -le 0 ]; then
-              echo "::error::Release-train identity check failed — bundles are inconsistent (deployment did not come up healthy or skew). See bos mf check output."
+              echo "::error::Bundle compatibility check failed — bundles are inconsistent (deployment did not come up healthy or has a version mismatch). See bos mf check output."
               exit 1
             fi
-            echo "mf check failed; retrying in 20s ($attempts attempt(s) left)…"
+            echo "bos mf check failed; retrying in 20s ($attempts attempt(s) left)…"
             sleep 20
           done
 
@@ -89,6 +123,6 @@ jobs:
         # ADR 0009 §4: published-config coverage lives in the Deploy workflow.
         # Boots the real host program against the live production URLs from the
         # deployed SHA's bos.config.json — SSR compose from the deployed ui,
-        # doc-asset proxy, api ping, root document contract. mf check has
-        # already gated the site being up and consistent above.
+        # doc-asset proxy, api ping, root document contract. bos mf check has
+        # already verified the site is up and consistent above.
         run: pnpm --filter host test:integration:remote

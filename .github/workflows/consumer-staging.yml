@@ -1,19 +1,23 @@
-name: Staging
+name: Consumer Staging
+
+# Reusable staging deploy for generated child repos — never runs in this
+# repo. The caller owns triggers, permissions policy, and secrets (pass
+# `secrets: inherit` or map them explicitly). Runs the child's staging deploy
+# command (`pnpm run bos deploy --env staging`) from `working_directory`.
 
 on:
-  push:
-    branches:
-      - staging
-  workflow_dispatch:
+  workflow_call:
     inputs:
+      working_directory:
+        description: 'Directory exposing the repo''s standard scripts (default: repo root)'
+        required: false
+        type: string
+        default: .
       verbose:
-        description: 'Show full build output instead of clean summary'
+        description: Show full build output instead of clean summary
+        required: false
         type: boolean
         default: false
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -22,19 +26,16 @@ permissions:
 jobs:
   deploy-staging:
     name: Deploy Staging
-    # Dispatches must run against the staging branch — a manual run on another
-    # ref would deploy unreviewed code to the staging environment.
-    if: github.ref == 'refs/heads/staging'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+        shell: bash
     env:
-      NEAR_PRIVATE_KEY: ${{ secrets.NEAR_TESTNET_PRIVATE_KEY }}
+      NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
       BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
-      BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGING_TOKEN }}
-      # Staging pushes its own image namespace — staging runs never move the
-      # production image tags (sha-*/latest on ghcr.io/nearbuilders/everything-dev).
-      BOS_IMAGE: ghcr.io/nearbuilders/everything-dev-staging
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:
       - name: Checkout code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
@@ -47,6 +48,7 @@ jobs:
             echo "::error::bun.lock present — bun re-migrated the workspace (ADR 0026). Delete bun.lock and re-run pnpm install."
             exit 1
           fi
+
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
@@ -54,6 +56,7 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -61,10 +64,5 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Deploy staging (preflight → build → upload → publish → image → Railway)
-        timeout-minutes: 50
+        timeout-minutes: 35
         run: pnpm run bos deploy --env staging${{ inputs.verbose == true && ' --verbose' || '' }}
-
-      # Note: staging intentionally has no post-deploy verification parity with
-      # production today — the bundle compatibility check (bos mf check) and the
-      # remote smoke test are production-only because they assert production
-      # URLs. Adding staging-scoped verification is a follow-up.
