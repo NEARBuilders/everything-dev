@@ -1,12 +1,17 @@
-import { ORPCError } from "@orpc/server";
+import { type Implementer, ORPCError } from "@orpc/server";
 import { Effect } from "effect";
+import type { ContractType } from "../contract";
+import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
 import { AuthServicesTag } from "../service-types";
 import { createHeaders } from "../utils";
 import { attemptAuth } from "./attempts";
 
-export function createNearHandlers(builder: any, requireAuth: any) {
+export function createNearHandlers(
+  builder: Implementer<ContractType, AuthHandlerContext>,
+  requireAuth: RequireAuthMiddleware,
+) {
   return {
-    nearNonce: builder.nearNonce.effect(function* ({ input }: { input: any }) {
+    nearNonce: builder.nearNonce.effect(function* ({ input }) {
       const services = yield* AuthServicesTag;
       return yield* attemptAuth(() =>
         services.auth.api.getSiwnNonce({
@@ -15,13 +20,7 @@ export function createNearHandlers(builder: any, requireAuth: any) {
       );
     }),
 
-    nearVerify: builder.nearVerify.effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    nearVerify: builder.nearVerify.effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const req = new Request("http://localhost:3000/api/auth/near/verify", {
         method: "POST",
@@ -42,13 +41,7 @@ export function createNearHandlers(builder: any, requireAuth: any) {
       );
     }),
 
-    nearProfile: builder.nearProfile.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    nearProfile: builder.nearProfile.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       return yield* attemptAuth(() =>
         services.auth.api.getSiwnProfile({
@@ -61,9 +54,6 @@ export function createNearHandlers(builder: any, requireAuth: any) {
     nearLinkAccount: builder.nearLinkAccount.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const reqHeaders = createHeaders(context.reqHeaders);
@@ -90,9 +80,6 @@ export function createNearHandlers(builder: any, requireAuth: any) {
     nearUnlinkAccount: builder.nearUnlinkAccount.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       return yield* attemptAuth(() =>
@@ -103,11 +90,7 @@ export function createNearHandlers(builder: any, requireAuth: any) {
       );
     }),
 
-    nearListAccounts: builder.nearListAccounts.use(requireAuth).effect(function* ({
-      context,
-    }: {
-      context: any;
-    }) {
+    nearListAccounts: builder.nearListAccounts.use(requireAuth).effect(function* ({ context }) {
       const services = yield* AuthServicesTag;
       return yield* attemptAuth(() =>
         services.auth.api.listNearAccounts({
@@ -116,13 +99,7 @@ export function createNearHandlers(builder: any, requireAuth: any) {
       );
     }),
 
-    nearRelay: builder.nearRelay.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    nearRelay: builder.nearRelay.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       return yield* attemptAuth(() =>
         services.auth.api.relayNearTransaction({
@@ -135,9 +112,6 @@ export function createNearHandlers(builder: any, requireAuth: any) {
     nearRelayStatus: builder.nearRelayStatus.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       return yield* attemptAuth(() =>
@@ -151,9 +125,6 @@ export function createNearHandlers(builder: any, requireAuth: any) {
     nearRelayerInfo: builder.nearRelayerInfo.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       if (context.user?.role !== "admin") {
@@ -164,19 +135,23 @@ export function createNearHandlers(builder: any, requireAuth: any) {
           }),
         );
       }
-      return yield* attemptAuth(() =>
+      const info = yield* attemptAuth(() =>
         services.auth.api.getRelayerInfo({
           headers: createHeaders(context.reqHeaders),
           body: input ?? {},
         }),
       );
+      const serializeTimestamp = (value: unknown) =>
+        value instanceof Date ? value.toISOString() : (value as string | undefined);
+      const timestamps = info as { createdAt?: unknown; lastUsedAt?: unknown };
+      return {
+        ...info,
+        createdAt: serializeTimestamp(timestamps.createdAt),
+        lastUsedAt: serializeTimestamp(timestamps.lastUsedAt),
+      };
     }),
 
-    nearRelayHistory: builder.nearRelayHistory.use(requireAuth).effect(function* ({
-      context,
-    }: {
-      context: any;
-    }) {
+    nearRelayHistory: builder.nearRelayHistory.use(requireAuth).effect(function* ({ context }) {
       const services = yield* AuthServicesTag;
       return yield* attemptAuth(() =>
         services.auth.api.getRelayHistory({
@@ -185,13 +160,7 @@ export function createNearHandlers(builder: any, requireAuth: any) {
       );
     }),
 
-    nearView: builder.nearView.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    nearView: builder.nearView.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       return yield* attemptAuth(() =>
         services.auth.api.viewContract({
@@ -207,7 +176,7 @@ export function createNearHandlers(builder: any, requireAuth: any) {
 
     nearCheckSubAccountAvailability: builder.nearCheckSubAccountAvailability
       .use(requireAuth)
-      .effect(function* ({ input, context }: { input: any; context: any }) {
+      .effect(function* ({ input, context }) {
         const services = yield* AuthServicesTag;
         return yield* attemptAuth(() =>
           services.auth.api.checkSubAccountAvailability({
@@ -223,9 +192,6 @@ export function createNearHandlers(builder: any, requireAuth: any) {
     nearCreateSubAccount: builder.nearCreateSubAccount.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       return yield* attemptAuth(() =>

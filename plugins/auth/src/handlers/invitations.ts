@@ -1,14 +1,16 @@
-import { ORPCError } from "@orpc/server";
+import { type Implementer, ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
+import type { ContractType } from "../contract";
 import * as schema from "../db/schema";
+import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
 import {
   isNearNetwork,
   listPendingNearInvitations,
   nearInvitationEmail,
   normalizeNearAccountId,
 } from "../near-invitations";
-import { AuthServicesTag } from "../service-types";
+import { AuthServicesTag, type PluginServices } from "../service-types";
 import { canReadMemberEmails, createHeaders } from "../utils";
 import { attemptAuth } from "./attempts";
 
@@ -60,7 +62,7 @@ function toInvitation(invitation: any) {
   };
 }
 
-async function getInvitationOrNull(services: any, headers: Headers, id: string) {
+async function getInvitationOrNull(services: PluginServices, headers: Headers, id: string) {
   try {
     const stored = await services.db.query.invitation.findFirst({
       where: eq(schema.invitation.id, id),
@@ -102,15 +104,12 @@ async function getInvitationOrNull(services: any, headers: Headers, id: string) 
   }
 }
 
-export function createInvitationHandlers(builder: any, requireAuth: any) {
+export function createInvitationHandlers(
+  builder: Implementer<ContractType, AuthHandlerContext>,
+  requireAuth: RequireAuthMiddleware,
+) {
   return {
-    inviteMember: builder.inviteMember.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    inviteMember: builder.inviteMember.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.createInvitation({
@@ -127,13 +126,7 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
       return toInvitation(result);
     }),
 
-    getInvitation: builder.getInvitation.effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    getInvitation: builder.getInvitation.effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders ?? {});
       return yield* Effect.promise(() => getInvitationOrNull(services, headers, input.id));
@@ -142,9 +135,6 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
     listInvitations: builder.listInvitations.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const emailAllowed = yield* Effect.promise(() =>
@@ -166,8 +156,6 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
 
     listUserInvitations: builder.listUserInvitations.use(requireAuth).effect(function* ({
       context,
-    }: {
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const [emailInvitations, walletInvitations] = yield* Effect.all([
@@ -197,9 +185,6 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
     cancelInvitation: builder.cancelInvitation.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       yield* attemptAuth(() =>
@@ -214,9 +199,6 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
     acceptInvitation: builder.acceptInvitation.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       yield* attemptAuth(() =>
@@ -231,9 +213,6 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
     acceptNearInvitation: builder.acceptNearInvitation.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       yield* attemptAuth(() =>
@@ -248,9 +227,6 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
     rejectNearInvitation: builder.rejectNearInvitation.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       yield* attemptAuth(() =>
@@ -265,9 +241,6 @@ export function createInvitationHandlers(builder: any, requireAuth: any) {
     rejectInvitation: builder.rejectInvitation.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       yield* attemptAuth(() =>

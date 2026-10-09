@@ -47,7 +47,7 @@ describe("getContext handler", () => {
     expect(result.user!.email).toBe(user.email);
     expect(result.principal).not.toBeNull();
     expect(result.principal!.type).toBe("user");
-    expect(result.principal!.type === "user" && result.principal.userId).toBe(user.userId);
+    expect(result.principal!.type === "user" && result.principal!.userId).toBe(user.userId);
   });
 
   it("returns organization context when session has active org", async () => {
@@ -136,7 +136,7 @@ describe("getContext handler", () => {
     expect(result.authMethod).toBe("apiKey");
     expect(result.principal).not.toBeNull();
     expect(result.principal!.type).toBe("organization");
-    expect(result.principal!.type === "organization" && result.principal.organizationId).toBe(
+    expect(result.principal!.type === "organization" && result.principal!.organizationId).toBe(
       org.id,
     );
     expect(result.organization.hasOrganization).toBe(true);

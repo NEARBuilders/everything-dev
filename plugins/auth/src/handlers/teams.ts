@@ -1,7 +1,9 @@
-import { ORPCError } from "@orpc/server";
+import { type Implementer, ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
+import type { ContractType } from "../contract";
 import * as schema from "../db/schema";
+import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
 import { AuthServicesTag } from "../service-types";
 import {
   createHeaders,
@@ -28,15 +30,12 @@ function toTeam(team: any) {
   };
 }
 
-export function createTeamHandlers(builder: any, requireAuth: any) {
+export function createTeamHandlers(
+  builder: Implementer<ContractType, AuthHandlerContext>,
+  requireAuth: RequireAuthMiddleware,
+) {
   return {
-    setActiveTeam: builder.setActiveTeam.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    setActiveTeam: builder.setActiveTeam.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.setActiveTeam({
@@ -47,13 +46,7 @@ export function createTeamHandlers(builder: any, requireAuth: any) {
       return result ? toTeam(result) : null;
     }),
 
-    listUserTeams: builder.listUserTeams.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    listUserTeams: builder.listUserTeams.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       const organizationId =
@@ -67,13 +60,7 @@ export function createTeamHandlers(builder: any, requireAuth: any) {
         .map(toTeam);
     }),
 
-    createTeam: builder.createTeam.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    createTeam: builder.createTeam.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.createTeam({
@@ -88,13 +75,7 @@ export function createTeamHandlers(builder: any, requireAuth: any) {
       return toTeam(result);
     }),
 
-    updateTeam: builder.updateTeam.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    updateTeam: builder.updateTeam.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.updateTeam({
@@ -117,13 +98,7 @@ export function createTeamHandlers(builder: any, requireAuth: any) {
       return toTeam(result);
     }),
 
-    deleteTeam: builder.deleteTeam.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    deleteTeam: builder.deleteTeam.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       // Clear directly in the database rather than through
@@ -158,13 +133,7 @@ export function createTeamHandlers(builder: any, requireAuth: any) {
       return { success: true };
     }),
 
-    listTeams: builder.listTeams.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    listTeams: builder.listTeams.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.listOrganizationTeams({
@@ -180,9 +149,6 @@ export function createTeamHandlers(builder: any, requireAuth: any) {
     listTeamMembers: builder.listTeamMembers.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const team = yield* attemptDb(() =>
@@ -221,13 +187,7 @@ export function createTeamHandlers(builder: any, requireAuth: any) {
       }));
     }),
 
-    addTeamMember: builder.addTeamMember.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    addTeamMember: builder.addTeamMember.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.addTeamMember({
@@ -250,9 +210,6 @@ export function createTeamHandlers(builder: any, requireAuth: any) {
     removeTeamMember: builder.removeTeamMember.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       yield* attemptAuth(() =>

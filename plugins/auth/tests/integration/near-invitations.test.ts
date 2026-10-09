@@ -127,7 +127,7 @@ describe("NEAR-account invitations", () => {
     ]) {
       await expect(
         handlers.invitations.inviteMember({
-          input: { ...input, role: "member", organizationId: org.id },
+          input: { ...input, role: "member", organizationId: org.id } as never,
           context: { reqHeaders: owner.reqHeaders },
         }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -553,7 +553,7 @@ describe("NEAR-account invitations", () => {
   it("cannot be accepted through the email acceptance flow", async () => {
     const { handlers, invitation } = await walletInvitation();
     const invitee = await createTestUser(services.services, {
-      email: invitation.email,
+      email: invitation.email!,
     });
 
     await expect(

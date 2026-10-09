@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { ORPCError } from "@orpc/server";
+import { type Implementer, ORPCError } from "@orpc/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
+import type { ContractType } from "../contract";
 import * as schema from "../db/schema";
+import type { AuthHandlerContext, AuthSessionUser, RequireAuthMiddleware } from "../middleware";
 import {
   createOrganizationMembershipPolicy,
   type OrganizationMembershipPolicy,
@@ -34,8 +36,8 @@ function membershipPolicyOf(services: {
 }
 
 async function requireOrganizerContext(
-  services: any,
-  context: any,
+  services: PluginServices,
+  context: AuthHandlerContext & { userId: string; user: AuthSessionUser },
   inputOrganizationId?: string,
 ): Promise<{ userId: string; organizationId: string; headers: Headers }> {
   const headers = createHeaders(context.reqHeaders);
@@ -150,14 +152,14 @@ function toSummary(row: typeof schema.onboardingCode.$inferSelect) {
   };
 }
 
-export function createOnboardingHandlers(builder: any, requireAuth: any) {
+export function createOnboardingHandlers(
+  builder: Implementer<ContractType, AuthHandlerContext>,
+  requireAuth: RequireAuthMiddleware,
+) {
   return {
     createOnboardingCode: builder.createOnboardingCode.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const { userId, organizationId } = yield* attemptAuth(() =>
@@ -218,9 +220,6 @@ export function createOnboardingHandlers(builder: any, requireAuth: any) {
     listOnboardingCodes: builder.listOnboardingCodes.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const { organizationId } = yield* attemptAuth(() =>
@@ -241,9 +240,6 @@ export function createOnboardingHandlers(builder: any, requireAuth: any) {
     revokeOnboardingCode: builder.revokeOnboardingCode.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const { organizationId } = yield* attemptAuth(() =>
@@ -274,9 +270,6 @@ export function createOnboardingHandlers(builder: any, requireAuth: any) {
     getOnboardingStation: builder.getOnboardingStation.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const { organizationId } = yield* attemptAuth(() =>
@@ -314,9 +307,6 @@ export function createOnboardingHandlers(builder: any, requireAuth: any) {
     getOnboardingStatus: builder.getOnboardingStatus.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const { organizationId } = yield* attemptAuth(() =>
@@ -369,11 +359,7 @@ export function createOnboardingHandlers(builder: any, requireAuth: any) {
       };
     }),
 
-    getOnboardingCodeInfo: builder.getOnboardingCodeInfo.effect(function* ({
-      input,
-    }: {
-      input: any;
-    }) {
+    getOnboardingCodeInfo: builder.getOnboardingCodeInfo.effect(function* ({ input }) {
       const services = yield* AuthServicesTag;
       const codeRow = yield* attemptDb(() =>
         services.db.query.onboardingCode.findFirst({
@@ -408,9 +394,6 @@ export function createOnboardingHandlers(builder: any, requireAuth: any) {
     redeemOnboardingCode: builder.redeemOnboardingCode.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
