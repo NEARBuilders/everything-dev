@@ -7,6 +7,7 @@ import { globSync } from "glob";
 import { readWorkspaceCatalog } from "../../src/workspace-catalog";
 
 type FrameworkTarballs = {
+  "better-near-auth": string;
   "every-plugin": string;
   "everything-dev": string;
 };
@@ -21,35 +22,42 @@ export function getFrameworkTarballs(repoRoot: string): Promise<FrameworkTarball
 async function buildFrameworkTarballs(repoRoot: string): Promise<FrameworkTarballs> {
   const tarballDir = mkdtempSync(join(tmpdir(), "everything-dev-framework-packages-"));
 
-  await execa("pnpm", ["--dir", "packages/every-plugin", "run", "build"], { cwd: repoRoot });
-  await execa("pnpm", ["--dir", "packages/everything-dev", "run", "build"], { cwd: repoRoot });
+  for (const packageName of ["better-near-auth", "every-plugin", "everything-dev"] as const) {
+    await execa("pnpm", ["--dir", `packages/${packageName}`, "run", "build"], { cwd: repoRoot });
+  }
 
   const rootCatalog = readWorkspaceCatalog(repoRoot);
 
-  const everyPluginTarball = await stageAndPackFrameworkPackage({
-    repoRoot,
-    packageName: "every-plugin",
-    tarballDir,
-    rootCatalog,
-  });
-
-  // Bun fails to resolve a tarball when it is both a direct dependency and a
-  // transitive dependency (through another tarball) and both use the same
-  // file path. We create a copy with a different name for the transitive
-  // reference inside everything-dev so the paths differ.
-  const everyPluginTarballCopy = join(tarballDir, "every-plugin-2.7.0-copy.tgz");
-  cpSync(everyPluginTarball, everyPluginTarballCopy);
+  // The everything-dev tarball depends on the other framework packages and the
+  // scaffolded child depends on them directly — both references must use
+  // distinct tarball paths, so stage copies for the transitive side. These
+  // packages must pack before everything-dev, which consumes the copies.
+  const transitiveTarballs: Record<string, string> = {};
+  const directTarballs: Record<string, string> = {};
+  for (const packageName of ["better-near-auth", "every-plugin"] as const) {
+    const tarball = await stageAndPackFrameworkPackage({
+      repoRoot,
+      packageName,
+      tarballDir,
+      rootCatalog,
+    });
+    const copy = join(tarballDir, `${packageName}-transitive-copy.tgz`);
+    cpSync(tarball, copy);
+    directTarballs[packageName] = tarball;
+    transitiveTarballs[packageName] = copy;
+  }
 
   const everythingDevTarball = await stageAndPackFrameworkPackage({
     repoRoot,
     packageName: "everything-dev",
     tarballDir,
     rootCatalog,
-    otherFrameworkTarballs: { "every-plugin": everyPluginTarballCopy },
+    otherFrameworkTarballs: transitiveTarballs,
   });
 
   return {
-    "every-plugin": everyPluginTarball,
+    "better-near-auth": directTarballs["better-near-auth"],
+    "every-plugin": directTarballs["every-plugin"],
     "everything-dev": everythingDevTarball,
   };
 }

@@ -6,12 +6,15 @@ describe("host shared registration entries", () => {
   it("derives normalized registration entries from config-declared shared deps", () => {
     const entries = buildSharedRegistrationEntries(
       mergeSharedMaps(
-        { "every-plugin": { version: "2.10.1", singleton: true } },
+        // Neutral literal — the helper normalizes whatever version it is
+        // given; pinning the live framework train here would break on every
+        // release PR.
+        { "every-plugin": { version: "9.9.9", singleton: true } },
         { react: { version: "19.2.4", singleton: true, eager: true, shareScope: "default" } },
       ),
     );
     expect(entries["every-plugin"]).toEqual({
-      version: "2.10.1",
+      version: "9.9.9",
       shareScope: "default",
       shareConfig: {
         singleton: true,

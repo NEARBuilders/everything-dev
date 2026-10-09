@@ -12,11 +12,17 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import type { BuildEntryReport } from "every-plugin/build/artifact-names";
 import { emitCoreUiStubs } from "every-plugin/build/ui";
 import { containerName } from "every-plugin/identity";
 import { composeVersionManifest } from "every-plugin/version-manifest";
 import { writeResolvedConfig } from "../../packages/everything-dev/src/config";
+import {
+  checkFederationTrain,
+  resolveAuthWorkspace,
+} from "../../packages/everything-dev/src/federation-train";
 import { openResolution } from "../../packages/everything-dev/src/resolution/session";
+import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/version-manifest-deploy";
 
 /**
  * Local production fixture rewriting (ADR 0009): a section named in the plan
@@ -221,6 +227,10 @@ const localPlugins = Object.entries(bosConfig.plugins ?? {})
   .map(([key, ref]) => [key, ref.development.slice("local:".length)] as const)
   .sort(([a], [b]) => a.localeCompare(b));
 
+// app.auth is an app-slot, not a plugins.* entry — its workspace build
+// (`every-plugin build`) covers the api remote AND the folder-form ui.
+const authWorkspace = resolveAuthWorkspace(bosConfig);
+
 const run = (cmd: string, args: string[], cwd: string, env: Record<string, string> = {}) => {
   const result = spawnSync(cmd, args, {
     cwd: path.join(root, cwd),
@@ -251,11 +261,7 @@ const build = () => {
   console.log("[container-build] api remote…");
   run("pnpm", ["run", "build"], "api");
 
-  // app.auth is an app-slot, not a plugins.* entry — its workspace build
-  // (`every-plugin build`) covers the api remote AND the folder-form ui.
-  const authDevelopment = bosConfig.app?.auth?.development;
-  if (typeof authDevelopment === "string" && authDevelopment.startsWith("local:")) {
-    const authWorkspace = authDevelopment.slice("local:".length);
+  if (authWorkspace) {
     console.log("[container-build] auth app-slot (api remote + folder-form ui)…");
     run("pnpm", ["run", "build"], authWorkspace);
   }
@@ -264,7 +270,40 @@ const build = () => {
     console.log(`[container-build] plugin ${key} (api remote)…`);
     run("pnpm", ["run", "build"], workspace);
   }
+
+  assertFederationTrain("api/dist");
+  if (authWorkspace) assertFederationTrain(`${authWorkspace}/dist`);
+  for (const [, workspace] of localPlugins) assertFederationTrain(`${workspace}/dist`);
 };
+
+// Every built remote must carry the same `every-plugin` share version as the
+// framework package on this checkout — a stale train here surfaces at boot as
+// a strict-singleton mismatch ("Version X from host … needs Y") and every
+// /api/* route 503s. Fail the build train before anything stages or boots.
+const frameworkTrain = JSON.parse(
+  readFileSync(path.join(root, "packages/every-plugin/package.json"), "utf8"),
+).version as string;
+
+const trainCheckedDists: string[] = [];
+
+function assertFederationTrain(distDir: string): void {
+  const check = checkFederationTrain(path.join(root, distDir), frameworkTrain);
+  if (!check.ok) {
+    const reason =
+      check.reason === "missing-manifest"
+        ? "has no mf-manifest.json — the plugin build did not emit federation metadata"
+        : check.reason === "no-stamp"
+          ? "stamps no every-plugin share version in its mf-manifest.json"
+          : `was built against every-plugin@${check.stamp} but the framework train is ${frameworkTrain}`;
+    throw new Error(
+      `[container-build] ${distDir} ${reason} — the plugin build resolved a stale or missing ` +
+        `every-plugin (checked so far, all matching: ${trainCheckedDists.join(", ") || "none"}). ` +
+        `Rebuild so all remotes stamp the same framework version.`,
+    );
+  }
+  trainCheckedDists.push(distDir);
+  console.log(`[container-build] ${distDir} stamps every-plugin@${check.stamp} ✓`);
+}
 
 // Fixed in-container port map — every service is container-local, so only the
 // host port needs mapping at `docker run`.
@@ -280,19 +319,8 @@ const ports = {
 const sri384 = (bytes: string | Uint8Array): string =>
   `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
 
-function readBuildReport(
-  distDir: string,
-): { entry: string; browserManifest?: string; css?: string } | null {
-  const reportPath = path.join(root, distDir, "build-report.json");
-  if (!existsSync(reportPath)) return null;
-  try {
-    const report = JSON.parse(readFileSync(reportPath, "utf8")) as { entry?: string };
-    if (typeof report.entry !== "string" || !report.entry) return null;
-    return report as { entry: string; browserManifest?: string; css?: string };
-  } catch {
-    return null;
-  }
-}
+const readBuildReport = (distDir: string): BuildEntryReport | null =>
+  readWorkspaceBuildReport(path.join(root, distDir));
 
 /**
  * The fixture pins every slot it serves (ADR 0009 amendment: version-manifest
@@ -353,12 +381,8 @@ const stage = () => {
   };
 
   // app.auth is an app-slot, not a plugins.* entry — stage its api dist and
-  // give it its server entry explicitly.
-  const authDevelopment = bosConfig.app?.auth?.development;
-  const authWorkspace =
-    typeof authDevelopment === "string" && authDevelopment.startsWith("local:")
-      ? authDevelopment.slice("local:".length)
-      : null;
+  // give it its server entry explicitly. `authWorkspace` is derived once at
+  // module level from the resolved config.
 
   // Slot pins are composed FIRST, from the repo dist dirs, so both the image
   // copy and the namespace copy carry the version manifests.
