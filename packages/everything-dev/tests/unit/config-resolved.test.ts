@@ -220,7 +220,7 @@ describe("readBosConfigForBuild", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("reads from resolved config when present, stripping _resolved", () => {
+  it("reads from resolved config when present, stripping _resolved", async () => {
     const config = {
       account: "test.near",
       domain: "test.dev",
@@ -233,13 +233,13 @@ describe("readBosConfigForBuild", () => {
     } as any;
     writeResolvedConfig(testDir, config, "development");
 
-    const result = readBosConfigForBuild(testDir);
+    const result = await readBosConfigForBuild(testDir);
     expect(result._resolved).toBeUndefined();
     expect(result.account).toBe("test.near");
     expect((result.shared as Record<string, unknown>).ui).toBeDefined();
   });
 
-  it("falls back to bos.config.json when resolved config absent", () => {
+  it("falls back to bos.config.json when resolved config absent", async () => {
     const emptyDir = mkdtempSync(join(tmpdir(), "bos-build-fallback-"));
     try {
       writeFileSync(
@@ -254,10 +254,33 @@ describe("readBosConfigForBuild", () => {
         }),
       );
 
-      const result = readBosConfigForBuild(emptyDir);
+      const result = await readBosConfigForBuild(emptyDir);
       expect(result.account).toBe("fallback.near");
     } finally {
       rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the authored bos.app.ts descriptor in TS-form children", async () => {
+    const tsDir = mkdtempSync(join(tmpdir(), "bos-build-ts-form-"));
+    try {
+      writeFileSync(
+        join(tsDir, "bos.app.ts"),
+        `export default {
+  name: "ts-form",
+  account: "ts-form.near",
+  domain: "ts-form.dev",
+  host: { path: "host" },
+  ui: { path: "ui" },
+  api: { path: "api" },
+};
+`,
+      );
+
+      const result = await readBosConfigForBuild(tsDir);
+      expect(result.account).toBe("ts-form.near");
+    } finally {
+      rmSync(tsDir, { recursive: true, force: true });
     }
   });
 });

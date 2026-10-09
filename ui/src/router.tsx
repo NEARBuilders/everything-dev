@@ -7,6 +7,13 @@
  *
  * This file is yours — scaffolded once by `bos init`, never overwritten by
  * `bos sync` (ADR 0023). Edit the policy defaults below freely.
+ *
+ * Customizing the default error/pending/not-found components: set
+ * `defaultErrorComponent` / `defaultPendingComponent` / `defaultNotFoundComponent`
+ * inside `createRouter` after the `...opts` spread — your values win. The
+ * generated stubs (hydrate.gen.tsx / router.server.gen.tsx) route every
+ * router mint through this factory, so client and SSR stay in parity. App
+ * copy/locale overrides (apiConnectionError, appLocale) live in ./app.
  */
 
 import { QueryClient } from "@tanstack/react-query";

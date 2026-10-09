@@ -5,7 +5,7 @@ import {
   type DevProcessState,
   type DevRendererHandle,
 } from "./components/dev-render";
-import { createLogPipeline, type LogEvent, resolveLogLevel } from "./dev-log-pipeline";
+import { createLogPipeline, isDebug, type LogEvent, resolveLogLevel } from "./dev-log-pipeline";
 import { createDevLogger, formatLogLine } from "./dev-logs";
 import { getProcessEnv } from "./env/process-env";
 import { ShellEnvLive } from "./env/project-env";
@@ -111,7 +111,7 @@ export const runDevSession = (
       orchestrator.port,
     );
 
-    if (getProcessEnv("DEBUG") === "true" || getProcessEnv("DEBUG") === "1") {
+    if (isDebug(getProcessEnv("DEBUG"))) {
       yield* Effect.logError(
         `[DEBUG session] orchestrator.packages: ${orchestrator.packages.join(", ")}`,
       );

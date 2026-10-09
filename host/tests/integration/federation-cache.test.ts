@@ -22,8 +22,13 @@ vi.mock("everything-dev/integrity", () => ({
   verifySriForUrl: verifySriForUrlMock,
 }));
 
-const { FederationLifecycle, loadRouterModule, loadUiComposeModule, loadUiRouteConfig } =
-  await import("../../src/services/federation.server");
+const {
+  FederationLifecycle,
+  loadCoreUiRouteConfig,
+  loadRouterModule,
+  loadUiComposeModule,
+  loadUiRouteConfig,
+} = await import("../../src/services/federation.server");
 
 let disposeLifecycle: (() => Promise<void>) | undefined;
 
@@ -288,5 +293,17 @@ describe("ui expose loads (routeConfig / compose)", () => {
       Effect.runPromise(loadUiRouteConfig(uiEntry({ localPath: "/x/plugins/y" }), "development")),
     ).rejects.toThrow(/no SSR entry URL/);
     expect(createInstanceMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a routeConfig expose that is missing routeConfigLoaders, for plugin and core ui", async () => {
+    loadRemoteMock.mockResolvedValue({ meta: true });
+    const entry = uiEntry({ ssrUrl: "http://localhost:4113" });
+
+    await expect(Effect.runPromise(loadUiRouteConfig(entry, "development"))).rejects.toThrow(
+      /routeConfigLoaders/,
+    );
+    await expect(Effect.runPromise(loadCoreUiRouteConfig(entry, "development"))).rejects.toThrow(
+      /routeConfigLoaders/,
+    );
   });
 });

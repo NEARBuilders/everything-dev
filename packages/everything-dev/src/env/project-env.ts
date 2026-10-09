@@ -173,6 +173,13 @@ export const makeProjectEnv = (): ProjectEnvService => {
   };
 };
 
+/**
+ * One `ProjectEnv` implementation, installed in two scopes: the CLI provides
+ * `ProjectEnvLive` from `bootstrapLayers`, and the plugin runtime installs the
+ * same layer with `buildScoped` so it finalizes with the plugin. `makeProjectEnv`
+ * is that implementation; command and test callers that need a single shot use
+ * the factory and do not register another service.
+ */
 export const ProjectEnvLive: Layer.Layer<ProjectEnv> = Layer.sync(ProjectEnv, () =>
   makeProjectEnv(),
 );

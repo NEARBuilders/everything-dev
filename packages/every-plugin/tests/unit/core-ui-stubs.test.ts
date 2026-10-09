@@ -42,12 +42,38 @@ describe("core ui generated stubs", () => {
     expect(hydrate).toContain('import("./routeConfig.gen")');
     expect(hydrate).toContain('import("./manifest.gen.json")');
     expect(hydrate).toContain("coreHydrate(");
+    expect(hydrate).toContain('import { apiConnectionError } from "./app"');
+    expect(hydrate).toContain("apiConnectionError,");
     expect(CORE_UI_STUBS["src/entry.gen.ts"]).toContain('import("./hydrate.gen")');
     expect(CORE_UI_STUBS["src/router.server.gen.tsx"]).toContain("createQueryClient, createRouter");
+    expect(CORE_UI_STUBS["src/router.server.gen.tsx"]).toContain(
+      'import { appLocale } from "./app"',
+    );
+    expect(CORE_UI_STUBS["src/router.server.gen.tsx"]).toContain("locale: appLocale,");
     expect(CORE_UI_STUBS["src/compose.gen.ts"]).toContain('from "everything-dev/ui/manifest"');
     expect(CORE_UI_STUBS["src/globals.gen.ts"]).toContain("@rsbuild/core/types");
     for (const content of Object.values(CORE_UI_STUBS)) {
       expect(content.split("\n")[0]).toMatch(/GENERATED/);
+    }
+  });
+
+  it("carries zero app-specific content — only canonical authored-seam imports", () => {
+    const banned = [
+      "citynode",
+      "chicago",
+      "nearbuilders",
+      "everything.dev app",
+      "TranslateAppMessage",
+    ];
+    for (const content of Object.values(CORE_UI_STUBS)) {
+      for (const needle of banned) {
+        expect(content.toLowerCase()).not.toContain(needle.toLowerCase());
+      }
+    }
+    for (const seamImport of Object.values(CORE_UI_STUBS)
+      .join("\n")
+      .matchAll(/from "\.\/(app|router)"/g)) {
+      expect(["app", "router"]).toContain(seamImport[1]);
     }
   });
 });

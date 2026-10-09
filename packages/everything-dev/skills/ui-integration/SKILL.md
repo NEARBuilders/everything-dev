@@ -337,6 +337,41 @@ export function createQueryClient(): QueryClient {
 }
 ```
 
+Default components: set `defaultErrorComponent` / `defaultPendingComponent` /
+`defaultNotFoundComponent` inside `createRouter` after the `...opts` spread —
+your values win, and both client and SSR pick them up (SSR parity).
+
+### App Overrides (`app.ts` — yours)
+
+The generated stubs read two override exports from `app.ts` — customize the
+values there, never in the stubs:
+
+```ts
+// ui/src/app.ts
+import type { ApiConnectionErrorCopy } from "everything-dev/ui/api";
+import type { LocaleOptions } from "everything-dev/ui/i18n";
+import {
+  type AppLocale,
+  APP_LOCALES,
+  APP_LOCALE_COOKIE,
+  DEFAULT_APP_LOCALE,
+} from "./i18n/catalogs";
+
+export const appLocale: LocaleOptions<AppLocale> = {
+  locales: APP_LOCALES,
+  defaultLocale: DEFAULT_APP_LOCALE,
+  cookieName: APP_LOCALE_COOKIE,
+};
+
+export const apiConnectionError: ApiConnectionErrorCopy = () => ({
+  title: "…",
+  description: "…",
+});
+```
+
+`appLocale` feeds SSR locale negotiation (cookie + Accept-Language);
+`apiConnectionError` is the localized API connection-failure toast copy.
+
 ### Client Bootstrap (`hydrate.gen.tsx` — generated)
 
 1. Reads `window.__RUNTIME_CONFIG__`

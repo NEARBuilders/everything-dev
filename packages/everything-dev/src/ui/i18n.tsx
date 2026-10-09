@@ -12,6 +12,7 @@ import {
 import { matchLocale, resolveLocale, serializeLocaleCookie } from "./locale";
 
 export { Trans } from "@lingui/react";
+export type { LocaleOptions } from "./locale";
 export {
   matchLocale,
   readAcceptLanguage,

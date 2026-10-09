@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24-alpine AS builder
+FROM public.ecr.aws/docker/library/node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS builder
 WORKDIR /app
 
 # pnpm comes from Corepack — the root package.json `packageManager` field is
@@ -69,7 +69,7 @@ RUN find node_modules -maxdepth 1 -type l ! -exec test -e {} \; -print -delete 2
 # ── Shared runtime base (ADR 0021): hardened user + env both final stages
 # inherit. The probe uses node's built-in fetch — no curl in the runtime
 # layers.
-FROM node:24-alpine AS runtime-base
+FROM public.ecr.aws/docker/library/node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime-base
 WORKDIR /app
 
 RUN addgroup -g 1001 -S appgroup && adduser -S appuser -u 1001

@@ -140,6 +140,20 @@ describe("client bootstrap", () => {
     }
   });
 
+  it("forwards the app's api connection copy to the api client", async () => {
+    const apiConnectionError = () => ({ title: "t", description: "d" });
+    const { hydrate } = await loadHydrate();
+    await hydrate({
+      config: bootstrap.config as never,
+      routeConfig: async () => bootstrap.coreRouteConfig,
+      apiConnectionError,
+    });
+    const { createApiClient } = await import("../../src/ui/api");
+    expect(createApiClient).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionError: apiConnectionError }),
+    );
+  });
+
   it("rejects missing config before loading the router and can retry", async () => {
     bootstrap.config.hostUrl = "";
     await expect(runHydrate(bootstrap.config)).rejects.toThrow("Missing hostUrl or rpcBase");

@@ -33,6 +33,10 @@ export interface LogLevelEnv {
   DEBUG?: string;
 }
 
+export function isDebug(value: string | undefined): boolean {
+  return value === "true" || value === "1";
+}
+
 export function resolveLogLevel(
   env: LogLevelEnv = process.env as LogLevelEnv,
   flag?: string,
@@ -41,7 +45,7 @@ export function resolveLogLevel(
   if (env.BOS_LOG_LEVEL && (LOG_LEVELS as readonly string[]).includes(env.BOS_LOG_LEVEL)) {
     return env.BOS_LOG_LEVEL as LogLevel;
   }
-  if (env.DEBUG === "true" || env.DEBUG === "1") return "debug";
+  if (isDebug(env.DEBUG)) return "debug";
   return "warn";
 }
 

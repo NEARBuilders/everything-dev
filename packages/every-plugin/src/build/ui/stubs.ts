@@ -6,9 +6,11 @@
  * generation pass, regenerated from the installed package version, and
  * gitignored (`*.gen.*`) — never synced, never hand-maintained.
  *
- * The generated hydrate/SSR stubs wire the app's AUTHORED router factory
- * (`src/router.tsx` — the router policy seam) into the framework machinery;
- * the factory file is scaffolded once by `bos init` and owned by the app.
+ * The generated hydrate/SSR stubs wire the app's AUTHORED seams into the
+ * framework machinery: the router policy factory (`src/router.tsx`) and the
+ * app override exports from `src/app.ts` (`apiConnectionError`, `appLocale`).
+ * The seam files are scaffolded once by `bos init` and owned by the app; the
+ * stubs themselves carry zero app-specific content.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -26,6 +28,7 @@ runEntry(() => import("./hydrate.gen"));
 // by \`bos dev\` / \`bos build\` / \`bos typecheck\` (gitignored).
 import "./styles.css";
 import { hydrate as coreHydrate } from "everything-dev/ui/hydrate";
+import { apiConnectionError } from "./app";
 import { createQueryClient, createRouter } from "./router";
 
 export function hydrate() {
@@ -34,6 +37,7 @@ export function hydrate() {
     manifest: () => import("./manifest.gen.json"),
     createRouter,
     createQueryClient,
+    apiConnectionError,
   });
 }
 
@@ -42,6 +46,7 @@ export default hydrate;
   "src/router.server.gen.tsx": `// GENERATED FILE — do not edit. Regenerated from the installed framework version
 // by \`bos dev\` / \`bos build\` / \`bos typecheck\` (gitignored).
 import { createServerRouterModule } from "everything-dev/ui/router-server";
+import { appLocale } from "./app";
 import { createQueryClient, createRouter } from "./router";
 import { routeTree } from "./routeTree.gen";
 
@@ -49,6 +54,7 @@ const routerModule = createServerRouterModule({
   defaultRouteTree: routeTree,
   createRouter,
   createQueryClient,
+  locale: appLocale,
 });
 
 export default routerModule;
