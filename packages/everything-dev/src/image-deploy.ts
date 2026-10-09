@@ -113,6 +113,47 @@ export interface ImageDeployResult {
   digest?: string;
 }
 
+export type DeployImagePlan =
+  | { kind: "prebuilt"; image: string; digest: string }
+  | { kind: "build"; image: string }
+  | { kind: "skip"; reason: string };
+
+const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
+
+/** A Railway pin is `FROM image@<digest>` — anything else cannot resolve. */
+export function isValidImageDigest(digest: string): boolean {
+  return DIGEST_PATTERN.test(digest);
+}
+
+/**
+ * Decide the image leg's source: a digest handed over from a pre-pushed image
+ * (the CI image job) wins; otherwise the local docker build runs when the
+ * toolchain and Dockerfile are present (ADR 0021, as amended).
+ */
+export function resolveDeployImagePlan(input: {
+  imageRef: ResolvedImageRef | undefined;
+  imageDigest?: string;
+  hasDocker: boolean;
+  hasDockerfile: boolean;
+}): DeployImagePlan {
+  if (!input.imageRef) {
+    return {
+      kind: "skip",
+      reason: "set ci.image in bos.config.json (or BOS_IMAGE) to build and push the runtime image",
+    };
+  }
+  if (input.imageDigest) {
+    return { kind: "prebuilt", image: input.imageRef.image, digest: input.imageDigest };
+  }
+  if (!input.hasDocker) {
+    return { kind: "skip", reason: "docker is not available" };
+  }
+  if (!input.hasDockerfile) {
+    return { kind: "skip", reason: "no Dockerfile at the config root" };
+  }
+  return { kind: "build", image: input.imageRef.image };
+}
+
 /**
  * Image leg (ADR 0021): build the runtime stage, tag `sha-<short>` + version
  * tags, push them, capture the digest, and push `:latest` unless the version
@@ -191,7 +232,7 @@ export async function buildAndPushImage(input: {
     console.log(colors.yellow("  Could not capture the image digest from push output"));
   }
 
-  return { image: input.image, tag: tags[0], tags, latestPushed, digest };
+  return { image: input.image, tag: tags[0]!, tags, latestPushed, digest };
 }
 
 /**

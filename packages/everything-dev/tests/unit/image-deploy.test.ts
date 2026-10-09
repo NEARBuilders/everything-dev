@@ -11,6 +11,8 @@ import {
   buildAndPushImage,
   computeImageTags,
   deployImageToRailway,
+  isValidImageDigest,
+  resolveDeployImagePlan,
   resolveImageRef,
 } from "../../src/image-deploy";
 
@@ -46,6 +48,73 @@ describe("resolveImageRef", () => {
   it("returns undefined without a usable repository", () => {
     expect(resolveImageRef({})).toBeUndefined();
     expect(resolveImageRef({ repository: "https://gitlab.com/acme/app" })).toBeUndefined();
+  });
+});
+
+describe("resolveDeployImagePlan", () => {
+  const imageRef = { image: "ghcr.io/acme/app", source: "repository" as const };
+
+  it("uses a pre-pushed digest without requiring docker or a Dockerfile", () => {
+    expect(
+      resolveDeployImagePlan({
+        imageRef,
+        imageDigest: "sha256:abc123",
+        hasDocker: false,
+        hasDockerfile: false,
+      }),
+    ).toEqual({ kind: "prebuilt", image: "ghcr.io/acme/app", digest: "sha256:abc123" });
+  });
+
+  it("skips when no image ref is resolvable", () => {
+    const plan = resolveDeployImagePlan({
+      imageRef: undefined,
+      imageDigest: "sha256:abc123",
+      hasDocker: true,
+      hasDockerfile: true,
+    });
+    expect(plan.kind).toBe("skip");
+    expect(plan.kind === "skip" && plan.reason).toContain("ci.image");
+  });
+
+  it("builds locally when docker and the Dockerfile are present", () => {
+    expect(resolveDeployImagePlan({ imageRef, hasDocker: true, hasDockerfile: true })).toEqual({
+      kind: "build",
+      image: "ghcr.io/acme/app",
+    });
+  });
+
+  it("skips when docker is unavailable and no digest was provided", () => {
+    const plan = resolveDeployImagePlan({ imageRef, hasDocker: false, hasDockerfile: true });
+    expect(plan.kind).toBe("skip");
+    expect(plan.kind === "skip" && plan.reason).toContain("docker");
+  });
+
+  it("skips when the config root has no Dockerfile and no digest was provided", () => {
+    const plan = resolveDeployImagePlan({ imageRef, hasDocker: true, hasDockerfile: false });
+    expect(plan.kind).toBe("skip");
+    expect(plan.kind === "skip" && plan.reason).toContain("Dockerfile");
+  });
+
+  it("treats an empty digest as absent", () => {
+    expect(
+      resolveDeployImagePlan({ imageRef, imageDigest: "", hasDocker: true, hasDockerfile: true }),
+    ).toEqual({ kind: "build", image: "ghcr.io/acme/app" });
+  });
+});
+
+describe("isValidImageDigest", () => {
+  const digest64 = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+  it("accepts sha256:<64 lowercase hex>", () => {
+    expect(isValidImageDigest(digest64)).toBe(true);
+  });
+
+  it("rejects wrong prefixes, lengths, and characters", () => {
+    expect(isValidImageDigest("sha256:abc123")).toBe(false);
+    expect(isValidImageDigest("sha512:0123456789abcdef")).toBe(false);
+    expect(isValidImageDigest(digest64.toUpperCase())).toBe(false);
+    expect(isValidImageDigest(`${digest64}f`)).toBe(false);
+    expect(isValidImageDigest("")).toBe(false);
   });
 });
 

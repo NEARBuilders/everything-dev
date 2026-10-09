@@ -1,6 +1,7 @@
 import "@orpc/openapi/extensions/route";
 import * as z from "zod";
 import type { DevSessionData, StartSummary } from "./dev-session-data";
+import { isValidImageDigest } from "./image-deploy";
 import { oc } from "./sdk";
 import {
   BosConfigInputSchema,
@@ -242,6 +243,15 @@ export const DeployOptionsSchema = z.object({
   privateKey: z.string().optional(),
   service: z.string().optional(),
   registry: z.string().optional(),
+  imageDigest: z
+    .string()
+    .optional()
+    .refine((digest) => digest === undefined || isValidImageDigest(digest), {
+      message: "image digest must be sha256:<64 hex characters>",
+    })
+    .describe(
+      "Digest (sha256:…) of a pre-pushed runtime image — skips the image build/push leg and pins Railway to this digest",
+    ),
   fullUpload: z
     .boolean()
     .default(false)

@@ -153,7 +153,7 @@ export const cliCommandMeta = {
   deploy: {
     commandPath: ["deploy"],
     summary:
-      "Full deploy train: preflight → build → upload bundles → publish config → push runtime image → Railway (pull-only)",
+      "Deploy train: preflight → build → upload bundles → publish config → runtime image (pre-pushed digest or local docker build) → Railway (pull-only)",
     interactive: false,
     fields: {
       env: { description: "Environment: production or staging" },
@@ -161,6 +161,10 @@ export const cliCommandMeta = {
       dryRun: { description: "Preview what would be deployed without writing" },
       verbose: { description: "Show full build output instead of clean summary" },
       service: { description: "Override Railway service name from config" },
+      imageDigest: {
+        description:
+          "Digest of a pre-pushed runtime image (sha256:…) — skips the local image build/push; Railway pins this digest",
+      },
       registry: {
         description:
           "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",

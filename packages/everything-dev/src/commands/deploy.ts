@@ -13,6 +13,8 @@ import {
   buildAndPushImage,
   deployImageToRailway,
   hasDocker,
+  isValidImageDigest,
+  resolveDeployImagePlan,
   resolveImageRef,
 } from "../image-deploy";
 import { publishToFastKv } from "../publish";
@@ -264,6 +266,15 @@ export function registerDeploy(builder: BosBuilder) {
         }
       }
 
+      const imageDigestInput = input.imageDigest ?? process.env.BOS_IMAGE_DIGEST;
+      if (imageDigestInput && !isValidImageDigest(imageDigestInput)) {
+        return {
+          status: "error" as const,
+          registryUrl: "",
+          error: `Invalid image digest "${imageDigestInput}" — expected sha256:<64 hex characters> (--image-digest / BOS_IMAGE_DIGEST)`,
+        };
+      }
+
       const result = await publishToFastKv({
         bosConfig: session.config,
         runtimeConfig: session.runtime,
@@ -322,31 +333,38 @@ export function registerDeploy(builder: BosBuilder) {
       let imageDigest: string | undefined;
       let service: string | undefined;
 
-      const imageRef = resolveImageRef({
-        ciImage: nextSession.config?.ci?.image,
-        repository: nextSession.config?.repository,
-        env: process.env,
+      const imagePlan = resolveDeployImagePlan({
+        // A prebuilt digest pairs with the pushed ref (BOS_IMAGE from the CI
+        // image job, or repository derivation) — ci.image is a build-time
+        // choice, not a pin-time one; letting it win here could pin a digest
+        // from a different image.
+        imageRef: resolveImageRef({
+          ciImage: imageDigestInput ? undefined : nextSession.config?.ci?.image,
+          repository: nextSession.config?.repository,
+          env: process.env,
+        }),
+        imageDigest: imageDigestInput,
+        hasDocker: await hasDocker(),
+        hasDockerfile: existsSync(join(session.root, "Dockerfile")),
       });
-      if (!imageRef) {
+
+      if (imagePlan.kind === "skip") {
+        console.log();
+        console.log(colors.yellow(`  Image skipped: ${imagePlan.reason}`));
+      } else if (imagePlan.kind === "prebuilt") {
+        image = imagePlan.image;
+        imageDigest = imagePlan.digest;
         console.log();
         console.log(
-          colors.yellow(
-            "  Image skipped: set ci.image in bos.config.json (or BOS_IMAGE) to build and push the runtime image",
+          colors.green(
+            `  ${icons.ok} Using pre-pushed image ${imagePlan.image}@${imagePlan.digest.slice(0, 19)}…`,
           ),
         );
-      } else if (!(await hasDocker())) {
-        console.log();
-        console.log(colors.yellow("  Image skipped: docker is not available"));
-      } else if (!existsSync(join(session.root, "Dockerfile"))) {
-        // Children fetch the universal image (ADR 0020/0021) — a removed
-        // Dockerfile means this runtime never builds its own image.
-        console.log();
-        console.log(colors.yellow("  Image skipped: no Dockerfile at the config root"));
       } else {
         console.log();
         try {
           const imageResult = await buildAndPushImage({
-            image: imageRef.image,
+            image: imagePlan.image,
             configDir: session.root,
             verbose: input.verbose,
           });
@@ -393,7 +411,7 @@ export function registerDeploy(builder: BosBuilder) {
           console.log();
           console.log(
             colors.yellow(
-              "  Railway deploy skipped: no pushed image digest — set ci.image and install docker",
+              "  Railway deploy skipped: no runtime image digest — set ci.image (or pass BOS_IMAGE_DIGEST) and make the image available",
             ),
           );
           return {
@@ -402,7 +420,7 @@ export function registerDeploy(builder: BosBuilder) {
             image,
             service: railwayService,
             error:
-              "Config published but Railway deploy requires a pushed image (set ci.image and install docker)",
+              "Config published but Railway deploy requires a runtime image (set ci.image, or pass BOS_IMAGE_DIGEST for a pre-pushed image)",
           };
         }
 
