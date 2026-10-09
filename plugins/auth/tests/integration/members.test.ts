@@ -20,6 +20,13 @@ afterAll(async () => {
   await services.driver.close();
 }, 30000);
 
+async function assertNoMember(organizationId: string, userId: string) {
+  const created = await services.services.db.query.member.findFirst({
+    where: and(eq(schema.member.organizationId, organizationId), eq(schema.member.userId, userId)),
+  });
+  expect(created).toBeUndefined();
+}
+
 describe("member handlers", () => {
   describe("listMembers", () => {
     it("returns all members for an organization", async () => {
@@ -96,13 +103,7 @@ describe("member handlers", () => {
         }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-      const created = await services.services.db.query.member.findFirst({
-        where: and(
-          eq(schema.member.organizationId, org.id),
-          eq(schema.member.userId, outsider.userId),
-        ),
-      });
-      expect(created).toBeUndefined();
+      await assertNoMember(org.id, outsider.userId);
     });
 
     it("rejects outsiders the same way whether or not the organization exists", async () => {
@@ -165,6 +166,8 @@ describe("member handlers", () => {
           context: { reqHeaders: member.reqHeaders },
         }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      await assertNoMember(org.id, newcomer.userId);
     });
 
     it("lets admins add members but not owners", async () => {
@@ -256,13 +259,7 @@ describe("member handlers", () => {
         message: "Only organization owners and admins can add members",
       });
 
-      const created = await services.services.db.query.member.findFirst({
-        where: and(
-          eq(schema.member.organizationId, orgB.id),
-          eq(schema.member.userId, newcomer.userId),
-        ),
-      });
-      expect(created).toBeUndefined();
+      await assertNoMember(orgB.id, newcomer.userId);
     });
 
     it("rejects plain members adding to their active organization", async () => {
@@ -289,13 +286,7 @@ describe("member handlers", () => {
         }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-      const created = await services.services.db.query.member.findFirst({
-        where: and(
-          eq(schema.member.organizationId, org.id),
-          eq(schema.member.userId, newcomer.userId),
-        ),
-      });
-      expect(created).toBeUndefined();
+      await assertNoMember(org.id, newcomer.userId);
     });
   });
 
@@ -348,7 +339,7 @@ describe("member handlers", () => {
   }, 30000);
 
   describe("removeMember", () => {
-    it("throws FORBIDDEN when non-admin tries to remove", async () => {
+    it("rejects a plain member and keeps the target member row", async () => {
       const owner = await createTestUser(services.services);
       const member1 = await createTestUser(services.services, {
         email: `r1-${crypto.randomUUID()}@example.com`,
@@ -366,7 +357,12 @@ describe("member handlers", () => {
           input: { memberIdOrEmail: m1MemberId, organizationId: org.id },
           context: { reqHeaders: member2.reqHeaders },
         }),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+      const stillMember = await services.services.db.query.member.findFirst({
+        where: eq(schema.member.id, m1MemberId),
+      });
+      expect(stillMember).toBeDefined();
     });
 
     it("allows admin to remove member", async () => {
@@ -443,6 +439,37 @@ describe("member handlers", () => {
           context: { reqHeaders: admin.reqHeaders },
         }),
       ).rejects.toThrow();
+    });
+
+    it("rejects a plain member updating another member's role and keeps the role", async () => {
+      const owner = await createTestUser(services.services);
+      const member = await createTestUser(services.services, {
+        email: `mu-${crypto.randomUUID()}@example.com`,
+      });
+      const target = await createTestUser(services.services, {
+        email: `mt-${crypto.randomUUID()}@example.com`,
+      });
+      const org = await createTestOrg(services.services, owner.userId);
+      await addTestMember(services.services, org.id, member.userId, "member");
+      const targetMemberId = await addTestMember(
+        services.services,
+        org.id,
+        target.userId,
+        "member",
+      );
+
+      const handlers = createTestHandlers(services.services);
+      await expect(
+        handlers.members.updateMemberRole({
+          input: { memberId: targetMemberId, organizationId: org.id, role: "admin" },
+          context: { reqHeaders: member.reqHeaders },
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      const unchanged = await services.services.db.query.member.findFirst({
+        where: eq(schema.member.id, targetMemberId),
+      });
+      expect(unchanged?.role).toBe("member");
     });
 
     it("allows owner to demote when other owners exist", async () => {
