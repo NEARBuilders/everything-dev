@@ -3,7 +3,7 @@ import { Context, Effect, References } from "effect";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { PhaseTiming } from "../contract";
 import { type LogLevelEnv, resolveLogLevel, toEffectLogLevel } from "../dev-log-pipeline";
-import { bootstrapLayers, devBootstrap, resolveProxyUrl, startBootstrap } from "../dev-program";
+import { bootstrapLayers, devBootstrap, startBootstrap } from "../dev-program";
 import { openResolution } from "../resolution/session";
 import { type BosBuilder, BosDepsTag } from "./shared";
 
@@ -14,7 +14,7 @@ export function registerDev(builder: BosBuilder) {
       const devTimings: PhaseTiming[] = [];
 
       const outcome = await Effect.runPromise(
-        devBootstrap(deps, input, devTimings, { resolveProxyUrl }).pipe(
+        devBootstrap(deps, input, devTimings).pipe(
           Effect.provideService(
             References.MinimumLogLevel,
             toEffectLogLevel(resolveLogLevel(process.env as LogLevelEnv, input.logLevel)),
@@ -64,7 +64,7 @@ export function registerDev(builder: BosBuilder) {
       }
 
       const outcome = await Effect.runPromise(
-        startBootstrap(deps, input, { resolveProxyUrl }).pipe(
+        startBootstrap(deps, input).pipe(
           Effect.provide(bootstrapLayers),
           Effect.catchTags({
             StartRemoteConfigMissing: (error) => Effect.succeed({ failed: error.message }),

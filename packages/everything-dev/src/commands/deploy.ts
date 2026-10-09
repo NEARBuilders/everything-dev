@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import process from "node:process";
 import { Context } from "effect";
 import { MISSING_CONFIG_MESSAGE } from "../config";
@@ -335,6 +337,11 @@ export function registerDeploy(builder: BosBuilder) {
       } else if (!(await hasDocker())) {
         console.log();
         console.log(colors.yellow("  Image skipped: docker is not available"));
+      } else if (!existsSync(join(session.root, "Dockerfile"))) {
+        // Children fetch the universal image (ADR 0020/0021) — a removed
+        // Dockerfile means this runtime never builds its own image.
+        console.log();
+        console.log(colors.yellow("  Image skipped: no Dockerfile at the config root"));
       } else {
         console.log();
         try {

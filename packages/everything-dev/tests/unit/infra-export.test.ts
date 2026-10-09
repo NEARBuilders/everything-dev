@@ -67,7 +67,7 @@ describe("buildCiInfraPlan", () => {
     expect(serviceKeys).not.toContain("example");
 
     const apiService = plan.services.find((s) => s.key === "api");
-    expect(apiService?.image).toBe("postgres:17-alpine");
+    expect(apiService?.image).toBe("public.ecr.aws/docker/library/postgres:17-alpine");
     expect(apiService?.ports).toEqual(["5432:5432"]);
     expect(apiService?.database).toEqual({
       user: "everythingdev",

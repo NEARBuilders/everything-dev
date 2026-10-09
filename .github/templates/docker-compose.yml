@@ -6,7 +6,7 @@
 # consumed from the extended platform, so no auth database is needed here.
 services:
   postgres-api:
-    image: postgres:17-alpine
+    image: public.ecr.aws/docker/library/postgres:17-alpine
     environment:
       POSTGRES_USER: everythingdev
       POSTGRES_PASSWORD: everythingdev
@@ -22,7 +22,7 @@ services:
       - postgres_api_data:/var/lib/postgresql/data
 
   postgres-api-test:
-    image: postgres:17-alpine
+    image: public.ecr.aws/docker/library/postgres:17-alpine
     environment:
       POSTGRES_USER: everythingdev
       POSTGRES_PASSWORD: everythingdev

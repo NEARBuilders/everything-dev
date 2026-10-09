@@ -6,13 +6,20 @@ import { useRouter } from "@tanstack/react-router";
 
 export type { RouterContract };
 
+/**
+ * Localized copy for the API connection-failure toast — the app's authored
+ * override seam (ADR 0023). Called at error time, so the implementation may
+ * resolve the active locale itself.
+ */
+export type ApiConnectionErrorCopy = () => { title: string; description: string };
+
 /** typed client for the app's default router contract (router-context default) */
 export type ApiClient<T extends RouterContract = RouterContract> = ContractRouterClient<T>;
 
 export interface ClientServiceConfig {
   hostUrl: string;
   rpcBase: `/${string}`;
-  connectionError?: () => { title: string; description: string };
+  connectionError?: ApiConnectionErrorCopy;
 }
 
 type ClientRouterContext = {

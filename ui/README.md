@@ -8,8 +8,10 @@ The package runtime lives in `everything-dev/ui`:
 
 | Export | Purpose |
 |--------|---------|
-| `everything-dev/ui/client` | Browser router/runtime factory |
-| `everything-dev/ui/server` | SSR router/runtime factory |
+| `everything-dev/ui/router-client` | Client router factory (minted through the authored `router.tsx`) |
+| `everything-dev/ui/router-server` | SSR router module factory |
+| `everything-dev/ui/entry` | Web bootstrap runner |
+| `everything-dev/ui/hydrate` | Client hydrator |
 | `everything-dev/ui/types` | Shared router and head types |
 
 The app-level barrel is `ui/src/app.ts` and is the preferred import for route code.
@@ -30,11 +32,11 @@ bos dev --api remote    # Isolate UI work
 
 ## Internationalization
 
-The main UI and auth UI share locale state across their Module Federation bundles. Message catalogs live in each workspace's `locales/` directory; locale ownership follows the Module Federation message boundaries.
+Message catalogs live in `ui/src/i18n/catalogs.ts` (app-owned, ADR 0023); the app's `appLocale` export feeds SSR locale negotiation, and `ui/src/i18n/runtime.tsx` shares locale state across the Module Federation bundles.
 
 ## Configuration
 
-`bos.config.json` only needs the UI runtime URLs and package metadata. Build-time module exposes are synthesized by the CLI — workspaces ship zero build config by default.
+The authored runtime config (`bos.app.ts`, resolved and materialized by the CLI) only needs the UI runtime URLs and package metadata. Build-time module exposes are synthesized by the CLI — workspaces ship zero build config by default.
 
 ## Route Protection
 
@@ -55,6 +57,6 @@ File-based routing with auth guards via TanStack Router:
 
 ## Scripts
 
-- `bun dev` - Start dev server (port 3003)
-- `bun build` - Build for production
-- `bun type-check` - Type checking
+- `pnpm run dev` - Start dev server (port 3003)
+- `pnpm run build` - Build for production
+- `pnpm run typecheck` - Type checking

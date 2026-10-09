@@ -6,7 +6,6 @@ import {
   DevConfigMissing,
   DevStepError,
   devBootstrap,
-  resolveProxyUrl,
 } from "../../src/dev-program";
 import { ProjectEnv } from "../../src/env/project-env";
 import { ResolutionSession } from "../../src/resolution/session";
@@ -75,7 +74,7 @@ const makeSession = (root: string, account = "fixture.near"): ResolutionSession 
 const runBootstrap = (deps: BootstrapDeps) => {
   const timings: PhaseTiming[] = [];
   const outcome = Effect.runPromise(
-    devBootstrap(deps, { remotePlugins: [] } as DevOptions, timings, { resolveProxyUrl }).pipe(
+    devBootstrap(deps, { remotePlugins: [] } as DevOptions, timings).pipe(
       Effect.provide(projectEnvStub),
     ),
   ).then(

@@ -61,9 +61,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
       - name: Deploy (preflight → build → upload → publish → image → Railway)
         timeout-minutes: 35
         run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}

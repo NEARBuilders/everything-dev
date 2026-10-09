@@ -162,7 +162,6 @@ export const INIT_ROOT_PATTERNS = [
   ".env.example",
   ".gitignore",
   "biome.json",
-  "Dockerfile",
   "railway.json",
   "railway.toml",
   "AGENTS.md",

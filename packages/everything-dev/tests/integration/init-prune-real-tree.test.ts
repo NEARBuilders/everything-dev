@@ -48,6 +48,9 @@ describe("pruneUnusedUiFiles — real parent tree survival", () => {
     expect(existsSync(join(projectDir, "ui", "src", "lib", "api.ts"))).toBe(true);
     expect(existsSync(join(projectDir, "ui", "src", "app.ts"))).toBe(true);
     expect(existsSync(join(projectDir, "ui", "src", "router.tsx"))).toBe(true);
+    const appSurface = readFileSync(join(projectDir, "ui", "src", "app.ts"), "utf-8");
+    expect(appSurface).toContain("export const appLocale");
+    expect(appSurface).toContain("export const apiConnectionError");
     expect(
       listFiles(join(projectDir, "ui", "src", "components", "ui")).length,
     ).toBeGreaterThanOrEqual(25);

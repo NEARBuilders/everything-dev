@@ -33,10 +33,21 @@ export function registerPlugins(builder: BosBuilder) {
       );
       const existing = session.config.plugins?.[key];
       const existingEntry = existing && typeof existing === "object" ? existing : {};
+      // Adding a source is a switch, not an additive patch: a remote URL (or
+      // bos:// ref) replaces a conflicting local development ref. Dual-mode
+      // (local in dev, production URL in prod) remains expressible by
+      // hand-editing the authored config.
       const applyEntryDelta = (base: Record<string, unknown>): Record<string, unknown> => {
-        if (isBosRef) return { ...base, extends: input.source };
-        if (isLocal) return { ...base, development: input.source };
-        return { ...base, production: input.production ?? input.source };
+        if (isBosRef) {
+          const { development: _dropped, ...rest } = base;
+          return { ...rest, extends: input.source };
+        }
+        if (isLocal) {
+          const { extends: _dropped, ...rest } = base;
+          return { ...rest, development: input.source };
+        }
+        const { development: _dropped, ...rest } = base;
+        return { ...rest, production: input.production ?? input.source };
       };
       const nextPlugins = { ...session.config.plugins };
       nextPlugins[key] = applyEntryDelta(existingEntry);

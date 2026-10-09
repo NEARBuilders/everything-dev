@@ -12,6 +12,18 @@
   "prHourlyLimit": 2,
   "ignoreScripts": true,
   "rangeStrategy": "bump",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Digest-pinned service-container images in GitHub Actions workflows",
+      "managerFilePatterns": ["/(^|/)\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "image:\\s+(?<depName>public\\.ecr\\.aws/docker/library/[a-z0-9_-]+):(?<currentValue>[^\\s@]+)@sha256:(?<currentDigest>[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ],
   "packageRules": [
     {
       "matchPackagePatterns": ["@tanstack/*"],

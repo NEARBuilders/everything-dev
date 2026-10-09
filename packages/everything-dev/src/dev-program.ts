@@ -1,4 +1,4 @@
-import { Clock, Data, Effect, Layer } from "effect";
+import { Data, Effect, Layer } from "effect";
 import { detectLocalPackages, PortAllocatorLive } from "./app";
 import { generateCodeArtifacts } from "./code-artifacts";
 import {
@@ -9,6 +9,7 @@ import {
   resolveConfigComposableEntries,
 } from "./config";
 import type { DevOptions, PhaseTiming, StartOptions } from "./contract";
+import { isDebug } from "./dev-log-pipeline";
 import type { DevSessionData, StartSummary } from "./dev-session-data";
 import {
   deleteProcessEnv,
@@ -36,7 +37,7 @@ import { planInfra } from "./infra/planner";
 import { preflightLocalInfra } from "./infra/preflight";
 import type { InfraPlan } from "./infra/types";
 import { mergeGeneratedOverFileEnv } from "./orchestrator";
-import { type ProgressEvent, pluginEvents, timePhase } from "./progress";
+import { emitProgress, timedPhase } from "./progress";
 import { openResolution, type ResolutionSession, walkExtendsChain } from "./resolution/session";
 import {
   type AppOrchestrator,
@@ -55,10 +56,6 @@ export type { DevSessionData, StartSummary } from "./dev-session-data";
 
 export interface BootstrapDeps {
   readonly session: ResolutionSession | null;
-}
-
-export interface BootstrapHelpers {
-  resolveProxyUrl: (bosConfig: BosConfig | null) => string | null;
 }
 
 export class DevStepError extends Data.TaggedError("DevStepError")<{
@@ -131,29 +128,15 @@ export function resolveProxyUrl(bosConfig: BosConfig | null): string | null {
   return null;
 }
 
-const emitProgress = (event: ProgressEvent) =>
-  Effect.sync(() => pluginEvents.emit("progress", event));
-
 const step = <A>(timings: PhaseTiming[], name: string, fn: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: () => timePhase(timings, name, fn),
-    catch: (cause) => new DevStepError({ phase: name, cause }),
-  });
-
-const timedEffect = <A, E, R>(
-  timings: PhaseTiming[],
-  name: string,
-  effect: Effect.Effect<A, E, R>,
-) =>
-  Effect.gen(function* () {
-    yield* emitProgress({ phase: name, status: "running" });
-    const startedAt = yield* Clock.currentTimeMillis;
-    const result = yield* effect;
-    const endedAt = yield* Clock.currentTimeMillis;
-    timings.push({ name, durationMs: endedAt - startedAt });
-    yield* emitProgress({ phase: name, status: "done", durationMs: endedAt - startedAt });
-    return result;
-  }).pipe(Effect.onError(() => emitProgress({ phase: name, status: "error" })));
+  timedPhase(
+    timings,
+    name,
+    Effect.tryPromise({
+      try: fn,
+      catch: (cause) => new DevStepError({ phase: name, cause }),
+    }),
+  );
 
 const ensureEnvStep = (projectEnv: ProjectEnvService, configDir: string) =>
   projectEnv
@@ -167,12 +150,7 @@ const loadEnvStep = (projectEnv: ProjectEnvService, configDir: string) =>
     .load(configDir)
     .pipe(Effect.mapError((cause: EnvLoadError) => new DevStepError({ phase: "load env", cause })));
 
-export const devBootstrap = (
-  deps: BootstrapDeps,
-  input: DevOptions,
-  timings: PhaseTiming[],
-  helpers: Pick<BootstrapHelpers, "resolveProxyUrl">,
-) =>
+export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: PhaseTiming[]) =>
   Effect.gen(function* () {
     const shell = yield* captureShellEnv;
     const projectEnv = yield* ProjectEnv;
@@ -273,7 +251,7 @@ export const devBootstrap = (
     }
     const bosConfig: BosConfig = session.config;
 
-    if (proxy && !helpers.resolveProxyUrl(bosConfig)) {
+    if (proxy && !resolveProxyUrl(bosConfig)) {
       return yield* new DevProxyMissing({});
     }
 
@@ -294,7 +272,7 @@ export const devBootstrap = (
       yield* Effect.logWarning(message);
     }
 
-    const plan: InfraPlan = yield* timedEffect(
+    const plan: InfraPlan = yield* timedPhase(
       timings,
       "ports",
       planInfra({
@@ -377,12 +355,12 @@ export const devBootstrap = (
     const services = buildServiceDescriptorMapFromPlan(plan, { ssr, proxy });
 
     const packages = [...plan.serviceDescriptors.keys()];
-    if (getProcessEnv("DEBUG") === "true" || getProcessEnv("DEBUG") === "1") {
+    if (isDebug(getProcessEnv("DEBUG"))) {
       yield* Effect.logError(`[DEBUG dev] services keys: ${packages.join(", ")}`);
     }
     const apiSvc = services.get("api");
     if (apiSvc?.proxy) {
-      const proxyUrl = helpers.resolveProxyUrl(bosConfig);
+      const proxyUrl = resolveProxyUrl(bosConfig);
       if (proxyUrl) plan.orchestrator.env.API_PROXY = proxyUrl;
     }
 
@@ -407,11 +385,7 @@ export const devBootstrap = (
     };
   });
 
-export const startBootstrap = (
-  deps: BootstrapDeps,
-  input: StartOptions,
-  _helpers: BootstrapHelpers,
-) =>
+export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
   Effect.gen(function* () {
     const shell = yield* captureShellEnv;
     const projectEnv = yield* ProjectEnv;

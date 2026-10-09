@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { buildAuthExportStub, buildAuthTypesGenContent } from "./auth-types-gen";
@@ -334,6 +334,13 @@ export async function fetchApiPluginManifest(apiBaseUrl: string): Promise<ApiPlu
 
 function localApiContractSource(configDir: string): ContractSource {
   const sourcePath = join(configDir, "api", "src", "contract.ts");
+  if (!existsSync(sourcePath)) {
+    // Never emit an import to a missing file — fail loudly so the caller
+    // marks this source failed instead of generating a broken typecheck.
+    throw new Error(
+      `local api contract not found at api/src/contract.ts — restore the file or configure a reachable api URL`,
+    );
+  }
   return {
     key: "api",
     importName: "BaseApiContract",
@@ -343,6 +350,11 @@ function localApiContractSource(configDir: string): ContractSource {
 
 function localAuthContractSource(configDir: string): ContractSource {
   const sourcePath = join(configDir, "plugins", "auth", "src", "contract.ts");
+  if (!existsSync(sourcePath)) {
+    throw new Error(
+      `local auth contract not found at plugins/auth/src/contract.ts — restore the file or configure a reachable auth URL`,
+    );
+  }
   return {
     key: "auth",
     importName: "authContract",
@@ -702,6 +714,33 @@ export function writeGeneratedFiles(opts: {
         authTypesPath,
         buildAuthTypesGenContent(exportImportPath, contractImportPath),
       );
+    }
+  }
+
+  // --- Sweep stale per-plugin generated files ---
+  // A plugin that flips local → remote (or is removed) must not keep gen
+  // files importing local source paths, and a removed remote plugin must not
+  // keep its fetched contract. Only exact generated paths are removed —
+  // never app source.
+  const localPluginKeys = new Set(Object.keys(opts.pluginLocalPaths ?? {}));
+  if (opts.authLocalPath) localPluginKeys.add("auth");
+  const pluginsRoot = join(opts.configDir, "plugins");
+  if (existsSync(pluginsRoot)) {
+    for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith("_") || localPluginKeys.has(entry.name))
+        continue;
+      for (const genName of ["plugins-client.gen.ts", "auth-types.gen.ts"]) {
+        const genPath = join(pluginsRoot, entry.name, "src", "lib", genName);
+        if (existsSync(genPath)) rmSync(genPath);
+      }
+    }
+  }
+  const generatedPluginsRoot = join(opts.configDir, ".bos", "generated", "plugins");
+  if (existsSync(generatedPluginsRoot)) {
+    const configuredKeys = new Set(opts.sources.map((source) => source.key));
+    for (const entry of readdirSync(generatedPluginsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || configuredKeys.has(entry.name)) continue;
+      rmSync(join(generatedPluginsRoot, entry.name), { recursive: true, force: true });
     }
   }
 

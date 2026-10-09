@@ -3,6 +3,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { Context } from "effect";
 import {
+  loadAppDescriptorConfig,
   localConfigEntryPath,
   readAuthoredConfigInput,
   readLocalAuthoredConfigInput,
@@ -38,10 +39,13 @@ export function registerConfig(builder: BosBuilder) {
       try {
         const remote = await fetchBosConfigFromFastKv<Record<string, unknown>>(normalizedFrom);
         const localRaw = await readLocalAuthoredConfigInput(root);
-        const local = (localRaw ?? JSON.parse(readFileSync(configPath, "utf-8"))) as Record<
-          string,
-          unknown
-        >;
+        const local = (localRaw ??
+          (configPath.endsWith(".json")
+            ? (JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>)
+            : ((await loadAppDescriptorConfig(configPath)) as unknown as Record<
+                string,
+                unknown
+              >))) as Record<string, unknown>;
         const { config: merged, applied } = applyRegistrySections(
           local as never,
           remote as never,
