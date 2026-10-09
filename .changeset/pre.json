@@ -215,6 +215,7 @@
     "restore-v1-core-sharing-set",
     "runtime-lifecycle-cache",
     "runtime-snapshot-service",
+    "scaffold-docs-bos-app-ts",
     "security-hardening-batch",
     "self-deploy-docs",
     "self-healing-dev-preflight",
