@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+    # Docs-only merges cannot change changesets — skip the changesets pass.
+    # Deliberately NOT ignoring .changeset/** — that is the input this
+    # workflow consumes.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
