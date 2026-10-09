@@ -1,8 +1,10 @@
-import { ORPCError } from "@orpc/server";
+import { type Implementer, ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
+import type { ContractType, InferInput } from "../contract";
 import * as schema from "../db/schema";
-import { AuthServicesTag } from "../service-types";
+import type { AuthHandlerContext, AuthSessionUser, RequireAuthMiddleware } from "../middleware";
+import { AuthServicesTag, type PluginServices } from "../service-types";
 import { canReadMemberEmails, createHeaders, parseTeamAreas, tryJsonParse } from "../utils";
 import { attemptAuth, attemptDb } from "./attempts";
 
@@ -15,23 +17,40 @@ function toOrganizationInfo(organization: {
   status?: string;
   requestedBy?: string | null;
   rejectionReason?: string | null;
-}) {
+}): {
+  id: string;
+  name: string;
+  slug: string;
+  logo: string | null;
+  status: "active" | "pending" | "rejected";
+  requestedBy: string | null;
+  rejectionReason: string | null;
+  metadata: Record<string, unknown> | null;
+} {
+  const status =
+    organization.status === "pending" || organization.status === "rejected"
+      ? organization.status
+      : "active";
   return {
     id: organization.id,
     name: organization.name,
     slug: organization.slug,
     logo: organization.logo ?? null,
-    status: organization.status ?? "active",
+    status,
     requestedBy: organization.requestedBy ?? null,
     rejectionReason: organization.rejectionReason ?? null,
     metadata:
       typeof organization.metadata === "string"
-        ? tryJsonParse<Record<string, unknown>>(organization.metadata)
+        ? (tryJsonParse<Record<string, unknown>>(organization.metadata) ?? null)
         : ((organization.metadata as Record<string, unknown> | null | undefined) ?? null),
   };
 }
 
-async function getFullOrganizationOrNull(services: any, context: any, input: any) {
+async function getFullOrganizationOrNull(
+  services: PluginServices,
+  context: AuthHandlerContext & { userId: string; user: AuthSessionUser },
+  input: InferInput<"getFullOrganization">,
+) {
   try {
     const emailAllowed = await canReadMemberEmails(services, context, input?.organizationId);
     const result = await services.auth.api.getFullOrganization({
@@ -54,13 +73,9 @@ async function getFullOrganizationOrNull(services: any, context: any, input: any
         createdAt: m.createdAt instanceof Date ? m.createdAt : new Date(m.createdAt),
       })),
       invitations: (result.invitations ?? []).map((inv: any) => ({
-        id: inv.id,
-        organizationId: inv.organizationId,
+        ...inv,
         email: emailAllowed ? inv.email : null,
-        role: inv.role,
-        status: inv.status,
         expiresAt: inv.expiresAt instanceof Date ? inv.expiresAt : new Date(inv.expiresAt),
-        inviterId: inv.inviterId,
       })),
       teams: result.teams
         ? result.teams.map((t: any) => ({
@@ -78,13 +93,12 @@ async function getFullOrganizationOrNull(services: any, context: any, input: any
   }
 }
 
-export function createOrganizationHandlers(builder: any, requireAuth: any) {
+export function createOrganizationHandlers(
+  builder: Implementer<ContractType, AuthHandlerContext>,
+  requireAuth: RequireAuthMiddleware,
+) {
   return {
-    listOrganizations: builder.listOrganizations.use(requireAuth).effect(function* ({
-      context,
-    }: {
-      context: any;
-    }) {
+    listOrganizations: builder.listOrganizations.use(requireAuth).effect(function* ({ context }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.listOrganizations({
@@ -100,9 +114,6 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
     getFullOrganization: builder.getFullOrganization.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       return yield* Effect.promise(() => getFullOrganizationOrNull(services, context, input));
@@ -111,9 +122,6 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
     getOrganizationForAdmin: builder.getOrganizationForAdmin.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       if (context.user.role !== "admin") {
@@ -135,9 +143,6 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
     createOrganization: builder.createOrganization.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
@@ -160,9 +165,6 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
     setActiveOrganization: builder.setActiveOrganization.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       yield* attemptAuth(() =>
@@ -177,9 +179,6 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
     updateOrganization: builder.updateOrganization.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
@@ -209,9 +208,6 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
     leaveOrganization: builder.leaveOrganization.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       yield* attemptAuth(() =>
@@ -226,9 +222,6 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
     deleteOrganization: builder.deleteOrganization.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       yield* attemptAuth(() =>
@@ -240,7 +233,7 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
       return { success: true };
     }),
 
-    checkSlug: builder.checkSlug.effect(function* ({ input }: { input: any }) {
+    checkSlug: builder.checkSlug.effect(function* ({ input }) {
       const services = yield* AuthServicesTag;
       return yield* attemptAuth(() =>
         services.auth.api.checkOrganizationSlug({
@@ -252,16 +245,15 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
       );
     }),
 
-    hasPermission: builder.hasPermission.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    hasPermission: builder.hasPermission.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.hasPermission({
+        (
+          services.auth.api.hasPermission as (args: {
+            headers: Headers;
+            body: { organizationId?: string; permissions?: Record<string, string[]> };
+          }) => Promise<{ success: boolean }>
+        )({
           headers: createHeaders(context.reqHeaders),
           body: {
             organizationId: input.organizationId,
@@ -272,13 +264,7 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
       return { success: result.success };
     }),
 
-    linkDao: builder.linkDao.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    linkDao: builder.linkDao.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       const org = yield* attemptDb(() =>
@@ -310,13 +296,7 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
       return { success: true };
     }),
 
-    unlinkDao: builder.unlinkDao.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    unlinkDao: builder.unlinkDao.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       const org = yield* attemptDb(() =>
@@ -348,13 +328,7 @@ export function createOrganizationHandlers(builder: any, requireAuth: any) {
       return { success: true };
     }),
 
-    getDao: builder.getDao.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    getDao: builder.getDao.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.getFullOrganization({

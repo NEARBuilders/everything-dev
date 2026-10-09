@@ -47,10 +47,10 @@ describe("organization handlers", () => {
         context: { reqHeaders: user.reqHeaders },
       });
 
-      expect(result.id).toBe(org.id);
-      expect(result.name).toBe("Get Org");
-      expect(result.members).toBeDefined();
-      expect(result.invitations).toBeDefined();
+      expect(result!.id).toBe(org.id);
+      expect(result!.name).toBe("Get Org");
+      expect(result!.members).toBeDefined();
+      expect(result!.invitations).toBeDefined();
     });
 
     it("returns null for non-existent org", async () => {
