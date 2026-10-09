@@ -89,8 +89,9 @@ jobs:
   # version tags, latest held on prereleases) BEFORE any config/bundle publish,
   # so a failed image push cannot leave a partially published deploy. The
   # captured digest is handed to the deploy job (BOS_IMAGE_DIGEST), which pins
-  # the pull-only Railway deploy to it. Self-contained: the Dockerfile builds
-  # all workspaces from source in-image — no node/pnpm setup needed here.
+  # the pull-only Railway deploy to it. No pnpm install here — the Dockerfile
+  # builds all workspaces from source in-image; the runner's preinstalled Node
+  # reads the workspace version.
   image:
     name: Build and push runtime image
     needs: [gate]
@@ -116,8 +117,9 @@ jobs:
         # derived from the repository (ci.image in bos.app.ts is not parsed
         # here); tags sha-<short> always, the exact v<version> tag, and the
         # floating v<major> + :latest on stable releases only — :latest is held
-        # during prereleases so pinned deployments keep serving the last stable
-        # image. Keep in sync with computeImageTags when either side changes.
+        # during prereleases. A non-semver workspace version pushes sha-<short>
+        # plus :latest (same parity as computeImageTags). Keep in sync with
+        # computeImageTags when either side changes.
         env:
           BOS_IMAGE: ${{ vars.BOS_IMAGE }}
         run: |
@@ -126,6 +128,7 @@ jobs:
           SHORT_SHA="$(git rev-parse --short=7 HEAD)"
           VERSION="$(node -p "require('./packages/everything-dev/package.json').version")"
 
+          PUSH_LATEST=0
           if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
             EXACT="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}${BASH_REMATCH[4]}"
             if [ -n "${BASH_REMATCH[4]}" ]; then
@@ -133,12 +136,17 @@ jobs:
               echo "::notice::latest held: $EXACT is a prerelease — :latest still serves the last stable image"
             else
               TAGS=("sha-$SHORT_SHA" "$EXACT" "v${BASH_REMATCH[1]}")
+              PUSH_LATEST=1
             fi
           else
             TAGS=("sha-$SHORT_SHA")
+            PUSH_LATEST=1
           fi
 
           REFS=("${TAGS[@]/#/$IMAGE:}")
+          if [ "$PUSH_LATEST" = "1" ]; then
+            REFS+=("$IMAGE:latest")
+          fi
           BUILD_ARGS=()
           for ref in "${REFS[@]}"; do
             BUILD_ARGS+=(-t "$ref")
@@ -146,21 +154,30 @@ jobs:
           echo "Building runtime image ${REFS[*]}..."
           docker build --target runtime "${BUILD_ARGS[@]}" .
 
+          # All tags are built from one image, so every ref must resolve to the
+          # same digest — the Railway pin depends on it. Prefer the registry's
+          # manifest digest (docker buildx imagetools inspect), falling back to
+          # the push output.
           DIGEST=""
           for ref in "${REFS[@]}"; do
             echo "Pushing $ref..."
+            OUT="$(docker push "$ref" 2>&1)" || { printf '%s\n' "$OUT"; exit 1; }
+            REF_DIGEST="$(docker buildx imagetools inspect "$ref" 2>/dev/null | grep -oE 'sha256:[a-f0-9]{64}' | head -1 || true)"
+            if [ -z "$REF_DIGEST" ]; then
+              REF_DIGEST="$(printf '%s\n' "$OUT" | grep -oE 'sha256:[a-f0-9]{64}' | tail -1 || true)"
+            fi
+            if [ -z "$REF_DIGEST" ]; then
+              echo "::error::Could not capture the image digest for $ref"
+              exit 1
+            fi
             if [ -z "$DIGEST" ]; then
-              OUT="$(docker push "$ref" 2>&1)" || { printf '%s\n' "$OUT"; exit 1; }
-              DIGEST="$(printf '%s\n' "$OUT" | grep -oE 'sha256:[a-f0-9]{64}' | tail -1 || true)"
-            else
-              docker push "$ref"
+              DIGEST="$REF_DIGEST"
+            elif [ "$REF_DIGEST" != "$DIGEST" ]; then
+              echo "::error::Tag divergence: $ref resolves to $REF_DIGEST but ${REFS[0]} resolves to $DIGEST"
+              exit 1
             fi
           done
 
-          if [ -z "$DIGEST" ]; then
-            echo "::error::Could not capture the image digest from push output"
-            exit 1
-          fi
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
@@ -176,7 +193,10 @@ jobs:
       BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       # Pre-pushed image from the image job — bos deploy skips its local
-      # image build/push and pins the Railway deploy to this digest.
+      # image build/push and pins the Railway deploy to this digest. BOS_IMAGE
+      # carries the exact pushed ref so the pin pairs with the digest (with a
+      # digest present, ci.image is excluded from ref resolution — it is a
+      # build-time choice, not a pin-time one).
       BOS_IMAGE: ${{ needs.image.outputs.image }}
       BOS_IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
     steps:

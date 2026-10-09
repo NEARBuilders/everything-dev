@@ -13,6 +13,7 @@ import {
   buildAndPushImage,
   deployImageToRailway,
   hasDocker,
+  isValidImageDigest,
   resolveDeployImagePlan,
   resolveImageRef,
 } from "../image-deploy";
@@ -265,6 +266,15 @@ export function registerDeploy(builder: BosBuilder) {
         }
       }
 
+      const imageDigestInput = input.imageDigest ?? process.env.BOS_IMAGE_DIGEST;
+      if (imageDigestInput && !isValidImageDigest(imageDigestInput)) {
+        return {
+          status: "error" as const,
+          registryUrl: "",
+          error: `Invalid image digest "${imageDigestInput}" — expected sha256:<64 hex characters> (--image-digest / BOS_IMAGE_DIGEST)`,
+        };
+      }
+
       const result = await publishToFastKv({
         bosConfig: session.config,
         runtimeConfig: session.runtime,
@@ -324,12 +334,16 @@ export function registerDeploy(builder: BosBuilder) {
       let service: string | undefined;
 
       const imagePlan = resolveDeployImagePlan({
+        // A prebuilt digest pairs with the pushed ref (BOS_IMAGE from the CI
+        // image job, or repository derivation) — ci.image is a build-time
+        // choice, not a pin-time one; letting it win here could pin a digest
+        // from a different image.
         imageRef: resolveImageRef({
-          ciImage: nextSession.config?.ci?.image,
+          ciImage: imageDigestInput ? undefined : nextSession.config?.ci?.image,
           repository: nextSession.config?.repository,
           env: process.env,
         }),
-        imageDigest: input.imageDigest ?? process.env.BOS_IMAGE_DIGEST,
+        imageDigest: imageDigestInput,
         hasDocker: await hasDocker(),
         hasDockerfile: existsSync(join(session.root, "Dockerfile")),
       });

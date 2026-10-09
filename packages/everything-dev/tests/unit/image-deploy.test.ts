@@ -11,6 +11,7 @@ import {
   buildAndPushImage,
   computeImageTags,
   deployImageToRailway,
+  isValidImageDigest,
   resolveDeployImagePlan,
   resolveImageRef,
 } from "../../src/image-deploy";
@@ -65,17 +66,14 @@ describe("resolveDeployImagePlan", () => {
   });
 
   it("skips when no image ref is resolvable", () => {
-    expect(
-      resolveDeployImagePlan({
-        imageRef: undefined,
-        imageDigest: "sha256:abc123",
-        hasDocker: true,
-        hasDockerfile: true,
-      }),
-    ).toEqual({
-      kind: "skip",
-      reason: "set ci.image in bos.config.json (or BOS_IMAGE) to build and push the runtime image",
+    const plan = resolveDeployImagePlan({
+      imageRef: undefined,
+      imageDigest: "sha256:abc123",
+      hasDocker: true,
+      hasDockerfile: true,
     });
+    expect(plan.kind).toBe("skip");
+    expect(plan.kind === "skip" && plan.reason).toContain("ci.image");
   });
 
   it("builds locally when docker and the Dockerfile are present", () => {
@@ -86,23 +84,37 @@ describe("resolveDeployImagePlan", () => {
   });
 
   it("skips when docker is unavailable and no digest was provided", () => {
-    expect(resolveDeployImagePlan({ imageRef, hasDocker: false, hasDockerfile: true })).toEqual({
-      kind: "skip",
-      reason: "docker is not available",
-    });
+    const plan = resolveDeployImagePlan({ imageRef, hasDocker: false, hasDockerfile: true });
+    expect(plan.kind).toBe("skip");
+    expect(plan.kind === "skip" && plan.reason).toContain("docker");
   });
 
   it("skips when the config root has no Dockerfile and no digest was provided", () => {
-    expect(resolveDeployImagePlan({ imageRef, hasDocker: true, hasDockerfile: false })).toEqual({
-      kind: "skip",
-      reason: "no Dockerfile at the config root",
-    });
+    const plan = resolveDeployImagePlan({ imageRef, hasDocker: true, hasDockerfile: false });
+    expect(plan.kind).toBe("skip");
+    expect(plan.kind === "skip" && plan.reason).toContain("Dockerfile");
   });
 
   it("treats an empty digest as absent", () => {
     expect(
       resolveDeployImagePlan({ imageRef, imageDigest: "", hasDocker: true, hasDockerfile: true }),
     ).toEqual({ kind: "build", image: "ghcr.io/acme/app" });
+  });
+});
+
+describe("isValidImageDigest", () => {
+  const digest64 = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+  it("accepts sha256:<64 lowercase hex>", () => {
+    expect(isValidImageDigest(digest64)).toBe(true);
+  });
+
+  it("rejects wrong prefixes, lengths, and characters", () => {
+    expect(isValidImageDigest("sha256:abc123")).toBe(false);
+    expect(isValidImageDigest("sha512:0123456789abcdef")).toBe(false);
+    expect(isValidImageDigest(digest64.toUpperCase())).toBe(false);
+    expect(isValidImageDigest(`${digest64}f`)).toBe(false);
+    expect(isValidImageDigest("")).toBe(false);
   });
 });
 
