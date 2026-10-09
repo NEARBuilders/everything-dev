@@ -61,3 +61,11 @@ jobs:
           createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+      # npm's OIDC helper never throws — when the registry rejects the token
+      # exchange (e.g. trusted-publisher mismatch or missing "npm publish"
+      # allowance), publish fails with a bare ENEEDAUTH and the real reason
+      # is only logged at verbose level inside npm's debug log.
+      - name: Dump npm OIDC diagnostics
+        if: failure()
+        run: grep -i oidc /home/runner/.npm/_logs/*.log || true
