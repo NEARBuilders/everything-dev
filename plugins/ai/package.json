@@ -1,7 +1,7 @@
 {
   "name": "@everything-dev/ai-plugin",
-  "version": "0.1.0",
-  "description": "AI chat plugin \u2014 OpenAI-compatible streaming via oRPC + TanStack AI",
+  "version": "0.1.1-rc.0",
+  "description": "AI chat plugin — OpenAI-compatible streaming via oRPC + TanStack AI",
   "type": "module",
   "exports": {
     ".": {

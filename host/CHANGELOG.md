@@ -1,5 +1,200 @@
 # host
 
+## 2.0.0-rc.0
+
+### Major Changes
+
+- d57b8f4: Manifest composition replaces route-tree grafting as the composed-SSR model (plan 034, ADR 0007/0008). The host constructs the ENTIRE route graph from generated manifests (`manifest.gen.json` + `routeConfig.gen.ts` per ui source) through the core ui's `./compose` engine; `defineUiPlugin`, the `./tree` expose, `composeApp`/`graftCopy`, the v1 mount registry, the homegrown digest, and the dedicated `ui-ssr`/`plugin-ui-ssr` dev servers are deleted. `bos dev --ssr` now composes from source manifests in the host process (no extra servers or probes); `BOS_UI_COMPOSE` is gone. Client runtime config changes shape: `ui.compose` is now `{ digest, remotes: [{key, name, entry}], manifests }` and `ui.composeDigest` is removed. Plugin ui remotes consume shared deps with `import: false` (the core provides); mounts are registry v2 (`public`/`authenticated`/`admin` implemented, `org`/`team` declared) and root-level pathless layouts.
+
+### Minor Changes
+
+- d57b8f4: Upgrade build toolchain to Rspack 2.2 / Rsbuild 2.2 / Module Federation 2.9
+
+  Version catalog bumps: @rspack/core + @rspack/cli → 2.2.6, @rsbuild/core → 2.2.8,
+  @rsbuild/plugin-react → 2.1.0, @module-federation/\* → latest 2.x (enhanced 2.9.0,
+  node 2.7.50). @module-federation/runtime-tools and @rspack/dev-server are now
+  explicit dependencies where used.
+
+  BREAKING (every-plugin): EveryPluginDevServer removed from every-plugin/build/rspack.
+  Plugin dev serving is now standalone — `every-plugin-serve` (supervised
+  `rspack build --watch` + plain node:http server with the same contract: health,
+  remoteEntry statics, oRPC RPC/OpenAPI, sibling composition, effect context).
+  Plugin dev scripts use `every-plugin-serve` instead of `rspack serve`.
+  EveryPluginBuild carries the build-side responsibilities only.
+
+  Deploy note: `bos mf check` compares host and remote pluginVersion exactly, so
+  after the 2.9.0 host deploys, remote-only plugins must be redeployed on
+  Module Federation 2.9.0 to stay compatible.
+
+- f9d2dce: Per-remote failure isolation in composition (ADR 0024 §5): a plugin source that cannot produce a usable manifest — fetch failure with no last-good snapshot, unparsable content, or an identity mismatch with its config key — now drops itself with a warning and the healthy subset composes, instead of the whole composition failing (SSR 500) or all remotes degrading to the core-only tree. The digest and the client payload are computed over the healthy set in canonical (sorted) order, so server-side drops hydrate cleanly; a client-side drop degrades to client-render. The core source failing stays a loud failure.
+- d57b8f4: Plugin boot failures are structured end-to-end: `PluginBootstrapError` carries the failing runtime operation and classification, bootstrap errors log as `[Plugins][<key>] Failed to load plugin (<operation>) — permanent|retryable`, and `/health` + `/api/_health` expose a structured `failures` array (pluginKey, operation, kind, retryable, suggestion, masked DB URL) instead of only joined strings.
+- c520871: Retune the edge rate limiter for practical use:
+
+  - General budget raised from 300 to **2000 requests / 15 min** per client — normal browsing (page navigations, API calls, SSR renders) no longer brushes the cap, especially behind shared NAT/VPN egress.
+  - New **mutation tier** (60 / 15 min, `RATE_LIMIT_MUTATION_MAX`) for non-GET requests outside the oRPC (`/api/rpc/`), Better-Auth (`/api/auth/`), and MCP (`/api/mcp`) transports — brute-force protection on direct REST writes without touching sessions, procedures, or agents (those layers own their throttling).
+  - `x-forwarded-for` keying now trusts only the **last** hop (the address our proxy appended) — a client can no longer mint unlimited keys by rotating a spoofed first hop.
+  - A rate-limited **document navigation** now returns a styled HTML retry page instead of raw JSON, so a saturated browser session sees a "please wait" screen, not a broken site. API requests keep the JSON body and `Retry-After`.
+  - `GET/HEAD /health` is exempt from both tiers — infrastructure probes never consume a client's budget.
+
+- ## d57b8f4: Universal runtime image (ADR 0021): tier auto-detection — an identity whose namespace is not staged under `BOS_BUNDLE_DIR` drops to registry tier (network fetch + `BOS_BUNDLE_CACHE_DIR` stale-if-error cache) instead of deterministically 404ing own-namespace URLs; the host's `/bundles/*` FS route is namespace-scoped (foreign namespaces fall through to the proxy handler). Dockerfile: the deployable stage is named `runtime` (last, default target); the regression fixture is `regression`. The deploy train pushes the image to GHCR by SHA-tagged digest and Railway deploys the pushed digest.
+- d57b8f4: Version observability (atomic-deploys 12): `GET /.well-known/version` now returns the per-slot manifest pins from the adopted pointer and the watch fiber's last-tick outcome beside the fingerprint; `pointerFingerprint`/`slotPins` are shared so CLI and host compute the same identity. Every publish writes the per-deploy manifest key (audit trail, previously wallet-only), prints the fingerprint + pins, and returns them. `bos deploy --status` lists recent publishes newest-first from the manifests key family; `bos status` reports the deployed-vs-served fingerprint delta — the split-brain detector. The admin dashboard gains a version card (`admin-version-card`) reading the version endpoint, and `/llms.txt` + `/skill.md` document the surface for agents.
+
+### Patch Changes
+
+- d57b8f4: Audit and fix agent information flow for first-load discovery.
+
+  - Rewrote `ui/public/skill.md` with two explicit agent modes: talk to the app via MCP/REST (with API key auth instructions), and clone & modify (with AGENTS.md reference, architecture notes about Module Federation code bundles, and regression test info).
+  - Expanded `ui/public/llms.txt` to include API, MCP, auth, and repository source sections.
+  - Added `/.well-known/mcp.json` host route for MCP discovery (server name, endpoint, transport, auth scheme).
+  - Deleted stale `LLM.txt` (superseded by AGENTS.md).
+  - Created `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md` to resolve dangling AGENTS.md references.
+  - Added agent communication surface section and `.agents/skills/` workflow skills mention to AGENTS.md.
+  - Added `/settings/api-keys` route with API key create/list/delete UI and API Keys tab in settings layout.
+  - Exposed auth and plugin router routes as MCP tools (in addition to base API) in `mountMcpRoute`.
+  - Updated `buildChildAgentsInstructions` in init.ts with MCP/API-key sections and "remotes are code bundles" note.
+  - Added child `llms.txt` and `skill.md` template generation in init.ts `personalizeConfig`.
+  - Added MCP endpoint regression test (`mcp_test.go`), agent surface content tests (`agent_surface_test.go`), and browser test for settings API keys page.
+
+- d57b8f4: Build output hardening for the platform deploy path.
+
+  - Show all stdout during deploy builds (not just chunks matching a provider regex). Chunks can split across boundaries so a filtered URL never matched — deploy builds now pass all stdout through unconditionally.
+  - Extract build-result classification as a pure function from the build attempt, making the exit-code classification testable without spawning processes.
+  - Fix variable shadowing where inner `const result` shadowed the outer `await run(...)` binding.
+  - Remove the unnecessary per-workspace env copy.
+
+- d57b8f4: Fix host crash after login caused by a pg-pool search_path race.
+
+  - The `on("connect")` handler in `api/src/db/index.ts` and `plugins/_template/src/db/index.ts` ran `CREATE SCHEMA` and `SET search_path` concurrently with the first query on each fresh connection. pg-pool does not await `on("connect")`, so after idle connections closed (30s timeout) the next query (e.g. `listRootNodes`) could land before `SET search_path`, hitting `relation "nodes" does not exist` in the `public` schema. The concurrent `client.query()` calls also produced `Connection terminated` errors (the deprecation warnings at startup were the same root cause).
+  - Set `search_path` at the protocol level via the pool's `options` config (`-c search_path=<schema>,public`) so every connection has it before any query. Move `CREATE SCHEMA IF NOT EXISTS` to a one-time `pool.connect()` call before returning the driver, eliminating the race entirely.
+  - Add `uncaughtException` and `unhandledRejection` handlers in `host/src/program.ts` so a dropped DB connection logs an error instead of killing the host process (which cascaded to SIGTERM of all dev services).
+  - Fix Docker healthcheck to specify the correct database (`pg_isready -U everythingdev -d api_db` / `-d auth_db`), eliminating the `FATAL: database "everythingdev" does not exist` log spam every 3s.
+  - Harden `bos db:studio` local path to pass the resolved `*_DATABASE_URL` explicitly to the spawned drizzle-kit process, fixing the `SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string` error when dotenv `override: false` left a stale empty shell env value in place.
+
+- d57b8f4: Deploy folder-form plugin uis and harden SSR composition against ui-less remotes.
+
+  - **Folder-form plugin ui deploy**: `bos publish --deploy` now uploads `<plugin>/ui/dist` (web `remoteEntry.js` + `ssr/remoteEntry.server.js`) as its own bundle key (`<key>-ui`) and pins `<slot>.<key>.ui.production` / `.integrity` / `.ssr` / `.ssrIntegrity` in `bos.config.json`. Previously these fields were never written, so a deployed plugin ui (e.g. `app.auth.ui`) resolved with an empty production URL and production boot crashed.
+  - **SSR composition guard**: the host skips plugin ui sources with no production URL (logged warning naming the plugin) instead of crashing SSR composition with `TypeError: fetch() URL is invalid` from a relative `/mf-manifest.json` fetch.
+  - **Config resolution guard**: a remote ui target with no URL drops out of runtime resolution entirely instead of resolving to `{ source: "remote", url: "" }`.
+
+- d57b8f4: Dev-stack origin/precedence fixes, log ergonomics, and composed-SSR hardening.
+
+  - **Generated env wins at spawn time**: the planner's `envGenerated` (CORS_ORIGIN, DB URLs) is now provided to the orchestrator and overlaid on the spawned services' env — a stale `CORS_ORIGIN` pinned in `.env` can no longer break Better Auth's trusted origins when dev ports drift (e.g. host on :3008 while `.env` says :3000, which made every post-login session check fail with "Something went wrong before the app layout could render").
+  - **bos-owned `.env` lines auto-refresh** on port drift (only keys the generator owns; user-added lines untouched), with a `[env]` log line per change. `loadProjectEnv` now runs before the env merge so preflight sees the real values.
+  - **Auth origin diagnostics**: the host logs the effective Better Auth origin + trustedOrigins at boot and warns when `CORS_ORIGIN` does not include the host origin.
+  - **SSR error visibility**: every SSR response carries an `x-request-id`; composition/stream failures log it, the CSR-shell fallback renders it, and the router's `defaultOnCatch` logs caught render errors server-side. The shell also escapes the error message and page title (HTML injection).
+  - **Manifest fetch cache**: remote plugin manifests are TTL-cached (30s) with a last-good snapshot fallback — one flaky plugin host no longer 500s every SSR request, and the digest variant cache no longer sits behind per-request fetches.
+  - **Variant cache invalidation**: composed SSR variants key on the structural digest PLUS a deployment fingerprint (SSR integrity in prod, local manifest mtime in dev), so code-only redeploys and dev rebuilds recompose instead of serving a stale tree forever. A server-side digest cross-check fails loudly if the engine's digest disagrees with the manifest inputs.
+  - **Share-scope + module-cache fixes**: expose loads bypass the MF runtime module cache when a remote's entry URL changed (no more mixed-version composed trees after integrity bumps), and share-scope initialization is serialized across concurrent loads.
+  - **Composition guards**: cross-plugin path collisions under the same parent are hard errors (also enforced per-workspace at manifest generation, as the generator docblock always claimed), and layout routes declaring options composition would drop (loader/beforeLoad/head/staticData) fail loudly instead of being silently ignored.
+  - **Log ergonomics**: multi-line log entries are prefixed per line in `.bos/logs` (Effect's pretty-printed JSON no longer breaks the `[source]` prefix), MF registration/constructor spam is demoted out of logs and the TUI unless `DEBUG=1`, and a new `bos logs [service] [--follow] [--tail N]` command reads the dev session log.
+
+- d57b8f4: Effect hardening pass 2 (#151): compose and client-config caches live behind host server-layer services with scoped finalizers; federation/local-dist teardown is owned by `FederationLifecycle` (manual `reset*` exports removed); local-container and orchestrator readiness probes use `Schedule` + `Effect.timeout` with the same cadences. Also skips plugin ui sources with no production URL so SSR composition does not crash on a relative manifest fetch (aligns with open #265).
+- d57b8f4: Fix stale workspace dist breaking dev servers and false "Process failed" statuses in bos dev.
+
+  After moving plugin sources into the repo, `bos dev` showed TEMPLATE/API as failed although both servers ran: rspack dev servers bundle workspace packages from their `dist` exports, and `bos dev` skipped rebuilding `packages/everything-dev` whenever a dist existed — so new exports (e.g. `isRetryableMigrationError`) were missing from dev bundles, producing ESModulesLinkingWarning and silently inactive fixes. Separately, the plugin error pattern `/error/i` matched the substring "Error" inside identifiers in warning text, marking healthy servers as failed, and the sticky error status ignored later "ready" signals.
+
+  - `bos dev` now rebuilds `everything-dev`/`every-plugin` dists when stale (newest source/package.json mtime vs dist entry) instead of skipping whenever dist exists.
+  - Plugin error patterns tightened to real compile-failure signals (`ERROR in`, `failed to compile`, `Module not found`, `Cannot find module`) — no more false failures from warning text.
+  - A later "ready" signal now clears an earlier "Process failed" status, matching rspack watch-mode recovery.
+  - New `suppressPgQueryQueueDeprecation()` (host + api boot): silences pg's once-per-process query-queue deprecation from pg-pool's internal dispatch while re-printing every other process warning (Node's default warning handler is removed first, since it prints even with listeners attached).
+
+- d57b8f4: Add a `backcompat` regression test mode (`bun run test:regression:backcompat`) that boots a local host while loading the last published UI/API/plugin bundles via Module Federation, verifying the new host works against existing published bundles. Regression commands (`dev`, `prod`, `backcompat`) now run both HTTP and browser suites each time instead of stopping when the HTTP suite fails.
+- d57b8f4: Host fail-loud sweep: the attestation catch and the auth 504 path log their underlying causes instead of dropping them; `AUTH_TIMEOUT_MS` rejects garbage (and `0`/negatives) with a clear boot error instead of silently defaulting to 30s; the two federation noop catches log at debug with the cause; the post-listen self-probe outcome is surfaced in `/health` (`ssr.selfProbe` — a failed probe degrades health), the unreachable `"composing"` acceptance is removed from the health check, and an empty auth origin in production fails boot loudly instead of masquerading as localhost:3000 (the development fallback stays — it is the pinned, deliberate one owned by `parseTrustedOrigins`).
+- d57b8f4: Reject malformed and opaque request origins with a controlled forbidden response instead of a server error.
+- f9d2dce: Manifest contract v2 (ADR 0024): route records adopt the TanStack virtual-file-routes vocabulary — `type: "route" | "layout" | "index"` replaces the `isLayout`/`isIndex` booleans — and the manifest version is enforced at every load: the host's manifest loads and the client's compose-payload parse reject a skewed major with one diagnostic (a version-skewed payload degrades to the core-only tree instead of silently mis-constructing). The folder-form ui's composition key now derives solely from the `plugins/<key>` layout — a non-derivable key fails the build loudly instead of silently falling back to the container name (the drift that mis-keyed manifests). Mount registry version bumps to 5, invalidating all compose digests once.
+- d57b8f4: Add geographic node discovery with published profiles, manual events, Luma calendar imports and social updates, activity filters, growth curation and moderation, and anonymous aggregate engagement reporting.
+- d57b8f4: Rework the node lifecycle prototype at `/prototype-staking-poc` into a signer-aware clock with twelve ordered stations: apply, approve, publish the tenant, lock the endowment's NEAR, stake the pool from its lockup, stake the team's own NEAR, register the team wallet in veNEAR, assign the endowment's delegation, vote in House of Stake, unstake the pool, take the vote back, and unstake the team's stake. Each station declares its signer, so when the Trezu treasury changes between acts the row prompts you to connect before it can sign; one click runs everything the connected role can sign. DAO-signed actions are routed through the cycle as sputnik-dao proposals. Approving a staged proposal now always goes through the connected Trezu wallet — a mismatched treasury is disconnected and reconnected as the proposal's DAO before the vote is signed — and a station only reads done once none of its proposals still await votes; skipped stations say why. The admin "node applications" cleanup panel is gone.
+
+  Tenant URLs across the dashboard, the public node page, the directory, the registry detail, and the prototype now build through a single dev-aware helper that resolves `<label>.localhost` against the host's binding resolver in development and `https://<label>.<gateway>` in production. The host's binding resolver now maps `<label>.localhost` onto the gateway alias when NODE_ENV is not production, so dev clicks on tenant links land on the right tenant instead of the base runtime. The server-side `buildOpenUrl` in the apps plugin refuses to fabricate a public URL for `*.localhost`/loopback hosts.
+
+- d57b8f4: Add platform-admin node management with filtering, metadata editing, validator controls, and tenant domain bindings. Verify custom-domain ownership using DNS TXT records, scope verification and removal to the binding's tenant, and resolve verified custom hostnames without appending the platform gateway.
+- d57b8f4: Consolidate the migration runner and DB driver into `everything-dev/db` (advisor plan 008).
+
+  **Root-cause fix for the boot race** (`duplicate key value violates unique constraint "pg_type_typname_nsp_index"` on `drizzle.__drizzle_migrations` when plugins booted concurrently against one shared database): `ensureMigrationTable`'s retry used `Effect.retry(..., until: isRetryableMigrationError)` — in Effect, `until` means _stop_ retrying when the predicate is true, so the race error the retry was built to absorb got zero retries (verified: 1 attempt with `until`, 4 with `while`). The shared runner now uses `while: isRetryableMigrationError`. `plugins/auth` had no retry at all and now inherits the shared one.
+
+  **Shared runner** (`everything-dev/db`): `runMigrations(db, migrations, opts) => Effect<MigrationReport, DatabaseError>` with SAVEPOINT/ROLLBACK/RELEASE duplicate-DDL tolerance (fixes the proposals/votes bare-`continue` 25P02 aborted-transaction bug — the fix previously lived only in api and never propagated), retryable-SQLSTATE journal-init backoff, hash-tracked idempotence, and the duplicate-table preflight. `detectDrift`/`loadMigrations`/`loadMigrationsFromDisk` move with it; `loadMigrations` takes the bundler's virtual-module loader as an option so the shared package never names `virtual:drizzle-migrations.sql`.
+
+  **Shared driver** (`everything-dev/db`): `createDatabaseDriver(url, schema, namespace?)` — engine by URL scheme (`pglite:`/`:memory:` → PGlite, else postgres), protocol-level `search_path`, **one-time** `CREATE SCHEMA` via `pool.connect()` (replaces votes/proposals' per-connection `on("connect")` handler that re-raced `CREATE SCHEMA IF NOT EXISTS` on every connection), env-driven pool config (`DB_POOL_MAX` etc.), idempotent close (drops auth's `pool.end()` stack-trace noise). Plus `pluginSchemaName(pluginId)` and a single shared `DatabaseError`.
+
+  **Workspaces**: api/votes/proposals/auth `db/migrate.ts` and `db/index.ts` become thin sync-propagated adapters (< 40 lines; `bos sync` copies api's canonical copies verbatim into plugins). `plugins/_template` aligns fully to the standard flow: `migrator.ts` deleted (renamed to `migrate.ts`), canonical layer adopted, journal standardized to `drizzle.__drizzle_migrations` (pre-existing tables are auto-recorded by the preflight; the old in-schema `drizzle_migrations` table is frozen, matching 017/D6), and the `TemplateDatabase` alias is dropped. `adoptPublicTables` is deliberately **not** ported: it was a one-time boot-time `ALTER TABLE ... SET SCHEMA` relocation for pre-schema-isolation databases (live dev DB has zero `public` tables); legacy adoption stays with the fail-closed `detectDrift`/`bos db doctor` path, never boot-time magic.
+
+  **Drivers stay excluded from the bundle graph**: the shared driver dynamic-imports engines (`pg`, `@electric-sql/pglite`, `drizzle-orm/*`) via bare specifiers, and everything-dev's tsdown config adds them to `deps.neverBundle`. This matters beyond hygiene: tsdown's unbundle mode otherwise rewrites dynamic imports into relative paths into its vendored `dist/node_modules/` copies, which (a) defeats rspack's `externals: ["pg", "@electric-sql/pglite"]` (externals match bare requests only), dragging pglite's `pglite.wasm`/`pglite.data`/`initdb.wasm` binaries into the MF dev bundles where they fail to resolve or parse as JS, and (b) makes node resolve `drizzle-orm` from the vendored `dist/node_modules/drizzle-orm` (nearest node_modules wins) whose copied layout breaks ESM resolution in the host process. Every workspace with a database already declares `@electric-sql/pglite` + `drizzle-orm` as its own dependencies, so bare runtime imports resolve everywhere — dev, prod MF bundles (via rspack externals), and `bos init` scaffolds.
+
+  Regression suite added at `packages/everything-dev/tests/unit/db-run-migrations.test.ts`: fresh-schema, partial-overlap savepoint path (previously failed on proposals/votes with 25P02), duplicate-preflight journal recording, and a retry-semantics test pinning 3+ gen-runs on `23505`.
+
+- d57b8f4: Clean up ui/public placeholder icons and stale docs.
+
+  - Renamed `near.svg` → `icon.svg` and `logo.png` → `icon-512.png` (placeholder dot icons, named for replacement); updated `site.webmanifest` icon srcs.
+  - Removed dead public files: `README.md` (about route fetches from GitHub raw, not public), `near_rev.svg` (unreferenced), `bos.png` (orphan).
+  - Rewrote `llms.txt` to follow the standard llms.txt format (H1, blockquote summary, single Skill link).
+  - Removed `/README.md` from `skill.md` public entry points and raw doc endpoints.
+  - Updated host integration test `/near.svg` → `/icon.svg`.
+
+- d57b8f4: Make host/plugin failures visible and stop one failed plugin from taking down the API.
+
+  Production incident: at boot, `proposals`/`votes`/`template` plugins failed their `CREATE SCHEMA IF NOT EXISTS "drizzle"` migration on the shared journal schema (concurrent boot migrations race on `pg_namespace`; `IF NOT EXISTS` is not race-safe). The API plugin then died because its initialize unconditionally called the failed template plugin's client factory (failed plugins get a throwing stub). The host served `/api/*` as 503, so the BindingResolver's self-fetch of `/api/tenants/bindings` failed and every tenant-domain request (e.g. `chicago.citynode.app`) broke, while Railway healthchecks stayed green.
+
+  - API plugin initialize now tolerates failed dependency plugins: the template client is optional and template-backed routes return their existing clean "not included in this deployment" errors instead of crashing the whole API.
+  - Journal migration init (`CREATE SCHEMA`/`CREATE TABLE`) is retried with backoff and tolerates duplicate-object/unique-violation races in `api`, `proposals`, `votes`, and the `_template` scaffold (shared `isRetryableMigrationError` predicate in `everything-dev/db`).
+  - `/health` now returns a JSON summary (`status`, `api`, `auth`, error detail) instead of hardcoded `OK` — always 200, so Railway healthchecks stay green and the UI keeps serving, but the degraded state is observable.
+  - When the API plugin fails to load, the host logs a prominent startup banner listing available/failed plugins and the consequences (all `/api/*` → 503, tenant bindings unavailable), and the `/api/*` 503 stub body now includes the plugin-load error detail.
+  - BindingResolver failure handling: HTTP 503 from `/api/tenants/bindings` is reported as "API plugin is not available on this host" with a pointer to `/api/_health`, failures are negative-cached for 10s to avoid refetch storms, and stale bindings are still served when available.
+  - Plugin bootstrap errors are never empty again: `unwrapErrorMessage` falls back through error name, `_tag`/JSON, and finally `"unknown error"`, and any plugin declaring a `*_DATABASE_URL` secret now gets a masked DB-URL hint in the failure log (previously auth/API only).
+
+- d57b8f4: Establish strict version identity for Module Federation shared dependencies to eliminate silent Effect-RC cross-bundle skew.
+
+  The effect-critical shared deps (`every-plugin`, `effect`, `@orpc/contract`, `@orpc/server`, `@orpc/client`, `@orpc/experimental-effect`), now carry exact `requiredVersion` (the installed version) with `strictVersion: true`, single-sourced from every-plugin's shared-deps module across bundle-time, runtime pre-registration, and the host build. `bos mf check` compares bundle versions exactly for these deps and treats non-caret constraints as exact matches. The plugin loader rejects a remote whose mf-manifest.json shared identity disagrees with the local runtime (`BOS_MF_IDENTITY=warn` opts out to warn-and-load), and skipped plugins surface in /api/\_health with full detail. Deploy workflow gates Railway redeploys on `bos mf check` so an inconsistent release train fails CI.
+
+- d57b8f4: Fix bundle-upload timeouts that broke CDN publishes mid-deploy.
+
+  - **Storage upload timeout**: `/api/storage/bundles` is exempt from the general 30s API timeout and gets its own much longer budget (`BOS_STORAGE_UPLOAD_TIMEOUT_MS`, default 10 min). Large batched uploads (receiving + SRI-hashing + storing the `ui` dist) routinely exceeded 30s, so the host aborted mid-upload with `500 {"error":"Request timeout"}` and the publish died after partially re-uploading workspaces — leaving the CDN serving bytes that no longer matched the published config's SRI hashes.
+  - **Upload retries**: `uploadBundle` retries up to 3 attempts with backoff on retryable failures (network errors, 408/429/5xx); non-retryable statuses (401/403/413) fail immediately as before. Retries are idempotent (the storage route overwrites by workspace+path and recomputes SRI server-side). A timeout failure now hints at `BOS_STORAGE_UPLOAD_TIMEOUT_MS`.
+  - **Build warning**: `loadAppDescriptorConfig`'s runtime-resolved dynamic import is marked `webpackIgnore` so bundlers stop warning "Critical dependency: the request of a dependency is an expression".
+
+- d57b8f4: Evict failed tenant integrity verifications and retry subsequent requests instead of indefinitely retaining stale verification state.
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [95261fe]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [f151e1b]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [9191ab3]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [c520871]
+- Updated dependencies [9191ab3]
+- Updated dependencies [4d8efd1]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [f151e1b]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [f9d2dce]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [784fcad]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [f5f1a5f]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [c23dfb6]
+- Updated dependencies [ed70808]
+- Updated dependencies [8a06f6b]
+- Updated dependencies [f9d2dce]
+- Updated dependencies [f9d2dce]
+- Updated dependencies [9191ab3]
+  - every-plugin@3.0.0-rc.0
+
 ## 1.16.1
 
 ### Patch Changes

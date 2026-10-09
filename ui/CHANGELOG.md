@@ -1,5 +1,313 @@
 # ui
 
+## 2.0.0-rc.0
+
+### Major Changes
+
+- d57b8f4: Tenant creation on the admin dashboard now requires connecting a sputnik-dao account via the Trezu wallet (separate from the existing SIWN session wallet). The connected DAO account owns the new tenant: `tenants.accountId` is the DAO, `bos.config.json` is published at `bos://<dao>/<gateway>` and inherits the platform base. The API gains `requireAdmin` + a server-side `get_policy` view call that confirms the session user's primary NEAR account appears in an explicit DAO policy group before accepting the create. `tenants.owner_kind` (default `platform`) is added to flag DAO-owned rows and to gate the DAO-aware republish flow.
+
+  The platform subaccount flow (`siwn.subAccount.*`, `NEAR_SUB_ACCOUNT_PARENT_KEY_*`) is removed. Existing tenants created before this update keep working — the host is account-agnostic — but the admin wizard is now DAO-only.
+
+- d57b8f4: Manifest composition replaces route-tree grafting as the composed-SSR model (plan 034, ADR 0007/0008). The host constructs the ENTIRE route graph from generated manifests (`manifest.gen.json` + `routeConfig.gen.ts` per ui source) through the core ui's `./compose` engine; `defineUiPlugin`, the `./tree` expose, `composeApp`/`graftCopy`, the v1 mount registry, the homegrown digest, and the dedicated `ui-ssr`/`plugin-ui-ssr` dev servers are deleted. `bos dev --ssr` now composes from source manifests in the host process (no extra servers or probes); `BOS_UI_COMPOSE` is gone. Client runtime config changes shape: `ui.compose` is now `{ digest, remotes: [{key, name, entry}], manifests }` and `ui.composeDigest` is removed. Plugin ui remotes consume shared deps with `import: false` (the core provides); mounts are registry v2 (`public`/`authenticated`/`admin` implemented, `org`/`team` declared) and root-level pathless layouts.
+
+### Minor Changes
+
+- d57b8f4: Add platform-admin node structure and validator reporting pages, plus a proposal review queue with approve and reasoned reject actions. Ensure remote auth contracts without additional type exports receive a generated fallback so repository typechecks remain usable.
+- d57b8f4: Redesign `Badge` so its variants read as status chips instead of mimicking `Button`'s solid dark fill: `default` is now a soft secondary chip, `secondary` a muted chip, `destructive` a soft danger tint (`border-destructive/40 bg-destructive/10 text-destructive`), and `outline` stays on `bg-card`. Adds `success` and `warning` status variants on the same soft-tint recipe. All variants keep the hard `border-outset` bevel. `Button` hover now dims the background color (`hover:bg-foreground/90`, `hover:bg-secondary/90`, `hover:bg-destructive/90`) instead of the whole element, keeping label text at full opacity.
+- d57b8f4: Rebuild the CityNode UI on its own design system.
+
+  - Primitives move to shadcn's `base-maia` style (preset `b3ZN5L2h44`) on Base UI, with Phosphor icons, self-hosted Inter/Geist fonts, oklch tokens and larger 44px controls. Radix, lucide, clsx and tailwind-merge are removed; `cn` comes from shadcn's `cn` package.
+  - `@shadcn/lint` is enforced through oxlint (layout-only `className` on components, semantic tokens, no arbitrary values). Every native control is now a design-system primitive.
+  - Every route is rebuilt around its task: one signed-in shell with task-first navigation and named breadcrumbs, Home "Next steps", a real landing page, Explore with list/map, community and event pages, stepped Start a community and tenant creation flows, a simpler Stake flow, Organizations and Community settings with row menus and confirmations, a focused Admin, a guided node lifecycle, and a redesigned sign-in, onboarding and Settings in the auth plugin.
+  - Fixes: dates render only on the client (SSR/browser timezone mismatches remounted pages), org page tabs are URL-addressable, Button-as-link keeps link semantics, non-admins are told why they were sent Home, and page titles use the runtime app name.
+  - `ui/DESIGN.md` documents the system.
+
+- d57b8f4: Add shared internationalization support for CityNode with English, Spanish, French, and Chinese catalogs.
+
+  - Detect and persist a global locale across the main and auth UI bundles.
+  - Localize login, public navigation, landing, discovery, and community application flows.
+  - Save signed-in language preferences in account settings.
+  - Format public dates and numbers with the active locale and document the translation workflow.
+
+- d57b8f4: Upgrade build toolchain to Rspack 2.2 / Rsbuild 2.2 / Module Federation 2.9
+
+  Version catalog bumps: @rspack/core + @rspack/cli → 2.2.6, @rsbuild/core → 2.2.8,
+  @rsbuild/plugin-react → 2.1.0, @module-federation/\* → latest 2.x (enhanced 2.9.0,
+  node 2.7.50). @module-federation/runtime-tools and @rspack/dev-server are now
+  explicit dependencies where used.
+
+  BREAKING (every-plugin): EveryPluginDevServer removed from every-plugin/build/rspack.
+  Plugin dev serving is now standalone — `every-plugin-serve` (supervised
+  `rspack build --watch` + plain node:http server with the same contract: health,
+  remoteEntry statics, oRPC RPC/OpenAPI, sibling composition, effect context).
+  Plugin dev scripts use `every-plugin-serve` instead of `rspack serve`.
+  EveryPluginBuild carries the build-side responsibilities only.
+
+  Deploy note: `bos mf check` compares host and remote pluginVersion exactly, so
+  after the 2.9.0 host deploys, remote-only plugins must be redeployed on
+  Module Federation 2.9.0 to stay compatible.
+
+- d57b8f4: Per-community dashboard bulletin. Community managers can author a short markdown announcement (Events & profile → Bulletin tab) that renders as a bluish bulletin card at the top of the main dashboard and the community overview page, with an UnderConstruction footer linking to the repository. Stored on the node's existing `metadata` jsonb (`bulletin` key) — no migration. Adds a merge-safe `PUT /nodes/{nodeId}/bulletin` route (same team-area + org-ownership gate as `updateNode`) that reads-modifies-writes metadata so other keys like `poolAccountId` are never clobbered. `Markdown` gains a `variant?: "default" | "compact"` prop with compact prose styling for card-sized content.
+- d57b8f4: Show the team account's stake in the node's pool as available rewards on My Node.
+- d57b8f4: Keep My Node team stake as a NEAR figure and add a Trezu proposal to unstake some of it back to the confidential treasury.
+- d57b8f4: Redesign the public directory pages and align chrome/components on the landing style.
+
+  - Landing page (`/`) is now left-aligned and minimal: "What are City Nodes" heading with lede copy, a "Directory" section rendering nodes as a borderless single-column table (hairline row dividers, `hover:bg-muted/50` + name underline), and a left-aligned Apply CTA. Healthy top spacing below the header bar (`pt-12 sm:pt-20`).
+  - New shared pathless `NodeDirectory` component (`n/-node-directory.tsx`) owns the directory table, skeleton rows, and empty state, with optional validator badges.
+  - Node page (`/n/$slug`) adopts the same language: `NodeDirectory` for child nodes (with validator badges), de-carded stake section (primary Button for own-validator, borderless hover rows for city stake links), matching skeleton/not-found states, and `default` container width.
+  - Canonicalize `UserNav`/`NearBranding`/`ThemeToggle`/`OrgSwitcher` under `components/layout/`: `_public.tsx` and `auth-shell.tsx` now import the layout copies (the ones with ThemeToggle + outline-variant connect button), the barrel re-exports the layout copies, and the stale root-level duplicates are deleted.
+  - Replace remaining hand-rolled inline-class buttons/links with `Button` variants across dashboard, admin, tenant, orgs, and things pages (including `icon-sm` outline back buttons), and swap a hardcoded rgb avatar border in orgs/$slug for the semantic `border-border-strong`.
+
+- d57b8f4: The endowment re-stake flow runs from a member session without Trezu: the POC's endowment treasury field is now a typed input (the Trezu connect is a secondary action), the node name prefill uses the organization's `metadata.name` when set (falling back to the title-cased org name) and an empty saved draft no longer swallows it, the Endowment chain-state tab shows the lockup's available-to-stake balance (account balance minus the 2 NEAR storage reserve), the Sponsor NEAR field gains a Max fill of that available minus 1 NEAR, and the stake precheck refuses to stage a `deposit_and_stake` proposal larger than what the lockup can actually stake. The team unstake/withdraw dialog's Max fill now leaves the same 1 NEAR margin.
+- d57b8f4: Event-linked Onboarding Codes, Organizers and a station view:
+
+  - Onboarding Codes are tied to a Node Event. `createOnboardingCode` now requires `eventId` and `eventName` (a display snapshot) and takes an optional `expiresAt` in place of `expiresInHours`; codes for the same event share one Event Team, two events with the same title get separate teams, and renaming a team doesn't affect lookup. The raw code is stored encrypted at rest (HKDF-SHA256 → AES-256-GCM from `BETTER_AUTH_SECRET`) beside its hash. Migration `0007_onboarding_code_event` adds `event_id` and `encrypted_code`.
+  - New API route `createEventOnboardingCode({ eventId, maxUses?, expiresAt? })` loads the Node Event, refuses non-event activities, nodes whose tenant has no organization, and organizations other than the caller's active one, then creates the code through the auth plugin in-process with a default expiry of event end + 48h.
+  - Organizers — organization owners, admins, or members of a Team granted the new `events` Feature Area — can create, list and revoke codes and open a station. New auth procedure `getOnboardingStation` returns the decrypted code for an active code to an Organizer of its organization.
+  - Redeeming a code sets the active organization only and no longer switches the Active Team. At the organization membership limit, redemption fails with "This organization is full". The limit is configurable through the auth plugin's `organizationMembershipLimit` variable (citynode sets 1000). `getOnboardingCodeInfo` reports `usedUp`.
+  - UI: event rows in the activity editor get "Start onboarding", which opens a fullscreen station at `/onboarding/station/$codeId` (large QR on the Gateway Origin, live joined count, recent joiners), reopenable from the org Onboard tab for any active code. The free-text event name form is removed, and the onboarding page explains used-up codes.
+  - UI: the activity editor lists events on a date timeline with Upcoming (default) and Past tabs and per-tab counts. Days get a sticky header in the viewer's timezone (year shown outside the current year), and cards show the start time with the event-local time when the event is in another offset, the organizer, venue, status badges and the existing actions. Posts keep the flat list.
+
+- d57b8f4: Fix the tenant publish plane: the apps plugin no longer overrides the registry namespace, so tenant config publishes (including DAO-owned tenants via the Trezu flow) now target the global `dev.everything.near` registry that `bos://` resolution and the host's tenant loader actually read. Previously the wizard wrote configs into a project-local FastKV trie that the host could never resolve.
+
+  Tenant discovery moves to the project database: a new public `GET /tenants/apps` route lists active tenants with their primary hostname and attached geographic node, and the landing-page directory is now powered by it (rows link via their stored binding hostname instead of deriving `slug.gateway`). The wizard's publish re-check reuses the shared `buildRegistryConfigUrl` helper, and a pinned test guards the publish contract against future namespace drift.
+
+- d57b8f4: Framework UI files children receive as byte-identical copies move into the `everything-dev` package as ui subpaths — hydrate (client bootstrap), router-client (client router factory), router-server (SSR router module), entry (web entry runner), and router-error (the generic error boundary). Child copies shrink to thin wiring stubs that inject only the app's generated artifacts (`routeTree.gen`, `routeConfig.gen`, `styles.css`) and join the framework-owned sync set. The framework router/hydrate modules import the package's own api/auth/runtime/manifest surfaces; compose payload digest parity is unchanged (the hydrate suite ports to the package and keeps the digest-mismatch fallback coverage). `RouterContextWithApi` gains the optional `authClient` the routers already threaded. Closes #186.
+- d57b8f4: Add the node-directory, country-aggregator, and stake-selector UI surfaces.
+
+  - Public landing page is now a directory of root nodes: queries `listRootNodes` instead of `listValidators`, renders node cards (name, kind badge, slug) linking to `<slug>.<gateway>`, with skeleton loading and a "No nodes yet" empty state.
+  - New public country page at `/n/$slug` acts as an aggregator: resolves the node by slug, lists direct children (`listChildren`), and renders a stake section that shows the country's own validator CTA or "stake to a city" links to children-with-validators (via `resolveStakingValidators` subtree). Includes "No child nodes yet" empty state.
+  - Stake page rewritten around subtree validators: queries `resolveStakingValidators(nodeId)`, renders a selectable validator list with `isDefault` pre-selected, role badges (community styled secondary), protocol badge when not `near`, an inherited-validator banner when `sourceNodeId` differs from the node, and a no-validator state with child-node links. Node is resolved from a `?node=` search param (dev-testable) or the subdomain hostname (production). Stake transaction and onramp flows are unchanged; the broken admin CRUD affordances (throwing "being redesigned") were removed — management UI lands in a follow-up.
+
+- d57b8f4: Organizations get a Homepage tab where a DAO member proposes a new community homepage (title, description, custom UI bundle) with their own session wallet, with the pending proposal's vote progress and a Trezu link shown while it awaits votes. Platform-owned communities publish the change directly.
+- d57b8f4: Add authenticated in-app node applications, atomic administrator provisioning for approved node proposals, and typed proposal application dispatch for node and template resources.
+- d57b8f4: Demonstrate the proposals and votes plugins end to end: submit new things for review, apply approved submissions to the thing registry, display proposal status and review history, add admin queue details and pending counts, and support optimistic thing upvotes.
+- d57b8f4: Member email visibility is now gated behind an `email: ["read"]` permission check. Organization member lists, invitation rows, and member cards only render a member's email to viewers who hold that permission (or the member themselves, or a platform admin); everyone else sees no email instead of the raw address.
+- d57b8f4: The hand-rolled JSON-RPC view-function wrapper (`ui/src/lib/near-rpc.ts`) is deleted. The stake-pool query call sites read contracts through near-kit (`Near.view`) instead of raw `fetch` against the public RPC endpoints — base64 arg encoding and byte-array result decoding are the library's job now. Failure parity is preserved: unsupported networks, timeouts, and malformed results resolve null and fall into the same clean query error state. Closes #185.
+- d57b8f4: Add the organization-scoped My Node dashboard with node selection, structure and validator statistics, staking resolution, node proposals, and role-aware review actions. Add tenant filtering to `listNodes` so the dashboard resolves only nodes managed by the active organization. Refresh session data after organization switches so the dashboard immediately follows the selected organization.
+- d57b8f4: Org node-config: auto-fill the custom UI bundle (URL + integrity) from a deployed app's published config — enter the NEAR account that ran `bos publish --deploy` and fetch, instead of pasting URLs and hashing manually. My Node dashboard surfaces a pending DAO config proposal ("Awaiting votes") with a direct link into the node-config tab for owners and admins.
+- d57b8f4: Add geographic node discovery with published profiles, manual events, Luma calendar imports and social updates, activity filters, growth curation and moderation, and anonymous aggregate engagement reporting.
+- d57b8f4: Rework the node lifecycle prototype at `/prototype-staking-poc` into a signer-aware clock with twelve ordered stations: apply, approve, publish the tenant, lock the endowment's NEAR, stake the pool from its lockup, stake the team's own NEAR, register the team wallet in veNEAR, assign the endowment's delegation, vote in House of Stake, unstake the pool, take the vote back, and unstake the team's stake. Each station declares its signer, so when the Trezu treasury changes between acts the row prompts you to connect before it can sign; one click runs everything the connected role can sign. DAO-signed actions are routed through the cycle as sputnik-dao proposals. Approving a staged proposal now always goes through the connected Trezu wallet — a mismatched treasury is disconnected and reconnected as the proposal's DAO before the vote is signed — and a station only reads done once none of its proposals still await votes; skipped stations say why. The admin "node applications" cleanup panel is gone.
+
+  Tenant URLs across the dashboard, the public node page, the directory, the registry detail, and the prototype now build through a single dev-aware helper that resolves `<label>.localhost` against the host's binding resolver in development and `https://<label>.<gateway>` in production. The host's binding resolver now maps `<label>.localhost` onto the gateway alias when NODE_ENV is not production, so dev clicks on tenant links land on the right tenant instead of the base runtime. The server-side `buildOpenUrl` in the apps plugin refuses to fabricate a public URL for `*.localhost`/loopback hosts.
+
+- d57b8f4: Add platform-admin node management with filtering, metadata editing, validator controls, and tenant domain bindings. Verify custom-domain ownership using DNS TXT records, scope verification and removal to the binding's tenant, and resolve verified custom hostnames without appending the platform gateway.
+- d57b8f4: Generalize the node model beyond geography. The `nodes.kind` column and its `country`/`state`/`city` enum are gone — the kind label now lives in `nodes.metadata.kind` (geo specifics become plain metadata), `parentId` is the only hierarchy axis, and `nodes.tenantId` is nullable so standalone org/user/zone-root nodes can exist without a tenant. New org-scoped `spawnNode` route (`POST /nodes/spawn`) creates nodes of any kind under any parent with no kind-validated parentage or depth limit; `applyNodeProposal` keeps the strict geo ladder as the DAO provisioning path; the validator staking walk and `listTenantApps` are unchanged (already `parent_id`-driven) and now carry nullable, open-ended kind labels. UI kind displays fall back to a generic "Community" label for non-geo kinds, and standalone nodes can only be mutated by platform admins.
+- d57b8f4: Show a "Propose homepage change" shortcut on a community's public page for members of the DAO-owned organization behind it.
+- d57b8f4: Replace the legacy city-node model with nodes + validators + domain bindings.
+
+  - Public landing directory and authenticated stake page now read from the new validator registry (`listValidators`, `resolveValidatorByAccountId`, `resolveStakingValidators`) instead of the legacy `listLegacyCityNodes` routes. Cards, query keys, and resolver state were renamed accordingly (`CityNodeCard` -> `ValidatorCard`, `selectedCityNode` -> `selectedValidator`).
+  - Admin "Tenant / Node / Binding" wizard now collects node hierarchy, validators-per-node, and verified custom-domain bindings in three guided steps before creating the tenant. Empty state and the "Not authorized" affordance now reference the tenant's stable id instead of a subdomain host.
+  - Removing the `NetworkToggle` from the auto-injected component barrel (the admin header still imports it directly) so the toggle is not eagerly bundled into every route.
+
+- d57b8f4: Add organization onboarding stations: an owner/admin creates a capped, expiring onboarding code (named after an event) from the org page's new Onboard tab, and displays it as a QR. People scan it with a phone, land on `/onboard`, and join the organization — plus the event's team (find-or-create by event name) — by signing in with a passkey wallet or an existing NEAR wallet. Includes live redemption status (joined list polled every 2s), code revocation, idempotent redemption, and membership-capacity enforcement. Also fixes the stale `development` export condition for `everything-dev/ui/manifest-generator` left by the manifest refactor.
+- d57b8f4: Consolidate app shells and align every route on one chrome + width system.
+
+  - All layouts now use the shared layout components: `_layout.tsx` renders the extracted `<BetaBanner/>`; `_public` and `_anon` both render `PublicShell` (logo-left, UserNav-right header + NearBranding footer), with `_anon` passing `showConnect={false}` so the login page hides the connect CTA; `_authenticated` and `_admin` render `AppShell` (`AppSidebar` + `AppHeader` + `MobileTabBar` driven by `NAV_ITEMS`), replacing the monolithic `auth-shell.tsx`, which is deleted. The desktop icon rail gains an `orgs` entry, matching the mobile tab bar.
+  - `UserNav` accepts `showConnect` (default `true`) to hide the connect button while keeping theme/network toggles.
+  - Login page simplified: no brand element, no anonymous session option, single primary "connect with NEAR" CTA (with "Continue as …" when a wallet is detected), rendered in the same public header as every other public page.
+  - Page widths are now consistent per shell: public children `default` (max-w-4xl), authenticated/admin children `wide` (max-w-6xl) — stake, apply, orgs/new, invites, things/new, tenant error state moved up; `admin/tenants/new` no longer double-nests a container inside the admin layout's.
+  - `/dashboard` is now a layout route owning the wide `PageContainer` (mirroring `admin.tsx`), with its content moved to `dashboard/index.tsx`. URLs are unchanged.
+  - The components barrel exports the full layout family (`AppShell`, `AppHeader`, `AppSidebar`, `MobileTabBar`, `BetaBanner`, `PublicShell`, `UserNav`, `NearBranding`, `NAV_ITEMS`, role helpers).
+
+- d57b8f4: Collapsible sidebar nav groups: `SidebarItem` gains optional `children`, role filtering recurses through them (a group is dropped when no child passes), and `AppSidebar` renders groups as Radix collapsibles that expand for the active path, with chevron toggle and sub-item links. `AppShell` now passes the router `pathname` down instead of an `isActive` callback.
+
+  Add `Popover` and `InfoPopover` primitives (`info`-icon trigger with title, body, and outlinks) exported from `@/components`.
+
+  `dao-connect` hardening: new `verifyDaoAccount` re-syncs the zustand store against the connector before signing (stale Trezu sessions now reset the store and prompt reconnect) and `describeDaoError` maps connector failures to actionable messages; `fetchDaoPolicy` uses `btoa` instead of the Node `Buffer`.
+
+  The tenant detail page guards a missing `domain`: when the active runtime resolves no gateway id it shows a "gateway not configured" card instead of publishing mutations that would fail, and it reads the runtime config from route context rather than the singleton.
+
+- d57b8f4: - Public node page `/n/$slug` now shows live stake stats (total staked, fee, pool accounts, and a ranked sample of up to 50 accounts) per resolved validator, including inherited staking pools.
+  - Keep stake links, show loading and unavailable states, and link to network-specific explorers.
+  - Resolve child-node overview URLs and keep child navigation within the overview. Parent-scoped links distinguish duplicate city slugs; unscoped lookup preserves root URLs and avoids selecting an arbitrary duplicate child.
+  - Preserve the selected node ID when entering staking and returning from sign-in.
+- d57b8f4: Rework the node lifecycle prototype at `/prototype-staking-poc` to mirror the real on-chain deployment flow. Twelve stations across five phases — initialize (apply, admin approve + pool assignment, admin funds the team treasury), bootstrap (publish the tenant config, stake 1 NEAR into the team-owned pool, House of Stake setup via veNEAR registration + lockup deploy + lock-all), an optional sponsor phase for the endowment (lock its NEAR, stake the pool from its lockup, delegate all its veNEAR to the team — skipped when team and endowment are one account, never blocking the team's track), the team's House of Stake vote, and a refresh phase that unwinds both sides.
+
+  Ordering is now declarative: each station lists exactly the chain facts it requires, replacing the implicit upstream walk — the bootstrap stations run in any order and a wrong requirement-blocker no longer gets overwritten. Steps carry their attached deposits, so the admin "Fund the team treasury" action computes `max(4 NEAR, remaining requirement + 1 NEAR buffer)` and the page shows the live treasury balance against the derived requirement. The vote deposit is corrected to `vote.dao`'s configured `vote_storage_fee` (0.00125 NEAR) instead of a hard-coded 5 NEAR, sensing proposals (status `Created`) are listed as votable, and a publish proposal that reports failed on trezu is treated as expected — the config-live FastKV check is the source of truth.
+
+  The prototype's inputs move to TanStack Form with per-organization localStorage persistence, so a refresh restores the draft; the staking pool is prefilled from the admin-assigned default staking validator. `applyNodeProposal` now accepts an optional `poolAccountId` and persists it as the node's default staking validator plus node metadata at approval time.
+
+- d57b8f4: Upgrade TanStack Router, Query, Devtools, and Table packages to latest so TanStack Intent agent skills ship in the repo: 11 router skills (router-core, router-plugin) and 30 table skills (react-table, table-core) are now loadable via `bunx @tanstack/intent@latest load`. Migrate the DataTable component and its consumers to react-table v9 (`useTable` with explicit `tableFeatures`, automatic core row model, `table.state`, `getPrePaginatedRowModel`, `getAllCells`).
+- d57b8f4: The My Node team-stake card now walks the full unstake → withdraw cycle without breaking the staking pool's non-payable calls: the unstake proposal no longer attaches a deposit (the pool's `unstake`/`withdraw`/`unstake_all` methods reject any attached deposit with `ERR_METHOD_NOT_PAYABLE`), the card shows unstaked NEAR while it is locked in the ~2-day (4 epoch) release window, and once `can_withdraw` is true the same button becomes a withdraw proposal that returns the NEAR to the team treasury. The staking-POC's pool `unstake_all`/`withdraw` steps drop their 1-yocto deposits for the same reason.
+- d57b8f4: Complete organization teams and wallet invitations across the auth plugin, API, and dashboard. Team workspaces now carry feature-area context through node mutation authorization, and organization owners can invite either an email address or a NEAR account, target a team, and manage wallet-aware pending invitations. Invitees can accept email or wallet invitations from the dashboard or claim link and land in the targeted workspace.
+- d57b8f4: Tenant draft/url helpers move into the framework: `everything-dev/ui/tenant` is the single owner of the tenant origin construction (`buildTenantUrl`, `tenantLabel`, `isLocalHostname`), the node-config draft helpers (schema, diff, bundle entry resolution, sha384 integrity preflight), and the new `gatewayForAccount` — which derives the gateway for an owner account from the runtime config (the runtime's gateway when the account is on the runtime's network, null otherwise) instead of hardcoding per-network domains. The app-owned `ui/src/lib/tenant-url.ts` and `ui/src/lib/tenant-config-draft.ts` copies are deleted; call sites (tenant live site, node config, node directory, app detail runtime, staking poc) import from the package, so children stop receiving the copies via `bos init` and versions flow through the catalog / changeset release. Closes #184.
+- d57b8f4: Add the tenant + node + binding creation wizard.
+
+  - Rewrite the admin tenant creation page from a placeholder into a full wizard: inline org creation (if no active org), node details (kind, cascading parent dropdown via `listRootNodes` + `listChildren`, slug, name), tenant + binding form (auto-generated hostname `<slug>.<gateway>` with live `bindingPreflight` validation).
+  - On submit: `createTenant` → `createNode` → `createBinding` (blocking, with rollback via `deleteNode` + `deleteTenant` on failure), then non-blocking deploy steps for NEAR subaccount (`auth.near.createSubAccount`) and registry config publish (reuses the `publishTenantConfig` pattern with the binding hostname). Failed deploy steps show "partial success" with retry.
+  - Export `StepList` and `useStepper` from `@/components` barrel (previously built but unused).
+  - Extend `api/tests/setup.ts` to accept an optional plugins map and a role parameter on `orgContext` (enables `requireOrgRole` middleware in integration tests).
+  - Add `api/tests/integration/wizard.test.ts` — 5 tests covering the full creation chain, rollback on duplicate hostname, nested country→state→city hierarchy with bindings, and bindingPreflight availability before/after creation.
+
+- d57b8f4: Tenant pages are addressable by slug, NEAR account id, or internal UUID: `/tenant/<slug>` resolves through the tenant's primary domain binding (falling back to the node slug), `/tenant/<accountId>` through the public account resolver, and `/tenant/<uuid>` keeps working for existing links. Tenant detail pages gain a breadcrumb showing the directory slug, and all tenant links the UI generates (admin tenants list, wizard post-creation) now prefer the slug over the opaque UUID.
+- d57b8f4: Add a dedicated anonymous mount and reorganize organization routes.
+
+  - Add a `/_layout/_anon` pathless layout for pre-auth pages. Move login from the public layout into it; the layout redirects authenticated users to `/dashboard` and provides the theme toggle header.
+  - Rename the organization route group from `/organizations` to `/orgs` (`/orgs`, `/orgs/new`, `/orgs/$slug`) and move invitation acceptance to `/orgs/invites/$id`.
+  - Remove the stale nostr entry from the authenticated sidebar.
+
+- f9d2dce: Invert router control: the app's authored router factory is now load-bearing. The client hydrator accepts `createRouter` and `createQueryClient` (framework factories remain the fallback), and the SSR router module mints each request's router through the same factory — so notFound/pending/error components, scroll behavior, and query timings are app-customizable for the first time, with server/client parity.
+- f9d2dce: The core ui's bootstrap stubs are now generated, not authored: the web entry, hydrate bootstrap, SSR router module, compose expose, and globals are emitted as `.gen`-suffixed, gitignored files by the framework's code-artifact generation pass (`bos dev`/`build`/`typecheck`), regenerated from the installed package version. The build surface retargets to the generated paths and core-ui detection no longer requires an entry stub. Sync drops the retired stub files from its ownership list and tolerates templates that no longer ship a file. Per ADR 0023.
+- d57b8f4: Reorganize UI routes into mount-point layouts and rename the authenticated workspace.
+
+  - Move admin routes under a new `/_layout/_admin` pathless layout that gates on the admin role and redirects non-admins to `/dashboard`. The tenant admin dashboard (`admin/admin/index.tsx`) and system page (`admin/admin/system.tsx`) now render as children of the admin layout through an `Outlet`.
+  - Rename the authenticated `/home` route to `/dashboard`, updating the sidebar, mobile tab bar, user nav, and login redirect fallbacks.
+  - Move the apps and things routes under the public layout (`_layout/_public/apps`, `_layout/_public/things`) so they render inside the shared public shell instead of the top-level layout.
+
+- d57b8f4: UI reset & simplification — strip platform cruft, surface the CityNodes product.
+
+  - Landing page reset: hero now asks "What are CityNodes?" with explainer copy; the root-node directory list is kept (cards with Globe icon); account-badge pill and "Get started" CTA removed; new Apply button links to the internal `/apply` route.
+  - New `/apply` route that externally redirects to `https://citynode.app/apply` (structured for a per-tenant apply page to replace the redirect later).
+  - Apps browser removed: deleted `/apps`, `/$accountId/apps`, and the apps tab from the account profile layout — platform cruft outside the CityNodes flow.
+  - Things index refactored into a typed `DataTable<Thing>` demo with `ColumnDef` columns (id, type, created, updated, view action), wired to `apiClient.template.listThings`.
+  - Mobile responsive fixes: removed double safe-area padding on `auth-shell` main (the fixed MobileTabBar already handles the inset); added `min-w-0`/`shrink-0` guards to `simple-header` to prevent overflow on narrow viewports.
+  - `README.md` rewritten as the CityNodes product explainer (rendered by the about page's README fetcher); `skill.md` rewritten for the simplified CityNodes route structure.
+
+- d57b8f4: The core UI rsbuild config is synthesized when the ui workspace has no local `rsbuild.config.ts` — the every-plugin generated-config model. The ui package's dev/build/preview scripts route through the new `bos-ui` bin (`everything-dev/ui-build`), which honors a local `rsbuild.config.ts` as an override and otherwise generates one from the shared `every-plugin/ui/mf-build` factory (provider role, `CORE_UI_PLUGIN_KEY`, the web/node exposes, public copy, and the `APP_NAME`/`APP_ACCOUNT` defines derived from the resolved runtime config). The config drops from the scaffold: `bos init` no longer copies it and `bos sync` treats an existing child config as app-owned. Closes #187. Also raises the ui lib target to ES2024 (`Promise.withResolvers`).
+- d57b8f4: `UnderConstruction` outlinks now resolve from the runtime config context instead of a hardcoded fallback: the widget links to `repository` from the injected config (or the caller-provided `runtimeConfig`) — e.g. `repository` + `/blob/main/<sourceFile>` — and becomes inert (no tooltip link affordance, no navigation) when no repository is configured. Explicit `url` props are unaffected. Removes the silent fallback to the parent platform repository (`nearbuilders/everything-dev`).
+
+### Patch Changes
+
+- d57b8f4: Hydrate and paginate admin lists, batch node summary counts, resolve organization links, add signed-in Things navigation, and restore the Thing event stream.
+- d57b8f4: Audit and fix agent information flow for first-load discovery.
+
+  - Rewrote `ui/public/skill.md` with two explicit agent modes: talk to the app via MCP/REST (with API key auth instructions), and clone & modify (with AGENTS.md reference, architecture notes about Module Federation code bundles, and regression test info).
+  - Expanded `ui/public/llms.txt` to include API, MCP, auth, and repository source sections.
+  - Added `/.well-known/mcp.json` host route for MCP discovery (server name, endpoint, transport, auth scheme).
+  - Deleted stale `LLM.txt` (superseded by AGENTS.md).
+  - Created `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md` to resolve dangling AGENTS.md references.
+  - Added agent communication surface section and `.agents/skills/` workflow skills mention to AGENTS.md.
+  - Added `/settings/api-keys` route with API key create/list/delete UI and API Keys tab in settings layout.
+  - Exposed auth and plugin router routes as MCP tools (in addition to base API) in `mountMcpRoute`.
+  - Updated `buildChildAgentsInstructions` in init.ts with MCP/API-key sections and "remotes are code bundles" note.
+  - Added child `llms.txt` and `skill.md` template generation in init.ts `personalizeConfig`.
+  - Added MCP endpoint regression test (`mcp_test.go`), agent surface content tests (`agent_surface_test.go`), and browser test for settings API keys page.
+
+- d57b8f4: `bos login` — sign in with your NEAR account through the hosted site via the OAuth 2.0 Device Flow (RFC 8628), the same flow the site's QR pairing uses: the CLI requests a device code, you approve at `/login/device` in any browser (same machine or not — it works over SSH and headless), and the CLI mints its credential from the approved session. `--key` exports a scoped FastKV publish key to `~/.near-credentials`; the gasless delegate key is approved in the browser on the same page (wallet signs the `addKey`). `bos logout` revokes the credential. `bos publish --wallet` publishes gaslessly via a NEP-366 delegate action through the platform relayer. New `publish.auth` config surface (`session` | `key` | `custody`). The auth server's device-authorization plugin now serves the flow at `/login/device` (moved from `/device` — nothing had shipped against the old path) and accepts any non-empty `client_id` (public-client device flow — user approval is the trust boundary; the code↔client binding is still enforced at the token endpoint). The site's `/login` now preserves full redirect targets including query strings.
+- d57b8f4: Build output hardening for the platform deploy path.
+
+  - Show all stdout during deploy builds (not just chunks matching a provider regex). Chunks can split across boundaries so a filtered URL never matched — deploy builds now pass all stdout through unconditionally.
+  - Extract build-result classification as a pure function from the build attempt, making the exit-code classification testable without spawning processes.
+  - Fix variable shadowing where inner `const result` shadowed the outer `await run(...)` binding.
+  - Remove the unnecessary per-workspace env copy.
+
+- d57b8f4: Add a public /build page with the NEAR AI Cloud and NEAR Intents copy-paste prompts, and link it from the sidebar.
+
+  - New `/build` route in the core UI (`_public`) with a "Ready to start building?" header and copy-to-clipboard prompt cards (NEAR AI Cloud private inference, NEAR Intents 1Click).
+  - Sidebar gains a "Build" item in the main section, visible to signed-out visitors too.
+  - Onboarding completion screen now points to `/build` with a CTA instead of inlining the prompts; prompt test ids moved from `onboard.prompt-*` to `build.prompt-*`.
+
+- d57b8f4: Sharpen the /build prompts: frame TanStack AI as an optional recommendation with its URL in the NEAR AI Cloud prompt, drop the irrelevant TanStack AI note from the NEAR Intents prompt, and add setup context for each — cloud.near.ai (register, claim credits, API key), cloud.near.ai/models, docs.near.ai for NEAR AI Cloud; partners.near-intents.org, docs.near-intents.org and the 1Click OpenAPI spec for Intents — plus a note to check the open skill-sync PRs on near/agent-skills when the published skill lags upstream. Each prompt card also gains a direct subtext link row to its portals/docs (cloud.near.ai, cloud.near.ai/models, docs.near.ai; docs.near-intents.org).
+- d57b8f4: Update `buildSignedDelegateAction` callbacks in the citynode UI to the two-argument `(builder, receiverId)` form required by `better-near-auth` 1.10.x and the documented `near-connect` skill, and pass `receiverId` into `functionCall` in place of the previously hard-coded `prepared.data.contractId`. This matches the new callback signature in both signature shape and behaviour since `buildSignedDelegateAction` forwards its receiverId to the builder callback.
+
+  Make `init.full.test.ts` permissive about custom UI/API implementations: it now scaffolds `["template"]` only (no proposals, votes, apps), writes a permissive gen-file stub after `types:gen` runs, and only typechecks `api` and `plugins/_template`. The full UI scaffold typecheck moved out of the regression because `ContractRouterClient<T>` reproduces its conditional shape for any stubbed `T`, and pinning the typecheck against citynode-specific plugin-namespace calls would couple the regression to a specific configuration.
+
+  Restore the missing `checkCdnProviderDeployable` export from `packages/everything-dev/src/build.ts` so the framework tarball build (a prerequisite of the test) no longer fails on the pre-existing broken `publish.ts → build` re-export.
+
+- d57b8f4: Direct `auth.apiKey.create` calls (the CLI device-link handoff page and the personal Settings → API Keys form) no longer pass a `configId`, but the auth server's apiKey plugin registers only named configurations (`user-keys`, `org-keys`) — with no default config, Better Auth's `resolveConfiguration` rejected the request with `NO_DEFAULT_API_KEY_CONFIGURATION_FOUND`. Both call sites now pass `configId: "user-keys"`, unblocking `bos login` and personal API key creation.
+- d57b8f4: Pass the page CSP nonce to the DAO (Trezu) `NearConnector` in `ui/src/lib/dao-connect.ts`. Under strict CSP (`script-src 'nonce-…' 'strict-dynamic'`), the sandboxed wallet iframe's inline `srcdoc` scripts were blocked on `/apply` and the tenant wizard because the singleton DAO connector was created without `cspNonce` — unlike the SIWN login connector, which already receives it via `createAuthClient`. The nonce now flows from `window.__CSP_NONCE__` (via `getCspNonce()` from `@/app`) into `NearConnectorOptions.cspNonce`, matching `@hot-labs/near-connect`'s supported propagation path. No behavior change in relaxed-CSP environments (nonce is `undefined`).
+- d57b8f4: Lock the Trezu DAO connection to the trezu-wallet only and bind its session to the signed-in SIWN identity: the connect flow now always targets the Trezu wallet explicitly (the near-connect selector popup — where injected wallets like HOT could appear — never opens), wallet metadata comes from the official near-connect registry so executor updates no longer require a redeploy, and the Trezu session is torn down when the auth account changes or signs out instead of silently persisting the previous login's account.
+- d57b8f4: Rebuild the dashboard shell on shadcn's `Sidebar` primitive and fix the double-header layout bug introduced by the earlier auth-guard/dashboard-layout route split.
+
+  - Replaced hand-rolled `AppShell`/`AppSidebar`/`AppHeader`/`MobileTabBar` with shadcn's `Sidebar`/`SidebarProvider`/`SidebarInset` composition (Radix flavor, adapted to this project's React 19 function-component + `data-slot` conventions). Sidebar defaults expanded with icon+label, collapsible to icon-only via trigger or `cmd+b`.
+  - Mobile navigation is now the sidebar's built-in off-canvas sheet, replacing the persistent bottom tab bar.
+  - Split `OrgSwitcher`/`UserNav` into shell-appropriate variants: compact avatar dropdown for non-sidebar shells (`OrgSwitcher`, `UserNav`), full `SidebarHeader`/`SidebarFooter` row versions for the dashboard (`SidebarOrgSwitcher`, `SidebarUserNav`) — both share session/org/profile/sign-out logic via a new `useIdentity` hook.
+  - Reverted an interim "global header" experiment that caused a double-header render on dashboard routes (sidebar not spanning full height, breadcrumb bar visually disconnected from the identity nav above it). `UserNav` moved back into `PublicShell`'s own header for non-sidebar routes (`/`, `/things/*`, `/login`, `/things/new`).
+  - Added `Breadcrumb` (shadcn primitive) to `AppHeader`, replacing plain `account / path` text with proper `BreadcrumbLink`/`BreadcrumbPage` semantics.
+  - Rebuilt `NetworkToggle` on shadcn's `ToggleGroup`/`ToggleGroupItem` instead of raw template-literal ternary classes; moved from `components/ui/` to `components/layout/` (app-specific, not a generic primitive).
+  - Added `ui/toggle.tsx`, `ui/toggle-group.tsx`, `ui/breadcrumb.tsx`, `ui/sidebar.tsx` shadcn primitives.
+
+  No URL changes. The auth-guard vs. dashboard-layout route separation from the prior change (`_authenticated`/`_admin` as pure guards, `_dashboard` pathless layout for chrome) is unaffected — this only changes what renders inside it.
+
+- d57b8f4: Rename the discovery studio page to /discover, remove the beta database banner, and keep the explorer map mounted while searching so it no longer flashes on each keystroke.
+- d57b8f4: Parse NEAR transfer amounts exactly and reject invalid amounts, incompatible validator protocols, and wallet network mismatches before staking.
+- d57b8f4: The `?? "citynode.app"` gateway default is gone from all seven route sites (`_public/index`, `_public/n/$slug`, `_public/stake`, `apply`, the staking POC lifecycle, proposal review, tenant wizard). Every gateway now derives from the runtime config via the new `getGatewayId()` accessor (`@/app`), which returns null when the config is missing or mis-shapen — routes then render an explicit error state, disable dependent queries, or fail the mutation with a clear message, instead of silently impersonating the platform gateway. Node directories link through a node's own hostname when present, and the tenant wizard's "Extends" row shows the configured gateway rather than a hardcoded one.
+- d57b8f4: Post-sign-in redirect loop fix ("Too many redirects" after a successful login). The login page navigated to the redirect target before the refreshed session landed in the query cache, and the authed route guards read that cache via `ensureQueryData`, which returns a stale value immediately — so the guard bounced the just-signed-in user back to `/login`, the login route bounced them forward again, and the two guards ping-ponged past TanStack Router's 20-redirect limit into a root-boundary "Application error". Three fixes:
+
+  - The login page (and the device-pairing claim path) now refresh the session cache **authoritatively** — `getSession({ query: { disableCookieCache: true } })`, since the Better Auth session cookie cache can still serve the pre-sign-in signed-out snapshot for up to 5 minutes — and seed the `["session"]` query before navigating.
+  - Route guards (`requireSession`/`requireAdmin`, `_authenticated`, `_admin`) read the session via `queryClient.query()`, which **awaits** the refetch when the cached value is stale instead of trusting it.
+  - Banned users no longer ping-pong: the login route skips its authed-visitor redirect for banned sessions, breaking the `/login#banned` ↔ `/dashboard` cycle.
+
+  Covered by router-level regression tests (plugins/auth/ui `login.test.tsx`, ui `auth-guards.test.ts`) and a browser regression in `tests/regression/browser/specs/auth-redirect.spec.ts`.
+
+- d57b8f4: Add UnderConstruction link to the DNS verification section of admin node domain bindings, pointing to the NEAR DNS discussion.
+- d57b8f4: Route My Node empty states to organization creation, node creation, or node proposals based on the missing resource and viewer role.
+- d57b8f4: Fix stuck scrolling on focused auth/onboard pages: the public shell clips the content region (`overflow-hidden` + `min-h-0`), and AuthPanel owns scrolling (`overflow-y-auto` + `my-auto` centering) so short viewports and open keyboards can reach every step without a second document scrollbar.
+- d57b8f4: Onboarding capacity and post-onboarding build prompts: new onboarding codes default to 300 joins instead of 50 (the "Max joins" placeholder matches), and the link-onboarding success panel now offers two copy-prompt cards — "Integrate NEAR AI Private Inference" and "Integrate NEAR Intents" — each copying a ready-made prompt that installs the matching skill from near/agent-skills, grills the member about what they want to build, and routes existing/new-application guidance (confidential-model swap or TanStack AI / 1Click API).
+- d57b8f4: Convert the new organization form to TanStack Form with per-field validation, auto-generated slugs that yield to manual edits, and inline errors via the new FieldError/FieldDescription barrel exports.
+- d57b8f4: Require platform-admin approval for self-service organizations, expose pending and rejected request status, and prevent unapproved organizations from being activated or linked to tenants. Personal signup organizations remain active.
+
+  Block direct member additions before approval and preserve shared organizations when the original requester's account is removed.
+
+  Enforce organization approval through shared authorization middleware and infer organization status in the UI from the auth API contract.
+
+- d57b8f4: Pin the node lifecycle prototype to the organization: the node slug is now the active organization's slug (read-only), the team wallet is the DAO linked to the organization via the new inline connect-and-link flow (`linkDao`), and form state resets when the organization changes. Conflict preflights against `resolveTenant` (by DAO) and `resolveTenantByOrgId` turn the previous mid-run 409s into upfront blockers, and an org that already owns its node resumes instead of failing. A Refresh phase can unwind the endowment's stake and delegation (unstake, withdraw, release pool, clear delegations), admins get a cleanup panel that rejects superseded node applications (the proposals plugin now allows rejecting approved proposals that were never applied, and the prototype records apply failures via `markApplyFailed`), the misleading "add members on trezu" hint only renders on DAO-membership blockers, and organization creation gains live slug availability checking with a shared `suggestAvailableSlug` numeric-suffix helper. The apply/provision paths drop the platform audit-seat enforcement and the DAO-membership rejection now names the missing member and links to the DAO's Trezu members page.
+- d57b8f4: Require the connected wallet account and network to match the platform tenant owner before publishing configuration.
+- d57b8f4: Proposal privacy hardening: non-admin readers no longer receive `createdBy` identities or `payload` contents from `getProposals` (both replaced with `[hidden]`/`null`), `getAuditLog` now requires a platform admin, and new audit-log rows stop falling back to the actor's email as the label. The node proposal detail page renders the payload's motivation field instead of dumping the raw payload JSON. A data migration scrubs existing email-shaped labels from `proposal_audit_log.actor_label`.
+- d57b8f4: Clean up ui/public placeholder icons and stale docs.
+
+  - Renamed `near.svg` → `icon.svg` and `logo.png` → `icon-512.png` (placeholder dot icons, named for replacement); updated `site.webmanifest` icon srcs.
+  - Removed dead public files: `README.md` (about route fetches from GitHub raw, not public), `near_rev.svg` (unreferenced), `bos.png` (orphan).
+  - Rewrote `llms.txt` to follow the standard llms.txt format (H1, blockquote summary, single Skill link).
+  - Removed `/README.md` from `skill.md` public entry points and raw doc endpoints.
+  - Updated host integration test `/near.svg` → `/icon.svg`.
+
+- d57b8f4: Keep proposal, profile, tenant, Thing, and stake views fresh after mutations; preserve the current session when revoking other sessions; and clean up live subscriptions safely. Split complex dashboard, admin, and settings components while preserving workflow state, and improve shared loading, error, accessibility, and bootstrap behavior.
+
+  Sync the shared document and router fallback components into existing child projects alongside the framework router updates.
+
+- d57b8f4: Add `MotionConfig reducedMotion="user"` (a11y), fix a `rules-of-hooks` footgun in `useRelayerInfoQuery`, lift 5 dead-state handlers to module scope, and replace 4 `transition-all` Tailwind classes (header, theme toggle, admin banner) with named properties. Clears the 2 ERROR-severity and 9 of the most-cited WARN findings in the `ui` react-doctor report (83 → 72, both ERROR rules to 0).
+- d57b8f4: Fix the "Buy with Ping" button (and wallet badge) staying disabled after signing in with a NEAR wallet. The SIWN near account is now read reactively via a new `useNearAccount` hook that subscribes to the auth client's `nearState` atom instead of reading `getAccountId()` once at render, so pages re-render when the wallet/session restore completes after mount.
+- d57b8f4: Remove the statistics card row from the My Node dashboard.
+- d57b8f4: Remove header branding from public and anon layouts — the public header now shows only the user nav. Point the Built on NEAR footer badge to nearbuilders.org. Rename the unused BrandElement component to Logo (city icon) for future reuse.
+- d57b8f4: Clear authenticated query state on sign-out and consume bootstrap session data only once so stale sessions cannot reappear.
+- d57b8f4: Fix the recurring post-sign-in redirect loop structurally: the session read path and auth redirect policy now have one owner (`everything-dev/ui/auth`), shared across the core ui and plugin ui remotes as a strict Module Federation singleton. A mixed deploy can no longer run two divergent session-read copies whose guard decisions disagree into "Too many redirects" — the login guard and the authenticated guard read through exactly one module, and a version mismatch fails loudly at load instead of silently loading a second copy. Child projects receive the consolidated guards via `bos sync` (`ui/src/lib/auth-guards.ts`, `ui/src/lib/plugin-path.ts`, and the plugin's drifted `session-cache.ts` copy exit sync ownership). See ADR 0018.
+
+  Also kills the silent dist-staleness class for build tooling: the bundler-configuration factories (`every-plugin/ui/mf-build`, `every-plugin/build/rspack`) resolve from source under bun (the workspace runtime) while node/npm consumers resolve the immutable published dist, and the `everything-dev/ui/mf-build` re-export shim is deleted (`ui/rsbuild.config.ts` imports `every-plugin/ui/mf-build` directly, like the generated plugin configs already do). Shipped code still resolves dist, with `bos build`/`bos deploy` unconditionally staleness-checking the framework prerequisites before any target — the train is the only supported build path.
+
+- d57b8f4: Fix dashboard sidebar width not applying under Tailwind v4.
+
+  `ui/components/ui/sidebar.tsx` and the `SidebarOrgSwitcher`/`SidebarUserNav` dropdown menus used Tailwind v3's arbitrary-value bracket syntax for referencing CSS custom properties (e.g. `w-[--sidebar-width]`, `w-[--radix-dropdown-menu-trigger-width]`). Tailwind v4 replaced that syntax with the arbitrary-property shorthand `w-(--sidebar-width)` — the bracket form is no longer recognized as a variable reference, so the sidebar and its dropdown menus silently fell back to no explicit width. Updated all affected classes (including the `calc()` variants using `theme(spacing.4)`, itself removed in v4, now `--spacing(4)`) to v4 syntax.
+
+- d57b8f4: Resolve the signed-in NEAR account through better-near-auth (`useNearAccountId`) so the apply prerequisites and Settings → Auth Methods pages reflect the SIWN login instead of showing "not linked".
+- d57b8f4: Fix React 19 hydration mismatch on every server-rendered page.
+
+  - The root route rendered a server-only inline `<script>` (`window.__EVERYTHING_DEV_SSR__=true`, gated on `typeof window === "undefined"`) into `<head>`. During hydration the client rendered the head without it, misaligning the head script children and producing a full-tree hydration failure on all SSR pages.
+  - The SSR marker is now a `data-everything-ssr` attribute on `<html>`, rendered only during SSR. `<html>` already carries `suppressHydrationWarning`, so the attribute-only difference is tolerated without any child-tree mismatch.
+  - `isServerRendered()` in the client bootstrap reads the marker attribute (keeping the `window.__EVERYTHING_DEV_SSR__` and `$_TSR` fallbacks for backcompat).
+
+- d57b8f4: Scope the stake directory to the signed-in user's active organization or connected organization memberships, while preserving the full public directory for anonymous visitors.
+- d57b8f4: Bind wallet invitations to their NEAR network, guard invitation status transitions, and align wallet membership limits with email invitations. Refresh workspace state after team changes and invitation acceptance, and defer membership loading until the Teams tab is opened.
+
+  Existing wallet invitations without a network must be reissued; email invitations are unaffected.
+
+- d57b8f4: Make tenant publish state observable end to end on the node lifecycle prototype: the publish station's open-tenant link is now gated on the config actually being live in FastKV (a `config live` badge appears with it, otherwise a "config not published yet" hint links to the DAO's Trezu proposals), a successful publish toasts the tenant URL, and the awaiting-votes log line records the DAO's latest proposal id. The sidebar Tenant card renders as soon as an application exists and reports the three creation layers explicitly — DB record (name + status), domain binding (hostname with primary/verified badges), and published config (live / awaiting votes #N / not published, with a view-on-FastKV link) — with the hostname link and open button only enabled once the config is live. Stuck `approved/applying` node applications in the admin cleanup panel gain a "mark applied" action that first verifies that row's DAO has a published config, and when the config is live but the session is not an admin the publish station surfaces the mark-applied requirement as a blocked reason instead of deferring silently. Tenant visits identify themselves through the landing page's document title, which now uses the active runtime's title (the tenant's node name) — a rendered tenant page means its config is live, a 404 means it is not.
+- d57b8f4: Fix tenant UI bundle integrity verification: the node-config verify/fill helper now hashes the module entry (`<base>/remoteEntry.js`, matching the deploy pipeline and host) instead of the bundle base URL, which serves an HTML landing page and always mismatched. Adds SSR bundle verification (`<base>/remoteEntry.server.js`), an SSR verify/fill button, publish preflight for the SSR pair, and normalizes pasted entry URLs back to base URLs before publishing.
+- d57b8f4: Make tenant deployment follow the active NEAR network and configured subaccount parent, use the connected wallet's public key for subaccount creation, and pass the testnet parent key into the auth runtime.
+- d57b8f4: Make the organization's linked DAO the team wallet with the Trezu connection as the linking path: the prototype resolves the team from the org-linked DAO, then the application payload, then an account captured through a "connect team DAO" button that reuses the already-verified Trezu connection (no reconnect, no link prompt — linking happens silently and best-effort). Unset team and endowment inputs are replaced in place by connect buttons so the card stops shifting, the node name defaults to the title-cased organization name, and blockers read "connect your team DAO with Trezu". The auth plugin's `requireAuth` now prefers the host-injected session user and only falls back to resolving the session internally, fixing spurious "Authentication required" errors on `getDao`/`linkDao` and the rest of the `apiClient.auth.*` surface.
+- f9d2dce: Trim the core ui's declared MF surface to consumed exposes (drop `./providers` and `./hooks`), construct the core-only tree on the client when a deployment carries no compose payload or a malformed one (plugin-free CSR apps no longer crash on "no route tree"), and correct ownership headers. The ui globals ambient file is trimmed to the rsbuild types reference.
+- d57b8f4: Keep User Nav in the top-right of both the public and app shells. Dashboard and admin chrome now mount the same header account menu instead of a sidebar footer row, matching public pages and trezu.app.
+- d57b8f4: Atomic deploys tickets 09-10: the MF integrity fetch hook now treats an SRI mismatch like an origin failure — last-known-good bytes from the bundle cache serve instead (with `x-bundle-cache: stale`) and corrupted origin bytes are never written into the cache; the host process installs the outbound bundle-fetch tier (staged own-namespace reads + stale-if-error). The host serves `GET /.well-known/version` with the deploy fingerprint, which rides the client config; a soft-refresh banner (`version-refresh-banner`) polls it for signed-in sessions and offers a reload when a newer deploy is served.
+- d57b8f4: Version observability (atomic-deploys 12): `GET /.well-known/version` now returns the per-slot manifest pins from the adopted pointer and the watch fiber's last-tick outcome beside the fingerprint; `pointerFingerprint`/`slotPins` are shared so CLI and host compute the same identity. Every publish writes the per-deploy manifest key (audit trail, previously wallet-only), prints the fingerprint + pins, and returns them. `bos deploy --status` lists recent publishes newest-first from the manifests key family; `bos status` reports the deployed-vs-served fingerprint delta — the split-brain detector. The admin dashboard gains a version card (`admin-version-card`) reading the version endpoint, and `/llms.txt` + `/skill.md` document the surface for agents.
+- Updated dependencies [d57b8f4]
+- Updated dependencies [c520871]
+- Updated dependencies [4d8efd1]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [9191ab3]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [d57b8f4]
+- Updated dependencies [f5f1a5f]
+- Updated dependencies [d57b8f4]
+  - better-near-auth@2.0.0-rc.0
+
 ## 1.9.1
 
 ### Patch Changes
