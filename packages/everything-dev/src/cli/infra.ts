@@ -340,7 +340,7 @@ export function buildCiInfraPlan(
     services.push({
       key: db.slug,
       slug: db.slug,
-      image: "postgres:17-alpine",
+      image: "public.ecr.aws/docker/library/postgres:17-alpine",
       env: {
         POSTGRES_USER: POSTGRES_USER,
         POSTGRES_PASSWORD: POSTGRES_PASSWORD,
@@ -362,7 +362,7 @@ export function buildCiInfraPlan(
     services.push({
       key: r.slug,
       slug: r.slug,
-      image: "redis:7-alpine",
+      image: "public.ecr.aws/docker/library/redis:7-alpine",
       env: {},
       ports: [`${r.port}:6379`],
       healthcheck: {
