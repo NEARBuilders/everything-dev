@@ -241,11 +241,6 @@ const build = () => {
   );
   emitCoreUiStubs(path.join(root, "ui"));
 
-  console.log(
-    "[container-build] core ui bootstrap stubs (ADR 0023 — emitted by the train's code-artifact pass)…",
-  );
-  emitCoreUiStubs(path.join(root, "ui"));
-
   console.log("[container-build] core ui (web, then ssr — sequential environments)…");
   run("pnpm", ["run", "build:client"], "ui");
   run("pnpm", ["run", "build:ssr"], "ui");
