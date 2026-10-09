@@ -27,6 +27,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
 RUN test -e node_modules/.bin/every-plugin \
     || { echo "workspace bin not linked — workspace sources must be present at install time"; exit 1; }
 RUN pnpm --filter every-plugin build
+RUN pnpm --filter better-near-auth build
 RUN pnpm --filter everything-dev build
 RUN node --import tsx scripts/resolve-workspace-refs.ts
 
