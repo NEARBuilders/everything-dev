@@ -1,5 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
-import { Context } from "effect";
+import { Effect } from "effect";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
 import type { Database } from "../db";
 import * as schema from "../db/schema";
@@ -11,6 +11,7 @@ import {
   parseTeamAreas,
   tryJsonParse,
 } from "../utils";
+import { attemptAuth, attemptDb } from "./attempts";
 
 async function listMemberTeams(db: Database, userId: string, organizationId: string) {
   const rows = await db
@@ -24,17 +25,42 @@ async function listMemberTeams(db: Database, userId: string, organizationId: str
   return rows.map((row) => ({ id: row.id, name: row.name, areas: parseTeamAreas(row.metadata) }));
 }
 
+async function verifyApiKeyAcrossConfigs(
+  services: { auth: { api: { verifyApiKey: (args: any) => Promise<any> } } },
+  verifyHeaders: Headers,
+  apiKeyValue: string,
+) {
+  for (const configId of API_KEY_CONFIG_IDS) {
+    let keyResult: any;
+    try {
+      keyResult = await services.auth.api.verifyApiKey({
+        headers: verifyHeaders,
+        body: { key: apiKeyValue, configId },
+      });
+    } catch {
+      continue;
+    }
+
+    if (!keyResult.valid || !keyResult.key) continue;
+
+    return keyResult;
+  }
+  return null;
+}
+
 export function createSessionHandlers(builder: any) {
   return {
-    health: builder.health.handler(async () => ({
-      status: "ok" as const,
-      timestamp: new Date().toISOString(),
-    })),
+    health: builder.health.effect(function* () {
+      return yield* Effect.succeed({
+        status: "ok" as const,
+        timestamp: new Date().toISOString(),
+      });
+    }),
 
-    getSession: builder.getSession.handler(async ({ context }: { context: any }) => {
-      const services = Context.get(context["effect/context"], AuthServicesTag);
+    getSession: builder.getSession.effect(function* ({ context }: { context: any }) {
+      const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
-      const session = await services.auth.api.getSession({ headers });
+      const session = yield* attemptAuth(() => services.auth.api.getSession({ headers }));
       const s = session?.session ?? null;
       const u = session?.user ?? null;
       return {
@@ -62,8 +88,8 @@ export function createSessionHandlers(builder: any) {
       };
     }),
 
-    getContext: builder.getContext.handler(async ({ context }: { context: any }) => {
-      const services = Context.get(context["effect/context"], AuthServicesTag);
+    getContext: builder.getContext.effect(function* ({ context }: { context: any }) {
+      const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       const apiKeyHeaderNames = services.apiKeyHeaders;
 
@@ -112,30 +138,17 @@ export function createSessionHandlers(builder: any) {
       } | null = null;
 
       if (apiKeyValue) {
-        let apiKeyResolved = false;
-
         const verifyHeaders = new Headers(headers);
         for (const headerName of apiKeyHeaderNames) {
           verifyHeaders.delete(headerName.toLowerCase());
         }
         verifyHeaders.delete("authorization");
 
-        for (const configId of API_KEY_CONFIG_IDS) {
-          if (apiKeyResolved) break;
+        const keyResult = yield* attemptAuth(() =>
+          verifyApiKeyAcrossConfigs(services, verifyHeaders, apiKeyValue),
+        );
 
-          let keyResult: any;
-          try {
-            keyResult = await services.auth.api.verifyApiKey({
-              headers: verifyHeaders,
-              body: { key: apiKeyValue, configId },
-            });
-          } catch {
-            continue;
-          }
-
-          if (!keyResult.valid || !keyResult.key) continue;
-
-          apiKeyResolved = true;
+        if (keyResult) {
           authMethod = "apiKey";
 
           const key = keyResult.key;
@@ -151,9 +164,11 @@ export function createSessionHandlers(builder: any) {
           };
 
           if (key.configId === "user-keys") {
-            const dbUser = await services.db.query.user.findFirst({
-              where: eq(schema.user.id, key.referenceId),
-            });
+            const dbUser = yield* attemptDb(() =>
+              services.db.query.user.findFirst({
+                where: eq(schema.user.id, key.referenceId),
+              }),
+            );
 
             if (dbUser) {
               user = dbUser;
@@ -170,17 +185,13 @@ export function createSessionHandlers(builder: any) {
             };
             resolvedOrganizationId = key.referenceId;
           }
-
-          break;
-        }
-
-        if (!apiKeyResolved) {
+        } else {
           authMethod = "none";
         }
       }
 
       if (!apiKeyValue && !principal) {
-        const rawSession = await services.auth.api.getSession({ headers });
+        const rawSession = yield* attemptAuth(() => services.auth.api.getSession({ headers }));
         const rawUser = rawSession?.user ?? null;
         session = rawSession
           ? {
@@ -219,9 +230,11 @@ export function createSessionHandlers(builder: any) {
       };
 
       if (user?.id) {
-        const nearAccounts = await services.db.query.nearAccount.findMany({
-          where: eq(schema.nearAccount.userId, user.id),
-        });
+        const nearAccounts = yield* attemptDb(() =>
+          services.db.query.nearAccount.findMany({
+            where: eq(schema.nearAccount.userId, user.id),
+          }),
+        );
 
         if (nearAccounts.length > 0) {
           const linkedAccounts = nearAccounts.map((acc) => ({
@@ -266,9 +279,11 @@ export function createSessionHandlers(builder: any) {
       }> = [];
 
       if (principal?.type === "organization" && resolvedOrganizationId) {
-        const org = await services.db.query.organization.findFirst({
-          where: eq(schema.organization.id, resolvedOrganizationId),
-        });
+        const org = yield* attemptDb(() =>
+          services.db.query.organization.findFirst({
+            where: eq(schema.organization.id, resolvedOrganizationId),
+          }),
+        );
 
         if (org?.status === "active") {
           organizationContext = {
@@ -289,10 +304,12 @@ export function createSessionHandlers(builder: any) {
           };
         }
       } else if (user?.id) {
-        const memberships = await services.db.query.member.findMany({
-          where: eq(schema.member.userId, user.id),
-          with: { organization: true },
-        });
+        const memberships = yield* attemptDb(() =>
+          services.db.query.member.findMany({
+            where: eq(schema.member.userId, user.id),
+            with: { organization: true },
+          }),
+        );
 
         for (const m of memberships) {
           if (m.organization?.status === "active") {
@@ -312,7 +329,7 @@ export function createSessionHandlers(builder: any) {
 
           if (activeMembership?.organization?.status === "active") {
             const org = activeMembership.organization;
-            const teams = await listMemberTeams(services.db, user.id, org.id);
+            const teams = yield* attemptDb(() => listMemberTeams(services.db, user.id, org.id));
             const sessionTeamId = getActiveTeamId(session?.session);
             organizationContext = {
               activeOrganizationId: activeOrgId,
