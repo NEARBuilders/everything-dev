@@ -264,7 +264,41 @@ const build = () => {
     console.log(`[container-build] plugin ${key} (api remote)…`);
     run("pnpm", ["run", "build"], workspace);
   }
+
+  assertFederationTrain("api/dist");
+  if (authWorkspace) assertFederationTrain(path.join(authWorkspace, "dist"));
+  for (const [, workspace] of localPlugins) assertFederationTrain(path.join(workspace, "dist"));
 };
+
+// Every built remote must carry the same `every-plugin` share version as the
+// framework package on this checkout — a stale train here surfaces at boot as
+// a strict-singleton mismatch ("Version X from host … needs Y") and every
+// /api/* route 503s. Fail the build train before anything stages or boots.
+const frameworkTrain = JSON.parse(
+  readFileSync(path.join(root, "packages/every-plugin/package.json"), "utf8"),
+).version as string;
+
+function assertFederationTrain(distDir: string): void {
+  const manifestPath = path.join(root, distDir, "mf-manifest.json");
+  if (!existsSync(manifestPath)) {
+    throw new Error(
+      `[container-build] ${distDir} has no mf-manifest.json — the plugin build did not emit federation metadata`,
+    );
+  }
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    shared?: Array<{ name?: string; version?: string; requiredVersion?: string | null }>;
+  };
+  const entry = manifest.shared?.find((dep) => dep.name === "every-plugin");
+  const stamped = entry?.version ?? entry?.requiredVersion ?? null;
+  if (stamped !== frameworkTrain) {
+    throw new Error(
+      `[container-build] ${distDir} was built against every-plugin@${stamped ?? "unknown"} ` +
+        `but the framework train is ${frameworkTrain} — the plugin build resolved a stale ` +
+        `every-plugin. Rebuild so all remotes stamp the same framework version.`,
+    );
+  }
+  console.log(`[container-build] ${distDir} stamps every-plugin@${stamped} ✓`);
+}
 
 // Fixed in-container port map — every service is container-local, so only the
 // host port needs mapping at `docker run`.
