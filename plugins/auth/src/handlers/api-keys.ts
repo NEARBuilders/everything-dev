@@ -1,24 +1,23 @@
-import { ORPCError } from "@orpc/server";
+import { type Implementer, ORPCError } from "@orpc/server";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
+import type { ContractType } from "../contract";
+import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
 import { AuthServicesTag } from "../service-types";
 import { createHeaders } from "../utils";
 import { attemptAuth } from "./attempts";
 
-export function createApiKeyHandlers(builder: any, requireAuth: any) {
+export function createApiKeyHandlers(
+  builder: Implementer<ContractType, AuthHandlerContext>,
+  requireAuth: RequireAuthMiddleware,
+) {
   return {
-    listApiKeys: builder.listApiKeys.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    listApiKeys: builder.listApiKeys.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
-      const queryParams = ["organizationId", "limit", "offset", "sortBy", "sortDirection"];
+      const queryParams = ["organizationId", "limit", "offset", "sortBy", "sortDirection"] as const;
       const query: Record<string, string | number> = {};
       for (const key of queryParams) {
         if (input?.[key] !== undefined) {
-          query[key] = input[key] as string | number;
+          query[key] = input[key];
         }
       }
 
@@ -31,13 +30,7 @@ export function createApiKeyHandlers(builder: any, requireAuth: any) {
       return result.apiKeys ?? [];
     }),
 
-    createApiKey: builder.createApiKey.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    createApiKey: builder.createApiKey.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const configId = input.configId ?? (input.organizationId ? "org-keys" : "user-keys");
       const result = yield* attemptAuth(() =>
@@ -60,13 +53,7 @@ export function createApiKeyHandlers(builder: any, requireAuth: any) {
       return result;
     }),
 
-    updateApiKey: builder.updateApiKey.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    updateApiKey: builder.updateApiKey.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const configId = input.configId ?? (input.organizationId ? "org-keys" : "user-keys");
       const result = yield* attemptAuth(() =>
@@ -89,13 +76,7 @@ export function createApiKeyHandlers(builder: any, requireAuth: any) {
       return result;
     }),
 
-    deleteApiKey: builder.deleteApiKey.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    deleteApiKey: builder.deleteApiKey.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const configId = input.configId ?? (input.organizationId ? "org-keys" : "user-keys");
       const deleteAcrossConfigs = async () => {
@@ -126,13 +107,7 @@ export function createApiKeyHandlers(builder: any, requireAuth: any) {
       return { success: true };
     }),
 
-    verifyApiKey: builder.verifyApiKey.effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    verifyApiKey: builder.verifyApiKey.effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       if (input.configId) {
         const result = yield* attemptAuth(() =>

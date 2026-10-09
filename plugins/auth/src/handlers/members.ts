@@ -1,7 +1,10 @@
+import type { Implementer } from "@orpc/server";
 import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
+import type { ContractType } from "../contract";
 import * as schema from "../db/schema";
+import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
 import { AuthServicesTag } from "../service-types";
 import {
   canReadMemberEmails,
@@ -12,15 +15,12 @@ import {
 } from "../utils";
 import { attemptAuth, attemptDb } from "./attempts";
 
-export function createMemberHandlers(builder: any, requireAuth: any) {
+export function createMemberHandlers(
+  builder: Implementer<ContractType, AuthHandlerContext>,
+  requireAuth: RequireAuthMiddleware,
+) {
   return {
-    exportMembers: builder.exportMembers.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    exportMembers: builder.exportMembers.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const emailAllowed = yield* Effect.promise(() =>
         canReadMemberEmails(services, context, input?.organizationId),
@@ -38,7 +38,6 @@ export function createMemberHandlers(builder: any, requireAuth: any) {
           query: {
             organizationId: input.organizationId,
             limit: 1000,
-            offset: input.offset ?? 0,
           },
         }),
       );
@@ -57,9 +56,6 @@ export function createMemberHandlers(builder: any, requireAuth: any) {
     getActiveMember: builder.getActiveMember.use(requireAuth).effect(function* ({
       context,
       input,
-    }: {
-      context: any;
-      input: any;
     }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
@@ -84,9 +80,6 @@ export function createMemberHandlers(builder: any, requireAuth: any) {
     getActiveMemberRole: builder.getActiveMemberRole.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
@@ -99,13 +92,7 @@ export function createMemberHandlers(builder: any, requireAuth: any) {
       return { role };
     }),
 
-    listMembers: builder.listMembers.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    listMembers: builder.listMembers.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.listMembers({
@@ -143,13 +130,7 @@ export function createMemberHandlers(builder: any, requireAuth: any) {
       };
     }),
 
-    addMember: builder.addMember.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    addMember: builder.addMember.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       const session = input.organizationId
@@ -235,13 +216,7 @@ export function createMemberHandlers(builder: any, requireAuth: any) {
       };
     }),
 
-    removeMember: builder.removeMember.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }: {
-      input: any;
-      context: any;
-    }) {
+    removeMember: builder.removeMember.use(requireAuth).effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       yield* attemptAuth(() =>
         services.auth.api.removeMember({
@@ -258,9 +233,6 @@ export function createMemberHandlers(builder: any, requireAuth: any) {
     updateMemberRole: builder.updateMemberRole.use(requireAuth).effect(function* ({
       input,
       context,
-    }: {
-      input: any;
-      context: any;
     }) {
       const services = yield* AuthServicesTag;
       const emailAllowed = yield* Effect.promise(() =>
@@ -290,7 +262,7 @@ export function createMemberHandlers(builder: any, requireAuth: any) {
                 allowed: emailAllowed,
                 isSelf: result.userId === (context.userId ?? context.user?.id),
               }),
-              image: result.user.image,
+              image: result.user.image ?? null,
             }
           : null,
       };

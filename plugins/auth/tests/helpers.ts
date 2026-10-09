@@ -3,7 +3,7 @@ import { call, implement } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
 import { type AuthConfig, createAuthInstance } from "../src/auth-instance";
-import { contract, type InferInput } from "../src/contract";
+import { type ContractType, contract, type InferInput, type InferOutput } from "../src/contract";
 import { createDatabaseDriver } from "../src/db";
 import { loadMigrations, migrate } from "../src/db/migrate";
 import * as schema from "../src/db/schema";
@@ -12,14 +12,11 @@ import { createInvitationHandlers } from "../src/handlers/invitations";
 import { createMemberHandlers } from "../src/handlers/members";
 import { createNearHandlers } from "../src/handlers/near";
 import { createOnboardingHandlers } from "../src/handlers/onboarding";
-import {
-  createOrganizationRequestHandlers,
-  type OrganizationRequestContext,
-} from "../src/handlers/organization-requests";
+import { createOrganizationRequestHandlers } from "../src/handlers/organization-requests";
 import { createOrganizationHandlers } from "../src/handlers/organizations";
 import { createSessionHandlers } from "../src/handlers/session";
 import { createTeamHandlers } from "../src/handlers/teams";
-import { createRequireAuth } from "../src/middleware";
+import { type AuthHandlerContext, createRequireAuth } from "../src/middleware";
 import { createOnboardingCodeCipher } from "../src/onboarding-code-cipher";
 import { createOrganizationMembershipPolicy } from "../src/organization-membership-policy";
 import { AuthServicesTag, type PluginServices } from "../src/service-types";
@@ -199,127 +196,39 @@ export async function createTestApiKey(
   return { key: result.key, id: result.id };
 }
 
-type MiddlewareFn = (opts: {
-  context: Record<string, unknown>;
-  next: (ctx: {
-    context: Record<string, unknown>;
-  }) => Promise<{ context: Record<string, unknown> }> | { context: Record<string, unknown> };
-}) => Promise<{ context: Record<string, unknown> }> | { context: Record<string, unknown> };
-
-type HandlerFn<R = unknown> = (opts: {
-  context: Record<string, unknown>;
-  input?: Record<string, unknown>;
-}) => Promise<R> | R;
-
-type MockRoute = {
-  effect: (fn: (opts: any) => Generator<any, any, any>) => HandlerFn;
-  use: (mw: MiddlewareFn) => MockRoute;
-  handler: <R>(h: HandlerFn<R>) => HandlerFn<R>;
+type HandlerCallOpts<K extends keyof ContractType> = {
+  input?: InferInput<K>;
+  context?: { reqHeaders?: Record<string, string> };
 };
 
-interface MockBuilder {
-  middleware: ((mw: MiddlewareFn) => MiddlewareFn) & MockRoute;
-  [route: string]: MockRoute;
-}
-
-function createChainedRoute(mws: Array<MiddlewareFn>): MockRoute {
-  const runChain = async (opts: {
-    context: Record<string, unknown>;
-    input?: Record<string, unknown>;
-  }) => {
-    let context = opts.context;
-    for (const mw of mws) {
-      const result = await mw({
-        context,
-        next: (ctx) => ctx,
-      });
-      context = { ...context, ...result.context };
-    }
-    return { ...opts, context };
-  };
-  return {
-    effect:
-      (fn) => async (opts: { context: Record<string, unknown>; input?: Record<string, unknown> }) =>
-        runEffect(fn, await runChain(opts)),
-    handler:
-      <R>(handler: HandlerFn<R>): HandlerFn<R> =>
-      async (opts) =>
-        handler(await runChain(opts)),
-    use: (mw) => createChainedRoute([...mws, mw]),
-  };
-}
-
-function runEffect(
-  fn: (opts: any) => Generator<any, any, any>,
-  opts: { context: Record<string, unknown>; input?: Record<string, unknown> },
-): Promise<unknown> {
-  return Effect.runPromise(
-    Effect.gen(() => fn(opts)).pipe(
-      Effect.provideContext(opts.context["effect/context"] as Context.Context<any>),
-    ),
-  );
-}
-
-function createMockBuilder(): MockBuilder {
-  const routeProxy: MockRoute = {
-    effect: (fn) => (opts) => runEffect(fn, opts),
-    use: (mw: MiddlewareFn) => createChainedRoute([mw]),
-    handler: <R>(fn: HandlerFn<R>) => fn,
-  };
-
-  return new Proxy({} as MockBuilder, {
-    get(_target, prop: string) {
-      if (prop === "middleware") {
-        const fn = ((mw: MiddlewareFn) => mw) as (mw: MiddlewareFn) => MiddlewareFn;
-        return Object.assign(fn, routeProxy);
-      }
-      return routeProxy;
-    },
-  });
-}
+type WrappedRouter<T extends Record<string, unknown>> = {
+  [K in keyof T & keyof ContractType]: (
+    opts?: HandlerCallOpts<K & keyof ContractType>,
+  ) => Promise<InferOutput<K & keyof ContractType>>;
+};
 
 export function createTestHandlers(services: PluginServices) {
-  const builder = createMockBuilder();
-  const requireAuth = createRequireAuth(builder);
   const effectContext = Context.make(AuthServicesTag, services);
-  const requestBuilder = implement(contract).$context<OrganizationRequestContext>();
-  const requestHandlers = createOrganizationRequestHandlers(
-    requestBuilder,
-    createRequireAuth(requestBuilder),
-  );
+  const builder = implement(contract).$context<AuthHandlerContext>();
+  const requireAuth = createRequireAuth(builder);
 
-  const withEffectContext =
-    <R>(fn: HandlerFn<R>): HandlerFn<R> =>
-    (opts) =>
-      fn({
-        ...opts,
-        context: { "effect/context": effectContext, ...opts.context },
-      }) as R;
-
-  const wrap = <T extends Record<string, unknown>>(router: T) =>
+  const wrap = <T extends Record<string, unknown>>(router: T): WrappedRouter<T> =>
     Object.fromEntries(
-      Object.entries(router).map(([key, fn]) => [
-        key,
-        typeof fn === "function" ? withEffectContext(fn as HandlerFn) : fn,
-      ]),
-    ) as T;
+      Object.entries(router).map(
+        ([key, procedure]): [string, (opts?: HandlerCallOpts<never>) => Promise<unknown>] => [
+          key,
+          (opts?: HandlerCallOpts<never>) =>
+            call(procedure as never, opts?.input as never, {
+              context: { ...opts?.context, "effect/context": effectContext },
+            }),
+        ],
+      ),
+    ) as WrappedRouter<T>;
 
   return {
     session: wrap(createSessionHandlers(builder)),
     organizations: wrap(createOrganizationHandlers(builder, requireAuth)),
-    organizationRequests: {
-      listOrganizationRequests: (opts: { context: { reqHeaders?: Record<string, string> } }) =>
-        call(requestHandlers.listOrganizationRequests, undefined, {
-          context: { ...opts.context, "effect/context": effectContext },
-        }),
-      reviewOrganization: (opts: {
-        input: InferInput<"reviewOrganization">;
-        context: { reqHeaders?: Record<string, string> };
-      }) =>
-        call(requestHandlers.reviewOrganization, opts.input, {
-          context: { ...opts.context, "effect/context": effectContext },
-        }),
-    },
+    organizationRequests: wrap(createOrganizationRequestHandlers(builder, requireAuth)),
     members: wrap(createMemberHandlers(builder, requireAuth)),
     invitations: wrap(createInvitationHandlers(builder, requireAuth)),
     apiKeys: wrap(createApiKeyHandlers(builder, requireAuth)),

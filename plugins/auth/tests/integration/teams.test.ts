@@ -138,7 +138,7 @@ describe("team handlers", () => {
       });
 
       expect(result).toHaveLength(1);
-      expect(result[0].userId).toBe(member.userId);
+      expect(result[0]!.userId).toBe(member.userId);
     });
   });
 
