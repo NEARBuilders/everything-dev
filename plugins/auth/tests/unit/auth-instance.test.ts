@@ -263,6 +263,35 @@ describe("buildSiwnOptions", () => {
   });
 });
 
+describe("createAuthInstance socialProviders", () => {
+  const dbStub = {} as Parameters<typeof createAuthInstance>[1];
+  const configuredProviders = (auth: ReturnType<typeof createAuthInstance>) =>
+    (auth.options as { socialProviders?: Record<string, unknown> }).socialProviders ?? {};
+
+  it("omits social providers with no credentials", () => {
+    const auth = createAuthInstance(baseConfig, dbStub);
+    const providers = configuredProviders(auth);
+    expect(providers.github).toBeUndefined();
+    expect(providers.google).toBeUndefined();
+  });
+
+  it("keeps a provider only when both credentials are set", () => {
+    const auth = createAuthInstance(
+      {
+        ...baseConfig,
+        socialProviders: {
+          github: { clientId: "gh-id", clientSecret: "gh-secret" },
+          google: { clientSecret: "g-secret" },
+        },
+      },
+      dbStub,
+    );
+    const providers = configuredProviders(auth);
+    expect(providers.github).toEqual({ clientId: "gh-id", clientSecret: "gh-secret" });
+    expect(providers.google).toBeUndefined();
+  });
+});
+
 describe("createAuthInstance cookie security", () => {
   const dbStub = {} as Parameters<typeof createAuthInstance>[1];
 

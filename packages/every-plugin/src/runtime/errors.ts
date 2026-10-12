@@ -282,6 +282,50 @@ export interface PluginLoadFailureInfo {
   dbUrlMasked?: string;
 }
 
+/**
+ * Structured, serializable warning surfaced alongside plugin failures in
+ * health endpoints and dashboards. Warnings are non-fatal: the plugin loaded
+ * and initialized successfully, but runs with reduced functionality (e.g. an
+ * optional secret was not set, so the feature depending on it is disabled).
+ */
+export interface PluginWarningInfo {
+  /** loader-side key (host entry key, dev plugin id) */
+  pluginKey: string;
+  message: string;
+  hint?: string;
+}
+
+/**
+ * The loader's default warning policy for declared-but-unset secrets: a
+ * successfully initialized plugin whose declared secret names resolved to
+ * nothing (missing or empty in the environment) gets one consolidated
+ * warning. `*_DATABASE_URL` keys are excluded — they have the shared-API-DB
+ * fallback, and a genuinely-missing DB URL fails initialization (a `failure`,
+ * not a warning). A plugin that declares its own `warnings` function opts out
+ * of this default.
+ */
+export const defaultMissingSecretWarnings = (
+  pluginKey: string,
+  declaredKeys: readonly string[],
+  resolvedKeys: readonly string[],
+): PluginWarningInfo[] => {
+  const resolved = new Set(resolvedKeys);
+  const missing = declaredKeys.filter(
+    (key) => !resolved.has(key) && !key.endsWith("_DATABASE_URL"),
+  );
+  if (missing.length === 0) return [];
+  return [
+    {
+      pluginKey,
+      message:
+        missing.length === 1
+          ? `Declared secret ${missing[0]} is not set — features depending on it are disabled`
+          : `${missing.length} declared secrets are not set: ${missing.join(", ")} — features depending on them are disabled`,
+      hint: "Set the secret(s) in your environment (.env in development); see the plugin's config schema for what each enables",
+    },
+  ];
+};
+
 const NETWORK_RETRYABLE_PATTERNS = ["ETIMEDOUT", "ECONNRESET", "timeout", "503", "429"] as const;
 const NETWORK_DEAD_PATTERNS = ["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH"] as const;
 const RETRYABLE_ORPC_CODES = new Set([

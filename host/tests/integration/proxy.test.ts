@@ -316,6 +316,7 @@ describe("API Proxy", () => {
           errorDetails: null,
           loadedPlugins: [],
           failures: [],
+          warnings: [],
         },
       };
 

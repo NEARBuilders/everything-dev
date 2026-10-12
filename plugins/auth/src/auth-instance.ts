@@ -280,6 +280,19 @@ export function createAuthInstance(
   const twilioConfig = config.phoneNumber?.twilio;
   const githubConfig = config.socialProviders?.github;
   const googleConfig = config.socialProviders?.google;
+  const socialProviders: Record<string, { clientId: string; clientSecret: string }> = {};
+  if (githubConfig?.clientId && githubConfig.clientSecret) {
+    socialProviders.github = {
+      clientId: githubConfig.clientId,
+      clientSecret: githubConfig.clientSecret,
+    };
+  }
+  if (googleConfig?.clientId && googleConfig.clientSecret) {
+    socialProviders.google = {
+      clientId: googleConfig.clientId,
+      clientSecret: googleConfig.clientSecret,
+    };
+  }
   const network = config.network ?? "mainnet";
   const siwnOptions = buildSiwnOptions(config);
   const membershipPolicy = createOrganizationMembershipPolicy(config.organizationMembershipLimit);
@@ -311,16 +324,7 @@ export function createAuthInstance(
     ...(process.env.BETTER_AUTH_RATE_LIMIT_DISABLED === "1"
       ? { rateLimit: { enabled: false } }
       : {}),
-    socialProviders: {
-      github: {
-        clientId: githubConfig?.clientId ?? "",
-        clientSecret: githubConfig?.clientSecret ?? "",
-      },
-      google: {
-        clientId: googleConfig?.clientId ?? "",
-        clientSecret: googleConfig?.clientSecret ?? "",
-      },
-    },
+    socialProviders,
     plugins: [
       siwn(siwnOptions),
       admin({ defaultRole: "user", adminRoles: ["admin"] }),

@@ -2,8 +2,12 @@ import { createInstance, getInstance } from "@module-federation/enhanced/runtime
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { Config, Context, Data, Effect, Layer, Option, Redacted } from "effect";
 import { createPluginRuntime } from "every-plugin";
-import type { PluginLoadFailureInfo } from "every-plugin/errors";
-import { classifyPluginFailure, PluginRuntimeError } from "every-plugin/errors";
+import type { PluginLoadFailureInfo, PluginWarningInfo } from "every-plugin/errors";
+import {
+  classifyPluginFailure,
+  defaultMissingSecretWarnings,
+  PluginRuntimeError,
+} from "every-plugin/errors";
 import { loadRemoteWithRetry } from "every-plugin/remote-entry";
 import {
   type HostSharedEntry,
@@ -83,6 +87,7 @@ const pluginSlot = (config: RuntimePluginConfig, key: string): EntrySlot => ({
 export interface InitializedPluginResult {
   effectContext: unknown;
   plugin?: { servicesTag?: unknown; id?: string };
+  warnings?: PluginWarningInfo[];
   [key: string]: unknown;
 }
 
@@ -93,6 +98,8 @@ export interface HostPluginEntry {
   router: unknown;
   metadata: { remoteUrl: string; version?: string };
   initialized?: InitializedPluginResult;
+  /** non-fatal config warnings (plugin-declared, or the default missing-secret policy) */
+  warnings: PluginWarningInfo[];
 }
 
 /**
@@ -129,6 +136,8 @@ export interface PluginStatus {
   loadedPlugins: string[];
   /** structured per-plugin failures (empty when all plugins loaded) */
   failures: PluginFailureInfo[];
+  /** structured per-plugin warnings — non-fatal config gaps (empty when none) */
+  warnings: PluginWarningInfo[];
 }
 
 export interface PluginResult {
@@ -260,13 +269,14 @@ const unavailableResult = (
   errorDetails: string | null,
   loadedPlugins: string[] = [],
   failures: PluginFailureInfo[] = [],
+  warnings: PluginWarningInfo[] = [],
 ): PluginResult => ({
   runtime: null,
   auth: null,
   api: null,
   plugins: {},
   authClient: null,
-  status: { available: false, pluginName, error, errorDetails, loadedPlugins, failures },
+  status: { available: false, pluginName, error, errorDetails, loadedPlugins, failures, warnings },
 });
 
 interface RuntimePluginEntry {
@@ -444,7 +454,7 @@ const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (para
   if (pluginsClient) args.push(pluginsClient);
 
   const remoteUrl = entryUrls(pluginSlot(entry.config, entry.key), env).web;
-  const result = yield* loadRemoteWithRetry<Omit<HostPluginEntry, "key" | "name">>({
+  const result = yield* loadRemoteWithRetry<Omit<HostPluginEntry, "key" | "name" | "warnings">>({
     label: entry.key,
     remoteUrl,
     load: () => runtime.usePlugin(entry.runtimeId, ...args),
@@ -471,7 +481,12 @@ const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (para
     }),
   );
 
-  return { key: entry.key, name: entry.config.name, ...result };
+  const pluginWarnings: PluginWarningInfo[] =
+    result.initialized?.warnings && result.initialized.warnings.length > 0
+      ? result.initialized.warnings
+      : defaultMissingSecretWarnings(entry.key, entry.config.secrets ?? [], Object.keys(secrets));
+
+  return { key: entry.key, name: entry.config.name, warnings: pluginWarnings, ...result };
 });
 
 export const initializePlugins = Effect.fn("initializePlugins")(
@@ -494,6 +509,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
           errorDetails: null,
           loadedPlugins: [],
           failures: [],
+          warnings: [],
         },
       } satisfies PluginResult;
     }
@@ -606,6 +622,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
 
     const errors: string[] = [];
     const failures: PluginFailureInfo[] = [];
+    const warnings: PluginWarningInfo[] = [];
     const loadedPlugins: Record<string, HostPluginEntry> = {};
     const loadedPluginKeys: string[] = [];
     const pluginsClient: Record<string, unknown> = {};
@@ -622,6 +639,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
       const cached = singletonCache.get(sKey);
       if (cached) {
         yield* Effect.logInfo(`[Plugins] Reusing singleton ${key} from ${cached.key}`);
+        warnings.push(...cached.warnings);
         loadedPlugins[key] = cached;
         loadedPluginKeys.push(key);
         pluginsClient[key] = { client: cached.createClient, router: cached.router };
@@ -682,6 +700,12 @@ export const initializePlugins = Effect.fn("initializePlugins")(
       );
 
       if (result) {
+        for (const warning of result.warnings) {
+          warnings.push(warning);
+          yield* Effect.logWarning(
+            `[Plugins][${warning.pluginKey}] ⚠ ${warning.message}${warning.hint ? ` — ${warning.hint}` : ""}`,
+          );
+        }
         singletonCache.set(sKey, result);
         loadedPlugins[key] = result;
         loadedPluginKeys.push(key);
@@ -728,6 +752,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
         errorDetails: errors.length > 0 ? errors.join("\n") : null,
         loadedPlugins: loadedPluginKeys,
         failures,
+        warnings,
       },
     } satisfies PluginResult;
   },

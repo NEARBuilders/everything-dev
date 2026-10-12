@@ -7,6 +7,7 @@ import type {
 import type { ContractedRouter, RouterClient } from "@orpc/server";
 import type { Context, Scope } from "effect";
 import type { Plugin } from "./plugin";
+import type { PluginWarningInfo } from "./runtime/errors";
 
 /**
  * Registry bindings interface - populated via module augmentation
@@ -204,6 +205,8 @@ export interface InitializedPlugin<T extends AnyPlugin = AnyPlugin> {
    */
   readonly effectContext: Context.Context<any>;
   readonly scope: Scope.Closeable;
+  /** Non-fatal config warnings collected during initialization (empty when none). */
+  readonly warnings: PluginWarningInfo[];
 }
 
 /**

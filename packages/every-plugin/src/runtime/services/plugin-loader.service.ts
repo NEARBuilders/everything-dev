@@ -11,10 +11,38 @@ import type {
   PluginMetadata,
   PluginRegistry,
 } from "../../types";
+import type { PluginWarningInfo } from "../errors";
 import { PluginRuntimeError, toPluginRuntimeError } from "../errors";
 import { validate } from "../validation";
 import { ModuleFederationService } from "./module-federation.service";
 import { SecretsService } from "./secrets.service";
+
+/**
+ * Evaluate a plugin's `warnings` function against the validated config.
+ * Fail-safe: a throwing warnings function becomes a warning itself rather
+ * than failing initialization. Strings are normalized to `PluginWarningInfo`
+ * with the plugin's registry key.
+ */
+const collectPluginWarnings = (
+  plugin: AnyPlugin,
+  config: { variables: unknown; secrets: unknown },
+): PluginWarningInfo[] => {
+  const warningsFn = plugin.warnings;
+  if (!warningsFn) return [];
+  try {
+    const raw = warningsFn(config as never);
+    return raw.map((warning) =>
+      typeof warning === "string" ? { pluginKey: plugin.id, message: warning } : warning,
+    );
+  } catch (error) {
+    return [
+      {
+        pluginKey: plugin.id,
+        message: `Plugin warnings check failed: ${error instanceof Error ? error.message : String(error)}`,
+      },
+    ];
+  }
+};
 
 export class PluginRegistryTag extends Context.Service<PluginRegistryTag, PluginRegistry>()(
   "PluginRegistry",
@@ -313,6 +341,10 @@ export const PluginLoaderServiceDefault = Layer.effect(
             config: { variables: _variables, secrets: hydratedConfig.secrets },
             effectContext,
             scope,
+            warnings: collectPluginWarnings(plugin, {
+              variables: _variables,
+              secrets: hydratedConfig.secrets,
+            }),
           } satisfies InitializedPlugin<T>;
         }),
     };

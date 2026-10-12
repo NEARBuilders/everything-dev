@@ -131,6 +131,7 @@ export const createStartServer = (onReady?: () => void) =>
           ssr: compositionHealth,
           ...(plugins.status.error ? { error: plugins.status.error } : {}),
           ...(plugins.status.failures.length > 0 ? { failures: plugins.status.failures } : {}),
+          ...(plugins.status.warnings.length > 0 ? { warnings: plugins.status.warnings } : {}),
         },
         compositionHealth.status === "failed" ? 503 : 200,
       );

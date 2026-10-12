@@ -94,6 +94,7 @@ export function getHealthStatus(plugins: PluginResult, loadingState: HealthLoadi
       ...(plugins.status.error ? { error: plugins.status.error } : {}),
       ...(plugins.status.errorDetails ? { errorDetails: plugins.status.errorDetails } : {}),
       ...(plugins.status.failures.length > 0 ? { failures: plugins.status.failures } : {}),
+      ...(plugins.status.warnings.length > 0 ? { warnings: plugins.status.warnings } : {}),
     },
     memory: getMemorySnapshot(),
     uptime: elapsed,

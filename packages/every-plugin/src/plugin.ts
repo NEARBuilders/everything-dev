@@ -5,6 +5,7 @@ import type { ContractedRouter, Implementer } from "@orpc/server";
 import { implement } from "@orpc/server";
 import type { Scope } from "effect";
 import { Context, Effect, Layer } from "effect";
+import type { PluginWarningInfo } from "./runtime/errors";
 import { type PluginRuntimeError, toPluginRuntimeError } from "./runtime/errors";
 
 type ContextOutput<T> = T extends AnySchema ? InferSchemaOutput<T> : Record<string, never>;
@@ -19,10 +20,19 @@ export type PluginConfigFor<
   context: TRequestContext;
 };
 
-type PluginInitializeInput<V extends AnySchema, S extends AnySchema> = {
+export type PluginInitializeInput<V extends AnySchema, S extends AnySchema> = {
   variables: InferSchemaOutput<V>;
   secrets: InferSchemaOutput<S>;
 };
+
+/**
+ * A plugin's own config-derived warnings, evaluated once with the validated
+ * config after initialization. Declaring `warnings` opts the plugin out of
+ * the loader's default missing-secret warning — these messages replace it.
+ */
+export type PluginWarningsFn<V extends AnySchema, S extends AnySchema> = (
+  config: PluginInitializeInput<V, S>,
+) => PluginWarningInfo[] | string[];
 
 export class PluginIdTag extends Context.Service<PluginIdTag, string>()("PluginId") {}
 
@@ -50,6 +60,13 @@ type PluginDefinition<
    * module statically.
    */
   servicesTag?: Context.Key<any, any>;
+  /**
+   * Optional warnings function evaluated once with the validated config after
+   * initialization. Returns structured non-fatal warnings (e.g. an optional
+   * secret was not set, so the feature depending on it is disabled).
+   * Declaring it opts out of the loader's default missing-secret warning.
+   */
+  warnings?: PluginWarningsFn<V, S>;
   /**
    * Initialize the plugin by returning an Effect `Layer`.
    *
@@ -107,6 +124,7 @@ export interface Plugin<
   readonly contract: TContract;
   readonly configSchema: PluginConfigFor<TVariables, TSecrets, TRequestContext>;
   readonly servicesTag?: Context.Key<any, any>;
+  readonly warnings?: PluginWarningsFn<TVariables, TSecrets>;
 
   initialize(
     config: PluginInitializeInput<TVariables, TSecrets>,
@@ -156,6 +174,7 @@ export const createPlugin: CreatePluginFn = function createPlugin<
     readonly contract = config.contract;
     readonly configSchema = configSchema;
     readonly servicesTag = config.servicesTag;
+    readonly warnings = config.warnings;
 
     initialize(
       pluginConfig: PluginInitializeInput<V, S>,

@@ -25,6 +25,7 @@ import { createOrganizationMembershipPolicy } from "./organization-membership-po
 import { OrphanSweepLive } from "./orphan-sweep";
 import { AuthServicesTag } from "./service-types";
 import { toError } from "./utils";
+import { socialProviderWarnings } from "./warnings";
 
 export default createPlugin.withPlugins<PluginsClient>()({
   variables: authVariablesSchema,
@@ -38,6 +39,8 @@ export default createPlugin.withPlugins<PluginsClient>()({
   contract,
 
   servicesTag: AuthServicesTag,
+
+  warnings: socialProviderWarnings,
 
   initialize: (config) =>
     Effect.gen(function* () {
