@@ -1,5 +1,19 @@
 # host
 
+## 2.0.0-rc.1
+
+### Patch Changes
+
+- 144a2d1: Auth origin diagnostics and CORS wildcard support.
+
+  - **False-positive origin warning fixed**: the boot warning "CORS_ORIGIN does not include the host origin" no longer fires when the host origin is already trusted via the Better Auth `baseUrl` (its trusted set always includes the baseURL) or via a wildcard `CORS_ORIGIN` entry. The check now matches origins with Better Auth's pattern semantics (`https://*.example.com` matches subdomains, not the apex), and the fix hint is context-aware — dev boots suggest `bos dev` regeneration, production boots suggest updating the deployment env.
+  - **CORS middleware wildcard-aware**: the Hono CORS allow-list in the host now matches `CORS_ORIGIN` entries as origin patterns instead of literal strings, so wildcard entries actually echo subdomain origins (previously they only passed through the blanket `https://` fallback).
+  - New `hostOriginCovered` / `originMatches` utilities, unit-tested against glob semantics (subdomain match, apex non-match, fail-closed on unusable input).
+
+- 0a0a61b: Silence the `vm.USE_MAIN_CONTEXT_DEFAULT_LOADER` experimental warning in the host process. The warning fires (with a large eval'd webpack stack) whenever the federation runtime evaluates a plugin remote whose bundled `@better-auth/core` lazily imports `node:async_hooks` from a runtime `import()`. The host now installs a `process.on("warning")` filter at boot that drops this known-benign warning and re-emits every other warning (name + message + stack) since the listener disables Node's default warning printing.
+- Updated dependencies [bc2a64a]
+  - every-plugin@3.0.0-rc.2
+
 ## 2.0.0-rc.0
 
 ### Major Changes

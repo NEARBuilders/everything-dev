@@ -1,5 +1,18 @@
 # everything-dev
 
+## 2.0.0-rc.3
+
+### Minor Changes
+
+- bc2a64a: Add a structured, non-fatal plugin warnings channel. Plugins can declare a `warnings(config)` function on their definition (evaluated once with the validated config; declaring it opts out of the loader's default missing-secret warning), and warnings are surfaced through `InitializedPlugin.warnings`, the host's `PluginStatus.warnings`, `GET /health` and `GET /api/_health`, and consolidated `[Plugins][<key>] ⚠` log lines. The host now emits a default warning when a plugin's declared secrets resolve to nothing (optional secrets were previously silent). The auth plugin omits social providers with missing credentials — better-auth's misleading "Social provider X is missing clientId or clientSecret" boot warning is replaced with per-provider warnings naming the exact variable path and secret key (e.g. `GitHub social sign-in is disabled — GITHUB_CLIENT_SECRET is not set`).
+- 2d7a779: Push a floating `:rc` image tag on every prerelease deploy (npm's `rc` dist-tag mirror for the Docker image — `:latest` keeps being held so stable deployments are untouched), and make the outdated-packages check dist-tag-aware: prerelease installs now compare against the `rc` dist-tag instead of stale `latest`, so the banner no longer shows misleading "downgrade" arrows while the workspace is on the rc train.
+
+### Patch Changes
+
+- 56cba00: DB driver treats Railway's public proxy (`*.rlwy.net`) like its internal counterpart for TLS: the Postgres behind it presents a self-signed certificate chain no client CA bundle can verify, so bare URLs now default to encrypted-unverified TLS instead of failing at plugin boot with `self-signed certificate in certificate chain`. Explicit `verify-ca`/`verify-full` and `DB_SSL_REJECT_UNAUTHORIZED` still force verification, and `bos start`/`bos dev` now warn at boot when a `*_DATABASE_URL` points at the public proxy, suggesting the private `*.railway.internal` URL.
+- Updated dependencies [bc2a64a]
+  - every-plugin@3.0.0-rc.2
+
 ## 2.0.0-rc.2
 
 ### Minor Changes
