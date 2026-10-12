@@ -1,4 +1,8 @@
-# syntax=docker/dockerfile:1.7
+# No `# syntax=` directive: BuildKit then uses its built-in dockerfile
+# frontend, so no frontend image is pulled from Docker Hub at build start —
+# the pull is rate-limited (auth.docker.io 504s) and public.ecr.aws does not
+# mirror docker/dockerfile. The only syntax-gated feature used below is
+# RUN --mount (frontend 1.2+), far older than any bundled frontend.
 
 FROM public.ecr.aws/docker/library/node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS builder
 WORKDIR /app

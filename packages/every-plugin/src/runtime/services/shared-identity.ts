@@ -19,7 +19,7 @@ function manifestUrl(remoteUrl: string): string {
 
 function normalizeBaseUrl(remoteUrl: string): string {
   const withoutHash = remoteUrl.split("#")[0] ?? remoteUrl;
-  return withoutHash.replace(/\/(mf-manifest\.json|remoteEntry\.js)$/i, "");
+  return withoutHash.replace(/\/(mf-manifest\.json|remoteEntry(?:\.[^/]+)?\.js)$/i, "");
 }
 
 export function compareSharedIdentity(
