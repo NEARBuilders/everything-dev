@@ -3,13 +3,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { cacheControlOf } from "every-plugin/build/artifact-names";
-import { bundleUrlToStagedPath } from "./bundle-path";
 import {
   bundleCachePath,
   bundleCacheRoot,
   readBundleCache,
   writeBundleCache,
 } from "./bundle-cache";
+import { bundleUrlToStagedPath } from "./bundle-path";
 import { isAppDescriptorPath } from "./config";
 
 /**
