@@ -3,4 +3,4 @@
 "everything-dev": patch
 ---
 
-Add transport-neutral module endpoint and client entry types to every-plugin, and reuse the shared client entry type in generated contract files.
+Add transport-neutral module endpoint and client entry types, a shared RPC client helper, and a reusable direct module host helper to every-plugin. Generated contract files now reuse the shared client entry type.

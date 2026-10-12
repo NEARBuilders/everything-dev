@@ -10,6 +10,7 @@ import { getPluginInfo, loadDevConfig } from "../build/rspack/utils";
 import { ensureGeneratedUiRsbuildConfig, pluginLayoutKey } from "../build/ui/generated-config";
 import { PLUGIN_ERROR_STATUS_MAP } from "../errors";
 import { loadRemoteWithRetry } from "../remote-entry";
+import { startDirectModuleHost } from "./host";
 import { killChildEscalating, watchParentDeath } from "./watch-kill";
 
 const corsHeaders = {
@@ -81,12 +82,6 @@ const loadPluginWithRetry = (
     }),
   );
 
-const sendJson = (res: http.ServerResponse, status: number, body: unknown) => {
-  res.statusCode = status;
-  res.setHeader("content-type", "application/json; charset=utf-8");
-  res.end(JSON.stringify(body));
-};
-
 const sendText = (res: http.ServerResponse, status: number, text: string) => {
   res.statusCode = status;
   res.setHeader("content-type", "text/plain; charset=utf-8");
@@ -125,7 +120,6 @@ export async function startPluginDevServer(
   const compositionKey = pluginLayoutKey(cwd) ?? pluginId;
   const port = options.port ?? (Number(process.env.PORT) || devConfig?.port || 3999);
   const rpcPrefix = normalizePrefix(devConfig?.prefix);
-  const rpcBase = `/api/rpc${rpcPrefix}`;
 
   const distDir = path.join(cwd, "dist");
   const serveStatic = sirv(distDir, { dev: true });
@@ -208,134 +202,19 @@ export async function startPluginDevServer(
   const handlers: { rpc: any; api: any } = { rpc: null, api: null };
   const effectContextHolder: { context: unknown } = { context: null };
   let runtime: { shutdown: () => Promise<void> } | null = null;
-
-  const pathnameOf = (req: http.IncomingMessage): string =>
-    ((req.url ?? "/").split("?")[0] ?? "/").replace(/\/+$/, "") || "/";
-
-  const buildDevContext = (_req: http.IncomingMessage, webRequest: Request) => {
-    const rawClone =
-      webRequest.method === "GET" || webRequest.method === "HEAD" ? null : webRequest.clone();
-    let cachedRawBody: string | null = null;
-    return {
-      reqHeaders: webRequest.headers,
-      "effect/context": effectContextHolder.context,
-      getRawBody: async (): Promise<string> => {
-        if (cachedRawBody !== null) return cachedRawBody;
-        if (!rawClone) {
-          cachedRawBody = "";
-          return cachedRawBody;
-        }
-        cachedRawBody = await rawClone.text();
-        return cachedRawBody;
-      },
-    };
-  };
-
-  const toWebRequest = (req: http.IncomingMessage): Request => {
-    const url = `http://localhost:${port}${req.url}`;
-    return new Request(url, {
-      method: req.method,
-      headers: req.headers,
-      body: req.method !== "GET" && req.method !== "HEAD" ? req : undefined,
-      duplex: req.method !== "GET" && req.method !== "HEAD" ? "half" : undefined,
-    } as RequestInit);
-  };
-
-  const handleOrpc = async (
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
-    handler: any,
-    prefix: string,
-    errorLabel: string,
-  ) => {
-    try {
-      const webRequest = toWebRequest(req);
-      const result = await handler.handle(webRequest, {
-        prefix,
-        context: buildDevContext(req, webRequest),
-      });
-
-      if (result.response) {
-        res.statusCode = result.response.status;
-        result.response.headers.forEach((value: string, key: string) => {
-          res.setHeader(key, value);
-        });
-        const text = await result.response.text();
-        if (!res.getHeader("content-length")) {
-          res.setHeader("content-length", Buffer.byteLength(text).toString());
-        }
-        res.end(text);
-      } else {
-        sendText(res, 404, "Not Found");
-      }
-    } catch (error) {
-      console.error(`${errorLabel} error:`, error);
-      sendJson(res, 500, { error: (error as Error).message });
-    }
-  };
-
-  const server = http.createServer((req, res) => {
-    applyCorsHeaders(res);
-    const pathname = pathnameOf(req);
-
-    if (req.method === "OPTIONS") {
-      res.statusCode = 200;
-      res.end();
-      return;
-    }
-
-    if (pathname === "/" && (req.method === "GET" || req.method === "HEAD")) {
-      sendJson(res, 200, {
-        ok: true,
-        plugin: pluginInfo.normalizedName,
-        version: pluginInfo.version,
-        status: handlers.rpc ? "ready" : "loading",
-        endpoints: {
-          health: "/",
-          docs: "/api",
-          rpc: rpcBase,
-        },
-      });
-      return;
-    }
-
-    if (pathname === "/health" && (req.method === "GET" || req.method === "HEAD")) {
-      sendText(res, 200, "OK");
-      return;
-    }
-
-    if (pathname.startsWith(`${rpcBase}/`)) {
-      if (!handlers.rpc) {
-        sendJson(res, 503, { error: "Plugin still loading..." });
-        return;
-      }
-      handleOrpc(req, res, handlers.rpc, rpcBase, "RPC").catch(() => {});
-      return;
-    }
-
-    if (pathname === "/api" || pathname.startsWith("/api/")) {
-      if (!handlers.api) {
-        sendJson(res, 503, { error: "Plugin still loading..." });
-        return;
-      }
-      handleOrpc(req, res, handlers.api, "/api", "OpenAPI").catch(() => {});
-      return;
-    }
-
-    serveStatic(req, res, () => {
-      sendText(res, 404, "Not Found");
-    });
+  const host = await startDirectModuleHost({
+    name: pluginInfo.normalizedName,
+    version: pluginInfo.version,
+    handlers,
+    effectContext: () => effectContextHolder.context,
+    port,
+    staticHandler: serveStatic,
   });
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, () => resolve());
-  });
-
-  console.log(`🚀 ${pluginInfo.name} dev server listening on port ${port}`);
-  console.log(`├─ 📡 RPC:    http://localhost:${port}/api/rpc${rpcPrefix}`);
-  console.log(`├─ 📖 Docs:   http://localhost:${port}/api`);
-  console.log(`└─ 💚 Health: http://localhost:${port}/`);
+  console.log(`🚀 ${pluginInfo.name} dev server listening on port ${host.port}`);
+  console.log(`├─ 📡 RPC:    http://localhost:${host.port}/api/rpc${rpcPrefix}`);
+  console.log(`├─ 📖 Docs:   http://localhost:${host.port}/api`);
+  console.log(`└─ 💚 Health: http://localhost:${host.port}/`);
 
   const load = async () => {
     try {
@@ -360,7 +239,7 @@ export async function startPluginDevServer(
 
       const registry: Record<string, { remote: string }> = {
         [pluginId]: {
-          remote: `http://localhost:${port}/${DEV_ENTRY_FILENAME}`,
+          remote: `http://localhost:${host.port}/${DEV_ENTRY_FILENAME}`,
         },
         ...siblings,
       };
@@ -440,8 +319,8 @@ export async function startPluginDevServer(
     if (uiStaticServer) {
       await new Promise<void>((resolve) => uiStaticServer.close(() => resolve()));
     }
+    await host.close();
     if (runtime) await runtime.shutdown().catch(() => {});
-    await new Promise<void>((resolve) => server.close(() => resolve()));
   };
 
   process.once("SIGINT", async () => {

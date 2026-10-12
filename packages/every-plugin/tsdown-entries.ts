@@ -21,6 +21,7 @@ export const entries: EntrySpec[] = [
   { entry: "src/ui/manifest/generator.ts", export: "./ui/manifest-generator" },
   { entry: "src/ui/manifest/contract.ts", export: "./ui/manifest/contract" },
   { entry: "src/build/ui/index.ts", export: "./build/ui" },
+  { entry: "src/dev/host.ts", export: "./dev-host", require: false },
   { entry: "src/dev/serve.ts", export: "./dev-serve", require: false },
   { entry: "src/cli.ts", export: null },
 ];

@@ -204,6 +204,18 @@
       "import": "./dist/build/ui/index.mjs",
       "require": "./dist/build/ui/index.cjs"
     },
+    "./dev-host": {
+      "bun": {
+        "types": "./src/dev/host.ts",
+        "import": "./src/dev/host.ts"
+      },
+      "development": {
+        "types": "./src/dev/host.ts",
+        "import": "./src/dev/host.ts"
+      },
+      "types": "./dist/dev/host.d.mts",
+      "import": "./dist/dev/host.mjs"
+    },
     "./dev-serve": {
       "bun": {
         "types": "./src/dev/serve.ts",
