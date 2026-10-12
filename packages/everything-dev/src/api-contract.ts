@@ -486,11 +486,7 @@ function writePluginClientGen(opts: {
     lines.push(`import type { ContractType as ${source.importName} } from "${importPath}";`);
   }
 
-  lines.push('import type { RouterContractClient, RouterContract } from "@orpc/contract";');
-  lines.push('import type { ContractedRouter } from "@orpc/server";');
-  lines.push(
-    "type PluginClientEntry<C extends RouterContract> = {\n  client: (context?: Record<string, unknown>) => RouterContractClient<C>;\n  router: ContractedRouter<C, any>;\n};",
-  );
+  lines.push('import type { PluginClientEntry } from "every-plugin";');
   lines.push("");
 
   if (opts.depSources.length === 0) {
@@ -589,13 +585,8 @@ export function writeGeneratedFiles(opts: {
       );
     }
 
-    pluginsClientLines.push(
-      'import type { RouterContractClient, RouterContract } from "@orpc/contract";',
-    );
-    pluginsClientLines.push('import type { ContractedRouter } from "@orpc/server";');
-    pluginsClientLines.push(
-      "type PluginClientEntry<C extends RouterContract> = {\n  client: (context?: Record<string, unknown>) => RouterContractClient<C>;\n  router: ContractedRouter<C, any>;\n};",
-    );
+    pluginsClientLines.push('import type { RouterContract } from "@orpc/contract";');
+    pluginsClientLines.push('import type { PluginClientEntry } from "every-plugin";');
     pluginsClientLines.push("");
 
     if (apiDepSources.length === 0 && unresolvedDepKeys.length === 0) {

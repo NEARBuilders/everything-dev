@@ -24,6 +24,24 @@ import type { PluginWarningInfo } from "./runtime/errors";
 // biome-ignore lint/suspicious/noEmptyInterface: required for module augmentation pattern
 export interface RegisteredPlugins {}
 
+export type ModuleTransport = "inproc" | "rpc" | "mf";
+
+export type ModuleSurface = "api" | "ui" | "jobs";
+
+export interface ModuleEndpoint {
+  readonly transport: ModuleTransport;
+  readonly surface?: ModuleSurface;
+  readonly url: string;
+  readonly path?: `/${string}`;
+  readonly manifest?: string;
+}
+
+export type PluginTransport = ModuleTransport;
+
+export type PluginSurface = ModuleSurface;
+
+export type PluginEndpoint = ModuleEndpoint;
+
 /**
  * Base type for any plugin instance.
  */
@@ -46,8 +64,14 @@ export type AnyPluginConstructor = {
  * Registry entry that supports both direct module imports and remote URLs
  */
 export type PluginRegistryEntry =
-  | { module: AnyPluginConstructor; remote?: string; version?: string; description?: string }
-  | { remote: string; version?: string; description?: string };
+  | {
+      module: AnyPluginConstructor;
+      remote?: string;
+      endpoint?: PluginEndpoint;
+      version?: string;
+      description?: string;
+    }
+  | { remote: string; endpoint?: PluginEndpoint; version?: string; description?: string };
 
 /**
  * Extract plugin constructor type from registry entry
@@ -116,7 +140,16 @@ export type PluginClientType<T> = RouterClient<PluginRouterType<T>>;
 export type PluginServicesEntry<T = any> = {
   client: (context?: PluginContextInput<T>) => PluginClientType<T>;
   router: PluginRouterType<T>;
+  endpoint?: PluginEndpoint;
 };
+
+export type ModuleClientEntry<C extends AnyContractRouter = AnyContractRouter> = {
+  client: (context?: Record<string, unknown>) => RouterClient<ContractedRouter<C, any>>;
+  router?: ContractedRouter<C, any>;
+  endpoint?: PluginEndpoint;
+};
+
+export type PluginClientEntry<C extends AnyContractRouter = AnyContractRouter> = ModuleClientEntry<C>;
 
 /**
  * Extract plugin type from registered plugins by key
