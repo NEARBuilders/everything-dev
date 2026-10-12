@@ -1,5 +1,25 @@
 # everything-dev
 
+## 2.0.0-rc.4
+
+### Minor Changes
+
+- d7977c8: `bos deploy` (and any publish that uploads bundles) now fails fast in preflight when the workspace's framework packages (`everything-dev`, `every-plugin`, `better-near-auth` — when present as workspace sources) are not published to npm: the deploy train must not ship bundles ahead of the registry, since child scaffolds and the update check read those versions. A 404 from npm blocks the deploy with the exact unpublished versions and the re-run-Release instruction; an unreachable or erroring registry only warns and continues.
+
+### Patch Changes
+
+- 061a104: Clear every `pnpm run lint` warning (75 → 0) and one broken host SSR assertion.
+
+  - **oxlint cleanups**: single-element `Promise.all`, useless `?? {}` fallbacks and spreads, interface method signatures converted to property syntax (`unbound-method`), `await` of synchronous functions removed, template-literal `unknown` interpolations stringified, explicit sort comparators, a `child.pid` guard, and `await act(async …)` in fake-timer tests.
+  - **Effect v4 hygiene**: `return yield* new DatabaseError(...)` (yieldable errors), `loadMigrations` exported as an Effect value, `Effect.tryPromise` + `orElseSucceed` instead of `try/catch` in the MF service, `Effect.mapError` instead of `catch`+`fail` in the template plugin, and `Data.TaggedError` for `DepsBuildFailure`, `WorkspaceRefreshError`, `TransientStorageError`, `StorageHttpError`, the template service's `TemplateFetchError`, and the SSR-swap test loader errors (constructor signatures moved to args objects).
+  - **UI**: safe-area insets moved from inline `style` to the `safe-area-inset` Tailwind `@utility`; better-auth's `any`-collapsed `Organization`/`Passkey` inference replaced with explicit interfaces and consumers now use the API-contract `Organization` type; the unused `activeOrg` prop removed from `UserNavMenuContent`.
+  - **Tests**: reworked the `_template` service test helpers to typed error channels (no `as Effect.Effect<A, never, never>` narrowing), and fixed `ssr-nonce-liveness`'s flip assertion which compared the flipped URL against itself (now guards against the previous deployment's URL leaking).
+
+- 5de3010: `pnpm run release` now builds publishable workspaces in dependency order (topological sort of the workspace dependency graph, deterministic tie-break, loud failure on cycles) instead of glob order. Glob order built `everything-dev` before `every-plugin`/`better-near-auth` had emitted their dist types, so `assertWorkspaceDtsDependencies` failed every publish attempt on a clean checkout — releases could never catch up with the workspace and the npm `rc` dist-tag drifted behind deployed images.
+- 96dd346: The update check is now semver-ordered instead of equality-based: `bos dev`/`bos start` warn about outdated packages only when npm offers a version newer than the installed one. An install that is ahead of npm (an image baked from an unpublished workspace version) no longer prints an "Outdated packages" banner suggesting a downgrade. Unparseable versions also stay silent.
+- Updated dependencies [061a104]
+  - every-plugin@3.0.0-rc.3
+
 ## 2.0.0-rc.3
 
 ### Minor Changes
