@@ -80,6 +80,21 @@ const isLocalDbUrl = (url: string): boolean =>
   url.includes(".railway.internal");
 
 /**
+ * Railway's public proxy (`*.rlwy.net`) fronts the same Postgres as the
+ * internal hostname and presents the same self-signed certificate chain no
+ * client CA bundle can verify — but unlike `*.railway.internal` it crosses
+ * the public internet, so TLS must stay on (encrypted, unverified) rather
+ * than being dropped entirely.
+ */
+export function isRailwayPublicProxyUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname.toLowerCase().endsWith(".rlwy.net");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * TLS behavior for a non-local Postgres URL, following libpq `sslmode`
  * semantics from the connection string itself:
  *
@@ -89,7 +104,10 @@ const isLocalDbUrl = (url: string): boolean =>
  *   providers (Railway, Neon, Supabase poolers…) hand out `sslmode=require`
  *   URLs backed by certificates no client CA bundle can verify.
  * - `verify-ca`/`verify-full` → TLS + certificate verification.
- * - absent → verification ON (secure default for bare URLs).
+ * - absent → verification ON (secure default for bare URLs), EXCEPT Railway's
+ *   public proxy (`*.rlwy.net`), which fronts the same self-signed Postgres
+ *   as `*.railway.internal` — those URLs default to encrypted-unverified
+ *   TLS. `DB_SSL_REJECT_UNAUTHORIZED` still overrides.
  *
  * `DB_SSL_REJECT_UNAUTHORIZED` stays as an explicit operator override: it
  * wins over whatever the URL says (`"false"` disables verification, `"true"`
@@ -119,6 +137,7 @@ export function resolvePoolSsl(url: string): false | { rejectUnauthorized: boole
     case "require":
       return { rejectUnauthorized: false };
     default:
+      if (isRailwayPublicProxyUrl(url)) return { rejectUnauthorized: false };
       return { rejectUnauthorized: true };
   }
 }

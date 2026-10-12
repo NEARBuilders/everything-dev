@@ -60,6 +60,44 @@ describe("resolvePoolSsl", () => {
     });
   });
 
+  it("defaults Railway public proxy urls to encrypted-unverified TLS", () => {
+    withEnv(undefined, () => {
+      expect(resolvePoolSsl("postgres://user:pw@zephyr.proxy.rlwy.net:5432/railway")).toEqual({
+        rejectUnauthorized: false,
+      });
+      expect(resolvePoolSsl("postgres://user:pw@proxy.rlwy.net:6543/db?sslmode=require")).toEqual({
+        rejectUnauthorized: false,
+      });
+    });
+  });
+
+  it("explicit strict sslmode still verifies Railway public proxy urls", () => {
+    withEnv(undefined, () => {
+      expect(
+        resolvePoolSsl("postgres://user:pw@zephyr.proxy.rlwy.net:5432/railway?sslmode=verify-full"),
+      ).toEqual({ rejectUnauthorized: true });
+    });
+  });
+
+  it("DB_SSL_REJECT_UNAUTHORIZED=true forces verification on Railway public proxy urls", () => {
+    withEnv("true", () => {
+      expect(resolvePoolSsl("postgres://user:pw@zephyr.proxy.rlwy.net:5432/railway")).toEqual({
+        rejectUnauthorized: true,
+      });
+    });
+  });
+
+  it("does not exempt lookalike hosts", () => {
+    withEnv(undefined, () => {
+      expect(resolvePoolSsl("postgres://user:pw@rlwy.net.evil.example.com:5432/db")).toEqual({
+        rejectUnauthorized: true,
+      });
+      expect(resolvePoolSsl("postgres://user:pw@notrlwy.net:5432/db")).toEqual({
+        rejectUnauthorized: true,
+      });
+    });
+  });
+
   it("treats an unparseable url as bare (verify on)", () => {
     withEnv(undefined, () => {
       expect(resolvePoolSsl("not a url at all")).toEqual({ rejectUnauthorized: true });

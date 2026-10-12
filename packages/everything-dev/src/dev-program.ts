@@ -9,6 +9,7 @@ import {
   resolveConfigComposableEntries,
 } from "./config";
 import type { DevOptions, PhaseTiming, StartOptions } from "./contract";
+import { isRailwayPublicProxyUrl } from "./db/driver";
 import { isDebug } from "./dev-log-pipeline";
 import type { DevSessionData, StartSummary } from "./dev-session-data";
 import {
@@ -536,6 +537,18 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
 
     if (missingSecrets.length > 0) {
       warnings.push(`Missing ${missingSecrets.length} secret(s): ${missingSecrets.join(", ")}`);
+    }
+
+    for (const [secret, value] of Object.entries(processEnvRecord())) {
+      if (!value || !secret.endsWith("_DATABASE_URL")) continue;
+      if (isRailwayPublicProxyUrl(value)) {
+        const host = new URL(value).hostname;
+        warnings.push(
+          `${secret} points at Railway's public proxy (${host}) — its TLS certificate is self-signed, ` +
+            `so connections use unverified TLS. Prefer the private *.railway.internal URL when the ` +
+            `database runs in the same Railway project.`,
+        );
+      }
     }
 
     const stagingEnvVars: Record<string, string> = isStaging
