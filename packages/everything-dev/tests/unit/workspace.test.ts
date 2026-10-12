@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildLayers,
   clearWorkspaceRootCache,
   DepsBuildFailure,
   ensureFreshDeps,
@@ -158,6 +159,44 @@ describe("findWorkspaceRoot", () => {
   });
 });
 
+describe("buildLayers", () => {
+  const member = (name: string, localDeps: readonly string[]): WorkspaceMember => ({
+    name,
+    dir: `/x/${name}`,
+    localDeps,
+  });
+
+  it("orders a chain one layer at a time, dependencies first", () => {
+    const layers = buildLayers([
+      member("everything-dev", ["better-near-auth", "every-plugin"]),
+      member("better-near-auth", []),
+      member("every-plugin", []),
+    ]);
+
+    expect(layers.map((layer) => layer.map((m) => m.name).sort())).toEqual([
+      ["better-near-auth", "every-plugin"],
+      ["everything-dev"],
+    ]);
+  });
+
+  it("groups independent members into the same layer", () => {
+    const layers = buildLayers([
+      member("base", []),
+      member("left", ["base"]),
+      member("right", ["base"]),
+    ]);
+
+    expect(layers.map((layer) => layer.map((m) => m.name).sort())).toEqual([
+      ["base"],
+      ["left", "right"],
+    ]);
+  });
+
+  it("throws on a dependency cycle", () => {
+    expect(() => buildLayers([member("a", ["b"]), member("b", ["a"])])).toThrowError(/cycle/);
+  });
+});
+
 describe("ensureFreshDeps", () => {
   function writeBuildFixture(root: string, name: string, deps: Record<string, string>): string {
     const memberDir = join(root, "pkgs", name);
@@ -277,6 +316,45 @@ describe("ensureFreshDeps", () => {
     expect(failure.failures.map((entry) => entry.member.name)).toEqual(["broken"]);
     expect(failure.failures[0].exitCode).toBe(3);
     expect(failure.message).toContain("broken");
+  });
+
+  it("builds a stale closure in dependency order — deps finish before dependents start", async () => {
+    const root = makeRoot({});
+    writeFileSync(
+      join(root, "package.json"),
+      `${JSON.stringify({ workspaces: ["pkgs/*", "app"] }, null, 2)}\n`,
+    );
+    const orderLog = join(root, "build-order.log");
+    const writeOrdered = (name: string, deps: Record<string, string>): string => {
+      const memberDir = join(root, "pkgs", name);
+      mkdirSync(memberDir, { recursive: true });
+      writeFileSync(
+        join(memberDir, "package.json"),
+        `${JSON.stringify(
+          {
+            name,
+            module: "dist/index.mjs",
+            scripts: { build: `printf '${name}\\n' >> ${JSON.stringify(orderLog)}` },
+            dependencies: deps,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      return memberDir;
+    };
+    const app = join(root, "app");
+    mkdirSync(app, { recursive: true });
+    writeFileSync(
+      join(app, "package.json"),
+      `${JSON.stringify({ name: "app", dependencies: { mid: "*" } })}\n`,
+    );
+    writeOrdered("mid", { base: "*" });
+    writeOrdered("base", {});
+
+    await ensureFreshDeps(root, [app]);
+
+    expect(readFileSync(orderLog, "utf-8").trim().split("\n")).toEqual(["base", "mid"]);
   });
 
   it("is a no-op when the start dir belongs to no workspace", async () => {

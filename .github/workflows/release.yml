@@ -18,6 +18,7 @@ permissions:
   contents: write
   id-token: write
   pull-requests: write
+  actions: write
 
 jobs:
   release:
@@ -52,6 +53,7 @@ jobs:
       # workspace itself before staging and publishing.
 
       - name: Create Release PR or Publish to npm
+        id: changesets
         uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b # v1.8.0
         with:
           version: pnpm run version
@@ -61,6 +63,18 @@ jobs:
           createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+      # Version bumps structurally outdate the skills' library_version
+      # markers, and the release event these packages create with
+      # GITHUB_TOKEN is swallowed by GitHub's event-recursion guard — so
+      # check-skills' review job would never fire on its own. Dispatch it
+      # explicitly after a successful publish (workflow_dispatch is the
+      # event type that DOES run when triggered with GITHUB_TOKEN).
+      - name: Dispatch skill drift review
+        if: steps.changesets.outputs.published == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: gh workflow run check-skills.yml --ref main
 
       # npm's OIDC helper never throws — when the registry rejects the token
       # exchange (e.g. trusted-publisher mismatch or missing "npm publish"

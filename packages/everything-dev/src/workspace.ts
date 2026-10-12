@@ -228,9 +228,14 @@ export async function ensureFreshDeps(
   const rebuilt = closure.filter((_, index) => judgements[index]);
   const fresh = closure.filter((_, index) => !judgements[index]);
 
-  if (rebuilt.length > 0) {
+  const failures: DepsBuildFailureEntry[] = [];
+  // Layered order: a member's dist must exist before its dependents build —
+  // dts emit resolves types through dependency dists, so building the whole
+  // stale closure in parallel races (everything-dev dts collapsing to `any`
+  // when its deps were still writing dists was shipped this way in rc.1).
+  for (const layer of buildLayers(rebuilt)) {
     const results = await Promise.allSettled(
-      rebuilt.map((member) =>
+      layer.map((member) =>
         run("pnpm", ["run", "build"], {
           cwd: member.dir,
           capture: true,
@@ -238,26 +243,48 @@ export async function ensureFreshDeps(
         }),
       ),
     );
-    const failures = results.flatMap((result, index) => {
-      const value = result.status === "fulfilled" ? result.value : undefined;
-      if (value && value.exitCode === 0) return [];
-      const output = value
-        ? `${value.stdout}\n${value.stderr}`
-        : result.status === "rejected"
-          ? String(result.reason)
-          : "";
-      return [
-        {
-          member: rebuilt[index],
-          exitCode: value ? (value.exitCode ?? 1) : 1,
-          output,
-        },
-      ];
-    });
-    if (failures.length > 0) throw new DepsBuildFailure(failures);
+    failures.push(
+      ...results.flatMap((result, index) => {
+        const value = result.status === "fulfilled" ? result.value : undefined;
+        if (value && value.exitCode === 0) return [];
+        const output = value
+          ? `${value.stdout}\n${value.stderr}`
+          : result.status === "rejected"
+            ? String(result.reason)
+            : "";
+        return [
+          {
+            member: layer[index],
+            exitCode: value ? (value.exitCode ?? 1) : 1,
+            output,
+          },
+        ];
+      }),
+    );
+    if (failures.length > 0) break;
   }
+  if (failures.length > 0) throw new DepsBuildFailure(failures);
 
   return { rebuilt, fresh };
+}
+
+export function buildLayers(members: readonly WorkspaceMember[]): readonly WorkspaceMember[][] {
+  const byName = new Map(members.map((member) => [member.name, member]));
+  const remaining = new Set(members.map((member) => member.name));
+  const layers: WorkspaceMember[][] = [];
+  while (remaining.size > 0) {
+    const layer = members.filter(
+      (member) =>
+        remaining.has(member.name) &&
+        member.localDeps.every((dep) => !byName.has(dep) || !remaining.has(dep)),
+    );
+    if (layer.length === 0) {
+      throw new Error(`dependency cycle in workspace closure: ${[...remaining].join(", ")}`);
+    }
+    for (const member of layer) remaining.delete(member.name);
+    layers.push(layer);
+  }
+  return layers;
 }
 
 async function isStaleMember(member: WorkspaceMember): Promise<boolean> {

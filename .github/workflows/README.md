@@ -76,16 +76,17 @@ This is the canonical [changesets/action](https://github.com/changesets/changese
 
 **Trigger:** `workflow_run` (CI completed successfully on `main` from a `push` event), or `workflow_dispatch` (guarded to `main`).
 
-**Purpose:** Run the full deployment with one command (`pnpm run bos deploy`): preflight (fails fast on config/signing/storage credentials before any build), staleness-checked prerequisite builds + workspace builds, bundle upload to the R2-backed storage at `cdn.everything.dev`, FastKV publish with read-back confirmation, `runtime`-stage image build pushed to GHCR by SHA + version tags (`latest` held during prereleases), and a pull-only Railway deploy pinned to the pushed digest (generated thin `FROM <image>@sha256:<digest>` Dockerfile — Railway never rebuilds, ADR 0021).
+**Purpose:** Deploy in two jobs, image first. The `image` job builds the `runtime` stage and pushes it to GHCR by SHA + version tags (`latest` held during prereleases) — *before* any config or bundle publish, so a failed image push cannot leave a partially published deploy. The `deploy` job then runs `pnpm run bos deploy`: preflight (fails fast on config/signing/storage credentials before any build), staleness-checked prerequisite builds + workspace builds, bundle upload to the R2-backed storage at `cdn.everything.dev`, FastKV publish with read-back confirmation, and a pull-only Railway deploy pinned to the pre-pushed image digest (handed over as `BOS_IMAGE_DIGEST`; generated thin `FROM <image>@sha256:<digest>` Dockerfile — Railway never rebuilds, ADR 0021).
 
 **Behavior:**
 - A `gate` job first verifies the CI-validated commit is still the tip of `main` — if `main` moved on, this run is skipped and the run queued for the new tip deploys instead
-- Runs `pnpm run bos deploy` — the CLI handles every stage; missing pieces (no `ci.image`, no docker, no `RAILWAY_TOKEN`) degrade gracefully with a notice
+- The `image` job is self-contained (the Dockerfile builds all workspaces from source in-image — no node/pnpm setup); it fails fast and blocks the deploy job when it cannot push the image or capture its digest
+- Runs `pnpm run bos deploy` — the CLI handles every remaining stage; missing pieces (no `ci.image`, no `RAILWAY_TOKEN`) degrade gracefully with a notice
 - Checks out the exact commit CI validated (`github.event.workflow_run.head_sha`)
 - Keeps the bundle compatibility check (`bos mf check`) and the remote smoke test as workflow-level verification
 - Does **not** commit anything back — the runtime fetches the published config from FastKV (`bos start` resolves `BOS_ACCOUNT`/`BOS_GATEWAY`); the authored `bos.app.ts` is the publish *input*, not the deploy output
 
-**Secrets:** `NEAR_PRIVATE_KEY` (FastKV config publish), `BOS_STORAGE_API_KEY` (bundle upload — mint once with `bos login --key`), `RAILWAY_TOKEN` (Railway deploy). GHCR push needs `packages: write`.
+**Secrets:** `NEAR_PRIVATE_KEY` (FastKV config publish), `BOS_STORAGE_API_KEY` (bundle upload — mint once with `bos login --key`), `RAILWAY_TOKEN` (Railway deploy). GHCR push needs `packages: write` (image job only).
 
 **`cancel-in-progress: false`** — interrupting the deploy mid-flight could leave the FastKV config and the live image from different versions. Queued deploys pick up the latest main when they run.
 

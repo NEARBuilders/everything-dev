@@ -73,14 +73,22 @@
       "require": "./dist/bundle-cache.cjs"
     },
     "./fingerprint": {
-      "types": "./src/fingerprint.ts",
-      "import": "./src/fingerprint.ts",
-      "require": "./src/fingerprint.ts"
+      "development": {
+        "types": "./src/fingerprint.ts",
+        "import": "./src/fingerprint.ts"
+      },
+      "types": "./dist/fingerprint.d.mts",
+      "import": "./dist/fingerprint.mjs",
+      "require": "./dist/fingerprint.cjs"
     },
     "./version-manifest-resolve": {
-      "types": "./src/version-manifest-resolve.ts",
-      "import": "./src/version-manifest-resolve.ts",
-      "require": "./src/version-manifest-resolve.ts"
+      "development": {
+        "types": "./src/version-manifest-resolve.ts",
+        "import": "./src/version-manifest-resolve.ts"
+      },
+      "types": "./dist/version-manifest-resolve.d.mts",
+      "import": "./dist/version-manifest-resolve.mjs",
+      "require": "./dist/version-manifest-resolve.cjs"
     },
     "./bundle-fs-resolve": {
       "development": {
@@ -345,8 +353,13 @@
       "require": "./dist/db/index.cjs"
     },
     "./ui/version-check": {
-      "types": "./src/ui/version-check.ts",
-      "import": "./src/ui/version-check.ts"
+      "development": {
+        "types": "./src/ui/version-check.ts",
+        "import": "./src/ui/version-check.ts"
+      },
+      "types": "./dist/ui/version-check.d.mts",
+      "import": "./dist/ui/version-check.mjs",
+      "require": "./dist/ui/version-check.cjs"
     }
   },
   "files": [

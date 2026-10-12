@@ -1,8 +1,58 @@
+import { existsSync, readFileSync } from "node:fs";
 import { chmod, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { defineConfig } from "tsdown";
 
 const SHEBANG = "#!/usr/bin/env node\n";
+
+// The dts emit of src/ui/auth.ts resolves the client-plugin chain through
+// better-near-auth's built dist. When those types are missing (stale or
+// unbuilt dependency), rolldown-plugin-dts silently collapses the whole
+// chain to `any` — shipped verbatim to npm. Guard both ends: the dep types
+// must resolve before the build, and the emitted client factory must not
+// be `any` after it.
+const require = createRequire(import.meta.url);
+
+function declaredTypesPath(packageDir: string, subpath: string): string | null {
+  const manifest = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf-8")) as {
+    exports?: Record<string, unknown>;
+  };
+  const entry = manifest.exports?.[subpath];
+  if (!entry || typeof entry !== "object") return null;
+  const types = (entry as Record<string, unknown>).types;
+  if (typeof types !== "string") return null;
+  const distTypes = join(packageDir, types);
+  return distTypes.startsWith(join(packageDir, "src")) ? null : distTypes;
+}
+
+function workspacePackageDir(name: string): string {
+  try {
+    return join(require.resolve(`${name}/package.json`), "..");
+  } catch {
+    return join(import.meta.dirname, "..", name);
+  }
+}
+
+function assertWorkspaceDtsDependencies() {
+  const packages: Record<string, readonly string[]> = {
+    "every-plugin": ["."],
+    "better-near-auth": [".", "./client"],
+  };
+  for (const [name, subpaths] of Object.entries(packages)) {
+    const packageDir = workspacePackageDir(name);
+    for (const subpath of subpaths) {
+      const typesPath = declaredTypesPath(packageDir, subpath);
+      if (!typesPath || !existsSync(typesPath)) {
+        throw new Error(
+          `dts prerequisite missing: ${name}${subpath === "." ? "" : subpath} has no built ` +
+            `dist types (${typesPath ?? "no non-src types entry"}). Run pnpm --filter ${name} build.`,
+        );
+      }
+    }
+  }
+}
+assertWorkspaceDtsDependencies();
 
 export default defineConfig({
   entry: [
@@ -89,6 +139,13 @@ export default defineConfig({
     ],
   },
   async onSuccess() {
+    const authDts = await readFile(join("dist", "ui", "auth.d.mts"), "utf-8").catch(() => "");
+    if (/declare function createAuthClient\(.*\): any;/.test(authDts)) {
+      throw new Error(
+        "dist/ui/auth.d.mts emitted createAuthClient(): any — the better-auth plugin-chain " +
+          "inference collapsed. Check that better-near-auth's dist types are built and fresh.",
+      );
+    }
     for (const file of ["cli.mjs", "cli.cjs"]) {
       const filepath = join("dist", file);
       try {

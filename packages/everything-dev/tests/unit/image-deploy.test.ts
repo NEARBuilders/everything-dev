@@ -11,6 +11,7 @@ import {
   buildAndPushImage,
   computeImageTags,
   deployImageToRailway,
+  resolveDeployImagePlan,
   resolveImageRef,
 } from "../../src/image-deploy";
 
@@ -46,6 +47,62 @@ describe("resolveImageRef", () => {
   it("returns undefined without a usable repository", () => {
     expect(resolveImageRef({})).toBeUndefined();
     expect(resolveImageRef({ repository: "https://gitlab.com/acme/app" })).toBeUndefined();
+  });
+});
+
+describe("resolveDeployImagePlan", () => {
+  const imageRef = { image: "ghcr.io/acme/app", source: "repository" as const };
+
+  it("uses a pre-pushed digest without requiring docker or a Dockerfile", () => {
+    expect(
+      resolveDeployImagePlan({
+        imageRef,
+        imageDigest: "sha256:abc123",
+        hasDocker: false,
+        hasDockerfile: false,
+      }),
+    ).toEqual({ kind: "prebuilt", image: "ghcr.io/acme/app", digest: "sha256:abc123" });
+  });
+
+  it("skips when no image ref is resolvable", () => {
+    expect(
+      resolveDeployImagePlan({
+        imageRef: undefined,
+        imageDigest: "sha256:abc123",
+        hasDocker: true,
+        hasDockerfile: true,
+      }),
+    ).toEqual({
+      kind: "skip",
+      reason: "set ci.image in bos.config.json (or BOS_IMAGE) to build and push the runtime image",
+    });
+  });
+
+  it("builds locally when docker and the Dockerfile are present", () => {
+    expect(resolveDeployImagePlan({ imageRef, hasDocker: true, hasDockerfile: true })).toEqual({
+      kind: "build",
+      image: "ghcr.io/acme/app",
+    });
+  });
+
+  it("skips when docker is unavailable and no digest was provided", () => {
+    expect(resolveDeployImagePlan({ imageRef, hasDocker: false, hasDockerfile: true })).toEqual({
+      kind: "skip",
+      reason: "docker is not available",
+    });
+  });
+
+  it("skips when the config root has no Dockerfile and no digest was provided", () => {
+    expect(resolveDeployImagePlan({ imageRef, hasDocker: true, hasDockerfile: false })).toEqual({
+      kind: "skip",
+      reason: "no Dockerfile at the config root",
+    });
+  });
+
+  it("treats an empty digest as absent", () => {
+    expect(
+      resolveDeployImagePlan({ imageRef, imageDigest: "", hasDocker: true, hasDockerfile: true }),
+    ).toEqual({ kind: "build", image: "ghcr.io/acme/app" });
   });
 });
 

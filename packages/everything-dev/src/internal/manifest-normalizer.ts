@@ -247,6 +247,31 @@ function stripDevelopmentExports(pkg: PackageJson) {
   }
 }
 
+// A published package ships only dist/ — a bare src pointer left after the
+// strip is a dangling path for npm consumers, so fail the release instead.
+function assertNoSourceExports(pkg: PackageJson, packageName: string) {
+  const exports = pkg.exports;
+  if (!exports || typeof exports !== "object") return;
+
+  const dangling: string[] = [];
+  for (const [key, entry] of Object.entries(exports as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") continue;
+    for (const [condition, target] of Object.entries(entry as Record<string, unknown>)) {
+      if (typeof target === "string" && target.startsWith("./src/")) {
+        dangling.push(`${key} (${condition}: ${target})`);
+      }
+    }
+  }
+
+  if (dangling.length > 0) {
+    throw new Error(
+      `${packageName}: exports still point at unpublished ./src/ paths after stripping ` +
+        `development conditions. Map them to dist/ in the package manifest:\n` +
+        dangling.map((entry) => `  - ${entry}`).join("\n"),
+    );
+  }
+}
+
 export function stageReleasePackage(opts: {
   repoRoot: string;
   packageName: string;
@@ -274,6 +299,7 @@ export function stageReleasePackage(opts: {
   });
 
   stripDevelopmentExports(pkg);
+  assertNoSourceExports(pkg, opts.packageName);
 
   writeJson(packageJsonPath, pkg);
 }

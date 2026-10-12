@@ -242,6 +242,12 @@ export const DeployOptionsSchema = z.object({
   privateKey: z.string().optional(),
   service: z.string().optional(),
   registry: z.string().optional(),
+  imageDigest: z
+    .string()
+    .optional()
+    .describe(
+      "Digest (sha256:…) of a pre-pushed runtime image — skips the image build/push leg and pins Railway to this digest",
+    ),
   fullUpload: z
     .boolean()
     .default(false)
