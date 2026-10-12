@@ -598,9 +598,31 @@ describe("siwn plugin", () => {
     });
 
     it("should reject linking without a session", async () => {
-      const { client } = await setup();
-      const { error } = await client.near.verify(makeVerifyBody());
-      expect(error).toBeNull();
+      const { customFetchImpl } = await getTestInstance(
+        {
+          plugins: [
+            siwn({
+              recipients: { mainnet: "example.near", testnet: "example.testnet" },
+              requireFullAccessKey: false,
+            }),
+          ],
+          emailAndPassword: { enabled: true },
+        },
+        { clientOptions: { plugins: [] } },
+      );
+
+      const body = makeVerifyBody(MOCK_TESTNET_ACCOUNT_ID);
+      const res = await customFetchImpl("http://localhost/api/auth/near/link-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...body,
+          message: "Sign in to example.testnet",
+          recipient: "example.testnet",
+        }),
+      });
+
+      expect(res.status).toBe(401);
     });
   });
 

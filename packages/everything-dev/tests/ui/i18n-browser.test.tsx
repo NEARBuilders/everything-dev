@@ -59,6 +59,7 @@ describe("language persistence across browser bundles", () => {
   it("keeps the previous language and cookie when saving the account preference fails", async () => {
     const cookieName = `failed_language_${sequence++}`;
     const runtime = createLocaleRuntime({ locales, defaultLocale: "en", cookieName });
+    // biome-ignore lint/suspicious/noDocumentCookie: seeds the locale cookie the jsdom runtime reads back
     document.cookie = `${cookieName}=es; Path=/`;
     let select: ReturnType<typeof runtime.useLocale>["selectLocale"];
     function Settings() {
@@ -86,6 +87,7 @@ describe("language persistence across browser bundles", () => {
   it("keeps the last account language after signing out and remounting", async () => {
     const cookieName = `signed_out_language_${sequence++}`;
     const runtime = createLocaleRuntime({ locales, defaultLocale: "en", cookieName });
+    // biome-ignore lint/suspicious/noDocumentCookie: seeds the locale cookie the jsdom runtime reads back
     document.cookie = `${cookieName}=es; Path=/`;
     function Settings() {
       return <output>{runtime.useLocale().locale}</output>;

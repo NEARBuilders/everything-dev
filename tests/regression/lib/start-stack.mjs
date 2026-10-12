@@ -4,8 +4,8 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, openSync } from "node:fs";
 import net from "node:net";
-import { setTimeout as sleep } from "node:timers/promises";
 import { join } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { killStalePorts } from "./kill-stale-ports.mjs";
 import { computeRegressionEnv, findRepoRoot, regressionStackOptions } from "./regression-env.mjs";
 

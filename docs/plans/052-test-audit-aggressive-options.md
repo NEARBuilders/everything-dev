@@ -13,6 +13,14 @@ pnpm --filter ui exec every-plugin preview # fails: "ui/dist is empty"
 
 Internal path: `every-plugin/src/cli.ts:73-74` routes core-ui preview to `runCoreUi(["preview", …])` → `rsbuild preview --config .every-plugin/ui.rsbuild.config.generated.mjs`, whose config is `createCoreUiRsbuildConfig(await readAuthoredConfigInput())` (re-exported from `every-plugin/build/ui`, resolved from `packages/every-plugin/dist/build/ui` per ADR 0018). Probing that factory from `ui/` with a proper input resolves `web` dist correctly to `ui/dist` — so the divergence is in what the spawned `rsbuild preview` process actually resolves (cwd, env, or environment selection), not in the authored-config path. **Impact:** `pnpm run test:regression:http` (dev:ssr mode sets `BOS_NO_WATCH=1` → `ui` runs `dev:built` = `every-plugin build && every-plugin preview`, `regression-env.mjs:228` + `service-descriptor.ts:181`) cannot boot locally; the UI service dies and the host probe times out. **CI exposure:** the CI http matrix (ci.yml:347-351) runs the same dev mode, but path-detection skipped the job on recent commits, so it is not yet observed failing there; CI's browser `start:*` modes boot via the deployment image (start-container), not this path. **Fix direction:** debug what cwd/env `runCoreUi` spawns rsbuild preview with vs. the manual probe, and align the dist resolution (or make preview check the resolved factory dist, not the process cwd). Until fixed, `test:regression:http` and `test:regression:browser:dev:*` are local-blocked.
 
+**UPDATE 2026-10-12 (later): no longer reproduces.** Re-running the exact failing chain (`every-plugin build && every-plugin preview`, and direct `rsbuild preview --config .every-plugin/ui.rsbuild.config.generated.mjs` from `ui/`) boots both environments and serves on :3003. The one thing that happened between failure and health: a full `bos typecheck` pass, which regenerates the ui entry stubs (`routeConfig.gen.ts`) the factory consumes. Best surviving hypothesis: the failure was transient generated-stub state (empty/stale stub at preview time), self-healed by regeneration. Kept under observation — if it recurs, the debugging entry point is the `runCoreUi` spawn env vs the manual probe. **Separately and unrelated:** local `test:regression:http` runs are blocked again by the OrbStack daemon being down on this machine (test Postgres on 5434/5435 unreachable) — environment, not repo.
+
+## Part 2 status (executed 2026-10-12)
+
+1. **`near.test.ts:600` — FIXED.** The rejection path exists (`src/index.ts:880-885`: `sessionMiddleware` + explicit 401 "Must be logged in to link NEAR account"); the fake body was replaced with a real no-session POST to `/near/link-account` asserting 401. better-near-auth suite green (129 tests).
+2. **`-login.test.tsx` mirrored guard** — still open (needs an import escape hatch or a browser spec; larger than a cleanup).
+3. **`plugins/proposals/tests/` — CONSIDERED AND REJECTED.** `tests/types.d.ts` is the scaffold-canonical `RegisteredPlugins` augmentation (`plugins/_template/tests/types.d.ts` ships the same) and is load-bearing for typing; the audit's "stale directory" read was wrong — do not delete.
+
 ## Part 1 — Aggressive options (partial-overlap removals)
 
 Deleting any of these trades marginal redundancy for a thinner safety net. Order roughly by confidence.
@@ -47,11 +55,13 @@ Deleting any of these trades marginal redundancy for a thinner safety net. Order
 
 ## Part 2 — Broken or misnamed tests to fix (not delete)
 
-1. **`packages/better-near-auth/src/near.test.ts:600-604` "should reject linking without a session"** — the body verifies a valid message (`expect(error).toBeNull()`), identical to the test at `:312`; it never touches `/near/link-account`. Either the name lies or the intended rejection path is an untested coverage hole. **Action:** decide which — if link-without-session rejection exists in `src`, write the real test; if not, delete the fake and rename nothing.
+*(Status recorded in "Part 2 status" above — item 1 fixed, item 3 rejected; item 2 remains open.)*
+
+1. ~~**`packages/better-near-auth/src/near.test.ts:600-604` "should reject linking without a session"**~~ — FIXED (see Part 2 status).
 
 2. **`plugins/auth/ui/src/routes/_public/-login.test.tsx:60-65`** — tests the "no redirect loop" invariant against a *hand-mirrored* copy of the core `_authenticated` guard (the plugin test tree can't import core sources). If `ui/src/lib/auth-guards.ts` changes, these tests stay green while production breaks. **Action:** either add an import escape hatch (shared test fixture package) or add a `tests/regression/browser/` spec covering the real guard pair (the repo's preferred layer for this).
 
-3. **`plugins/proposals/tests/`** contains only a stale `types.d.ts` (ambient `RegisteredPlugins` declaration importing `../plugin.dev`) while real tests live in `src/__tests__/`. Misleading layout; relocate or delete the directory when touching the plugin.
+3. ~~**`plugins/proposals/tests/`**~~ — CONSIDERED AND REJECTED (see Part 2 status): the `types.d.ts` augmentation is scaffold-canonical (`_template` ships the same) and load-bearing.
 
 ## Part 3 — Open decisions (need a maintainer call)
 
