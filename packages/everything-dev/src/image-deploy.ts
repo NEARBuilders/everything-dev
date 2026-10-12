@@ -118,6 +118,13 @@ export type DeployImagePlan =
   | { kind: "build"; image: string }
   | { kind: "skip"; reason: string };
 
+const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
+
+/** A Railway pin is `FROM image@<digest>` — anything else cannot resolve. */
+export function isValidImageDigest(digest: string): boolean {
+  return DIGEST_PATTERN.test(digest);
+}
+
 /**
  * Decide the image leg's source: a digest handed over from a pre-pushed image
  * (the CI image job) wins; otherwise the local docker build runs when the
@@ -225,7 +232,7 @@ export async function buildAndPushImage(input: {
     console.log(colors.yellow("  Could not capture the image digest from push output"));
   }
 
-  return { image: input.image, tag: tags[0], tags, latestPushed, digest };
+  return { image: input.image, tag: tags[0]!, tags, latestPushed, digest };
 }
 
 /**
