@@ -41,6 +41,66 @@ export function pickDistTagVersion(
   return distTags?.[tag] ?? null;
 }
 
+const SEMVER_PATTERN =
+  /^(?<core>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-(?<prerelease>[0-9A-Za-z.-]+))?(?:\+[\w.-]+)?$/;
+
+interface ParsedVersion {
+  core: readonly number[];
+  prerelease: readonly (number | string)[];
+}
+
+function parseVersion(version: string | undefined): ParsedVersion | null {
+  if (!version) return null;
+  const match = SEMVER_PATTERN.exec(version.trim().replace(/^[\^~>=v]+/, ""));
+  if (!match?.groups) return null;
+  const prerelease = match.groups.prerelease
+    ? match.groups.prerelease.split(".").map((id) => (/^\d+$/.test(id) ? Number(id) : id))
+    : [];
+  return {
+    core: [Number(match.groups.core), Number(match.groups.minor), Number(match.groups.patch)],
+    prerelease,
+  };
+}
+
+function comparePrerelease(a: ParsedVersion["prerelease"], b: ParsedVersion["prerelease"]): number {
+  if (a.length === 0 && b.length === 0) return 0;
+  if (a.length === 0) return 1;
+  if (b.length === 0) return -1;
+  const length = Math.max(a.length, b.length);
+  for (let i = 0; i < length; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (left === undefined) return -1;
+    if (right === undefined) return 1;
+    if (typeof left === "number" && typeof right === "number") {
+      if (left !== right) return left < right ? -1 : 1;
+    } else if (typeof left === "number") {
+      return -1;
+    } else if (typeof right === "number") {
+      return 1;
+    } else if (left !== right) {
+      return left < right ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Semver-ordered comparison of two version strings: -1 when `a` is older than
+ * `b`, 1 when newer, 0 when equal. Unparseable versions compare as equal —
+ * the update check must never fire on versions it cannot order (that is how
+ * an install ahead of npm got flagged "outdated" with a downgrade arrow).
+ */
+export function compareSemver(a: string | undefined, b: string | undefined): number {
+  const left = parseVersion(a);
+  const right = parseVersion(b);
+  if (!left || !right) return 0;
+  for (let i = 0; i < left.core.length; i += 1) {
+    if (left.core[i] !== right.core[i]) return left.core[i]! < right.core[i]! ? -1 : 1;
+  }
+  return comparePrerelease(left.prerelease, right.prerelease);
+}
+
 async function fetchLatestNpmVersion(
   packageName: string,
   tag: "rc" | "latest",

@@ -9,6 +9,7 @@ import { printHelp } from "./cli/help";
 import { runDockerComposeUp } from "./cli/init";
 import { parseCommandInput } from "./cli/parse";
 import { promptInitBasic, promptInitOverrides } from "./cli/prompts";
+import { compareSemver } from "./cli/status";
 import { formatDuration, sumPhaseDurations } from "./cli/timing";
 import { fetchInitParent } from "./commands/init";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "./config";
@@ -74,10 +75,6 @@ function formatTimeAgo(isoTimestamp: string): string {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 30) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
   return isoTimestamp.split("T")[0] ?? isoTimestamp;
-}
-
-function normalizeVersion(v: string): string {
-  return v.replace(/^[\^~>=v]+/, "").trim();
 }
 
 const RETIRED_BOOTSTRAP_STUBS = [
@@ -167,7 +164,7 @@ async function warnIfOutdated(client: any, command: string): Promise<void> {
         !p.isLinked &&
         p.installed &&
         p.latest &&
-        normalizeVersion(p.installed) !== normalizeVersion(p.latest) &&
+        compareSemver(p.installed, p.latest) < 0 &&
         frameworkPackages.includes(p.name),
     );
 
@@ -886,9 +883,7 @@ async function main() {
       console.log(`  ${colors.dim("Packages:")}`);
       for (const pkg of result.packages) {
         const hasUpdate =
-          pkg.installed &&
-          pkg.latest &&
-          normalizeVersion(pkg.installed) !== normalizeVersion(pkg.latest);
+          pkg.installed && pkg.latest && compareSemver(pkg.installed, pkg.latest) < 0;
         const versionStr = hasUpdate
           ? `${pkg.installed}  →  ${pkg.latest}`
           : pkg.installed || "not installed";
@@ -917,7 +912,7 @@ async function main() {
       }
       const hasUpdates = result.packages.some(
         (p: { installed?: string; latest?: string }) =>
-          p.installed && p.latest && normalizeVersion(p.installed) !== normalizeVersion(p.latest),
+          p.installed && p.latest && compareSemver(p.installed, p.latest) < 0,
       );
       if (hasUpdates) {
         console.log();
