@@ -81,7 +81,7 @@ describe("SSR head liveness across a federation generation swap", () => {
 
   beforeAll(async () => {
     config = await loadTestRuntimeConfig();
-    await ensureUiServerDistBuild();
+    ensureUiServerDistBuild();
     const distDir = path.join(workspaceRoot, "ui", "dist");
     serverA = await startStaticDistServer(distDir);
     serverB = await startStaticDistServer(distDir);

@@ -139,12 +139,29 @@ export {
 export { pluginHref, pluginPath, pluginSearch } from "./plugin-path";
 
 export type AuthClient = ReturnType<typeof createAuthClient>;
-type OrganizationListResult = Awaited<ReturnType<AuthClient["organization"]["list"]>>;
-type PasskeyListResult = Awaited<ReturnType<AuthClient["passkey"]["listUserPasskeys"]>>;
 
 export type SessionData = AuthClient["$Infer"]["Session"];
-export type Organization = NonNullable<OrganizationListResult["data"]>[number];
-export type Passkey = NonNullable<PasskeyListResult["data"]>[number];
+
+/**
+ * Explicit shapes for the organization/passkey records — better-auth's client
+ * inference collapses to `any` for these plugin endpoints, which would leak
+ * `any` into every consumer union.
+ */
+export interface Organization {
+  id: string;
+  name: string;
+  slug?: string | null;
+  logo?: string | null;
+  createdAt?: Date | string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface Passkey {
+  id: string;
+  name?: string | null;
+  createdAt?: Date | string | null;
+  lastUsedAt?: Date | string | null;
+}
 
 export function useAuthClient(): AuthClient {
   return useRouter().options.context.authClient as AuthClient;

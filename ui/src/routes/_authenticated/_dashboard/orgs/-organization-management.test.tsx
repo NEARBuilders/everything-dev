@@ -2,8 +2,9 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AuthClient, Organization } from "@/app";
+import type { AuthClient } from "@/app";
 import { Tabs } from "@/components";
+import type { Organization } from "@/lib/queries/organizations";
 import { ApiKeysTab, type OrganizationApiKey } from "./-api-keys-tab";
 import { InvitationsTab } from "./-invitations-tab";
 import { MembersTab } from "./-members-tab";

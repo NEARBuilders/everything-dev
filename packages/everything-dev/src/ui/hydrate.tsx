@@ -297,9 +297,9 @@ export async function hydrate(options: CoreHydrateOptions) {
         ? Promise.resolve(options.createRouter)
         : import("./router-client").then((m) => m.createRouter as AppRouterFactory),
     ]);
-    const [coreRouteConfig] = await Promise.all([
-      options.routeConfig().then((mod) => ("default" in mod ? mod.default : mod)),
-    ]);
+    const coreRouteConfig = await options
+      .routeConfig()
+      .then((mod) => ("default" in mod ? mod.default : mod));
     const coreManifest = options.manifest
       ? await options
           .manifest()
@@ -316,7 +316,7 @@ export async function hydrate(options: CoreHydrateOptions) {
 
     const composed = await composeFromPayload(runtimeConfig, coreRouteConfig, coreManifest);
 
-    const { router, queryClient: builtClient } = await routerFactory({
+    const { router, queryClient: builtClient } = routerFactory({
       routeTree: composed?.routeTree,
       context: {
         pluginNav: composed?.nav,

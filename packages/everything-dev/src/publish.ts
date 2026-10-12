@@ -885,7 +885,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
           built,
           skipped,
           deployResults,
-          error: `Failed to write bundle URLs to bos.config.json: ${error instanceof Error ? error.message : error}`,
+          error: `Failed to write bundle URLs to bos.config.json: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     }

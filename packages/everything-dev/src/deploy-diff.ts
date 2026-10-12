@@ -77,7 +77,7 @@ export function upsertDeployStatePins(
 ): void {
   const state = readDeployState(configDir);
   const appKey = `${account}/${gateway}`;
-  state.apps[appKey] = { ...(state.apps[appKey] ?? {}), ...pins };
+  state.apps[appKey] = { ...state.apps[appKey], ...pins };
   writeDeployState(configDir, state);
 }
 

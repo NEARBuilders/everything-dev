@@ -89,7 +89,7 @@ export function writeChildWorkspaceYaml(
     changed = true;
   }
 
-  const catalog: Record<string, string> = { ...(doc.catalog ?? {}) };
+  const catalog: Record<string, string> = { ...doc.catalog };
   for (const [name, version] of Object.entries(next.catalog)) {
     if (catalog[name] !== version) {
       catalog[name] = version;
@@ -121,7 +121,7 @@ export function writeChildWorkspaceYaml(
     changed = true;
   }
 
-  const overrides: Record<string, string> = { ...(doc.overrides ?? {}) };
+  const overrides: Record<string, string> = { ...doc.overrides };
   for (const key of CHILD_OVERRIDE_KEYS) {
     if (catalog[key] && overrides[key] !== catalog[key]) {
       overrides[key] = catalog[key];
@@ -384,7 +384,7 @@ export function buildStarterRouteExclusions(
   level: StarterLevel,
   parentConfig: { starter?: ParentStarterConfig } | null | undefined,
 ): string[] {
-  const excluded = new Set<string>([...STARTER_PRODUCT_EXCLUSIONS]);
+  const excluded = new Set<string>(STARTER_PRODUCT_EXCLUSIONS);
   if (level === "simple") {
     for (const entry of STARTER_SIMPLE_EXCLUSIONS) excluded.add(entry);
   }

@@ -49,7 +49,7 @@ export function useInvitationActions({
         { throwOnError: true },
       );
     } catch (error) {
-      throw new WorkspaceRefreshError("management", error);
+      throw new WorkspaceRefreshError({ stage: "management", cause: error });
     }
     const invitation = pendingRejection.current;
     if (!invitation) return;

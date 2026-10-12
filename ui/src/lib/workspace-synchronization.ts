@@ -1,21 +1,20 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { useRouter } from "@tanstack/react-router";
+import { Data } from "effect";
 import { toast } from "sonner";
 import { type AuthClient, sessionQueryKey } from "@/app";
 import { teamWorkspaceQueryKey } from "./team-workspace";
 
 export type WorkspaceRefreshStage = "session" | "management" | "workspace" | "router";
 
-export class WorkspaceRefreshError extends Error {
-  readonly cause: unknown;
+export class WorkspaceRefreshError extends Data.TaggedError("WorkspaceRefreshError")<{
   readonly stage: WorkspaceRefreshStage;
-
-  constructor(stage: WorkspaceRefreshStage, cause: unknown) {
-    const message = cause instanceof Error ? cause.message : String(cause);
-    super(`Workspace refresh failed: ${message}`, { cause });
-    this.name = "WorkspaceRefreshError";
-    this.cause = cause;
-    this.stage = stage;
+  readonly cause: unknown;
+}> {
+  override get message() {
+    return `Workspace refresh failed: ${
+      this.cause instanceof Error ? this.cause.message : String(this.cause)
+    }`;
   }
 }
 
@@ -30,7 +29,7 @@ export interface WorkspaceSynchronizationOptions {
 }
 
 export interface WorkspaceSynchronization {
-  synchronize(options?: WorkspaceSynchronizationOptions): Promise<void>;
+  synchronize: (options?: WorkspaceSynchronizationOptions) => Promise<void>;
 }
 
 function toError(error: unknown) {
@@ -71,9 +70,9 @@ export function createWorkspaceSynchronization({
         query: { disableCookieCache: true },
       }));
     } catch (error) {
-      throw new WorkspaceRefreshError("session", error);
+      throw new WorkspaceRefreshError({ stage: "session", cause: error });
     }
-    if (error) throw new WorkspaceRefreshError("session", toError(error));
+    if (error) throw new WorkspaceRefreshError({ stage: "session", cause: toError(error) });
 
     queryClient.setQueryData(sessionQueryKey, session ?? null);
 
@@ -87,7 +86,7 @@ export function createWorkspaceSynchronization({
         ),
       );
     } catch (error) {
-      throw new WorkspaceRefreshError("management", error);
+      throw new WorkspaceRefreshError({ stage: "management", cause: error });
     }
 
     try {
@@ -99,13 +98,13 @@ export function createWorkspaceSynchronization({
         { throwOnError: true },
       );
     } catch (error) {
-      throw new WorkspaceRefreshError("workspace", error);
+      throw new WorkspaceRefreshError({ stage: "workspace", cause: error });
     }
 
     try {
       await router.invalidate();
     } catch (error) {
-      throw new WorkspaceRefreshError("router", error);
+      throw new WorkspaceRefreshError({ stage: "router", cause: error });
     }
   };
 

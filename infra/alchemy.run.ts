@@ -16,6 +16,7 @@ export default Alchemy.Stack(
     providers: Cloudflare.providers(),
     state: Cloudflare.state(),
   },
+  // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- alchemy's Stack types resource yields as unknown
   Effect.gen(function* () {
     const { accountId } = yield* Cloudflare.CloudflareEnvironment;
 

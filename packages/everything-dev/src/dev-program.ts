@@ -307,7 +307,9 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
       .sync(session.root, plan.envGenerated, shell)
       .pipe(
         Effect.catchTag("EnvSyncError", (error) =>
-          Effect.logWarning(`[env] failed to refresh .env from resolved ports: ${error.cause}`),
+          Effect.logWarning(
+            `[env] failed to refresh .env from resolved ports: ${String(error.cause)}`,
+          ),
         ),
       );
 

@@ -435,7 +435,9 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
 
     // exactly the added file + the manifest crossed the wire — unchanged files skipped
     const uploaded = storage.batches.slice(batchesAfterFirst).flatMap((batch) => batch.paths);
-    expect([...uploaded].sort()).toEqual([addedPath, v2Ui.pin.manifest].sort());
+    expect([...uploaded].sort()).toEqual(
+      [addedPath, v2Ui.pin.manifest].sort((a, b) => a.localeCompare(b)),
+    );
 
     // the new manifest's files map covers the whole dist: the added file gets a
     // server-computed SRI, unchanged files carry the previous manifest's SRI

@@ -155,6 +155,7 @@ function RootComponent() {
     >
       <head>
         <HeadContent />
+        {/* oxlint-disable-next-line shadcn/no-inline-styles -- CSP-nonce'd base styles; no stylesheet URL can carry the nonce */}
         <style nonce={cspNonce} dangerouslySetInnerHTML={{ __html: getBaseStyles() }} />
       </head>
       <body>
@@ -208,14 +209,7 @@ function GlobalChrome() {
 
   return (
     <TooltipProvider>
-      <div
-        className="h-dvh w-full flex flex-col overflow-hidden bg-background text-foreground"
-        style={{
-          paddingTop: "env(safe-area-inset-top, 0px)",
-          paddingLeft: "env(safe-area-inset-left, 0px)",
-          paddingRight: "env(safe-area-inset-right, 0px)",
-        }}
-      >
+      <div className="safe-area-inset h-dvh w-full flex flex-col overflow-hidden bg-background text-foreground">
         {showBar && (
           <div className="fixed top-0 left-0 right-0 h-0.5 z-50 overflow-hidden pointer-events-none">
             <div className="h-full w-full bg-brand" />

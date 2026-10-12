@@ -96,10 +96,6 @@ describe("SSR head/nonce liveness", () => {
   });
 
   it("a render after the runtime config flips emits the new deployment's assets", async () => {
-    const flippedConfig = {
-      ...config,
-      ui: { ...config.ui, url: "https://cdn.flipped.invalid/ui" },
-    };
     const flippedClientConfig = {
       ...buildTestRenderOptions(config, mockApiClient, mockAuthClient).runtimeConfig,
       assetsUrl: "https://cdn.flipped.invalid/ui",
@@ -114,6 +110,11 @@ describe("SSR head/nonce liveness", () => {
       expect(nonce, "stale nonce from a previous render leaked into the head").toBe(NONCE_B);
     }
     expect(htmlB).toContain("https://cdn.flipped.invalid/ui");
-    expect(htmlB).not.toContain(flippedConfig.ui.url);
+    if (config.ui.url) {
+      expect(
+        htmlB,
+        "the previous deployment's ui url leaked into the post-swap render",
+      ).not.toContain(config.ui.url);
+    }
   });
 });

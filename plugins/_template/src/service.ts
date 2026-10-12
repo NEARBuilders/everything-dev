@@ -1,4 +1,4 @@
-import { DateTime, Effect } from "effect";
+import { Data, DateTime, Effect } from "effect";
 import type { z } from "zod";
 // Import types from contract
 import type { ItemSchema, SearchResultSchema } from "./contract";
@@ -6,6 +6,18 @@ import type { ItemSchema, SearchResultSchema } from "./contract";
 // Infer the types from the schemas
 type Item = z.infer<typeof ItemSchema>;
 type SearchResult = z.infer<typeof SearchResultSchema>;
+
+/**
+ * Tagged failure for the simulated external fetch — keeps the error channel
+ * typed instead of merging global `Error`s together.
+ */
+export class TemplateFetchError extends Data.TaggedError("TemplateFetchError")<{
+  readonly cause: unknown;
+}> {
+  override get message() {
+    return this.cause instanceof Error ? this.cause.message : String(this.cause);
+  }
+}
 
 /**
  * Template Service - Wraps external API calls with Effect-based error handling.
@@ -22,26 +34,17 @@ export class TemplateService {
     return Effect.gen(function* () {
       yield* Effect.logInfo(`[TemplateService] Fetching from ${baseUrl} with timeout ${timeout}ms`);
       const createdAt = DateTime.formatIso(yield* DateTime.now);
+      yield* Effect.sleep(50);
 
-      return yield* Effect.tryPromise({
-        try: async () => {
-          await new Promise((resolve) => setTimeout(resolve, 50));
+      if (id === "not-found") {
+        return yield* new TemplateFetchError({ cause: new Error("Item not found") });
+      }
 
-          if (id === "not-found") {
-            throw new Error("Item not found");
-          }
-
-          return {
-            id,
-            title: `Item ${id}`,
-            createdAt,
-          } satisfies Item;
-        },
-        catch: (error: unknown) =>
-          new Error(
-            `Failed to fetch item: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-      });
+      return {
+        id,
+        title: `Item ${id}`,
+        createdAt,
+      } satisfies Item;
     });
   }
 

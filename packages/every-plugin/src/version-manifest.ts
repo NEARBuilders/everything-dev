@@ -67,7 +67,7 @@ export interface VersionManifestInput {
  * coordinate → a new version (and a new file).
  */
 export function composeVersionManifest(input: VersionManifestInput): WorkspaceVersionManifest {
-  const { builtAt, ...hashedInputs } = input;
+  const { builtAt: _builtAt, ...hashedInputs } = input;
   const version = createHash("sha256")
     .update(stableStringify(hashedInputs))
     .digest("hex")

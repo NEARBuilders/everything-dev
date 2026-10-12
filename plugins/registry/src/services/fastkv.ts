@@ -160,7 +160,7 @@ export async function readLatestValue(options: {
   currentAccountId: string;
   predecessorId?: string;
   key: string;
-}): Promise<unknown | null> {
+}): Promise<unknown> {
   const result = await listLatestValues({
     ...options,
     limit: 1,

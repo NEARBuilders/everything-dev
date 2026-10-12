@@ -28,31 +28,32 @@ function freshLayer() {
 }
 
 type ThingsSvc = typeof ThingsService.Service;
+type ThingsError = ORPCError<"NOT_FOUND" | "CONFLICT" | "INTERNAL_SERVER_ERROR", unknown>;
 
 async function runService<A>(
   layer: Layer.Layer<ThingsService, DatabaseError, never>,
-  fn: (svc: ThingsSvc) => Effect.Effect<A, unknown>,
+  fn: (svc: ThingsSvc) => Effect.Effect<A, ThingsError>,
 ): Promise<A> {
   const effect = Effect.gen(function* () {
     const svc = yield* ThingsService;
     return yield* fn(svc);
-  });
-  return Effect.runPromise(Effect.provide(effect, layer) as Effect.Effect<A, never, never>);
+  }).pipe(Effect.provide(layer));
+  return Effect.runPromise(effect);
 }
 
-async function squashServiceError<A>(
+async function squashServiceError(
   layer: Layer.Layer<ThingsService, DatabaseError, never>,
-  fn: (svc: ThingsSvc) => Effect.Effect<A, unknown>,
-): Promise<unknown> {
+  fn: (svc: ThingsSvc) => Effect.Effect<unknown, ThingsError>,
+): Promise<ThingsError | DatabaseError> {
   const effect = Effect.gen(function* () {
     const svc = yield* ThingsService;
     return yield* fn(svc);
-  });
-  const exit = await Effect.runPromiseExit(Effect.provide(effect, layer));
+  }).pipe(Effect.provide(layer));
+  const exit = await Effect.runPromiseExit(effect);
   if (Exit.isSuccess(exit)) {
     throw new Error("Expected effect to fail");
   }
-  return Cause.squash(exit.cause);
+  return Cause.squash(exit.cause) as ThingsError | DatabaseError;
 }
 
 describe("ThingsService", () => {

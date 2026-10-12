@@ -24,7 +24,7 @@ describe("UnderConstruction", () => {
     expect(html).not.toContain("<img");
   });
 
-  it("preserves the delayed source link and click callback", () => {
+  it("preserves the delayed source link and click callback", async () => {
     vi.useFakeTimers();
     const onClick = vi.fn();
     const open = vi.spyOn(window, "open").mockReturnValue(null);
@@ -36,7 +36,9 @@ describe("UnderConstruction", () => {
     );
     expect(onClick).toHaveBeenCalledOnce();
     expect(open).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(150));
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+    });
     expect(open).toHaveBeenCalledWith(
       "https://example.test/source",
       "_blank",
@@ -44,7 +46,7 @@ describe("UnderConstruction", () => {
     );
   });
 
-  it("keeps a local action from opening the source link", () => {
+  it("keeps a local action from opening the source link", async () => {
     vi.useFakeTimers();
     const onClick = vi.fn();
     const open = vi.spyOn(window, "open").mockReturnValue(null);
@@ -57,7 +59,9 @@ describe("UnderConstruction", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Library under construction" }));
-    act(() => vi.advanceTimersByTime(150));
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+    });
     expect(onClick).toHaveBeenCalledOnce();
     expect(open).not.toHaveBeenCalled();
   });

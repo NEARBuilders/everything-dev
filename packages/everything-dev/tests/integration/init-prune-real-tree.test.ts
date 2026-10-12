@@ -36,7 +36,7 @@ describe("pruneUnusedUiFiles — real parent tree survival", () => {
       overrides: ["ui"],
     });
 
-    await pruneUnusedUiFiles(projectDir);
+    pruneUnusedUiFiles(projectDir);
     const afterFirstRun = listFiles(join(projectDir, "ui", "src"));
 
     const routes = join(projectDir, "ui", "src", "routes");
@@ -58,7 +58,7 @@ describe("pruneUnusedUiFiles — real parent tree survival", () => {
     const barrel = readFileSync(join(projectDir, "ui", "src", "components", "index.ts"), "utf-8");
     expect(barrel).toContain('from "./ui/button"');
 
-    await pruneUnusedUiFiles(projectDir);
+    pruneUnusedUiFiles(projectDir);
     const afterSecondRun = listFiles(join(projectDir, "ui", "src"));
     expect(afterSecondRun).toEqual(afterFirstRun);
   });

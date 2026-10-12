@@ -71,7 +71,7 @@ export function registerPlugins(builder: BosBuilder) {
         await saveBosConfig(session.root, {
           ...authored,
           plugins: {
-            ...(authored.plugins ?? {}),
+            ...authored.plugins,
             [key]: applyEntryDelta(authoredBase),
           },
         });
@@ -121,7 +121,7 @@ export function registerPlugins(builder: BosBuilder) {
 
       const authored = session.rawConfig;
       if (authored) {
-        const authoredPlugins: Record<string, unknown> = { ...(authored.plugins ?? {}) };
+        const authoredPlugins: Record<string, unknown> = { ...authored.plugins };
         if (authoredPlugins[input.key] === undefined) {
           // Inherited from the parent runtime. JSON-form children can express
           // removal with a null sentinel (dropped by the extends merge); the

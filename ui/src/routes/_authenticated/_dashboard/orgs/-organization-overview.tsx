@@ -1,8 +1,8 @@
 import { PencilSimpleIcon, SignOutIcon, TrashIcon } from "@phosphor-icons/react";
 import { useState } from "react";
-import type { Organization } from "@/app";
 import { Badge, Button, ConfirmDialog, LocalDate, PageHeader } from "@/components";
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import type { Organization } from "@/lib/queries/organizations";
 import { roleLabel } from "./-org-avatar";
 import { RowMenu } from "./-row-menu";
 

@@ -1,6 +1,5 @@
 import { GearIcon, SignOutIcon, UserIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import type { Organization } from "@/app";
 import { pluginPath } from "@/app";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -17,7 +16,6 @@ interface SignOutMutationLike {
 }
 
 interface UserNavMenuContentProps {
-  activeOrg?: Organization | undefined;
   avatarSrc: string | undefined;
   displayName: string;
   handle: string;

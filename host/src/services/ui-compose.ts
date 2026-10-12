@@ -257,11 +257,10 @@ const resolveComposableSources = Effect.fn("resolveComposableSources")(function*
         const manifest = yield* loadManifest(source, cache);
         if (manifest.name === source.key) return manifest;
         if (source.key === CORE_UI_KEY) {
-          return yield* Effect.fail(
-            new Error(
-              `[Compose] the core ui manifest names itself "${manifest.name}" — expected "${source.key}" (ADR 0008 §2)`,
-            ),
-          );
+          return yield* new UiComposeError({
+            operation: `[Compose] the core ui manifest names itself "${manifest.name}" — expected "${source.key}"`,
+            cause: new Error("identity mismatch (ADR 0008 §2)"),
+          });
         }
         yield* Effect.logWarning(
           `[Compose] dropping ui source "${source.key}" — its manifest names itself "${manifest.name}" (identity mismatch, ADR 0008 §2)`,

@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { Data } from "effect";
 import { parse } from "yaml";
 import { run } from "./utils/run";
 
@@ -26,19 +27,17 @@ export interface DepsBuildFailureEntry {
   readonly output: string;
 }
 
-export class DepsBuildFailure extends Error {
+export class DepsBuildFailure extends Data.TaggedError("DepsBuildFailure")<{
   readonly failures: readonly DepsBuildFailureEntry[];
-
-  constructor(failures: readonly DepsBuildFailureEntry[]) {
-    const detail = failures
+}> {
+  override get message() {
+    const detail = this.failures
       .map(
         (failure) =>
           `${failure.member.name} (exit ${failure.exitCode})\n${outputTail(failure.output)}`,
       )
       .join("\n\n");
-    super(`workspace dependency builds failed:\n${detail}`);
-    this.name = "DepsBuildFailure";
-    this.failures = [...failures];
+    return `workspace dependency builds failed:\n${detail}`;
   }
 }
 
@@ -263,7 +262,7 @@ export async function ensureFreshDeps(
     );
     if (failures.length > 0) break;
   }
-  if (failures.length > 0) throw new DepsBuildFailure(failures);
+  if (failures.length > 0) throw new DepsBuildFailure({ failures });
 
   return { rebuilt, fresh };
 }

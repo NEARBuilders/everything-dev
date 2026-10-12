@@ -1,7 +1,7 @@
 import { BankIcon } from "@phosphor-icons/react";
-import type { Organization } from "@/app";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { Organization } from "@/lib/queries/organizations";
 import { OrgSwitcherMenuContent } from "./org-switcher-menu";
 
 interface OrgSwitcherProps {
