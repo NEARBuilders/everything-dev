@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { hasFolderFormUi } from "every-plugin/build/ui";
@@ -26,6 +26,7 @@ import {
   type NetworkId,
 } from "./fastkv";
 import { pointerFingerprint, slotPins } from "./fingerprint";
+import { fetchResponse } from "./http-client";
 import { applyDeployResults, type DeployResultEntry } from "./integrity";
 import { mergeAuthoredOverPublished } from "./merge";
 import {
@@ -310,6 +311,58 @@ export type PublishPreflight =
   | { kind: "error"; registryUrl: string; error: string }
   | { kind: "ready"; plan: PublishPreflightPlan };
 
+const FRAMEWORK_PACKAGE_NAMES = ["better-near-auth", "every-plugin", "everything-dev"] as const;
+
+/**
+ * Whether npm serves `name@version` (true), definitively does not (404 —
+ * false), or whether publishability could not be determined (network error,
+ * unexpected status — null; callers must not block on that).
+ */
+export async function npmVersionPublished(name: string, version: string): Promise<boolean | null> {
+  try {
+    const res = await fetchResponse(`https://registry.npmjs.org/${name}/${version}`, {
+      headers: { Accept: "application/json" },
+    });
+    if (res.status === 200) return true;
+    if (res.status === 404) return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The npm-publish gate: a workspace that vendors the framework packages'
+ * sources must not ship bundles ahead of npm — the update check, child
+ * scaffolds (`bos init`), and template syncs all read those versions from
+ * the registry. Reads only apply when the sources are workspace-local (the
+ * parent repo); child projects install the framework from npm and are
+ * inherently in sync.
+ */
+export async function findUnpublishedFrameworkPackages(
+  configDir: string,
+): Promise<Array<{ name: string; version: string }>> {
+  const unpublished: Array<{ name: string; version: string }> = [];
+  for (const name of FRAMEWORK_PACKAGE_NAMES) {
+    const manifestPath = join(configDir, "packages", name, "package.json");
+    if (!existsSync(manifestPath)) continue;
+    const version = (JSON.parse(readFileSync(manifestPath, "utf-8")) as { version?: string })
+      .version;
+    if (!version) continue;
+    const published = await npmVersionPublished(name, version);
+    if (published === false) {
+      unpublished.push({ name, version });
+    } else if (published === null) {
+      console.log(
+        colors.yellow(
+          `  ! Could not verify ${name}@${version} on npm (registry unreachable) — continuing`,
+        ),
+      );
+    }
+  }
+  return unpublished;
+}
+
 // Pure preflight (resolve, don't mutate) — every failure returns before the
 // build train runs (issue #287). Dry-run exits after the auth guards, before
 // any signing (keychain/TTY side effects).
@@ -390,6 +443,16 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
     apiKey: undefined,
   };
   if (input.build) {
+    const unpublished = await findUnpublishedFrameworkPackages(configDir);
+    if (unpublished.length > 0) {
+      const listing = unpublished.map((pkg) => `${pkg.name}@${pkg.version}`).join(", ");
+      return fail(
+        `Framework package(s) ${listing} are not published to npm yet — deploys must not ship ` +
+          "bundles ahead of the registry (child scaffolds and update checks read these versions). " +
+          "Re-run the Release workflow (or `pnpm run release`) first.",
+      );
+    }
+
     cdnDeploy = resolveCdnDeployInputs({
       env: process.env as Record<string, string | undefined>,
       bosConfig,
