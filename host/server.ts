@@ -2,6 +2,9 @@ import "dotenv/config";
 import { installBundleFetchFromEnv } from "everything-dev/bundle-fs-resolve";
 import { runServerBlocking } from "./src/program";
 import type { RuntimeConfig } from "./src/services/config";
+import { installWarningFilter } from "./src/utils/warning-filter";
+
+installWarningFilter();
 
 const configJson = process.env.BOS_RUNTIME_CONFIG;
 
