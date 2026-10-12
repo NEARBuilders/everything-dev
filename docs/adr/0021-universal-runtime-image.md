@@ -47,7 +47,13 @@ the identity selects the tier at boot.**
    `ghcr.io/nearbuilders/everything-dev:sha-<short>` (`packages: write`).
    Railway deploys the pushed image (pinned to the validated SHA) instead of
    rebuilding the Dockerfile. The existing GHCR package must grant this repo
-   push access (one-time package-settings step).
+   push access (one-time package-settings step). Floating tags: `:latest`
+   moves on stable releases only (held during prereleases, so `:latest`
+   keeps serving the last stable image) and `:rc` moves on every prerelease
+   deploy — the floating ref for the prerelease train (npm's `rc` dist-tag
+   mirror); it freezes at the last rc-train build once a stable version
+   ships. Deployments should pin the digest either way; the floating tags
+   are convenience pull targets.
 5. **Boot resilience env:** `BOS_BUNDLE_CACHE_DIR` is set in the image —
    registry-tier instances (children) cache foreign-namespace bytes at boot
    and serve last-known-good on upstream outages.

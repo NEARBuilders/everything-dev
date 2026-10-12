@@ -123,14 +123,16 @@ describe("computeImageTags", () => {
     expect(computeImageTags({ shortSha: "cf2ab4d13" })).toEqual({
       tags: ["sha-cf2ab4d13"],
       pushLatest: true,
+      pushRc: false,
     });
   });
 
-  it("adds the exact prerelease tag and holds latest", () => {
+  it("adds the exact prerelease tag, pushes rc, and holds latest", () => {
     expect(computeImageTags({ shortSha: "cf2ab4d13", version: "2.0.0-rc.0" })).toEqual({
       tags: ["sha-cf2ab4d13", "v2.0.0-rc.0"],
       pushLatest: false,
       latestHoldReason: "v2.0.0-rc.0 is a prerelease — :latest still serves the last stable image",
+      pushRc: true,
     });
   });
 
@@ -138,6 +140,7 @@ describe("computeImageTags", () => {
     expect(computeImageTags({ shortSha: "cf2ab4d13", version: "2.0.0" })).toEqual({
       tags: ["sha-cf2ab4d13", "v2.0.0", "v2"],
       pushLatest: true,
+      pushRc: false,
     });
   });
 
@@ -145,6 +148,7 @@ describe("computeImageTags", () => {
     expect(computeImageTags({ shortSha: "cf2ab4d13", version: "not-a-version" })).toEqual({
       tags: ["sha-cf2ab4d13"],
       pushLatest: true,
+      pushRc: false,
     });
   });
 });
@@ -190,6 +194,7 @@ describe("buildAndPushImage", () => {
       tag: "sha-cf2ab4d13",
       tags: ["sha-cf2ab4d13"],
       latestPushed: true,
+      rcPushed: false,
       digest: "sha256:abc123",
     });
     expect(runMock).toHaveBeenCalledWith(
@@ -213,7 +218,7 @@ describe("buildAndPushImage", () => {
     ]);
   });
 
-  it("holds latest and pushes the exact tag for a prerelease workspace version", async () => {
+  it("holds latest, pushes the exact tag, and pushes rc for a prerelease workspace version", async () => {
     writeWorkspaceVersion("2.0.0-rc.0");
     runMock.mockImplementation(async (cmd: string, args: string[]) => {
       if (cmd === "git") return ok("cf2ab4d13");
@@ -231,6 +236,7 @@ describe("buildAndPushImage", () => {
       tag: "sha-cf2ab4d13",
       tags: ["sha-cf2ab4d13", "v2.0.0-rc.0"],
       latestPushed: false,
+      rcPushed: true,
       digest: "sha256:def456",
     });
     expect(runMock).toHaveBeenCalledWith(
@@ -243,6 +249,8 @@ describe("buildAndPushImage", () => {
         "ghcr.io/acme/app:sha-cf2ab4d13",
         "-t",
         "ghcr.io/acme/app:v2.0.0-rc.0",
+        "-t",
+        "ghcr.io/acme/app:rc",
         ".",
       ],
       { cwd: configDir },
@@ -251,6 +259,7 @@ describe("buildAndPushImage", () => {
     expect(pushes.map((c) => c[1][1])).toEqual([
       "ghcr.io/acme/app:sha-cf2ab4d13",
       "ghcr.io/acme/app:v2.0.0-rc.0",
+      "ghcr.io/acme/app:rc",
     ]);
   });
 
@@ -272,6 +281,7 @@ describe("buildAndPushImage", () => {
       tag: "sha-cf2ab4d13",
       tags: ["sha-cf2ab4d13", "v2.0.0", "v2"],
       latestPushed: true,
+      rcPushed: false,
       digest: "sha256:fa7891",
     });
     const pushes = runMock.mock.calls.filter((c) => c[0] === "docker" && c[1][0] === "push");

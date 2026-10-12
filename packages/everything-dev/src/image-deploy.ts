@@ -75,19 +75,24 @@ export interface ImageTags {
   pushLatest: boolean;
   /** Human-readable reason when `latest` is held. */
   latestHoldReason?: string;
+  /** Push `:rc` after the pinned tags — the floating prerelease-train ref. */
+  pushRc: boolean;
 }
 
 /**
  * Tag scheme (ADR 0021): `sha-<short>` always; the exact `v<version>` tag; a
  * floating major tag (`v2`) on stable releases only. `latest` is held during
  * prereleases (npm's `rc` dist-tag analog) so existing deployments pinned to
- * `:latest` keep serving the last stable image.
+ * `:latest` keep serving the last stable image — and `:rc` is the floating
+ * ref for the prerelease train (npm's `rc` dist-tag mirror): it moves on
+ * every prerelease deploy and freezes at the last rc-train build once the
+ * workspace releases a stable version.
  */
 export function computeImageTags(input: { shortSha: string; version?: string }): ImageTags {
   const tags = [`sha-${input.shortSha}`];
   const match = input.version?.trim().match(SEMVER_PATTERN);
   if (!match) {
-    return { tags, pushLatest: true };
+    return { tags, pushLatest: true, pushRc: false };
   }
   const [, major, minor, patch, prerelease] = match;
   const exact = prerelease
@@ -98,9 +103,10 @@ export function computeImageTags(input: { shortSha: string; version?: string }):
       tags: [...tags, exact],
       pushLatest: false,
       latestHoldReason: `${exact} is a prerelease — :latest still serves the last stable image`,
+      pushRc: true,
     };
   }
-  return { tags: [...tags, exact, `v${major}`], pushLatest: true };
+  return { tags: [...tags, exact, `v${major}`], pushLatest: true, pushRc: false };
 }
 
 export interface ImageDeployResult {
@@ -110,6 +116,8 @@ export interface ImageDeployResult {
   /** All tags pushed, including the primary. */
   tags: string[];
   latestPushed: boolean;
+  /** Whether the floating `:rc` prerelease-train ref was pushed. */
+  rcPushed: boolean;
   digest?: string;
 }
 
@@ -156,9 +164,10 @@ export function resolveDeployImagePlan(input: {
 
 /**
  * Image leg (ADR 0021): build the runtime stage, tag `sha-<short>` + version
- * tags, push them, capture the digest, and push `:latest` unless the version
- * is a prerelease. Callers skip the leg with a notice when no image is
- * configured (child repos get build+upload+publish only).
+ * tags, push them, capture the digest, then push the floating refs — `:latest`
+ * unless the version is a prerelease, and `:rc` when it is. Callers skip the
+ * leg with a notice when no image is configured (child repos get
+ * build+upload+publish only).
  */
 export async function buildAndPushImage(input: {
   image: string;
@@ -178,10 +187,15 @@ export async function buildAndPushImage(input: {
   }
 
   const version = readFrameworkVersion(input.configDir);
-  const { tags, pushLatest, latestHoldReason } = computeImageTags({ shortSha, version });
+  const { tags, pushLatest, latestHoldReason, pushRc } = computeImageTags({
+    shortSha,
+    version,
+  });
   const refs = tags.map((tag) => `${input.image}:${tag}`);
   const latestRef = `${input.image}:latest`;
-  const buildRefs = pushLatest ? [...refs, latestRef] : refs;
+  const rcRef = `${input.image}:rc`;
+  const buildRefs = pushLatest ? [...refs, latestRef] : [...refs];
+  if (pushRc) buildRefs.push(rcRef);
 
   console.log(
     `  Building runtime image ${colors.cyan(buildRefs.join(", "))}${pushLatest ? "" : colors.yellow(" (latest held)")}`,
@@ -208,31 +222,34 @@ export async function buildAndPushImage(input: {
     }
   }
 
-  let latestPushed = false;
-  if (pushLatest) {
-    const pushLatestRef = await run("docker", ["push", latestRef], {
+  const pushFloating = async (ref: string): Promise<boolean> => {
+    const push = await run("docker", ["push", ref], {
       cwd: input.configDir,
       capture: true,
     });
-    if (!pushLatestRef || pushLatestRef.exitCode !== 0) {
-      throw new Error(
-        `docker push ${latestRef} failed with exit code ${pushLatestRef?.exitCode ?? "unknown"}`,
-      );
+    if (!push || push.exitCode !== 0) {
+      throw new Error(`docker push ${ref} failed with exit code ${push?.exitCode ?? "unknown"}`);
     }
-    digest ??= parseDigest(pushLatestRef.stdout);
-    if (input.verbose && pushLatestRef.stdout.trim()) {
-      console.log(colors.dim(pushLatestRef.stdout.trim()));
+    digest ??= parseDigest(push.stdout);
+    if (input.verbose && push.stdout.trim()) {
+      console.log(colors.dim(push.stdout.trim()));
     }
-    latestPushed = true;
+    return true;
+  };
+
+  let latestPushed = false;
+  if (pushLatest) {
+    latestPushed = await pushFloating(latestRef);
   } else {
     console.log(colors.yellow(`  latest held: ${latestHoldReason}`));
   }
+  const rcPushed = pushRc ? await pushFloating(rcRef) : false;
 
   if (!digest) {
     console.log(colors.yellow("  Could not capture the image digest from push output"));
   }
 
-  return { image: input.image, tag: tags[0]!, tags, latestPushed, digest };
+  return { image: input.image, tag: tags[0]!, tags, latestPushed, rcPushed, digest };
 }
 
 /**

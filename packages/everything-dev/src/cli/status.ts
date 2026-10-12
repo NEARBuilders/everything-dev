@@ -22,11 +22,46 @@ const CATALOG_TOOL_PACKAGES = [
   "@module-federation/dts-plugin",
 ] as const;
 
-async function fetchLatestNpmVersion(packageName: string): Promise<string | null> {
-  return fetchJsonOrNull<{ version: string }>(`https://registry.npmjs.org/${packageName}/latest`, {
-    headers: { Accept: "application/json" },
-    retries: 0,
-  }).then((data) => data?.version ?? null);
+const PRERELEASE_PATTERN = /-[0-9A-Za-z.-]+$/;
+
+/**
+ * The dist-tag to compare an installed version against: prerelease installs
+ * track the `rc` dist-tag (the changesets pre-mode train), stable installs
+ * track `latest`. Falls back to `latest` when no `rc` tag is published.
+ */
+export function resolveUpdateDistTag(installed: string | undefined): "rc" | "latest" {
+  return installed && PRERELEASE_PATTERN.test(installed) ? "rc" : "latest";
+}
+
+/** The version a given dist-tag currently points at, or null when absent. */
+export function pickDistTagVersion(
+  distTags: Record<string, string> | undefined,
+  tag: "rc" | "latest",
+): string | null {
+  return distTags?.[tag] ?? null;
+}
+
+async function fetchLatestNpmVersion(
+  packageName: string,
+  tag: "rc" | "latest",
+): Promise<string | null> {
+  if (tag === "latest") {
+    return fetchJsonOrNull<{ version: string }>(
+      `https://registry.npmjs.org/${packageName}/latest`,
+      {
+        headers: { Accept: "application/json" },
+        retries: 0,
+      },
+    ).then((data) => data?.version ?? null);
+  }
+  const packument = await fetchJsonOrNull<{ "dist-tags"?: Record<string, string> }>(
+    `https://registry.npmjs.org/${packageName}`,
+    {
+      headers: { Accept: "application/vnd.npm.install-v1+json" },
+      retries: 0,
+    },
+  );
+  return pickDistTagVersion(packument?.["dist-tags"], tag);
 }
 
 function readInstalledVersion(projectDir: string, packageName: string): string | undefined {
@@ -72,7 +107,10 @@ export async function getStatus(projectDir: string): Promise<StatusResult> {
   const packages = await Promise.all(
     packageNames.map(async (name) => {
       const resolved = resolveFrameworkPackage(projectDir, name);
-      const latest = await fetchLatestNpmVersion(name);
+      const tag = FRAMEWORK_PACKAGES.includes(name)
+        ? resolveUpdateDistTag(resolved.installedVersion)
+        : "latest";
+      const latest = await fetchLatestNpmVersion(name, tag);
       return {
         name,
         installed: resolved.installedVersion,
