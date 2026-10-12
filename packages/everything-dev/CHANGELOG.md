@@ -1,5 +1,32 @@
 # everything-dev
 
+## 2.0.0-rc.2
+
+### Minor Changes
+
+- a3f6c55: Split the runtime image leg out of the deploy train
+
+  - `bos deploy` gains `--image-digest` (or `BOS_IMAGE_DIGEST`): when set, the image build/push leg is skipped and the Railway deploy pins a thin `FROM <image>@<digest>` Dockerfile to the pre-pushed digest. The digest is validated (`sha256:<64 hex>`) — a malformed value fails the deploy before any publish, both as a flag and via env. With a digest present, the image ref is resolved from the pushed ref (`BOS_IMAGE`/repository derivation); `ci.image` is excluded because it is a build-time choice, not a pin-time one, preventing a digest/ref mismatch. Without a digest the behavior is unchanged — the image is built and pushed locally when docker is available.
+  - The production Deploy workflow now runs two jobs, image first: an `image` job builds the `runtime` stage and pushes it to GHCR (sha-<short>, exact version tag, floating v<major> + `:latest` on stable and non-semver versions — `:latest` held during prereleases, same parity as `computeImageTags`) and outputs the captured digest — resolved from the registry per pushed ref with all tags asserted equal, not scraped from a single push output. The `deploy` job passes `BOS_IMAGE`/`BOS_IMAGE_DIGEST` so the config/bundle publish only happens for a deploy whose image is already in the registry, and a failed image push no longer leaves a partially published deploy.
+  - `staging.yml` and the consumer workflows are unchanged: `bos deploy` still builds and pushes the image itself when no digest is provided, and child repos (no Dockerfile) degrade exactly as before.
+
+### Patch Changes
+
+- a3f6c55: `everything-dev/ui/auth`'s published types collapsed to `any`: when the dts build ran while a workspace dependency's dist types (better-near-auth) were missing or unresolvable, rolldown-plugin-dts silently emitted `createAuthClient(options?): any`, poisoning `AuthClient`, `SessionData`, `Organization`, `Passkey`, and the session query types for every npm consumer (this shipped in 2.0.0-rc.1). The emitted declaration also referenced `RelayedTransactionT` without importing it. The everything-dev build now guards both ends: it fails fast when the workspace dependencies' dist types are missing (`pnpm --filter better-near-auth build` fixes it) and fails the build if the emitted `createAuthClient` return type collapses to `any`.
+- a3f6c55: Three export subpaths shipped pointing at unpublished `./src/` files — `./fingerprint`, `./version-manifest-resolve`, and `./ui/version-check` — so every consumer outside the monorepo (notably child repos, whose scaffolded `ui/src/components/version-refresh-banner.tsx` imports `everything-dev/ui/version-check`) failed to resolve them at typecheck and runtime. All three now follow the canonical exports shape used by every other subpath: a `development` condition mapping to `src` plus dist fallbacks (`./dist/*.d.mts` / `.mjs` / `.cjs`). Release staging also now fails loudly when any export target still points at `./src/` after development conditions are stripped, instead of publishing a dangling path.
+- 63f942c: Self-contained image boots its own staged bytes + Docker Hub frontend flake fix
+
+  Three fixes from the release-upgrade CI failures (run 37995405819):
+
+  - **Staged-slot preference (`everything-dev`)**: when a runtime stages its own namespace under `BOS_BUNDLE_DIR`, a config slot resolves from the staged dist's own `versions/*.json` manifest instead of the config's pin whenever the pinned manifest file is absent from the staged namespace. Previously, a pin that predated the image (deploy lag after a release bump of `every-plugin`) resolved its stale hashed remoteEntry from the CDN with a 200 — the MF `loadShare` then threw `Version X from host … needs Y` and every plugin failed to load (`/api` 503). The image now boots its own bytes (ADR 0020 "cold boots need zero network"); slots absent from the staged namespace (the template plugin, registry-tier children) keep the pinned/network path, and a pinned manifest that IS staged keeps its SRI verification.
+  - **SharedIdentity guard for hashed entries (`every-plugin`)**: `fetchRemoteIdentityManifest` normalized only a literal `remoteEntry.js` suffix, so production hashed-entry remotes (`remoteEntry.<hash>.js`) probed `<entry>/mf-manifest.json` → 404 → the guard silently skipped verification. It now strips any `remoteEntry.*.js` suffix, so a stale-deploy load is refused with the `bos mf check` remedy instead of a cryptic `loadShare` version error.
+  - **Bundle URL→staged-path shared mapper (`everything-dev`)**: `bundleUrlToLocalPath` now delegates to a new `bundleUrlToStagedPath` (namespace taken from the URL itself), also used by the staged-slot preference; behavior is unchanged for identity-checked resolution.
+
+  Ops: the runtime image Dockerfile drops its `# syntax=docker/dockerfile:1.7` directive — BuildKit's built-in frontend covers the features used (`RUN --mount` needs 1.2+), removing the Docker Hub frontend pull whose `auth.docker.io` 504s flaked the regression suites.
+
+- Updated dependencies [63f942c]
+  - every-plugin@3.0.0-rc.1
+
 ## 2.0.0-rc.1
 
 ### Patch Changes
