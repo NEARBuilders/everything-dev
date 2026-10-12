@@ -458,10 +458,10 @@ function hasPluginsWorkspace(projectDir: string): boolean {
                 workspaces?: { packages?: string[] } | string[];
               }
             ).workspaces;
-      const globs = Array.isArray(packages)
+      const globs: string[] = Array.isArray(packages)
         ? packages
         : Array.isArray((packages as { packages?: string[] })?.packages)
-          ? (packages as { packages?: string[] }).packages
+          ? ((packages as { packages?: string[] }).packages ?? [])
           : [];
       if (globs.includes("plugins/*")) return true;
     } catch {
