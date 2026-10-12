@@ -28,7 +28,7 @@ function ssrServerEntry(): string {
   }
 }
 
-function ensureUiServerBuild() {
+export function ensureUiServerDistBuild() {
   if (buildReady) return;
 
   if (ssrServerEntry()) {
@@ -93,7 +93,7 @@ export async function loadBundledRouterModule(): Promise<{
   assetsUrl: string;
   cleanup: () => Promise<void>;
 }> {
-  ensureUiServerBuild();
+  ensureUiServerDistBuild();
 
   if (activeSsrLoader) {
     const mod = await (activeSsrLoader.mf as any).loadRemote("ui/Router", { from: "build" });
