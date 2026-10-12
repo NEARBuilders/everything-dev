@@ -13,9 +13,10 @@ export interface RpcClientConfig {
 const RATE_LIMIT_MAX_RETRIES = 3;
 const RATE_LIMIT_RETRY_CAP_MS = 2_000;
 const browserClients = new Map<string, unknown>();
+type FetchInput = Parameters<typeof fetch>[0];
 
 async function fetchWithRateLimitRetry(
-  fetchUrl: RequestInfo | URL,
+  fetchUrl: FetchInput,
   options?: RequestInit,
 ): Promise<Response> {
   let response = await fetch(fetchUrl, options);
@@ -38,7 +39,8 @@ function createRpcLink(config: RpcClientConfig, headers?: Headers) {
     url: config.path,
     interceptors: [
       onError((error: unknown) => {
-        if (typeof window === "undefined") {
+        const browserWindow = (globalThis as { window?: unknown }).window;
+        if (typeof browserWindow === "undefined") {
           return;
         }
 
@@ -65,7 +67,7 @@ function createRpcLink(config: RpcClientConfig, headers?: Headers) {
         }
       }),
     ],
-    fetch(fetchUrl: RequestInfo | URL, options?: RequestInit) {
+    fetch(fetchUrl: FetchInput, options?: RequestInit) {
       return fetchWithRateLimitRetry(fetchUrl, {
         ...options,
         credentials: "include",
@@ -92,7 +94,8 @@ export function createRpcClient<T extends RouterContract = RouterContract>(
   config: RpcClientConfig,
   headers?: Headers,
 ): ContractRouterClient<T> {
-  if (typeof window !== "undefined" && !headers) {
+  const browserWindow = (globalThis as { window?: unknown }).window;
+  if (typeof browserWindow !== "undefined" && !headers) {
     const key = `${config.hostUrl}${config.path}`;
     const memoized = browserClients.get(key);
     if (memoized) {

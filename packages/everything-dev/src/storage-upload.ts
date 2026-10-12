@@ -1,6 +1,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { Data } from "effect";
+import {
+  createArtifactControlClient,
+} from "./artifact-control";
 
 export interface DistFile {
   path: string;
@@ -12,6 +14,8 @@ export interface BundleUploadResult {
   totalBytes: number;
   integrity: Record<string, string>;
   storage?: "s3" | "memory";
+  sessionId?: string;
+  finalizedAt?: string;
 }
 
 async function walkDist(dir: string, baseDir: string): Promise<DistFile[]> {
@@ -37,46 +41,6 @@ export async function collectDistFiles(distDir: string): Promise<DistFile[]> {
   return walkDist(distDir, distDir);
 }
 
-const STATUS_ATTEMPTS = 3;
-const TRANSPORT_ATTEMPTS = 5;
-const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const backoffMs = (attempt: number) => 1000 * attempt + Math.floor(Math.random() * 500);
-
-class BundleUploadError extends Data.TaggedError("BundleUploadError")<{
-  readonly status: number;
-  readonly detail: string;
-  readonly note?: string;
-}> {
-  constructor(status: number, detail: string, note?: string) {
-    super({ status, detail, note });
-  }
-
-  override get message() {
-    return `${this.detail}${this.note ?? ""}`;
-  }
-
-  withNote(note: string) {
-    return new BundleUploadError(this.status, this.detail, `${this.note ?? ""}${note}`);
-  }
-}
-
-function describeUploadFailure(status: number, detail: string): string {
-  const trimmed = detail.slice(0, 300);
-  if (status === 408 || /request timeout|bundle upload timed out/i.test(trimmed)) {
-    return `${trimmed} — the serving host timed out the upload; raise BOS_STORAGE_UPLOAD_TIMEOUT_MS there or upload smaller batches (BOS_MAX_BUNDLE_UPLOAD_BYTES)`;
-  }
-  try {
-    const parsed = JSON.parse(detail) as { code?: unknown; message?: unknown };
-    if (parsed?.code === "INTERNAL_SERVER_ERROR" && parsed?.message === "Internal Server Error") {
-      return `${trimmed} — the host hid the underlying error; check the host logs for the cause`;
-    }
-  } catch {
-    // not a JSON error body
-  }
-  return trimmed;
-}
-
 export async function uploadBundle(input: {
   origin: string;
   apiKey?: string;
@@ -86,11 +50,12 @@ export async function uploadBundle(input: {
   files: DistFile[];
   fetchImpl?: typeof fetch;
 }): Promise<BundleUploadResult> {
-  const fetchImpl = input.fetchImpl ?? fetch;
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (input.apiKey) headers["x-api-key"] = input.apiKey;
-
-  const body = JSON.stringify({
+  const client = createArtifactControlClient({
+    origin: input.origin,
+    apiKey: input.apiKey,
+    fetchImpl: input.fetchImpl,
+  });
+  const result = await client.uploadBundle({
     account: input.account,
     gateway: input.gateway,
     workspace: input.workspace,
@@ -99,54 +64,7 @@ export async function uploadBundle(input: {
       contentBase64: Buffer.from(file.bytes).toString("base64"),
     })),
   });
-
-  let lastError: BundleUploadError | Error | undefined;
-  let transportFailures = 0;
-  let statusFailures = 0;
-  for (let attempt = 1; attempt <= TRANSPORT_ATTEMPTS; attempt++) {
-    try {
-      const response = await fetchImpl(`${input.origin.replace(/\/$/, "")}/api/storage/bundles`, {
-        method: "POST",
-        headers:
-          transportFailures > 0
-            ? // a transport failure killed the pooled keepalive socket — do not
-              // reuse it (the "socket connection closed unexpectedly" incident)
-              { ...headers, connection: "close" }
-            : headers,
-        body,
-      });
-
-      if (response.ok) {
-        return (await response.json()) as BundleUploadResult;
-      }
-
-      const detail = await response.text().catch(() => "");
-      lastError = new BundleUploadError(
-        response.status,
-        `[publish] bundle upload for ${input.workspace} failed: ${response.status} ${describeUploadFailure(response.status, detail)}`,
-      );
-      // Retries are safe: the storage route stores by account/gateway/
-      // workspace/path, so re-posting a batch overwrites idempotently.
-      if (!RETRYABLE_STATUSES.has(response.status)) break;
-      statusFailures += 1;
-      if (statusFailures >= STATUS_ATTEMPTS) break;
-    } catch (error) {
-      transportFailures += 1;
-      lastError = new BundleUploadError(
-        0,
-        `[publish] bundle upload for ${input.workspace} failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
-    if (attempt < TRANSPORT_ATTEMPTS) await sleep(backoffMs(attempt));
-  }
-
-  if (lastError instanceof BundleUploadError && lastError.status === 0) {
-    lastError = lastError.withNote(
-      " (Bun fetch note: re-run with fetch verbose diagnostics for detail)",
-    );
-  }
-  throw lastError ?? new Error(`[publish] bundle upload for ${input.workspace} failed`);
+  return result;
 }
 
 export async function uploadWorkspaceDist(input: {
@@ -181,6 +99,8 @@ export async function uploadWorkspaceDist(input: {
     merged.totalBytes += result.totalBytes;
     Object.assign(merged.integrity, result.integrity);
     merged.storage = result.storage;
+    merged.sessionId = result.sessionId;
+    merged.finalizedAt = result.finalizedAt;
     batch = [];
     batchBytes = 0;
   };

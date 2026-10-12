@@ -201,7 +201,13 @@ export default createPlugin.withPlugins<PluginsClient>()({
         );
         const integrity = Object.fromEntries(integrityEntries);
 
-        return { stored: decoded.length, totalBytes, integrity, storage: storage.backend };
+        return {
+          sessionId: input.sessionId,
+          stored: decoded.length,
+          totalBytes,
+          integrity,
+          storage: storage.backend,
+        };
       }),
     };
 

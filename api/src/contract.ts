@@ -7,6 +7,10 @@ import {
   NOT_FOUND,
   UNAUTHORIZED,
 } from "every-plugin/errors";
+import {
+  ArtifactControlBundleFileSchema,
+  ArtifactControlTransferResponseSchema,
+} from "everything-dev/artifact-control";
 import { z } from "zod";
 
 const ErrorTestKindSchema = z.enum([
@@ -18,21 +22,9 @@ const ErrorTestKindSchema = z.enum([
   "internal",
 ]);
 
-export const BundleFileSchema = z.object({
-  path: z.string().min(1).max(512),
-  contentBase64: z.string().min(1),
-});
+export const BundleFileSchema = ArtifactControlBundleFileSchema;
 
-export const StorageUploadResultSchema = z.object({
-  stored: z.number().int(),
-  totalBytes: z.number().int(),
-  integrity: z.record(z.string(), z.string()),
-  storage: z
-    .enum(["s3", "memory"])
-    .describe(
-      "Resolved bundle-storage backend: `s3` (R2/MinIO, persistent) or `memory` (ephemeral — bytes are lost on restart)",
-    ),
-});
+export const StorageUploadResultSchema = ArtifactControlTransferResponseSchema;
 
 export const contract = oc.router({
   ping: oc.route({ method: "GET", path: "/ping" }).output(
@@ -74,6 +66,7 @@ export const contract = oc.router({
     })
     .input(
       z.object({
+        sessionId: z.string().min(1).optional(),
         account: z.string().min(1),
         gateway: z.string().min(1),
         workspace: z.string().min(1),

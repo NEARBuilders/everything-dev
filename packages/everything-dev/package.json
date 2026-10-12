@@ -117,6 +117,15 @@
       "import": "./dist/contract.meta.mjs",
       "require": "./dist/contract.meta.cjs"
     },
+    "./artifact-control": {
+      "development": {
+        "types": "./src/artifact-control.ts",
+        "import": "./src/artifact-control.ts"
+      },
+      "types": "./dist/artifact-control.d.mts",
+      "import": "./dist/artifact-control.mjs",
+      "require": "./dist/artifact-control.cjs"
+    },
     "./mf": {
       "development": {
         "types": "./src/mf.ts",
