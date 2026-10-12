@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  compareSemver,
-  pickDistTagVersion,
-  resolveUpdateDistTag,
-} from "../../src/cli/status";
+import { compareSemver, pickDistTagVersion, resolveUpdateDistTag } from "../../src/cli/status";
 
 describe("resolveUpdateDistTag", () => {
   it("tracks the rc dist-tag for prerelease installs", () => {
