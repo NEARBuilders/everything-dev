@@ -2,7 +2,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { globSync } from "glob";
 
 const rootDir = join(import.meta.dirname, "..");
@@ -22,13 +22,83 @@ const publishablePackages = globSync("packages/*/package.json", { cwd: rootDir, 
       name?: string;
       private?: boolean;
       scripts?: { build?: string };
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
     };
     return { filePath, pkg };
   })
   .filter(({ pkg }) => pkg.private !== true && Boolean(pkg.scripts?.build));
 
-for (const { filePath, pkg } of publishablePackages) {
-  run("pnpm", ["--filter", pkg.name ?? basename(join(rootDir, filePath, "..")), "run", "build"]);
+// Build in dependency order. The publishable packages' tsdown configs assert
+// that their workspace dependencies' dist types exist at config load time
+// (everything-dev's assertWorkspaceDtsDependencies), so a glob-ordered build
+// can fail the whole release when a dependency-built-first ordering is not
+// honored — and glob gives no such ordering. Derive a deterministic
+// topological order from the workspace dependency graph instead.
+const workspaceNames = new Set(
+  publishablePackages.map(({ pkg }) => pkg.name).filter(Boolean) as string[],
+);
+const dependencyGraph = new Map<string, string[]>(
+  publishablePackages.map(({ pkg }) => {
+    const name = pkg.name!;
+    const declared = {
+      ...pkg.dependencies,
+      ...pkg.peerDependencies,
+      ...pkg.devDependencies,
+    };
+    return [
+      name,
+      Object.keys(declared)
+        .filter((dep) => workspaceNames.has(dep))
+        .sort(),
+    ];
+  }),
+);
+
+function topologicalBuildOrder(graph: Map<string, string[]>): string[] {
+  const remaining = new Map<string, number>(
+    [...graph.entries()].map(([name, deps]) => [name, deps.length]),
+  );
+  const dependents = new Map<string, string[]>();
+  for (const [name, deps] of graph) {
+    for (const dep of deps) {
+      if (!dependents.has(dep)) dependents.set(dep, []);
+      dependents.get(dep)!.push(name);
+    }
+  }
+
+  const ready = [...remaining.entries()]
+    .filter(([, count]) => count === 0)
+    .map(([name]) => name)
+    .sort();
+  const order: string[] = [];
+  while (ready.length > 0) {
+    const name = ready.shift()!;
+    order.push(name);
+    for (const dependent of dependents.get(name) ?? []) {
+      const next = remaining.get(dependent)! - 1;
+      remaining.set(dependent, next);
+      if (next === 0) {
+        ready.push(dependent);
+        ready.sort();
+      }
+    }
+  }
+
+  if (order.length !== graph.size) {
+    const unresolved = [...graph.keys()].filter((name) => !order.includes(name));
+    throw new Error(
+      `dependency cycle or missing package among publishable workspaces: ${unresolved.join(", ")}`,
+    );
+  }
+  return order;
+}
+
+const buildOrder = topologicalBuildOrder(dependencyGraph);
+
+for (const name of buildOrder) {
+  run("pnpm", ["--filter", name, "run", "build"]);
 }
 
 run("node", ["--import", "tsx", "scripts/stage-release-packages.ts"]);
@@ -44,12 +114,19 @@ if (existsSync(preJsonPath)) {
   }
 }
 
-const releaseDirs = globSync(".release/*/package.json", { cwd: rootDir, nodir: true }).map(
-  (filePath) => join(rootDir, filePath, ".."),
+const releaseDirs = globSync(".release/*/package.json", { cwd: rootDir, nodir: true })
+  .map((filePath) => join(rootDir, filePath, ".."))
+  .map((dir) => ({
+    dir,
+    name: (JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as { name: string }).name,
+  }));
+const releaseRank = new Map(buildOrder.map((name, index) => [name, index]));
+releaseDirs.sort(
+  (a, b) => (releaseRank.get(a.name) ?? Infinity) - (releaseRank.get(b.name) ?? Infinity),
 );
 
 let published = 0;
-for (const dir of releaseDirs) {
+for (const { dir } of releaseDirs) {
   const { name, version } = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as {
     name: string;
     version: string;
@@ -82,7 +159,7 @@ function extractChangelogNotes(changelogPath: string, version: string): string |
   return body.length > 0 ? body.join("\n") : null;
 }
 
-for (const dir of releaseDirs) {
+for (const { dir } of releaseDirs) {
   const { name, version } = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as {
     name: string;
     version: string;
