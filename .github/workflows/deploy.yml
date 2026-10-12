@@ -250,11 +250,13 @@ jobs:
             sleep 20
           done
 
-      - name: Deploy smoke — remote runtime against the live deployment
-        timeout-minutes: 10
-        # ADR 0009 §4: published-config coverage lives in the Deploy workflow.
-        # Boots the real host program against the live production URLs from the
-        # deployed SHA's bos.config.json — SSR compose from the deployed ui,
-        # doc-asset proxy, api ping, root document contract. bos mf check has
-        # already verified the site is up and consistent above.
-        run: pnpm --filter host test:integration:remote
+      # The former "Deploy smoke" step (host test:integration:remote) is
+      # retired (plan 051): its premise — a local bos.config.json carrying
+      # production URLs — no longer holds (production URLs are pipeline
+      # state, published to FastKV; bos.app.ts:6). Its coverage is kept by:
+      # the mf-check step above (deployment consistency), the image smoke
+      # (tests/smoke/runtime-image.mjs: /health, SSR HTML, spec.json,
+      # in-image mf check), and the CI browser start:* regression modes.
+      # The host helper (host/tests/helpers/runtime-remote.ts) now reads the
+      # resolved config and remains a local diagnostic with honest skip
+      # reasons when production URLs are absent.

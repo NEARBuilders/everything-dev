@@ -45,7 +45,7 @@
   "scripts": {
     "build": "every-plugin build",
     "dev": "every-plugin dev",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",

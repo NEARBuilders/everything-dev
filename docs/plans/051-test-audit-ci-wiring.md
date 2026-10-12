@@ -1,6 +1,12 @@
 # 051 — Test audit: wire the unwired suites into CI (and fix the void they hide)
 
-Written against commit `d1bc2e3c` (2026-10-11). Companion to plan 050 (removals) and 052 (aggressive options). This plan is *not* a removal — it closes the highest-impact finding of the test audit: **several substantial suites never execute anywhere** (not in the root aggregate, not in CI, not in any regression script), so they can rot invisibly.
+Written against commit `d1bc2e3c` (2026-10-11). Companion to plan 050 (removals) and 052 (aggressive options). **Executed 2026-10-12** — see the addendum at the end for what landed and the one BLOCKED suite.
+
+## Execution addendum (2026-10-12)
+
+- **Landed**: `plugins` + `ui-api` change-detection outputs in ci.yml; `plugin-tests` job expanded (every-plugin `test:all`, auth `pnpm --filter @everything-dev/auth-plugin test` — 350 tests green locally — votes, registry) with a member-list comment for future plugins; new `ui-api-tests` job (`pnpm --filter ui test` — 135 green, `pnpm --filter api test` — 23 green); `--passWithNoTests` removed from both the api and votes test scripts; `Bun.sleep` → `timers/promises.setTimeout` in `start-stack.mjs`.
+- **BLOCKED — proposals excluded from the CI job**: the suite is red on main independent of this work — `getProposals` masks `createdBy` as `"[hidden]"` for every non-admin caller (`plugins/proposals/src/index.ts:245`) while `src/__tests__/proposals.test.ts:163` asserts the owner sees their own. 9/10 tests pass. Deciding owner-visibility intent is a product call; wire the suite once decided (the job carries a comment pointing here).
+- **Step 4 resolved as option (b) with a repair rider**: the resolved/authored config never carries production URLs (pipeline state; `bos.app.ts:6`), so option (a) as written was impossible without published-config-fetch machinery. The `deploy.yml` smoke step is retired; its coverage accounting lives in the mf-check step, `tests/smoke/runtime-image.mjs` (`/health`, SSR HTML, spec.json, in-image mf check), and the CI browser `start:*` modes. The host helper was still repaired — `loadRawBosConfig` now reads `.bos/bos.resolved-config.json` (falling back to legacy `bos.config.json`) with honest skip reasons, so `pnpm --filter host test:integration:remote` stays a working local diagnostic instead of an ENOENT-driven mystery.
 
 ## The verified wiring matrix
 

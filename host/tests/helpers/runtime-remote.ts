@@ -31,7 +31,13 @@ export interface RuntimeRemoteHost {
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = path.resolve(currentDir, "../../..");
-const bosConfigPath = path.join(workspaceRoot, "bos.config.json");
+const configCandidates = [
+  // The canonical form for this repo: the resolved config materialized by
+  // bos dev/build/typecheck/deploy (gitignored). Fresh checkouts without it
+  // fall through to the legacy child-repo form.
+  path.join(workspaceRoot, ".bos", "bos.resolved-config.json"),
+  path.join(workspaceRoot, "bos.config.json"),
+];
 
 loadHostTestEnv(workspaceRoot);
 
@@ -44,8 +50,17 @@ function toMfEntry(url: string) {
 }
 
 async function loadRawBosConfig(): Promise<BosConfig> {
-  const raw = await readFile(bosConfigPath, "utf8");
-  return JSON.parse(raw) as BosConfig;
+  for (const candidate of configCandidates) {
+    try {
+      return JSON.parse(await readFile(candidate, "utf8")) as BosConfig;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  throw new Error(
+    `no runtime config found — expected one of:\n  ${configCandidates.join("\n  ")}\n` +
+      "Run `bos dev` (or any bos build/typecheck) to materialize the resolved config.",
+  );
 }
 
 function getScenarioSkipReason(config: BosConfig, scenario: RuntimeRemoteScenarioName) {
@@ -54,22 +69,22 @@ function getScenarioSkipReason(config: BosConfig, scenario: RuntimeRemoteScenari
   const apiProduction = config.app?.api?.production;
 
   if (!config.account) {
-    return "Missing account in bos.config.json";
+    return "Missing account in the runtime config";
   }
 
   if (!uiProduction) {
-    return "Missing app.ui.production in bos.config.json";
+    return "Missing app.ui.production in the runtime config";
   }
 
   if (scenario !== "remote-proxy") {
     if (!apiProduction) {
-      return "Missing app.api.production in bos.config.json";
+      return "Missing app.api.production in the runtime config";
     }
   }
 
   if (scenario === "remote-ssr") {
     if (!uiSsr) {
-      return "Missing app.ui.ssr in bos.config.json";
+      return "Missing app.ui.ssr in the runtime config";
     }
   }
 
@@ -134,7 +149,7 @@ export async function getRuntimeRemoteScenarios(): Promise<RuntimeRemoteScenario
     // No generated config at the workspace root (fresh checkout, no `bos dev`
     // yet) — the remote scenarios cannot resolve their targets; skip-all.
     const noConfigReason =
-      "no bos.config.json at the workspace root — run `bos dev` to generate one";
+      "no runtime config at the workspace root — run `bos dev` to materialize the resolved config";
     return [
       {
         name: "remote-client",

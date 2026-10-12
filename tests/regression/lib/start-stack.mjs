@@ -4,6 +4,7 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, openSync } from "node:fs";
 import net from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
 import { join } from "node:path";
 import { killStalePorts } from "./kill-stale-ports.mjs";
 import { computeRegressionEnv, findRepoRoot, regressionStackOptions } from "./regression-env.mjs";
@@ -58,7 +59,7 @@ async function waitForDatabases(dbUrls) {
       );
     }
     log(`waiting for test databases (${missing.join(", ")})...`);
-    await Bun.sleep(PROBE_DELAY_MS);
+    await sleep(PROBE_DELAY_MS);
   }
 }
 

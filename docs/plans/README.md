@@ -51,7 +51,7 @@ docs/plans/
 | 047 | Load team memberships only when the Teams tab needs them | P2 | M | 046 | DONE — PR #136 (`86907b94b`) |
 | 048 | Share the pure team access policy between API and UI | P2 | M | none | DONE — PR #136 (`86907b94b`); the policy now lives in `ui/src/lib/team-workspace.ts` and the auth plugin's team context (UI files later relocated by `8a12fd041`) |
 | 050 | Test audit: remove dead/tautological/exactly-duplicated tests (2026-10-11 audit) | P2 | S | — | DONE (2026-10-12) — all removals landed; every-plugin 33✓ / everything-dev 1023✓ / host 201✓ / Go compiles (go build) / typecheck+lint clean. `test:regression:http` local boot blocked by the pre-existing `every-plugin preview` bug (see 052 Part 0), not by this diff |
-| 051 | Test audit: wire unwired suites into CI (plugins/auth + small plugins, ui, api; deploy-smoke void; Bun.sleep landmine) | P1 | M | 050 | TODO |
+| 051 | Test audit: wire unwired suites into CI (plugins/auth + small plugins, ui, api; deploy-smoke void; Bun.sleep landmine) | P1 | M | 050 | DONE (2026-10-12) — plugin-tests + ui-api-tests jobs wired (auth 350✓, votes✓, registry✓, ui 135✓, api 23✓); proposals BLOCKED on main (owner-visibility mask contradiction — see 051 addendum); deploy-smoke step retired with coverage accounting; Bun.sleep fixed |
 | 052 | Test audit: aggressive options + open decisions (repair-or-retire host runtime-remote, backcompat CI, mirrored guard) | P3 | S-M | 050, 051 | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
