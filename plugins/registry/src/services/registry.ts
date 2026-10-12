@@ -214,7 +214,7 @@ export class RegistryService extends Context.Service<
       signedDelegateActionPayload: string,
     ) => Promise<RegistryRelayResult>;
     getRegistryRelaySender: (signedDelegateActionPayload: string) => string;
-    kvGet: (path: string) => Promise<unknown | null>;
+    kvGet: (path: string) => Promise<unknown>;
     kvList: (input: KvListInput) => Promise<{
       data: KvEntry[];
       meta: { total: number; hasMore: boolean; nextCursor: string | null };

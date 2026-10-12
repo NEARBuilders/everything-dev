@@ -111,13 +111,10 @@ const resolveRemoteSelfName = (pluginId: string, url: string) =>
     const memo = remoteSelfNames.get(memoKey);
     if (memo) return memo;
 
-    let selfName: string | null = null;
-    try {
-      const manifest = yield* Effect.promise(() => fetchRemoteIdentityManifest(url));
-      selfName = manifest?.metaData?.name?.trim() || null;
-    } catch {
-      selfName = null;
-    }
+    const manifest = yield* Effect.tryPromise(() => fetchRemoteIdentityManifest(url)).pipe(
+      Effect.orElseSucceed(() => null),
+    );
+    const selfName = manifest?.metaData?.name?.trim() || null;
 
     const resolved = selfName ?? getNormalizedRemoteName(pluginId);
     remoteSelfNames.set(memoKey, resolved);

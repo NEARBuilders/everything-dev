@@ -1,6 +1,6 @@
 import path from "node:path";
 import { createInstance } from "@module-federation/enhanced/runtime";
-import { Effect, Layer } from "effect";
+import { Data, Effect, Layer } from "effect";
 import { buildRuntimeConfigEffect } from "everything-dev/config";
 import { patchManifestFetchForSsrPublicPath } from "everything-dev/mf";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
@@ -136,23 +136,32 @@ vi.mock("../../src/services/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+class TestLoadError extends Data.TaggedError("TestLoadError")<{ readonly cause: unknown }> {
+  override get message() {
+    return this.cause instanceof Error ? this.cause.message : String(this.cause);
+  }
+}
+
 const wireRealLoaders = () => {
   loadUiComposeModuleMock.mockImplementation(() =>
     Effect.tryPromise({
       try: () => loadExpose("compose", false),
-      catch: (cause: unknown) => new Error(`compose load failed: ${String(cause)}`),
+      catch: (cause: unknown) =>
+        new TestLoadError({ cause: new Error(`compose load failed: ${String(cause)}`) }),
     }),
   );
   loadCoreUiRouteConfigMock.mockImplementation(() =>
     Effect.tryPromise({
       try: () => loadExpose("routeConfig", false),
-      catch: (cause: unknown) => new Error(`routeConfig load failed: ${String(cause)}`),
+      catch: (cause: unknown) =>
+        new TestLoadError({ cause: new Error(`routeConfig load failed: ${String(cause)}`) }),
     }),
   );
   loadRouterModuleMock.mockImplementation(() =>
     Effect.tryPromise({
       try: () => loadExpose("Router", true),
-      catch: (cause: unknown) => new Error(`Router load failed: ${String(cause)}`),
+      catch: (cause: unknown) =>
+        new TestLoadError({ cause: new Error(`Router load failed: ${String(cause)}`) }),
     }),
   );
 };
@@ -191,7 +200,7 @@ function runtimeConfigInBootstrap(html: string): { assetsUrl?: string } | undefi
 describe("SSR head liveness across a serving swap (full host pipeline)", () => {
   beforeAll(async () => {
     const { ensureUiServerDistBuild } = await import("../helpers/bundled-ssr-module");
-    await ensureUiServerDistBuild();
+    ensureUiServerDistBuild();
     const distDir = path.join(workspaceRoot, "ui", "dist");
     serverA = await startStaticDistServer(distDir);
     serverB = await startStaticDistServer(distDir);

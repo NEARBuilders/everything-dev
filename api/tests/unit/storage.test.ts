@@ -173,7 +173,12 @@ describe("withStorageRetries", () => {
     let calls = 0;
     const result = await withStorageRetries(async () => {
       calls += 1;
-      if (calls < 3) throw new TransientStorageError("PUT key", "fetch failed (ECONNRESET)");
+      if (calls < 3) {
+        throw new TransientStorageError({
+          operation: "PUT key",
+          detail: "fetch failed (ECONNRESET)",
+        });
+      }
       return "ok";
     });
     expect(result).toBe("ok");
@@ -185,7 +190,10 @@ describe("withStorageRetries", () => {
     await expect(
       withStorageRetries(async () => {
         calls += 1;
-        throw new TransientStorageError("PUT key", "fetch failed (ECONNRESET)");
+        throw new TransientStorageError({
+          operation: "PUT key",
+          detail: "fetch failed (ECONNRESET)",
+        });
       }),
     ).rejects.toThrow(TransientStorageError);
     expect(calls).toBe(3);
@@ -196,7 +204,7 @@ describe("withStorageRetries", () => {
     await expect(
       withStorageRetries(async () => {
         calls += 1;
-        throw new StorageHttpError("PUT key", 403, "AccessDenied");
+        throw new StorageHttpError({ operation: "PUT key", status: 403, detail: "AccessDenied" });
       }),
     ).rejects.toThrow(StorageHttpError);
     expect(calls).toBe(1);

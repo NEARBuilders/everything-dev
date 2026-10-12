@@ -24,7 +24,7 @@ describe("core ui generated stubs", () => {
   it("emits the stubs into the ui root and reports what changed", () => {
     fs.mkdirSync(join(root, "src"), { recursive: true });
     const written = emitCoreUiStubs(root);
-    expect(written.sort()).toEqual([...Object.keys(CORE_UI_STUBS)].sort());
+    expect(written.sort()).toEqual(Object.keys(CORE_UI_STUBS).sort());
     for (const [rel, content] of Object.entries(CORE_UI_STUBS)) {
       expect(fs.readFileSync(join(root, rel), "utf-8")).toBe(content);
     }

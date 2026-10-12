@@ -37,6 +37,7 @@ function runnerSnapshot(label) {
 
 export default class StallWatchdogReporter {
   lastProgressAt = Date.now();
+  /** @type {string | null} */
   currentTest = null;
   timer = null;
 

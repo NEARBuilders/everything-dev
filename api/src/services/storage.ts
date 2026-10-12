@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { AwsClient } from "aws4fetch";
-import { Context, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import { cacheControlOf } from "every-plugin/build/artifact-names";
 
 export interface StoragePutInput {
@@ -141,25 +141,23 @@ function summarizeStorageErrorBody(detail: string): string {
  * (undici wraps these as "fetch failed" — resets, timeouts, socket errors)
  * or the remote answered with a transient status.
  */
-export class TransientStorageError extends Error {
-  constructor(
-    readonly operation: string,
-    readonly detail: string,
-  ) {
-    super(`[storage] ${operation} failed: ${detail}`);
-    this.name = "TransientStorageError";
+export class TransientStorageError extends Data.TaggedError("TransientStorageError")<{
+  readonly operation: string;
+  readonly detail: string;
+}> {
+  override get message() {
+    return `[storage] ${this.operation} failed: ${this.detail}`;
   }
 }
 
 /** A definitive backend rejection (auth, bad request) — retrying cannot help. */
-export class StorageHttpError extends Error {
-  constructor(
-    readonly operation: string,
-    readonly status: number,
-    readonly detail: string,
-  ) {
-    super(`[storage] ${operation} failed: ${status} ${detail}`);
-    this.name = "StorageHttpError";
+export class StorageHttpError extends Data.TaggedError("StorageHttpError")<{
+  readonly operation: string;
+  readonly status: number;
+  readonly detail: string;
+}> {
+  override get message() {
+    return `[storage] ${this.operation} failed: ${this.status} ${this.detail}`;
   }
 }
 
@@ -224,19 +222,23 @@ export class S3StorageClient implements StorageClient {
       try {
         response = await this.client.fetch(this.objectUrl(key), init);
       } catch (error) {
-        throw new TransientStorageError(opLabel, describeFetchCause(error));
+        throw new TransientStorageError({ operation: opLabel, detail: describeFetchCause(error) });
       }
       if (response.ok || (operation === "GET" && response.status === 404)) {
         return response;
       }
       const detail = await response.text().catch(() => "");
       if (TRANSIENT_STATUS_PATTERN.test(String(response.status))) {
-        throw new TransientStorageError(
-          opLabel,
-          `${response.status} ${summarizeStorageErrorBody(detail)}`,
-        );
+        throw new TransientStorageError({
+          operation: opLabel,
+          detail: `${response.status} ${summarizeStorageErrorBody(detail)}`,
+        });
       }
-      throw new StorageHttpError(opLabel, response.status, summarizeStorageErrorBody(detail));
+      throw new StorageHttpError({
+        operation: opLabel,
+        status: response.status,
+        detail: summarizeStorageErrorBody(detail),
+      });
     });
   }
 

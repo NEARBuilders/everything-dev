@@ -254,6 +254,7 @@ function runEffect(
   opts: { context: Record<string, unknown>; input?: Record<string, unknown> },
 ): Promise<unknown> {
   return Effect.runPromise(
+    // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context -- mock runner over the untyped oRPC builder
     Effect.gen(() => fn(opts)).pipe(
       Effect.provideContext(opts.context["effect/context"] as Context.Context<any>),
     ),

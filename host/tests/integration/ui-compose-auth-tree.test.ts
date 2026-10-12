@@ -95,7 +95,11 @@ describe("constructTree over the auth route shape", () => {
     ) as unknown as {
       children: Array<{ options: { path?: string; isIndex?: boolean } }>;
     };
-    expect(publicMount.children.map((child) => child.options.path).sort()).toEqual(["/", "/login"]);
+    expect(
+      publicMount.children
+        .map((child) => child.options.path)
+        .sort((a, b) => (a ?? "").localeCompare(b ?? "")),
+    ).toEqual(["/", "/login"]);
 
     const navLogin = tree.nav.items.find((item) => item.plugin === "auth");
     expect(navLogin).toMatchObject({ to: "/login", mount: "public", plugin: "auth" });

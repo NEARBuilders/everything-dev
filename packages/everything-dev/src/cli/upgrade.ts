@@ -608,14 +608,16 @@ export async function migrateBosConfigFiles(projectDir: string): Promise<string[
         const pluginConfig = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
         rootChanged = mergePluginConfigIntoRoot(rootConfig, pluginKey, pluginConfig) || rootChanged;
       } catch (e) {
-        console.warn(`[Upgrade] Failed to parse plugin config at ${filePath}: ${e}`);
+        console.warn(`[Upgrade] Failed to parse plugin config at ${filePath}: ${String(e)}`);
       }
 
       try {
         rmSync(filePath);
         migrated.push(relativePath);
       } catch (e) {
-        console.warn(`[Upgrade] Failed to remove migrated plugin config at ${filePath}: ${e}`);
+        console.warn(
+          `[Upgrade] Failed to remove migrated plugin config at ${filePath}: ${String(e)}`,
+        );
       }
     }
 

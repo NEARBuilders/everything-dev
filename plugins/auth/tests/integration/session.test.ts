@@ -4,10 +4,9 @@ import { createTestServices, createTestUser } from "../helpers";
 const authOrigin = "http://localhost:3000";
 
 function authRequest(path: string, cookie: string, init?: RequestInit) {
-  return new Request(`${authOrigin}/api/auth/${path}`, {
-    ...init,
-    headers: { cookie, ...init?.headers },
-  });
+  const headers = new Headers(init?.headers);
+  headers.set("cookie", cookie);
+  return new Request(`${authOrigin}/api/auth/${path}`, { ...init, headers });
 }
 
 describe("session revocation", () => {
