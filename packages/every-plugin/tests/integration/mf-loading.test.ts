@@ -17,16 +17,6 @@ describe("Module Federation Integration Tests", () => {
     expect(manifest.metaData?.name).toBe("test-plugin");
   });
 
-  it("should test name transformation logic", async () => {
-    const pluginId = "test-plugin";
-    const remoteName = pluginId.toLowerCase().replace("@", "").replace("/", "_");
-
-    const modulePath = `${remoteName}/plugin`;
-
-    expect(remoteName).toBe("test-plugin");
-    expect(modulePath).toBe("test-plugin/plugin");
-  });
-
   it("should load remote plugin constructor successfully", async () => {
     const pluginRuntime = createPluginRuntime({
       registry: TEST_REGISTRY,

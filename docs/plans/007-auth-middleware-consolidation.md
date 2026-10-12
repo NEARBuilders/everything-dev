@@ -102,7 +102,7 @@ Repeat Steps 1-2 for `plugins/apps` (its handlers use the registry routes; expec
 
 ### Step 4: Behavioral guard
 
-Run the HTTP regression suite — its auth cases (`TestUnauthenticatedRouteReturnsJSONUnauthorized`, error-kind mapping 401/403) exercise the host's auth surface; the _template/app middlewares additionally surface via the template's `testError`/things routes.
+Run the HTTP regression suite — its auth cases (`TestErrorKindMapping`, error-kind mapping 401/403) exercise the host's auth surface; the _template/app middlewares additionally surface via the template's `testError`/things routes.
 
 **Verify**: `bun run test:regression:http:dev` → all pass.
 

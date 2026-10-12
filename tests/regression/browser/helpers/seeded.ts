@@ -14,17 +14,9 @@ interface CookieEntry {
   sameSite: "Strict" | "Lax" | "None";
 }
 
-interface SeedData {
-  orgAID: string;
-  orgBID: string;
-  orgAName: string;
-  orgBName: string;
-}
-
 const COOKIES_PATH = ".bos/regression/cookies.json";
 const ADMIN_COOKIES_PATH = ".bos/regression/admin-cookies.json";
 const LOGOUT_COOKIES_PATH = ".bos/regression/logout-cookies.json";
-const SEED_PATH = ".bos/regression/seed.json";
 const ADMIN_SEED_PATH = ".bos/regression/admin-seed.json";
 
 interface AdminSeedData {
@@ -37,7 +29,9 @@ interface AdminSeedData {
 function readJsonFile(filePath: string) {
   const resolved = path.resolve(process.cwd(), filePath);
   if (!fs.existsSync(resolved)) {
-    throw new Error(`Seed file not found: ${resolved}. Run Go HTTP regression tests first.`);
+    throw new Error(
+      `Seed file not found: ${resolved}. Run the browser regression global setup (global-setup.ts / member-seed.ts) first.`,
+    );
   }
   return JSON.parse(fs.readFileSync(resolved, "utf-8"));
 }
@@ -74,10 +68,6 @@ export async function injectAdminCookies(page: Page) {
 export async function injectLogoutCookies(page: Page) {
   const cookies: CookieEntry[] = readJsonFile(LOGOUT_COOKIES_PATH);
   await page.context().addCookies(cookies);
-}
-
-export function loadSeedData(): SeedData {
-  return readJsonFile(SEED_PATH) as SeedData;
 }
 
 export function loadAdminSeedData(): AdminSeedData {

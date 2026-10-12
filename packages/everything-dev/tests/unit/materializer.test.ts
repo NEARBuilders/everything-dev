@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   InfraMaterializer,
@@ -70,13 +70,6 @@ describe("InfraMaterializer Tag + Layer", () => {
         expect(typeof m.materializeTestInfra).toBe("function");
       }).pipe(Effect.provide(InfraMaterializerLive)),
     );
-  });
-
-  it("Layer.succeed shape matches the Tag.Service contract", () => {
-    // The static type system already guarantees this; the runtime check
-    // is here to prevent accidental drift if the Layer is replaced by a
-    // thinner one that no-ops silently under test.
-    expect(Layer.isLayer(InfraMaterializerLive)).toBe(true);
   });
 
   it("writes .env.example and .env.test — and never touches .env or docker-compose.yml", async () => {

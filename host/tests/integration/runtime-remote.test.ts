@@ -92,15 +92,3 @@ for (const scenario of scenarios) {
     });
   });
 }
-
-describe("Remote runtime smoke config", () => {
-  it("declares at least one configured scenario", async () => {
-    expect(scenarios.length).toBeGreaterThan(0);
-  });
-
-  it("reports why unconfigured scenarios are skipped", async () => {
-    for (const scenario of scenarios.filter((candidate) => !candidate.available)) {
-      expect(scenario.skipReason).toBeTruthy();
-    }
-  });
-});

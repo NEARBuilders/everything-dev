@@ -79,27 +79,6 @@ func TestInvalidErrorKindIsValidationError(t *testing.T) {
 	regtest.MustNotContain(t, body, "<html")
 }
 
-func TestUnauthenticatedRouteReturnsJSONUnauthorized(t *testing.T) {
-	client := regtest.NewCookieClient()
-	status, _, body := regtest.GetRaw(t, client, baseURL+"/api/errors?kind=unauthorized")
-	regtest.MustStatus(t, status, 401, body)
-
-	var parsed struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	}
-	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
-		t.Fatalf("expected JSON error, got unparseable: %v\nBody: %s", err, body)
-	}
-	if parsed.Code != "UNAUTHORIZED" {
-		t.Fatalf("expected code UNAUTHORIZED, got %q", parsed.Code)
-	}
-	if parsed.Message == "" {
-		t.Fatal("expected non-empty message")
-	}
-	regtest.MustNotContain(t, body, "<html")
-}
-
 func TestNonexistentApiRouteReturnsNotHtml(t *testing.T) {
 	client := regtest.NewCookieClient()
 	status, _, body := regtest.GetRaw(t, client, baseURL+"/api/nonexistent-route-12345")

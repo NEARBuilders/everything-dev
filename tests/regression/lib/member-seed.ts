@@ -9,7 +9,7 @@ const MEMBER_SEED_PATH = ".bos/regression/seed.json";
 
 /**
  * Seeds the member fixtures the browser regression suite consumes via
- * `injectCookies` / `loadSeedData`:
+ * `injectCookies`:
  *
  * - a member user + signed session cookie written to cookies.json
  * - two owned orgs with org A active on the session

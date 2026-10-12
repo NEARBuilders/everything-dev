@@ -118,39 +118,6 @@ describe("extends chain", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("child overrides parent scalars via extends", () => {
-    const parent = {
-      ...BASE_CONFIG,
-      repository: "https://github.com/parent",
-    };
-    const child = {
-      account: "child.near",
-      domain: "child.dev",
-    };
-    const merged = mergeBosConfigWithExtends(parent as any, child as any);
-    expect(merged.account).toBe("child.near");
-    expect(merged.domain).toBe("child.dev");
-    expect(merged.repository).toBe("https://github.com/parent");
-  });
-
-  it("null-sentinel does not inherit parent plugins", () => {
-    const parent = {
-      plugins: {
-        apps: { development: "local:plugins/apps" },
-        example: { development: "local:plugins/example" },
-      },
-    };
-    const child = {
-      plugins: {
-        example: null,
-      },
-    };
-    const merged = mergeBosConfigWithExtends(parent as any, child as any);
-    const plugins = merged.plugins as Record<string, unknown>;
-    expect(plugins.apps).toBeUndefined();
-    expect(plugins.example).toBeUndefined();
-  });
-
   it("false-sentinel does not inherit parent plugins", () => {
     const parent = {
       plugins: {
@@ -167,61 +134,6 @@ describe("extends chain", () => {
     const plugins = merged.plugins as Record<string, unknown>;
     expect(plugins.apps).toBeUndefined();
     expect(plugins.example).toBe(false);
-  });
-
-  it("deep merges app.api.shared — child version overrides, parent singleton preserved", () => {
-    const parent = {
-      app: {
-        api: {
-          shared: {
-            effect: { version: "3.20.0", singleton: true },
-            zod: { version: "4.2.0", singleton: true },
-          },
-        },
-      },
-    };
-    const child = {
-      app: {
-        api: {
-          shared: {
-            effect: { version: "3.21.0" },
-          },
-        },
-      },
-    };
-    const merged = mergeBosConfigWithExtends(parent as any, child as any);
-    const api = (merged.app as Record<string, unknown>).api as Record<string, unknown>;
-    const shared = api.shared as Record<string, Record<string, unknown>>;
-    expect(shared.effect.version).toBe("3.21.0");
-    expect(shared.effect.singleton).toBe(true);
-    expect(shared.zod.version).toBe("4.2.0");
-  });
-
-  it("secrets arrays are unioned across extends", () => {
-    const parent = {
-      app: {
-        api: {
-          name: "api",
-          secrets: ["DB_URL", "DB_TOKEN"],
-        },
-      },
-    };
-    const child = {
-      app: {
-        api: {
-          name: "api",
-          secrets: ["DB_URL", "EXTRA_SECRET"],
-        },
-      },
-    };
-    const merged = mergeBosConfigWithExtends(parent as any, child as any);
-    const api = (merged.app as Record<string, Record<string, unknown>>).api as Record<
-      string,
-      unknown
-    >;
-    expect(api.secrets).toContain("DB_URL");
-    expect(api.secrets).toContain("DB_TOKEN");
-    expect(api.secrets).toContain("EXTRA_SECRET");
   });
 
   it("plugin config comes only from the child across extends", () => {

@@ -70,24 +70,6 @@ describe("uploadBundle", () => {
     expect(result.integrity["remoteEntry.js"]).toBe("sha384-abc");
   });
 
-  it("throws with the response status when the upload fails", async () => {
-    let calls = 0;
-    globalThis.fetch = (async () => {
-      calls += 1;
-      return new Response("nope", { status: 403 });
-    }) as typeof fetch;
-    await expect(
-      uploadBundle({
-        origin: "https://everything.dev",
-        account: "v1.citynode.near",
-        gateway: "citynode.app",
-        workspace: "ui",
-        files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
-      }),
-    ).rejects.toThrow("403");
-    expect(calls).toBe(1);
-  });
-
   it("retries a retryable status (500) and succeeds on a later attempt", async () => {
     let calls = 0;
     globalThis.fetch = (async () => {

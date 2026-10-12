@@ -50,8 +50,15 @@ docs/plans/
 | 046 | Centralize workspace refresh and invitation actions | P2 | M | none (coordinate with 044) | DONE — PR #136 (`86907b94b`) |
 | 047 | Load team memberships only when the Teams tab needs them | P2 | M | 046 | DONE — PR #136 (`86907b94b`) |
 | 048 | Share the pure team access policy between API and UI | P2 | M | none | DONE — PR #136 (`86907b94b`); the policy now lives in `ui/src/lib/team-workspace.ts` and the auth plugin's team context (UI files later relocated by `8a12fd041`) |
+| 050 | Test audit: remove dead/tautological/exactly-duplicated tests (2026-10-11 audit) | P2 | S | — | DONE (2026-10-12) — all removals landed; every-plugin 33✓ / everything-dev 1023✓ / host 201✓ / Go compiles (go build) / typecheck+lint clean. `test:regression:http` local boot blocked by the pre-existing `every-plugin preview` bug (see 052 Part 0), not by this diff |
+| 051 | Test audit: wire unwired suites into CI (plugins/auth + small plugins, ui, api; deploy-smoke void; Bun.sleep landmine) | P1 | M | 050 | TODO |
+| 052 | Test audit: aggressive options + open decisions (repair-or-retire host runtime-remote, backcompat CI, mirrored guard) | P3 | S-M | 050, 051 | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
+
+### 2026-10-11 test audit summary
+
+Full-surface audit (~283 vitest + 15 Playwright + ~17 Go files): **no wide-scale redundancy** — suites are unusually clean per the repo's test-value rules. Findings: ~14 dead/tautology/exact-duplicate removals (050, HIGH confidence); the significant gaps are **wiring, not quality** — `plugins/auth` (~160 real integration assertions), `plugins/{proposals,registry,votes}`, `ui` vitest, and `api` vitest never run in CI, and the `deploy.yml` deploy-smoke step currently executes only two tautologies (051). Judgment-call cuts and open decisions (host runtime-remote dead-by-config-drift, backcompat modes CI-less, one misnamed better-near-auth test) live in 052. Rejected/considered-not-findings are recorded inside 052; do not re-audit for them.
 
 ### Dependency notes
 

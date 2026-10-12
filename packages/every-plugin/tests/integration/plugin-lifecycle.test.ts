@@ -2,7 +2,6 @@ import { expect, it } from "@effect/vitest";
 import { createRouterClient } from "@orpc/server";
 import { createPluginRuntime } from "every-plugin/runtime";
 import { describe } from "vitest";
-import { classifyPluginFailure } from "../../src/runtime/errors";
 import { TEST_REGISTRY } from "../registry";
 
 const TEST_CONFIG = {
@@ -82,19 +81,4 @@ describe("Plugin Lifecycle Integration Tests", () => {
     expect(typeof result).toBe("object");
     expect(Symbol.asyncIterator in result).toBe(true);
   }, 15000);
-
-  it("should handle validation errors with real plugin", async () => {
-    try {
-      await pluginRuntime.usePlugin("test-plugin", {
-        variables: { baseUrl: "http://localhost:1337" },
-        // @ts-expect-error - means the types are really good!
-        secrets: {}, // Missing required apiKey
-      });
-      expect.fail("Should have thrown PluginRuntimeError");
-    } catch (error: any) {
-      expect(error.operation).toBe("validate-secrets");
-      expect(classifyPluginFailure(error).retryable).toBe(false);
-      expect(error.pluginId).toBe("test-plugin");
-    }
-  }, 10000);
 });

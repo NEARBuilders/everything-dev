@@ -61,14 +61,3 @@ func TestOpenAPISurface(t *testing.T) {
 		checkPath("/things/{thingId}")
 	})
 }
-
-func TestOpenAPIDocValidJSON(t *testing.T) {
-	client := regtest.NewCookieClient()
-	status, _, body := regtest.GetRaw(t, client, baseURL+"/api/spec.json")
-	regtest.MustStatus(t, status, 200, body)
-
-	var raw json.RawMessage
-	if err := json.Unmarshal([]byte(body), &raw); err != nil {
-		t.Fatalf("spec.json is not valid JSON: %v", err)
-	}
-}
