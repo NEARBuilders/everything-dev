@@ -1,7 +1,7 @@
 import { ConfigProvider, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { RuntimeConfig } from "../../src/services/config";
-import { buildAuthBaseVariables } from "../../src/services/plugins";
+import { buildAuthBaseVariables, hostOriginCovered } from "../../src/services/plugins";
 
 function config(input: Partial<RuntimeConfig>): RuntimeConfig {
   return {
@@ -153,5 +153,45 @@ describe("buildAuthBaseVariables", () => {
     });
 
     expect(variables.baseUrl).toBe("http://localhost:4100");
+  });
+});
+
+describe("hostOriginCovered", () => {
+  it("is covered by the baseUrl origin alone — Better Auth always trusts its own baseURL", () => {
+    expect(
+      hostOriginCovered(
+        "https://everything.dev",
+        ["https://*.everything.dev"],
+        "https://everything.dev",
+      ),
+    ).toBe(true);
+  });
+
+  it("is covered by a wildcard CORS origin matching the host subdomain", () => {
+    expect(
+      hostOriginCovered("https://foo.everything.dev", ["https://*.everything.dev"], undefined),
+    ).toBe(true);
+  });
+
+  it("is covered by an exact CORS origin entry", () => {
+    expect(hostOriginCovered("https://everything.dev", ["https://everything.dev"], undefined)).toBe(
+      true,
+    );
+  });
+
+  it("is not covered when neither baseUrl nor CORS origins reach the host origin", () => {
+    expect(
+      hostOriginCovered(
+        "https://everything.dev",
+        ["https://*.everything.dev", "https://other.dev"],
+        "https://citynode.app",
+      ),
+    ).toBe(false);
+  });
+
+  it("a wildcard does not cover the apex on its own", () => {
+    expect(
+      hostOriginCovered("https://everything.dev", ["https://*.everything.dev"], undefined),
+    ).toBe(false);
   });
 });

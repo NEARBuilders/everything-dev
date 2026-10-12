@@ -21,6 +21,7 @@ import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
 import { maskDbUrl } from "../utils/mask-db-url";
 import { toProtocolUrl } from "../utils/normalize";
+import { originMatches } from "../utils/origin-match";
 import { ConfigService, readCorsOrigins } from "./config";
 import { PluginError } from "./errors";
 
@@ -296,6 +297,15 @@ function asOrigin(value: string | undefined): string | undefined {
   }
 }
 
+export function hostOriginCovered(
+  hostOrigin: string,
+  corsOrigins: string[],
+  baseUrlOrigin: string | undefined,
+): boolean {
+  if (baseUrlOrigin && originMatches(baseUrlOrigin, hostOrigin)) return true;
+  return corsOrigins.some((origin) => originMatches(origin, hostOrigin));
+}
+
 export const buildAuthBaseVariables = Effect.fn("buildAuthBaseVariables")(function* (
   config: RuntimeConfig,
   corsOrigins: string[],
@@ -359,12 +369,14 @@ export const buildAuthBaseVariables = Effect.fn("buildAuthBaseVariables")(functi
 
   if (hostUrl) {
     const hostOrigin = new URL(hostUrl).origin;
-    if (
-      corsOrigins.length > 0 &&
-      !corsOrigins.some((origin) => new URL(origin).origin === hostOrigin)
-    ) {
+    const baseUrlOrigin = baseUrl ? new URL(baseUrl).origin : undefined;
+    if (corsOrigins.length > 0 && !hostOriginCovered(hostOrigin, corsOrigins, baseUrlOrigin)) {
+      const fixHint =
+        config.env === "development"
+          ? "fix CORS_ORIGIN in .env or let bos dev regenerate it"
+          : "add the host origin to CORS_ORIGIN in the deployment environment";
       yield* Effect.logWarning(
-        `[Auth] CORS_ORIGIN (${corsOrigins.join(", ")}) does not include the host origin ${hostOrigin}. Sign-in may fail after login redirects — fix CORS_ORIGIN in .env or let bos dev regenerate it.`,
+        `[Auth] CORS_ORIGIN (${corsOrigins.join(", ")}) does not cover the host origin ${hostOrigin}. Sign-in may fail after login redirects — ${fixHint}.`,
       );
     }
   }

@@ -7,6 +7,7 @@ import { rateLimiter } from "hono-rate-limiter";
 import { ConfigService, readCorsOrigins } from "../services/config";
 import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
+import { originMatches } from "../utils/origin-match";
 
 export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 900_000;
 export const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 2000;
@@ -183,7 +184,7 @@ export class SecurityMiddleware extends Context.Service<
       const corsHandler: MiddlewareHandler = cors({
         origin: (origin) => {
           if (!origin) return "*";
-          if (allowedOrigins.includes(origin)) return origin;
+          if (allowedOrigins.some((entry) => originMatches(entry, origin))) return origin;
           if (origin.startsWith("https://")) return origin;
           if (isDev && origin.startsWith("http://")) return origin;
           return null;
