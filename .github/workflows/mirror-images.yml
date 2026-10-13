@@ -25,27 +25,36 @@ jobs:
       matrix:
         include:
           - source: public.ecr.aws/docker/library/node:24-alpine
+            fallback: docker.io/library/node:24-alpine
             target: ghcr.io/nearbuilders/mirror-node:24-alpine
           - source: public.ecr.aws/docker/library/postgres:17-alpine
+            fallback: docker.io/library/postgres:17-alpine
             target: ghcr.io/nearbuilders/mirror-postgres:17-alpine
           - source: public.ecr.aws/docker/library/redis:7-alpine
+            fallback: docker.io/library/redis:7-alpine
             target: ghcr.io/nearbuilders/mirror-redis:7-alpine
     steps:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       # Registry-to-registry manifest copy (no layer pulls into the daemon);
-      # retried because the ECR source itself rate-limits shared egress IPs.
+      # retried because both source registries rate-limit shared egress IPs.
+      # The fallback is the Docker Hub original — the ECR mirror serves the
+      # same manifest bytes, so the copied digest is identical either way.
       - name: Mirror
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          for attempt in 1 2 3 4 5; do
-            if docker buildx imagetools create \
-              --tag "${{ matrix.target }}" \
-              "${{ matrix.source }}"; then
-              docker buildx imagetools inspect "${{ matrix.target }}" | head -8
-              exit 0
-            fi
-            echo "::warning::attempt $attempt failed — retrying"
-            sleep $((attempt * 30))
+          sources=("${{ matrix.source }}" "${{ matrix.fallback }}")
+          for src in "${sources[@]}"; do
+            for attempt in 1 2 3 4 5; do
+              if docker buildx imagetools create --tag "$TARGET" "$src"; then
+                docker buildx imagetools inspect "$TARGET" | head -8
+                exit 0
+              fi
+              echo "::warning::attempt $attempt from $src failed — retrying"
+              sleep $((attempt * 30))
+            done
+            echo "::warning::$src exhausted — falling back to next source"
           done
           exit 1
