@@ -1,6 +1,6 @@
 {
   "name": "@everything-dev/upload-app",
-  "version": "1.0.0-rc.0",
+  "version": "1.0.0-rc.1",
   "description": "upload.everything.dev — artifact bundle write/control surface for deploy uploads",
   "type": "module",
   "exports": {
