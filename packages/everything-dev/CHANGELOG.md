@@ -1,5 +1,37 @@
 # everything-dev
 
+## 2.0.0-rc.5
+
+### Minor Changes
+
+- 07d8b2b: Move artifact-control out of `api`/`host` ownership and into a dedicated plugin package. The shared artifact-control client/server helpers remain in `everything-dev`, and the plugin now owns the `/api/storage/bundles` route and its runtime wiring.
+
+  The standalone upload service now requires production storage credentials plus `BOS_STORAGE_AUTH_ORIGIN` for API-key verification, with a bootstrap-key fallback for first deploys and break-glass access.
+
+- 0d536a0: The universal image stages no dists and bakes no config — the CDN (`cdn.everything.dev`) is the single distribution source (ADR 0020/0021 amendment). The Dockerfile `runtime` stage drops the `dist-builder` COPY of `.bos/bundles` + `BOS_BUNDLE_DIR` and the build-time-resolved `bos.config.json` bare-start fallback, so `docker build --target runtime` skips the dist-builder stage entirely — exactly one build of the runtime's bytes exists anywhere (the deploy train's). This heals the SSR/browser pin divergence: the image's staged bytes and the CDN's uploaded bytes were not byte-identical (minifier variable allocation differs per build), so SSR rendered the image's hashed filenames while browsers fetched the published CDN pins → 404 → broken hydration. Boot is now identity-driven (`BOS_ACCOUNT`/`BOS_GATEWAY` → FastKV) or a mounted config (`--config-path`); a bare `bos start` with neither fails loudly. `bos mf check` falls back to the registry identity when no local authored config exists, keeping the in-image smoke gate green. `BOS_BUNDLE_CACHE_DIR` stays (the resilience artifact); `BOS_BUNDLE_DIR` remains an operator opt-in (mounted staged namespace) and the `regression` fixture target is unchanged. A universal image should boot from identity or a mounted config — never from image-build-time config state.
+- 53c1b23: Railway deploys are now image-backed — the service's source is a Docker image
+  ref (connected once in the dashboard; `:rc` during the prerelease train), and
+  `bos deploy` runs `railway redeploy --from-source` to pull and deploy it.
+  Railway skips the build entirely for Docker-image sources: no repo upload, no
+  snapshot, no Metal-builder build (whose cache-mount validation rejected the
+  repo Dockerfile), and the digest-pin Dockerfile mechanism this replaces is
+  gone (the CLI v5 dropped `RAILWAY_DOCKERFILE_PATH` and its snapshot respects
+  `.gitignore`, so generated Dockerfiles never shipped). The root `railway.toml`
+  is deleted — nothing left for it to own; the healthcheck is a dashboard
+  service setting. The deploy leg also fails loudly when the Railway CLI is
+  missing (a spawn failure previously surfaced as a silent instant exit-1) and
+  streams the CLI's output live with full tails on failure.
+- 394c536: Rename `@everything-dev/artifact-control-plugin` to `@everything-dev/upload-app` and move it to `apps/upload` — the app-shaped home for the upload service (ADR 0027). The storage port grows `stat`/`list` (ListObjectsV2 with continuation pagination, in-memory parity) and persists per-file SRI as object metadata, so byte-identical re-uploads are skipped as confirmed no-ops (response gains `unchanged`). New inspection routes behind `bundles:read`: `GET /api/storage/bundles` (object listing), `GET /api/storage/versions` (version manifests), `GET /api/storage/integrity` (manifest + entry verification). The client (`createUploadClient`) drops the fabricated session id/finalizedAt — the server never persisted them. The deploy train now hard-errors when no `BOS_STORAGE_ORIGIN` is set with uploads planned (the gateway fallback no longer serves uploads); CI workflows pin `https://upload.everything.dev`.
+
+### Patch Changes
+
+- 77bb92e: Add transport-neutral module endpoint and client entry types, a shared RPC client helper, a reusable direct module host helper, and the initial artifact-control contract/client surface. Generated contract files now reuse the shared client entry type.
+- Updated dependencies [07d8b2b]
+- Updated dependencies [77bb92e]
+- Updated dependencies [394c536]
+  - @everything-dev/upload-app@1.0.0-rc.1
+  - every-plugin@3.0.0-rc.4
+
 ## 2.0.0-rc.4
 
 ### Minor Changes
