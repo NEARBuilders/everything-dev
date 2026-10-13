@@ -25,6 +25,12 @@ const DEV_AUTH_DB_PORT = 5433;
 const TEST_API_DB_PORT = 5434;
 const TEST_AUTH_DB_PORT = 5435;
 
+// The org's GHCR mirror of the upstream library images (refreshed by
+// .github/workflows/mirror-images.yml) — Docker Hub and ECR Public both
+// rate-limit shared CI egress IPs.
+const CI_POSTGRES_IMAGE = "ghcr.io/nearbuilders/mirror-postgres:17-alpine";
+const CI_REDIS_IMAGE = "ghcr.io/nearbuilders/mirror-redis:7-alpine";
+
 export interface DatabaseConvention {
   secret: string;
   slug: string;
@@ -340,7 +346,7 @@ export function buildCiInfraPlan(
     services.push({
       key: db.slug,
       slug: db.slug,
-      image: "public.ecr.aws/docker/library/postgres:17-alpine",
+      image: CI_POSTGRES_IMAGE,
       env: {
         POSTGRES_USER: POSTGRES_USER,
         POSTGRES_PASSWORD: POSTGRES_PASSWORD,
@@ -362,7 +368,7 @@ export function buildCiInfraPlan(
     services.push({
       key: r.slug,
       slug: r.slug,
-      image: "public.ecr.aws/docker/library/redis:7-alpine",
+      image: CI_REDIS_IMAGE,
       env: {},
       ports: [`${r.port}:6379`],
       healthcheck: {

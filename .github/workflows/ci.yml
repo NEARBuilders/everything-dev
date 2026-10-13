@@ -422,7 +422,7 @@ jobs:
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
     services:
       postgres-api-test:
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: everythingdev
           POSTGRES_PASSWORD: everythingdev
@@ -435,7 +435,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
       postgres-auth-test:
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: everythingdev
           POSTGRES_PASSWORD: everythingdev
@@ -493,7 +493,7 @@ jobs:
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
     services:
       postgres-api-test:
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: everythingdev
           POSTGRES_PASSWORD: everythingdev
@@ -506,7 +506,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
       postgres-auth-test:
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: everythingdev
           POSTGRES_PASSWORD: everythingdev
@@ -583,7 +583,7 @@ jobs:
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
     services:
       postgres-api-test:
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: everythingdev
           POSTGRES_PASSWORD: everythingdev
@@ -596,7 +596,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
       postgres-auth-test:
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: everythingdev
           POSTGRES_PASSWORD: everythingdev
@@ -683,7 +683,7 @@ jobs:
       CI: true
     services:
       postgres-api-test:
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: everythingdev
           POSTGRES_PASSWORD: everythingdev
@@ -696,7 +696,7 @@ jobs:
           --health-timeout 3s
           --health-retries 10
       postgres-auth-test:
-        image: public.ecr.aws/docker/library/postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: everythingdev
           POSTGRES_PASSWORD: everythingdev

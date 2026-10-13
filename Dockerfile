@@ -1,10 +1,16 @@
 # No `# syntax=` directive: BuildKit then uses its built-in dockerfile
 # frontend, so no frontend image is pulled from Docker Hub at build start —
-# the pull is rate-limited (auth.docker.io 504s) and public.ecr.aws does not
-# mirror docker/dockerfile. The only syntax-gated feature used below is
-# RUN --mount (frontend 1.2+), far older than any bundled frontend.
+# the only syntax-gated feature used below is RUN --mount (frontend 1.2+),
+# far older than any bundled frontend.
+#
+# Base images come from the org's GHCR mirror (`mirror-*`), refreshed from
+# the upstream library by .github/workflows/mirror-images.yml — Docker Hub
+# and ECR Public both rate-limit shared CI egress IPs (Docker Hub 504s
+# motivated the ECR move; ECR then throttled with `toomanyrequests`). The
+# mirror copies upstream manifests verbatim, so the pinned digests are the
+# upstream ones.
 
-FROM public.ecr.aws/docker/library/node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS builder
+FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS builder
 WORKDIR /app
 
 # pnpm comes from Corepack — the root package.json `packageManager` field is
@@ -75,7 +81,7 @@ RUN find node_modules -maxdepth 1 -type l ! -exec test -e {} \; -print -delete 2
 # ── Shared runtime base (ADR 0021): hardened user + env both final stages
 # inherit. The probe uses node's built-in fetch — no curl in the runtime
 # layers.
-FROM public.ecr.aws/docker/library/node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime-base
+FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime-base
 WORKDIR /app
 
 RUN addgroup -g 1001 -S appgroup && adduser -S appuser -u 1001

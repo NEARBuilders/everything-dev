@@ -32,6 +32,7 @@ Design: `CI` is the validation workflow. On a successful push to `main`, the `De
 5. `host-tests` — host test suite (only if `host/`, `ui/`, or packages changed)
 6. `regression-unit` / `regression-http` / `regression-framework` / `regression-browser` — the regression stack (path-gated)
 7. `image-smoke` — builds the runtime image and boots it (path-gated)
+8. `mirror-images` — standalone (not part of CI): weekly/dispatchable refresh of the org's GHCR base-image mirror (`mirror-node`/`mirror-postgres`/`mirror-redis`, synced from the upstream library — Docker Hub and ECR Public both rate-limit shared CI egress IPs)
 
 **Key design decisions:**
 - Generated types (`types:gen`) are produced on demand: `pnpm run typecheck` chains `types:gen` first, `bos dev`/`bos build`/`bos publish` regenerate via `generateCodeArtifacts` — no postinstall hook exists (it was dead code under `--ignore-scripts` installs).
