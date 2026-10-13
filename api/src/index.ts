@@ -56,7 +56,6 @@ export default createPlugin.withPlugins<PluginsClient>()({
             throw new Error("test internal server error");
         }
       }),
-
     };
 
     const templateRouter = (plugins as Record<string, { router?: unknown } | undefined>).template

@@ -46,7 +46,6 @@ export const contract = oc.router({
       }),
     )
     .errors({ UNAUTHORIZED, FORBIDDEN, NOT_FOUND, BAD_REQUEST, CONNECTION_ERROR }),
-
 });
 
 export type ContractType = typeof contract;

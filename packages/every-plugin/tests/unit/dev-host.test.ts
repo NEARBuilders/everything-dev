@@ -1,8 +1,8 @@
 import { oc } from "@orpc/contract";
+import { OpenAPIGenerator } from "@orpc/openapi";
 import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
 import { RPCHandler } from "@orpc/server/fetch";
-import { OpenAPIGenerator } from "@orpc/openapi";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { createPlugin, createPluginRuntime, startDirectModuleHost } from "every-plugin";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

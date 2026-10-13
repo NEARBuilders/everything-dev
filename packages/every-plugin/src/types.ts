@@ -149,7 +149,8 @@ export type ModuleClientEntry<C extends AnyContractRouter = AnyContractRouter> =
   endpoint?: PluginEndpoint;
 };
 
-export type PluginClientEntry<C extends AnyContractRouter = AnyContractRouter> = ModuleClientEntry<C>;
+export type PluginClientEntry<C extends AnyContractRouter = AnyContractRouter> =
+  ModuleClientEntry<C>;
 
 /**
  * Extract plugin type from registered plugins by key

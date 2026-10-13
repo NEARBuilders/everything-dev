@@ -1,9 +1,9 @@
 import "@orpc/openapi/extensions/route";
 
-export * from "./effect-helpers";
 export * from "./client";
-export * from "./errors";
 export * from "./dev/host";
+export * from "./effect-helpers";
+export * from "./errors";
 export * from "./plugin";
 export * from "./runtime";
 
@@ -13,12 +13,12 @@ export { getNormalizedRemoteName } from "./runtime/services/normalize";
 export type {
   AnyPlugin,
   EveryPlugin,
+  InitializedPlugin,
+  LoadedPlugin,
   ModuleClientEntry,
   ModuleEndpoint,
   ModuleSurface,
   ModuleTransport,
-  InitializedPlugin,
-  LoadedPlugin,
   PluginClientEntry,
   PluginClientType,
   PluginConfigInput,
@@ -30,9 +30,9 @@ export type {
   PluginRegistry,
   PluginRouterType,
   PluginRuntimeConfig,
-  PluginSurface,
   PluginSecrets,
   PluginServicesEntry,
+  PluginSurface,
   PluginTransport,
   PluginVariables,
   RegisteredPlugins,

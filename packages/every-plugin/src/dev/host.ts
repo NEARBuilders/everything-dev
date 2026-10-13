@@ -43,7 +43,8 @@ const buildHostContext = (
   webRequest: Request,
   cachedRawBodyRef: { value: string | null },
 ) => {
-  const rawClone = webRequest.method === "GET" || webRequest.method === "HEAD" ? null : webRequest.clone();
+  const rawClone =
+    webRequest.method === "GET" || webRequest.method === "HEAD" ? null : webRequest.clone();
 
   return {
     reqHeaders: webRequest.headers,
@@ -109,7 +110,9 @@ export interface DirectModuleHostOptions {
   version?: string;
   rpcPrefix?: `/${string}`;
   apiPrefix?: `/${string}`;
-  staticHandler?: ((req: http.IncomingMessage, res: http.ServerResponse, next: () => void) => void) | null;
+  staticHandler?:
+    | ((req: http.IncomingMessage, res: http.ServerResponse, next: () => void) => void)
+    | null;
 }
 
 export interface DirectModuleHostHandle {
@@ -126,7 +129,9 @@ export async function startDirectModuleHost(
   const apiPrefix = options.apiPrefix ?? "/api";
   const staticHandler = options.staticHandler ?? null;
   const resolveEffectContext =
-    typeof options.effectContext === "function" ? options.effectContext : () => options.effectContext;
+    typeof options.effectContext === "function"
+      ? options.effectContext
+      : () => options.effectContext;
 
   const server = createServer((req, res) => {
     applyCorsHeaders(res);
@@ -163,9 +168,15 @@ export async function startDirectModuleHost(
         sendJson(res, 503, { error: "Plugin still loading..." });
         return;
       }
-      handleOrpc(req, res, options.handlers.rpc, rpcPrefix, "RPC", resolveEffectContext(), resolvedPort).catch(
-        () => {},
-      );
+      handleOrpc(
+        req,
+        res,
+        options.handlers.rpc,
+        rpcPrefix,
+        "RPC",
+        resolveEffectContext(),
+        resolvedPort,
+      ).catch(() => {});
       return;
     }
 
@@ -174,9 +185,15 @@ export async function startDirectModuleHost(
         sendJson(res, 503, { error: "Plugin still loading..." });
         return;
       }
-      handleOrpc(req, res, options.handlers.api, apiPrefix, "OpenAPI", resolveEffectContext(), resolvedPort).catch(
-        () => {},
-      );
+      handleOrpc(
+        req,
+        res,
+        options.handlers.api,
+        apiPrefix,
+        "OpenAPI",
+        resolveEffectContext(),
+        resolvedPort,
+      ).catch(() => {});
       return;
     }
 
