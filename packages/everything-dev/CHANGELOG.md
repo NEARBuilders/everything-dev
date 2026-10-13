@@ -1,5 +1,13 @@
 # everything-dev
 
+## 2.0.0-rc.6
+
+### Patch Changes
+
+- c166615: Boot resilience for the CDN-only image (ADR 0021 amendment follow-up): the boot-time fetch interceptor retries transient failures on idempotent GETs — network errors and 429/5xx responses retry twice (250ms, 750ms backoff) before propagating, so a single edge/registry hiccup no longer hard-fails the host or a plugin during the cold-boot load window, which now has no staged fallback. Non-transient statuses and non-GET requests pass through untouched; the stale-if-error cache still sees the final failure.
+- 126f47d: The remote host load fails loud on manifest fetch errors instead of silently falling back to the retired fixed-name `remoteEntry.js` (a 404 on the CDN): a transient CDN hiccup during the start stack's boot — a 403 challenge, a 5xx, a timeout — now names the URL, status, and cause in the failure, where before it surfaced as an unnamed `loadRemote` error. The start stack also persists its session log to `.bos/logs` (was discarded via `noLogs`), so a failed remote load in a container is diagnosable from its filesystem.
+- 536ec68: Start stacks stop persisting their session log again (the SSR host emits ~80 log events per page render, and the file sink writes every event twice through a serialized appendFile chain regardless of level or dedup — on a loaded machine that chain starves the event loop and degrades SSR/hydration mid-suite). Boot failures remain diagnosable from stdout, which the non-interactive renderer prints at error level and the image smoke captures. Base images (node, postgres, redis) move to an org GHCR mirror synced from the upstream library by a scheduled workflow — Docker Hub and ECR Public both rate-limit shared CI egress IPs (the 504s that motivated the ECR move, then ECR's `toomanyrequests: Data limit exceeded` killed jobs before setup).
+
 ## 2.0.0-rc.5
 
 ### Minor Changes
