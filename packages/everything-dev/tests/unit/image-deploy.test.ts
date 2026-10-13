@@ -347,24 +347,20 @@ describe("deployImageToRailway", () => {
     expect(upCalls).toHaveLength(1);
   });
 
-  it("streams railway output live and survives a failing --version probe", async () => {
+  it("fails loudly when the railway CLI is missing", async () => {
     runMock.mockImplementation(async (_cmd: string, args: string[]) => {
       if (args[0] === "--version") throw new Error("spawn railway ENOENT");
       return { stdout: "Deployed", stderr: "", exitCode: 0 };
     });
 
-    await deployImageToRailway({
-      image: "ghcr.io/acme/app",
-      digest: "sha256:abc123",
-      service: "app",
-      configDir,
-    });
-
-    expect(runMock).toHaveBeenCalledWith(
-      "railway",
-      ["up", "--service", "app", "--ci"],
-      expect.anything(),
-    );
+    await expect(
+      deployImageToRailway({
+        image: "ghcr.io/acme/app",
+        digest: "sha256:abc123",
+        service: "app",
+        configDir,
+      }),
+    ).rejects.toThrow("Railway CLI not found");
   });
 
   it("throws with captured stream detail when railway up fails", async () => {

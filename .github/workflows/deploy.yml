@@ -228,6 +228,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      # The Railway deploy leg shells out to the `railway` CLI — runners don't
+      # ship it, and a missing binary surfaces as a silent instant exit-1
+      # (execa spawn failure mapped to exit code 1 by the deploy's run helper).
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+
       - name: Deploy (preflight → build → upload → publish → Railway pin)
         timeout-minutes: 50
         # One command runs the deploy train (ADR 0020/0021, image leg split

@@ -269,14 +269,20 @@ export async function deployImageToRailway(input: {
   writeFileSync(dockerfilePath, `FROM ${input.image}@${input.digest}\n`);
 
   console.log(`  Deploying to Railway service ${colors.cyan(input.service)} (pull-only)...`);
+  // The probe is authoritative: runners don't ship the CLI, and a spawn
+  // failure resolves (reject:false) as exitCode 1 with empty output — the
+  // 2026-10-13 deploy surfaced exactly that as a silent instant failure.
+  let version: string | undefined;
   try {
-    const version = await run("railway", ["--version"], { cwd: input.configDir, capture: true });
-    if (version?.stdout.trim()) {
-      console.log(`  ${colors.dim(`railway ${version.stdout.trim()}`)}`);
-    }
+    version = (await run("railway", ["--version"], { cwd: input.configDir, capture: true }))
+      ?.stdout;
   } catch {
-    console.log(colors.dim("  railway --version failed (CLI missing?) — attempting deploy anyway"));
+    version = undefined;
   }
+  if (!version?.trim()) {
+    throw new Error("Railway CLI not found. Install it: npm i -g @railway/cli");
+  }
+  console.log(`  ${colors.dim(`railway ${version.trim()}`)}`);
 
   // Stream the CLI's output live — a silent exit (empty stdout+stderr, seen
   // on the 2026-10-13 deploy) must still be diagnosable from the workflow log.
