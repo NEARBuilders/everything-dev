@@ -76,7 +76,7 @@ export const requiredPermissionsFor = (permission: UploadPermission): Record<str
 const trimTrailingSlash = (value: string | null | undefined): string | null =>
   value?.replace(/\/$/, "") ?? null;
 
-const tryParseJson = (value: string): unknown | null => {
+const tryParseJson = (value: string): unknown => {
   try {
     return JSON.parse(value) as unknown;
   } catch {

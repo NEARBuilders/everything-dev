@@ -61,10 +61,17 @@ const buildHostContext = (
   };
 };
 
+export interface DirectModuleHostHandler {
+  handle(
+    request: Request,
+    options: { prefix: string; context: unknown },
+  ): Promise<{ response?: Response }>;
+}
+
 const handleOrpc = async (
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  handler: any,
+  handler: DirectModuleHostHandler,
   prefix: string,
   errorLabel: string,
   effectContext: unknown,
@@ -98,14 +105,14 @@ const handleOrpc = async (
 };
 
 export interface DirectModuleHostHandlers {
-  rpc: any | null;
-  api: any | null;
+  rpc: DirectModuleHostHandler | null;
+  api: DirectModuleHostHandler | null;
 }
 
 export interface DirectModuleHostOptions {
   name: string;
   handlers: DirectModuleHostHandlers;
-  effectContext: unknown | (() => unknown);
+  effectContext: unknown;
   port?: number;
   version?: string;
   rpcPrefix?: `/${string}`;
@@ -128,9 +135,9 @@ export async function startDirectModuleHost(
   const rpcPrefix = options.rpcPrefix ?? "/api/rpc";
   const apiPrefix = options.apiPrefix ?? "/api";
   const staticHandler = options.staticHandler ?? null;
-  const resolveEffectContext =
+  const resolveEffectContext: () => unknown =
     typeof options.effectContext === "function"
-      ? options.effectContext
+      ? (options.effectContext as () => unknown)
       : () => options.effectContext;
 
   const server = createServer((req, res) => {

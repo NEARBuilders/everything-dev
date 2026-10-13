@@ -1,4 +1,4 @@
-import { Effect, Exit } from "effect";
+import { Data, Effect, Exit } from "effect";
 import { createPlugin } from "every-plugin";
 import {
   type WorkspaceVersionManifest,
@@ -29,6 +29,10 @@ const ContextSchema = z.custom<UploadAppContext>();
 
 const VERSION_MANIFESTS_PER_LISTING = 500;
 const MANIFEST_FETCH_CONCURRENCY = 8;
+
+class MissingStorageConfig extends Data.TaggedError("MissingStorageConfig")<{
+  readonly message: string;
+}> {}
 
 function parseVersionManifest(bytes: Uint8Array): WorkspaceVersionManifest | null {
   try {
@@ -74,7 +78,9 @@ export default createPlugin({
 
     if (!storage) {
       return Effect.fail(
-        new Error("BOS_STORAGE_* is required in production for the upload service"),
+        new MissingStorageConfig({
+          message: "BOS_STORAGE_* is required in production for the upload service",
+        }),
       );
     }
 

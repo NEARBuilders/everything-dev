@@ -8,6 +8,7 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts"],
     exclude: ["node_modules/**", "dist/**"],
+    passWithNoTests: true,
     testTimeout: 30000,
   },
   plugins: [

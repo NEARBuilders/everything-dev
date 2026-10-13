@@ -7,6 +7,11 @@ import {
 
 const target = { account: "dev.everything.near", gateway: "everything.dev" };
 
+const sentJson = (body: unknown): { json: { permissions: Record<string, string[]> } } => {
+  if (typeof body !== "string") throw new Error(`expected a string body, got ${typeof body}`);
+  return JSON.parse(body) as { json: { permissions: Record<string, string[]> } };
+};
+
 describe("upload auth", () => {
   it("rejects missing API keys", async () => {
     const result = await authorizeUploadRequest({
@@ -154,9 +159,7 @@ describe("upload auth", () => {
 
   it("authorizes read-scoped api keys for inspection routes", async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body ?? "{}")) as {
-        json: { permissions: Record<string, string[]> };
-      };
+      const body = sentJson(init?.body);
       return new Response(
         JSON.stringify({
           json: {
@@ -191,9 +194,7 @@ describe("upload auth", () => {
     });
 
     expect(result.authorized).toBe(true);
-    const sent = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body ?? "{}")) as {
-      json: { permissions: Record<string, string[]> };
-    };
+    const sent = sentJson(fetchImpl.mock.calls[0]?.[1]?.body);
     expect(sent.json.permissions).toEqual({ bundles: ["read"] });
   });
 

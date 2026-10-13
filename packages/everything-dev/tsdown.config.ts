@@ -108,6 +108,12 @@ export default defineConfig({
   unbundle: true,
   deps: {
     onlyBundle: false,
+    alwaysBundle: [
+      // The upload app ships src-only exports; bundling its client keeps the
+      // published dist free of a runtime edge into raw .ts sources under
+      // node_modules (node cannot type-strip those).
+      /^@everything-dev\/upload-app(\/.*)?$/,
+    ],
     neverBundle: [
       "effect",
       "zod",
