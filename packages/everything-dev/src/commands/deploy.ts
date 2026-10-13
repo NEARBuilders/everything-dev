@@ -428,7 +428,6 @@ export function registerDeploy(builder: BosBuilder) {
         try {
           await deployImageToRailway({
             image,
-            digest: imageDigest,
             service: railwayService,
             configDir: session.root,
           });

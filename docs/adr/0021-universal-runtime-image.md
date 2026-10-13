@@ -89,3 +89,28 @@ Consequence: workspaces whose dists are not staged (the template plugin, and
 later any workspace the root stops carrying) boot from the CDN like a child
 tier would. The staged layout remains the deployment artifact; staged bytes
 remain authoritative over the network for the same URL.
+
+## Amendment (2026-10-13): image-backed Railway deploys — the digest-pin Dockerfile is gone
+
+The Railway deploy leg no longer builds anything. It re-connects the service's
+source to the exact `sha-<short>` tag the deploy train pushed and runs
+`railway redeploy --from-source` — Railway skips the build for Docker-image
+sources, so nothing is uploaded, nothing is built there, and the digest-pin
+Dockerfile (a thin `FROM image@digest` shipped via `RAILWAY_DOCKERFILE_PATH`)
+is gone.
+
+Why the mechanism it replaced stopped working: the Railway CLI v5 dropped
+`RAILWAY_DOCKERFILE_PATH` (config-as-code owns the build file now); the CLI's
+upload snapshot respects `.gitignore`, so a generated Dockerfile under the
+gitignored `.bos/` never shipped and the builder silently fell back to the
+repo's root `Dockerfile`; and the Metal builder rejects that Dockerfile's
+cache-mount ids. A committed `railway.toml` pinning a generated path would
+re-import all of those constraints for zero gain — and with the build gone,
+`railway.toml` has nothing left to own. It is deleted (and dropped from the
+`bos init` scaffold); the healthcheck (`/health`, ~300s timeout, restart
+policy ON_FAILURE ×10) is a dashboard service setting.
+
+Determinism is preserved: `sha-<short>` tags are pushed per deploy, the
+source re-connect pins the service to exactly the image CI validated, and
+rollback is a reconnect to a previous tag (plus Railway's deployment history).
+The public GHCR image needs no registry credentials on Railway.

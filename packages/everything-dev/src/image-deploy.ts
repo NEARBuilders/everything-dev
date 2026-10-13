@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "./utils/run";
 import { colors, icons } from "./utils/theme";
@@ -253,23 +253,21 @@ export async function buildAndPushImage(input: {
 }
 
 /**
- * Railway leg (ADR 0021): pull-only deploy of the pushed image digest — a
- * thin `FROM image@digest` Dockerfile pins the digest so Railway never
- * rebuilds; railway.toml's [build] dockerfilePath points at the generated
- * file (the CLI v5 dropped the RAILWAY_DOCKERFILE_PATH env var).
+ * Railway leg (ADR 0021, amended): image-backed deploy of the pushed image —
+ * the service's source is (re)connected to the exact `sha-<short>` tag the
+ * image leg built and pushed, then `redeploy --from-source` pulls and deploys
+ * it. Railway skips the build entirely for Docker-image sources; nothing is
+ * uploaded, nothing is built on Railway, and the digest-pin Dockerfile
+ * mechanism this replaces is gone (the CLI v5 dropped RAILWAY_DOCKERFILE_PATH,
+ * its snapshot respects .gitignore so generated Dockerfiles never shipped, and
+ * its Metal builder rejected the repo Dockerfile's cache-mount ids).
  */
 export async function deployImageToRailway(input: {
   image: string;
-  digest: string;
   service: string;
   configDir: string;
 }): Promise<void> {
-  const deployDir = join(input.configDir, ".bos", "deploy");
-  mkdirSync(deployDir, { recursive: true });
-  const dockerfilePath = join(deployDir, "Dockerfile");
-  writeFileSync(dockerfilePath, `FROM ${input.image}@${input.digest}\n`);
-
-  console.log(`  Deploying to Railway service ${colors.cyan(input.service)} (pull-only)...`);
+  console.log(`  Deploying to Railway service ${colors.cyan(input.service)} (image-backed)...`);
   // The probe is authoritative: runners don't ship the CLI, and a spawn
   // failure resolves (reject:false) as exitCode 1 with empty output — the
   // 2026-10-13 deploy surfaced exactly that as a silent instant failure.
@@ -285,33 +283,60 @@ export async function deployImageToRailway(input: {
   }
   console.log(`  ${colors.dim(`railway ${version.trim()}`)}`);
 
-  // Stream the CLI's output live — a silent exit (empty stdout+stderr, seen
-  // on the 2026-10-13 deploy) must still be diagnosable from the workflow log.
-  // The build file is selected by railway.toml's [build] dockerfilePath — the
-  // CLI v5 dropped RAILWAY_DOCKERFILE_PATH and silently built the repo's root
-  // Dockerfile instead (whose cache-mount ids the Metal builder rejects).
-  const collected = { stdout: "", stderr: "" };
-  const result = await run("railway", ["up", "--service", input.service, "--ci"], {
+  const shaResult = await run("git", ["rev-parse", "--short=7", "HEAD"], {
     cwd: input.configDir,
     capture: true,
-    onChunk: (stream, chunk) => {
-      collected[stream] += chunk.toString("utf-8");
-      for (const line of chunk.toString("utf-8").split("\n")) {
-        if (line.trim()) console.log(`  ${colors.dim(line.trim())}`);
-      }
-    },
   });
-  if (!result || result.exitCode !== 0) {
-    const exitCode = result?.exitCode ?? "unknown";
-    const tail = (stream: string, text: string) =>
-      text.trim()
-        ? `\nrailway ${stream} (tail):\n${text.trim().split("\n").slice(-20).join("\n")}`
-        : "";
-    throw new Error(
-      `railway up failed with exit code ${exitCode}` +
-        tail("stdout", collected.stdout) +
-        tail("stderr", collected.stderr),
-    );
+  const shortSha = shaResult?.stdout.trim();
+  if (!shaResult || shaResult.exitCode !== 0 || !shortSha) {
+    throw new Error("Could not resolve the deployed image's sha tag: git rev-parse HEAD failed");
   }
+  const imageRef = `${input.image}:sha-${shortSha}`;
+
+  // Stream the CLI's output live — a silent exit (empty stdout+stderr, seen
+  // on the 2026-10-13 deploy) must still be diagnosable from the workflow log.
+  const streamed = (label: string, args: string[]) => {
+    const collected = { stdout: "", stderr: "" };
+    return run("railway", args, {
+      cwd: input.configDir,
+      capture: true,
+      onChunk: (stream, chunk) => {
+        collected[stream] += chunk.toString("utf-8");
+        for (const line of chunk.toString("utf-8").split("\n")) {
+          if (line.trim()) console.log(`  ${colors.dim(line.trim())}`);
+        }
+      },
+    }).then((result) => {
+      if (!result || result.exitCode !== 0) {
+        const exitCode = result?.exitCode ?? "unknown";
+        const tail = (stream: string, text: string) =>
+          text.trim()
+            ? `\nrailway ${stream} (tail):\n${text.trim().split("\n").slice(-20).join("\n")}`
+            : "";
+        throw new Error(
+          `${label} failed with exit code ${exitCode}` +
+            tail("stdout", collected.stdout) +
+            tail("stderr", collected.stderr),
+        );
+      }
+    });
+  };
+
+  // Pin the service source to the exact image this train validated — the
+  // sha-<short> tag pushed by the image leg (or the local image leg). The
+  // connect is idempotent and triggers the deploy for image sources.
+  console.log(`  ${colors.dim(`pinning service source to ${imageRef}`)}`);
+  await streamed("railway source connect", [
+    "service",
+    "source",
+    "connect",
+    "--image",
+    imageRef,
+    "--service",
+    input.service,
+  ]);
+  // Safety net for a no-op connect (source already pinned to this ref):
+  // pull and deploy the configured image.
+  await streamed("railway redeploy", ["redeploy", "--service", input.service, "--from-source"]);
   console.log(colors.green(`  ${icons.ok} Railway deploy complete`));
 }

@@ -153,7 +153,7 @@ export const cliCommandMeta = {
   deploy: {
     commandPath: ["deploy"],
     summary:
-      "Deploy train: preflight → build → upload bundles → publish config → runtime image (pre-pushed digest or local docker build) → Railway (pull-only)",
+      "Deploy train: preflight → build → upload bundles → publish config → runtime image (pre-pushed digest or local docker build) → Railway (image-backed, no build)",
     interactive: false,
     fields: {
       env: { description: "Environment: production or staging" },

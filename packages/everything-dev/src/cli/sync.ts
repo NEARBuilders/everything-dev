@@ -37,7 +37,6 @@ const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   ".github/workflows/deploy.yml",
   ".github/workflows/staging.yml",
   ".github/workflows/release.yml",
-  "railway.toml",
   "ui/package.json",
   "ui/postcss.config.mjs",
   "ui/tsconfig.json",
