@@ -8,8 +8,8 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { createPluginRuntime } from "every-plugin";
 import { startDirectModuleHost } from "every-plugin/dev-host";
 import { readUploadAuthConfig, validateUploadAuthConfig } from "./src/auth";
-import { resolveStorageConfigFromEnv } from "./src/storage";
 import Plugin from "./src/index";
+import { resolveStorageConfigFromEnv } from "./src/storage";
 
 const port = Number(process.env.PORT) || 3014;
 const isProduction = process.env.NODE_ENV === "production";
@@ -21,14 +21,14 @@ if (authConfigError) {
 }
 
 if (isProduction && !resolveStorageConfigFromEnv(process.env)) {
-  throw new Error("BOS_STORAGE_* is required in production for the artifact-control service");
+  throw new Error("BOS_STORAGE_* is required in production for the upload service");
 }
 
 const runtime = createPluginRuntime({
-  registry: { artifactControl: { module: Plugin } },
+  registry: { upload: { module: Plugin } },
 });
 
-const loaded = await runtime.usePlugin("artifactControl", { variables: {}, secrets: {} });
+const loaded = await runtime.usePlugin("upload", { variables: {}, secrets: {} });
 
 const handlers: { rpc: any; api: any } = { rpc: null, api: null };
 const effectContextHolder: { context: unknown } = { context: loaded.initialized.effectContext };
@@ -39,16 +39,19 @@ handlers.api = new OpenAPIHandler(loaded.router, {
     new ResponseHeadersHandlerPlugin(),
     new OpenAPIReferenceHandlerPlugin({
       spec: () =>
-        new OpenAPIGenerator({ converters: [new ZodToJsonSchemaConverter()] }).generate(loaded.router, {
-          version: "3.1.1",
-          base: {
-            info: {
-              title: "artifact-control",
-              version: "1.0.0",
+        new OpenAPIGenerator({ converters: [new ZodToJsonSchemaConverter()] }).generate(
+          loaded.router,
+          {
+            version: "3.1.1",
+            base: {
+              info: {
+                title: "upload",
+                version: "1.0.0",
+              },
+              servers: [{ url: "/api" }],
             },
-            servers: [{ url: "/api" }],
           },
-        }),
+        ),
     }),
   ],
   interceptors: [
@@ -59,11 +62,11 @@ handlers.api = new OpenAPIHandler(loaded.router, {
 });
 
 const host = await startDirectModuleHost({
-  name: "artifact-control",
+  name: "upload",
   version: "1.0.0",
   handlers,
   effectContext: () => effectContextHolder.context,
   port,
 });
 
-console.log(`artifact-control listening on ${host.port}`);
+console.log(`upload listening on ${host.port}`);

@@ -135,6 +135,7 @@ const hostDeployEntry = {
 function setupDeployTrain(): void {
   process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
   process.env.BOS_STORAGE_API_KEY = "api_ci_key";
+  process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
   buildWorkspaceTargetsMock.mockResolvedValue({
     built: ["host"],
     skipped: [],
@@ -192,6 +193,7 @@ describe("publishToFastKv preflight ordering", () => {
 
   it("aborts before the build train when CDN storage credentials are missing", async () => {
     process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
+    process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
     fetchBosConfigFromFastKvMock.mockRejectedValue(new Error("No config found"));
 
     const result = await publishToFastKv({ ...baseInput, configDir });
@@ -208,6 +210,7 @@ describe("publishToFastKv preflight ordering", () => {
   it("aborts before the build train on a session account mismatch", async () => {
     process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
     process.env.BOS_STORAGE_API_KEY = "api_ci_key";
+    process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
     writeSessionHandle(configDir, {
       version: 1,
       credential: {
@@ -234,6 +237,7 @@ describe("publishToFastKv preflight ordering", () => {
   it("reads the registry before building and publishes when already up to date", async () => {
     process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
     process.env.BOS_STORAGE_API_KEY = "api_ci_key";
+    process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
     buildWorkspaceTargetsMock.mockResolvedValue({ built: [], skipped: [], deployResults: [] });
     fetchBosConfigFromFastKvMock.mockResolvedValue(JSON.parse(JSON.stringify(bosConfig)));
 
@@ -250,6 +254,7 @@ describe("publishToFastKv preflight ordering", () => {
   it("uploads workspace dists with the resolved storage credentials", async () => {
     process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
     process.env.BOS_STORAGE_API_KEY = "api_ci_key";
+    process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
     buildWorkspaceTargetsMock.mockResolvedValue({
       built: ["host"],
       skipped: [],
@@ -280,7 +285,7 @@ describe("publishToFastKv preflight ordering", () => {
     expect(result.status).toBe("published");
     expect(uploadWorkspaceDistMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        origin: "https://dev.everything.dev",
+        origin: "https://upload.example.test",
         apiKey: "api_ci_key",
         account: "dev.everything.near",
         gateway: "dev.everything.dev",
@@ -292,6 +297,7 @@ describe("publishToFastKv preflight ordering", () => {
   it("a packages-scoped publish (single-plugin redeploy) uploads and pins only the selected workspace", async () => {
     process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
     process.env.BOS_STORAGE_API_KEY = "api_ci_key";
+    process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
     buildWorkspaceTargetsMock.mockResolvedValue({
       built: ["votes"],
       skipped: ["host", "ui", "api"],
@@ -325,6 +331,7 @@ describe("publishToFastKv preflight ordering", () => {
   it("aborts before publish when the receiving storage backend is in-memory", async () => {
     process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
     process.env.BOS_STORAGE_API_KEY = "api_ci_key";
+    process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
     buildWorkspaceTargetsMock.mockResolvedValue({
       built: ["host"],
       skipped: [],
@@ -355,6 +362,7 @@ describe("publishToFastKv preflight ordering", () => {
   it("aborts the train when an uploaded dist cannot pin a version manifest (no build report)", async () => {
     process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
     process.env.BOS_STORAGE_API_KEY = "api_ci_key";
+    process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
     buildWorkspaceTargetsMock.mockResolvedValue({
       built: ["host"],
       skipped: [],
@@ -380,6 +388,7 @@ describe("publishToFastKv preflight ordering", () => {
   it("pins the version manifest: composes from the server SRI map, uploads it, passes the pointer", async () => {
     process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
     process.env.BOS_STORAGE_API_KEY = "api_ci_key";
+    process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
     buildWorkspaceTargetsMock.mockResolvedValue({
       built: ["host"],
       skipped: [],

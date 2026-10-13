@@ -65,7 +65,13 @@ export type UploadAuthResult =
     }
   | UploadAuthFailure;
 
-const REQUIRED_PERMISSIONS = { bundles: ["write"] };
+const WRITE_PERMISSIONS = { bundles: ["write"] };
+const READ_PERMISSIONS = { bundles: ["read"] };
+
+export type UploadPermission = "write" | "read";
+
+export const requiredPermissionsFor = (permission: UploadPermission): Record<string, string[]> =>
+  permission === "write" ? WRITE_PERMISSIONS : READ_PERMISSIONS;
 
 const trimTrailingSlash = (value: string | null | undefined): string | null =>
   value?.replace(/\/$/, "") ?? null;
@@ -128,7 +134,7 @@ export function readUploadAuthConfig(env: NodeJS.ProcessEnv = process.env): Uplo
             gateway: env.BOS_STORAGE_BOOTSTRAP_GATEWAY,
           }
         : null,
-    requiredPermissions: REQUIRED_PERMISSIONS,
+    requiredPermissions: WRITE_PERMISSIONS,
   };
 }
 
@@ -160,8 +166,12 @@ export async function authorizeUploadRequest(input: {
   account: string;
   gateway: string;
   config: UploadAuthConfig;
+  /** which permission family this call needs; bootstrap keys are scoped, not permission-checked */
+  permission?: UploadPermission;
   fetchImpl?: typeof fetch;
 }): Promise<UploadAuthResult> {
+  const requiredPermissions = requiredPermissionsFor(input.permission ?? "write");
+  const action = input.permission === "read" ? "inspect" : "deploy";
   const apiKey = input.headers?.get("x-api-key")?.trim() ?? null;
   if (!apiKey) {
     return {
@@ -174,23 +184,19 @@ export async function authorizeUploadRequest(input: {
 
   if (input.config.bootstrapApiKey && apiKey === input.config.bootstrapApiKey) {
     const scope = input.config.bootstrapScope;
-    if (
-      !scope ||
-      scope.account !== input.account ||
-      scope.gateway !== input.gateway
-    ) {
-    return {
-      authorized: false,
-      status: "FORBIDDEN",
-      message: "Bootstrap API key is not scoped to this deployment target",
-      data: {
-        requiredPermissions: Object.entries(input.config.requiredPermissions).flatMap(
-          ([permission, actions]) => actions.map((action) => `${permission}:${action}`),
-        ),
-        action: `deploy ${input.account}/${input.gateway}`,
-      },
-    };
-  }
+    if (!scope || scope.account !== input.account || scope.gateway !== input.gateway) {
+      return {
+        authorized: false,
+        status: "FORBIDDEN",
+        message: "Bootstrap API key is not scoped to this deployment target",
+        data: {
+          requiredPermissions: Object.entries(requiredPermissions).flatMap(
+            ([permission, actions]) => actions.map((action) => `${permission}:${action}`),
+          ),
+          action: `${action} ${input.account}/${input.gateway}`,
+        },
+      };
+    }
 
     return {
       authorized: true,
@@ -221,7 +227,7 @@ export async function authorizeUploadRequest(input: {
       body: JSON.stringify({
         json: {
           key: apiKey,
-          permissions: input.config.requiredPermissions,
+          permissions: requiredPermissions,
         },
       }),
     });
@@ -306,16 +312,16 @@ export async function authorizeUploadRequest(input: {
   }
 
   const parsedPermissions = parseStringArrayRecord(key.permissions);
-  if (!hasRequiredPermissions(parsedPermissions, input.config.requiredPermissions)) {
+  if (!hasRequiredPermissions(parsedPermissions, requiredPermissions)) {
     return {
       authorized: false,
       status: "FORBIDDEN",
-      message: "API key is missing deploy permissions",
+      message: "API key is missing bundle permissions",
       data: {
-        requiredPermissions: Object.entries(input.config.requiredPermissions).flatMap(
-          ([permission, actions]) => actions.map((action) => `${permission}:${action}`),
+        requiredPermissions: Object.entries(requiredPermissions).flatMap(([permission, actions]) =>
+          actions.map((action) => `${permission}:${action}`),
         ),
-        action: "deploy bundle",
+        action: `${action} bundle`,
       },
     };
   }
@@ -325,8 +331,8 @@ export async function authorizeUploadRequest(input: {
     return {
       authorized: false,
       status: "FORBIDDEN",
-      message: "API key is missing deployment scope metadata",
-      data: { action: "deploy bundle" },
+      message: "API key is missing scope metadata",
+      data: { action: `${action} bundle` },
     };
   }
 
@@ -334,10 +340,12 @@ export async function authorizeUploadRequest(input: {
     return {
       authorized: false,
       status: "FORBIDDEN",
-      message: "API key is not scoped to this deployment target",
+      message: "API key is not scoped to this namespace",
       data: {
-        requiredPermissions: ["bundles:write"],
-        action: `deploy ${input.account}/${input.gateway}`,
+        requiredPermissions: Object.entries(requiredPermissions).flatMap(([permission, actions]) =>
+          actions.map((permissionAction) => `${permission}:${permissionAction}`),
+        ),
+        action: `${action} ${input.account}/${input.gateway}`,
       },
     };
   }

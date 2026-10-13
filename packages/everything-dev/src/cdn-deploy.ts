@@ -121,7 +121,16 @@ export function resolveCdnDeployInputs(input: {
     }
     storageOrigin = sessionSite;
   } else {
-    storageOrigin = `https://${input.gateway}`;
+    return {
+      cdnOrigin,
+      storageOrigin: storageOriginDefault,
+      apiKey,
+      warning,
+      error:
+        `Bundle uploads require an upload-service origin — the gateway (${input.gateway}) no longer serves ` +
+        "uploads (ADR 0027: the upload service is standalone at upload.everything.dev). Set BOS_STORAGE_ORIGIN " +
+        "in the environment (CI) or re-run `bos login` against the production site so the session pins it.",
+    };
   }
 
   if (!apiKey) {

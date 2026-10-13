@@ -4,6 +4,7 @@ packages:
   - host
   - plugins/*
   - packages/*
+  - apps/*
 catalog:
   "@better-auth/api-key": 1.6.25
   "@better-auth/core": 1.6.25

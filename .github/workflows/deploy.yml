@@ -195,6 +195,7 @@ jobs:
     timeout-minutes: 60
     env:
       NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
+      BOS_STORAGE_ORIGIN: https://upload.everything.dev
       BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
       BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

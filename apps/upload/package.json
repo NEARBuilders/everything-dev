@@ -1,7 +1,7 @@
 {
-  "name": "@everything-dev/artifact-control-plugin",
+  "name": "@everything-dev/upload-app",
   "version": "1.0.0-rc.0",
-  "description": "Artifact control plugin for deploy uploads",
+  "description": "upload.everything.dev — artifact bundle write/control surface for deploy uploads",
   "type": "module",
   "exports": {
     ".": {
@@ -32,6 +32,7 @@
     "@orpc/contract": "catalog:",
     "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
+    "aws4fetch": "catalog:",
     "effect": "catalog:",
     "every-plugin": "workspace:^",
     "zod": "catalog:"

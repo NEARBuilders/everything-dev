@@ -1,8 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import {
-  createArtifactControlClient,
-} from "@everything-dev/artifact-control-plugin/client";
+import { createUploadClient } from "@everything-dev/upload-app/client";
 
 export interface DistFile {
   path: string;
@@ -11,11 +9,10 @@ export interface DistFile {
 
 export interface BundleUploadResult {
   stored: number;
+  unchanged?: number;
   totalBytes: number;
   integrity: Record<string, string>;
   storage?: "s3" | "memory";
-  sessionId?: string;
-  finalizedAt?: string;
 }
 
 async function walkDist(dir: string, baseDir: string): Promise<DistFile[]> {
@@ -50,7 +47,7 @@ export async function uploadBundle(input: {
   files: DistFile[];
   fetchImpl?: typeof fetch;
 }): Promise<BundleUploadResult> {
-  const client = createArtifactControlClient({
+  const client = createUploadClient({
     origin: input.origin,
     apiKey: input.apiKey,
     fetchImpl: input.fetchImpl,
@@ -97,10 +94,9 @@ export async function uploadWorkspaceDist(input: {
     });
     merged.stored += result.stored;
     merged.totalBytes += result.totalBytes;
+    merged.unchanged = (merged.unchanged ?? 0) + (result.unchanged ?? 0);
     Object.assign(merged.integrity, result.integrity);
     merged.storage = result.storage;
-    merged.sessionId = result.sessionId;
-    merged.finalizedAt = result.finalizedAt;
     batch = [];
     batchBytes = 0;
   };

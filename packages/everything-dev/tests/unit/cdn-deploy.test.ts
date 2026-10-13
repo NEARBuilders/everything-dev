@@ -123,6 +123,7 @@ describe("resolveCdnDeployInputs", () => {
     const resolved = resolveCdnDeployInputs({
       env: {
         BOS_BUNDLE_CDN_ORIGIN: "http://localhost:4943",
+        BOS_STORAGE_ORIGIN: "http://localhost:3014",
         BOS_STORAGE_API_KEY: "edk_env",
       },
       bosConfig: null,
@@ -136,7 +137,7 @@ describe("resolveCdnDeployInputs", () => {
     expect(resolved.warning).toContain("local");
   });
 
-  it("uploads go to the runtime gateway when no env or session declares a storage origin", () => {
+  it("is a hard error when no env or session declares a storage origin (the gateway no longer serves uploads)", () => {
     const resolved = resolveCdnDeployInputs({
       env: { BOS_BUNDLE_CDN_ORIGIN: "https://cdn.everything.dev" },
       bosConfig: null,
@@ -146,7 +147,8 @@ describe("resolveCdnDeployInputs", () => {
       uploadsPlanned: true,
     });
     expect(resolved.cdnOrigin).toBe("https://cdn.everything.dev");
-    expect(resolved.storageOrigin).toBe("https://citynode.app");
+    expect(resolved.error).toContain("BOS_STORAGE_ORIGIN");
+    expect(resolved.error).toContain("upload.everything.dev");
   });
 
   it("CDN mode without credentials is an error", () => {
