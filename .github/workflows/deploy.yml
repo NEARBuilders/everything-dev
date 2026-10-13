@@ -158,7 +158,24 @@ jobs:
             BUILD_ARGS+=(-t "$ref")
           done
           echo "Building runtime image ${REFS[*]}..."
-          docker build --target runtime "${BUILD_ARGS[@]}" .
+          # Retry the build — base-image metadata comes from public.ecr.aws
+          # (the Docker Hub mirror), whose anonymous per-IP data limit
+          # intermittently 429s the shared runner pool.
+          BUILD_OK=0
+          for attempt in 1 2 3; do
+            if docker build --target runtime "${BUILD_ARGS[@]}" .; then
+              BUILD_OK=1
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::docker build failed (attempt $attempt) — retrying in 60s"
+              sleep 60
+            fi
+          done
+          if [ "$BUILD_OK" != "1" ]; then
+            echo "::error::docker build failed after 3 attempts"
+            exit 1
+          fi
 
           # All tags are built from one image, so every ref must resolve to the
           # same digest — the Railway pin depends on it. Prefer the registry's
