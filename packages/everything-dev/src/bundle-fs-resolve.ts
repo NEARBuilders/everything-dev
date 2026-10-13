@@ -1,7 +1,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import {
+  type Cause,
+  Context,
+  Data,
+  Duration,
+  Effect,
+  Layer,
+  ManagedRuntime,
+  Schedule,
+  Schema,
+} from "effect";
 import { cacheControlOf } from "every-plugin/build/artifact-names";
 import {
   bundleCachePath,
@@ -87,7 +97,13 @@ export class BundleResolver extends Context.Service<
     readonly lookup: (input: string | URL | Request) => Effect.Effect<Response | null>;
   }
 >()("everything-dev/bundle-fs-resolve/BundleResolver") {
-  static layer(namespace: BundleNamespace): Layer.Layer<BundleResolver> {
+  static layer(namespace: BundleNamespace | undefined): Layer.Layer<BundleResolver> {
+    if (!namespace) {
+      return Layer.succeed(
+        BundleResolver,
+        BundleResolver.of({ lookup: () => Effect.succeed(null) }),
+      );
+    }
     const respond = Effect.fn("BundleResolver.respond")(function* (
       url: string,
     ): Effect.fn.Return<Response | null, never> {
@@ -140,6 +156,8 @@ export interface BundleFetchOptions {
    * `BOS_BUNDLE_CACHE_DIR`.
    */
   cacheDir?: string;
+  /** Per-attempt deadline for idempotent GETs crossing the interceptor. */
+  timeoutMs?: number;
 }
 
 type FetchImpl = typeof globalThis.fetch;
@@ -153,8 +171,9 @@ const staleResponse = (bytes: Uint8Array, url: string): Response => {
   });
 };
 
-const FETCH_RETRY_ATTEMPTS = 3;
-const FETCH_RETRY_BASE_DELAY_MS = 250;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const RETRY_BASE_DELAY = "250 millis";
+const RETRY_TIMES = 2;
 
 const isTransientStatus = (status: number): boolean => status === 429 || status >= 500;
 
@@ -164,100 +183,159 @@ function requestMethod(input: Parameters<FetchImpl>[0], init?: Parameters<FetchI
   return input.method.toUpperCase();
 }
 
+const asError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
+
+/** A 429/5xx response — carried as a failure so the Schedule can retry it,
+ * with the Response kept for the exhausted-retries fallthrough. */
+class TransientBundleResponse extends Data.TaggedError("TransientBundleResponse")<{
+  readonly response: Response;
+}> {}
+
+class BundleFetchFailure extends Data.TaggedError("BundleFetchFailure")<{
+  readonly cause: Error;
+}> {}
+
 /**
- * Bounded transient-failure retry for idempotent GETs crossing the
- * interceptor (ADR 0021 amendment — the CDN-only image): a cold boot has no
- * staged fallback, so one edge/registry hiccup during the load window would
- * hard-fail the host or a plugin with no recourse. Network errors and
- * 429/5xx responses retry twice (250ms, 750ms backoff) before propagating;
- * non-transient statuses and non-GET requests pass through untouched. After
- * exhausting attempts a stale-if-error cache still sees the final failure.
+ * One network attempt: the fetch runs under the fiber's interruption signal
+ * (Effect v4 hands `tryPromise` the signal; `Effect.timeout` interrupts at
+ * the deadline, which aborts the in-flight request), composed with any
+ * caller-provided signal so external cancellation still wins.
  */
-async function fetchWithTransientRetry(
+const fetchAttempt = Effect.fn("bundleFetch.attempt")(function* (
   original: FetchImpl,
   input: Parameters<FetchImpl>[0],
-  init?: Parameters<FetchImpl>[1],
-): Promise<Response> {
-  if (requestMethod(input, init) !== "GET") return original(input, init);
-  let lastError: unknown;
-  let lastResponse: Response | null = null;
-  for (let attempt = 0; attempt < FETCH_RETRY_ATTEMPTS; attempt++) {
-    if (attempt > 0) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, FETCH_RETRY_BASE_DELAY_MS * 3 ** (attempt - 1)),
-      );
-    }
-    try {
-      const response = await original(input, init);
-      if (!isTransientStatus(response.status)) return response;
-      lastResponse = response;
-    } catch (error) {
-      lastError = error;
-    }
+  init: Parameters<FetchImpl>[1],
+  timeout: Duration.Duration,
+): Effect.fn.Return<Response, BundleFetchFailure | TransientBundleResponse | Cause.TimeoutError> {
+  return yield* Effect.tryPromise({
+    try: (signal) =>
+      original(input, {
+        ...init,
+        signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal,
+      }),
+    catch: (cause) => new BundleFetchFailure({ cause: asError(cause) }),
+  }).pipe(
+    Effect.filterOrFail(
+      (response) => !isTransientStatus(response.status),
+      (response) => new TransientBundleResponse({ response }),
+    ),
+    Effect.timeout(timeout),
+  );
+});
+
+/**
+ * The resilience policy for idempotent GETs crossing the interceptor
+ * (ADR 0021 amendment — the CDN-only image): a cold boot has no staged
+ * fallback, so one edge hiccup or a hung connection during the load window
+ * must not hard-fail the host or a plugin. Transient statuses and network
+ * errors (including the deadline's TimeoutError) retry on an exponential
+ * schedule before propagating; the last transient response is returned so a
+ * stale-if-error cache still sees it. Non-GETs pass through untouched.
+ */
+const resilientFetch = Effect.fn("bundleFetch")(function* (
+  original: FetchImpl,
+  input: Parameters<FetchImpl>[0],
+  init: Parameters<FetchImpl>[1],
+  timeout: Duration.Duration,
+): Effect.fn.Return<
+  Response,
+  BundleFetchFailure | TransientBundleResponse | Cause.TimeoutError | Error
+> {
+  if (requestMethod(input, init) !== "GET") {
+    return yield* Effect.tryPromise({
+      try: () => original(input, init),
+      catch: (cause) => new BundleFetchFailure({ cause: asError(cause) }),
+    }).pipe(Effect.catchTag("BundleFetchFailure", (error) => Effect.fail(error.cause)));
   }
-  if (lastResponse) return lastResponse;
-  throw lastError;
-}
+  return yield* fetchAttempt(original, input, init, timeout).pipe(
+    Effect.retry({
+      schedule: Schedule.exponential(RETRY_BASE_DELAY).pipe(Schedule.upTo({ times: RETRY_TIMES })),
+      // A caller-initiated cancellation is not transient — propagate it
+      // immediately instead of spending the schedule on a canceled request.
+      while: (error) =>
+        !(
+          error instanceof BundleFetchFailure &&
+          error.cause instanceof Error &&
+          init?.signal?.aborted
+        ),
+    }),
+    Effect.catchTags({
+      TransientBundleResponse: (error) => Effect.succeed(error.response),
+      BundleFetchFailure: (error) => Effect.fail(error.cause),
+    }),
+  );
+});
 
 /**
  * Installs the resolver as a global fetch interceptor — the one seam every
  * boot-time consumer shares (config manifest discovery, contract-type
- * fetches, orchestrator host loading, MF remoteEntry/identity probes).
- * One layered resolution policy: staged disk → network → stale-if-error.
+ * fetches, orchestrator host loading, MF remoteEntry/identity probes) and
+ * the SSR serving path. One layered resolution policy, as a single Effect
+ * program on the managed runtime: staged disk → network → stale-if-error.
  * Own-namespace URLs resolve from the staged directory and fall through to
- * the original fetch on a miss (a partially-staged namespace boots over the
- * wire instead of failing); a miss never touches the write-through cache —
- * for the own namespace the staged disk IS the resilience artifact. Foreign
+ * the network on a miss (a partially-staged namespace boots over the wire
+ * instead of failing); a miss never touches the write-through cache — for
+ * the own namespace the staged disk IS the resilience artifact. Foreign
  * `/bundles/…` URLs get the network with the stale-if-error cache; every
- * other URL falls through to the original fetch untouched. Inert when
- * neither a staged namespace nor a cache is configured.
+ * other URL falls through to the network. Inert when neither a staged
+ * namespace nor a cache is configured.
  */
 export function installGlobalBundleFetch(options: BundleFetchOptions): BundleFetchHandle {
   const namespace = options.namespace;
   const cacheDir = options.cacheDir;
-  const runtime = namespace ? ManagedRuntime.make(BundleResolver.layer(namespace)) : null;
+  const timeout = Duration.millis(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const runtime = ManagedRuntime.make(BundleResolver.layer(namespace));
   const original: FetchImpl = globalThis.fetch;
-  const patched = (async (input: Parameters<FetchImpl>[0], init?: Parameters<FetchImpl>[1]) => {
+
+  const program = Effect.fn("bundleFetch.program")(function* (
+    input: Parameters<FetchImpl>[0],
+    init?: Parameters<FetchImpl>[1],
+  ): Effect.fn.Return<
+    Response,
+    BundleFetchFailure | TransientBundleResponse | Cause.TimeoutError | Error,
+    BundleResolver
+  > {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 
     if (namespace && bundleUrlToLocalPath(url, namespace)) {
-      if (!runtime) throw new Error("unreachable: resolver runtime missing");
-      const response = await runtime.runPromise(
-        Effect.gen(function* () {
-          const resolver = yield* BundleResolver;
-          return yield* resolver.lookup(input);
-        }),
-      );
-      if (response !== null) return response;
-      return fetchWithTransientRetry(original, input, init);
+      const resolver = yield* BundleResolver;
+      const local = yield* resolver.lookup(input);
+      if (local !== null) return local;
+      return yield* resilientFetch(original, input, init, timeout);
     }
 
     if (cacheDir !== undefined && bundleCachePath(url, { cacheDir })) {
-      return (async () => {
-        try {
-          const response = await fetchWithTransientRetry(original, input, init);
-          if (response.ok) {
-            try {
-              const bytes = new Uint8Array(await response.clone().arrayBuffer());
-              await writeBundleCache(url, bytes, { cacheDir });
-            } catch {
-              // write-through is best-effort
-            }
-          } else {
-            const cached = await readBundleCache(url, { cacheDir });
-            if (cached) return staleResponse(cached, url);
-          }
-          return response;
-        } catch (error) {
-          const cached = await readBundleCache(url, { cacheDir });
+      const cachedRead = Effect.tryPromise(() => readBundleCache(url, { cacheDir }));
+      return yield* Effect.gen(function* () {
+        const response = yield* resilientFetch(original, input, init, timeout);
+        if (response.ok) {
+          // write-through is best-effort
+          yield* Effect.tryPromise(async () => {
+            const bytes = new Uint8Array(await response.clone().arrayBuffer());
+            await writeBundleCache(url, bytes, { cacheDir });
+          }).pipe(Effect.ignore);
+        } else {
+          const cached = yield* cachedRead;
           if (cached) return staleResponse(cached, url);
-          throw error;
         }
-      })();
+        return response;
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.gen(function* () {
+            const cached = yield* cachedRead;
+            if (cached) return staleResponse(cached, url);
+            return yield* Effect.fail(error);
+          }),
+        ),
+      );
     }
 
-    return fetchWithTransientRetry(original, input, init);
-  }) as FetchImpl;
+    return yield* resilientFetch(original, input, init, timeout);
+  });
+
+  const patched = ((input: Parameters<FetchImpl>[0], init?: Parameters<FetchImpl>[1]) =>
+    runtime.runPromise(program(input, init))) as FetchImpl;
   const originalPreconnect = (original as Partial<FetchImpl>).preconnect;
   if (originalPreconnect) {
     patched.preconnect = originalPreconnect.bind(original);
@@ -268,7 +346,7 @@ export function installGlobalBundleFetch(options: BundleFetchOptions): BundleFet
       if (globalThis.fetch === patched) {
         globalThis.fetch = original;
       }
-      if (runtime) await runtime.dispose();
+      await runtime.dispose();
     },
   };
 }

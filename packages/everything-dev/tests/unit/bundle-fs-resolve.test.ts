@@ -282,6 +282,58 @@ describe("interceptor transient retry (CDN-only cold boot)", () => {
       await handle.uninstall();
     }
   });
+
+  it("aborts a hung connection at the per-attempt deadline, then exhausts retries", async () => {
+    let calls = 0;
+    const fetchMock = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        calls += 1;
+        return new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+    );
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const handle = installGlobalBundleFetch({ namespace: NAMESPACE, timeoutMs: 50 });
+    try {
+      await expect(fetch(foreignUrl)).rejects.toMatchObject({ name: "TimeoutError" });
+      expect(calls).toBe(3);
+    } finally {
+      await handle.uninstall();
+    }
+  });
+
+  it("a caller-provided abort signal cancels immediately, without spending the retry schedule", async () => {
+    let sawCombinedSignal = false;
+    const fetchMock = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        sawCombinedSignal = init?.signal !== undefined;
+        return new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      },
+    );
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const handle = installGlobalBundleFetch({ namespace: NAMESPACE, timeoutMs: 10_000 });
+    const controller = new AbortController();
+    try {
+      const pending = fetch(foreignUrl, { signal: controller.signal });
+      setTimeout(() => controller.abort(), 20);
+      await expect(pending).rejects.toSatisfy(
+        (error: unknown) => error instanceof Error && error.name === "AbortError",
+      );
+      expect(sawCombinedSignal).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await handle.uninstall();
+    }
+  });
 });
 
 describe("installBundleFetchFromEnv", () => {

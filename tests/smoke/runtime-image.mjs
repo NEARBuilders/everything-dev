@@ -11,7 +11,7 @@
  * host.docker.internal (the start-container idiom).
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const args = process.argv.slice(2);
@@ -28,6 +28,7 @@ const container = `everything-dev-smoke-${process.pid}`;
 
 const BOOT_DEADLINE_MS = 240_000;
 const POLL_INTERVAL_MS = 1_000;
+let dockerLogs = [];
 
 const envPairs = {
   BOS_ACCOUNT: process.env.SMOKE_BOS_ACCOUNT ?? "dev.everything.near",
@@ -123,26 +124,32 @@ function printImageSize() {
 }
 
 /** Copy the stack's .bos/logs out of the container (into the CI artifact
- * path) and print each log's tail — the failure reason for a failed
- * service only exists inside the container, which otherwise gets deleted. */
+ * path) and capture the full container stdout — the failure reason for a
+ * failed service only exists inside the container, which otherwise gets
+ * deleted, and a tail window can cut the error behind spinner output. */
 function captureContainerLogs() {
   const target = join(".bos", "logs", "smoke");
   mkdirSync(target, { recursive: true });
   const cp = docker(["cp", `${container}:/app/.bos/logs/.`, target], { stdio: "pipe" });
   if (cp.status !== 0) {
     console.error(`smoke: could not copy container logs: ${(cp.stderr ?? "").trim()}`);
-    return;
+  } else {
+    const walk = (dir) =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)],
+      );
+    for (const file of walk(target)) {
+      if (!file.endsWith(".log")) continue;
+      const lines = readFileSync(file, "utf8").split("\n");
+      console.error(`--- ${file} (last 60 of ${lines.length} lines) ---`);
+      console.error(lines.slice(-60).join("\n"));
+    }
   }
-  const walk = (dir) =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
-      entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)],
-    );
-  for (const file of walk(target)) {
-    if (!file.endsWith(".log")) continue;
-    const lines = readFileSync(file, "utf8").split("\n");
-    console.error(`--- ${file} (last 60 of ${lines.length} lines) ---`);
-    console.error(lines.slice(-60).join("\n"));
-  }
+  writeFileSync(join(target, "smoke-stdout.log"), dockerLogs.join("\n"));
+  console.error(
+    `--- container stdout (full, ${dockerLogs.length} lines) → ${target}/smoke-stdout.log ---`,
+  );
+  console.error(dockerLogs.slice(-100).join("\n"));
 }
 
 async function main() {
@@ -179,11 +186,10 @@ async function main() {
     console.log("smoke: PASS");
   } catch (error) {
     console.error(`smoke: FAIL — ${error?.message ?? error}`);
+    const logs = docker(["logs", container], { stdio: "pipe" });
+    dockerLogs = `${logs.stdout ?? ""}${logs.stderr ?? ""}`.split("\n");
     captureContainerLogs();
-    const logs = docker(["logs", "--tail", "400", container], { stdio: "pipe" });
-    const output = `${logs.stdout ?? ""}${logs.stderr ?? ""}`;
-    if (output.trim()) console.error(output);
-    if (/pins no version manifest|redeploy required/i.test(output)) {
+    if (/pins no version manifest|redeploy required/i.test(dockerLogs.join("\n"))) {
       console.error(
         "smoke: the published config predates version-manifest pins — run `bos deploy` to republish with pins; the smoke gate goes green after that",
       );
