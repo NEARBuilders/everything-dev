@@ -324,14 +324,10 @@ describe("deployImageToRailway", () => {
     return { stdout, stderr: "", exitCode: 0 };
   }
 
-  it("pins the service source to the sha-tagged image and redeploys from source", async () => {
-    runMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "git") return okDeploy("cf2ab4d13");
-      return okDeploy("done");
-    });
+  it("redeploys the service from its configured image source", async () => {
+    runMock.mockResolvedValue(okDeploy("done"));
 
     await deployImageToRailway({
-      image: "ghcr.io/acme/app",
       service: "app",
       configDir,
     });
@@ -339,22 +335,11 @@ describe("deployImageToRailway", () => {
     const calls = runMock.mock.calls.filter((c) => c[0] === "railway");
     expect(calls.map((c) => c[1])).toEqual([
       ["--version"],
-      [
-        "service",
-        "source",
-        "connect",
-        "--image",
-        "ghcr.io/acme/app:sha-cf2ab4d13",
-        "--service",
-        "app",
-      ],
       ["redeploy", "--service", "app", "--from-source"],
     ]);
-    for (const call of calls.slice(1)) {
-      expect(call[2]).toEqual(
-        expect.objectContaining({ cwd: configDir, capture: true, onChunk: expect.any(Function) }),
-      );
-    }
+    expect(calls[1][2]).toEqual(
+      expect.objectContaining({ cwd: configDir, capture: true, onChunk: expect.any(Function) }),
+    );
     expect(existsSync(join(configDir, ".bos", "deploy"))).toBe(false);
   });
 
@@ -366,51 +351,29 @@ describe("deployImageToRailway", () => {
 
     await expect(
       deployImageToRailway({
-        image: "ghcr.io/acme/app",
         service: "app",
         configDir,
       }),
     ).rejects.toThrow("Railway CLI not found");
   });
 
-  it("fails when the deployed image's sha tag cannot be resolved", async () => {
-    runMock.mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "railway" && args[0] === "--version") return okDeploy("railway 5.67.1");
-      if (cmd === "git") return { stdout: "", stderr: "not a git repository", exitCode: 128 };
-      return okDeploy("done");
-    });
-
-    await expect(
-      deployImageToRailway({
-        image: "ghcr.io/acme/app",
-        service: "app",
-        configDir,
-      }),
-    ).rejects.toThrow("sha tag");
-  });
-
-  it("throws with captured stream detail when a railway command fails", async () => {
+  it("throws with captured stream detail when the redeploy fails", async () => {
     runMock.mockImplementation(
       async (
         cmd: string,
         args: string[],
         options?: { onChunk?: (s: string, c: Buffer) => void },
       ) => {
-        if (cmd === "git") return okDeploy("cf2ab4d13");
         if (cmd === "railway" && args[0] === "--version") {
           return okDeploy("railway 5.67.1");
         }
-        if (cmd === "railway" && args[0] === "service") {
-          options?.onChunk?.("stderr", Buffer.from("service not found\n"));
-          return { stdout: "", stderr: "service not found", exitCode: 1 };
-        }
-        return okDeploy("done");
+        options?.onChunk?.("stderr", Buffer.from("service not found\n"));
+        return { stdout: "", stderr: "service not found", exitCode: 1 };
       },
     );
 
     await expect(
       deployImageToRailway({
-        image: "ghcr.io/acme/app",
         service: "app",
         configDir,
       }),

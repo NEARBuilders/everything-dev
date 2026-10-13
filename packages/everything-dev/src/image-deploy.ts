@@ -253,17 +253,19 @@ export async function buildAndPushImage(input: {
 }
 
 /**
- * Railway leg (ADR 0021, amended): image-backed deploy of the pushed image —
- * the service's source is (re)connected to the exact `sha-<short>` tag the
- * image leg built and pushed, then `redeploy --from-source` pulls and deploys
- * it. Railway skips the build entirely for Docker-image sources; nothing is
- * uploaded, nothing is built on Railway, and the digest-pin Dockerfile
- * mechanism this replaces is gone (the CLI v5 dropped RAILWAY_DOCKERFILE_PATH,
- * its snapshot respects .gitignore so generated Dockerfiles never shipped, and
- * its Metal builder rejected the repo Dockerfile's cache-mount ids).
+ * Railway leg (ADR 0021, amended): image-backed deploy. The service's source
+ * is a Docker image ref (connected once in the dashboard — `:rc` during the
+ * prerelease train), and `redeploy --from-source` pulls and deploys whatever
+ * that ref points at. The image leg pushes `:rc` (and the `sha-<short>` /
+ * version tags) immediately before this step, so the pulled bytes are exactly
+ * what this train validated. Railway skips the build entirely for
+ * Docker-image sources — nothing is uploaded, nothing is built on Railway,
+ * and the digest-pin Dockerfile mechanism this replaces is gone (the CLI v5
+ * dropped RAILWAY_DOCKERFILE_PATH, its snapshot respects .gitignore so
+ * generated Dockerfiles never shipped, and its Metal builder rejected the
+ * repo Dockerfile's cache-mount ids).
  */
 export async function deployImageToRailway(input: {
-  image: string;
   service: string;
   configDir: string;
 }): Promise<void> {
@@ -283,60 +285,30 @@ export async function deployImageToRailway(input: {
   }
   console.log(`  ${colors.dim(`railway ${version.trim()}`)}`);
 
-  const shaResult = await run("git", ["rev-parse", "--short=7", "HEAD"], {
-    cwd: input.configDir,
-    capture: true,
-  });
-  const shortSha = shaResult?.stdout.trim();
-  if (!shaResult || shaResult.exitCode !== 0 || !shortSha) {
-    throw new Error("Could not resolve the deployed image's sha tag: git rev-parse HEAD failed");
-  }
-  const imageRef = `${input.image}:sha-${shortSha}`;
-
   // Stream the CLI's output live — a silent exit (empty stdout+stderr, seen
   // on the 2026-10-13 deploy) must still be diagnosable from the workflow log.
-  const streamed = (label: string, args: string[]) => {
-    const collected = { stdout: "", stderr: "" };
-    return run("railway", args, {
-      cwd: input.configDir,
-      capture: true,
-      onChunk: (stream, chunk) => {
-        collected[stream] += chunk.toString("utf-8");
-        for (const line of chunk.toString("utf-8").split("\n")) {
-          if (line.trim()) console.log(`  ${colors.dim(line.trim())}`);
-        }
-      },
-    }).then((result) => {
-      if (!result || result.exitCode !== 0) {
-        const exitCode = result?.exitCode ?? "unknown";
-        const tail = (stream: string, text: string) =>
-          text.trim()
-            ? `\nrailway ${stream} (tail):\n${text.trim().split("\n").slice(-20).join("\n")}`
-            : "";
-        throw new Error(
-          `${label} failed with exit code ${exitCode}` +
-            tail("stdout", collected.stdout) +
-            tail("stderr", collected.stderr),
-        );
+  const collected = { stdout: "", stderr: "" };
+  const result = await run("railway", ["redeploy", "--service", input.service, "--from-source"], {
+    cwd: input.configDir,
+    capture: true,
+    onChunk: (stream, chunk) => {
+      collected[stream] += chunk.toString("utf-8");
+      for (const line of chunk.toString("utf-8").split("\n")) {
+        if (line.trim()) console.log(`  ${colors.dim(line.trim())}`);
       }
-    });
-  };
-
-  // Pin the service source to the exact image this train validated — the
-  // sha-<short> tag pushed by the image leg (or the local image leg). The
-  // connect is idempotent and triggers the deploy for image sources.
-  console.log(`  ${colors.dim(`pinning service source to ${imageRef}`)}`);
-  await streamed("railway source connect", [
-    "service",
-    "source",
-    "connect",
-    "--image",
-    imageRef,
-    "--service",
-    input.service,
-  ]);
-  // Safety net for a no-op connect (source already pinned to this ref):
-  // pull and deploy the configured image.
-  await streamed("railway redeploy", ["redeploy", "--service", input.service, "--from-source"]);
+    },
+  });
+  if (!result || result.exitCode !== 0) {
+    const exitCode = result?.exitCode ?? "unknown";
+    const tail = (stream: string, text: string) =>
+      text.trim()
+        ? `\nrailway ${stream} (tail):\n${text.trim().split("\n").slice(-20).join("\n")}`
+        : "";
+    throw new Error(
+      `railway redeploy failed with exit code ${exitCode}` +
+        tail("stdout", collected.stdout) +
+        tail("stderr", collected.stderr),
+    );
+  }
   console.log(colors.green(`  ${icons.ok} Railway deploy complete`));
 }
