@@ -8,7 +8,11 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { Context as EffectContext } from "effect";
 import { formatORPCError, PLUGIN_ERROR_STATUS_MAP } from "every-plugin/errors";
 import type { Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { HTTPException } from "hono/http-exception";
+import { timeout } from "hono/timeout";
 import type { AuthVariables } from "../lib/auth";
+import { API_TIMEOUT_MS, BODY_LIMIT_MAX } from "../middleware/security";
 import { proxyRequest } from "../middleware/static-proxy";
 import { buildPluginContext, type createSessionMiddleware } from "../services/auth";
 import type { RuntimeConfig } from "../services/config";
@@ -166,6 +170,21 @@ export async function setupApiRoutes(
     const gcRan = c.req.query("gc") === "true" && tryGc();
     return c.json({ memory: getMemorySnapshot(), gc: gcRan });
   });
+
+  // The global /api/* limits run before session resolution and oRPC
+  // dispatch. The route-scoped bundle-upload ceiling lives on the standalone
+  // upload service (ADR 0027) — no host-side exemption anymore.
+  app.use(
+    "/api/*",
+    bodyLimit({
+      maxSize: BODY_LIMIT_MAX,
+      onError: (c) => c.json({ error: "Request body too large" }, 413),
+    }),
+  );
+  app.use(
+    "/api/*",
+    timeout(API_TIMEOUT_MS, () => new HTTPException(408, { message: "Request timeout" })),
+  );
 
   app.use("/api/*", sessionMiddleware);
 

@@ -1,7 +1,7 @@
 import type { ContractRouterClient, RouterContract } from "@orpc/contract";
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { useRouter } from "@tanstack/react-router";
-import { createRpcClient, type RpcConnectionErrorCopy } from "every-plugin";
+import { createRpcClient, type RpcConnectionErrorCopy } from "every-plugin/client";
 
 export type { RouterContract };
 

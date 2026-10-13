@@ -1,7 +1,6 @@
 import "@orpc/openapi/extensions/route";
 
 export * from "./client";
-export * from "./dev/host";
 export * from "./effect-helpers";
 export * from "./errors";
 export * from "./plugin";

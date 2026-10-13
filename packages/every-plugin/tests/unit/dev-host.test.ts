@@ -4,7 +4,8 @@ import { OpenAPIHandler } from "@orpc/openapi/fetch";
 import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
 import { RPCHandler } from "@orpc/server/fetch";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
-import { createPlugin, createPluginRuntime, startDirectModuleHost } from "every-plugin";
+import { createPlugin, createPluginRuntime } from "every-plugin";
+import { startDirectModuleHost } from "every-plugin/dev-host";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 

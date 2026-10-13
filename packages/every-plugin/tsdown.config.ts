@@ -22,7 +22,9 @@ export default defineConfig({
   define: {
     __EVERY_PLUGIN_VERSION__: JSON.stringify(packageJson.version),
   },
-  deps: { neverBundle: ["effect", "zod", /^@orpc\/.*/, /^@module-federation\/.*/] },
+  // sonner stays external — inlining it drags the CJS-interop helper
+  // (node:module) into browser bundles that resolve every-plugin/client.
+  deps: { neverBundle: ["effect", "zod", "sonner", /^@orpc\/.*/, /^@module-federation\/.*/] },
   async onSuccess() {
     for (const file of ["cli.mjs", join("dev", "serve.mjs")]) {
       const filepath = join("dist", file);

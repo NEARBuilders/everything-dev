@@ -22,6 +22,18 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     },
+    "./client": {
+      "bun": {
+        "types": "./src/client.ts",
+        "import": "./src/client.ts"
+      },
+      "development": {
+        "types": "./src/client.ts",
+        "import": "./src/client.ts"
+      },
+      "types": "./dist/client.d.mts",
+      "import": "./dist/client.mjs"
+    },
     "./identity": {
       "bun": {
         "types": "./src/identity.ts",
@@ -298,7 +310,8 @@
     "@rsbuild/plugin-react": "catalog:",
     "@tanstack/router-generator": "catalog:",
     "@tanstack/router-plugin": "catalog:",
-    "sirv": "catalog:"
+    "sirv": "catalog:",
+    "sonner": ">=2.0.0"
   },
   "keywords": [
     "plugin",

@@ -6,6 +6,7 @@ export interface EntrySpec {
 
 export const entries: EntrySpec[] = [
   { entry: "src/index.ts", export: "." },
+  { entry: "src/client.ts", export: "./client", require: false },
   { entry: "src/identity.ts", export: "./identity" },
   { entry: "src/types.ts", export: "./types" },
   { entry: "src/errors.ts", export: "./errors" },
