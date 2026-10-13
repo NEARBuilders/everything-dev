@@ -614,6 +614,13 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       description: `${isStaging ? "Staging" : "Production"} Mode (${baseConfig.account})`,
       port: plan.resolvedPorts.host ?? port,
       interactive: input.interactive,
+      // Log persistence stays off for start stacks: the SSR host emits ~80
+      // log events per page render (i18n uncompiled-catalog warnings), and
+      // the file sink writes every event twice through a serialized
+      // appendFile chain regardless of level or dedup — on a loaded machine
+      // that chain starves the event loop and degrades SSR/hydration
+      // mid-suite. Boot failures are diagnosed from stdout (the renderer
+      // prints error-level lines; the smoke captures 400 lines of it).
     };
 
     yield* emitProgress({ phase: "config", status: "done" });

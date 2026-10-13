@@ -1,0 +1,51 @@
+name: Mirror base images
+
+# Docker Hub and ECR Public both rate-limit GitHub-hosted runners' shared
+# egress IPs (Docker Hub 504s motivated the ECR move; ECR then throttled with
+# `toomanyrequests: Data limit exceeded`, killing jobs before setup). The
+# org's GHCR mirror is the pull source for the three library base images;
+# this workflow refreshes it from upstream. Renovate tracks the mirrors and
+# PRs the digest bumps. New GHCR packages land private — flip them public in
+# package settings once (local dev docker compose pulls them unauthenticated).
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Monday ~05:17 UTC
+    - cron: "17 5 * * 1"
+
+permissions:
+  packages: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source: public.ecr.aws/docker/library/node:24-alpine
+            target: ghcr.io/nearbuilders/mirror-node:24-alpine
+          - source: public.ecr.aws/docker/library/postgres:17-alpine
+            target: ghcr.io/nearbuilders/mirror-postgres:17-alpine
+          - source: public.ecr.aws/docker/library/redis:7-alpine
+            target: ghcr.io/nearbuilders/mirror-redis:7-alpine
+    steps:
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # Registry-to-registry manifest copy (no layer pulls into the daemon);
+      # retried because the ECR source itself rate-limits shared egress IPs.
+      - name: Mirror
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if docker buildx imagetools create \
+              --tag "${{ matrix.target }}" \
+              "${{ matrix.source }}"; then
+              docker buildx imagetools inspect "${{ matrix.target }}" | head -8
+              exit 0
+            fi
+            echo "::warning::attempt $attempt failed — retrying"
+            sleep $((attempt * 30))
+          done
+          exit 1
