@@ -288,16 +288,20 @@ export async function deployImageToRailway(input: {
   // Stream the CLI's output live — a silent exit (empty stdout+stderr, seen
   // on the 2026-10-13 deploy) must still be diagnosable from the workflow log.
   const collected = { stdout: "", stderr: "" };
-  const result = await run("railway", ["redeploy", "--service", input.service, "--from-source"], {
-    cwd: input.configDir,
-    capture: true,
-    onChunk: (stream, chunk) => {
-      collected[stream] += chunk.toString("utf-8");
-      for (const line of chunk.toString("utf-8").split("\n")) {
-        if (line.trim()) console.log(`  ${colors.dim(line.trim())}`);
-      }
+  const result = await run(
+    "railway",
+    ["redeploy", "--service", input.service, "--from-source", "--yes"],
+    {
+      cwd: input.configDir,
+      capture: true,
+      onChunk: (stream, chunk) => {
+        collected[stream] += chunk.toString("utf-8");
+        for (const line of chunk.toString("utf-8").split("\n")) {
+          if (line.trim()) console.log(`  ${colors.dim(line.trim())}`);
+        }
+      },
     },
-  });
+  );
   if (!result || result.exitCode !== 0) {
     const exitCode = result?.exitCode ?? "unknown";
     const tail = (stream: string, text: string) =>

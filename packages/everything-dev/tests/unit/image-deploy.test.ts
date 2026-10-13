@@ -335,7 +335,7 @@ describe("deployImageToRailway", () => {
     const calls = runMock.mock.calls.filter((c) => c[0] === "railway");
     expect(calls.map((c) => c[1])).toEqual([
       ["--version"],
-      ["redeploy", "--service", "app", "--from-source"],
+      ["redeploy", "--service", "app", "--from-source", "--yes"],
     ]);
     expect(calls[1][2]).toEqual(
       expect.objectContaining({ cwd: configDir, capture: true, onChunk: expect.any(Function) }),
