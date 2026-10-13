@@ -1,0 +1,59 @@
+{
+  "name": "@everything-dev/artifact-control-plugin",
+  "version": "1.0.0-rc.0",
+  "description": "Artifact control plugin for deploy uploads",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./contract": {
+      "types": "./src/contract.ts",
+      "default": "./src/contract.ts"
+    },
+    "./client": {
+      "types": "./src/client.ts",
+      "default": "./src/client.ts"
+    },
+    "./storage": {
+      "types": "./src/storage.ts",
+      "default": "./src/storage.ts"
+    },
+    "./server": {
+      "types": "./server.ts",
+      "default": "./server.ts"
+    }
+  },
+  "peerDependencies": {
+    "typescript": "catalog:"
+  },
+  "dependencies": {
+    "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
+    "@orpc/server": "catalog:",
+    "effect": "catalog:",
+    "every-plugin": "workspace:^",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@module-federation/node": "catalog:",
+    "@module-federation/runtime-tools": "catalog:",
+    "@rspack/cli": "catalog:",
+    "@rspack/core": "catalog:",
+    "@types/node": "catalog:",
+    "dotenv": "^17.2.3",
+    "typescript": "catalog:",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "catalog:"
+  },
+  "scripts": {
+    "build": "every-plugin build",
+    "dev": "every-plugin dev",
+    "start": "node --import tsx --conditions=development server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  }
+}

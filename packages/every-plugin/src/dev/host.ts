@@ -1,6 +1,5 @@
 import type http from "node:http";
 import { createServer } from "node:http";
-import { AddressInfo } from "node:net";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

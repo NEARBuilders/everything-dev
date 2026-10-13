@@ -27,9 +27,9 @@ export interface StorageService {
   readonly backend: "s3" | "memory";
 }
 
-export class StorageTag extends Context.Service<StorageTag, StorageService>()("api/Storage") {}
+export class StorageTag extends Context.Service<StorageTag, StorageService>()("artifact-control/Storage") {}
 
-const BUNDLE_MIME_TYPES: Record<string, string> = {
+export const BUNDLE_MIME_TYPES: Record<string, string> = {
   ".js": "text/javascript",
   ".mjs": "text/javascript",
   ".cjs": "text/javascript",
@@ -57,8 +57,6 @@ const BUNDLE_MIME_TYPES: Record<string, string> = {
   ".txt": "text/plain",
   ".xml": "application/xml",
 };
-
-export { BUNDLE_MIME_TYPES };
 
 export function bundleContentType(name: string): string {
   return (
@@ -136,11 +134,6 @@ function summarizeStorageErrorBody(detail: string): string {
   return collapsed.slice(0, 300) || "(no response body)";
 }
 
-/**
- * A storage-backend failure worth retrying: the request never got a response
- * (undici wraps these as "fetch failed" — resets, timeouts, socket errors)
- * or the remote answered with a transient status.
- */
 export class TransientStorageError extends Data.TaggedError("TransientStorageError")<{
   readonly operation: string;
   readonly detail: string;
@@ -150,7 +143,6 @@ export class TransientStorageError extends Data.TaggedError("TransientStorageErr
   }
 }
 
-/** A definitive backend rejection (auth, bad request) — retrying cannot help. */
 export class StorageHttpError extends Data.TaggedError("StorageHttpError")<{
   readonly operation: string;
   readonly status: number;
@@ -173,9 +165,6 @@ function describeFetchCause(error: unknown): string {
 const STORAGE_OP_ATTEMPTS = 3;
 const TRANSIENT_STATUS_PATTERN = /^(429|5\d\d)/;
 
-/** Retry a single object operation on transient failures. aws4fetch signs and
- * sends but never retries — one keep-alive reset over a home uplink would
- * otherwise kill a whole multi-hundred-file bundle batch. */
 export async function withStorageRetries<T>(op: () => Promise<T>): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= STORAGE_OP_ATTEMPTS; attempt++) {
@@ -281,48 +270,52 @@ export function maxBundleUploadBytes(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_BUNDLE_UPLOAD_BYTES;
 }
 
-function storageConfigFromEnv(): StorageConfig | null {
-  const endpoint = process.env.BOS_STORAGE_ENDPOINT;
-  const bucket = process.env.BOS_STORAGE_BUCKET;
-  const accessKeyId = process.env.BOS_STORAGE_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.BOS_STORAGE_SECRET_ACCESS_KEY;
+export function resolveStorageConfigFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): StorageConfig | null {
+  const endpoint = env.BOS_STORAGE_ENDPOINT;
+  const bucket = env.BOS_STORAGE_BUCKET;
+  const accessKeyId = env.BOS_STORAGE_ACCESS_KEY_ID;
+  const secretAccessKey = env.BOS_STORAGE_SECRET_ACCESS_KEY;
   if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) return null;
   return {
     endpoint,
     bucket,
     accessKeyId,
     secretAccessKey,
-    region: process.env.BOS_STORAGE_REGION || "auto",
+    region: env.BOS_STORAGE_REGION || "auto",
   };
 }
 
-export const StorageLive = Layer.effect(
-  StorageTag,
-  Effect.gen(function* () {
-    const config = storageConfigFromEnv();
-    if (!config) {
-      yield* Effect.logWarning(
-        "[storage] BOS_STORAGE_* not configured — using in-memory storage (dev only; bundle bytes are lost on restart)",
-      );
-      const memory = new MemoryStorageClient();
-      return StorageTag.of({
-        put: (input) => Effect.promise(() => memory.put(input)),
-        get: (key) => Effect.promise(() => memory.get(key)),
-        backend: "memory" as const,
-      });
-    }
-    const s3 = new S3StorageClient(
-      {
-        accessKeyId: config.accessKeyId,
-        secretAccessKey: config.secretAccessKey,
-        region: config.region,
-      },
-      { endpoint: config.endpoint, bucket: config.bucket },
-    );
-    return StorageTag.of({
-      put: (input) => Effect.promise(() => s3.put(input)),
-      get: (key) => Effect.promise(() => s3.get(key)),
-      backend: "s3" as const,
+export function createStorageLayerFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  opts: { allowMemory?: boolean } = {},
+): Layer.Layer<StorageTag> | null {
+  const config = resolveStorageConfigFromEnv(env);
+  if (!config) {
+    if (opts.allowMemory === false) return null;
+    const memory = new MemoryStorageClient();
+    return Layer.succeed(StorageTag, {
+      put: (input) => Effect.promise(() => memory.put(input)),
+      get: (key) => Effect.promise(() => memory.get(key)),
+      backend: "memory" as const,
     });
-  }),
-);
+  }
+
+  const s3 = new S3StorageClient(
+    {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+      region: config.region,
+    },
+    { endpoint: config.endpoint, bucket: config.bucket },
+  );
+
+  return Layer.succeed(StorageTag, {
+    put: (input) => Effect.promise(() => s3.put(input)),
+    get: (key) => Effect.promise(() => s3.get(key)),
+    backend: "s3" as const,
+  });
+}
+
+export const StorageLive = createStorageLayerFromEnv(process.env, { allowMemory: true })!;

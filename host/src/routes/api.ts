@@ -8,16 +8,7 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { Context as EffectContext } from "effect";
 import { formatORPCError, PLUGIN_ERROR_STATUS_MAP } from "every-plugin/errors";
 import type { Context, Hono } from "hono";
-import { bodyLimit } from "hono/body-limit";
-import { HTTPException } from "hono/http-exception";
-import { timeout } from "hono/timeout";
 import type { AuthVariables } from "../lib/auth";
-import {
-  API_TIMEOUT_MS,
-  BODY_LIMIT_MAX,
-  bundleUploadBodyLimitBytes,
-  storageUploadTimeoutMs,
-} from "../middleware/security";
 import { proxyRequest } from "../middleware/static-proxy";
 import { buildPluginContext, type createSessionMiddleware } from "../services/auth";
 import type { RuntimeConfig } from "../services/config";
@@ -174,42 +165,6 @@ export async function setupApiRoutes(
   app.get(MEMORY_PATH, (c: Context<HonoEnv>) => {
     const gcRan = c.req.query("gc") === "true" && tryGc();
     return c.json({ memory: getMemorySnapshot(), gc: gcRan });
-  });
-
-  const apiBodyLimit = bodyLimit({
-    maxSize: BODY_LIMIT_MAX,
-    onError: (c) => c.json({ error: "Request body too large" }, 413),
-  });
-
-  // Route-scoped limit for bundle uploads (ADR 0015/0020): the global
-  // /api/* limit skips the path — Hono runs every matching middleware, so
-  // two limits would compose to the smaller ceiling.
-  const STORAGE_BUNDLE_PATH = "/api/storage/bundles";
-  const storageBodyLimit = bodyLimit({
-    maxSize: Math.ceil(bundleUploadBodyLimitBytes()),
-    onError: (c) => c.json({ error: "Bundle upload too large" }, 413),
-  });
-  app.use(STORAGE_BUNDLE_PATH, storageBodyLimit);
-  app.use("/api/*", (c, next) => {
-    if (c.req.path === STORAGE_BUNDLE_PATH) return next();
-    return apiBodyLimit(c, next);
-  });
-
-  // The storage route gets its own (much longer) timeout for the same
-  // reason: receiving + SRI-hashing + storing a large batched upload
-  // routinely exceeds the general API budget.
-  const apiTimeout = timeout(
-    API_TIMEOUT_MS,
-    () => new HTTPException(408, { message: "Request timeout" }),
-  );
-  const storageTimeout = timeout(
-    storageUploadTimeoutMs(),
-    () => new HTTPException(408, { message: "Bundle upload timed out" }),
-  );
-  app.use(STORAGE_BUNDLE_PATH, storageTimeout);
-  app.use("/api/*", (c, next) => {
-    if (c.req.path === STORAGE_BUNDLE_PATH) return next();
-    return apiTimeout(c, next);
   });
 
   app.use("/api/*", sessionMiddleware);

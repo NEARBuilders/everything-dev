@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Data } from "effect";
 import { z } from "zod";
 
@@ -17,6 +16,10 @@ export const ArtifactControlUploadSessionInputSchema = z.object({
 export const ArtifactControlUploadSessionSchema = ArtifactControlUploadSessionInputSchema.extend({
   sessionId: z.string().min(1),
   createdAt: z.string().datetime(),
+});
+
+export const ArtifactControlTransferRequestSchema = ArtifactControlUploadSessionInputSchema.extend({
+  sessionId: z.string().min(1).optional(),
 });
 
 export const ArtifactControlTransferResponseSchema = z.object({
@@ -45,6 +48,7 @@ export type ArtifactControlUploadSessionInput = z.infer<
   typeof ArtifactControlUploadSessionInputSchema
 >;
 export type ArtifactControlUploadSession = z.infer<typeof ArtifactControlUploadSessionSchema>;
+export type ArtifactControlTransferRequest = z.infer<typeof ArtifactControlTransferRequestSchema>;
 export type ArtifactControlTransferResponse = z.infer<typeof ArtifactControlTransferResponseSchema>;
 export type ArtifactControlTransferResult = z.infer<typeof ArtifactControlTransferResultSchema>;
 export type ArtifactControlFinalizeResult = z.infer<typeof ArtifactControlFinalizeResultSchema>;
@@ -72,7 +76,12 @@ const TRANSPORT_ATTEMPTS = 5;
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const backoffMs = (attempt: number) => 1000 * attempt + Math.floor(Math.random() * 500);
-const defaultSessionIdFactory = (): string => randomUUID();
+const defaultSessionIdFactory = (): string =>
+  "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const r = Math.floor(Math.random() * 16);
+    const v = ch === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 const defaultNow = (): Date => new Date();
 
 class ArtifactControlTransferError extends Data.TaggedError("ArtifactControlTransferError")<{

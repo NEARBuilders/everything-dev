@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createArtifactControlClient } from "../../src/artifact-control";
+import { createArtifactControlClient } from "@everything-dev/artifact-control-plugin/client";
 
 describe("artifact control client", () => {
   it("creates a session, transfers files, and finalizes the upload", async () => {

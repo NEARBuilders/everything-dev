@@ -1,5 +1,4 @@
 export * from "./config";
-export * from "./artifact-control";
 export * from "./contract";
 export * from "./contract.meta";
 export * from "./fastkv";

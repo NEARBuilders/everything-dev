@@ -7,10 +7,6 @@ import {
   NOT_FOUND,
   UNAUTHORIZED,
 } from "every-plugin/errors";
-import {
-  ArtifactControlBundleFileSchema,
-  ArtifactControlTransferResponseSchema,
-} from "everything-dev/artifact-control";
 import { z } from "zod";
 
 const ErrorTestKindSchema = z.enum([
@@ -21,10 +17,6 @@ const ErrorTestKindSchema = z.enum([
   "bad_request",
   "internal",
 ]);
-
-export const BundleFileSchema = ArtifactControlBundleFileSchema;
-
-export const StorageUploadResultSchema = ArtifactControlTransferResponseSchema;
 
 export const contract = oc.router({
   ping: oc.route({ method: "GET", path: "/ping" }).output(
@@ -55,26 +47,6 @@ export const contract = oc.router({
     )
     .errors({ UNAUTHORIZED, FORBIDDEN, NOT_FOUND, BAD_REQUEST, CONNECTION_ERROR }),
 
-  uploadStorageBundle: oc
-    .route({
-      method: "POST",
-      path: "/storage/bundles",
-      summary: "Upload workspace bundle files",
-      description:
-        "Receives base64-encoded dist files for one workspace namespace, SRI-hashes each server-side, and stores them in the platform bundle storage (R2 in production, memory fallback in dev).",
-      tags: ["Storage"],
-    })
-    .input(
-      z.object({
-        sessionId: z.string().min(1).optional(),
-        account: z.string().min(1),
-        gateway: z.string().min(1),
-        workspace: z.string().min(1),
-        files: z.array(BundleFileSchema).min(1).max(10_000),
-      }),
-    )
-    .output(StorageUploadResultSchema)
-    .errors({ UNAUTHORIZED, FORBIDDEN, BAD_REQUEST, CONNECTION_ERROR }),
 });
 
 export type ContractType = typeof contract;

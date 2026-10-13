@@ -148,33 +148,44 @@ export function resolveCdnDeployInputs(input: {
 }
 
 /**
- * Pre-upload probe: the storage origin must actually be the platform API.
- * `/.well-known/mcp.json` is the cheapest unauthenticated platform
- * fingerprint — a random service squatting the port (or a stale session
- * pointing at the wrong server) fails here before megabytes move.
+ * Pre-upload probe: the storage origin must actually be the bundle-upload
+ * service.
+ * `/health` is the primary readiness check, with MCP kept as a compatibility
+ * fallback for older fixtures and legacy hosts.
  */
 export async function probeStorageOrigin(
   storageOrigin: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string | undefined> {
-  const probeUrl = `${storageOrigin.replace(/\/$/, "")}/.well-known/mcp.json`;
+  const base = storageOrigin.replace(/\/$/, "");
+  const healthUrl = `${base}/health`;
+  const mcpUrl = `${base}/.well-known/mcp.json`;
   let response: Response;
   try {
-    response = await fetchImpl(probeUrl, { headers: { accept: "application/json" } });
+    response = await fetchImpl(healthUrl, { headers: { accept: "text/plain" } });
   } catch (error) {
     return `unreachable (${String(error instanceof Error ? error.message : error)})`;
   }
-  if (!response.ok) {
-    return `GET /.well-known/mcp.json responded ${response.status}`;
+  if (response.ok) {
+    const body = await response.text().catch(() => "");
+    if (body.trim() === "OK" || body.trim().length === 0) return undefined;
   }
-  let body: unknown;
+  let mcpResponse: Response;
   try {
-    body = await response.json();
+    mcpResponse = await fetchImpl(mcpUrl, { headers: { accept: "application/json" } });
+  } catch {
+    return `GET /health responded ${response.status}; fallback /.well-known/mcp.json unreachable`;
+  }
+  if (!mcpResponse.ok) {
+    return `GET /health responded ${response.status}; GET /.well-known/mcp.json responded ${mcpResponse.status}`;
+  }
+  try {
+    const body = await mcpResponse.json();
+    if (!body || typeof body !== "object") {
+      return "did not return the platform MCP descriptor";
+    }
+    return undefined;
   } catch {
     return "did not return the platform MCP descriptor (non-JSON response)";
   }
-  if (!body || typeof body !== "object") {
-    return "did not return the platform MCP descriptor";
-  }
-  return undefined;
 }

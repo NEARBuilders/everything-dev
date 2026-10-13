@@ -117,15 +117,6 @@
       "import": "./dist/contract.meta.mjs",
       "require": "./dist/contract.meta.cjs"
     },
-    "./artifact-control": {
-      "development": {
-        "types": "./src/artifact-control.ts",
-        "import": "./src/artifact-control.ts"
-      },
-      "types": "./dist/artifact-control.d.mts",
-      "import": "./dist/artifact-control.mjs",
-      "require": "./dist/artifact-control.cjs"
-    },
     "./mf": {
       "development": {
         "types": "./src/mf.ts",
@@ -407,6 +398,7 @@
     "defu": "^6.1.7",
     "dotenv": "^17.3.1",
     "effect": "4.0.0-rc.117",
+    "@everything-dev/artifact-control-plugin": "workspace:^",
     "every-plugin": "workspace:^",
     "execa": "^9.5.2",
     "glob": "^13.0.6",

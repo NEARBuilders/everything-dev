@@ -23,14 +23,7 @@ export default App({
   api: API({
     path: "api",
     variables: { gatewayDomains: "everything.dev,dev.everything.dev" },
-    secrets: [
-      "API_DATABASE_URL",
-      "BOS_STORAGE_ENDPOINT",
-      "BOS_STORAGE_BUCKET",
-      "BOS_STORAGE_ACCESS_KEY_ID",
-      "BOS_STORAGE_SECRET_ACCESS_KEY",
-      "BOS_STORAGE_REGION",
-    ],
+    secrets: ["API_DATABASE_URL"],
   }),
   auth: Plugin("auth").path("plugins/auth", {
     name: "@everything-dev/auth-plugin",
