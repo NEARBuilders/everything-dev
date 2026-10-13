@@ -44,9 +44,10 @@ ENV DEPLOY=true
 RUN node --import tsx scripts/regression/container-build.ts
 
 # ── Prod build: strip sources — the framework loads remotes at runtime ──
-# The authored descriptor (bos.app.ts / bos.dev.ts) goes too: the runtime
-# image bakes the generated config (dist-builder, ADR 0005) as the boot
-# fallback, and findConfigPath must not shadow it with the authored form.
+# The authored descriptor (bos.app.ts / bos.dev.ts) goes too: the image
+# carries no config at all — boot is identity-driven (BOS_ACCOUNT/
+# BOS_GATEWAY env → FastKV) or a mounted config — and findConfigPath must
+# not shadow either with a half-stripped authored form.
 FROM builder AS prod-builder
 
 # Derived node_modules prune: keep the union of every workspace's production
@@ -115,33 +116,26 @@ ENTRYPOINT ["node", "scripts/regression/container-entrypoint.mjs"]
 
 # ── Deployment runtime (ADR 0021): the last stage — the universal image ──
 # `node …/cli.mjs start` boots `bos start`: identity-driven (BOS_ACCOUNT/
-# BOS_GATEWAY env → FastKV; unset → the baked bos.config.json), with tier
-# auto-detection over BOS_BUNDLE_DIR. The start stack loads the host, api,
-# and plugins in-process through Module Federation — no child spawns, so the
-# runtime needs only node. This is the default build target; GHCR publishes
-# it (ADR 0020: all bundle distribution lives on the CDN — the image keeps
-# the boot role). One container = the whole start stack; only the host port
-# is mapped. Databases and secrets arrive via env at `docker run`.
+# BOS_GATEWAY env → FastKV) or from a mounted config (--config-path, or a
+# bos.config.json mounted at /app). Distribution lives on the CDN (ADR 0020)
+# and the image stages no dists: every boot resolves the published config's
+# pins over the network once, then the stale-if-error cache covers upstream
+# outages. The start stack loads the host, api, and plugins in-process
+# through Module Federation — no child spawns, so the runtime needs only
+# node. This is the default build target; GHCR publishes it. One container =
+# the whole start stack; only the host port is mapped. Databases and secrets
+# arrive via env at `docker run`.
 FROM runtime-base AS runtime
 
 COPY --from=prod-builder --chown=appuser:appgroup /app/node_modules ./node_modules
 COPY --from=prod-builder --chown=appuser:appgroup /app/package.json .
-# Generated config (ADR 0005) — baked as the bare-start boot fallback.
-COPY --from=dist-builder --chown=appuser:appgroup /app/.bos/bos.resolved-config.json ./bos.config.json
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/everything-dev ./packages/everything-dev
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/every-plugin ./packages/every-plugin
 
-# Image-native boot artifacts (plan 043, boot role per ADR 0020): the
-# namespace-staged bundle layout built by the dist-builder stage — the
-# outbound fetch interceptor resolves own-namespace URLs from this directory
-# so cold boots need zero network. Distribution serves the same bytes from
-# the CDN.
-COPY --from=dist-builder --chown=appuser:appgroup /app/.bos/bundles ./.bos/bundles
-ENV BOS_BUNDLE_DIR=/app/.bos/bundles
-
-# Foreign-namespace stale-if-error cache (ADR 0021): registry-tier instances
-# (children) cache boot-time and inbound bytes and serve last-known-good on
-# upstream outages.
+# Stale-if-error cache (ADR 0021): boot-time and inbound bytes are cached and
+# last-known-good is served on upstream outages. No BOS_BUNDLE_DIR — the CDN
+# is the single distribution source; an operator may still opt into a staged
+# namespace by mounting one and setting BOS_BUNDLE_DIR themselves.
 ENV BOS_BUNDLE_CACHE_DIR=/app/.bos/bundle-cache
 
 RUN mkdir -p .bos/generated .bos/logs .bos/bundle-cache && \

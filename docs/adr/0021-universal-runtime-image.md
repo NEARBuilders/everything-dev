@@ -117,3 +117,33 @@ could pull a newer (still CI-validated) image, and at the stable transition
 unaffected: Railway's deployment history pins the exact digest each
 deployment pulled. The public GHCR image needs no registry credentials on
 Railway.
+
+## Amendment (2026-10-13): the image carries no dists and no config — the CDN is the single distribution source
+
+The `runtime` stage stopped staging the boot namespace and stopped baking the
+generated `bos.config.json` as the bare-start fallback. Two problems forced
+this:
+
+- **The two builds were not the same bytes.** The deploy train builds the
+  workspace dists a second time on the runner and uploads those bytes to the
+  CDN, while the image's `dist-builder` stage built its own copy. Both run
+  `DEPLOY=true`, but the minifier's variable-name allocation is not stable
+  across builds — same code, different content hash. The boot policy preferred
+  staged bytes for own-namespace URLs, so the SSR compose rendered the image's
+  hashed filenames while the browser loaded the CDN's pins → 404 → broken
+  hydration. The publish train already declared "nothing image-native left";
+  the image carrying dists was the stale half of ADR 0020's "dual home".
+- **A baked build-time config is image-native state.** A universal image
+  should boot from identity (`BOS_ACCOUNT`/`BOS_GATEWAY` → FastKV) or a
+  mounted config — never from config materialized at image-build time.
+
+Decision 2's tier auto-detection stays as written: with `BOS_BUNDLE_DIR`
+unset (the image default), every namespace takes the network fetch +
+write-through + stale-if-error cache path — the path every registry-tier
+instance already booted through. An operator may still opt into a staged
+namespace by mounting one and setting `BOS_BUNDLE_DIR`; `bos mf check`
+resolves its config from the registry identity when no local authored config
+exists. The `regression` target keeps its staged dists and baked local config
+— it is a test fixture, built explicitly with `--target regression`, never
+the deployment artifact. A bare `bos start` with no identity and no mounted
+config fails with `StartConfigMissing` — loud, by design.

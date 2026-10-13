@@ -7,6 +7,7 @@ import { syncTemplate } from "../cli/sync";
 import { upgradeTemplate } from "../cli/upgrade";
 import { generateCodeArtifacts } from "../code-artifacts";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
+import { resolvePublishedConfig } from "../dev-program";
 import { checkFederationCompat } from "../mf";
 import { openResolution } from "../resolution/session";
 import type { BosConfig } from "../types";
@@ -400,13 +401,40 @@ export function registerUpgrade(builder: BosBuilder) {
         };
       }
       if (!authored) {
-        return {
-          status: "fail" as const,
-          hostVersion: null,
-          hostReachable: false,
-          hostReason: MISSING_CONFIG_MESSAGE,
-          remotes: [],
-        };
+        // No local authored config (the universal image carries none): fall
+        // back to the registry identity — the same source `bos start` boots
+        // from in a runtime container.
+        const account = process.env.BOS_ACCOUNT;
+        const gateway = process.env.BOS_GATEWAY;
+        if (!account || !gateway) {
+          return {
+            status: "fail" as const,
+            hostVersion: null,
+            hostReachable: false,
+            hostReason: MISSING_CONFIG_MESSAGE,
+            remotes: [],
+          };
+        }
+        try {
+          authored = await resolvePublishedConfig(account, gateway);
+        } catch (e) {
+          return {
+            status: "fail" as const,
+            hostVersion: null,
+            hostReachable: false,
+            hostReason: e instanceof Error ? e.message : String(e),
+            remotes: [],
+          };
+        }
+        if (!authored) {
+          return {
+            status: "fail" as const,
+            hostVersion: null,
+            hostReachable: false,
+            hostReason: `No config found at bos://${account}/${gateway} — verify BOS_ACCOUNT/BOS_GATEWAY and that the config has been published.`,
+            remotes: [],
+          };
+        }
       }
 
       const report = await checkFederationCompat(authored, {

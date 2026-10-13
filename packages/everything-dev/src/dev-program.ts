@@ -87,7 +87,7 @@ function parseSourceMode(value: string | undefined, defaultValue: SourceMode): S
   return defaultValue;
 }
 
-async function resolvePublishedConfig(
+export async function resolvePublishedConfig(
   account: string,
   gateway: string,
   registry?: string,

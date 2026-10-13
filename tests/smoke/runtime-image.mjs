@@ -1,10 +1,10 @@
 /**
  * Runtime-image smoke gate (ticket 02): boots the universal `runtime` image
- * the way production boots — identity from BOS_ACCOUNT/BOS_GATEWAY env, the
- * published config, staged bundles — and asserts the boot surface: /health,
- * one SSR page, the OpenAPI spec, `bos mf check` in-image, and prints the
- * image size. Plain Node, no dependencies; health/SSR/API polls run
- * concurrently against a shared boot deadline.
+ * the way production boots — identity from BOS_ACCOUNT/BOS_GATEWAY env and
+ * the published config from the registry — and asserts the boot surface:
+ * /health, one SSR page, the OpenAPI spec, `bos mf check` in-image, and
+ * prints the image size. Plain Node, no dependencies; health/SSR/API polls
+ * run concurrently against a shared boot deadline.
  *
  * Usage: node tests/smoke/runtime-image.mjs [--image <ref>] [--port <n>] [--keep]
  * Database URLs default to the local compose test databases on

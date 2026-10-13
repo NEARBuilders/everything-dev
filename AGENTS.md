@@ -383,12 +383,12 @@ pnpm run dev    # hot reload, all services local
 
 | Tier | Instance | Bundle bytes |
 |------|----------|--------------|
-| Root runtime (`everything.dev`) | the universal image (`ghcr.io/nearbuilders/everything-dev`), self-contained tier | image stages the boot namespace (`BOS_BUNDLE_DIR`); distribution serves from the CDN (`cdn.everything.dev`) |
+| Root runtime (`everything.dev`) | the universal image (`ghcr.io/nearbuilders/everything-dev`) | CDN (`cdn.everything.dev`) — the single distribution source; the image stages no dists |
 | `*.<root>` — shared-host tenants | no instance — the root host resolves them per-request via `BindingResolver` | base workspaces from the root; own UI overrides from the CDN |
-| `.<child-domain>` — own instance | the universal image with `BOS_ACCOUNT`/`BOS_GATEWAY` set (registry tier, auto-detected) | host/api/auth logic fetched from the base; own workspaces uploaded to the base storage at publish |
+| `.<child-domain>` — own instance | the universal image with `BOS_ACCOUNT`/`BOS_GATEWAY` set | host/api/auth logic fetched from the base; own workspaces uploaded to the base storage at publish |
 | Sandbox (`*.*.<child>`) | plan 032 — platform image on provisioned machines, dists staged into the instance | staged at runtime from the same store |
 
-One image, published by the root to GHCR; children never ship images. `BOS_BUNDLE_DIR` identity mismatches auto-degrade to registry tier (network fetch + stale-if-error cache via `BOS_BUNDLE_CACHE_DIR`) — never 404.
+One image, published by the root to GHCR; children never ship images. The image carries no config and no staged dists — boot is identity-driven (`BOS_ACCOUNT`/`BOS_GATEWAY` → FastKV) or a mounted config, and bundle bytes always come from the CDN (network once, then the stale-if-error cache via `BOS_BUNDLE_CACHE_DIR` covers outages). An operator may still opt into a staged namespace by mounting one and setting `BOS_BUNDLE_DIR`.
 
 **Self-deployed production (step-by-step):**
 

@@ -205,3 +205,19 @@ same per-workspace train as `bos deploy` scoped to one plugin — preflight
 R2-backed storage → compose + pin the workspace's version manifest →
 config write-back → FastKV publish + read-back confirmation. The
 image-native `applyPluginPublishUrl` path is deleted.
+
+## Amendment (2026-10-13): the boot role is retired — one build, one distribution source
+
+Decision 2's "dual home" collapsed: the runtime image no longer stages the
+root's namespace (`BOS_BUNDLE_DIR` unset) and no longer bakes a
+`bos.config.json`. The deploy train's CDN upload was always the second,
+independent build of the same workspaces — and the two builds were not
+byte-identical (minifier variable allocation differs run to run, so content
+hashes diverged). With the boot policy preferring staged bytes, the root
+rendered image-built filenames while browsers fetched the published CDN pins
+— a 404 and broken hydration. The CDN is now the single distribution source
+for every namespace, root included: a cold boot fetches the published pins
+over the network once, then `BOS_BUNDLE_CACHE_DIR`'s stale-if-error cache
+covers upstream outages. The image is the runtime process, not a
+distribution artifact. `BOS_BUNDLE_DIR` survives as an operator opt-in (a
+mounted staged namespace) and as the regression fixture's serving mechanism.
