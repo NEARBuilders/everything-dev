@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   type BundleNamespace,
   bundleUrlToLocalPath,
@@ -210,6 +210,76 @@ describe("BundleResolver global fetch adapter", () => {
     } finally {
       await handle.uninstall();
       globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("interceptor transient retry (CDN-only cold boot)", () => {
+  const originalFetch = globalThis.fetch;
+  const foreignUrl =
+    "https://base.everything.near/bundles/base.near/everything.dev/host/remoteEntry.server.js";
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("retries a transient 5xx and returns the recovered response", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("edge blip", { status: 503 }))
+      .mockResolvedValueOnce(new Response("from-network", { status: 200 }));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const handle = installGlobalBundleFetch({ namespace: NAMESPACE });
+    try {
+      const res = await fetch(foreignUrl);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("from-network");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      await handle.uninstall();
+    }
+  });
+
+  it("exhausts attempts on persistent network errors, then throws", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("origin down");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const handle = installGlobalBundleFetch({ namespace: NAMESPACE });
+    try {
+      await expect(fetch(foreignUrl)).rejects.toThrow("origin down");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      await handle.uninstall();
+    }
+  });
+
+  it("does not retry non-transient statuses", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("missing", { status: 404 }));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const handle = installGlobalBundleFetch({ namespace: NAMESPACE });
+    try {
+      const res = await fetch(foreignUrl);
+      expect(res.status).toBe(404);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await handle.uninstall();
+    }
+  });
+
+  it("does not retry non-GET requests", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("origin down");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const handle = installGlobalBundleFetch({ namespace: NAMESPACE });
+    try {
+      await expect(fetch(foreignUrl, { method: "POST", body: "{}" })).rejects.toThrow(
+        "origin down",
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await handle.uninstall();
     }
   });
 });

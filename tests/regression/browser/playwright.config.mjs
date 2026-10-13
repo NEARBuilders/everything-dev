@@ -27,9 +27,13 @@ export default defineConfig({
   timeout: 60000,
   fullyParallel: false,
   workers: 1,
-  // Retries off: a degradation wedge showed up as a cluster of flaky-then-
-  // passed pairs that doubled the wall time behind a starving fixture (ADR 0009).
-  retries: 0,
+  // One retry per failed test. Retries were zeroed when a degradation wedge
+  // behind a starving fixture showed up as flaky-then-passed clusters that
+  // doubled wall time (ADR 0009); that fixture's resource profile is fixed.
+  // With ~10 parallel CI jobs sharing the runner, a single slow SSR compose
+  // (e.g. theme.spec reload timing out in waitForApp) still turns a green
+  // run red — one bounded retry is cheaper than a full CI re-run.
+  retries: 1,
   reporter: [["list"], [stallWatchdog]],
   globalSetup: "./helpers/global-setup.ts",
   use: {

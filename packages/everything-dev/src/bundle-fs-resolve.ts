@@ -153,6 +153,52 @@ const staleResponse = (bytes: Uint8Array, url: string): Response => {
   });
 };
 
+const FETCH_RETRY_ATTEMPTS = 3;
+const FETCH_RETRY_BASE_DELAY_MS = 250;
+
+const isTransientStatus = (status: number): boolean => status === 429 || status >= 500;
+
+function requestMethod(input: Parameters<FetchImpl>[0], init?: Parameters<FetchImpl>[1]): string {
+  if (init?.method) return init.method.toUpperCase();
+  if (typeof input === "string" || input instanceof URL) return "GET";
+  return input.method.toUpperCase();
+}
+
+/**
+ * Bounded transient-failure retry for idempotent GETs crossing the
+ * interceptor (ADR 0021 amendment — the CDN-only image): a cold boot has no
+ * staged fallback, so one edge/registry hiccup during the load window would
+ * hard-fail the host or a plugin with no recourse. Network errors and
+ * 429/5xx responses retry twice (250ms, 750ms backoff) before propagating;
+ * non-transient statuses and non-GET requests pass through untouched. After
+ * exhausting attempts a stale-if-error cache still sees the final failure.
+ */
+async function fetchWithTransientRetry(
+  original: FetchImpl,
+  input: Parameters<FetchImpl>[0],
+  init?: Parameters<FetchImpl>[1],
+): Promise<Response> {
+  if (requestMethod(input, init) !== "GET") return original(input, init);
+  let lastError: unknown;
+  let lastResponse: Response | null = null;
+  for (let attempt = 0; attempt < FETCH_RETRY_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, FETCH_RETRY_BASE_DELAY_MS * 3 ** (attempt - 1)),
+      );
+    }
+    try {
+      const response = await original(input, init);
+      if (!isTransientStatus(response.status)) return response;
+      lastResponse = response;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastResponse) return lastResponse;
+  throw lastError;
+}
+
 /**
  * Installs the resolver as a global fetch interceptor — the one seam every
  * boot-time consumer shares (config manifest discovery, contract-type
@@ -183,13 +229,13 @@ export function installGlobalBundleFetch(options: BundleFetchOptions): BundleFet
         }),
       );
       if (response !== null) return response;
-      return original(input, init);
+      return fetchWithTransientRetry(original, input, init);
     }
 
     if (cacheDir !== undefined && bundleCachePath(url, { cacheDir })) {
       return (async () => {
         try {
-          const response = await original(input, init);
+          const response = await fetchWithTransientRetry(original, input, init);
           if (response.ok) {
             try {
               const bytes = new Uint8Array(await response.clone().arrayBuffer());
@@ -210,7 +256,7 @@ export function installGlobalBundleFetch(options: BundleFetchOptions): BundleFet
       })();
     }
 
-    return original(input, init);
+    return fetchWithTransientRetry(original, input, init);
   }) as FetchImpl;
   const originalPreconnect = (original as Partial<FetchImpl>).preconnect;
   if (originalPreconnect) {
