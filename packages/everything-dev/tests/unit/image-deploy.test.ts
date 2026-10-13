@@ -339,7 +339,6 @@ describe("deployImageToRailway", () => {
       expect.objectContaining({
         cwd: configDir,
         capture: true,
-        env: { RAILWAY_DOCKERFILE_PATH: ".bos/deploy/Dockerfile" },
         onChunk: expect.any(Function),
       }),
     );

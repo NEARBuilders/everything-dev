@@ -255,7 +255,8 @@ export async function buildAndPushImage(input: {
 /**
  * Railway leg (ADR 0021): pull-only deploy of the pushed image digest — a
  * thin `FROM image@digest` Dockerfile pins the digest so Railway never
- * rebuilds; `RAILWAY_DOCKERFILE_PATH` points at the generated file.
+ * rebuilds; railway.toml's [build] dockerfilePath points at the generated
+ * file (the CLI v5 dropped the RAILWAY_DOCKERFILE_PATH env var).
  */
 export async function deployImageToRailway(input: {
   image: string;
@@ -286,11 +287,13 @@ export async function deployImageToRailway(input: {
 
   // Stream the CLI's output live — a silent exit (empty stdout+stderr, seen
   // on the 2026-10-13 deploy) must still be diagnosable from the workflow log.
+  // The build file is selected by railway.toml's [build] dockerfilePath — the
+  // CLI v5 dropped RAILWAY_DOCKERFILE_PATH and silently built the repo's root
+  // Dockerfile instead (whose cache-mount ids the Metal builder rejects).
   const collected = { stdout: "", stderr: "" };
   const result = await run("railway", ["up", "--service", input.service, "--ci"], {
     cwd: input.configDir,
     capture: true,
-    env: { RAILWAY_DOCKERFILE_PATH: ".bos/deploy/Dockerfile" },
     onChunk: (stream, chunk) => {
       collected[stream] += chunk.toString("utf-8");
       for (const line of chunk.toString("utf-8").split("\n")) {
