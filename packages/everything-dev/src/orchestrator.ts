@@ -12,10 +12,6 @@ import {
 } from "./service-descriptor";
 import type { RuntimeConfig } from "./types";
 
-const warnOutsideEffect = (...args: unknown[]): void => {
-  console.warn(...args);
-};
-
 const runFetch = (url: string, init?: RequestInit): Promise<Response> => fetch(url, init);
 
 process.on("unhandledRejection", (reason) => {
@@ -258,37 +254,54 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
       .replace(/\/remoteEntry\.js$/, "")
       .replace(/\/mf-manifest\.json$/, "")
       .replace(/\/$/, "");
-    const remoteEntryUrl = `${baseUrl}/remoteEntry.js`;
     const manifestUrl = `${baseUrl}/mf-manifest.json`;
 
+    // The manifest IS the entry contract (ADR 0020 amendment: hashed
+    // entrypoints, fixed-name `remoteEntry.js` retired — it 404s on the CDN).
+    // A failed manifest fetch must fail loud with the URL and status: the old
+    // silent fallback to remoteEntry.js turned any transient hiccup (a CDN
+    // 403 challenge, a timeout) into a guaranteed loadRemote failure with no
+    // named cause.
     const entryUrl = yield* Effect.tryPromise({
       try: async () => {
+        let res: Response;
         try {
-          let res: Response;
-          try {
-            res = await runFetch(manifestUrl, { signal: AbortSignal.timeout(10_000) });
-          } catch {
-            throw new Error("manifest fetch failed");
-          }
-          if (!res.ok) return remoteEntryUrl;
-          const json = (await res.json()) as Record<string, unknown>;
-          if (
-            json &&
-            typeof json === "object" &&
-            "metaData" in json &&
-            "exposes" in json &&
-            "shared" in json
-          ) {
-            return manifestUrl;
-          }
+          res = await runFetch(manifestUrl, { signal: AbortSignal.timeout(10_000) });
         } catch (e) {
-          warnOutsideEffect(
-            `[Orchestrator] Failed to fetch or parse manifest from ${manifestUrl}, falling back to remoteEntryUrl: ${String(e)}`,
-          );
+          throw new OrchestratorError({
+            operation: "fetch host manifest",
+            detail: `${manifestUrl} — ${e instanceof Error ? e.message : String(e)}`,
+            cause: e,
+          });
         }
-        return remoteEntryUrl;
+        if (!res.ok) {
+          throw new OrchestratorError({
+            operation: "fetch host manifest",
+            detail: `${manifestUrl} — HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
+          });
+        }
+        const json = (await res.json()) as Record<string, unknown>;
+        if (
+          !json ||
+          typeof json !== "object" ||
+          !("metaData" in json) ||
+          !("exposes" in json) ||
+          !("shared" in json)
+        ) {
+          throw new OrchestratorError({
+            operation: "fetch host manifest",
+            detail: `${manifestUrl} — not a Module Federation manifest (missing metaData/exposes/shared)`,
+          });
+        }
+        return manifestUrl;
       },
-      catch: () => remoteEntryUrl,
+      catch: (cause) =>
+        cause instanceof OrchestratorError
+          ? cause
+          : new OrchestratorError({
+              operation: "fetch host manifest",
+              detail: `${manifestUrl} — ${String(cause)}`,
+            }),
     });
 
     (mf as any).registerRemotes([{ name: "host", entry: entryUrl }]);

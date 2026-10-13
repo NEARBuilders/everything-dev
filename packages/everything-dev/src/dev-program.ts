@@ -614,7 +614,6 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       description: `${isStaging ? "Staging" : "Production"} Mode (${baseConfig.account})`,
       port: plan.resolvedPorts.host ?? port,
       interactive: input.interactive,
-      noLogs: true,
     };
 
     yield* emitProgress({ phase: "config", status: "done" });

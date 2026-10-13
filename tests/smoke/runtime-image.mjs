@@ -180,7 +180,7 @@ async function main() {
   } catch (error) {
     console.error(`smoke: FAIL — ${error?.message ?? error}`);
     captureContainerLogs();
-    const logs = docker(["logs", "--tail", "80", container], { stdio: "pipe" });
+    const logs = docker(["logs", "--tail", "400", container], { stdio: "pipe" });
     const output = `${logs.stdout ?? ""}${logs.stderr ?? ""}`;
     if (output.trim()) console.error(output);
     if (/pins no version manifest|redeploy required/i.test(output)) {
