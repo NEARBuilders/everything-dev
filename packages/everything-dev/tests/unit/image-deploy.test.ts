@@ -333,15 +333,54 @@ describe("deployImageToRailway", () => {
     expect(readFileSync(join(configDir, ".bos", "deploy", "Dockerfile"), "utf-8")).toBe(
       "FROM ghcr.io/acme/app@sha256:abc123\n",
     );
-    expect(runMock).toHaveBeenCalledWith("railway", ["up", "--service", "app", "--ci"], {
-      cwd: configDir,
-      capture: true,
-      env: { RAILWAY_DOCKERFILE_PATH: ".bos/deploy/Dockerfile" },
-    });
+    expect(runMock).toHaveBeenCalledWith(
+      "railway",
+      ["up", "--service", "app", "--ci"],
+      expect.objectContaining({
+        cwd: configDir,
+        capture: true,
+        env: { RAILWAY_DOCKERFILE_PATH: ".bos/deploy/Dockerfile" },
+        onChunk: expect.any(Function),
+      }),
+    );
+    const upCalls = runMock.mock.calls.filter((c) => c[0] === "railway" && c[1][0] === "up");
+    expect(upCalls).toHaveLength(1);
   });
 
-  it("throws with stderr detail when railway up fails", async () => {
-    runMock.mockResolvedValue({ stdout: "", stderr: "service not found", exitCode: 1 });
+  it("streams railway output live and survives a failing --version probe", async () => {
+    runMock.mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args[0] === "--version") throw new Error("spawn railway ENOENT");
+      return { stdout: "Deployed", stderr: "", exitCode: 0 };
+    });
+
+    await deployImageToRailway({
+      image: "ghcr.io/acme/app",
+      digest: "sha256:abc123",
+      service: "app",
+      configDir,
+    });
+
+    expect(runMock).toHaveBeenCalledWith(
+      "railway",
+      ["up", "--service", "app", "--ci"],
+      expect.anything(),
+    );
+  });
+
+  it("throws with captured stream detail when railway up fails", async () => {
+    runMock.mockImplementation(
+      async (
+        _cmd: string,
+        args: string[],
+        options?: { onChunk?: (s: string, c: Buffer) => void },
+      ) => {
+        if (args[0] === "--version") {
+          return { stdout: "railway 4.10.0", stderr: "", exitCode: 0 };
+        }
+        options?.onChunk?.("stderr", Buffer.from("service not found\n"));
+        return { stdout: "", stderr: "service not found", exitCode: 1 };
+      },
+    );
 
     await expect(
       deployImageToRailway({
@@ -350,6 +389,6 @@ describe("deployImageToRailway", () => {
         service: "app",
         configDir,
       }),
-    ).rejects.toThrow("service not found");
+    ).rejects.toThrow(/service not found/);
   });
 });

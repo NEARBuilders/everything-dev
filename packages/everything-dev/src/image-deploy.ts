@@ -269,21 +269,39 @@ export async function deployImageToRailway(input: {
   writeFileSync(dockerfilePath, `FROM ${input.image}@${input.digest}\n`);
 
   console.log(`  Deploying to Railway service ${colors.cyan(input.service)} (pull-only)...`);
+  try {
+    const version = await run("railway", ["--version"], { cwd: input.configDir, capture: true });
+    if (version?.stdout.trim()) {
+      console.log(`  ${colors.dim(`railway ${version.stdout.trim()}`)}`);
+    }
+  } catch {
+    console.log(colors.dim("  railway --version failed (CLI missing?) — attempting deploy anyway"));
+  }
+
+  // Stream the CLI's output live — a silent exit (empty stdout+stderr, seen
+  // on the 2026-10-13 deploy) must still be diagnosable from the workflow log.
+  const collected = { stdout: "", stderr: "" };
   const result = await run("railway", ["up", "--service", input.service, "--ci"], {
     cwd: input.configDir,
     capture: true,
     env: { RAILWAY_DOCKERFILE_PATH: ".bos/deploy/Dockerfile" },
+    onChunk: (stream, chunk) => {
+      collected[stream] += chunk.toString("utf-8");
+      for (const line of chunk.toString("utf-8").split("\n")) {
+        if (line.trim()) console.log(`  ${colors.dim(line.trim())}`);
+      }
+    },
   });
-  if (result?.stdout) {
-    for (const line of result.stdout.split("\n")) {
-      if (line.trim()) console.log(`  ${colors.dim(line.trim())}`);
-    }
-  }
   if (!result || result.exitCode !== 0) {
+    const exitCode = result?.exitCode ?? "unknown";
+    const tail = (stream: string, text: string) =>
+      text.trim()
+        ? `\nrailway ${stream} (tail):\n${text.trim().split("\n").slice(-20).join("\n")}`
+        : "";
     throw new Error(
-      result?.stderr.trim()
-        ? `railway up failed: ${result.stderr.trim().split("\n").slice(-3).join(" ")}`
-        : `railway up failed with exit code ${result?.exitCode ?? "unknown"}`,
+      `railway up failed with exit code ${exitCode}` +
+        tail("stdout", collected.stdout) +
+        tail("stderr", collected.stderr),
     );
   }
   console.log(colors.green(`  ${icons.ok} Railway deploy complete`));
