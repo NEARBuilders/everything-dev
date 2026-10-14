@@ -16,6 +16,7 @@ import { createNearHandlers } from "../src/handlers/near";
 import { createOnboardingHandlers } from "../src/handlers/onboarding";
 import { createOrganizationRequestHandlers } from "../src/handlers/organization-requests";
 import { createOrganizationHandlers } from "../src/handlers/organizations";
+import { createPasskeyHandlers } from "../src/handlers/passkeys";
 import { createSessionHandlers } from "../src/handlers/session";
 import { createTeamHandlers } from "../src/handlers/teams";
 import { type AuthHandlerContext, createRequireAuth } from "../src/middleware";
@@ -34,6 +35,7 @@ import { buildMembersService, MembersService } from "../src/services/members";
 import { buildNearService, NearService } from "../src/services/near";
 import { buildOnboardingService, OnboardingService } from "../src/services/onboarding";
 import { buildOrganizationsService, OrganizationsService } from "../src/services/organizations";
+import { buildPasskeysService, PasskeysService } from "../src/services/passkeys";
 import { buildPermissionsService, PermissionsService } from "../src/services/permissions";
 import { buildSessionService, SessionService } from "../src/services/session";
 import { buildTeamsService, TeamsService } from "../src/services/teams";
@@ -312,6 +314,7 @@ export function createTestHandlers(services: PluginServices) {
       buildPermissionsService({ auth: services.auth, db: services.db }),
     ),
     Context.add(NearService, buildNearService({ auth: services.auth })),
+    Context.add(PasskeysService, buildPasskeysService({ auth: services.auth })),
     Context.add(
       SessionService,
       buildSessionService({
@@ -351,6 +354,7 @@ export function createTestHandlers(services: PluginServices) {
   return {
     session: wrap(createSessionHandlers(builder)),
     organizations: wrap(createOrganizationHandlers(builder, requireAuth)),
+    passkeys: wrap(createPasskeyHandlers(builder, requireAuth)),
     organizationRequests: wrap(createOrganizationRequestHandlers(builder, requireAuth)),
     members: wrap(createMemberHandlers(builder, requireAuth)),
     invitations: wrap(createInvitationHandlers(builder, requireAuth)),

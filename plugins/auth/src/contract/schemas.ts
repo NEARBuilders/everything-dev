@@ -197,6 +197,20 @@ export const teamMemberSchema = z.object({
   createdAt: z.date(),
 });
 
+export const passkeySchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  publicKey: z.string(),
+  userId: z.string(),
+  credentialID: z.string(),
+  counter: z.number(),
+  deviceType: z.string(),
+  backedUp: z.boolean(),
+  transports: z.string().nullable(),
+  createdAt: z.date(),
+  aaguid: z.string().nullable(),
+});
+
 export const onboardingCodeSummarySchema = z.object({
   id: z.string(),
   eventId: z.string().nullable(),

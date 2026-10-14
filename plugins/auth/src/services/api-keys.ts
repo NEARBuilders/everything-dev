@@ -20,6 +20,7 @@ export class ApiKeysService extends Context.Service<
       headers: Headers,
       input:
         | {
+            configId?: string;
             organizationId?: string;
             limit?: number;
             offset?: number;
@@ -75,6 +76,7 @@ export const buildApiKeysService = ({ auth }: { auth: Auth }) =>
     listApiKeys: (headers, input) =>
       attemptAuth(() => {
         const queryParams = [
+          "configId",
           "organizationId",
           "limit",
           "offset",

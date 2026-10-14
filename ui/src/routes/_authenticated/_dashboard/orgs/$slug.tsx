@@ -40,10 +40,8 @@ import { useOrganizationSettings } from "./-organization-settings";
 import { useOrganizationTeams } from "./-organization-teams";
 import { TeamsTab } from "./-teams-tab";
 
-type AuthClientType = import("@/app").AuthClient;
 type ApiClientType = import("@/app").ApiClient;
-type MembersResponse = Awaited<ReturnType<AuthClientType["organization"]["listMembers"]>>;
-type MemberItem = NonNullable<MembersResponse["data"]>["members"][number];
+type MemberItem = Awaited<ReturnType<ApiClientType["auth"]["listMembers"]>>["members"][number];
 type InvitationItem = Awaited<ReturnType<ApiClientType["auth"]["listInvitations"]>>[number];
 
 const ORGANIZATION_TABS = ["members", "teams", "invitations", "apikeys"] as const;
@@ -102,11 +100,8 @@ function OrganizationDetail() {
     useQuery({
       queryKey: orgMembersQueryKey(orgId),
       queryFn: async (): Promise<MemberItem[]> => {
-        const { data, error } = await auth.organization.listMembers({
-          query: { organizationId: orgId },
-        });
-        if (error) throw new Error(error.message);
-        return (data?.members ?? []) as MemberItem[];
+        const { members } = await apiClient.auth.listMembers({ organizationId: orgId });
+        return members;
       },
       enabled: !!orgId && org?.status === "active",
     }).data ?? [];
@@ -122,11 +117,7 @@ function OrganizationDetail() {
     useQuery({
       queryKey: orgApiKeysQueryKey(orgId),
       queryFn: async (): Promise<OrganizationApiKey[]> => {
-        const { data, error } = await auth.apiKey.list({
-          query: { configId: "org-keys", organizationId: orgId },
-        });
-        if (error) throw new Error(error.message);
-        return (data?.apiKeys ?? []) as OrganizationApiKey[];
+        return apiClient.auth.listApiKeys({ organizationId: orgId, configId: "org-keys" });
       },
       enabled: !!orgId && org?.status === "active",
     }).data ?? [];
