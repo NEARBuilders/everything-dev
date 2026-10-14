@@ -9,6 +9,7 @@ import { normalizeAuthConfig } from "./config";
 import { authSecretsSchema, authVariablesSchema } from "./config-schemas";
 import { contract } from "./contract";
 import { DatabaseLive, DatabaseTag } from "./db/layer";
+import { ApiKeysServiceLive } from "./services/api-keys";
 import { createApiKeyHandlers } from "./handlers/api-keys";
 import { createInvitationHandlers } from "./handlers/invitations";
 import { createMemberHandlers } from "./handlers/members";
@@ -92,6 +93,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         ),
         NearServiceLive.pipe(Layer.provide(tagsLayer)),
         SessionServiceLive.pipe(Layer.provide(tagsLayer)),
+        ApiKeysServiceLive.pipe(Layer.provide(tagsLayer)),
         Layer.succeed(AuthServicesTag, {
           auth,
           db,

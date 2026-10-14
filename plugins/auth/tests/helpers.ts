@@ -27,6 +27,7 @@ import {
   OnboardingCodeCipherTag,
   type PluginServices,
 } from "../src/service-types";
+import { buildApiKeysService, ApiKeysService } from "../src/services/api-keys";
 import { buildInvitationsService, InvitationsService } from "../src/services/invitations";
 import { buildMembersService, MembersService } from "../src/services/members";
 import { buildNearService, NearService } from "../src/services/near";
@@ -235,6 +236,10 @@ export function createTestHandlers(services: PluginServices) {
       apiKeyHeaders: services.apiKeyHeaders,
     }),
     Context.add(DatabaseTag, services.db),
+    Context.add(
+      ApiKeysService,
+      buildApiKeysService({ auth: services.auth }),
+    ),
     Context.add(OnboardingCodeCipherTag, services.onboardingCodeCipher),
     Context.add(MembershipPolicyTag, services.membershipPolicy),
     Context.add(

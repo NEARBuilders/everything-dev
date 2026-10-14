@@ -11,6 +11,7 @@ import {
   type PluginServices,
 } from "./service-types";
 import type { OrganizationsService } from "./services/organizations";
+import { ApiKeysService } from "./services/api-keys";
 import { InvitationsService } from "./services/invitations";
 import { MembersService } from "./services/members";
 import { NearService } from "./services/near";
@@ -24,6 +25,7 @@ export type AuthSessionUser = PluginServices["auth"]["$Infer"]["Session"]["user"
 
 export type AuthEffectServices =
   | AuthApiTag
+  | ApiKeysService
   | DatabaseTag
   | OnboardingCodeCipherTag
   | MembershipPolicyTag
