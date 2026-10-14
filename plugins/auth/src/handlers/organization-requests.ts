@@ -5,6 +5,11 @@ import { Effect } from "effect";
 import { type AuthContextShape, createAuthMiddleware } from "everything-dev/api";
 import type { ContractType } from "../contract";
 import * as schema from "../db/schema";
+import type {
+  AuthHandlerAuthedContext,
+  AuthHandlerContext,
+  RequireAuthMiddleware,
+} from "../middleware";
 import { AuthServicesTag } from "../service-types";
 import { tryJsonParse } from "../utils";
 import { attemptDb } from "./attempts";
@@ -20,10 +25,10 @@ export type OrganizationRequestContext = AuthContextShape &
   WithEffectContext<AuthServicesTag> & { reqHeaders?: Record<string, string> };
 
 export function createOrganizationRequestHandlers(
-  builder: Implementer<ContractType, OrganizationRequestContext>,
-  requireAuth: ReturnType<typeof import("../middleware").createRequireAuth>,
+  builder: Implementer<ContractType, AuthHandlerContext>,
+  requireAuth: RequireAuthMiddleware,
 ) {
-  const { requireAdmin } = createAuthMiddleware<OrganizationRequestContext>(builder);
+  const { requireAdmin } = createAuthMiddleware<AuthHandlerAuthedContext>(builder);
   return {
     listOrganizationRequests: builder.listOrganizationRequests
       .use(requireAuth)

@@ -1,9 +1,12 @@
+import type { Implementer } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
+import type { ContractType } from "../contract";
 import type { Database } from "../db";
 import * as schema from "../db/schema";
-import { AuthServicesTag } from "../service-types";
+import type { AuthHandlerContext } from "../middleware";
+import { AuthServicesTag, type PluginServices } from "../service-types";
 import {
   createHeaders,
   getActiveOrganizationId,
@@ -26,7 +29,7 @@ async function listMemberTeams(db: Database, userId: string, organizationId: str
 }
 
 async function verifyApiKeyAcrossConfigs(
-  services: { auth: { api: { verifyApiKey: (args: any) => Promise<any> } } },
+  services: PluginServices,
   verifyHeaders: Headers,
   apiKeyValue: string,
 ) {
@@ -48,7 +51,7 @@ async function verifyApiKeyAcrossConfigs(
   return null;
 }
 
-export function createSessionHandlers(builder: any) {
+export function createSessionHandlers(builder: Implementer<ContractType, AuthHandlerContext>) {
   return {
     health: builder.health.effect(function* () {
       return yield* Effect.succeed({
@@ -57,7 +60,7 @@ export function createSessionHandlers(builder: any) {
       });
     }),
 
-    getSession: builder.getSession.effect(function* ({ context }: { context: any }) {
+    getSession: builder.getSession.effect(function* ({ context }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       const session = yield* attemptAuth(() => services.auth.api.getSession({ headers }));
@@ -88,7 +91,7 @@ export function createSessionHandlers(builder: any) {
       };
     }),
 
-    getContext: builder.getContext.effect(function* ({ context }: { context: any }) {
+    getContext: builder.getContext.effect(function* ({ context }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       const apiKeyHeaderNames = services.apiKeyHeaders;
@@ -261,7 +264,7 @@ export function createSessionHandlers(builder: any) {
           name: string;
           slug: string;
           logo: string | null | undefined;
-          status: string;
+          status: "active" | "pending" | "rejected";
           metadata?: Record<string, unknown>;
         } | null,
         member: null as { id: string; role: string } | null,
@@ -293,7 +296,7 @@ export function createSessionHandlers(builder: any) {
               name: org.name,
               slug: org.slug,
               logo: org.logo,
-              status: org.status,
+              status: "active" as const,
               metadata: tryJsonParse<Record<string, unknown>>(org.metadata),
             },
             member: null,
@@ -338,7 +341,7 @@ export function createSessionHandlers(builder: any) {
                 name: org.name,
                 slug: org.slug,
                 logo: org.logo,
-                status: org.status,
+                status: "active" as const,
                 metadata: tryJsonParse<Record<string, unknown>>(org.metadata),
               },
               member: {

@@ -50,7 +50,7 @@ describe("onboarding handlers", () => {
     });
     expect(listed).toHaveLength(1);
     expect(listed[0]!.id).toBe(result.id);
-    expect(listed[0]!.code).toBeUndefined();
+    expect(Object.hasOwn(listed[0]!, "code")).toBe(false);
   });
 
   it("feeds every code for the same event into one Event Team", async () => {

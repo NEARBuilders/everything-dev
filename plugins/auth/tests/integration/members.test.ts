@@ -64,8 +64,8 @@ describe("member handlers", () => {
         context: { reqHeaders: owner.reqHeaders },
       });
 
-      expect(result.members[0].user).not.toBeNull();
-      expect(result.members[0].user?.name).toBe("Owner User");
+      expect(result.members[0]!.user).not.toBeNull();
+      expect(result.members[0]!.user?.name).toBe("Owner User");
     });
   });
 
