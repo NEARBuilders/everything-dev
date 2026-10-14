@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createTestHandlers, createTestOrg, createTestServices, createTestUser } from "../helpers";
 
 let services: Awaited<ReturnType<typeof createTestServices>>;
@@ -87,6 +87,27 @@ describe("invitation handlers", () => {
       });
 
       expect(result).toBeNull();
+    });
+
+    it("propagates infrastructure failures instead of returning null", async () => {
+      const owner = await createTestUser(services.services);
+      const handlers = createTestHandlers(services.services);
+      const spy = vi
+        .spyOn(services.services.db.query.invitation, "findFirst")
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Database unavailable"), { statusCode: 500 }),
+        );
+
+      try {
+        await expect(
+          handlers.invitations.getInvitation({
+            input: { id: "nonexistent" },
+            context: { reqHeaders: owner.reqHeaders },
+          }),
+        ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

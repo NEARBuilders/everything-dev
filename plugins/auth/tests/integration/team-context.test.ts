@@ -145,7 +145,10 @@ describe("setActiveTeam", () => {
 
     await expect(
       handlers.teams.setActiveTeam({ input: { teamId: team.id }, context: {} }),
-    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    ).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+      data: { apiKeyProvided: false },
+    });
   });
 });
 

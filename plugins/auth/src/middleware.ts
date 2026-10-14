@@ -39,8 +39,13 @@ export function createRequireAuth(builder: any): RequireAuthMiddleware {
       }
 
       if (!user?.id) {
+        const services = Context.get(context["effect/context"], AuthServicesTag);
+        const apiKeyProvided = (services.apiKeyHeaders ?? []).some(
+          (headerName) => context.reqHeaders?.[headerName] !== undefined,
+        );
         throw new ORPCError("UNAUTHORIZED", {
           message: "Authentication required",
+          data: { apiKeyProvided },
         });
       }
 

@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as schema from "../../src/db/schema";
 import {
   addTestMember,
@@ -63,6 +63,27 @@ describe("organization handlers", () => {
       });
 
       expect(result).toBeNull();
+    });
+
+    it("propagates infrastructure failures instead of returning null", async () => {
+      const user = await createTestUser(services.services);
+      const handlers = createTestHandlers(services.services);
+      const spy = vi
+        .spyOn(services.services.auth.api, "getFullOrganization")
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Database unavailable"), { statusCode: 500 }),
+        );
+
+      try {
+        await expect(
+          handlers.organizations.getFullOrganization({
+            input: { organizationId: "nonexistent" },
+            context: { reqHeaders: user.reqHeaders },
+          }),
+        ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

@@ -1,26 +1,28 @@
 import "@orpc/openapi/extensions/route";
-import type { InferContractRouterInputs, InferContractRouterOutputs } from "@orpc/contract";
+import type {
+  InferContractRouterInputs,
+  InferContractRouterOutputs,
+  ORPCErrorConstructorMap,
+} from "@orpc/contract";
 import { oc } from "@orpc/contract";
+import {
+  BAD_REQUEST,
+  FORBIDDEN,
+  NOT_FOUND,
+  SERVICE_UNAVAILABLE,
+  UNAUTHORIZED,
+} from "every-plugin/errors";
 import { z } from "zod";
 
-const Errors = {
-  UNAUTHORIZED: {
-    status: 401,
-    message: "Authentication required",
-  },
-  FORBIDDEN: {
-    status: 403,
-    message: "Insufficient permissions",
-  },
-  NOT_FOUND: {
-    status: 404,
-    message: "Resource not found",
-  },
-  BAD_REQUEST: {
-    status: 400,
-    message: "Invalid request",
-  },
-};
+export const Errors = {
+  UNAUTHORIZED,
+  FORBIDDEN,
+  NOT_FOUND,
+  BAD_REQUEST,
+  SERVICE_UNAVAILABLE,
+} as const;
+
+export type AuthErrors = ORPCErrorConstructorMap<typeof Errors>;
 
 const nearIdentitySchema = z.object({
   accountId: z.string(),

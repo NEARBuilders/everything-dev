@@ -5,7 +5,13 @@ import type { ContractType, InferInput } from "../contract";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, AuthSessionUser, RequireAuthMiddleware } from "../middleware";
 import { AuthServicesTag, type PluginServices } from "../service-types";
-import { canReadMemberEmails, createHeaders, parseTeamAreas, tryJsonParse } from "../utils";
+import {
+  canReadMemberEmails,
+  createHeaders,
+  parseTeamAreas,
+  toORPCError,
+  tryJsonParse,
+} from "../utils";
 import { attemptAuth, attemptDb } from "./attempts";
 
 function toOrganizationInfo(organization: {
@@ -88,8 +94,10 @@ async function getFullOrganizationOrNull(
           }))
         : undefined,
     };
-  } catch {
-    return null;
+  } catch (error) {
+    const mapped = toORPCError(error);
+    if (mapped.code === "NOT_FOUND" || mapped.code === "BAD_REQUEST") return null;
+    throw mapped;
   }
 }
 
@@ -116,19 +124,18 @@ export function createOrganizationHandlers(
       context,
     }) {
       const services = yield* AuthServicesTag;
-      return yield* Effect.promise(() => getFullOrganizationOrNull(services, context, input));
+      return yield* attemptDb(() => getFullOrganizationOrNull(services, context, input));
     }),
 
     getOrganizationForAdmin: builder.getOrganizationForAdmin.use(requireAuth).effect(function* ({
       input,
       context,
+      errors,
     }) {
       const services = yield* AuthServicesTag;
       if (context.user.role !== "admin") {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
-            message: "Admin access required",
-          }),
+          errors.FORBIDDEN({ message: "Admin access required", data: { action: "admin-access" } }),
         );
       }
       const organization = yield* attemptDb(() =>
@@ -179,6 +186,7 @@ export function createOrganizationHandlers(
     updateOrganization: builder.updateOrganization.use(requireAuth).effect(function* ({
       input,
       context,
+      errors,
     }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
@@ -197,8 +205,9 @@ export function createOrganizationHandlers(
       );
       if (!result) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", {
+          errors.NOT_FOUND({
             message: "Organization not found",
+            data: { resource: "organization", resourceId: input.organizationId },
           }),
         );
       }
@@ -241,7 +250,10 @@ export function createOrganizationHandlers(
         }),
       ).pipe(
         Effect.map((result) => ({ status: result.status })),
-        Effect.orElseSucceed(() => ({ status: false })),
+        Effect.catchIf(
+          (error) => error instanceof ORPCError && error.code === "BAD_REQUEST",
+          () => Effect.succeed({ status: false } as const),
+        ),
       );
     }),
 
@@ -264,7 +276,7 @@ export function createOrganizationHandlers(
       return { success: result.success };
     }),
 
-    linkDao: builder.linkDao.use(requireAuth).effect(function* ({ input, context }) {
+    linkDao: builder.linkDao.use(requireAuth).effect(function* ({ input, context, errors }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       const org = yield* attemptDb(() =>
@@ -274,8 +286,9 @@ export function createOrganizationHandlers(
       );
       if (!org) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", {
+          errors.NOT_FOUND({
             message: "Organization not found",
+            data: { resource: "organization", resourceId: input.organizationId },
           }),
         );
       }
@@ -296,7 +309,7 @@ export function createOrganizationHandlers(
       return { success: true };
     }),
 
-    unlinkDao: builder.unlinkDao.use(requireAuth).effect(function* ({ input, context }) {
+    unlinkDao: builder.unlinkDao.use(requireAuth).effect(function* ({ input, context, errors }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       const org = yield* attemptDb(() =>
@@ -306,8 +319,9 @@ export function createOrganizationHandlers(
       );
       if (!org) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", {
+          errors.NOT_FOUND({
             message: "Organization not found",
+            data: { resource: "organization", resourceId: input.organizationId },
           }),
         );
       }
@@ -328,7 +342,7 @@ export function createOrganizationHandlers(
       return { success: true };
     }),
 
-    getDao: builder.getDao.use(requireAuth).effect(function* ({ input, context }) {
+    getDao: builder.getDao.use(requireAuth).effect(function* ({ input, context, errors }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.getFullOrganization({
@@ -338,8 +352,9 @@ export function createOrganizationHandlers(
       );
       if (!result) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", {
+          errors.NOT_FOUND({
             message: "Organization not found",
+            data: { resource: "organization", resourceId: input.organizationId },
           }),
         );
       }

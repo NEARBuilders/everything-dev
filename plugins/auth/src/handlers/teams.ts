@@ -149,6 +149,7 @@ export function createTeamHandlers(
     listTeamMembers: builder.listTeamMembers.use(requireAuth).effect(function* ({
       input,
       context,
+      errors,
     }) {
       const services = yield* AuthServicesTag;
       const team = yield* attemptDb(() =>
@@ -157,7 +158,12 @@ export function createTeamHandlers(
         }),
       );
       if (!team) {
-        return yield* Effect.fail(new ORPCError("NOT_FOUND", { message: "Team not found" }));
+        return yield* Effect.fail(
+          errors.NOT_FOUND({
+            message: "Team not found",
+            data: { resource: "team", resourceId: input.teamId },
+          }),
+        );
       }
       const membership = yield* attemptDb(() =>
         services.db.query.member.findFirst({
@@ -169,8 +175,9 @@ export function createTeamHandlers(
       );
       if (!membership) {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
+          errors.FORBIDDEN({
             message: "You are not a member of this team's organization",
+            data: {},
           }),
         );
       }

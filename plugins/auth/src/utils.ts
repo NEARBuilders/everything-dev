@@ -78,16 +78,33 @@ export function toORPCError(error: unknown) {
           ? apiError.status
           : undefined;
     if (status) {
-      const statusMap: Record<number, string> = {
-        400: "BAD_REQUEST",
-        401: "UNAUTHORIZED",
-        403: "FORBIDDEN",
-        404: "NOT_FOUND",
-        500: "INTERNAL_SERVER_ERROR",
-        503: "SERVICE_UNAVAILABLE",
+      const statusMap: Record<
+        number,
+        {
+          code:
+            | "BAD_REQUEST"
+            | "UNAUTHORIZED"
+            | "FORBIDDEN"
+            | "NOT_FOUND"
+            | "INTERNAL_SERVER_ERROR"
+            | "SERVICE_UNAVAILABLE";
+          data: Record<string, unknown>;
+        }
+      > = {
+        400: { code: "BAD_REQUEST", data: {} },
+        401: { code: "UNAUTHORIZED", data: { apiKeyProvided: false } },
+        403: { code: "FORBIDDEN", data: {} },
+        404: { code: "NOT_FOUND", data: {} },
+        500: { code: "INTERNAL_SERVER_ERROR", data: {} },
+        503: { code: "SERVICE_UNAVAILABLE", data: { maintenanceWindow: false } },
       };
-      return new ORPCError(statusMap[status] || "INTERNAL_SERVER_ERROR", {
+      const mapped = statusMap[status] ?? {
+        code: "INTERNAL_SERVER_ERROR" as const,
+        data: {},
+      };
+      return new ORPCError(mapped.code, {
         message: apiError.message || "Auth API error",
+        data: mapped.data,
       });
     }
   }
