@@ -10,7 +10,9 @@ type Auth = PluginServices["auth"];
 export class PasskeysService extends Context.Service<
   PasskeysService,
   {
-    listUserPasskeys: (headers: Headers) => Effect.Effect<InferOutput<"listUserPasskeys">, AuthFailure>;
+    listUserPasskeys: (
+      headers: Headers,
+    ) => Effect.Effect<InferOutput<"listUserPasskeys">, AuthFailure>;
   }
 >()("auth/PasskeysService") {}
 

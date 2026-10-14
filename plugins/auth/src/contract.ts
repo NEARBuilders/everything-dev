@@ -5,10 +5,10 @@ import { apiKeyRoutes } from "./contract/api-keys.contract";
 import { invitationRoutes } from "./contract/invitations.contract";
 import { memberRoutes } from "./contract/members.contract";
 import { nearRoutes } from "./contract/near.contract";
-import { passkeyRoutes } from "./contract/passkeys.contract";
 import { onboardingRoutes } from "./contract/onboarding.contract";
 import { organizationRequestRoutes } from "./contract/organization-requests.contract";
 import { organizationRoutes } from "./contract/organizations.contract";
+import { passkeyRoutes } from "./contract/passkeys.contract";
 import { sessionRoutes } from "./contract/session.contract";
 import { teamRoutes } from "./contract/teams.contract";
 
