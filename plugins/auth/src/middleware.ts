@@ -12,6 +12,7 @@ import {
 } from "./service-types";
 import type { OrganizationsService } from "./services/organizations";
 import { InvitationsService } from "./services/invitations";
+import { MembersService } from "./services/members";
 import { createHeaders } from "./utils";
 
 export type AuthSessionUser = PluginServices["auth"]["$Infer"]["Session"]["user"];
@@ -22,7 +23,8 @@ export type AuthEffectServices =
   | OnboardingCodeCipherTag
   | MembershipPolicyTag
   | OrganizationsService
-  | InvitationsService;
+  | InvitationsService
+  | MembersService;
 
 export type AuthHandlerContext = AuthContextShape &
   WithEffectContext<AuthEffectServices> & {

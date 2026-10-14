@@ -30,6 +30,7 @@ import {
   OnboardingCodeCipherTag,
 } from "./service-types";
 import { InvitationsServiceLive } from "./services/invitations";
+import { MembersServiceLive } from "./services/members";
 import { OrganizationsServiceLive } from "./services/organizations";
 import { toError } from "./utils";
 import { socialProviderWarnings } from "./warnings";
@@ -77,6 +78,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         tagsLayer,
         OrganizationsServiceLive.pipe(Layer.provide(tagsLayer)),
         InvitationsServiceLive.pipe(Layer.provide(tagsLayer)),
+        MembersServiceLive.pipe(Layer.provide(tagsLayer)),
         Layer.succeed(AuthServicesTag, {
           auth,
           db,
