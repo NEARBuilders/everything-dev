@@ -16,6 +16,7 @@ import { createNearHandlers } from "./handlers/near";
 import { createOnboardingHandlers } from "./handlers/onboarding";
 import { createOrganizationRequestHandlers } from "./handlers/organization-requests";
 import { createOrganizationHandlers } from "./handlers/organizations";
+import { createPasskeyHandlers } from "./handlers/passkeys";
 import { createSessionHandlers } from "./handlers/session";
 import { createTeamHandlers } from "./handlers/teams";
 import type { PluginsClient } from "./lib/plugins-client.gen";
@@ -37,6 +38,7 @@ import { NearServiceLive } from "./services/near";
 import { OnboardingServiceLive } from "./services/onboarding";
 import { OrganizationsServiceLive } from "./services/organizations";
 import { PermissionsServiceLive } from "./services/permissions";
+import { PasskeysServiceLive } from "./services/passkeys";
 import { SessionServiceLive } from "./services/session";
 import { TeamsServiceLive } from "./services/teams";
 import { toError } from "./utils";
@@ -96,6 +98,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         OnboardingServiceLive.pipe(Layer.provide(PermissionsServiceLive), Layer.provide(tagsLayer)),
         NearServiceLive.pipe(Layer.provide(tagsLayer)),
         SessionServiceLive.pipe(Layer.provide(tagsLayer)),
+        PasskeysServiceLive.pipe(Layer.provide(tagsLayer)),
         ApiKeysServiceLive.pipe(Layer.provide(tagsLayer)),
         Layer.succeed(AuthServicesTag, {
           auth,
@@ -115,6 +118,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
     return {
       ...createSessionHandlers(builder),
+      ...createPasskeyHandlers(builder, requireAuth),
       ...createOrganizationHandlers(builder, requireAuth),
       ...createOrganizationRequestHandlers(builder, requireAuth),
       ...createMemberHandlers(builder, requireAuth),

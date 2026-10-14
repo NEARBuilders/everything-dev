@@ -101,6 +101,36 @@ export function toTeam(team: TeamRow) {
   };
 }
 
+export interface PasskeyRow {
+  id: string;
+  name?: string | null;
+  publicKey: string;
+  userId: string;
+  credentialID: string;
+  counter: number;
+  deviceType: string;
+  backedUp: boolean;
+  transports?: string | null;
+  createdAt: Date | string;
+  aaguid?: string | null;
+}
+
+export function toPasskey(passkey: PasskeyRow) {
+  return {
+    id: passkey.id,
+    name: passkey.name ?? null,
+    publicKey: passkey.publicKey,
+    userId: passkey.userId,
+    credentialID: passkey.credentialID,
+    counter: passkey.counter,
+    deviceType: passkey.deviceType,
+    backedUp: passkey.backedUp,
+    transports: passkey.transports ?? null,
+    createdAt: toDate(passkey.createdAt),
+    aaguid: passkey.aaguid ?? null,
+  };
+}
+
 export function toOnboardingSummary(row: {
   id: string;
   eventId: string | null;

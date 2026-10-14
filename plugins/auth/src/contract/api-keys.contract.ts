@@ -9,6 +9,7 @@ export const apiKeyRoutes = {
     .route({ method: "GET", path: "/v1/auth/api-keys" })
     .input(
       z.object({
+        configId: z.string().optional(),
         organizationId: z.string().optional(),
         limit: z.number().int().positive().optional(),
         offset: z.number().int().nonnegative().optional(),

@@ -31,7 +31,7 @@ export type OrganizationApiKey = {
   start: string | null;
   createdAt: string | Date;
   expiresAt?: string | Date | null;
-  metadata?: Record<string, unknown> | null;
+  metadata?: unknown;
 };
 
 export type CreatedOrganizationApiKey = ApiKeyRevealProps["apiKey"];
