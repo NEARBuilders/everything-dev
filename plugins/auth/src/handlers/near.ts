@@ -1,9 +1,7 @@
 import type { Implementer } from "@orpc/server";
-import { Effect } from "effect";
-import { attemptAuth } from "../attempts";
 import type { ContractType } from "../contract";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
-import { AuthApiTag } from "../service-types";
+import { NearService } from "../services/near";
 import { createHeaders } from "../utils";
 
 export function createNearHandlers(
@@ -12,196 +10,85 @@ export function createNearHandlers(
 ) {
   return {
     nearNonce: builder.nearNonce.effect(function* ({ input }) {
-      const { auth } = yield* AuthApiTag;
-      return yield* attemptAuth(() =>
-        auth.api.getSiwnNonce({
-          body: { accountId: input.accountId, networkId: input.networkId },
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearNonce(input);
     }),
 
     nearVerify: builder.nearVerify.effect(function* ({ input, context }) {
-      const { auth } = yield* AuthApiTag;
-      const req = new Request("http://localhost:3000/api/auth/near/verify", {
-        method: "POST",
-        headers: createHeaders(context.reqHeaders),
-        body: JSON.stringify(input),
-      });
-      return yield* attemptAuth(() =>
-        auth.api.verifySiwnMessage({
-          request: req,
-          body: {
-            signedMessage: input.signedMessage,
-            message: input.message,
-            recipient: input.recipient,
-            nonce: input.nonce,
-            accountId: input.accountId,
-          },
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearVerify(createHeaders(context.reqHeaders), input);
     }),
 
     nearProfile: builder.nearProfile.use(requireAuth).effect(function* ({ input, context }) {
-      const { auth } = yield* AuthApiTag;
-      return yield* attemptAuth(() =>
-        auth.api.getSiwnProfile({
-          headers: createHeaders(context.reqHeaders),
-          body: { accountId: input.accountId },
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearProfile(createHeaders(context.reqHeaders), input.accountId);
     }),
 
     nearLinkAccount: builder.nearLinkAccount.use(requireAuth).effect(function* ({
       input,
       context,
     }) {
-      const { auth } = yield* AuthApiTag;
-      const reqHeaders = createHeaders(context.reqHeaders);
-      const req = new Request("http://localhost:3000/api/auth/near/link", {
-        method: "POST",
-        headers: reqHeaders,
-        body: JSON.stringify(input),
-      });
-      return yield* attemptAuth(() =>
-        auth.api.linkNearAccount({
-          request: req,
-          headers: reqHeaders,
-          body: {
-            signedMessage: input.signedMessage,
-            message: input.message,
-            recipient: input.recipient,
-            nonce: input.nonce,
-            accountId: input.accountId,
-          },
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearLinkAccount(createHeaders(context.reqHeaders), input);
     }),
 
     nearUnlinkAccount: builder.nearUnlinkAccount.use(requireAuth).effect(function* ({
       input,
       context,
     }) {
-      const { auth } = yield* AuthApiTag;
-      return yield* attemptAuth(() =>
-        auth.api.unlinkNearAccount({
-          headers: createHeaders(context.reqHeaders),
-          body: { accountId: input.accountId, network: input.network },
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearUnlinkAccount(createHeaders(context.reqHeaders), input);
     }),
 
     nearListAccounts: builder.nearListAccounts.use(requireAuth).effect(function* ({ context }) {
-      const { auth } = yield* AuthApiTag;
-      return yield* attemptAuth(() =>
-        auth.api.listNearAccounts({
-          headers: createHeaders(context.reqHeaders),
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearListAccounts(createHeaders(context.reqHeaders));
     }),
 
     nearRelay: builder.nearRelay.use(requireAuth).effect(function* ({ input, context }) {
-      const { auth } = yield* AuthApiTag;
-      return yield* attemptAuth(() =>
-        auth.api.relayNearTransaction({
-          headers: createHeaders(context.reqHeaders),
-          body: { payload: input.payload },
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearRelay(createHeaders(context.reqHeaders), input.payload);
     }),
 
     nearRelayStatus: builder.nearRelayStatus.use(requireAuth).effect(function* ({
       input,
       context,
     }) {
-      const { auth } = yield* AuthApiTag;
-      return yield* attemptAuth(() =>
-        auth.api.getRelayStatus({
-          headers: createHeaders(context.reqHeaders),
-          params: { txHash: input.txHash },
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearRelayStatus(createHeaders(context.reqHeaders), input.txHash);
     }),
 
     nearRelayerInfo: builder.nearRelayerInfo.use(requireAuth).effect(function* ({
       input,
       context,
-      errors,
     }) {
-      const { auth } = yield* AuthApiTag;
-      if (context.user?.role !== "admin") {
-        return yield* Effect.fail(
-          errors.FORBIDDEN({ message: "Admin access required", data: { action: "admin-access" } }),
-        );
-      }
-      const info = yield* attemptAuth(() =>
-        auth.api.getRelayerInfo({
-          headers: createHeaders(context.reqHeaders),
-          body: input ?? {},
-        }),
-      );
-      const serializeTimestamp = (value: unknown) =>
-        value instanceof Date ? value.toISOString() : (value as string | undefined);
-      const timestamps = info as { createdAt?: unknown; lastUsedAt?: unknown };
-      return {
-        ...info,
-        createdAt: serializeTimestamp(timestamps.createdAt),
-        lastUsedAt: serializeTimestamp(timestamps.lastUsedAt),
-      };
+      const near = yield* NearService;
+      return yield* near.nearRelayerInfo(createHeaders(context.reqHeaders), context, input?.network);
     }),
 
     nearRelayHistory: builder.nearRelayHistory.use(requireAuth).effect(function* ({ context }) {
-      const { auth } = yield* AuthApiTag;
-      return yield* attemptAuth(() =>
-        auth.api.getRelayHistory({
-          headers: createHeaders(context.reqHeaders),
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearRelayHistory(createHeaders(context.reqHeaders));
     }),
 
     nearView: builder.nearView.use(requireAuth).effect(function* ({ input, context }) {
-      const { auth } = yield* AuthApiTag;
-      return yield* attemptAuth(() =>
-        auth.api.viewContract({
-          headers: createHeaders(context.reqHeaders),
-          body: {
-            contractId: input.contractId,
-            methodName: input.methodName,
-            args: input.args,
-          },
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearView(createHeaders(context.reqHeaders), input);
     }),
 
     nearCheckSubAccountAvailability: builder.nearCheckSubAccountAvailability
       .use(requireAuth)
       .effect(function* ({ input, context }) {
-        const { auth } = yield* AuthApiTag;
-        return yield* attemptAuth(() =>
-          auth.api.checkSubAccountAvailability({
-            headers: createHeaders(context.reqHeaders),
-            body: {
-              subAccountName: input.subAccountName,
-              network: input.network,
-            },
-          }),
-        );
+        const near = yield* NearService;
+        return yield* near.nearCheckSubAccountAvailability(createHeaders(context.reqHeaders), input);
       }),
 
     nearCreateSubAccount: builder.nearCreateSubAccount.use(requireAuth).effect(function* ({
       input,
       context,
     }) {
-      const { auth } = yield* AuthApiTag;
-      return yield* attemptAuth(() =>
-        auth.api.createSubAccount({
-          headers: createHeaders(context.reqHeaders),
-          body: {
-            subAccountName: input.subAccountName,
-            publicKey: input.publicKey,
-            network: input.network,
-          },
-        }),
-      );
+      const near = yield* NearService;
+      return yield* near.nearCreateSubAccount(createHeaders(context.reqHeaders), input);
     }),
   };
 }
