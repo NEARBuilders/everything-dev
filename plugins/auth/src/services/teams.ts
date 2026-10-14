@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
+import type { InferOutput } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toDate, toTeam } from "../serializers";
@@ -10,6 +11,7 @@ import {
   PermissionRegistryTag,
   type PluginServices,
 } from "../service-types";
+import { getActiveOrganizationId, serializeTeamAreas, withoutSessionDataCookie } from "../utils";
 import {
   type AuthFailure,
   NotOrgMember,
@@ -17,7 +19,6 @@ import {
   TeamUpdateFailed,
   UnknownTeamRole,
 } from "./domain-errors";
-import { getActiveOrganizationId, serializeTeamAreas, withoutSessionDataCookie } from "../utils";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -28,11 +29,11 @@ export class TeamsService extends Context.Service<
     setActiveTeam: (
       headers: Headers,
       teamId: string | null,
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"setActiveTeam">, AuthFailure>;
     listUserTeams: (
       headers: Headers,
       organizationId: string | undefined,
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"listUserTeams">, AuthFailure>;
     createTeam: (
       headers: Headers,
       input: {
@@ -40,7 +41,7 @@ export class TeamsService extends Context.Service<
         organizationId?: string;
         areas?: string[];
       },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"createTeam">, AuthFailure>;
     updateTeam: (
       headers: Headers,
       input: {
@@ -48,7 +49,7 @@ export class TeamsService extends Context.Service<
         organizationId?: string;
         data: { name?: string; areas?: string[] };
       },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"updateTeam">, AuthFailure>;
     deleteTeam: (
       headers: Headers,
       userId: string,
@@ -57,15 +58,15 @@ export class TeamsService extends Context.Service<
     listTeams: (
       headers: Headers,
       organizationId: string | undefined,
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"listTeams">, AuthFailure>;
     listTeamMembers: (
       userId: string,
       teamId: string,
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"listTeamMembers">, AuthFailure>;
     addTeamMember: (
       headers: Headers,
       input: { teamId: string; userId: string; organizationId?: string; role?: string },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"addTeamMember">, AuthFailure>;
     removeTeamMember: (
       headers: Headers,
       input: { teamId: string; userId: string; organizationId?: string },

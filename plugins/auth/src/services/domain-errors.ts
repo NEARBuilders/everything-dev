@@ -73,10 +73,9 @@ export class TeamNotFound extends Schema.TaggedError<TeamNotFound>()("TeamNotFou
   teamId: Schema.String,
 }) {}
 
-export class TeamUpdateFailed extends Schema.TaggedError<TeamUpdateFailed>()(
-  "TeamUpdateFailed",
-  { message: Schema.String },
-) {}
+export class TeamUpdateFailed extends Schema.TaggedError<TeamUpdateFailed>()("TeamUpdateFailed", {
+  message: Schema.String,
+}) {}
 
 export class NotOrgMember extends Schema.TaggedError<NotOrgMember>()("NotOrgMember", {
   message: Schema.String,
@@ -90,10 +89,9 @@ export class EventEnded extends Schema.TaggedError<EventEnded>()("EventEnded", {
   message: Schema.String,
 }) {}
 
-export class CodeCreateFailed extends Schema.TaggedError<CodeCreateFailed>()(
-  "CodeCreateFailed",
-  { message: Schema.String },
-) {}
+export class CodeCreateFailed extends Schema.TaggedError<CodeCreateFailed>()("CodeCreateFailed", {
+  message: Schema.String,
+}) {}
 
 export class CodeNotFound extends Schema.TaggedError<CodeNotFound>()("CodeNotFound", {
   message: Schema.String,
@@ -117,15 +115,13 @@ export class CodeExpired extends Schema.TaggedError<CodeExpired>()("CodeExpired"
   message: Schema.String,
 }) {}
 
-export class CodeLimitReached extends Schema.TaggedError<CodeLimitReached>()(
-  "CodeLimitReached",
-  { message: Schema.String },
-) {}
+export class CodeLimitReached extends Schema.TaggedError<CodeLimitReached>()("CodeLimitReached", {
+  message: Schema.String,
+}) {}
 
-export class RedeemOrgMissing extends Schema.TaggedError<RedeemOrgMissing>()(
-  "RedeemOrgMissing",
-  { message: Schema.String },
-) {}
+export class RedeemOrgMissing extends Schema.TaggedError<RedeemOrgMissing>()("RedeemOrgMissing", {
+  message: Schema.String,
+}) {}
 
 export class OrgFull extends Schema.TaggedError<OrgFull>()("OrgFull", {
   message: Schema.String,
@@ -136,10 +132,9 @@ export class EventTeamCreateFailed extends Schema.TaggedError<EventTeamCreateFai
   { message: Schema.String },
 ) {}
 
-export class InviteeAmbiguous extends Schema.TaggedError<InviteeAmbiguous>()(
-  "InviteeAmbiguous",
-  { message: Schema.String },
-) {}
+export class InviteeAmbiguous extends Schema.TaggedError<InviteeAmbiguous>()("InviteeAmbiguous", {
+  message: Schema.String,
+}) {}
 
 export class NearNetworkOnEmailInvite extends Schema.TaggedError<NearNetworkOnEmailInvite>()(
   "NearNetworkOnEmailInvite",
@@ -254,7 +249,10 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
     case "OrgNotFound":
       return new ORPCError("NOT_FOUND", {
         message: error.message,
-        data: { resource: "organization", ...(error.organizationId ? { resourceId: error.organizationId } : {}) },
+        data: {
+          resource: "organization",
+          ...(error.organizationId ? { resourceId: error.organizationId } : {}),
+        },
       });
     case "OrgApprovalRequired":
       return new ORPCError("FORBIDDEN", {

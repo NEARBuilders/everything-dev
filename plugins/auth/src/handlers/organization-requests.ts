@@ -1,4 +1,3 @@
-import { mapDomainError } from "../services/domain-errors";
 import type { WithEffectContext } from "@orpc/experimental-effect";
 import type { Implementer } from "@orpc/server";
 import { type AuthContextShape, createAuthMiddleware } from "everything-dev/api";
@@ -9,6 +8,7 @@ import type {
   AuthHandlerContext,
   RequireAuthMiddleware,
 } from "../middleware";
+import { mapDomainError } from "../services/domain-errors";
 import { MembersService } from "../services/members";
 
 export type OrganizationRequestContext = AuthContextShape &

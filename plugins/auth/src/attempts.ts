@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { AuthApiError, DbError, isAuthFailure } from "./services/domain-errors";
+import { DbError, isAuthFailure } from "./services/domain-errors";
 import { toAuthApiError } from "./utils";
 
 export const attemptAuth = <A>(run: () => Promise<A>) =>

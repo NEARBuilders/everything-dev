@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth } from "../attempts";
+import type { InferOutput } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import {
@@ -9,17 +10,17 @@ import {
   nearInvitationEmail,
   normalizeNearAccountId,
 } from "../near-invitations";
-import {
-  AuthApiError,
-  InviteeAmbiguous,
-  InvalidNearAccountId,
-  NearNetworkOnEmailInvite,
-  NearNetworkRequired,
-  type AuthFailure,
-} from "./domain-errors";
 import { toInvitation } from "../serializers";
 import { AuthApiTag, type PluginServices } from "../service-types";
 import { canReadMemberEmails, type EmailVisibilityContext } from "../utils";
+import {
+  AuthApiError,
+  type AuthFailure,
+  InvalidNearAccountId,
+  InviteeAmbiguous,
+  NearNetworkOnEmailInvite,
+  NearNetworkRequired,
+} from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -38,17 +39,20 @@ export class InvitationsService extends Context.Service<
         resend?: boolean;
         teamId?: string;
       },
-    ) => Effect.Effect<any, AuthFailure>;
-    getInvitation: (headers: Headers, id: string) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"inviteMember">, AuthFailure>;
+    getInvitation: (
+      headers: Headers,
+      id: string,
+    ) => Effect.Effect<InferOutput<"getInvitation">, AuthFailure>;
     listInvitations: (
       headers: Headers,
       emailContext: EmailVisibilityContext,
       organizationId: string | undefined,
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"listInvitations">, AuthFailure>;
     listUserInvitations: (
       headers: Headers,
       input: { userId: string; emailUnverified: boolean },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"listUserInvitations">, AuthFailure>;
     cancelInvitation: (
       headers: Headers,
       invitationId: string,

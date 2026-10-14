@@ -1,25 +1,13 @@
 import { eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
+import type { InferOutput } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toOrganizationInfo } from "../serializers";
 import { AuthApiTag, type PluginServices } from "../service-types";
-import {
-  type AuthFailure,
-  AuthApiError,
-  mapDomainError,
-  OrgApprovalRequired,
-  OrgNotFound,
-  OrgRequiresApproval,
-} from "./domain-errors";
-import {
-  canReadMemberEmails,
-  parseTeamAreas,
-  toAuthApiError,
-  tryJsonParse,
-} from "../utils";
-import { isAuthFailure } from "./domain-errors";
+import { canReadMemberEmails, parseTeamAreas, toAuthApiError, tryJsonParse } from "../utils";
+import { AuthApiError, type AuthFailure, isAuthFailure, OrgNotFound } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -33,7 +21,9 @@ export interface OrganizationCaller {
 export class OrganizationsService extends Context.Service<
   OrganizationsService,
   {
-    listOrganizations: (headers: Headers) => Effect.Effect<any, AuthFailure>;
+    listOrganizations: (
+      headers: Headers,
+    ) => Effect.Effect<InferOutput<"listOrganizations">, AuthFailure>;
     getFullOrganization: (
       caller: OrganizationCaller,
       input: {
@@ -41,8 +31,10 @@ export class OrganizationsService extends Context.Service<
         organizationSlug?: string;
         membersLimit?: number;
       },
-    ) => Effect.Effect<any, AuthFailure>;
-    getOrganizationById: (organizationId: string) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"getFullOrganization">, AuthFailure>;
+    getOrganizationById: (
+      organizationId: string,
+    ) => Effect.Effect<InferOutput<"getOrganizationForAdmin">, AuthFailure>;
     createOrganization: (
       headers: Headers,
       input: {
@@ -51,7 +43,7 @@ export class OrganizationsService extends Context.Service<
         logo?: string | null;
         metadata?: Record<string, unknown>;
       },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"createOrganization">, AuthFailure>;
     setActiveOrganization: (
       headers: Headers,
       organizationId: string | null,
@@ -67,7 +59,7 @@ export class OrganizationsService extends Context.Service<
         };
         organizationId?: string;
       },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"updateOrganization">, AuthFailure>;
     leaveOrganization: (
       headers: Headers,
       organizationId: string,

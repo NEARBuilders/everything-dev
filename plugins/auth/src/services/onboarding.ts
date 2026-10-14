@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
+import type { InferOutput } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toDate, toOnboardingSummary } from "../serializers";
@@ -13,8 +14,8 @@ import {
 } from "../service-types";
 import { createHeaders } from "../utils";
 import {
-  type AuthFailure,
   AuthenticationRequired,
+  type AuthFailure,
   CodeCreateFailed,
   CodeExpired,
   CodeInactive,
@@ -28,7 +29,6 @@ import {
   RedeemOrgMissing,
 } from "./domain-errors";
 import { type OrganizerCaller, PermissionsService } from "./permissions";
-
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -65,11 +65,11 @@ export class OnboardingService extends Context.Service<
         maxUses?: number;
         expiresAt?: Date;
       },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"createOnboardingCode">, AuthFailure>;
     listOnboardingCodes: (
       context: OrganizerCaller,
       organizationId: string | undefined,
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"listOnboardingCodes">, AuthFailure>;
     revokeOnboardingCode: (
       context: OrganizerCaller,
       input: { organizationId?: string; codeId: string },
@@ -77,16 +77,18 @@ export class OnboardingService extends Context.Service<
     getOnboardingStation: (
       context: OrganizerCaller,
       input: { organizationId?: string; codeId: string },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"getOnboardingStation">, AuthFailure>;
     getOnboardingStatus: (
       context: OrganizerCaller,
       input: { organizationId?: string; codeId: string },
-    ) => Effect.Effect<any, AuthFailure>;
-    getOnboardingCodeInfo: (code: string) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"getOnboardingStatus">, AuthFailure>;
+    getOnboardingCodeInfo: (
+      code: string,
+    ) => Effect.Effect<InferOutput<"getOnboardingCodeInfo">, AuthFailure>;
     redeemOnboardingCode: (
       context: OrganizerCaller,
       code: string,
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"redeemOnboardingCode">, AuthFailure>;
   }
 >()("auth/OnboardingService") {}
 
@@ -335,7 +337,9 @@ export const buildOnboardingService = ({
       const sessionData = session as { user?: { id?: string }; session?: { id?: string } } | null;
       const userId = context.userId ?? sessionData?.user?.id ?? null;
       if (!userId || !sessionData?.session?.id) {
-        return yield* Effect.fail(new AuthenticationRequired({ message: "Authentication required" }));
+        return yield* Effect.fail(
+          new AuthenticationRequired({ message: "Authentication required" }),
+        );
       }
       const sessionId = sessionData.session.id;
 
@@ -361,14 +365,10 @@ export const buildOnboardingService = ({
       }
 
       if (codeRow.revokedAt) {
-        return yield* Effect.fail(
-          new CodeRevoked({ message: "This onboarding code was revoked" }),
-        );
+        return yield* Effect.fail(new CodeRevoked({ message: "This onboarding code was revoked" }));
       }
       if (toDate(codeRow.expiresAt) < new Date()) {
-        return yield* Effect.fail(
-          new CodeExpired({ message: "This onboarding code has expired" }),
-        );
+        return yield* Effect.fail(new CodeExpired({ message: "This onboarding code has expired" }));
       }
       if (codeRow.usedCount >= codeRow.maxUses) {
         return yield* Effect.fail(

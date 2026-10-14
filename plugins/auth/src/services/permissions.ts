@@ -3,19 +3,14 @@ import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
-import {
-  AuthApiTag,
-  type PermissionRegistry,
-  PermissionRegistryTag,
-  type PluginServices,
-} from "../service-types";
+import { AuthApiTag, type PluginServices } from "../service-types";
+import { createHeaders, getActiveOrganizationId, parseTeamAreas } from "../utils";
 import {
   type AuthFailure,
   NoOrganizationSelected,
   NotOrganizer,
   OrgRequiresApproval,
 } from "./domain-errors";
-import { createHeaders, getActiveOrganizationId, parseTeamAreas } from "../utils";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -33,10 +28,7 @@ export class PermissionsService extends Context.Service<
     requireOrganizer: (
       context: OrganizerCaller,
       inputOrganizationId: string | undefined,
-    ) => Effect.Effect<
-      { userId: string; organizationId: string; headers: Headers },
-      AuthFailure
-    >;
+    ) => Effect.Effect<{ userId: string; organizationId: string; headers: Headers }, AuthFailure>;
   }
 >()("auth/PermissionsService") {}
 

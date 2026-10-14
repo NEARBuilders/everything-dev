@@ -1,8 +1,8 @@
-import { mapDomainError } from "../services/domain-errors";
 import type { Implementer } from "@orpc/server";
 import { Effect } from "effect";
 import type { ContractType } from "../contract";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
+import { mapDomainError } from "../services/domain-errors";
 import { OrganizationsService } from "../services/organizations";
 import { createHeaders } from "../utils";
 
@@ -13,7 +13,9 @@ export function createOrganizationHandlers(
   return {
     listOrganizations: builder.listOrganizations.use(requireAuth).effect(function* ({ context }) {
       const organizations = yield* OrganizationsService;
-      return yield* mapDomainError(organizations.listOrganizations(createHeaders(context.reqHeaders)));
+      return yield* mapDomainError(
+        organizations.listOrganizations(createHeaders(context.reqHeaders)),
+      );
     }),
 
     getFullOrganization: builder.getFullOrganization.use(requireAuth).effect(function* ({
@@ -21,14 +23,16 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      return yield* mapDomainError(organizations.getFullOrganization(
-        {
-          headers: createHeaders(context.reqHeaders),
-          reqHeaders: context.reqHeaders,
-          user: context.user,
-        },
-        input,
-      ));
+      return yield* mapDomainError(
+        organizations.getFullOrganization(
+          {
+            headers: createHeaders(context.reqHeaders),
+            reqHeaders: context.reqHeaders,
+            user: context.user,
+          },
+          input,
+        ),
+      );
     }),
 
     getOrganizationForAdmin: builder.getOrganizationForAdmin.use(requireAuth).effect(function* ({
@@ -50,7 +54,9 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      return yield* mapDomainError(organizations.createOrganization(createHeaders(context.reqHeaders), input));
+      return yield* mapDomainError(
+        organizations.createOrganization(createHeaders(context.reqHeaders), input),
+      );
     }),
 
     setActiveOrganization: builder.setActiveOrganization.use(requireAuth).effect(function* ({
@@ -58,10 +64,12 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      yield* mapDomainError(organizations.setActiveOrganization(
-        createHeaders(context.reqHeaders),
-        input.organizationId,
-      ));
+      yield* mapDomainError(
+        organizations.setActiveOrganization(
+          createHeaders(context.reqHeaders),
+          input.organizationId,
+        ),
+      );
       return { success: true };
     }),
 
@@ -70,7 +78,9 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      return yield* mapDomainError(organizations.updateOrganization(createHeaders(context.reqHeaders), input));
+      return yield* mapDomainError(
+        organizations.updateOrganization(createHeaders(context.reqHeaders), input),
+      );
     }),
 
     leaveOrganization: builder.leaveOrganization.use(requireAuth).effect(function* ({
@@ -78,10 +88,9 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      yield* mapDomainError(organizations.leaveOrganization(
-        createHeaders(context.reqHeaders),
-        input.organizationId,
-      ));
+      yield* mapDomainError(
+        organizations.leaveOrganization(createHeaders(context.reqHeaders), input.organizationId),
+      );
       return { success: true };
     }),
 
@@ -90,10 +99,9 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      yield* mapDomainError(organizations.deleteOrganization(
-        createHeaders(context.reqHeaders),
-        input.organizationId,
-      ));
+      yield* mapDomainError(
+        organizations.deleteOrganization(createHeaders(context.reqHeaders), input.organizationId),
+      );
       return { success: true };
     }),
 
@@ -104,7 +112,9 @@ export function createOrganizationHandlers(
 
     hasPermission: builder.hasPermission.use(requireAuth).effect(function* ({ input, context }) {
       const organizations = yield* OrganizationsService;
-      return yield* mapDomainError(organizations.hasPermission(createHeaders(context.reqHeaders), input));
+      return yield* mapDomainError(
+        organizations.hasPermission(createHeaders(context.reqHeaders), input),
+      );
     }),
 
     linkDao: builder.linkDao.use(requireAuth).effect(function* ({ input, context }) {
@@ -121,7 +131,9 @@ export function createOrganizationHandlers(
 
     getDao: builder.getDao.use(requireAuth).effect(function* ({ input, context }) {
       const organizations = yield* OrganizationsService;
-      return yield* mapDomainError(organizations.getDao(createHeaders(context.reqHeaders), input.organizationId));
+      return yield* mapDomainError(
+        organizations.getDao(createHeaders(context.reqHeaders), input.organizationId),
+      );
     }),
   };
 }

@@ -1,7 +1,7 @@
-import { mapDomainError } from "../services/domain-errors";
 import type { Implementer } from "@orpc/server";
 import type { ContractType } from "../contract";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
+import { mapDomainError } from "../services/domain-errors";
 import { OnboardingService } from "../services/onboarding";
 
 export function createOnboardingHandlers(

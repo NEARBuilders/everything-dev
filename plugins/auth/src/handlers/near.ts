@@ -1,4 +1,3 @@
-import { mapDomainError } from "../services/domain-errors";
 import type { Implementer } from "@orpc/server";
 import { createAuthMiddleware } from "everything-dev/api";
 import type { ContractType } from "../contract";
@@ -7,6 +6,7 @@ import type {
   AuthHandlerContext,
   RequireAuthMiddleware,
 } from "../middleware";
+import { mapDomainError } from "../services/domain-errors";
 import { NearService } from "../services/near";
 import { createHeaders } from "../utils";
 
@@ -28,7 +28,9 @@ export function createNearHandlers(
 
     nearProfile: builder.nearProfile.use(requireAuth).effect(function* ({ input, context }) {
       const near = yield* NearService;
-      return yield* mapDomainError(near.nearProfile(createHeaders(context.reqHeaders), input.accountId));
+      return yield* mapDomainError(
+        near.nearProfile(createHeaders(context.reqHeaders), input.accountId),
+      );
     }),
 
     nearLinkAccount: builder.nearLinkAccount.use(requireAuth).effect(function* ({
@@ -44,7 +46,9 @@ export function createNearHandlers(
       context,
     }) {
       const near = yield* NearService;
-      return yield* mapDomainError(near.nearUnlinkAccount(createHeaders(context.reqHeaders), input));
+      return yield* mapDomainError(
+        near.nearUnlinkAccount(createHeaders(context.reqHeaders), input),
+      );
     }),
 
     nearListAccounts: builder.nearListAccounts.use(requireAuth).effect(function* ({ context }) {
@@ -54,7 +58,9 @@ export function createNearHandlers(
 
     nearRelay: builder.nearRelay.use(requireAuth).effect(function* ({ input, context }) {
       const near = yield* NearService;
-      return yield* mapDomainError(near.nearRelay(createHeaders(context.reqHeaders), input.payload));
+      return yield* mapDomainError(
+        near.nearRelay(createHeaders(context.reqHeaders), input.payload),
+      );
     }),
 
     nearRelayStatus: builder.nearRelayStatus.use(requireAuth).effect(function* ({
@@ -62,7 +68,9 @@ export function createNearHandlers(
       context,
     }) {
       const near = yield* NearService;
-      return yield* mapDomainError(near.nearRelayStatus(createHeaders(context.reqHeaders), input.txHash));
+      return yield* mapDomainError(
+        near.nearRelayStatus(createHeaders(context.reqHeaders), input.txHash),
+      );
     }),
 
     nearRelayerInfo: builder.nearRelayerInfo
@@ -70,7 +78,9 @@ export function createNearHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const near = yield* NearService;
-        return yield* mapDomainError(near.nearRelayerInfo(createHeaders(context.reqHeaders), input?.network));
+        return yield* mapDomainError(
+          near.nearRelayerInfo(createHeaders(context.reqHeaders), input?.network),
+        );
       }),
 
     nearRelayHistory: builder.nearRelayHistory.use(requireAuth).effect(function* ({ context }) {
@@ -87,10 +97,9 @@ export function createNearHandlers(
       .use(requireAuth)
       .effect(function* ({ input, context }) {
         const near = yield* NearService;
-        return yield* mapDomainError(near.nearCheckSubAccountAvailability(
-          createHeaders(context.reqHeaders),
-          input,
-        ));
+        return yield* mapDomainError(
+          near.nearCheckSubAccountAvailability(createHeaders(context.reqHeaders), input),
+        );
       }),
 
     nearCreateSubAccount: builder.nearCreateSubAccount.use(requireAuth).effect(function* ({
@@ -98,7 +107,9 @@ export function createNearHandlers(
       context,
     }) {
       const near = yield* NearService;
-      return yield* mapDomainError(near.nearCreateSubAccount(createHeaders(context.reqHeaders), input));
+      return yield* mapDomainError(
+        near.nearCreateSubAccount(createHeaders(context.reqHeaders), input),
+      );
     }),
   };
 }

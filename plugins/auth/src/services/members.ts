@@ -1,23 +1,11 @@
 import { and, asc, eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
+import type { InferOutput } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toOrganizationRecord } from "../serializers";
 import { AuthApiTag, type PluginServices } from "../service-types";
-import {
-  AuthApiError,
-  MemberCreateNotPermitted,
-  MemberEmailsExportForbidden,
-  NoActiveOrganization,
-  OrgApprovalRequired,
-  OrgNotFound,
-  OrganizationNotPending,
-  OrganizationRequesterMissing,
-  OwnerRoleRequired,
-  RejectionReasonRequired,
-  type AuthFailure,
-} from "./domain-errors";
 import {
   canReadMemberEmails,
   type EmailVisibilityContext,
@@ -25,6 +13,18 @@ import {
   parseMemberRoles,
   visibleEmail,
 } from "../utils";
+import {
+  type AuthFailure,
+  MemberCreateNotPermitted,
+  MemberEmailsExportForbidden,
+  NoActiveOrganization,
+  OrgApprovalRequired,
+  OrganizationNotPending,
+  OrganizationRequesterMissing,
+  OrgNotFound,
+  OwnerRoleRequired,
+  RejectionReasonRequired,
+} from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -40,7 +40,7 @@ export class MembersService extends Context.Service<
     getActiveMember: (
       headers: Headers,
       organizationId: string | undefined,
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"getActiveMember">, AuthFailure>;
     getActiveMemberRole: (
       headers: Headers,
       organizationId: string | undefined,
@@ -49,7 +49,7 @@ export class MembersService extends Context.Service<
       headers: Headers,
       context: EmailVisibilityContext,
       input: { organizationId?: string; limit?: number; offset?: number },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"listMembers">, AuthFailure>;
     addMember: (
       headers: Headers,
       context: EmailVisibilityContext & { userId: string },
@@ -58,7 +58,7 @@ export class MembersService extends Context.Service<
         role: "owner" | "admin" | "member";
         organizationId?: string;
       },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"addMember">, AuthFailure>;
     removeMember: (
       headers: Headers,
       input: { memberIdOrEmail: string; organizationId?: string },
@@ -71,13 +71,16 @@ export class MembersService extends Context.Service<
         memberId: string;
         organizationId?: string;
       },
-    ) => Effect.Effect<any, AuthFailure>;
-    listPendingOrganizations: () => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"updateMemberRole">, AuthFailure>;
+    listPendingOrganizations: () => Effect.Effect<
+      InferOutput<"listOrganizationRequests">,
+      AuthFailure
+    >;
     reviewOrganization: (
       input:
         | { organizationId: string; decision: "approve" }
         | { organizationId: string; decision: "reject"; reason: string },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"reviewOrganization">, AuthFailure>;
   }
 >()("auth/MembersService") {}
 
@@ -205,9 +208,7 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
         : null;
       const organizationId = input.organizationId ?? activeSession?.activeOrganizationId;
       if (!organizationId) {
-        return yield* Effect.fail(
-          new NoActiveOrganization({ message: "No active organization" }),
-        );
+        return yield* Effect.fail(new NoActiveOrganization({ message: "No active organization" }));
       }
       if (context.user?.role !== "admin") {
         const { permitted, failure } = yield* Effect.promise(() =>

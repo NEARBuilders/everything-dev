@@ -63,7 +63,11 @@ export function getActiveTeamId(session: unknown): string | null {
   return null;
 }
 
-function mapAuthError(error: unknown): { code: string; message: string; data: Record<string, unknown> } {
+function mapAuthError(error: unknown): {
+  code: string;
+  message: string;
+  data: Record<string, unknown>;
+} {
   if (error instanceof ORPCError) {
     return {
       code: error.code,

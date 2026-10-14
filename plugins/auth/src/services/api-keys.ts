@@ -1,12 +1,9 @@
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth } from "../attempts";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
+import type { InferOutput } from "../contract";
 import { AuthApiTag, type PluginServices } from "../service-types";
-import {
-  type AuthFailure,
-  ApiKeyNotFound,
-  isAuthFailure,
-} from "./domain-errors";
+import { ApiKeyNotFound, type AuthFailure, isAuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 
@@ -30,7 +27,7 @@ export class ApiKeysService extends Context.Service<
             sortDirection?: string;
           }
         | undefined,
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"listApiKeys">, AuthFailure>;
     createApiKey: (
       userId: string,
       input: {
@@ -43,7 +40,7 @@ export class ApiKeysService extends Context.Service<
         configId?: string;
         rateLimit?: ApiKeyRateLimitInput;
       },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"createApiKey">, AuthFailure>;
     updateApiKey: (
       userId: string,
       input: {
@@ -57,7 +54,7 @@ export class ApiKeysService extends Context.Service<
         configId?: string;
         rateLimit?: ApiKeyRateLimitInput;
       },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"updateApiKey">, AuthFailure>;
     deleteApiKey: (
       headers: Headers,
       input: { id: string; configId?: string; organizationId?: string },
@@ -69,7 +66,7 @@ export class ApiKeysService extends Context.Service<
         configId?: string;
         permissions?: Record<string, string[]>;
       },
-    ) => Effect.Effect<any, AuthFailure>;
+    ) => Effect.Effect<InferOutput<"verifyApiKey">, AuthFailure>;
   }
 >()("auth/ApiKeysService") {}
 
