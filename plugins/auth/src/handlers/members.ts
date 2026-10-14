@@ -1,6 +1,7 @@
 import type { Implementer } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
+import { attemptAuth, attemptDb } from "../attempts";
 import type { ContractType } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
@@ -13,7 +14,6 @@ import {
   parseMemberRoles,
   visibleEmail,
 } from "../utils";
-import { attemptAuth, attemptDb } from "./attempts";
 
 export function createMemberHandlers(
   builder: Implementer<ContractType, AuthHandlerContext>,

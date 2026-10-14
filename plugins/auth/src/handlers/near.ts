@@ -1,10 +1,10 @@
 import type { Implementer } from "@orpc/server";
 import { Effect } from "effect";
+import { attemptAuth } from "../attempts";
 import type { ContractType } from "../contract";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
 import { AuthApiTag } from "../service-types";
 import { createHeaders } from "../utils";
-import { attemptAuth } from "./attempts";
 
 export function createNearHandlers(
   builder: Implementer<ContractType, AuthHandlerContext>,

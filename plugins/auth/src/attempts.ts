@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { Effect } from "effect";
-import { toORPCError } from "../utils";
+import { toORPCError } from "./utils";
 
 export const attemptAuth = <A>(run: () => Promise<A>) =>
   Effect.tryPromise({

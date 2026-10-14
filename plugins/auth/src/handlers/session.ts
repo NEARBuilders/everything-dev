@@ -1,6 +1,7 @@
 import type { Implementer } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
+import { attemptAuth, attemptDb } from "../attempts";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
 import type { ContractType } from "../contract";
 import type { Database } from "../db";
@@ -15,7 +16,6 @@ import {
   parseTeamAreas,
   tryJsonParse,
 } from "../utils";
-import { attemptAuth, attemptDb } from "./attempts";
 
 async function listMemberTeams(db: Database, userId: string, organizationId: string) {
   const rows = await db

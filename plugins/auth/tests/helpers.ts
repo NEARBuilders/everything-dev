@@ -27,6 +27,7 @@ import {
   OnboardingCodeCipherTag,
   type PluginServices,
 } from "../src/service-types";
+import { buildOrganizationsService, OrganizationsService } from "../src/services/organizations";
 
 const TEST_DB_URL = "pglite::memory:";
 
@@ -228,9 +229,10 @@ export function createTestHandlers(services: PluginServices) {
     }),
     Context.add(DatabaseTag, services.db),
     Context.add(OnboardingCodeCipherTag, services.onboardingCodeCipher),
+    Context.add(MembershipPolicyTag, services.membershipPolicy),
     Context.add(
-      MembershipPolicyTag,
-      services.membershipPolicy ?? createOrganizationMembershipPolicy(),
+      OrganizationsService,
+      buildOrganizationsService({ auth: services.auth, db: services.db }),
     ),
   );
   const builder = implement(contract).$context<AuthHandlerContext>();

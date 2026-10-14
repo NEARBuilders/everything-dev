@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { type Implementer, ORPCError } from "@orpc/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
+import { attemptAuth, attemptDb } from "../attempts";
 import type { Auth as ConfiguredAuth } from "../auth-instance";
 import type { AuthErrors, ContractType } from "../contract";
 import { DatabaseTag } from "../db/layer";
@@ -15,7 +16,6 @@ import {
   type PluginServices,
 } from "../service-types";
 import { createHeaders, getActiveOrganizationId, parseTeamAreas } from "../utils";
-import { attemptAuth, attemptDb } from "./attempts";
 
 const DEFAULT_MAX_USES = 300;
 const DEFAULT_EXPIRES_IN_HOURS = 24;

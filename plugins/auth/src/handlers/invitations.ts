@@ -1,6 +1,7 @@
 import type { Implementer } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
+import { attemptAuth } from "../attempts";
 import type { AuthErrors, ContractType } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
@@ -14,7 +15,6 @@ import {
 import { toInvitation } from "../serializers";
 import { AuthApiTag, type PluginServices } from "../service-types";
 import { canReadMemberEmails, createHeaders, toORPCError } from "../utils";
-import { attemptAuth } from "./attempts";
 
 function resolveInvitee(
   input: { email?: string; nearAccountId?: string; nearNetwork?: string },

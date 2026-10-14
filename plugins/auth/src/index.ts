@@ -29,6 +29,7 @@ import {
   MembershipPolicyTag,
   OnboardingCodeCipherTag,
 } from "./service-types";
+import { OrganizationsServiceLive } from "./services/organizations";
 import { toError } from "./utils";
 import { socialProviderWarnings } from "./warnings";
 
@@ -64,11 +65,16 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
       yield* Effect.log("[Auth] Better Auth instance created");
 
-      return Layer.mergeAll(
+      const tagsLayer = Layer.mergeAll(
         Layer.succeed(AuthApiTag, { auth, handler, apiKeyHeaders }),
         Layer.succeed(DatabaseTag, db),
         Layer.succeed(OnboardingCodeCipherTag, onboardingCodeCipher),
         Layer.succeed(MembershipPolicyTag, membershipPolicy),
+      );
+
+      return Layer.mergeAll(
+        tagsLayer,
+        OrganizationsServiceLive.pipe(Layer.provide(tagsLayer)),
         Layer.succeed(AuthServicesTag, {
           auth,
           db,

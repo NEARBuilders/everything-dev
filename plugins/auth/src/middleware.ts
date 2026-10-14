@@ -10,6 +10,7 @@ import {
   type OnboardingCodeCipherTag,
   type PluginServices,
 } from "./service-types";
+import type { OrganizationsService } from "./services/organizations";
 import { createHeaders } from "./utils";
 
 export type AuthSessionUser = PluginServices["auth"]["$Infer"]["Session"]["user"];
@@ -18,7 +19,8 @@ export type AuthEffectServices =
   | AuthApiTag
   | DatabaseTag
   | OnboardingCodeCipherTag
-  | MembershipPolicyTag;
+  | MembershipPolicyTag
+  | OrganizationsService;
 
 export type AuthHandlerContext = AuthContextShape &
   WithEffectContext<AuthEffectServices> & {
