@@ -90,14 +90,14 @@
       "import": "./dist/version-manifest-resolve.mjs",
       "require": "./dist/version-manifest-resolve.cjs"
     },
-    "./bundle-fs-resolve": {
+    "./resolver": {
       "development": {
-        "types": "./src/bundle-fs-resolve.ts",
-        "import": "./src/bundle-fs-resolve.ts"
+        "types": "./src/resolver.ts",
+        "import": "./src/resolver.ts"
       },
-      "types": "./dist/bundle-fs-resolve.d.mts",
-      "import": "./dist/bundle-fs-resolve.mjs",
-      "require": "./dist/bundle-fs-resolve.cjs"
+      "types": "./dist/resolver.d.mts",
+      "import": "./dist/resolver.mjs",
+      "require": "./dist/resolver.cjs"
     },
     "./fastkv": {
       "development": {
@@ -117,14 +117,14 @@
       "import": "./dist/contract.meta.mjs",
       "require": "./dist/contract.meta.cjs"
     },
-    "./mf": {
+    "./federation": {
       "development": {
-        "types": "./src/mf.ts",
-        "import": "./src/mf.ts"
+        "types": "./src/federation.ts",
+        "import": "./src/federation.ts"
       },
-      "types": "./dist/mf.d.mts",
-      "import": "./dist/mf.mjs",
-      "require": "./dist/mf.cjs"
+      "types": "./dist/federation.d.mts",
+      "import": "./dist/federation.mjs",
+      "require": "./dist/federation.cjs"
     },
     "./integrity": {
       "development": {

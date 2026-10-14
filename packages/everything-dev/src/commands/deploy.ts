@@ -20,10 +20,90 @@ import {
 import { publishToFastKv } from "../publish";
 import { openResolution } from "../resolution/session";
 import { buildRollbackPayload, summarizeSlotPins, verifyRollbackSnapshot } from "../rollback";
+import { runSmoke } from "../smoke";
 import type { BosConfigInput } from "../types";
 import { BosConfigSchema } from "../types";
 import { colors, icons } from "../utils/theme";
 import { type BosBuilder, BosDepsTag } from "./shared";
+
+interface RollbackToPreviousInput {
+  account: string;
+  domain: string;
+  env: "production" | "staging";
+  runtimeConfig: Parameters<typeof publishToFastKv>[0]["runtimeConfig"];
+  configDir: string;
+  registry?: string;
+  network?: "mainnet" | "testnet";
+  privateKey?: string;
+  wallet?: boolean;
+  verbose?: boolean;
+}
+
+/** Roll the registry config back to the previous snapshot in the FastKV
+ * publish history — the post-publish smoke failure protocol (ADR 0021):
+ * a red boot gate must never leave a new config live against an old image,
+ * so the promotion is halted and the config reverts to the last known-good
+ * snapshot within seconds. */
+async function rollbackToPreviousSnapshot(
+  input: RollbackToPreviousInput,
+): Promise<{ ok: boolean; blockHeight?: string; error?: string }> {
+  let history: ConfigHistoryEntry[];
+  try {
+    history = await fetchConfigHistory({
+      accountId: input.account,
+      gatewayId: input.domain,
+      registry: input.registry,
+      limit: 20,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: `fetching publish history failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const previous = history[1];
+  if (!previous) {
+    return {
+      ok: false,
+      error: "no previous snapshot in the publish history — nothing to roll back to",
+    };
+  }
+
+  const verification = await verifyRollbackSnapshot(previous.value as BosConfigInput);
+  if (!verification.ok && verification.verifiable) {
+    return {
+      ok: false,
+      error: "rollback refused — a pinned slot's bytes are gone or no longer match their SRI",
+    };
+  }
+
+  const payload = buildRollbackPayload(
+    BosConfigSchema.parse(previous.value),
+    new Date().toISOString(),
+  );
+  const result = await publishToFastKv({
+    bosConfig: payload,
+    runtimeConfig: input.runtimeConfig,
+    configDir: input.configDir,
+    env: input.env,
+    build: false,
+    dryRun: false,
+    verbose: input.verbose,
+    packages: "all",
+    network: input.network,
+    privateKey: input.privateKey,
+    wallet: input.wallet,
+    registry: input.registry,
+  });
+  if (result.status !== "published") {
+    return {
+      ok: false,
+      error: `rollback publish failed: ${result.error ?? result.status}`,
+    };
+  }
+  return { ok: true, blockHeight: String(previous.blockHeight) };
+}
 
 export function registerDeploy(builder: BosBuilder) {
   return {
@@ -387,6 +467,75 @@ export function registerDeploy(builder: BosBuilder) {
             ...configPublished,
             error: `Config published but ${imageError}`,
           };
+        }
+      }
+
+      // Post-publish boot gate (publish → smoke → Railway, ADR 0021): the
+      // just-published config is only promoted to Railway if the runtime
+      // image — the one this train pinned — boots against it. A red smoke
+      // rolls the config back to the previous snapshot, so the new-config/
+      // old-image window never survives the deploy run.
+      if (input.smoke) {
+        if (!image || !imageDigest) {
+          console.log();
+          console.log(
+            colors.yellow(
+              "  Post-publish smoke skipped: no runtime image digest — set ci.image (or pass BOS_IMAGE_DIGEST)",
+            ),
+          );
+        } else {
+          console.log();
+          console.log(colors.cyan("  ▶ Post-publish smoke (boot gate)"));
+          const smokeResult = await runSmoke({
+            image,
+            account: nextSession.config?.account,
+            gateway: nextSession.config?.domain,
+          });
+          if (!smokeResult.ok) {
+            const cause = smokeResult.error ?? "unknown failure";
+            console.log();
+            console.log(colors.error(`  ${icons.err} Post-publish smoke failed: ${cause}`));
+            if (smokeResult.diagnosis) {
+              console.log(colors.yellow(`  ${smokeResult.diagnosis}`));
+            }
+            const account = nextSession.config?.account;
+            const domain = nextSession.config?.domain;
+            if (!account || !domain) {
+              console.log(colors.yellow("  Rollback skipped: no registry identity in the session"));
+              return {
+                status: "published" as const,
+                ...configPublished,
+                image,
+                error: `Post-publish smoke failed (${cause}) — config NOT rolled back: no registry identity`,
+              };
+            }
+            console.log(colors.yellow("  Rolling the published config back…"));
+            const rollback = await rollbackToPreviousSnapshot({
+              account,
+              domain,
+              env: input.env,
+              runtimeConfig: nextSession.runtime,
+              configDir: nextSession.root,
+              registry: input.registry,
+              network: input.network,
+              privateKey: input.privateKey,
+              wallet: input.wallet,
+              verbose: input.verbose,
+            });
+            const rollbackNote = rollback.ok
+              ? `config rolled back to block ${rollback.blockHeight}`
+              : `config NOT rolled back: ${rollback.error ?? "unknown"}`;
+            console.log(colors.yellow(`  ${rollbackNote}`));
+            return {
+              status: "published" as const,
+              ...configPublished,
+              image,
+              error: `Post-publish smoke failed (${cause}) — ${rollbackNote}`,
+            };
+          }
+          console.log(
+            colors.green(`  ${icons.ok} Post-publish smoke passed: ${smokeResult.summary ?? ""}`),
+          );
         }
       }
 

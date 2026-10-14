@@ -1,0 +1,5 @@
+---
+"everything-dev": patch
+---
+
+Deploy train lockstep: the boot smoke moves from CI into the deploy train as the promotion gate (publish → smoke → Railway). CI's `Runtime image smoke` job is retired — it booted the freshly built image against whatever the *last* deploy published, so every merge that bumped a shared singleton (`every-plugin` rc.3 → rc.4) deadlocked CI against live published state it was itself gating. In the deploy train the image and the bundles are same-SHA by construction, so `bos deploy --smoke` boots the pinned image identity-driven against the just-published config (health/SSR/OpenAPI/in-image `bos mf check`) and only a green smoke pins Railway; a red smoke rolls the config back to the previous FastKV snapshot before failing the job — the new-config/old-image window never survives the run. The smoke runner is now a shipped `bos smoke` command (child repos' trains can run the same gate), `bos start` honors `BOS_REGISTRY` so a smoke container can follow a custom registry, and the deploy job starts the compose test databases and uploads the smoke artifacts on failure.

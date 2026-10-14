@@ -3,18 +3,13 @@ import { createInstance, getInstance } from "@module-federation/enhanced/runtime
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { isEffectCriticalSharedDep } from "every-plugin/build/rspack";
 import { readBundleCache, writeBundleCache } from "./bundle-cache";
+import { fetchRaw } from "./http-client";
 import { computeSriHash, type IntegrityRegistry } from "./integrity";
 import type { BosConfig, BosPluginRef } from "./types";
 
 type FederationInstance = ReturnType<typeof createInstance>;
 
 let mfInstance: FederationInstance | null = null;
-
-function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
-}
 
 export function patchManifestFetchForSsrPublicPath(mf: FederationInstance): void {
   if (!mf || !(mf as any).loaderHook?.lifecycle?.fetch?.on) return;
@@ -25,7 +20,7 @@ export function patchManifestFetchForSsrPublicPath(mf: FederationInstance): void
     if (typeof url !== "string" || !url.endsWith("/mf-manifest.json")) {
       return;
     }
-    return fetchWithTimeout(url as string, init as RequestInit, 15_000)
+    return fetchRaw(url as string, init as RequestInit, "15 seconds")
       .then((res) => res.json())
       .then((json: any) => {
         json.metaData = json.metaData ?? {};
@@ -59,7 +54,7 @@ export function installIntegrityFetchHook(
     const expectedHash = registry.get(url);
     if (!expectedHash) return;
 
-    return fetchWithTimeout(url as string, init as RequestInit, 15_000).then(async (res) => {
+    return fetchRaw(url as string, init as RequestInit, "15 seconds").then(async (res) => {
       const buffer = Buffer.from(await res.arrayBuffer());
       const computed = computeSriHash(buffer);
 
@@ -240,7 +235,7 @@ function manifestUrl(remoteUrl: string): string {
 }
 
 async function fetchManifest(url: string, timeoutMs: number): Promise<unknown> {
-  const res = await fetch(manifestUrl(url), { signal: AbortSignal.timeout(timeoutMs) });
+  const res = await fetchRaw(manifestUrl(url), {}, timeoutMs);
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   return res.json();
 }

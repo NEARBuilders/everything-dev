@@ -124,9 +124,10 @@ ENTRYPOINT ["node", "scripts/regression/container-entrypoint.mjs"]
 # `node …/cli.mjs start` boots `bos start`: identity-driven (BOS_ACCOUNT/
 # BOS_GATEWAY env → FastKV) or from a mounted config (--config-path, or a
 # bos.config.json mounted at /app). Distribution lives on the CDN (ADR 0020)
-# and the image stages no dists: every boot resolves the published config's
-# pins over the network once, then the stale-if-error cache covers upstream
-# outages. The start stack loads the host, api, and plugins in-process
+# and the image stages no dists and no cache: every boot fetches the
+# published bytes over the network under a bounded retry policy, and a CDN
+# outage fails loud instead of serving pre-reset bytes from a stale-if-error
+# disk cache. The start stack loads the host, api, and plugins in-process
 # through Module Federation — no child spawns, so the runtime needs only
 # node. This is the default build target; GHCR publishes it. One container =
 # the whole start stack; only the host port is mapped. Databases and secrets
@@ -138,13 +139,11 @@ COPY --from=prod-builder --chown=appuser:appgroup /app/package.json .
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/everything-dev ./packages/everything-dev
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/every-plugin ./packages/every-plugin
 
-# Stale-if-error cache (ADR 0021): boot-time and inbound bytes are cached and
-# last-known-good is served on upstream outages. No BOS_BUNDLE_DIR — the CDN
-# is the single distribution source; an operator may still opt into a staged
-# namespace by mounting one and setting BOS_BUNDLE_DIR themselves.
-ENV BOS_BUNDLE_CACHE_DIR=/app/.bos/bundle-cache
+# No BOS_BUNDLE_DIR (CDN-only) and no BOS_BUNDLE_CACHE_DIR (a self-activating
+# cache could serve older bundles after a reset or rollback); both remain
+# operator opt-ins via `docker run -e`.
 
-RUN mkdir -p .bos/generated .bos/logs .bos/bundle-cache && \
+RUN mkdir -p .bos/generated .bos/logs && \
     chown -R appuser:appgroup .bos && \
     chown appuser:appgroup /app
 

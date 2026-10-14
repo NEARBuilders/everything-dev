@@ -40,7 +40,7 @@
     "test:integration": "pnpm --filter api test tests/integration",
     "test:e2e": "pnpm --filter host test:e2e",
     "test:regression:unit": "node --test tests/regression/lib/*.test.mjs",
-    "smoke:image": "node tests/smoke/runtime-image.mjs",
+    "smoke:image": "pnpm run bos smoke --image everything-dev-smoke:local",
     "test:regression:browser:install": "pnpm exec playwright install --with-deps chromium",
     "test:regression:browser:dev:ssr": "REGRESSION_MODE=dev:ssr pnpm exec playwright test -c tests/regression/browser/playwright.config.mjs --project=dev:ssr",
     "test:regression:browser:dev:csr": "REGRESSION_MODE=dev:csr pnpm exec playwright test -c tests/regression/browser/playwright.config.mjs --project=dev:csr",

@@ -1,4 +1,4 @@
-import { Data, Duration, Effect, Schedule } from "effect";
+import { Context, Data, Duration, Effect, Layer, Schedule } from "effect";
 
 // --- Tagged errors ---
 
@@ -41,6 +41,8 @@ const DEFAULT_RETRIES = 3;
 const EXPONENTIAL_BASE = Duration.seconds(1);
 const EXPONENTIAL_CAP = Duration.seconds(15);
 
+type FetchImpl = typeof globalThis.fetch;
+
 // --- Helpers ---
 
 const isRetryable = (error: FetchError): boolean => {
@@ -50,82 +52,97 @@ const isRetryable = (error: FetchError): boolean => {
   return false;
 };
 
-// --- Low-level: just timeout + error classification, returns Response regardless of HTTP status ---
+export interface HttpFetchShape {
+  /** One network attempt: no status assertion, no internal deadline. The
+   * fiber's signal is composed with any caller-provided signal, so an
+   * `Effect.timeout` around the call aborts the in-flight request, and a
+   * caller-initiated cancellation still wins. */
+  readonly attempt: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Effect.Effect<Response, FetchNetworkError>;
+  /** attempt + deadline + ok assertion (non-2xx → `FetchHttpError`) + capped
+   * exponential jittered retry (5xx/network/timeout retried, 4xx not). */
+  readonly get: (
+    url: string,
+    options?: FetchWithRetryOptions,
+  ) => Effect.Effect<Response, FetchError>;
+}
 
-const runFetch = (url: string, init?: RequestInit): Promise<Response> => fetch(url, init);
+const makeHttpFetch = (
+  base: (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+): HttpFetchShape => {
+  const urlOf = (input: string | URL | Request): string =>
+    typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
 
-const fetchRawEff = (
-  url: string,
-  options?: FetchOptions,
-): Effect.Effect<Response, FetchNetworkError | FetchTimeoutError> =>
-  Effect.tryPromise({
-    try: async () => {
-      const timeoutMs = Duration.toMillis(options?.timeout ?? DEFAULT_TIMEOUT);
-      try {
-        return await runFetch(url, {
-          method: options?.method ?? "GET",
-          headers: options?.headers,
-          body: options?.body,
-          redirect: options?.redirect,
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          (error.name === "AbortError" || error.name === "TimeoutError")
-        ) {
-          throw new FetchTimeoutError({ url });
-        }
-        throw new FetchNetworkError({ url, cause: error });
-      }
-    },
-    catch: (error) => {
-      if (error instanceof FetchNetworkError || error instanceof FetchTimeoutError) {
-        return error;
-      }
-      return new FetchNetworkError({ url, cause: error });
-    },
-  });
+  const attempt = (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Effect.Effect<Response, FetchNetworkError> =>
+    Effect.tryPromise({
+      try: (signal) =>
+        base(input, {
+          ...init,
+          signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal,
+        }),
+      catch: (cause) => new FetchNetworkError({ url: urlOf(input), cause }),
+    });
 
-// --- Adds HTTP status checking: non-2xx becomes FetchHttpError ---
-
-const fetchEff = (url: string, options?: FetchOptions): Effect.Effect<Response, FetchError> =>
-  fetchRawEff(url, options).pipe(
-    Effect.filterOrFail(
-      (response) => response.ok,
-      (response) =>
-        new FetchHttpError({ url, status: response.status, statusText: response.statusText }),
-    ),
-  );
-
-// --- With retry ---
-
-const retrySchedule = Schedule.exponential(EXPONENTIAL_BASE).pipe(
-  Schedule.upTo({ duration: EXPONENTIAL_CAP, times: DEFAULT_RETRIES }),
-);
-
-export const fetchWithRetryEff = (
-  url: string,
-  options?: FetchWithRetryOptions,
-): Effect.Effect<Response, FetchError> => {
-  const retries = options?.retries ?? DEFAULT_RETRIES;
-
-  if (retries <= 0) return fetchEff(url, options);
-
-  const schedule =
-    options?.retries !== undefined
-      ? Schedule.exponential(EXPONENTIAL_BASE).pipe(
+  const get = (
+    url: string,
+    options?: FetchWithRetryOptions,
+  ): Effect.Effect<Response, FetchError> => {
+    const timeoutMs = Duration.toMillis(options?.timeout ?? DEFAULT_TIMEOUT);
+    const retries = options?.retries ?? DEFAULT_RETRIES;
+    const once = attempt(url, {
+      method: options?.method ?? "GET",
+      headers: options?.headers,
+      body: options?.body,
+      redirect: options?.redirect,
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: timeoutMs,
+        orElse: () => Effect.fail(new FetchTimeoutError({ url })),
+      }),
+      Effect.filterOrFail(
+        (response) => response.ok,
+        (response) =>
+          new FetchHttpError({ url, status: response.status, statusText: response.statusText }),
+      ),
+    );
+    if (retries <= 0) return once;
+    return once.pipe(
+      Effect.retry({
+        schedule: Schedule.exponential(EXPONENTIAL_BASE).pipe(
           Schedule.upTo({ duration: EXPONENTIAL_CAP, times: retries }),
-        )
-      : retrySchedule;
+          Schedule.jittered,
+        ),
+        while: isRetryable,
+      }),
+    );
+  };
 
-  return fetchEff(url, options).pipe(
-    Effect.retry({
-      schedule,
-      while: isRetryable,
-    }),
-  );
+  return { attempt, get };
 };
+
+const defaultHttpFetch = makeHttpFetch((url, init) => globalThis.fetch(url, init));
+
+/**
+ * The HTTP seam for boot-path consumers (bundle resolution, federation
+ * loading, orchestrator deadlines): one resilience policy — interruption-
+ * backed deadlines, capped exponential jittered retry, typed errors — with
+ * the base fetch injectable so the bundle fetch interceptor can point it at
+ * the pre-patch `fetch` and not re-enter itself.
+ */
+export class HttpFetch extends Context.Service<HttpFetch, HttpFetchShape>()(
+  "everything-dev/http-client/HttpFetch",
+) {
+  static layerWith(options: { fetchImpl: FetchImpl }): Layer.Layer<HttpFetch> {
+    return Layer.succeed(HttpFetch, makeHttpFetch(options.fetchImpl));
+  }
+
+  static readonly layer: Layer.Layer<HttpFetch> = Layer.succeed(HttpFetch, defaultHttpFetch);
+}
 
 // --- In-memory GET cache (per-process, prevents duplicate round trips) ---
 
@@ -142,10 +159,43 @@ function isCacheable(_url: string, options?: FetchWithRetryOptions): boolean {
   return true;
 }
 
-// --- Promise wrappers (bridge for non-Effect code) ---
+// --- Promise wrappers (bridge for non-Effect code) — the ambient call-time
+// lookup means a boot fetch crossing the bundle interceptor still gains its
+// retry/deadline policy; the fiber-signal composition aborts the in-flight
+// request at the deadline. ---
+
+/** One raw fetch attempt with a deadline: returns the Response regardless of
+ * status; rejects on network failure or deadline expiry. */
+export const fetchRaw = (
+  url: string,
+  init?: RequestInit,
+  timeout: Duration.Input = DEFAULT_TIMEOUT,
+): Promise<Response> =>
+  Effect.runPromise(
+    defaultHttpFetch.attempt(url, init).pipe(
+      Effect.timeoutOrElse({
+        duration: timeout,
+        orElse: () => Effect.fail(new FetchTimeoutError({ url })),
+      }),
+    ),
+  );
 
 export const fetchResponse = (url: string, options?: FetchOptions): Promise<Response> =>
-  Effect.runPromise(fetchRawEff(url, options));
+  Effect.runPromise(
+    defaultHttpFetch
+      .attempt(url, {
+        method: options?.method,
+        headers: options?.headers,
+        body: options?.body,
+        redirect: options?.redirect,
+      })
+      .pipe(
+        Effect.timeoutOrElse({
+          duration: options?.timeout ?? DEFAULT_TIMEOUT,
+          orElse: () => Effect.fail(new FetchTimeoutError({ url })),
+        }),
+      ),
+  );
 
 export const fetchJsonOrNull = async <T>(
   url: string,
@@ -158,12 +208,8 @@ export const fetchJsonOrNull = async <T>(
     }
   }
 
-  const retries = options?.retries ?? DEFAULT_RETRIES;
-  const eff =
-    retries > 0 ? fetchWithRetryEff(url, { ...options, retries }) : fetchEff(url, options);
-
   try {
-    const res = await Effect.runPromise(eff);
+    const res = await Effect.runPromise(defaultHttpFetch.get(url, options));
     const data = (await res.json()) as T;
     if (isCacheable(url, options)) {
       getCache.set(url, { data, expiresAt: Date.now() + GET_CACHE_TTL_MS });
@@ -182,3 +228,8 @@ export const fetchJsonOrNull = async <T>(
     return null;
   }
 };
+
+export const fetchWithRetryEff = (
+  url: string,
+  options?: FetchWithRetryOptions,
+): Effect.Effect<Response, FetchError> => defaultHttpFetch.get(url, options);

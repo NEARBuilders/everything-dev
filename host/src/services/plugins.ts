@@ -17,8 +17,8 @@ import {
 } from "every-plugin/shared-deps-spec";
 import type { BosEnv } from "everything-dev/config";
 import { buildDependencyDAG, getDependenciesForNode, getSingletonKey } from "everything-dev/dag";
+import { installIntegrityFetchHook } from "everything-dev/federation";
 import { IntegrityRegistry, verifyConfigAgainstChain } from "everything-dev/integrity";
-import { installIntegrityFetchHook } from "everything-dev/mf";
 import type { RuntimeConfig, RuntimePluginConfig, SharedConfig } from "everything-dev/types";
 import { type EntrySlot, entryUrls } from "everything-dev/ui/manifest";
 import type { RuntimePlugin } from "../types";

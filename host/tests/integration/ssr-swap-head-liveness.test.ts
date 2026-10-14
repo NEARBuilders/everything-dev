@@ -2,7 +2,7 @@ import path from "node:path";
 import { createInstance } from "@module-federation/enhanced/runtime";
 import { Data, Effect, Layer } from "effect";
 import { buildRuntimeConfigEffect } from "everything-dev/config";
-import { patchManifestFetchForSsrPublicPath } from "everything-dev/mf";
+import { patchManifestFetchForSsrPublicPath } from "everything-dev/federation";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";

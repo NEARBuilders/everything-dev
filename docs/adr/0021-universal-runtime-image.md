@@ -54,9 +54,11 @@ the identity selects the tier at boot.**
    mirror); it freezes at the last rc-train build once a stable version
    ships. Deployments should pin the digest either way; the floating tags
    are convenience pull targets.
-5. **Boot resilience env:** `BOS_BUNDLE_CACHE_DIR` is set in the image —
-   registry-tier instances (children) cache foreign-namespace bytes at boot
-   and serve last-known-good on upstream outages.
+5. **Boot resilience env (amended):** the image sets no cache env — a
+   self-activating stale-if-error cache could serve pre-reset bundles after a
+   deploy or rollback, so `BOS_BUNDLE_CACHE_DIR` is an operator opt-in.
+   Boot-time resilience comes from the fetch policy instead: bounded retry
+   with per-attempt deadlines, failing loud on a real CDN outage.
 
 ## Consequences
 

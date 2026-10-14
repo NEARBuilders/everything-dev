@@ -3,7 +3,8 @@ import { Readable } from "node:stream";
 import { Data, Deferred, Effect, Option, Ref, Schedule, Schema, Stream } from "effect";
 import { stripAnsi } from "./dev-log-pipeline";
 import { ShellEnv } from "./env/project-env";
-import { patchManifestFetchForSsrPublicPath } from "./mf";
+import { loadRemoteModule, registerRemote } from "./federation";
+import { fetchRaw } from "./http-client";
 import {
   DevGeneratedEnv,
   DevRuntimeConfig,
@@ -11,8 +12,6 @@ import {
   ServiceDescriptorMap,
 } from "./service-descriptor";
 import type { RuntimeConfig } from "./types";
-
-const runFetch = (url: string, init?: RequestInit): Promise<Response> => fetch(url, init);
 
 process.on("unhandledRejection", (reason) => {
   console.error("[Orchestrator] Unhandled rejection:", reason);
@@ -86,7 +85,7 @@ const probeHttpOk = (url: string, timeoutMs = 400) =>
   Effect.tryPromise({
     try: async () => {
       try {
-        const res = await runFetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+        const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
         return res.ok;
       } catch {
         return false;
@@ -96,6 +95,15 @@ const probeHttpOk = (url: string, timeoutMs = 400) =>
   });
 
 const LOCAL_PROBE_DEADLINE_MS = 90_000;
+
+/** Remote-host boot budgets: every stage of the CDN-only boot is deadline-
+ * bounded so a hung connection or a wedged module load fails loud with the
+ * URL and stage — long before the smoke's 240s probe deadline turns the
+ * silence into a mystery. */
+const MANIFEST_FETCH_DEADLINE = "10 seconds";
+const LOAD_REMOTE_DEADLINE = "60 seconds";
+const SERVER_READY_DEADLINE = "120 seconds";
+const REMOTE_HOST_BOOT_DEADLINE = "180 seconds";
 const LOCAL_PROBE_INTERVAL_MS = 200;
 
 const cleanExitSignals: Record<string, true> = { SIGTERM: true, SIGINT: true };
@@ -223,33 +231,6 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     const restoreConsole = patchConsole(descriptor.key, callbacks);
     callbacks.onLog(descriptor.key, "Loading Module Federation runtime...");
 
-    const mfRuntime = yield* Effect.tryPromise({
-      try: () => import("@module-federation/enhanced/runtime"),
-      catch: (cause) =>
-        new OrchestratorError({
-          operation: "load module federation runtime",
-          detail: cause instanceof Error ? cause.message : String(cause),
-          cause,
-        }),
-    });
-
-    const mfCore = yield* Effect.tryPromise({
-      try: () => import("@module-federation/runtime-core"),
-      catch: (cause) =>
-        new OrchestratorError({
-          operation: "load module federation core",
-          detail: cause instanceof Error ? cause.message : String(cause),
-          cause,
-        }),
-    });
-
-    let mf = mfRuntime.getInstance();
-    if (!mf) {
-      mf = mfRuntime.createInstance({ name: "cli-host", remotes: [] });
-      mfCore.setGlobalFederationInstance(mf);
-    }
-    patchManifestFetchForSsrPublicPath(mf as any);
-
     const baseUrl = remoteUrl
       .replace(/\/remoteEntry\.js$/, "")
       .replace(/\/mf-manifest\.json$/, "")
@@ -266,7 +247,7 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
       try: async () => {
         let res: Response;
         try {
-          res = await runFetch(manifestUrl, { signal: AbortSignal.timeout(10_000) });
+          res = await fetchRaw(manifestUrl, undefined, MANIFEST_FETCH_DEADLINE);
         } catch (e) {
           throw new OrchestratorError({
             operation: "fetch host manifest",
@@ -304,21 +285,32 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
             }),
     });
 
-    (mf as any).registerRemotes([{ name: "host", entry: entryUrl }]);
+    yield* Effect.promise(() => registerRemote({ name: "host", entry: entryUrl }));
     callbacks.onLog(descriptor.key, `Loading host from ${entryUrl}...`);
 
     const hostModule = yield* Effect.tryPromise({
       try: () =>
-        (mf as any).loadRemote("host/Server") as Promise<{
+        loadRemoteModule<{
           runServer: (input: ServerInput) => ServerHandle;
-        }>,
+        }>("host/Server"),
       catch: (cause) =>
         new OrchestratorError({
           operation: "load host module",
           detail: cause instanceof Error ? cause.message : String(cause),
           cause,
         }),
-    });
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: LOAD_REMOTE_DEADLINE,
+        orElse: () =>
+          Effect.fail(
+            new OrchestratorError({
+              operation: "load host module",
+              detail: `timed out after ${LOAD_REMOTE_DEADLINE} — the module (or its shared dependencies) did not finish loading from ${entryUrl}`,
+            }),
+          ),
+      }),
+    );
 
     if (!hostModule?.runServer) {
       return yield* new HostModuleInvalid();
@@ -342,7 +334,21 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
           detail: cause instanceof Error ? cause.message : String(cause),
           cause,
         }),
-    });
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: SERVER_READY_DEADLINE,
+        // A half-started server must not leak its port on the deadline path —
+        // the success path hands shutdown to the process handle instead.
+        orElse: () =>
+          Effect.gen(function* () {
+            yield* Effect.exit(Effect.promise(() => serverHandle.shutdown()));
+            return yield* new OrchestratorError({
+              operation: "start server",
+              detail: `server did not become ready within ${SERVER_READY_DEADLINE}`,
+            });
+          }),
+      }),
+    );
 
     callbacks.onStatus(descriptor.key, "ready");
 
@@ -763,7 +769,22 @@ export const makeDevProcess = (pkg: string, callbacks: ProcessCallbacks, portOve
     }
 
     if (pkg === "host" && descriptor.source === "remote") {
-      return yield* spawnRemoteHost(descriptor, callbacks);
+      return yield* spawnRemoteHost(descriptor, callbacks).pipe(
+        // Overall boot budget: with per-stage deadlines inside, this is the
+        // backstop for anything the stage deadlines don't cover (a config
+        // fetch, a slow MF internal) — the boot either comes up named-and-
+        // ready or fails named-and-loud.
+        Effect.timeoutOrElse({
+          duration: REMOTE_HOST_BOOT_DEADLINE,
+          orElse: () =>
+            Effect.fail(
+              new OrchestratorError({
+                operation: "boot remote host",
+                detail: `remote host boot exceeded the ${REMOTE_HOST_BOOT_DEADLINE} overall deadline`,
+              }),
+            ),
+        }),
+      );
     }
 
     if (descriptor.source === "remote" || !descriptor.localPath) {

@@ -7,7 +7,7 @@ A consolidated product package for building Module Federation apps with oRPC API
 - `everything-dev/types` - Zod schemas and TypeScript types
 - `everything-dev/config` - Config loading and resolution
 - `everything-dev/shared` - Shared dependency policy generation
-- `everything-dev/mf` - Module Federation runtime utilities
+- `everything-dev/federation` - Module Federation runtime utilities
 - `everything-dev/plugin` - Plugin authoring (re-exports from every-plugin)
 - `everything-dev/api` - API plugin loading and router stitching
 - `everything-dev/host` - Host server orchestration
@@ -42,7 +42,7 @@ everything-dev/shared (generate shared deps policy)
   ↓
 everything-dev/host (orchestrate)
   ├── everything-dev/api (load API plugins via MF)
-  └── everything-dev/mf (load UI remote via MF)
+  └── everything-dev/federation (load UI remote via MF)
 ```
 
 ## MF Manifest Standard

@@ -210,6 +210,12 @@ export const runDevSession = (
 
     const callbacks: ProcessCallbacks = {
       onStatus: (name, status, message) => {
+        // An error-status flip is the failure boundary — the failure message
+        // logged just before it is still held in the pipeline's pending
+        // multi-line buffer (events complete one line late). Drain it now so
+        // the cause reaches the display tail and the log file even if the
+        // process is SIGKILLed before the session finalizer can flush.
+        if (status === "error") pipeline.flushSource(name);
         view?.updateProcess(name, status, message);
       },
       onLog: (name, line, isError) => {

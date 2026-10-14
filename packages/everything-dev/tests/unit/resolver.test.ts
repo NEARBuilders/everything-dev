@@ -2,16 +2,16 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { defaultConfigEnv } from "../../src/config";
 import {
   type BundleNamespace,
   bundleUrlToLocalPath,
   installBundleFetchFromEnv,
   installGlobalBundleFetch,
-} from "../../src/bundle-fs-resolve";
-import { defaultConfigEnv } from "../../src/config";
+} from "../../src/resolver";
 
 const NAMESPACE: BundleNamespace = {
-  bundleDir: join(tmpdir(), "bundle-fs-resolve-test"),
+  bundleDir: join(tmpdir(), "resolver-test"),
   account: "v1.citynode.near",
   gateway: "citynode.app",
 };
@@ -248,7 +248,7 @@ describe("interceptor transient retry (CDN-only cold boot)", () => {
     const handle = installGlobalBundleFetch({ namespace: NAMESPACE });
     try {
       await expect(fetch(foreignUrl)).rejects.toThrow("origin down");
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(5);
     } finally {
       await handle.uninstall();
     }
@@ -302,7 +302,7 @@ describe("interceptor transient retry (CDN-only cold boot)", () => {
     const handle = installGlobalBundleFetch({ namespace: NAMESPACE, timeoutMs: 50 });
     try {
       await expect(fetch(foreignUrl)).rejects.toMatchObject({ name: "TimeoutError" });
-      expect(calls).toBe(3);
+      expect(calls).toBe(5);
     } finally {
       await handle.uninstall();
     }

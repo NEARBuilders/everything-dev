@@ -404,6 +404,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       BOS_ACCOUNT: getProcessEnv("BOS_ACCOUNT"),
       BOS_GATEWAY: getProcessEnv("BOS_GATEWAY"),
     });
+    const registry = input.registry ?? getProcessEnv("BOS_REGISTRY");
 
     let config: BosConfig | null = null;
     let remoteConfig: BosConfig | null = null;
@@ -412,9 +413,9 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       config = deps.session?.config ?? null;
     } else if (explicitConfig.registry) {
       const { account, domain } = explicitConfig.registry;
-      const expectedUrl = buildRegistryConfigUrl(account, domain, input.registry);
+      const expectedUrl = buildRegistryConfigUrl(account, domain, registry);
       remoteConfig = yield* Effect.tryPromise({
-        try: () => resolvePublishedConfig(account, domain, input.registry),
+        try: () => resolvePublishedConfig(account, domain, registry),
         catch: (error) =>
           new StartFetchFailed({
             message: `Failed to fetch config for bos://${account}/${domain}: ${
@@ -585,7 +586,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
         ? buildRegistryConfigUrl(
             explicitConfig.registry.account,
             explicitConfig.registry.domain,
-            input.registry,
+            registry,
           )
         : undefined;
 

@@ -251,42 +251,44 @@ jobs:
       - name: Install Railway CLI
         run: npm i -g @railway/cli
 
-      - name: Deploy (preflight → build → upload → publish → Railway pin)
-        timeout-minutes: 50
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # The post-publish smoke boots the runtime image identity-driven; its
+      # boot surface needs the compose test databases (the smoke-container
+      # idiom: host.docker.internal:5434/5435).
+      - name: Start test databases
+        run: docker compose up -d --wait postgres-api-test postgres-auth-test
+
+      - name: Deploy (preflight → build → upload → publish → smoke → Railway pin)
+        timeout-minutes: 55
         # One command runs the deploy train (ADR 0020/0021, image leg split
         # into the `image` job): staleness-checked prerequisite builds +
         # workspace dists, bundle upload to the R2-backed storage, FastKV
-        # publish with read-back confirmation, then a pull-only Railway deploy
-        # pinned to the digest pushed by the image job (BOS_IMAGE_DIGEST) via
-        # a generated thin Dockerfile.
-        run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}
+        # publish with read-back confirmation, then the post-publish boot
+        # smoke — the runtime image pinned by this train boots against the
+        # just-published config (health/SSR/OpenAPI/in-image mf check) — and
+        # only then a pull-only Railway deploy pinned to the digest pushed by
+        # the image job (BOS_IMAGE_DIGEST) via a generated thin Dockerfile. A
+        # red smoke rolls the config back to the previous snapshot; the image
+        # and the published bundles are same-SHA by construction, so the
+        # gate is where image/bundle/version lockstep is enforced.
+        run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }} --smoke
 
-      - name: Verify bundle compatibility (bos mf check)
-        timeout-minutes: 5
-        run: |
-          # Gate the deployment: all host/plugin bundles must agree on
-          # shared-dep versions (exact for effect-critical deps) and
-          # pluginVersion. Runs AFTER the deploy — CDN-mode bundles serve
-          # from cdn.everything.dev, so the check passes once the config is
-          # published and the new bytes are live.
-          attempts=10
-          until pnpm run bos mf check; do
-            attempts=$((attempts - 1))
-            if [ "$attempts" -le 0 ]; then
-              echo "::error::Bundle compatibility check failed — bundles are inconsistent (deployment did not come up healthy or has a version mismatch). See bos mf check output."
-              exit 1
-            fi
-            echo "bos mf check failed; retrying in 20s ($attempts attempt(s) left)…"
-            sleep 20
-          done
+      - name: Upload smoke artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: image-smoke-artifacts
+          path: .bos/logs/**
 
       # The former "Deploy smoke" step (host test:integration:remote) is
       # retired (plan 051): its premise — a local bos.config.json carrying
       # production URLs — no longer holds (production URLs are pipeline
-      # state, published to FastKV; bos.app.ts:6). Its coverage is kept by:
-      # the mf-check step above (deployment consistency), the image smoke
-      # (tests/smoke/runtime-image.mjs: /health, SSR HTML, spec.json,
-      # in-image mf check), and the CI browser start:* regression modes.
-      # The host helper (host/tests/helpers/runtime-remote.ts) now reads the
-      # resolved config and remains a local diagnostic with honest skip
-      # reasons when production URLs are absent.
+      # state, published to FastKV; bos.app.ts:6). Its coverage is kept by
+      # the post-publish smoke above (boots the pinned image against the
+      # published config: /health, SSR HTML, spec.json, in-image mf check)
+      # and the CI browser start:* regression modes. The host helper
+      # (host/tests/helpers/runtime-remote.ts) now reads the resolved config
+      # and remains a local diagnostic with honest skip reasons when
+      # production URLs are absent.

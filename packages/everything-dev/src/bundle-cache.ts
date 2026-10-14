@@ -33,7 +33,7 @@ export function bundleCachePath(url: string, input?: { cacheDir?: string }): str
   const match = /^\/bundles\/([^/]+)\/([^/]+)\/(.+)$/.exec(parsed.pathname);
   if (!match) return null;
   const [, account, gateway, rest] = match;
-  if (!rest || rest.endsWith("/")) return null;
+  if (!account || !gateway || !rest || rest.endsWith("/")) return null;
   let decoded: string;
   try {
     decoded = decodeURIComponent(rest);

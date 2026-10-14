@@ -12,6 +12,7 @@ import { registerKeys } from "./commands/keys";
 import { registerOps } from "./commands/ops";
 import { registerPlugins } from "./commands/plugins";
 import { type BosDeps, BosDepsTag } from "./commands/shared";
+import { registerSmoke } from "./commands/smoke";
 import { registerUpgrade } from "./commands/upgrade";
 import { bosContract } from "./contract";
 import { DatabaseBindings, DrizzleKit, makeDatabaseBindings, makeDrizzleKitLive } from "./db";
@@ -70,6 +71,7 @@ export default createPlugin({
     ...registerDev(builder),
     ...registerBuild(builder),
     ...registerDeploy(builder),
+    ...registerSmoke(builder),
     ...registerKeys(builder),
     ...registerInit(builder),
     ...registerUpgrade(builder),

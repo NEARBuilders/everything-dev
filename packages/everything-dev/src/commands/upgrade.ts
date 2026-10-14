@@ -8,7 +8,7 @@ import { upgradeTemplate } from "../cli/upgrade";
 import { generateCodeArtifacts } from "../code-artifacts";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import { resolvePublishedConfig } from "../dev-program";
-import { checkFederationCompat } from "../mf";
+import { checkFederationCompat } from "../federation";
 import { openResolution } from "../resolution/session";
 import type { BosConfig } from "../types";
 import { colors } from "../utils/theme";

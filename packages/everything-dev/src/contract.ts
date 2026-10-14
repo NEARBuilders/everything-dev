@@ -258,6 +258,12 @@ export const DeployOptionsSchema = z.object({
     .describe(
       "Re-upload every dist file instead of diffing unchanged files against the previous deploy",
     ),
+  smoke: z
+    .boolean()
+    .default(false)
+    .describe(
+      "After publish, boot the runtime image against the just-published config and gate the Railway promotion on it — a red smoke rolls the config back to the previous snapshot",
+    ),
 });
 
 export const DeployManifestListEntrySchema = z.object({
@@ -281,6 +287,32 @@ export const DeployResultSchema = z.object({
   service: z.string().optional(),
   error: z.string().optional(),
   deployResults: z.array(WorkspaceDeployResultSchema).optional(),
+});
+
+export const SmokeOptionsSchema = z.object({
+  image: z
+    .string()
+    .optional()
+    .describe("Runtime image ref to boot — required unless defaulted by the deploy train"),
+  port: z.number().int().default(3000),
+  keep: z.boolean().default(false),
+  account: z
+    .string()
+    .optional()
+    .describe("Registry identity — defaults to the resolved session config"),
+  gateway: z.string().optional(),
+  apiDatabaseUrl: z.string().optional(),
+  authDatabaseUrl: z.string().optional(),
+  env: z.enum(["production", "staging"]).default("production"),
+  registry: z.string().optional(),
+});
+
+export const SmokeResultSchema = z.object({
+  status: z.enum(["ok", "error"]),
+  image: z.string().optional(),
+  summary: z.string().optional(),
+  diagnosis: z.string().optional(),
+  error: z.string().optional(),
 });
 
 function parseNearAmount(value: string): number {
@@ -679,6 +711,7 @@ export const commandOptionSchemas = {
   publish: PublishOptionsSchema,
   rollback: RollbackOptionsSchema,
   deploy: DeployOptionsSchema,
+  smoke: SmokeOptionsSchema,
   keyPublish: KeyPublishOptionsSchema,
   login: LoginOptionsSchema,
   logout: LogoutOptionsSchema,
@@ -738,6 +771,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/deploy" })
     .input(DeployOptionsSchema)
     .output(DeployResultSchema),
+  smoke: oc
+    .route({ method: "POST", path: "/smoke" })
+    .input(SmokeOptionsSchema)
+    .output(SmokeResultSchema),
   keyPublish: oc
     .route({ method: "POST", path: "/key/publish" })
     .input(KeyPublishOptionsSchema)

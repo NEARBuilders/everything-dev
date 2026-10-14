@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { installBundleFetchFromEnv } from "everything-dev/bundle-fs-resolve";
+import { installBundleFetchFromEnv } from "everything-dev/resolver";
 import { runServerBlocking } from "./src/program";
 import type { RuntimeConfig } from "./src/services/config";
 import { installWarningFilter } from "./src/utils/warning-filter";
@@ -32,7 +32,7 @@ try {
   process.exit(1);
 }
 
-// The host shares the CLI's outbound bundle-fetch tier (bundle-fs-resolve):
+// The host shares the CLI's outbound bundle-fetch tier (resolver):
 // own-namespace staged reads + the stale-if-error cache. Installed before the
 // server boots so SSR container loads and any config fetches route through it.
 installBundleFetchFromEnv({});

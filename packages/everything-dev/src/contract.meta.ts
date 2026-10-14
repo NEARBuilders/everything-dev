@@ -153,7 +153,7 @@ export const cliCommandMeta = {
   deploy: {
     commandPath: ["deploy"],
     summary:
-      "Deploy train: preflight → build → upload bundles → publish config → runtime image (pre-pushed digest or local docker build) → Railway (image-backed, no build)",
+      "Deploy train: preflight → build → upload bundles → publish config → runtime image (pre-pushed digest or local docker build) → post-publish smoke (optional) → Railway (image-backed, no build)",
     interactive: false,
     fields: {
       env: { description: "Environment: production or staging" },
@@ -165,10 +165,26 @@ export const cliCommandMeta = {
         description:
           "Digest of a pre-pushed runtime image (sha256:…) — skips the local image build/push; Railway pins this digest",
       },
+      smoke: {
+        description:
+          "Gate the Railway promotion on a post-publish boot smoke of the runtime image — a red smoke rolls the config back",
+      },
       registry: {
         description:
           "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
       },
+    },
+  },
+  smoke: {
+    commandPath: ["smoke"],
+    summary:
+      "Boot a runtime image the way production boots (identity-driven, published config) and assert the boot surface: /health, SSR, OpenAPI spec, in-image mf check",
+    interactive: false,
+    fields: {
+      image: { description: "Runtime image ref to boot (required)" },
+      port: { description: "Host port to publish the container on (default: 3000)" },
+      keep: { description: "Keep the container after the run (debugging)" },
+      account: { description: "Registry identity — defaults to the resolved session config" },
     },
   },
   login: {

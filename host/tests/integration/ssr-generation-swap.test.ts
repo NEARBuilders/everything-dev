@@ -1,6 +1,6 @@
 import path from "node:path";
 import { createInstance } from "@module-federation/enhanced/runtime";
-import { patchManifestFetchForSsrPublicPath } from "everything-dev/mf";
+import { patchManifestFetchForSsrPublicPath } from "everything-dev/federation";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RouterModule, RuntimeConfig } from "@/types";
 import { createTestApiClient } from "../helpers/api-client";

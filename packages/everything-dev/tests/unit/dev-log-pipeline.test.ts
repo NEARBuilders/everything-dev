@@ -401,4 +401,38 @@ describe("createLogPipeline broadcast", () => {
 
     expect(file).toEqual(['[INFO] (api) Request context\n{\n  "a": 1\n}', "ready in 412 ms"]);
   });
+
+  it("flushSource drains one source's pending event without touching others", () => {
+    const { pipeline, file, display } = makePipeline();
+    pipeline.ingest({ source: "host", line: "Loading host from https://cdn/host..." });
+    pipeline.ingest({ source: "ui", line: "starting" });
+
+    // events complete one line late, per source — both are still pending
+    expect(file).toEqual([]);
+    pipeline.flushSource("ui");
+    expect(file).toEqual(["starting"]);
+    pipeline.flushSource("host");
+    expect(file).toEqual(["starting", "Loading host from https://cdn/host..."]);
+    // info-level is filtered from the display at the default warn level
+    expect(display).toHaveLength(0);
+
+    pipeline.flushSource("host");
+    expect(file).toHaveLength(2);
+  });
+
+  it("an error-classified failure line drains its source's pending buffer and reaches the display tail", () => {
+    const { pipeline, file, display, exported } = makePipeline();
+    pipeline.ingest({ source: "host", line: "Loading host from https://cdn/host..." });
+    pipeline.ingest({
+      source: "host",
+      line: "Failed to start: load host module — origin down",
+      isError: true,
+    });
+    pipeline.flushSource("host");
+
+    expect(file).toHaveLength(2);
+    expect(file[1]).toContain("Failed to start");
+    expect(display.map((d) => d.line)).toEqual(["Failed to start: load host module — origin down"]);
+    expect(exported).toEqual(["Failed to start: load host module — origin down"]);
+  });
 });

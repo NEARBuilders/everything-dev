@@ -5,7 +5,7 @@ import {
   type WorkspaceVersionManifest,
   WorkspaceVersionManifestSchema,
 } from "every-plugin/version-manifest";
-import { bundleUrlToStagedPath, resolveContained } from "./bundle-path";
+import { bundleUrlToStagedPath, resolveContained } from "./resolver";
 
 /**
  * Version-manifest slot resolution (atomic-deploys 04): a config slot's

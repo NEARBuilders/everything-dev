@@ -290,6 +290,9 @@ export interface LogPipelineSinks {
 
 export interface LogPipeline {
   ingest: (raw: RawLogLine) => void;
+  /** Drain one source's pending multi-line buffer immediately — the last
+   * event before a failure must never be lost to the one-line delay. */
+  flushSource: (source: string) => void;
   flush: () => void;
 }
 
@@ -336,6 +339,12 @@ export function createLogPipeline(options: {
         isError: raw.isError,
         timestamp: raw.timestamp,
       });
+      if (completed !== null) emit(completed.meta, completed.text);
+    },
+    flushSource: (source) => {
+      const state = normalizers.get(source);
+      if (!state) return;
+      const completed = drainState(state);
       if (completed !== null) emit(completed.meta, completed.text);
     },
     flush: () => {
