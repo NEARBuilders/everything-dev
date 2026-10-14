@@ -13,6 +13,8 @@ import {
 import type { OrganizationsService } from "./services/organizations";
 import { InvitationsService } from "./services/invitations";
 import { MembersService } from "./services/members";
+import { OnboardingService } from "./services/onboarding";
+import { PermissionsService } from "./services/permissions";
 import { TeamsService } from "./services/teams";
 import { createHeaders } from "./utils";
 
@@ -26,7 +28,9 @@ export type AuthEffectServices =
   | OrganizationsService
   | InvitationsService
   | MembersService
-  | TeamsService;
+  | TeamsService
+  | OnboardingService
+  | PermissionsService;
 
 export type AuthHandlerContext = AuthContextShape &
   WithEffectContext<AuthEffectServices> & {

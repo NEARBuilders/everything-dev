@@ -29,6 +29,8 @@ import {
 } from "../src/service-types";
 import { buildInvitationsService, InvitationsService } from "../src/services/invitations";
 import { buildMembersService, MembersService } from "../src/services/members";
+import { buildOnboardingService, OnboardingService } from "../src/services/onboarding";
+import { buildPermissionsService, PermissionsService } from "../src/services/permissions";
 import { buildTeamsService, TeamsService } from "../src/services/teams";
 import { buildOrganizationsService, OrganizationsService } from "../src/services/organizations";
 
@@ -248,6 +250,20 @@ export function createTestHandlers(services: PluginServices) {
     Context.add(
       TeamsService,
       buildTeamsService({ auth: services.auth, db: services.db }),
+    ),
+    Context.add(
+      PermissionsService,
+      buildPermissionsService({ auth: services.auth, db: services.db }),
+    ),
+    Context.add(
+      OnboardingService,
+      buildOnboardingService({
+        auth: services.auth,
+        db: services.db,
+        permissions: buildPermissionsService({ auth: services.auth, db: services.db }),
+        cipher: services.onboardingCodeCipher,
+        membershipPolicy: services.membershipPolicy,
+      }),
     ),
   );
   const builder = implement(contract).$context<AuthHandlerContext>();
