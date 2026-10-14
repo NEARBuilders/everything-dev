@@ -17,8 +17,6 @@ import process from "node:process";
 
 const root = "/app";
 const imageDir = path.join(root, ".bos", "regression", "image");
-// Fail loud on an unknown variant (#344): silently defaulting to ssr made a
-// REGRESSION_VARIANT typo indistinguishable from a passing csr run.
 const variantEnv = process.env.REGRESSION_VARIANT;
 const variant = variantEnv === undefined ? "ssr" : variantEnv;
 if (variant !== "ssr" && variant !== "csr") {
@@ -133,8 +131,6 @@ const main = async () => {
 
   const deadline = Date.now() + 180_000;
   let ready = false;
-  // Sleep on every poll (#344): a responding-but-not-OK /health must not
-  // busy-wait the remaining budget.
   while (Date.now() < deadline && !ready) {
     try {
       const res = await fetch(`http://localhost:${hostPort}/health`);

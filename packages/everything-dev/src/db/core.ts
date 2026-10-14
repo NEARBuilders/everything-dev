@@ -231,10 +231,6 @@ export function suppressPgQueryQueueDeprecation(): void {
 }
 
 export function extractExpectedTables(migrations: { sql: string[] }[]): string[] {
-  // Track table lifecycle in migration order (#312): a table that a later
-  // migration drops (or renames) must leave the expected set — accumulating
-  // CREATE TABLE only bricked every boot after an intentional drop
-  // (drift-manual forever, unfixable by `bos db repair`).
   const tables = new Set<string>();
   const ident = String.raw`(?:"([^"]+)"|(\w+))`;
   const qualified = String.raw`(?:${ident}\.)?`;

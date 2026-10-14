@@ -20,13 +20,6 @@ export function hasFolderFormUi(cwd: string): boolean {
   );
 }
 
-/**
- * The factory's distPath target for a folder-form plugin workspace — the
- * generated ui config sets `workspaceRoot = <cwd>/ui` and `createUiRsbuildConfig`
- * emits to `<workspaceRoot>/dist`. Consumers (dev serve) derive the static
- * root from here so a layout change can't silently re-open the missing-dist
- * 404 class.
- */
 export function uiDistDirFor(cwd: string): string {
   return path.join(cwd, UI_DIR, "dist");
 }

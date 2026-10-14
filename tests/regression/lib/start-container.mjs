@@ -47,8 +47,6 @@ const waitForDatabases = async () => {
     while (Date.now() < deadline && !reachable) {
       reachable = await new Promise((resolve) => {
         const connection = net.connect(Number(parsed.port), parsed.hostname);
-        // A dropped SYN must not outlive the deadline (#344): bound each
-        // probe; `close` is the settle-all safety (resolve is idempotent).
         connection.setTimeout(2_000, () => connection.destroy());
         connection.once("connect", () => {
           connection.end();
@@ -98,8 +96,6 @@ const childEnv = {
   BOS_SNAPSHOT_WATCH_INTERVAL_MS: process.env.BOS_SNAPSHOT_WATCH_INTERVAL_MS ?? "0",
 };
 
-// spawnSync reports failures through `.status`/`.error` — it never throws,
-// so a try/catch here was dead code and a failed cleanup was silent (#344).
 const dockerRemove = (args, note) => {
   const result = spawnSync("docker", ["rm", "-f", ...args], { stdio: "ignore" });
   if (result.status !== 0) {
@@ -107,10 +103,6 @@ const dockerRemove = (args, note) => {
   }
 };
 
-// Prior runs' containers from dead sessions can squat the mapped ports.
-// Reap anything matching this variant's name prefix before the run — the
-// runner-side port sweep in regression-env.mjs covers stray processes; this
-// covers stray containers.
 const reapStaleContainers = () => {
   const prefix = `bos-regression-${variant}-`;
   const ps = spawnSync("docker", ["ps", "-aq", "--filter", `name=${prefix}`], {
@@ -126,9 +118,6 @@ const reapStaleContainers = () => {
   }
 };
 
-// Derive the mapped range from the staged layout instead of a fixed +20
-// window (#344): more than 11 local plugins would land unmapped and the
-// browser hangs silently.
 const mappedRange = () => {
   const fallback = [basePort, basePort + 20];
   const result = spawnSync(

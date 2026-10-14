@@ -174,8 +174,6 @@ export async function startPluginDevServer(
     await runOnce("rsbuild", ["build", "--config", uiConfig]);
     const uiDistDir = uiDistDirFor(cwd);
     if (!fs.existsSync(path.join(uiDistDir, DEV_ENTRY_FILENAME))) {
-      // Fail loud (#343 class): warn-then-serve turned a build-layout
-      // mismatch into 404s for every ui asset with the stack "up".
       throw new Error(
         `❌ UI dist is missing at ${uiDistDir} after the rsbuild one-shot — build output layout mismatch?`,
       );

@@ -324,7 +324,6 @@ async function main() {
             }
           }
           if (listed?.length) {
-            // Default to keep (#247): removing keys is opt-in.
             const removeOldKeys = await p.confirm({
               message: `Remove ${listed.length} existing publish key${listed.length > 1 ? "s" : ""}?`,
               initialValue: false,
@@ -336,12 +335,9 @@ async function main() {
           } else if (listed !== null) {
             keyPublishInput.removeOldKeys = false;
           } else {
-            // Listing failed — fail safe: keep the old keys, the user can
-            // remove them explicitly.
             keyPublishInput.removeOldKeys = false;
           }
         } else {
-          // Non-interactive defaults to keep (#247) — pass --remove-old-keys.
           keyPublishInput.removeOldKeys = false;
         }
       }

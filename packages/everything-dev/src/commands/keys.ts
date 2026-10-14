@@ -74,8 +74,6 @@ export function registerKeys(builder: BosBuilder) {
             console.log(`    ${colors.dim(k)}`);
           }
 
-          // Removal is opt-in (#247): an explicit prompt answer or
-          // --remove-old-keys — never a silent default.
           if (input.removeOldKeys === true) {
             try {
               await deleteAccessKeys(account, oldKeys, network);
