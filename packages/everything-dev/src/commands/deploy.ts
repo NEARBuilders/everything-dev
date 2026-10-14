@@ -13,6 +13,7 @@ import {
   buildAndPushImage,
   deployImageToRailway,
   hasDocker,
+  imageRefWithDigest,
   isValidImageDigest,
   resolveDeployImagePlan,
   resolveImageRef,
@@ -95,6 +96,7 @@ async function rollbackToPreviousSnapshot(
     privateKey: input.privateKey,
     wallet: input.wallet,
     registry: input.registry,
+    exactPayload: true,
   });
   if (result.status !== "published") {
     return {
@@ -285,6 +287,7 @@ export function registerDeploy(builder: BosBuilder) {
         privateKey: input.privateKey,
         wallet: input.wallet,
         registry: input.registry,
+        exactPayload: true,
       });
 
       return {
@@ -487,7 +490,7 @@ export function registerDeploy(builder: BosBuilder) {
           console.log();
           console.log(colors.cyan("  ▶ Post-publish smoke (boot gate)"));
           const smokeResult = await runSmoke({
-            image,
+            image: imageRefWithDigest(image, imageDigest),
             account: nextSession.config?.account,
             gateway: nextSession.config?.domain,
           });

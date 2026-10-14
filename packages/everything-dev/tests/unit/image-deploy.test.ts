@@ -11,6 +11,7 @@ import {
   buildAndPushImage,
   computeImageTags,
   deployImageToRailway,
+  imageRefWithDigest,
   isValidImageDigest,
   resolveDeployImagePlan,
   resolveImageRef,
@@ -48,6 +49,19 @@ describe("resolveImageRef", () => {
   it("returns undefined without a usable repository", () => {
     expect(resolveImageRef({})).toBeUndefined();
     expect(resolveImageRef({ repository: "https://gitlab.com/acme/app" })).toBeUndefined();
+  });
+});
+
+describe("imageRefWithDigest", () => {
+  it("pins the digest so the boot cannot fall through to a held :latest", () => {
+    expect(imageRefWithDigest("ghcr.io/acme/app", "sha256:03425986")).toBe(
+      "ghcr.io/acme/app@sha256:03425986",
+    );
+  });
+
+  it("passes the bare ref through without a digest", () => {
+    expect(imageRefWithDigest("ghcr.io/acme/app")).toBe("ghcr.io/acme/app");
+    expect(imageRefWithDigest("ghcr.io/acme/app", undefined)).toBe("ghcr.io/acme/app");
   });
 });
 

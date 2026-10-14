@@ -23,6 +23,7 @@ vi.mock("../../src/fastkv", async (importOriginal) => {
   return {
     ...actual,
     fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock,
+    fetchPublishedConfigFromFastKv: fetchBosConfigFromFastKvMock,
   };
 });
 

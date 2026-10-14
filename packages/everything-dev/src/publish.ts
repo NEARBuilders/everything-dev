@@ -22,6 +22,7 @@ import {
 import {
   buildRegistryConfigUrlForNetwork,
   fetchBosConfigFromFastKv,
+  fetchPublishedConfigFromFastKv,
   getRegistryNamespaceForNetwork,
   type NetworkId,
 } from "./fastkv";
@@ -270,6 +271,10 @@ interface PublishToFastKvInput {
   registry?: string;
   /** Skip the diff upload and re-upload every dist file (escape hatch). */
   fullUpload?: boolean;
+  /** Publish `bosConfig` verbatim — no authored/published merge, no ts-form
+   * config-only guard. Rollbacks use this: the payload is the previous
+   * snapshot, already assembled. */
+  exactPayload?: boolean;
 }
 
 interface PublishToFastKvResult {
@@ -487,10 +492,7 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
   let publishedConfig: Record<string, unknown> | null = null;
   let publishedConfigState: PublishedConfigState = "missing";
   try {
-    publishedConfig = await fetchBosConfigFromFastKv<Record<string, unknown>>(
-      registryUrl,
-      input.registry,
-    );
+    publishedConfig = await fetchPublishedConfigFromFastKv<Record<string, unknown>>(registryUrl);
     publishedConfigState = "fetched";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -646,7 +648,12 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     }
     rawConfig = opened.rawConfig;
   }
-  if (tsForm && !input.build && plan.publishedConfigState === "unreachable") {
+  if (
+    tsForm &&
+    !input.build &&
+    input.exactPayload !== true &&
+    plan.publishedConfigState === "unreachable"
+  ) {
     // A config-only TS-form publish derives its pipeline state from the live
     // published config — publishing without it would wipe bundle URLs.
     return {
@@ -660,12 +667,14 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     };
   }
   let publishPayload: BosConfigInput =
-    tsForm && !input.build
-      ? // Config-only publish on a TS-form project: the authored config owns
-        // composition (hand-edits win) while live pipeline state (bundle
-        // URLs, integrity) carries over from the published config.
-        mergeAuthoredOverPublished((plan.publishedConfig ?? {}) as BosConfigInput, rawConfig)
-      : rawConfig;
+    input.exactPayload === true
+      ? input.bosConfig
+      : tsForm && !input.build
+        ? // Config-only publish on a TS-form project: the authored config owns
+          // composition (hand-edits win) while live pipeline state (bundle
+          // URLs, integrity) carries over from the published config.
+          mergeAuthoredOverPublished((plan.publishedConfig ?? {}) as BosConfigInput, rawConfig)
+        : rawConfig;
 
   const urlOrigin = plan.cdnOrigin ?? `https://${gateway}`;
   const deployTargets = (built ?? []).filter((key) => targets.includes(key));

@@ -8,7 +8,7 @@ interface FastKvListResponse {
   entries?: Array<FastKvEntry | null>;
 }
 
-import { fetchJsonOrNull } from "./http-client";
+import { fetchJsonOrNull, fetchRaw } from "./http-client";
 
 function getNetworkIdForAccount(accountId: string): NetworkId {
   return accountId.endsWith(".testnet") ? "testnet" : "mainnet";
@@ -110,20 +110,37 @@ export async function fetchBosConfigFromFastKv<T>(bosUrl: string, registry?: str
   const payload = await fetchJson<FastKvListResponse>(
     `${getFastKvBaseUrlForAccount(accountId)}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId, registry))}/${encodeURIComponent(accountId)}/${key}`,
   );
-  const value = payload?.entries?.find(Boolean)?.value;
+  return parseFastKvConfigValue<T>(payload, bosUrl);
+}
 
-  if (!value) {
-    throw new Error(`No config found for ${bosUrl}`);
+/** Read a published config from an already-built registry URL
+ * (`buildRegistryConfigUrlForNetwork`). Unlike {@link fetchBosConfigFromFastKv}
+ * this takes the URL directly, so the read key is exactly the one the publish
+ * writes, and a network failure is reported as such instead of collapsing
+ * into "No config found" (fetchJsonOrNull swallows errors into null). */
+export async function fetchPublishedConfigFromFastKv<T>(url: string): Promise<T> {
+  const response = await fetchRaw(url, { headers: { accept: "application/json" } });
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`No config found for ${url}`);
+    }
+    throw new Error(`HTTP ${response.status} fetching ${url}`);
   }
+  const payload = (await response.json()) as FastKvListResponse | null;
+  return parseFastKvConfigValue<T>(payload, url);
+}
 
+export function parseFastKvConfigValue<T>(payload: FastKvListResponse | null, label: string): T {
+  const value = payload?.entries?.find(Boolean)?.value;
+  if (!value) {
+    throw new Error(`No config found for ${label}`);
+  }
   if (typeof value === "string") {
     return JSON.parse(value) as T;
   }
-
   if (typeof value !== "object") {
-    throw new Error(`Invalid config value for ${bosUrl}`);
+    throw new Error(`Invalid config value for ${label}`);
   }
-
   return value as T;
 }
 

@@ -30,6 +30,15 @@ export function resolveImageRef(input: {
   return { image: `ghcr.io/${repo}`, source: "repository" };
 }
 
+/** Compose the runnable image ref: `image@sha256:…` when a digest exists,
+ * `image` alone otherwise. Never docker-run the bare ref in a deploy flow —
+ * the implicit `:latest` is held to the last stable release during
+ * prereleases (ADR 0021), which boots a different framework build than the
+ * one this train pinned. */
+export function imageRefWithDigest(image: string, digest?: string): string {
+  return digest ? `${image}@${digest}` : image;
+}
+
 export async function hasDocker(): Promise<boolean> {
   try {
     const result = await run("docker", ["info", "--format", "{{.ServerVersion}}"], {

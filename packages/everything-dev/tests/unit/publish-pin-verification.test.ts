@@ -27,7 +27,11 @@ vi.mock("../../src/rollback", async (importOriginal) => {
 
 vi.mock("../../src/fastkv", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/fastkv")>();
-  return { ...actual, fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock };
+  return {
+    ...actual,
+    fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock,
+    fetchPublishedConfigFromFastKv: fetchBosConfigFromFastKvMock,
+  };
 });
 
 vi.mock("../../src/near-signer", async (importOriginal) => {

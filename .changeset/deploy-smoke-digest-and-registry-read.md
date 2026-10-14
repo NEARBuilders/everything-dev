@@ -1,0 +1,5 @@
+---
+"everything-dev": patch
+---
+
+The deploy train's post-publish smoke now boots the exact pinned image (`image@sha256:…`) instead of the bare image ref, whose implicit `:latest` tag is held to the last stable release during prereleases — the v1.x stable rejected the just-published V2 config (`unrecognized key "pin"` on `app.ui`) and failed the boot gate. The deploy preflight's published-config read is fixed: it passed a built `https://` registry URL where a `bos://` ref was expected, so every deploy logged "Note: registry read failed — continuing" and the live pipeline state was never captured; the read now reports network failures as unreachable instead of collapsing into "No config found" (which a config-only publish would have treated as a first publish and wiped bundle URLs). Smoke-failure rollbacks (and the `rollback` command) publish the previous snapshot verbatim via a new `exactPayload` publish mode instead of re-deriving the payload from the authored config, which refused to run whenever the preflight read was unreachable.
