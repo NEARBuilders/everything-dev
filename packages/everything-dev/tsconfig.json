@@ -26,6 +26,6 @@
     "rootDir": "..",
     "resolveJsonModule": true
   },
-  "include": ["src/**/*", "../every-plugin/src/**/*"],
+  "include": ["src/**/*", "../every-plugin/src/**/*", "tests/ui/auth-type-probe.ts"],
   "exclude": ["node_modules", "dist"]
 }
