@@ -1,10 +1,11 @@
 import { ORPCError } from "@orpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { AuthApiTag, type PluginServices } from "../service-types";
+import { toOrganizationRecord } from "../serializers";
 import {
   canReadMemberEmails,
   type EmailVisibilityContext,
@@ -58,6 +59,12 @@ export class MembersService extends Context.Service<
         memberId: string;
         organizationId?: string;
       },
+    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    listPendingOrganizations: () => Effect.Effect<any, ORPCError<string, unknown>>;
+    reviewOrganization: (
+      input:
+        | { organizationId: string; decision: "approve" }
+        | { organizationId: string; decision: "reject"; reason: string },
     ) => Effect.Effect<any, ORPCError<string, unknown>>;
   }
 >()("auth/MembersService") {}
@@ -269,6 +276,74 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
         };
       },
     ),
+
+    listPendingOrganizations: () =>
+      attemptDb(() =>
+        db.query.organization.findMany({
+          where: eq(schema.organization.status, "pending"),
+          orderBy: asc(schema.organization.createdAt),
+        }),
+      ).pipe(Effect.map((organizations) => organizations.map(toOrganizationRecord))),
+
+    reviewOrganization: (input) =>
+      attemptDb(() =>
+        db.transaction(async (tx) => {
+          const reason = input.decision === "reject" ? input.reason.trim() : "";
+          if (
+            input.decision !== "approve" &&
+            (input.decision !== "reject" || !reason || reason.length > 2000)
+          ) {
+            throw new ORPCError("BAD_REQUEST", {
+              message: "A rejection reason is required (up to 2000 characters)",
+              data: {},
+            });
+          }
+          const [reviewed] = await tx
+            .update(schema.organization)
+            .set({
+              status: input.decision === "approve" ? "active" : "rejected",
+              rejectionReason: input.decision === "reject" ? reason : null,
+            })
+            .where(
+              and(
+                eq(schema.organization.id, input.organizationId),
+                eq(schema.organization.status, "pending"),
+              ),
+            )
+            .returning();
+          if (!reviewed)
+            throw new ORPCError("BAD_REQUEST", {
+              message: "Organization is no longer pending or does not exist",
+              data: {},
+            });
+          if (input.decision === "approve") {
+            if (!reviewed.requestedBy)
+              throw new ORPCError("BAD_REQUEST", {
+                message: "Organization requester is missing",
+                data: {},
+              });
+            const members = await tx
+              .update(schema.member)
+              .set({ role: "owner" })
+              .where(
+                and(
+                  eq(schema.member.organizationId, reviewed.id),
+                  eq(schema.member.userId, reviewed.requestedBy),
+                ),
+              )
+              .returning();
+            if (!members.length)
+              await tx.insert(schema.member).values({
+                id: crypto.randomUUID(),
+                organizationId: reviewed.id,
+                userId: reviewed.requestedBy,
+                role: "owner",
+                createdAt: new Date(),
+              });
+          }
+          return reviewed;
+        }),
+      ).pipe(Effect.map(toOrganizationRecord)),
 
     removeMember: (headers, input) =>
       attemptAuth(() =>
