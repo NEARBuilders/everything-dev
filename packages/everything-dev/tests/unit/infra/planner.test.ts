@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer } from "effect";
@@ -286,5 +287,72 @@ describe("planInfra", () => {
 
     expect(plan.claims[0]?.ports["plugin-ui:auth"]).toBe(25310);
     expect(plan.claims[0]?.ports["plugin:auth"]).toBeUndefined();
+  });
+
+  it("start mode (all sources remote): only the pinned host port is allocated — occupied ports in the old block range cause no drift (#363)", async () => {
+    const basePort = 45300;
+
+    const bosConfig = stubRuntimeConfig({
+      host: {
+        name: "host",
+        url: "https://cdn.example.com/host/",
+        entry: "/mf-manifest.json",
+        source: "remote",
+        remoteUrl: "https://cdn.example.com/host/",
+      },
+      api: {
+        name: "api",
+        url: "https://cdn.example.com/api/",
+        entry: "/mf-manifest.json",
+        source: "remote",
+      },
+      auth: {
+        name: "auth",
+        url: "https://cdn.example.com/auth/",
+        entry: "/mf-manifest.json",
+        source: "remote",
+      },
+      ui: {
+        name: "ui",
+        url: "https://cdn.example.com/ui/",
+        entry: "/mf-manifest.json",
+        source: "remote",
+      },
+      plugins: {
+        votes: {
+          name: "votes",
+          url: "https://cdn.example.com/votes/",
+          entry: "/mf-manifest.json",
+          source: "remote",
+        },
+      },
+    } as Partial<RuntimeConfig>);
+
+    const conflict = createServer();
+    await new Promise<void>((resolve) => conflict.listen(basePort + 1, "127.0.0.1", resolve));
+    try {
+      const plan = await Effect.runPromise(
+        planInfra({
+          configDir: tempDir,
+          bosConfig,
+          cli: { port: basePort },
+        }).pipe(Effect.provide(Layer.mergeAll(PortAllocatorLive))),
+      );
+
+      expect(plan.resolvedPorts.host).toBe(basePort);
+      expect(plan.resolvedPorts.api).toBeUndefined();
+      expect(plan.resolvedPorts.auth).toBeUndefined();
+      expect(plan.resolvedPorts.ui).toBeUndefined();
+      expect(plan.resolvedPorts.plugins.votes).toEqual({ api: undefined, ui: undefined });
+      expect(plan.orchestrator.port).toBe(basePort);
+
+      expect(plan.claims[0]?.ports).toEqual({ host: basePort });
+
+      expect(plan.envGenerated.CORS_ORIGIN).toBe(`http://localhost:${basePort}`);
+      expect(plan.envGenerated.BASE_URL).toBe(`http://localhost:${basePort}`);
+      expect(Object.keys(plan.envGenerated)).not.toContain("API_DATABASE_URL");
+    } finally {
+      await new Promise<void>((resolve) => conflict.close(() => resolve()));
+    }
   });
 });
