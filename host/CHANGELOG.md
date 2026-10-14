@@ -1,5 +1,17 @@
 # host
 
+## 2.0.0-rc.2
+
+### Patch Changes
+
+- 56a1117: SSR head/nonce liveness — the stale-head class of CI failure is fixed at both ends:
+
+  - **SnapshotWatch honors `BOS_SNAPSHOT_WATCH_INTERVAL_MS=0`**: the watch layer now actually skips its fork (previously 0 fell back to the 30s default), and a production start booting from an explicit `--config-path` sets 0 itself — an explicit config is the declared truth, so a fixture-booted stack carrying a live identity no longer adopts a foreign module generation 30 seconds into its run. `start-container.mjs` passes the passthrough explicitly (an operator-set interval still wins, enabling deliberate swap testing).
+  - **Per-request nonce normalization on the served SSR stream** (`host/src/services/nonce-normalizer.ts`): the react-dom server renderer can carry a previous render's head across module generations (shared-singleton react-dom survives a composition swap), embedding stale script nonces and a stale baked `window.__CSP_NONCE__` while the CSP header carries the fresh per-request nonce — the browser blocks every script, hydration never runs, `window.__RUNTIME_CONFIG__` never lands. The transform rewrites script-tag `nonce` attributes, the baked bootstrap nonce, and the `csp-nonce` meta to the request's own nonce (tight patterns, chunk-boundary-safe, idempotent on healthy renders). Known limitation: head _content_ can remain one generation stale post-swap (title/config from the previous render) — scripts execute and hydrate, but a config-only publish may not reach browsers until the head freshens; react-dom generation isolation remains the follow-up for that.
+  - **`waitForApp` fast-fails on CSP blocks**: a script refused by the response's Content-Security-Policy rejects in under a second with the directive and blocked URL instead of burning the full 60s test timeout.
+
+  Verified against the live failure: the start:ssr container reproduced the CI signature deterministically (`[SnapshotWatch] snapshot swapped` 30s in, then 100% of responses carrying a head frozen at the boot render); after the fix, the hammer reports 0/430+ mismatches both with the watch disabled (containment) and with it deliberately enabled through a real swap (normalization), and the start:ssr browser suite is green again.
+
 ## 2.0.0-rc.1
 
 ### Patch Changes
