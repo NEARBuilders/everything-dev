@@ -1,5 +1,14 @@
 # ui
 
+## 2.0.0-rc.1
+
+### Patch Changes
+
+- cb4a0fe: Upgrade better-auth from 1.6.25 to 1.7.7. The auth plugin's `internalAdapter.createUser` calls now pass the new required provisioning source (`passkey` / `siwn`), and two migrations land for 1.7's schema expectations: `team.member_count` + `team_member.membership_key` (team counters the organization adapter now reads/writes) and the previously missing `funded_gas_key` table (better-near-auth's gas-key ledger, now enforced by 1.7's explicit drizzle schema check). The tsgo client-response type probes stay red-pinned: 1.7.7's response-data inference still collapses to `any` under tsgo 7.0.2.
+- 826a4ed: Auth reads route through the typed contract paths instead of the better-auth client surface whose response inference collapses to `any` under tsgo (#374): `listApiKeys` gains the `configId` passthrough (org-keys listing via the contract silently hit user-keys before), and a new `listUserPasskeys` route serves the dashboard passkey check. The admin-client type probes for the collapse land as compile-time canaries in the everything-dev typecheck.
+- Updated dependencies [cb4a0fe]
+  - better-near-auth@2.0.0-rc.1
+
 ## 2.0.0-rc.0
 
 ### Major Changes

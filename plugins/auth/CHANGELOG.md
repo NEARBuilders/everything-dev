@@ -1,5 +1,29 @@
 # @everything-dev/auth-plugin
 
+## 2.0.0-rc.2
+
+### Minor Changes
+
+- 065fa72: Add a typed platform-admin user-management surface to the auth plugin: oRPC contract routes for listing/searching users, get-user, role changes, ban/unban (reason + expiry), session listing and revocation, password resets and user removal — all gated on the platform admin role and backed by the Better Auth admin server endpoints. The auth plugin UI gains an admin-gated Users page (search, pagination, row actions, sessions dialog, impersonation via the Better Auth client).
+- cb4a0fe: Upgrade better-auth from 1.6.25 to 1.7.7. The auth plugin's `internalAdapter.createUser` calls now pass the new required provisioning source (`passkey` / `siwn`), and two migrations land for 1.7's schema expectations: `team.member_count` + `team_member.membership_key` (team counters the organization adapter now reads/writes) and the previously missing `funded_gas_key` table (better-near-auth's gas-key ledger, now enforced by 1.7's explicit drizzle schema check). The tsgo client-response type probes stay red-pinned: 1.7.7's response-data inference still collapses to `any` under tsgo 7.0.2.
+- 16541c1: Error responses now carry typed `data` bodies declared from `every-plugin/errors` shapes: `UNAUTHORIZED` includes `apiKeyProvided` (plus `provider`/`authType` context), `FORBIDDEN` can include `requiredPermissions`/`action`, `NOT_FOUND` includes `resource`/`resourceId`, and `SERVICE_UNAVAILABLE`/`BAD_REQUEST` are now declared error codes. Infrastructure failures no longer masquerade as domain results — `getInvitation`, `getFullOrganization`, and `checkSlug` propagate server/DB errors (500/503) instead of returning `null`/`{ status: false }`; only the domain not-found kinds still map to those.
+- 3b12937: set-email no longer grants `emailVerified: true` without proving ownership of the claimed email: when an email provider is configured (`RESEND_API_KEY` + `email.from`), a claimed email lands unverified, a verification email is sent through the standard better-auth token flow, and `emailVerified` flips only when the claimant clicks the link. With no email provider configured (dev/synthetic flows) the instant claim remains. Also adopted from better-auth: `haveIBeenPwned` (rejects compromised passwords on signup/password change; k-anonymity API, disabled in tests) and `lastLoginMethod` (tracks the last auth method per user). Email delivery now fails loud in production instead of silently falling back to a console preview, and token-bearing email bodies are never logged in production.
+- 826a4ed: Auth reads route through the typed contract paths instead of the better-auth client surface whose response inference collapses to `any` under tsgo (#374): `listApiKeys` gains the `configId` passthrough (org-keys listing via the contract silently hit user-keys before), and a new `listUserPasskeys` route serves the dashboard passkey check. The admin-client type probes for the collapse land as compile-time canaries in the everything-dev typecheck.
+- 2d6fd86: The organization permission surface is now fully config-declared — the plugin ships no defaults. Auth runtimes must declare `siwn.permissions` (a `statements` catalog plus a `roles` grant map; `owner`/`admin`/`member` are required, arbitrary custom roles allowed). Boot fails loud on a missing declaration or a grant referencing an undeclared statement/action. The root `everything.dev` config declares the canonical posture; children inherit it via `extends` and override per-statement. Effective permissions surface in `getContext` output as a nullable `permissions` map (session principals: the active org's role grants; API-key principals: the key's declared permissions), and the shared middleware factory gains `requirePermission(resource, action)` for routes that gate on that map.
+- 7b432a6: Team members now carry a role: `team_member.role` (defaults to `member`, migration applied on boot). Team-scoped grants ride the same `siwn.permissions.roles` registry — a member's effective team permissions are the union of their organization-role grants and their team-role grants, and `getContext`'s `organization.teams` entries now carry a per-team `permissions` map. `POST /v1/auth/teams/members` accepts an optional `role` (validated against the declared roles), and `listTeamMembers` returns each member's `role`. The shared `requirePermission` middleware gains a team scope: `requirePermission("team", "update", { scope: "team", teamId: (input) => input.teamId })` checks the caller's grants for the team resolved from the route input. Better Auth's own organization-role checks on team routes are unchanged; team-scoped roles are restriction-only by decision: no route bypasses Better Auth's org-role checks, so management writes stay behind Better Auth's endpoints (see `docs/plans/053`).
+
+### Patch Changes
+
+- Updated dependencies [20f2b95]
+- Updated dependencies [cb4a0fe]
+- Updated dependencies [2d6fd86]
+- Updated dependencies [2c1d2ce]
+- Updated dependencies [2c1d2ce]
+- Updated dependencies [c1022af]
+  - everything-dev@2.0.0-rc.8
+  - better-near-auth@2.0.0-rc.1
+  - every-plugin@3.0.0-rc.5
+
 ## 2.0.0-rc.1
 
 ### Patch Changes
