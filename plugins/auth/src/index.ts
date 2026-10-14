@@ -9,6 +9,7 @@ import { normalizeAuthConfig } from "./config";
 import { authSecretsSchema, authVariablesSchema } from "./config-schemas";
 import { contract } from "./contract";
 import { DatabaseLive, DatabaseTag } from "./db/layer";
+import { createAdminUsersHandlers } from "./handlers/admin-users";
 import { createApiKeyHandlers } from "./handlers/api-keys";
 import { createInvitationHandlers } from "./handlers/invitations";
 import { createMemberHandlers } from "./handlers/members";
@@ -31,6 +32,7 @@ import {
   OnboardingCodeCipherTag,
   PermissionRegistryTag,
 } from "./service-types";
+import { AdminUsersServiceLive } from "./services/admin-users";
 import { ApiKeysServiceLive } from "./services/api-keys";
 import { InvitationsServiceLive } from "./services/invitations";
 import { MembersServiceLive } from "./services/members";
@@ -100,6 +102,8 @@ export default createPlugin.withPlugins<PluginsClient>()({
         SessionServiceLive.pipe(Layer.provide(tagsLayer)),
         PasskeysServiceLive.pipe(Layer.provide(tagsLayer)),
         ApiKeysServiceLive.pipe(Layer.provide(tagsLayer)),
+        AdminUsersServiceLive.pipe(Layer.provide(tagsLayer)),
+        PasskeysServiceLive.pipe(Layer.provide(tagsLayer)),
         Layer.succeed(AuthServicesTag, {
           auth,
           db,
@@ -125,6 +129,8 @@ export default createPlugin.withPlugins<PluginsClient>()({
       ...createInvitationHandlers(builder, requireAuth),
       ...createApiKeyHandlers(builder, requireAuth),
       ...createTeamHandlers(builder, requireAuth),
+      ...createAdminUsersHandlers(builder, requireAuth),
+      ...createPasskeyHandlers(builder, requireAuth),
       ...createNearHandlers(builder, requireAuth),
       ...createOnboardingHandlers(builder, requireAuth),
     };

@@ -9,6 +9,7 @@ import { createDatabaseDriver } from "../src/db";
 import { DatabaseTag } from "../src/db/layer";
 import { loadMigrations, migrate } from "../src/db/migrate";
 import * as schema from "../src/db/schema";
+import { createAdminUsersHandlers } from "../src/handlers/admin-users";
 import { createApiKeyHandlers } from "../src/handlers/api-keys";
 import { createInvitationHandlers } from "../src/handlers/invitations";
 import { createMemberHandlers } from "../src/handlers/members";
@@ -29,6 +30,7 @@ import {
   OnboardingCodeCipherTag,
   type PluginServices,
 } from "../src/service-types";
+import { AdminUsersService, buildAdminUsersService } from "../src/services/admin-users";
 import { ApiKeysService, buildApiKeysService } from "../src/services/api-keys";
 import { buildInvitationsService, InvitationsService } from "../src/services/invitations";
 import { buildMembersService, MembersService } from "../src/services/members";
@@ -314,6 +316,7 @@ export function createTestHandlers(services: PluginServices) {
       buildPermissionsService({ auth: services.auth, db: services.db }),
     ),
     Context.add(NearService, buildNearService({ auth: services.auth })),
+    Context.add(AdminUsersService, buildAdminUsersService({ auth: services.auth })),
     Context.add(PasskeysService, buildPasskeysService({ auth: services.auth })),
     Context.add(
       SessionService,
@@ -360,6 +363,8 @@ export function createTestHandlers(services: PluginServices) {
     invitations: wrap(createInvitationHandlers(builder, requireAuth)),
     apiKeys: wrap(createApiKeyHandlers(builder, requireAuth)),
     teams: wrap(createTeamHandlers(builder, requireAuth)),
+    adminUsers: wrap(createAdminUsersHandlers(builder, requireAuth)),
+    passkeys: wrap(createPasskeyHandlers(builder, requireAuth)),
     near: wrap(createNearHandlers(builder, requireAuth)),
     onboarding: wrap(createOnboardingHandlers(builder, requireAuth)),
   };

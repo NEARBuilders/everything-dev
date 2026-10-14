@@ -131,6 +131,38 @@ export function toPasskey(passkey: PasskeyRow) {
   };
 }
 
+export function toAdminUser(user: any) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    emailVerified: user.emailVerified,
+    image: user.image ?? null,
+    isAnonymous: user.isAnonymous ?? null,
+    locale: user.locale ?? null,
+    role: user.role ?? null,
+    banned: user.banned ?? null,
+    banReason: user.banReason ?? null,
+    banExpires: user.banExpires ? toDate(user.banExpires) : null,
+    createdAt: toDate(user.createdAt),
+    updatedAt: toDate(user.updatedAt),
+  };
+}
+
+export function toAdminSession(session: any) {
+  return {
+    id: session.id,
+    token: session.token,
+    userId: session.userId,
+    expiresAt: toDate(session.expiresAt),
+    createdAt: toDate(session.createdAt),
+    updatedAt: toDate(session.updatedAt),
+    ipAddress: session.ipAddress ?? null,
+    userAgent: session.userAgent ?? null,
+    impersonatedBy: session.impersonatedBy ?? null,
+  };
+}
+
 export function toOnboardingSummary(row: {
   id: string;
   eventId: string | null;
