@@ -11,10 +11,11 @@ import { SnapshotCoordinator } from "./snapshot-coordinator";
 
 export const DEFAULT_WATCH_INTERVAL_MS = 30_000;
 
-/** Read BOS_SNAPSHOT_WATCH_INTERVAL_MS with the 30s default. */
+/** Read BOS_SNAPSHOT_WATCH_INTERVAL_MS with the 30s default; 0 disables the
+ * watch (a config-path boot's config is the truth — see the start stack). */
 export function watchIntervalMs(): number {
   const raw = Number(process.env.BOS_SNAPSHOT_WATCH_INTERVAL_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_WATCH_INTERVAL_MS;
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_WATCH_INTERVAL_MS;
 }
 
 /**
@@ -282,6 +283,18 @@ export class SnapshotWatch extends Context.Service<
         if (config.env !== "production") {
           logger.info(
             "[SnapshotWatch] disabled outside production (boot config is the truth in dev)",
+          );
+          return SnapshotWatch.of({
+            tick,
+            get lastOutcome() {
+              return lastOutcome;
+            },
+          });
+        }
+
+        if (intervalMs === 0) {
+          logger.info(
+            "[SnapshotWatch] disabled by BOS_SNAPSHOT_WATCH_INTERVAL_MS=0 (boot config is the truth)",
           );
           return SnapshotWatch.of({
             tick,

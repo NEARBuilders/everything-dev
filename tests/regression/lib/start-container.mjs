@@ -85,6 +85,13 @@ const childEnv = {
   // shared per-path bucket (no client IP behind the harness) — the suite's
   // /api/auth/* traffic trips it within seconds.
   BETTER_AUTH_RATE_LIMIT_DISABLED: "1",
+  // The stack boots a staged fixture config — the boot config is the truth;
+  // a mid-suite adopt of the live registry config swaps the module generation
+  // under the running suite. The start stack disables the watch for
+  // config-path boots itself; this passthrough makes it explicit and lets a
+  // dev force an interval (BOS_SNAPSHOT_WATCH_INTERVAL_MS=30000) to exercise
+  // the swap path.
+  BOS_SNAPSHOT_WATCH_INTERVAL_MS: process.env.BOS_SNAPSHOT_WATCH_INTERVAL_MS ?? "0",
 };
 
 const dockerRun = () =>

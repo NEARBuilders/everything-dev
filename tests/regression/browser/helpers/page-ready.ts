@@ -29,12 +29,48 @@ export function collectErrors(page: Page): PageErrors {
   return errors;
 }
 
+const CSP_CONSOLE_RE = /Refused to (?:execute|load)|Content Security Policy/i;
+
+/** A violated CSP means scripts were blocked — every later wait is doomed to
+ * the full timeout, and the useful signal is in the violation, not the
+ * timeout. Races the pending wait against the first violation. */
+async function waitForAppOrCspBlock(page: Page): Promise<void> {
+  const violations: string[] = [];
+  const onConsole = (msg: { type(): string; text(): string }) => {
+    if (msg.type() === "error" && CSP_CONSOLE_RE.test(msg.text())) {
+      violations.push(msg.text());
+    }
+  };
+  page.on("console", onConsole);
+  try {
+    await Promise.race([
+      page.waitForFunction(
+        () =>
+          typeof (window as { __RUNTIME_CONFIG__?: unknown }).__RUNTIME_CONFIG__ !== "undefined",
+        undefined,
+        { timeout: 30000 },
+      ),
+      new Promise<never>((_, reject) => {
+        const poll = setInterval(() => {
+          if (violations.length > 0) {
+            clearInterval(poll);
+            reject(
+              new Error(
+                `scripts were blocked by the response's Content-Security-Policy — head/nonce liveness broke (first violation: ${violations[0]})`,
+              ),
+            );
+          }
+        }, 250);
+      }),
+    ]);
+  } finally {
+    page.off("console", onConsole);
+  }
+}
+
 export async function waitForApp(page: Page): Promise<void> {
   await page.waitForSelector("#root", { timeout: 30000 });
-  await page.waitForFunction(
-    () => typeof (window as { __RUNTIME_CONFIG__?: unknown }).__RUNTIME_CONFIG__ !== "undefined",
-    { timeout: 30000 },
-  );
+  await waitForAppOrCspBlock(page);
 
   try {
     await page.waitForFunction(

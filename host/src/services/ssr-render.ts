@@ -9,6 +9,7 @@ import {
   type RuntimeConfig,
   resolveActiveRuntime,
 } from "./config";
+import { createNonceNormalizer } from "./nonce-normalizer";
 import { createPluginsClient, type PluginResult } from "./plugins";
 import { type ClientConfigCacheState, createClientConfigCacheState } from "./serving-caches";
 import { getTenantRuntimeErrorResponse, resolveRequestRuntime } from "./tenant-runtime";
@@ -219,7 +220,13 @@ export function createSsrRender(deps: SsrRenderDeps) {
         responseHeaders.set("Content-Security-Policy", ctx.cspHeader);
       }
       responseHeaders.set("x-request-id", requestId);
-      return new Response(result?.stream, {
+      const stream =
+        ctx.cspNonce && result?.stream
+          ? (result.stream as ReadableStream<Uint8Array>).pipeThrough(
+              createNonceNormalizer(ctx.cspNonce),
+            )
+          : result?.stream;
+      return new Response(stream, {
         status: result?.statusCode,
         headers: responseHeaders,
       });

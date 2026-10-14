@@ -47,7 +47,11 @@ import {
   buildServiceDescriptorMapFromPlan,
 } from "./service-descriptor";
 import { syncResolvedSharedDeps } from "./shared-deps";
-import { isRegistryStart, resolveStartConfigSource } from "./start-config-source";
+import {
+  isRegistryStart,
+  resolveStartConfigSource,
+  type StartConfigSource,
+} from "./start-config-source";
 import type { BosConfig, SourceMode } from "./types";
 import { BosConfigSchema } from "./types";
 import { run } from "./utils/run";
@@ -85,6 +89,25 @@ export class StartConfigMissing extends Data.TaggedError("StartConfigMissing")<
 function parseSourceMode(value: string | undefined, defaultValue: SourceMode): SourceMode {
   if (value === "local" || value === "remote") return value;
   return defaultValue;
+}
+
+/**
+ * A production start booting from an explicit config has declared that config
+ * as its truth — the host's SnapshotWatch must not override it with the
+ * registry pointer mid-run (a fixture-booted stack carrying a live identity
+ * would otherwise adopt a foreign generation 30 seconds in, and a
+ * config-path production boot is the operator's declared truth). The watch
+ * stays on for identity-driven boots — adopting published config changes is
+ * its feature. An operator-set interval always wins.
+ */
+export function setSnapshotWatchIntervalForBoot(
+  source: StartConfigSource,
+  env: "production" | "staging",
+  processEnv: { BOS_SNAPSHOT_WATCH_INTERVAL_MS?: string } = process.env,
+): void {
+  if (processEnv.BOS_SNAPSHOT_WATCH_INTERVAL_MS !== undefined) return;
+  if (env !== "production" || !source.configPath) return;
+  processEnv.BOS_SNAPSHOT_WATCH_INTERVAL_MS = "0";
 }
 
 export async function resolvePublishedConfig(
@@ -405,6 +428,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       BOS_GATEWAY: getProcessEnv("BOS_GATEWAY"),
     });
     const registry = input.registry ?? getProcessEnv("BOS_REGISTRY");
+    setSnapshotWatchIntervalForBoot(explicitConfig, bosEnv);
 
     let config: BosConfig | null = null;
     let remoteConfig: BosConfig | null = null;
