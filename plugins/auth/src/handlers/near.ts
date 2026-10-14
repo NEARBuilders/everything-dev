@@ -125,14 +125,12 @@ export function createNearHandlers(
     nearRelayerInfo: builder.nearRelayerInfo.use(requireAuth).effect(function* ({
       input,
       context,
+      errors,
     }) {
       const services = yield* AuthServicesTag;
       if (context.user?.role !== "admin") {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
-            message: "Admin access required",
-            data: { apiKeyProvided: false },
-          }),
+          errors.FORBIDDEN({ message: "Admin access required", data: { action: "admin-access" } }),
         );
       }
       const info = yield* attemptAuth(() =>

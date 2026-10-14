@@ -1,7 +1,7 @@
-import { type Implementer, ORPCError } from "@orpc/server";
+import type { Implementer } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import type { ContractType } from "../contract";
+import type { AuthErrors, ContractType } from "../contract";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
 import {
@@ -11,32 +11,39 @@ import {
   normalizeNearAccountId,
 } from "../near-invitations";
 import { AuthServicesTag, type PluginServices } from "../service-types";
-import { canReadMemberEmails, createHeaders } from "../utils";
-import { attemptAuth } from "./attempts";
+import { canReadMemberEmails, createHeaders, toORPCError } from "../utils";
+import { attemptAuth, attemptDb } from "./attempts";
 
-function resolveInvitee(input: { email?: string; nearAccountId?: string; nearNetwork?: string }) {
+function resolveInvitee(
+  input: { email?: string; nearAccountId?: string; nearNetwork?: string },
+  errors: AuthErrors,
+) {
   if (!!input.email === !!input.nearAccountId) {
-    throw new ORPCError("BAD_REQUEST", {
+    throw errors.BAD_REQUEST({
       message: "Provide either an email address or a NEAR account id",
+      data: {},
     });
   }
   if (input.email) {
     if (input.nearNetwork !== undefined) {
-      throw new ORPCError("BAD_REQUEST", {
+      throw errors.BAD_REQUEST({
         message: "A NEAR network can only be supplied for wallet invitations",
+        data: {},
       });
     }
     return { email: input.email };
   }
   const nearAccountId = normalizeNearAccountId(input.nearAccountId ?? "");
   if (!nearAccountId) {
-    throw new ORPCError("BAD_REQUEST", {
+    throw errors.BAD_REQUEST({
       message: `"${input.nearAccountId}" is not a valid NEAR account id`,
+      data: {},
     });
   }
   if (!isNearNetwork(input.nearNetwork)) {
-    throw new ORPCError("BAD_REQUEST", {
+    throw errors.BAD_REQUEST({
       message: "A wallet invitation requires a mainnet or testnet network",
+      data: {},
     });
   }
   return {
@@ -99,8 +106,10 @@ async function getInvitationOrNull(services: PluginServices, headers: Headers, i
       inviterName: inviter?.name ?? null,
       inviterEmail: null,
     };
-  } catch {
-    return null;
+  } catch (error) {
+    const mapped = toORPCError(error);
+    if (mapped.code === "NOT_FOUND" || mapped.code === "BAD_REQUEST") return null;
+    throw mapped;
   }
 }
 
@@ -109,13 +118,17 @@ export function createInvitationHandlers(
   requireAuth: RequireAuthMiddleware,
 ) {
   return {
-    inviteMember: builder.inviteMember.use(requireAuth).effect(function* ({ input, context }) {
+    inviteMember: builder.inviteMember.use(requireAuth).effect(function* ({
+      input,
+      context,
+      errors,
+    }) {
       const services = yield* AuthServicesTag;
       const result = yield* attemptAuth(() =>
         services.auth.api.createInvitation({
           headers: createHeaders(context.reqHeaders),
           body: {
-            ...resolveInvitee(input),
+            ...resolveInvitee(input, errors),
             role: input.role,
             organizationId: input.organizationId,
             resend: input.resend,
@@ -129,7 +142,7 @@ export function createInvitationHandlers(
     getInvitation: builder.getInvitation.effect(function* ({ input, context }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders ?? {});
-      return yield* Effect.promise(() => getInvitationOrNull(services, headers, input.id));
+      return yield* attemptDb(() => getInvitationOrNull(services, headers, input.id));
     }),
 
     listInvitations: builder.listInvitations.use(requireAuth).effect(function* ({

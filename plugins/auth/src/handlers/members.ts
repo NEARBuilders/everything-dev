@@ -1,5 +1,4 @@
 import type { Implementer } from "@orpc/server";
-import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import type { ContractType } from "../contract";
@@ -20,15 +19,20 @@ export function createMemberHandlers(
   requireAuth: RequireAuthMiddleware,
 ) {
   return {
-    exportMembers: builder.exportMembers.use(requireAuth).effect(function* ({ input, context }) {
+    exportMembers: builder.exportMembers.use(requireAuth).effect(function* ({
+      input,
+      context,
+      errors,
+    }) {
       const services = yield* AuthServicesTag;
       const emailAllowed = yield* Effect.promise(() =>
         canReadMemberEmails(services, context, input?.organizationId),
       );
       if (!emailAllowed) {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
+          errors.FORBIDDEN({
             message: "You do not have permission to export member emails",
+            data: {},
           }),
         );
       }
@@ -130,7 +134,7 @@ export function createMemberHandlers(
       };
     }),
 
-    addMember: builder.addMember.use(requireAuth).effect(function* ({ input, context }) {
+    addMember: builder.addMember.use(requireAuth).effect(function* ({ input, context, errors }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
       const session = input.organizationId
@@ -146,7 +150,7 @@ export function createMemberHandlers(
       const organizationId = input.organizationId ?? activeSession?.activeOrganizationId;
       if (!organizationId) {
         return yield* Effect.fail(
-          new ORPCError("BAD_REQUEST", { message: "No active organization" }),
+          errors.BAD_REQUEST({ message: "No active organization", data: {} }),
         );
       }
       if (context.user?.role !== "admin") {
@@ -161,8 +165,9 @@ export function createMemberHandlers(
         }
         if (!permitted) {
           return yield* Effect.fail(
-            new ORPCError("FORBIDDEN", {
+            errors.FORBIDDEN({
               message: "Only organization owners and admins can add members",
+              data: { requiredPermissions: ["member:create"] },
             }),
           );
         }
@@ -177,7 +182,10 @@ export function createMemberHandlers(
           );
           if (!parseMemberRoles(caller?.role).includes("owner")) {
             return yield* Effect.fail(
-              new ORPCError("FORBIDDEN", { message: "Only organization owners can add owners" }),
+              errors.FORBIDDEN({
+                message: "Only organization owners can add owners",
+                data: { action: "add-owner" },
+              }),
             );
           }
         }
@@ -189,12 +197,18 @@ export function createMemberHandlers(
       );
       if (!organization) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", { message: "Organization not found" }),
+          errors.NOT_FOUND({
+            message: "Organization not found",
+            data: { resource: "organization", resourceId: organizationId },
+          }),
         );
       }
       if (organization.status !== "active") {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", { message: "Organization approval is required" }),
+          errors.FORBIDDEN({
+            message: "Organization approval is required",
+            data: { action: "add-member" },
+          }),
         );
       }
       const result = yield* attemptAuth(() =>

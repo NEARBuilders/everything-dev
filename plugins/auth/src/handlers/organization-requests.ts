@@ -1,5 +1,5 @@
 import type { WithEffectContext } from "@orpc/experimental-effect";
-import { type Implementer, ORPCError } from "@orpc/server";
+import type { Implementer } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { type AuthContextShape, createAuthMiddleware } from "everything-dev/api";
@@ -46,7 +46,7 @@ export function createOrganizationRequestHandlers(
     reviewOrganization: builder.reviewOrganization
       .use(requireAuth)
       .use(requireAdmin)
-      .effect(function* ({ input }) {
+      .effect(function* ({ input, errors }) {
         const services = yield* AuthServicesTag;
         const reason = input.decision === "reject" ? input.reason.trim() : "";
         if (
@@ -54,8 +54,9 @@ export function createOrganizationRequestHandlers(
           (input.decision !== "reject" || !reason || reason.length > 2000)
         ) {
           return yield* Effect.fail(
-            new ORPCError("BAD_REQUEST", {
+            errors.BAD_REQUEST({
               message: "A rejection reason is required (up to 2000 characters)",
+              data: {},
             }),
           );
         }
@@ -75,13 +76,15 @@ export function createOrganizationRequestHandlers(
               )
               .returning();
             if (!reviewed)
-              throw new ORPCError("BAD_REQUEST", {
+              throw errors.BAD_REQUEST({
                 message: "Organization is no longer pending or does not exist",
+                data: {},
               });
             if (input.decision === "approve") {
               if (!reviewed.requestedBy)
-                throw new ORPCError("BAD_REQUEST", {
+                throw errors.BAD_REQUEST({
                   message: "Organization requester is missing",
+                  data: {},
                 });
               const members = await tx
                 .update(schema.member)

@@ -120,6 +120,7 @@ describe("member handlers", () => {
       ).rejects.toMatchObject({
         code: "FORBIDDEN",
         message: "Only organization owners and admins can add members",
+        data: { requiredPermissions: ["member:create"] },
       });
     });
 
@@ -257,6 +258,7 @@ describe("member handlers", () => {
       ).rejects.toMatchObject({
         code: "FORBIDDEN",
         message: "Only organization owners and admins can add members",
+        data: { requiredPermissions: ["member:create"] },
       });
 
       await assertNoMember(orgB.id, newcomer.userId);
@@ -334,6 +336,7 @@ describe("member handlers", () => {
       ).rejects.toMatchObject({
         code: "FORBIDDEN",
         message: "Only organization owners and admins can add members",
+        data: { requiredPermissions: ["member:create"] },
       });
     });
   }, 30000);

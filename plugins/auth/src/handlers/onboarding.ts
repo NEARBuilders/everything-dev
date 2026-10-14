@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { type Implementer, ORPCError } from "@orpc/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
-import type { ContractType } from "../contract";
+import type { AuthErrors, ContractType } from "../contract";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, AuthSessionUser, RequireAuthMiddleware } from "../middleware";
 import {
@@ -38,7 +38,8 @@ function membershipPolicyOf(services: {
 async function requireOrganizerContext(
   services: PluginServices,
   context: AuthHandlerContext & { userId: string; user: AuthSessionUser },
-  inputOrganizationId?: string,
+  inputOrganizationId: string | undefined,
+  errors: AuthErrors,
 ): Promise<{ userId: string; organizationId: string; headers: Headers }> {
   const headers = createHeaders(context.reqHeaders);
   const session = await services.auth.api.getSession({ headers });
@@ -50,13 +51,16 @@ async function requireOrganizerContext(
   const organizationId =
     inputOrganizationId ?? getActiveOrganizationId(sessionData?.session) ?? null;
   if (!userId || !organizationId) {
-    throw new ORPCError("BAD_REQUEST", { message: "No organization selected" });
+    throw errors.BAD_REQUEST({ message: "No organization selected", data: {} });
   }
   const organization = await services.db.query.organization.findFirst({
     where: eq(schema.organization.id, organizationId),
   });
   if (organization?.status !== "active") {
-    throw new ORPCError("FORBIDDEN", { message: "Organization requires platform-admin approval" });
+    throw errors.FORBIDDEN({
+      message: "Organization requires platform-admin approval",
+      data: {},
+    });
   }
   const result = await services.auth.api.getActiveMemberRole({
     headers,
@@ -68,9 +72,10 @@ async function requireOrganizerContext(
     role === "admin" ||
     (role !== null && (await belongsToEventsTeam(services.db, userId, organizationId)));
   if (!isOrganizer) {
-    throw new ORPCError("FORBIDDEN", {
+    throw errors.FORBIDDEN({
       message:
         "Only organizers — organization owners, admins, or members of a team with the events area — can manage onboarding codes",
+      data: { action: "manage-onboarding" },
     });
   }
   return { userId, organizationId, headers };
@@ -160,10 +165,11 @@ export function createOnboardingHandlers(
     createOnboardingCode: builder.createOnboardingCode.use(requireAuth).effect(function* ({
       input,
       context,
+      errors,
     }) {
       const services = yield* AuthServicesTag;
       const { userId, organizationId } = yield* attemptAuth(() =>
-        requireOrganizerContext(services, context, input.organizationId),
+        requireOrganizerContext(services, context, input.organizationId, errors),
       );
 
       const eventName = String(input.eventName).trim();
@@ -174,8 +180,9 @@ export function createOnboardingHandlers(
         : new Date(now.getTime() + DEFAULT_EXPIRES_IN_HOURS * 3_600_000);
       if (expiresAt <= now) {
         return yield* Effect.fail(
-          new ORPCError("BAD_REQUEST", {
+          errors.BAD_REQUEST({
             message: "This event has ended, so its onboarding code would already be expired",
+            data: {},
           }),
         );
       }
@@ -220,10 +227,11 @@ export function createOnboardingHandlers(
     listOnboardingCodes: builder.listOnboardingCodes.use(requireAuth).effect(function* ({
       input,
       context,
+      errors,
     }) {
       const services = yield* AuthServicesTag;
       const { organizationId } = yield* attemptAuth(() =>
-        requireOrganizerContext(services, context, input.organizationId),
+        requireOrganizerContext(services, context, input.organizationId, errors),
       );
 
       const rows = yield* attemptDb(() =>
@@ -240,10 +248,11 @@ export function createOnboardingHandlers(
     revokeOnboardingCode: builder.revokeOnboardingCode.use(requireAuth).effect(function* ({
       input,
       context,
+      errors,
     }) {
       const services = yield* AuthServicesTag;
       const { organizationId } = yield* attemptAuth(() =>
-        requireOrganizerContext(services, context, input.organizationId),
+        requireOrganizerContext(services, context, input.organizationId, errors),
       );
 
       const [revoked] = yield* attemptDb(() =>
@@ -261,7 +270,10 @@ export function createOnboardingHandlers(
       );
       if (!revoked) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", { message: "Onboarding code not found" }),
+          errors.NOT_FOUND({
+            message: "Onboarding code not found",
+            data: { resource: "onboardingCode", resourceId: input.codeId },
+          }),
         );
       }
       return { success: true };
@@ -270,10 +282,11 @@ export function createOnboardingHandlers(
     getOnboardingStation: builder.getOnboardingStation.use(requireAuth).effect(function* ({
       input,
       context,
+      errors,
     }) {
       const services = yield* AuthServicesTag;
       const { organizationId } = yield* attemptAuth(() =>
-        requireOrganizerContext(services, context, input.organizationId),
+        requireOrganizerContext(services, context, input.organizationId, errors),
       );
 
       const row = yield* attemptDb(() =>
@@ -286,13 +299,17 @@ export function createOnboardingHandlers(
       );
       if (!row) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", { message: "Onboarding code not found" }),
+          errors.NOT_FOUND({
+            message: "Onboarding code not found",
+            data: { resource: "onboardingCode", resourceId: input.codeId },
+          }),
         );
       }
       if (!row.encryptedCode || codeState(row) !== "active") {
         return yield* Effect.fail(
-          new ORPCError("BAD_REQUEST", {
+          errors.BAD_REQUEST({
             message: "This onboarding code is no longer active",
+            data: {},
           }),
         );
       }
@@ -307,10 +324,11 @@ export function createOnboardingHandlers(
     getOnboardingStatus: builder.getOnboardingStatus.use(requireAuth).effect(function* ({
       input,
       context,
+      errors,
     }) {
       const services = yield* AuthServicesTag;
       const { organizationId } = yield* attemptAuth(() =>
-        requireOrganizerContext(services, context, input.organizationId),
+        requireOrganizerContext(services, context, input.organizationId, errors),
       );
 
       const row = yield* attemptDb(() =>
@@ -323,7 +341,10 @@ export function createOnboardingHandlers(
       );
       if (!row) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", { message: "Onboarding code not found" }),
+          errors.NOT_FOUND({
+            message: "Onboarding code not found",
+            data: { resource: "onboardingCode", resourceId: input.codeId },
+          }),
         );
       }
 
@@ -394,6 +415,7 @@ export function createOnboardingHandlers(
     redeemOnboardingCode: builder.redeemOnboardingCode.use(requireAuth).effect(function* ({
       input,
       context,
+      errors,
     }) {
       const services = yield* AuthServicesTag;
       const headers = createHeaders(context.reqHeaders);
@@ -402,7 +424,10 @@ export function createOnboardingHandlers(
       const userId = context.userId ?? sessionData?.user?.id ?? null;
       if (!userId || !sessionData?.session?.id) {
         return yield* Effect.fail(
-          new ORPCError("UNAUTHORIZED", { message: "Authentication required" }),
+          errors.UNAUTHORIZED({
+            message: "Authentication required",
+            data: { apiKeyProvided: false },
+          }),
         );
       }
       const sessionId = sessionData.session.id;
@@ -414,7 +439,10 @@ export function createOnboardingHandlers(
       );
       if (!codeRow) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", { message: "Onboarding code not found" }),
+          errors.NOT_FOUND({
+            message: "Onboarding code not found",
+            data: { resource: "onboardingCode" },
+          }),
         );
       }
 
@@ -426,26 +454,28 @@ export function createOnboardingHandlers(
       const organizationName = organization?.name ?? "";
       if (organization?.status !== "active") {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
+          errors.FORBIDDEN({
             message: "Organization requires platform-admin approval",
+            data: {},
           }),
         );
       }
 
       if (codeRow.revokedAt) {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", { message: "This onboarding code was revoked" }),
+          errors.FORBIDDEN({ message: "This onboarding code was revoked", data: {} }),
         );
       }
       if (toDate(codeRow.expiresAt) < new Date()) {
         return yield* Effect.fail(
-          new ORPCError("BAD_REQUEST", { message: "This onboarding code has expired" }),
+          errors.BAD_REQUEST({ message: "This onboarding code has expired", data: {} }),
         );
       }
       if (codeRow.usedCount >= codeRow.maxUses) {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
+          errors.FORBIDDEN({
             message: "This onboarding code has reached its limit",
+            data: {},
           }),
         );
       }
@@ -481,7 +511,7 @@ export function createOnboardingHandlers(
             .where(eq(schema.organization.id, codeRow.organizationId))
             .for("update");
           if (!orgRow) {
-            throw new ORPCError("BAD_REQUEST", { message: "Organization not found" });
+            throw errors.BAD_REQUEST({ message: "Organization not found", data: {} });
           }
 
           const existingMember = await tx.query.member.findFirst({
@@ -496,8 +526,9 @@ export function createOnboardingHandlers(
               .from(schema.member)
               .where(eq(schema.member.organizationId, codeRow.organizationId));
             if (!membershipPolicyOf(services).hasCapacity(memberCount)) {
-              throw new ORPCError("FORBIDDEN", {
+              throw errors.FORBIDDEN({
                 message: "This organization is full, so no more members can join",
+                data: {},
               });
             }
             await tx.insert(schema.member).values({
@@ -546,8 +577,9 @@ export function createOnboardingHandlers(
             )
             .returning();
           if (!updated) {
-            throw new ORPCError("FORBIDDEN", {
+            throw errors.FORBIDDEN({
               message: "This onboarding code has reached its limit",
+              data: {},
             });
           }
 

@@ -76,7 +76,11 @@ export function createApiKeyHandlers(
       return result;
     }),
 
-    deleteApiKey: builder.deleteApiKey.use(requireAuth).effect(function* ({ input, context }) {
+    deleteApiKey: builder.deleteApiKey.use(requireAuth).effect(function* ({
+      input,
+      context,
+      errors,
+    }) {
       const services = yield* AuthServicesTag;
       const configId = input.configId ?? (input.organizationId ? "org-keys" : "user-keys");
       const deleteAcrossConfigs = async () => {
@@ -100,7 +104,10 @@ export function createApiKeyHandlers(
               return;
             } catch {}
           }
-          throw new ORPCError("NOT_FOUND", { message: "API key not found" });
+          throw errors.NOT_FOUND({
+            message: "API key not found",
+            data: { resource: "apiKey", resourceId: input.id },
+          });
         }
       };
       yield* attemptAuth(deleteAcrossConfigs);
