@@ -149,14 +149,12 @@ export interface EmailVisibilityContext {
   reqHeaders?: HeaderInput;
 }
 
-export interface OrgPermissionServices {
-  auth: {
-    api: {
-      hasPermission: (args: {
-        headers: Headers;
-        body: { organizationId?: string; permissions: Record<string, string[]> };
-      }) => Promise<{ success: boolean }>;
-    };
+export interface OrgPermissionAuth {
+  api: {
+    hasPermission: (args: {
+      headers: Headers;
+      body: { organizationId?: string; permissions: Record<string, string[]> };
+    }) => Promise<{ success: boolean }>;
   };
 }
 
@@ -166,14 +164,14 @@ export interface OrgPermissionResult {
 }
 
 export async function hasOrgPermission(
-  services: OrgPermissionServices,
+  auth: OrgPermissionAuth,
   context: EmailVisibilityContext,
   organizationId: string | undefined,
   permissions: Record<string, string[]>,
 ): Promise<OrgPermissionResult> {
   if (context.user?.role === "admin") return { permitted: true };
   try {
-    const result = await services.auth.api.hasPermission({
+    const result = await auth.api.hasPermission({
       headers: createHeaders(context.reqHeaders),
       body: { organizationId, permissions },
     });
@@ -184,11 +182,11 @@ export async function hasOrgPermission(
 }
 
 export async function canReadMemberEmails(
-  services: OrgPermissionServices,
+  auth: OrgPermissionAuth,
   context: EmailVisibilityContext,
   organizationId?: string,
 ): Promise<boolean> {
-  const { permitted } = await hasOrgPermission(services, context, organizationId, {
+  const { permitted } = await hasOrgPermission(auth, context, organizationId, {
     email: ["read"],
   });
   return permitted;

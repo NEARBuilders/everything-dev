@@ -2,9 +2,10 @@ import { type Implementer, ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import type { ContractType, InferInput } from "../contract";
+import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, AuthSessionUser, RequireAuthMiddleware } from "../middleware";
-import { AuthServicesTag, type PluginServices } from "../service-types";
+import { AuthApiTag, type PluginServices } from "../service-types";
 import {
   canReadMemberEmails,
   createHeaders,
@@ -53,13 +54,13 @@ function toOrganizationInfo(organization: {
 }
 
 async function getFullOrganizationOrNull(
-  services: PluginServices,
+  auth: PluginServices["auth"],
   context: AuthHandlerContext & { userId: string; user: AuthSessionUser },
   input: InferInput<"getFullOrganization">,
 ) {
   try {
-    const emailAllowed = await canReadMemberEmails(services, context, input?.organizationId);
-    const result = await services.auth.api.getFullOrganization({
+    const emailAllowed = await canReadMemberEmails(auth, context, input?.organizationId);
+    const result = await auth.api.getFullOrganization({
       headers: createHeaders(context.reqHeaders),
       query: {
         organizationId: input.organizationId,
@@ -107,9 +108,9 @@ export function createOrganizationHandlers(
 ) {
   return {
     listOrganizations: builder.listOrganizations.use(requireAuth).effect(function* ({ context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.listOrganizations({
+        auth.api.listOrganizations({
           headers: createHeaders(context.reqHeaders),
         }),
       );
@@ -123,8 +124,8 @@ export function createOrganizationHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
-      return yield* attemptDb(() => getFullOrganizationOrNull(services, context, input));
+      const { auth } = yield* AuthApiTag;
+      return yield* attemptAuth(() => getFullOrganizationOrNull(auth, context, input));
     }),
 
     getOrganizationForAdmin: builder.getOrganizationForAdmin.use(requireAuth).effect(function* ({
@@ -132,14 +133,14 @@ export function createOrganizationHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const db = yield* DatabaseTag;
       if (context.user.role !== "admin") {
         return yield* Effect.fail(
           errors.FORBIDDEN({ message: "Admin access required", data: { action: "admin-access" } }),
         );
       }
       const organization = yield* attemptDb(() =>
-        services.db.query.organization.findFirst({
+        db.query.organization.findFirst({
           where: eq(schema.organization.id, input.organizationId),
         }),
       );
@@ -151,9 +152,9 @@ export function createOrganizationHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.createOrganization({
+        auth.api.createOrganization({
           headers: createHeaders(context.reqHeaders),
           body: {
             name: input.name,
@@ -173,9 +174,9 @@ export function createOrganizationHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       yield* attemptAuth(() =>
-        services.auth.api.setActiveOrganization({
+        auth.api.setActiveOrganization({
           headers: createHeaders(context.reqHeaders),
           body: { organizationId: input.organizationId },
         }),
@@ -188,9 +189,9 @@ export function createOrganizationHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.updateOrganization({
+        auth.api.updateOrganization({
           headers: createHeaders(context.reqHeaders),
           body: {
             data: {
@@ -218,9 +219,9 @@ export function createOrganizationHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       yield* attemptAuth(() =>
-        services.auth.api.leaveOrganization({
+        auth.api.leaveOrganization({
           headers: createHeaders(context.reqHeaders),
           body: { organizationId: input.organizationId },
         }),
@@ -232,9 +233,9 @@ export function createOrganizationHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       yield* attemptAuth(() =>
-        services.auth.api.deleteOrganization({
+        auth.api.deleteOrganization({
           headers: createHeaders(context.reqHeaders),
           body: { organizationId: input.organizationId },
         }),
@@ -243,9 +244,9 @@ export function createOrganizationHandlers(
     }),
 
     checkSlug: builder.checkSlug.effect(function* ({ input }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       return yield* attemptAuth(() =>
-        services.auth.api.checkOrganizationSlug({
+        auth.api.checkOrganizationSlug({
           body: { slug: input.slug },
         }),
       ).pipe(
@@ -258,10 +259,10 @@ export function createOrganizationHandlers(
     }),
 
     hasPermission: builder.hasPermission.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
         (
-          services.auth.api.hasPermission as (args: {
+          auth.api.hasPermission as (args: {
             headers: Headers;
             body: { organizationId?: string; permissions?: Record<string, string[]> };
           }) => Promise<{ success: boolean }>
@@ -277,10 +278,11 @@ export function createOrganizationHandlers(
     }),
 
     linkDao: builder.linkDao.use(requireAuth).effect(function* ({ input, context, errors }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const headers = createHeaders(context.reqHeaders);
       const org = yield* attemptDb(() =>
-        services.db.query.organization.findFirst({
+        db.query.organization.findFirst({
           where: eq(schema.organization.id, input.organizationId),
         }),
       );
@@ -298,7 +300,7 @@ export function createOrganizationHandlers(
       existingMetadata.daoNetwork = input.daoNetwork ?? "mainnet";
 
       yield* attemptAuth(() =>
-        services.auth.api.updateOrganization({
+        auth.api.updateOrganization({
           headers,
           body: {
             data: { metadata: existingMetadata },
@@ -310,10 +312,11 @@ export function createOrganizationHandlers(
     }),
 
     unlinkDao: builder.unlinkDao.use(requireAuth).effect(function* ({ input, context, errors }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const headers = createHeaders(context.reqHeaders);
       const org = yield* attemptDb(() =>
-        services.db.query.organization.findFirst({
+        db.query.organization.findFirst({
           where: eq(schema.organization.id, input.organizationId),
         }),
       );
@@ -331,7 +334,7 @@ export function createOrganizationHandlers(
       delete existingMetadata.daoNetwork;
 
       yield* attemptAuth(() =>
-        services.auth.api.updateOrganization({
+        auth.api.updateOrganization({
           headers,
           body: {
             data: { metadata: existingMetadata },
@@ -343,9 +346,9 @@ export function createOrganizationHandlers(
     }),
 
     getDao: builder.getDao.use(requireAuth).effect(function* ({ input, context, errors }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.getFullOrganization({
+        auth.api.getFullOrganization({
           headers: createHeaders(context.reqHeaders),
           query: { organizationId: input.organizationId },
         }),

@@ -1,8 +1,8 @@
-import { type Implementer, ORPCError } from "@orpc/server";
+import type { Implementer } from "@orpc/server";
 import { Effect } from "effect";
 import type { ContractType } from "../contract";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
-import { AuthServicesTag } from "../service-types";
+import { AuthApiTag } from "../service-types";
 import { createHeaders } from "../utils";
 import { attemptAuth } from "./attempts";
 
@@ -12,23 +12,23 @@ export function createNearHandlers(
 ) {
   return {
     nearNonce: builder.nearNonce.effect(function* ({ input }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       return yield* attemptAuth(() =>
-        services.auth.api.getSiwnNonce({
+        auth.api.getSiwnNonce({
           body: { accountId: input.accountId, networkId: input.networkId },
         }),
       );
     }),
 
     nearVerify: builder.nearVerify.effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const req = new Request("http://localhost:3000/api/auth/near/verify", {
         method: "POST",
         headers: createHeaders(context.reqHeaders),
         body: JSON.stringify(input),
       });
       return yield* attemptAuth(() =>
-        services.auth.api.verifySiwnMessage({
+        auth.api.verifySiwnMessage({
           request: req,
           body: {
             signedMessage: input.signedMessage,
@@ -42,9 +42,9 @@ export function createNearHandlers(
     }),
 
     nearProfile: builder.nearProfile.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       return yield* attemptAuth(() =>
-        services.auth.api.getSiwnProfile({
+        auth.api.getSiwnProfile({
           headers: createHeaders(context.reqHeaders),
           body: { accountId: input.accountId },
         }),
@@ -55,7 +55,7 @@ export function createNearHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const reqHeaders = createHeaders(context.reqHeaders);
       const req = new Request("http://localhost:3000/api/auth/near/link", {
         method: "POST",
@@ -63,7 +63,7 @@ export function createNearHandlers(
         body: JSON.stringify(input),
       });
       return yield* attemptAuth(() =>
-        services.auth.api.linkNearAccount({
+        auth.api.linkNearAccount({
           request: req,
           headers: reqHeaders,
           body: {
@@ -81,9 +81,9 @@ export function createNearHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       return yield* attemptAuth(() =>
-        services.auth.api.unlinkNearAccount({
+        auth.api.unlinkNearAccount({
           headers: createHeaders(context.reqHeaders),
           body: { accountId: input.accountId, network: input.network },
         }),
@@ -91,18 +91,18 @@ export function createNearHandlers(
     }),
 
     nearListAccounts: builder.nearListAccounts.use(requireAuth).effect(function* ({ context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       return yield* attemptAuth(() =>
-        services.auth.api.listNearAccounts({
+        auth.api.listNearAccounts({
           headers: createHeaders(context.reqHeaders),
         }),
       );
     }),
 
     nearRelay: builder.nearRelay.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       return yield* attemptAuth(() =>
-        services.auth.api.relayNearTransaction({
+        auth.api.relayNearTransaction({
           headers: createHeaders(context.reqHeaders),
           body: { payload: input.payload },
         }),
@@ -113,9 +113,9 @@ export function createNearHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       return yield* attemptAuth(() =>
-        services.auth.api.getRelayStatus({
+        auth.api.getRelayStatus({
           headers: createHeaders(context.reqHeaders),
           params: { txHash: input.txHash },
         }),
@@ -127,14 +127,14 @@ export function createNearHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       if (context.user?.role !== "admin") {
         return yield* Effect.fail(
           errors.FORBIDDEN({ message: "Admin access required", data: { action: "admin-access" } }),
         );
       }
       const info = yield* attemptAuth(() =>
-        services.auth.api.getRelayerInfo({
+        auth.api.getRelayerInfo({
           headers: createHeaders(context.reqHeaders),
           body: input ?? {},
         }),
@@ -150,18 +150,18 @@ export function createNearHandlers(
     }),
 
     nearRelayHistory: builder.nearRelayHistory.use(requireAuth).effect(function* ({ context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       return yield* attemptAuth(() =>
-        services.auth.api.getRelayHistory({
+        auth.api.getRelayHistory({
           headers: createHeaders(context.reqHeaders),
         }),
       );
     }),
 
     nearView: builder.nearView.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       return yield* attemptAuth(() =>
-        services.auth.api.viewContract({
+        auth.api.viewContract({
           headers: createHeaders(context.reqHeaders),
           body: {
             contractId: input.contractId,
@@ -175,9 +175,9 @@ export function createNearHandlers(
     nearCheckSubAccountAvailability: builder.nearCheckSubAccountAvailability
       .use(requireAuth)
       .effect(function* ({ input, context }) {
-        const services = yield* AuthServicesTag;
+        const { auth } = yield* AuthApiTag;
         return yield* attemptAuth(() =>
-          services.auth.api.checkSubAccountAvailability({
+          auth.api.checkSubAccountAvailability({
             headers: createHeaders(context.reqHeaders),
             body: {
               subAccountName: input.subAccountName,
@@ -191,9 +191,9 @@ export function createNearHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       return yield* attemptAuth(() =>
-        services.auth.api.createSubAccount({
+        auth.api.createSubAccount({
           headers: createHeaders(context.reqHeaders),
           body: {
             subAccountName: input.subAccountName,

@@ -2,9 +2,11 @@ import { type Implementer, ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import type { ContractType } from "../contract";
+import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
-import { AuthServicesTag } from "../service-types";
+import { toDate } from "../serializers";
+import { AuthApiTag } from "../service-types";
 import {
   createHeaders,
   getActiveOrganizationId,
@@ -13,11 +15,6 @@ import {
   withoutSessionDataCookie,
 } from "../utils";
 import { attemptAuth, attemptDb } from "./attempts";
-
-function toDate(value: unknown): Date {
-  if (value instanceof Date) return value;
-  return value ? new Date(value as string) : new Date();
-}
 
 function toTeam(team: any) {
   return {
@@ -36,9 +33,9 @@ export function createTeamHandlers(
 ) {
   return {
     setActiveTeam: builder.setActiveTeam.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.setActiveTeam({
+        auth.api.setActiveTeam({
           headers: createHeaders(context.reqHeaders),
           body: { teamId: input.teamId },
         }),
@@ -47,23 +44,23 @@ export function createTeamHandlers(
     }),
 
     listUserTeams: builder.listUserTeams.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const headers = createHeaders(context.reqHeaders);
       const organizationId =
         input?.organizationId ??
         getActiveOrganizationId(
-          (yield* attemptAuth(() => services.auth.api.getSession({ headers })))?.session,
+          (yield* attemptAuth(() => auth.api.getSession({ headers })))?.session,
         );
-      const result = yield* attemptAuth(() => services.auth.api.listUserTeams({ headers }));
+      const result = yield* attemptAuth(() => auth.api.listUserTeams({ headers }));
       return (result ?? [])
         .filter((team: any) => !organizationId || team.organizationId === organizationId)
         .map(toTeam);
     }),
 
     createTeam: builder.createTeam.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.createTeam({
+        auth.api.createTeam({
           headers: createHeaders(context.reqHeaders),
           body: {
             name: input.name,
@@ -76,9 +73,9 @@ export function createTeamHandlers(
     }),
 
     updateTeam: builder.updateTeam.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.updateTeam({
+        auth.api.updateTeam({
           headers: createHeaders(context.reqHeaders),
           body: {
             teamId: input.teamId,
@@ -99,14 +96,15 @@ export function createTeamHandlers(
     }),
 
     deleteTeam: builder.deleteTeam.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const headers = createHeaders(context.reqHeaders);
       // Clear directly in the database rather than through
       // auth.api.setActiveTeam: that call would only echo back whatever
       // session the request's session_data cookie already carries (see
       // below), not the DB row this write targets.
       yield* attemptDb(() =>
-        services.db
+        db
           .update(schema.session)
           .set({ activeTeamId: null })
           .where(
@@ -122,7 +120,7 @@ export function createTeamHandlers(
       // database row just cleared above. Strip it so removeTeam falls
       // back to a fresh database read via the session token instead.
       yield* attemptAuth(() =>
-        services.auth.api.removeTeam({
+        auth.api.removeTeam({
           headers: withoutSessionDataCookie(headers),
           body: {
             teamId: input.teamId,
@@ -134,9 +132,9 @@ export function createTeamHandlers(
     }),
 
     listTeams: builder.listTeams.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.listOrganizationTeams({
+        auth.api.listOrganizationTeams({
           headers: createHeaders(context.reqHeaders),
           query: {
             organizationId: input.organizationId,
@@ -151,9 +149,9 @@ export function createTeamHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const db = yield* DatabaseTag;
       const team = yield* attemptDb(() =>
-        services.db.query.team.findFirst({
+        db.query.team.findFirst({
           where: eq(schema.team.id, input.teamId),
         }),
       );
@@ -166,7 +164,7 @@ export function createTeamHandlers(
         );
       }
       const membership = yield* attemptDb(() =>
-        services.db.query.member.findFirst({
+        db.query.member.findFirst({
           where: and(
             eq(schema.member.userId, context.userId),
             eq(schema.member.organizationId, team.organizationId),
@@ -182,7 +180,7 @@ export function createTeamHandlers(
         );
       }
       const rows = yield* attemptDb(() =>
-        services.db.query.teamMember.findMany({
+        db.query.teamMember.findMany({
           where: eq(schema.teamMember.teamId, team.id),
         }),
       );
@@ -195,9 +193,9 @@ export function createTeamHandlers(
     }),
 
     addTeamMember: builder.addTeamMember.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.addTeamMember({
+        auth.api.addTeamMember({
           headers: createHeaders(context.reqHeaders),
           body: {
             teamId: input.teamId,
@@ -218,9 +216,9 @@ export function createTeamHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       yield* attemptAuth(() =>
-        services.auth.api.removeTeamMember({
+        auth.api.removeTeamMember({
           headers: createHeaders(context.reqHeaders),
           body: {
             teamId: input.teamId,

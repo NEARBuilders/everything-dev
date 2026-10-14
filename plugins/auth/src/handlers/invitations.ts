@@ -2,6 +2,7 @@ import type { Implementer } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import type { AuthErrors, ContractType } from "../contract";
+import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
 import {
@@ -10,7 +11,7 @@ import {
   nearInvitationEmail,
   normalizeNearAccountId,
 } from "../near-invitations";
-import { AuthServicesTag, type PluginServices } from "../service-types";
+import { AuthApiTag, type PluginServices } from "../service-types";
 import { canReadMemberEmails, createHeaders, toORPCError } from "../utils";
 import { attemptAuth, attemptDb } from "./attempts";
 
@@ -69,18 +70,23 @@ function toInvitation(invitation: any) {
   };
 }
 
-async function getInvitationOrNull(services: PluginServices, headers: Headers, id: string) {
+async function getInvitationOrNull(
+  auth: PluginServices["auth"],
+  db: PluginServices["db"],
+  headers: Headers,
+  id: string,
+) {
   try {
-    const stored = await services.db.query.invitation.findFirst({
+    const stored = await db.query.invitation.findFirst({
       where: eq(schema.invitation.id, id),
     });
     if (stored?.nearAccountId) {
-      const session = await services.auth.api.getSession({ headers });
+      const session = await auth.api.getSession({ headers });
       if (!session?.user) return null;
-      const pending = await listPendingNearInvitations(services.db, session.user.id);
+      const pending = await listPendingNearInvitations(db, session.user.id);
       const match = pending.find((row) => row.invitation.id === id);
       if (!match) return null;
-      const inviter = await services.db.query.user.findFirst({
+      const inviter = await db.query.user.findFirst({
         where: eq(schema.user.id, match.invitation.inviterId),
       });
       return {
@@ -91,12 +97,12 @@ async function getInvitationOrNull(services: PluginServices, headers: Headers, i
         inviterEmail: null,
       };
     }
-    const invitation = await services.auth.api.getInvitation({
+    const invitation = await auth.api.getInvitation({
       headers,
       query: { id },
     });
     if (!invitation) return null;
-    const inviter = await services.db.query.user.findFirst({
+    const inviter = await db.query.user.findFirst({
       where: eq(schema.user.id, invitation.inviterId),
     });
     return {
@@ -123,9 +129,9 @@ export function createInvitationHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.createInvitation({
+        auth.api.createInvitation({
           headers: createHeaders(context.reqHeaders),
           body: {
             ...resolveInvitee(input, errors),
@@ -140,21 +146,22 @@ export function createInvitationHandlers(
     }),
 
     getInvitation: builder.getInvitation.effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const headers = createHeaders(context.reqHeaders ?? {});
-      return yield* attemptDb(() => getInvitationOrNull(services, headers, input.id));
+      return yield* attemptDb(() => getInvitationOrNull(auth, db, headers, input.id));
     }),
 
     listInvitations: builder.listInvitations.use(requireAuth).effect(function* ({
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const emailAllowed = yield* Effect.promise(() =>
-        canReadMemberEmails(services, context, input?.organizationId),
+        canReadMemberEmails(auth, context, input?.organizationId),
       );
       const result = yield* attemptAuth(() =>
-        services.auth.api.listInvitations({
+        auth.api.listInvitations({
           headers: createHeaders(context.reqHeaders),
           query: {
             organizationId: input.organizationId,
@@ -170,16 +177,17 @@ export function createInvitationHandlers(
     listUserInvitations: builder.listUserInvitations.use(requireAuth).effect(function* ({
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const [emailInvitations, walletInvitations] = yield* Effect.all([
         context.user?.emailVerified === false
           ? Effect.succeed([])
           : attemptAuth(() =>
-              services.auth.api.listUserInvitations({
+              auth.api.listUserInvitations({
                 headers: createHeaders(context.reqHeaders),
               }),
             ),
-        Effect.promise(() => listPendingNearInvitations(services.db, context.userId)),
+        Effect.promise(() => listPendingNearInvitations(db, context.userId)),
       ]);
       return [
         ...(emailInvitations ?? []).map((inv: any) => ({
@@ -199,9 +207,9 @@ export function createInvitationHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       yield* attemptAuth(() =>
-        services.auth.api.cancelInvitation({
+        auth.api.cancelInvitation({
           headers: createHeaders(context.reqHeaders),
           body: { invitationId: input.invitationId },
         }),
@@ -213,9 +221,9 @@ export function createInvitationHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       yield* attemptAuth(() =>
-        services.auth.api.acceptInvitation({
+        auth.api.acceptInvitation({
           headers: createHeaders(context.reqHeaders),
           body: { invitationId: input.invitationId },
         }),
@@ -227,9 +235,9 @@ export function createInvitationHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       yield* attemptAuth(() =>
-        services.auth.api.acceptNearInvitation({
+        auth.api.acceptNearInvitation({
           headers: createHeaders(context.reqHeaders),
           body: { invitationId: input.invitationId },
         }),
@@ -241,9 +249,9 @@ export function createInvitationHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       yield* attemptAuth(() =>
-        services.auth.api.rejectNearInvitation({
+        auth.api.rejectNearInvitation({
           headers: createHeaders(context.reqHeaders),
           body: { invitationId: input.invitationId },
         }),
@@ -255,9 +263,9 @@ export function createInvitationHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       yield* attemptAuth(() =>
-        services.auth.api.rejectInvitation({
+        auth.api.rejectInvitation({
           headers: createHeaders(context.reqHeaders),
           body: { invitationId: input.invitationId },
         }),

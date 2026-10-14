@@ -5,6 +5,7 @@ import { Context, Effect } from "effect";
 import { type AuthConfig, createAuthInstance } from "../src/auth-instance";
 import { type ContractType, contract, type InferInput, type InferOutput } from "../src/contract";
 import { createDatabaseDriver } from "../src/db";
+import { DatabaseTag } from "../src/db/layer";
 import { loadMigrations, migrate } from "../src/db/migrate";
 import * as schema from "../src/db/schema";
 import { createApiKeyHandlers } from "../src/handlers/api-keys";
@@ -19,7 +20,13 @@ import { createTeamHandlers } from "../src/handlers/teams";
 import { type AuthHandlerContext, createRequireAuth } from "../src/middleware";
 import { createOnboardingCodeCipher } from "../src/onboarding-code-cipher";
 import { createOrganizationMembershipPolicy } from "../src/organization-membership-policy";
-import { AuthServicesTag, type PluginServices } from "../src/service-types";
+import {
+  AuthApiTag,
+  AuthServicesTag,
+  MembershipPolicyTag,
+  OnboardingCodeCipherTag,
+  type PluginServices,
+} from "../src/service-types";
 
 const TEST_DB_URL = "pglite::memory:";
 
@@ -42,15 +49,20 @@ export async function createTestServices(configOverrides?: Partial<AuthConfig>) 
     driver.db,
   );
 
+  const handler = (req: Request) => auth.handler(req);
+  const apiKeyHeaders = ["x-api-key"];
+  const membershipPolicy = createOrganizationMembershipPolicy(
+    configOverrides?.organizationMembershipLimit,
+  );
+  const onboardingCodeCipher = createOnboardingCodeCipher(process.env.BETTER_AUTH_SECRET!);
+
   const services: PluginServices = {
     auth,
     db: driver.db,
-    handler: (req: Request) => auth.handler(req),
-    apiKeyHeaders: ["x-api-key"],
-    membershipPolicy: createOrganizationMembershipPolicy(
-      configOverrides?.organizationMembershipLimit,
-    ),
-    onboardingCodeCipher: createOnboardingCodeCipher(process.env.BETTER_AUTH_SECRET!),
+    handler,
+    apiKeyHeaders,
+    membershipPolicy,
+    onboardingCodeCipher,
   };
 
   return { services, driver };
@@ -208,7 +220,19 @@ type WrappedRouter<T extends Record<string, unknown>> = {
 };
 
 export function createTestHandlers(services: PluginServices) {
-  const effectContext = Context.make(AuthServicesTag, services);
+  const effectContext = Context.make(AuthServicesTag, services).pipe(
+    Context.add(AuthApiTag, {
+      auth: services.auth,
+      handler: services.handler,
+      apiKeyHeaders: services.apiKeyHeaders,
+    }),
+    Context.add(DatabaseTag, services.db),
+    Context.add(OnboardingCodeCipherTag, services.onboardingCodeCipher),
+    Context.add(
+      MembershipPolicyTag,
+      services.membershipPolicy ?? createOrganizationMembershipPolicy(),
+    ),
+  );
   const builder = implement(contract).$context<AuthHandlerContext>();
   const requireAuth = createRequireAuth(builder);
 

@@ -2,7 +2,7 @@ import { type Implementer, ORPCError } from "@orpc/server";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
 import type { ContractType } from "../contract";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
-import { AuthServicesTag } from "../service-types";
+import { AuthApiTag } from "../service-types";
 import { createHeaders } from "../utils";
 import { attemptAuth } from "./attempts";
 
@@ -12,7 +12,7 @@ export function createApiKeyHandlers(
 ) {
   return {
     listApiKeys: builder.listApiKeys.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const queryParams = ["organizationId", "limit", "offset", "sortBy", "sortDirection"] as const;
       const query: Record<string, string | number> = {};
       for (const key of queryParams) {
@@ -22,7 +22,7 @@ export function createApiKeyHandlers(
       }
 
       const result = yield* attemptAuth(() =>
-        services.auth.api.listApiKeys({
+        auth.api.listApiKeys({
           headers: createHeaders(context.reqHeaders),
           query: Object.keys(query).length > 0 ? query : undefined,
         }),
@@ -31,10 +31,10 @@ export function createApiKeyHandlers(
     }),
 
     createApiKey: builder.createApiKey.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const configId = input.configId ?? (input.organizationId ? "org-keys" : "user-keys");
       const result = yield* attemptAuth(() =>
-        services.auth.api.createApiKey({
+        auth.api.createApiKey({
           body: {
             userId: context.userId,
             configId,
@@ -54,10 +54,10 @@ export function createApiKeyHandlers(
     }),
 
     updateApiKey: builder.updateApiKey.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const configId = input.configId ?? (input.organizationId ? "org-keys" : "user-keys");
       const result = yield* attemptAuth(() =>
-        services.auth.api.updateApiKey({
+        auth.api.updateApiKey({
           body: {
             userId: context.userId,
             configId,
@@ -81,11 +81,11 @@ export function createApiKeyHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const configId = input.configId ?? (input.organizationId ? "org-keys" : "user-keys");
       const deleteAcrossConfigs = async () => {
         try {
-          await services.auth.api.deleteApiKey({
+          await auth.api.deleteApiKey({
             headers: createHeaders(context.reqHeaders),
             body: { keyId: input.id, configId },
           });
@@ -97,7 +97,7 @@ export function createApiKeyHandlers(
           for (const fallbackConfigId of API_KEY_CONFIG_IDS) {
             if (fallbackConfigId === configId) continue;
             try {
-              await services.auth.api.deleteApiKey({
+              await auth.api.deleteApiKey({
                 headers: createHeaders(context.reqHeaders),
                 body: { keyId: input.id, configId: fallbackConfigId },
               });
@@ -115,10 +115,10 @@ export function createApiKeyHandlers(
     }),
 
     verifyApiKey: builder.verifyApiKey.effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       if (input.configId) {
         const result = yield* attemptAuth(() =>
-          services.auth.api.verifyApiKey({
+          auth.api.verifyApiKey({
             headers: createHeaders(context.reqHeaders),
             body: {
               key: input.key,
@@ -142,7 +142,7 @@ export function createApiKeyHandlers(
 
       for (const configId of API_KEY_CONFIG_IDS) {
         const result = yield* attemptAuth(() =>
-          services.auth.api.verifyApiKey({
+          auth.api.verifyApiKey({
             headers: createHeaders(context.reqHeaders),
             body: {
               key: input.key,

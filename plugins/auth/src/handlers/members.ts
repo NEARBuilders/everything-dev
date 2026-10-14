@@ -2,9 +2,10 @@ import type { Implementer } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import type { ContractType } from "../contract";
+import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
-import { AuthServicesTag } from "../service-types";
+import { AuthApiTag } from "../service-types";
 import {
   canReadMemberEmails,
   createHeaders,
@@ -24,9 +25,9 @@ export function createMemberHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const emailAllowed = yield* Effect.promise(() =>
-        canReadMemberEmails(services, context, input?.organizationId),
+        canReadMemberEmails(auth, context, input?.organizationId),
       );
       if (!emailAllowed) {
         return yield* Effect.fail(
@@ -37,7 +38,7 @@ export function createMemberHandlers(
         );
       }
       const result = yield* attemptAuth(() =>
-        services.auth.api.listMembers({
+        auth.api.listMembers({
           headers: createHeaders(context.reqHeaders),
           query: {
             organizationId: input.organizationId,
@@ -61,10 +62,10 @@ export function createMemberHandlers(
       context,
       input,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const headers = createHeaders(context.reqHeaders);
       const member = yield* attemptAuth(() =>
-        services.auth.api.getActiveMember({
+        auth.api.getActiveMember({
           headers,
           query: input?.organizationId ? { organizationId: input.organizationId } : undefined,
         }),
@@ -85,9 +86,9 @@ export function createMemberHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.getActiveMemberRole({
+        auth.api.getActiveMemberRole({
           headers: createHeaders(context.reqHeaders),
           query: input?.organizationId ? { organizationId: input.organizationId } : undefined,
         }),
@@ -97,9 +98,9 @@ export function createMemberHandlers(
     }),
 
     listMembers: builder.listMembers.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const result = yield* attemptAuth(() =>
-        services.auth.api.listMembers({
+        auth.api.listMembers({
           headers: createHeaders(context.reqHeaders),
           query: {
             organizationId: input.organizationId,
@@ -109,7 +110,7 @@ export function createMemberHandlers(
         }),
       );
       const emailAllowed = yield* Effect.promise(() =>
-        canReadMemberEmails(services, context, input?.organizationId),
+        canReadMemberEmails(auth, context, input?.organizationId),
       );
       return {
         members: (result.members ?? []).map((m: any) => ({
@@ -135,14 +136,15 @@ export function createMemberHandlers(
     }),
 
     addMember: builder.addMember.use(requireAuth).effect(function* ({ input, context, errors }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const headers = createHeaders(context.reqHeaders);
       const session = input.organizationId
         ? null
-        : yield* attemptAuth(() => services.auth.api.getSession({ headers }));
+        : yield* attemptAuth(() => auth.api.getSession({ headers }));
       const activeSession = session
         ? yield* attemptDb(() =>
-            services.db.query.session.findFirst({
+            db.query.session.findFirst({
               where: eq(schema.session.id, session.session.id),
             }),
           )
@@ -155,7 +157,7 @@ export function createMemberHandlers(
       }
       if (context.user?.role !== "admin") {
         const { permitted, failure } = yield* Effect.promise(() =>
-          hasOrgPermission(services, context, organizationId, { member: ["create"] }),
+          hasOrgPermission(auth, context, organizationId, { member: ["create"] }),
         );
         if (
           failure &&
@@ -173,7 +175,7 @@ export function createMemberHandlers(
         }
         if (input.role === "owner") {
           const caller = yield* attemptDb(() =>
-            services.db.query.member.findFirst({
+            db.query.member.findFirst({
               where: and(
                 eq(schema.member.organizationId, organizationId),
                 eq(schema.member.userId, context.userId),
@@ -191,7 +193,7 @@ export function createMemberHandlers(
         }
       }
       const organization = yield* attemptDb(() =>
-        services.db.query.organization.findFirst({
+        db.query.organization.findFirst({
           where: eq(schema.organization.id, organizationId),
         }),
       );
@@ -212,7 +214,7 @@ export function createMemberHandlers(
         );
       }
       const result = yield* attemptAuth(() =>
-        services.auth.api.addMember({
+        auth.api.addMember({
           headers,
           body: {
             userId: input.userId,
@@ -231,9 +233,9 @@ export function createMemberHandlers(
     }),
 
     removeMember: builder.removeMember.use(requireAuth).effect(function* ({ input, context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       yield* attemptAuth(() =>
-        services.auth.api.removeMember({
+        auth.api.removeMember({
           headers: createHeaders(context.reqHeaders),
           body: {
             memberIdOrEmail: input.memberIdOrEmail,
@@ -248,12 +250,12 @@ export function createMemberHandlers(
       input,
       context,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const emailAllowed = yield* Effect.promise(() =>
-        canReadMemberEmails(services, context, input?.organizationId),
+        canReadMemberEmails(auth, context, input?.organizationId),
       );
       const result = yield* attemptAuth(() =>
-        services.auth.api.updateMemberRole({
+        auth.api.updateMemberRole({
           headers: createHeaders(context.reqHeaders),
           body: {
             role: input.role,

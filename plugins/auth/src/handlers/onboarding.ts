@@ -2,14 +2,18 @@ import { createHash } from "node:crypto";
 import { type Implementer, ORPCError } from "@orpc/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
+import type { Auth as ConfiguredAuth } from "../auth-instance";
 import type { AuthErrors, ContractType } from "../contract";
+import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, AuthSessionUser, RequireAuthMiddleware } from "../middleware";
+import { toDate } from "../serializers";
 import {
-  createOrganizationMembershipPolicy,
-  type OrganizationMembershipPolicy,
-} from "../organization-membership-policy";
-import { AuthServicesTag, type PluginServices } from "../service-types";
+  AuthApiTag,
+  MembershipPolicyTag,
+  OnboardingCodeCipherTag,
+  type PluginServices,
+} from "../service-types";
 import { createHeaders, getActiveOrganizationId, parseTeamAreas } from "../utils";
 import { attemptAuth, attemptDb } from "./attempts";
 
@@ -25,24 +29,15 @@ function hashCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
 }
 
-function toDate(value: unknown): Date {
-  return value instanceof Date ? value : new Date(value as string);
-}
-
-function membershipPolicyOf(services: {
-  membershipPolicy?: OrganizationMembershipPolicy;
-}): OrganizationMembershipPolicy {
-  return services.membershipPolicy ?? createOrganizationMembershipPolicy();
-}
-
 async function requireOrganizerContext(
-  services: PluginServices,
+  auth: ConfiguredAuth,
+  db: PluginServices["db"],
   context: AuthHandlerContext & { userId: string; user: AuthSessionUser },
   inputOrganizationId: string | undefined,
   errors: AuthErrors,
 ): Promise<{ userId: string; organizationId: string; headers: Headers }> {
   const headers = createHeaders(context.reqHeaders);
-  const session = await services.auth.api.getSession({ headers });
+  const session = await auth.api.getSession({ headers });
   const sessionData = session as {
     user?: { id?: string };
     session?: { activeOrganizationId?: string | null };
@@ -53,7 +48,7 @@ async function requireOrganizerContext(
   if (!userId || !organizationId) {
     throw errors.BAD_REQUEST({ message: "No organization selected", data: {} });
   }
-  const organization = await services.db.query.organization.findFirst({
+  const organization = await db.query.organization.findFirst({
     where: eq(schema.organization.id, organizationId),
   });
   if (organization?.status !== "active") {
@@ -62,7 +57,7 @@ async function requireOrganizerContext(
       data: {},
     });
   }
-  const result = await services.auth.api.getActiveMemberRole({
+  const result = await auth.api.getActiveMemberRole({
     headers,
     query: { organizationId },
   });
@@ -70,7 +65,7 @@ async function requireOrganizerContext(
   const isOrganizer =
     role === "owner" ||
     role === "admin" ||
-    (role !== null && (await belongsToEventsTeam(services.db, userId, organizationId)));
+    (role !== null && (await belongsToEventsTeam(db, userId, organizationId)));
   if (!isOrganizer) {
     throw errors.FORBIDDEN({
       message:
@@ -167,10 +162,12 @@ export function createOnboardingHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const { userId, organizationId } = yield* attemptAuth(() =>
-        requireOrganizerContext(services, context, input.organizationId, errors),
+        requireOrganizerContext(auth, db, context, input.organizationId, errors),
       );
+      const onboardingCodeCipher = yield* OnboardingCodeCipherTag;
 
       const eventName = String(input.eventName).trim();
       const eventId = String(input.eventId);
@@ -188,14 +185,12 @@ export function createOnboardingHandlers(
       }
 
       const teamId = yield* attemptDb(() =>
-        resolveEventTeamId(services.db, organizationId, eventId, eventName),
+        resolveEventTeamId(db, organizationId, eventId, eventName),
       );
       const code = generateCode();
-      const encryptedCode = yield* Effect.promise(() =>
-        services.onboardingCodeCipher.encrypt(code),
-      );
+      const encryptedCode = yield* Effect.promise(() => onboardingCodeCipher.encrypt(code));
       const [row] = yield* attemptDb(() =>
-        services.db
+        db
           .insert(schema.onboardingCode)
           .values({
             id: crypto.randomUUID(),
@@ -229,13 +224,14 @@ export function createOnboardingHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const { organizationId } = yield* attemptAuth(() =>
-        requireOrganizerContext(services, context, input.organizationId, errors),
+        requireOrganizerContext(auth, db, context, input.organizationId, errors),
       );
 
       const rows = yield* attemptDb(() =>
-        services.db
+        db
           .select()
           .from(schema.onboardingCode)
           .where(eq(schema.onboardingCode.organizationId, organizationId))
@@ -250,13 +246,14 @@ export function createOnboardingHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const { organizationId } = yield* attemptAuth(() =>
-        requireOrganizerContext(services, context, input.organizationId, errors),
+        requireOrganizerContext(auth, db, context, input.organizationId, errors),
       );
 
       const [revoked] = yield* attemptDb(() =>
-        services.db
+        db
           .update(schema.onboardingCode)
           .set({ revokedAt: new Date() })
           .where(
@@ -284,13 +281,15 @@ export function createOnboardingHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const { organizationId } = yield* attemptAuth(() =>
-        requireOrganizerContext(services, context, input.organizationId, errors),
+        requireOrganizerContext(auth, db, context, input.organizationId, errors),
       );
+      const onboardingCodeCipher = yield* OnboardingCodeCipherTag;
 
       const row = yield* attemptDb(() =>
-        services.db.query.onboardingCode.findFirst({
+        db.query.onboardingCode.findFirst({
           where: and(
             eq(schema.onboardingCode.id, input.codeId),
             eq(schema.onboardingCode.organizationId, organizationId),
@@ -317,7 +316,7 @@ export function createOnboardingHandlers(
       const encryptedCode = row.encryptedCode;
       return {
         ...toSummary(row),
-        code: yield* Effect.promise(() => services.onboardingCodeCipher.decrypt(encryptedCode)),
+        code: yield* Effect.promise(() => onboardingCodeCipher.decrypt(encryptedCode)),
       };
     }),
 
@@ -326,13 +325,14 @@ export function createOnboardingHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const { organizationId } = yield* attemptAuth(() =>
-        requireOrganizerContext(services, context, input.organizationId, errors),
+        requireOrganizerContext(auth, db, context, input.organizationId, errors),
       );
 
       const row = yield* attemptDb(() =>
-        services.db.query.onboardingCode.findFirst({
+        db.query.onboardingCode.findFirst({
           where: and(
             eq(schema.onboardingCode.id, input.codeId),
             eq(schema.onboardingCode.organizationId, organizationId),
@@ -349,7 +349,7 @@ export function createOnboardingHandlers(
       }
 
       const joined = yield* attemptDb(() =>
-        services.db
+        db
           .select({
             userId: schema.onboardingRedemption.userId,
             userName: schema.user.name,
@@ -381,21 +381,21 @@ export function createOnboardingHandlers(
     }),
 
     getOnboardingCodeInfo: builder.getOnboardingCodeInfo.effect(function* ({ input }) {
-      const services = yield* AuthServicesTag;
+      const db = yield* DatabaseTag;
       const codeRow = yield* attemptDb(() =>
-        services.db.query.onboardingCode.findFirst({
+        db.query.onboardingCode.findFirst({
           where: eq(schema.onboardingCode.codeHash, hashCode(input.code)),
         }),
       );
       if (!codeRow) return null;
 
       const organization = yield* attemptDb(() =>
-        services.db.query.organization.findFirst({
+        db.query.organization.findFirst({
           where: eq(schema.organization.id, codeRow.organizationId),
         }),
       );
       const inviter = yield* attemptDb(() =>
-        services.db.query.user.findFirst({
+        db.query.user.findFirst({
           where: eq(schema.user.id, codeRow.createdBy),
         }),
       );
@@ -417,9 +417,10 @@ export function createOnboardingHandlers(
       context,
       errors,
     }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const headers = createHeaders(context.reqHeaders);
-      const session = yield* attemptAuth(() => services.auth.api.getSession({ headers }));
+      const session = yield* attemptAuth(() => auth.api.getSession({ headers }));
       const sessionData = session as { user?: { id?: string }; session?: { id?: string } } | null;
       const userId = context.userId ?? sessionData?.user?.id ?? null;
       if (!userId || !sessionData?.session?.id) {
@@ -431,9 +432,10 @@ export function createOnboardingHandlers(
         );
       }
       const sessionId = sessionData.session.id;
+      const membershipPolicy = yield* MembershipPolicyTag;
 
       const codeRow = yield* attemptDb(() =>
-        services.db.query.onboardingCode.findFirst({
+        db.query.onboardingCode.findFirst({
           where: eq(schema.onboardingCode.codeHash, hashCode(input.code)),
         }),
       );
@@ -447,7 +449,7 @@ export function createOnboardingHandlers(
       }
 
       const organization = yield* attemptDb(() =>
-        services.db.query.organization.findFirst({
+        db.query.organization.findFirst({
           where: eq(schema.organization.id, codeRow.organizationId),
         }),
       );
@@ -481,7 +483,7 @@ export function createOnboardingHandlers(
       }
 
       const already = yield* attemptDb(() =>
-        services.db.query.onboardingRedemption.findFirst({
+        db.query.onboardingRedemption.findFirst({
           where: and(
             eq(schema.onboardingRedemption.codeId, codeRow.id),
             eq(schema.onboardingRedemption.userId, userId),
@@ -490,7 +492,7 @@ export function createOnboardingHandlers(
       );
       if (already) {
         yield* attemptDb(() =>
-          services.db
+          db
             .update(schema.session)
             .set({ activeOrganizationId: codeRow.organizationId })
             .where(eq(schema.session.id, sessionId)),
@@ -504,7 +506,7 @@ export function createOnboardingHandlers(
       }
 
       yield* attemptDb(() =>
-        services.db.transaction(async (tx) => {
+        db.transaction(async (tx) => {
           const [orgRow] = await tx
             .select({ id: schema.organization.id })
             .from(schema.organization)
@@ -525,7 +527,7 @@ export function createOnboardingHandlers(
               .select({ memberCount: sql<number>`count(*)::int` })
               .from(schema.member)
               .where(eq(schema.member.organizationId, codeRow.organizationId));
-            if (!membershipPolicyOf(services).hasCapacity(memberCount)) {
+            if (!membershipPolicy.hasCapacity(memberCount)) {
               throw errors.FORBIDDEN({
                 message: "This organization is full, so no more members can join",
                 data: {},
@@ -593,7 +595,7 @@ export function createOnboardingHandlers(
       );
 
       yield* attemptDb(() =>
-        services.db
+        db
           .update(schema.session)
           .set({ activeOrganizationId: codeRow.organizationId })
           .where(eq(schema.session.id, sessionId)),

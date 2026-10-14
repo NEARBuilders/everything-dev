@@ -4,13 +4,14 @@ import { and, asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { type AuthContextShape, createAuthMiddleware } from "everything-dev/api";
 import type { ContractType } from "../contract";
+import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import type {
+  AuthEffectServices,
   AuthHandlerAuthedContext,
   AuthHandlerContext,
   RequireAuthMiddleware,
 } from "../middleware";
-import { AuthServicesTag } from "../service-types";
 import { tryJsonParse } from "../utils";
 import { attemptDb } from "./attempts";
 
@@ -22,7 +23,7 @@ function serialize(organization: typeof schema.organization.$inferSelect) {
 }
 
 export type OrganizationRequestContext = AuthContextShape &
-  WithEffectContext<AuthServicesTag> & { reqHeaders?: Record<string, string> };
+  WithEffectContext<AuthEffectServices> & { reqHeaders?: Record<string, string> };
 
 export function createOrganizationRequestHandlers(
   builder: Implementer<ContractType, AuthHandlerContext>,
@@ -34,9 +35,9 @@ export function createOrganizationRequestHandlers(
       .use(requireAuth)
       .use(requireAdmin)
       .effect(function* () {
-        const services = yield* AuthServicesTag;
+        const db = yield* DatabaseTag;
         const organizations = yield* attemptDb(() =>
-          services.db.query.organization.findMany({
+          db.query.organization.findMany({
             where: eq(schema.organization.status, "pending"),
             orderBy: asc(schema.organization.createdAt),
           }),
@@ -47,7 +48,7 @@ export function createOrganizationRequestHandlers(
       .use(requireAuth)
       .use(requireAdmin)
       .effect(function* ({ input, errors }) {
-        const services = yield* AuthServicesTag;
+        const db = yield* DatabaseTag;
         const reason = input.decision === "reject" ? input.reason.trim() : "";
         if (
           input.decision !== "approve" &&
@@ -61,7 +62,7 @@ export function createOrganizationRequestHandlers(
           );
         }
         const organization = yield* attemptDb(() =>
-          services.db.transaction(async (tx) => {
+          db.transaction(async (tx) => {
             const [reviewed] = await tx
               .update(schema.organization)
               .set({
