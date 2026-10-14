@@ -309,14 +309,7 @@ export function createTestHandlers(services: PluginServices) {
     ),
     Context.add(
       PermissionsService,
-      buildPermissionsService({
-        auth: services.auth,
-        db: services.db,
-        registry: {
-          statements: TEST_PERMISSIONS.statements,
-          roleGrants: TEST_PERMISSIONS.roles,
-        },
-      }),
+      buildPermissionsService({ auth: services.auth, db: services.db }),
     ),
     Context.add(NearService, buildNearService({ auth: services.auth })),
     Context.add(
@@ -333,14 +326,7 @@ export function createTestHandlers(services: PluginServices) {
       buildOnboardingService({
         auth: services.auth,
         db: services.db,
-        permissions: buildPermissionsService({
-          auth: services.auth,
-          db: services.db,
-          registry: {
-            statements: TEST_PERMISSIONS.statements,
-            roleGrants: TEST_PERMISSIONS.roles,
-          },
-        }),
+        permissions: buildPermissionsService({ auth: services.auth, db: services.db }),
         cipher: services.onboardingCodeCipher,
         membershipPolicy: services.membershipPolicy,
       }),

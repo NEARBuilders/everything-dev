@@ -44,10 +44,13 @@ ADR: `docs/adr/0028-config-declared-permissions.md`.
 - [x] Audit Better Auth team routes — **no #313-class gap**: all five management routes
       gate on the caller's org role (`crud-team.mjs` :85/:167/:284/:591/:669), evaluated
       against the config-declared roles. Team-scoped *elevation* (direct-write bypass of
-      the org-role checks) is a behavior decision — deferred to
-      `.scratch/auth-permissioning/issues/07-team-scoped-elevation.md`.
+      the org-role checks) was **rejected (wontfix)**: no route may bypass Better Auth —
+      team-scoped roles are restriction-only, all management writes stay behind Better
+      Auth's endpoints and org-role checks.
 - [x] Migration `0011`: `team_member.role` (default `"member"`); `db/schema.ts` column
-- [x] `PermissionsService.hasTeamPermission` (org ∪ team grants)
+- [x] `PermissionsService.hasTeamPermission` (org ∪ team grants) — **removed post-decision**:
+      the union evaluator existed only for the rejected elevation path; team-scope checks
+      read the caller's team-role grants from the context (restriction semantics)
 - [x] `getContext` team entries gain `permissions` (registry grants for the caller's team role)
 - [x] `requirePermission` scope option: `{ scope: "team", teamId: (input) => string | undefined }`
 - [x] Role assignment: `addTeamMember` accepts `role` (validated against the declared roles); `listTeamMembers` returns `role`
