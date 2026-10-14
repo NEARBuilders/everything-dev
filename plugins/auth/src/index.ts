@@ -32,6 +32,7 @@ import {
 import { InvitationsServiceLive } from "./services/invitations";
 import { MembersServiceLive } from "./services/members";
 import { NearServiceLive } from "./services/near";
+import { SessionServiceLive } from "./services/session";
 import { OnboardingServiceLive } from "./services/onboarding";
 import { PermissionsServiceLive } from "./services/permissions";
 import { TeamsServiceLive } from "./services/teams";
@@ -90,6 +91,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
           Layer.provide(tagsLayer),
         ),
         NearServiceLive.pipe(Layer.provide(tagsLayer)),
+        SessionServiceLive.pipe(Layer.provide(tagsLayer)),
         Layer.succeed(AuthServicesTag, {
           auth,
           db,

@@ -30,6 +30,7 @@ import {
 import { buildInvitationsService, InvitationsService } from "../src/services/invitations";
 import { buildMembersService, MembersService } from "../src/services/members";
 import { buildNearService, NearService } from "../src/services/near";
+import { buildSessionService, SessionService } from "../src/services/session";
 import { buildOnboardingService, OnboardingService } from "../src/services/onboarding";
 import { buildPermissionsService, PermissionsService } from "../src/services/permissions";
 import { buildTeamsService, TeamsService } from "../src/services/teams";
@@ -259,6 +260,14 @@ export function createTestHandlers(services: PluginServices) {
     Context.add(
       NearService,
       buildNearService({ auth: services.auth }),
+    ),
+    Context.add(
+      SessionService,
+      buildSessionService({
+        auth: services.auth,
+        apiKeyHeaders: services.apiKeyHeaders,
+        db: services.db,
+      }),
     ),
     Context.add(
       OnboardingService,

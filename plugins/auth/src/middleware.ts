@@ -14,6 +14,7 @@ import type { OrganizationsService } from "./services/organizations";
 import { InvitationsService } from "./services/invitations";
 import { MembersService } from "./services/members";
 import { NearService } from "./services/near";
+import { SessionService } from "./services/session";
 import { OnboardingService } from "./services/onboarding";
 import { PermissionsService } from "./services/permissions";
 import { TeamsService } from "./services/teams";
@@ -32,7 +33,8 @@ export type AuthEffectServices =
   | TeamsService
   | OnboardingService
   | PermissionsService
-  | NearService;
+  | NearService
+  | SessionService;
 
 export type AuthHandlerContext = AuthContextShape &
   WithEffectContext<AuthEffectServices> & {
