@@ -9,7 +9,7 @@ metadata:
 
 # CLI Command Reference
 
-17 `bos` commands organised by workflow category.
+19 `bos` commands organised by workflow category.
 
 ## Development
 
@@ -135,7 +135,7 @@ Output includes installed vs latest versions for each workspace package, whether
 
 Publish the resolved config to the FastKV on-chain registry. Optionally build and deploy workspaces first.
 
-**Flags:** `--deploy` `--dry-run` `--network <mainnet|testnet>` `--private-key <key>` `--env <production|staging>` `--packages <list|all|local>`
+**Flags:** `--deploy` `--dry-run` `--network <mainnet|testnet>` `--private-key <key>` `--wallet` `--env <production|staging>` `--packages <list|all|local>`
 
 ```bash
 bos publish                          # publish current config snapshot
@@ -143,6 +143,7 @@ bos publish --deploy                 # build all + deploy + publish
 bos publish --deploy --packages local   # build/deploy only the workspaces owned by this repo (CI default)
 bos publish --dry-run                # preview what would be published
 bos publish --network testnet        # publish to testnet registry
+bos publish --wallet                 # gasless: sign in a browser, relayed delegate write — no local key needed
 ```
 
 → [`publish-sync`](.) skill for config sections, SRI integrity, rollback, and FastKV troubleshooting.
@@ -174,16 +175,31 @@ bos deploy --service my-railway         # override Railway service name
 
 → [`publish-sync`](.) skill and [`super-app`](.) for tenant-aware deploy considerations.
 
+### `bos login` / `bos logout`
+
+Establish publish/CLI identity without a seed phrase or private key. `bos login` opens a browser (one approval), persists a device-named API key in `.bos/session.json` (gitignored), and works for both the publish path and API access (`x-api-key` on `/api/*`, `/api/rpc/*`, `/api/mcp`).
+
+**Flags (login):** `--key` (additionally mint and export a publish-scoped function-call key to `~/.near-credentials`)
+
+```bash
+bos login          # browser approval → API key in .bos/session.json
+bos login --key    # also export a scoped publish key (near-CLI format)
+bos logout         # revoke the API key (best-effort) + delete the handle and exported key
+```
+
+Sessions/keys expire (90 days by default); re-login is non-destructive. → [`talk-to-the-app`](.) skill for the authentication model and MCP access.
+
 ### `bos key generate`
 
 Generate a publish access key (NEAR function-call key) scoped to the FastKV registry contract.
-If existing publish keys are found on the account, you will be prompted to remove them.
+If existing publish keys are found on the account, you will be prompted — the prompt defaults to **keeping** them.
 
-**Flags:** `--allowance <amount>` (default: `1NEAR`)
+**Flags:** `--allowance <amount>` (default: `1NEAR`) `--[no-]remove-old-keys` (default: ask on a TTY, keep when non-interactive)
 
 ```bash
-bos key generate                    # generate key with default allowance
-bos key generate --allowance 2NEAR  # custom allowance
+bos key generate                        # generate key with default allowance
+bos key generate --allowance 2NEAR      # custom allowance
+bos key generate --remove-old-keys      # also remove existing publish key(s) without prompting
 ```
 
 Outputs the public key, private key, and registry contract address. The generated key can only call the set and get methods on the BOS registry contract — it cannot transfer funds or call other contracts.

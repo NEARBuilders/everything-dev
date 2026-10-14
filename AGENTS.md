@@ -711,12 +711,14 @@ The host exposes several surfaces for programmatic agent access:
 
 ### Authentication for agents
 
-1. Sign in with your NEAR wallet (SIWN) at the website.
+Every API surface — including MCP `tools/list` — requires a session or API key; anonymous requests get `401`.
+
+1. Sign in with your NEAR wallet (SIWN) at the website — or run `bos login` from a machine with a browser (persists an API key in `.bos/session.json`, gitignored).
 2. Navigate to **Settings → API Keys** at `/settings/api-keys`.
 3. Create a new key — the full secret (`api_...`) is shown once. Copy it immediately.
 4. Pass it on every request: `x-api-key: api_your_key_here`
 
-The `x-api-key` header works for all API surfaces. The session middleware resolves the key via Better-Auth `getContext()`, populating `context.apiKey` with `{ id, name, permissions }`.
+The `x-api-key` header works for all API surfaces. The session middleware resolves the key via Better-Auth `getContext()`, populating `context.apiKey` with `{ id, name, permissions }`. The deep-dive brief agents load on any auth refusal is [`everything-dev#talk-to-the-app`](packages/everything-dev/skills/talk-to-the-app/SKILL.md).
 
 ### MCP tool generation
 
