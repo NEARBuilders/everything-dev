@@ -31,6 +31,7 @@ import {
 } from "./service-types";
 import { InvitationsServiceLive } from "./services/invitations";
 import { MembersServiceLive } from "./services/members";
+import { TeamsServiceLive } from "./services/teams";
 import { OrganizationsServiceLive } from "./services/organizations";
 import { toError } from "./utils";
 import { socialProviderWarnings } from "./warnings";
@@ -79,6 +80,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         OrganizationsServiceLive.pipe(Layer.provide(tagsLayer)),
         InvitationsServiceLive.pipe(Layer.provide(tagsLayer)),
         MembersServiceLive.pipe(Layer.provide(tagsLayer)),
+        TeamsServiceLive.pipe(Layer.provide(tagsLayer)),
         Layer.succeed(AuthServicesTag, {
           auth,
           db,

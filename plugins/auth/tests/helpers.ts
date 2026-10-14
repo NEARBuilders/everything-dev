@@ -29,6 +29,7 @@ import {
 } from "../src/service-types";
 import { buildInvitationsService, InvitationsService } from "../src/services/invitations";
 import { buildMembersService, MembersService } from "../src/services/members";
+import { buildTeamsService, TeamsService } from "../src/services/teams";
 import { buildOrganizationsService, OrganizationsService } from "../src/services/organizations";
 
 const TEST_DB_URL = "pglite::memory:";
@@ -243,6 +244,10 @@ export function createTestHandlers(services: PluginServices) {
     Context.add(
       MembersService,
       buildMembersService({ auth: services.auth, db: services.db }),
+    ),
+    Context.add(
+      TeamsService,
+      buildTeamsService({ auth: services.auth, db: services.db }),
     ),
   );
   const builder = implement(contract).$context<AuthHandlerContext>();
