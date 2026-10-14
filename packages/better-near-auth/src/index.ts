@@ -1492,11 +1492,14 @@ export const siwn = (options: SIWNPluginOptions) => {
                 options.getProfile || ((id: AccountId) => defaultGetProfile(id, apiKey))
               )(accountId);
 
-              user = await ctx.context.internalAdapter.createUser({
-                name: profile?.name ?? accountId,
-                email: userEmail,
-                image: profile?.image ? getImageUrl(profile.image) : "",
-              });
+              user = await ctx.context.internalAdapter.createUser(
+                {
+                  name: profile?.name ?? accountId,
+                  email: userEmail,
+                  image: profile?.image ? getImageUrl(profile.image) : "",
+                },
+                { method: "siwn" },
+              );
 
               await ctx.context.adapter.create({
                 model: "nearAccount",

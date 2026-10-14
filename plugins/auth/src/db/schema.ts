@@ -197,6 +197,7 @@ export const team = pgTable(
     organizationId: text("organization_id")
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
+    memberCount: integer("member_count").default(0).notNull(),
     metadata: text("metadata"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
@@ -214,6 +215,7 @@ export const teamMember = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    membershipKey: text("membership_key").unique(),
     role: text("role").default("member").notNull(),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -366,6 +368,26 @@ export const relayedTransaction = pgTable(
   (table) => [
     index("relayedTransaction_txHash_idx").on(table.txHash),
     index("relayedTransaction_userId_idx").on(table.userId),
+  ],
+);
+
+export const fundedGasKey = pgTable(
+  "funded_gas_key",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    accountId: text("account_id").notNull(),
+    publicKey: text("public_key").notNull(),
+    network: text("network").notNull(),
+    amount: text("amount").notNull(),
+    txHash: text("tx_hash").notNull(),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("fundedGasKey_userId_idx").on(table.userId),
+    index("fundedGasKey_accountId_idx").on(table.accountId),
   ],
 );
 
