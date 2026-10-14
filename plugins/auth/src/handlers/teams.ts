@@ -44,11 +44,7 @@ export function createTeamHandlers(
       context,
     }) {
       const teams = yield* TeamsService;
-      return yield* teams.listTeamMembers(
-        createHeaders(context.reqHeaders),
-        context.userId,
-        input.teamId,
-      );
+      return yield* teams.listTeamMembers(context.userId, input.teamId);
     }),
 
     addTeamMember: builder.addTeamMember.use(requireAuth).effect(function* ({ input, context }) {

@@ -11,12 +11,6 @@ import {
   phoneNumber,
 } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
-import {
-  adminAc,
-  defaultStatements,
-  memberAc,
-  ownerAc,
-} from "better-auth/plugins/organization/access";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "better-near-auth";
 import { eq, gt } from "drizzle-orm";
 import { BOS_CLI_CLIENT_ID, deviceLink } from "./device-link";
@@ -29,32 +23,15 @@ import {
   requireWalletCapablePasskey,
 } from "./passkey-sign-up";
 
-const orgStatements = {
-  ...defaultStatements,
-  apiKey: ["create", "read", "update", "delete"],
-  email: ["read"],
-} as const;
+function buildOrganizationAccess(permissions: AuthPermissionStatements) {
+  const ac = createAccessControl(permissions.statements);
+  const roles = Object.fromEntries(
+    Object.entries(permissions.roles).map(([name, grants]) => [name, ac.newRole(grants)]),
+  );
+  return { ac, roles };
+}
 
-const orgAc = createAccessControl(orgStatements);
-
-const orgRoles = {
-  owner: orgAc.newRole({
-    ...ownerAc.statements,
-    apiKey: ["create", "read", "update", "delete"],
-    email: ["read"],
-  }),
-  admin: orgAc.newRole({
-    ...adminAc.statements,
-    apiKey: ["create", "read", "update", "delete"],
-    email: ["read"],
-  }),
-  member: orgAc.newRole({
-    ...memberAc.statements,
-    apiKey: ["read"],
-  }),
-};
-
-import type { AuthConfig } from "./auth-config";
+import type { AuthConfig, AuthPermissionStatements } from "./auth-config";
 import type { Database as AuthDatabase } from "./db";
 import * as schema from "./db/schema";
 import {
@@ -274,6 +251,7 @@ export function createAuthInstance(
   db: AuthDatabase,
   secrets?: { email?: { resend?: string } },
 ) {
+  const { ac: orgAc, roles: orgRoles } = buildOrganizationAccess(config.siwn.permissions);
   const emailApiKey = secrets?.email?.resend;
   const emailConfig = config.email;
   const passkeyOptions = resolvePasskeyRelyingPartyOptions(config);

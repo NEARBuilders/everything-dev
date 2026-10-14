@@ -4,6 +4,11 @@ import type { Database } from "./db";
 import type { OnboardingCodeCipher } from "./onboarding-code-cipher";
 import type { OrganizationMembershipPolicy } from "./organization-membership-policy";
 
+export type PermissionRegistry = {
+  statements: Record<string, string[]>;
+  roleGrants: Record<string, Record<string, string[]>>;
+};
+
 export type PluginServices = {
   auth: ConfiguredAuth;
   db: Database;
@@ -11,6 +16,7 @@ export type PluginServices = {
   apiKeyHeaders: string[];
   membershipPolicy: OrganizationMembershipPolicy;
   onboardingCodeCipher: OnboardingCodeCipher;
+  permissionRegistry: PermissionRegistry;
 };
 
 export class AuthApiTag extends Context.Service<
@@ -31,6 +37,11 @@ export class MembershipPolicyTag extends Context.Service<
   MembershipPolicyTag,
   OrganizationMembershipPolicy
 >()("auth/MembershipPolicy") {}
+
+export class PermissionRegistryTag extends Context.Service<
+  PermissionRegistryTag,
+  PermissionRegistry
+>()("auth/PermissionRegistry") {}
 
 export class AuthServicesTag extends Context.Service<AuthServicesTag, PluginServices>()(
   "auth/AuthServices",

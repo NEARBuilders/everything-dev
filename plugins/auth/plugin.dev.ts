@@ -20,7 +20,13 @@ interface ProjectConfig {
   app?: {
     auth?: {
       variables?: {
-        siwn?: { recipients?: { mainnet?: string; testnet?: string } };
+        siwn?: {
+          recipients?: { mainnet?: string; testnet?: string };
+          permissions?: {
+            statements?: Record<string, string[]>;
+            roles?: Record<string, Record<string, string[]>>;
+          };
+        };
       };
     };
   };
@@ -45,6 +51,50 @@ const mainnetRecipient =
   process.env.ACCOUNT || configuredSiwn?.recipients?.mainnet || bosConfig?.account;
 const testnetRecipient =
   process.env.TESTNET_ACCOUNT || configuredSiwn?.recipients?.testnet || bosConfig?.staging?.account;
+
+// The permission surface is fully config-declared (ADR 0028) — the plugin ships
+// no defaults. Authored config wins; this transcribed posture is only the
+// standalone-dev fallback, mirroring how the recipients above fall back.
+const devPermissions = {
+  statements: {
+    organization: ["update", "delete"],
+    member: ["create", "update", "delete"],
+    invitation: ["create", "cancel"],
+    team: ["create", "update", "delete"],
+    ac: ["create", "read", "update", "delete"],
+    apiKey: ["create", "read", "update", "delete"],
+    email: ["read"],
+  },
+  roles: {
+    owner: {
+      organization: ["update", "delete"],
+      member: ["create", "update", "delete"],
+      invitation: ["create", "cancel"],
+      team: ["create", "update", "delete"],
+      ac: ["create", "read", "update", "delete"],
+      apiKey: ["create", "read", "update", "delete"],
+      email: ["read"],
+    },
+    admin: {
+      organization: ["update"],
+      member: ["create", "update", "delete"],
+      invitation: ["create", "cancel"],
+      team: ["create", "update", "delete"],
+      ac: ["create", "read", "update", "delete"],
+      apiKey: ["create", "read", "update", "delete"],
+      email: ["read"],
+    },
+    member: {
+      organization: [],
+      member: [],
+      invitation: [],
+      team: [],
+      ac: ["read"],
+      apiKey: ["read"],
+      email: [],
+    },
+  },
+};
 
 export default {
   pluginId: packageJson.name,
@@ -73,6 +123,10 @@ export default {
         recipients: {
           mainnet: mainnetRecipient ?? "dev.everything.near",
           testnet: testnetRecipient ?? "dev.everything.testnet",
+        },
+        permissions: {
+          statements: configuredSiwn?.permissions?.statements ?? devPermissions.statements,
+          roles: configuredSiwn?.permissions?.roles ?? devPermissions.roles,
         },
         rpcUrl: process.env.NEAR_RPC_URL,
         relayer: {

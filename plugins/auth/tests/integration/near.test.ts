@@ -2,7 +2,7 @@ import { hex } from "@scure/base";
 import { generateKey, Near } from "near-kit";
 import { EMPTY_CODE_HASH, Sandbox } from "near-kit/sandbox";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTestServices } from "../helpers";
+import { createTestServices, TEST_PERMISSIONS } from "../helpers";
 
 describe("NEAR SIWN Sandbox Integration", () => {
   let sandbox: Awaited<ReturnType<typeof Sandbox.start>>;
@@ -66,7 +66,7 @@ describe("NEAR SIWN Sandbox Integration", () => {
     expect(exists).toBe(true);
 
     const { services, driver } = await createTestServices({
-      siwn: { recipient: TEST_RECIPIENT, rpcUrl: sandbox.rpcUrl },
+      siwn: { recipient: TEST_RECIPIENT, rpcUrl: sandbox.rpcUrl, permissions: TEST_PERMISSIONS },
     });
 
     const nonceRes = (await services.auth.api.getSiwnNonce({
@@ -175,7 +175,7 @@ describe("NEAR SIWN Sandbox Integration", () => {
     await sandbox.fastForward(1);
 
     const { services, driver } = await createTestServices({
-      siwn: { recipient: TEST_RECIPIENT, rpcUrl: sandbox.rpcUrl },
+      siwn: { recipient: TEST_RECIPIENT, rpcUrl: sandbox.rpcUrl, permissions: TEST_PERMISSIONS },
     });
 
     const nonceRes = (await services.auth.api.getSiwnNonce({

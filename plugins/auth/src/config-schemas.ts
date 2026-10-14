@@ -40,6 +40,16 @@ export const sessionGasKeyNetworkSchema = z.object({
   numNonces: z.number().optional(),
 });
 
+export const permissionsSchema = z.object({
+  statements: z.record(z.string(), z.array(z.string())),
+  roles: z
+    .record(z.string(), z.record(z.string(), z.array(z.string())))
+    .refine((roles) => ["owner", "admin", "member"].every((name) => name in roles), {
+      message:
+        "roles must declare owner, admin, and member — Better Auth assigns the owner role on organization creation and the plugin's member routes expect all three",
+    }),
+});
+
 export const authSiwnBaseSchema = z.object({
   apiKey: z.string().optional(),
   rpcUrl: z.string().optional(),
@@ -61,6 +71,7 @@ export const authSiwnBaseSchema = z.object({
       testnet: subAccountNetworkSchema.optional(),
     })
     .optional(),
+  permissions: permissionsSchema,
 });
 
 export const authSiwnRecipientSchema = authSiwnBaseSchema.extend({

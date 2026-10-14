@@ -143,6 +143,61 @@ describe("getContext handler", () => {
     expect(result.organization.organization?.id).toBe(org.id);
   });
 
+  it("returns effective permissions from the active org role for session users", async () => {
+    const user = await createTestUser(services.services);
+    const org = await createTestOrg(services.services, user.userId, { name: "Perm Org" });
+
+    await services.services.db
+      .update(schema.session)
+      .set({ activeOrganizationId: org.id })
+      .where(eq(schema.session.token, user.token));
+
+    const handlers = createTestHandlers(services.services);
+    const result = await handlers.session.getContext({
+      context: { reqHeaders: user.reqHeaders },
+    });
+
+    expect(result.authMethod).toBe("session");
+    expect(result.permissions).not.toBeNull();
+    expect(result.permissions!.organization).toContain("delete");
+    expect(result.permissions!.email).toContain("read");
+    expect(result.permissions!.apiKey).toContain("create");
+  });
+
+  it("returns null permissions for a session user without an active org", async () => {
+    const user = await createTestUser(services.services);
+    await createTestOrg(services.services, user.userId, { name: "Inactive Org" });
+
+    const handlers = createTestHandlers(services.services);
+    const result = await handlers.session.getContext({
+      context: { reqHeaders: user.reqHeaders },
+    });
+
+    expect(result.authMethod).toBe("session");
+    expect(result.permissions).toBeNull();
+  });
+
+  it("returns the API key's declared permissions for key principals", async () => {
+    const user = await createTestUser(services.services);
+    const apiKey = await createTestApiKey(services.services, { userId: user.userId });
+    const handlers = createTestHandlers(services.services);
+
+    const result = await handlers.session.getContext({
+      context: { reqHeaders: { "x-api-key": apiKey.key } },
+    });
+
+    expect(result.authMethod).toBe("apiKey");
+    expect(result.permissions).toEqual({});
+  });
+
+  it("returns null permissions for anonymous callers", async () => {
+    const handlers = createTestHandlers(services.services);
+    const result = await handlers.session.getContext({ context: { reqHeaders: undefined } });
+
+    expect(result.authMethod).toBe("none");
+    expect(result.permissions).toBeNull();
+  });
+
   it("falls back to none for invalid API key", async () => {
     const handlers = createTestHandlers(services.services);
     const result = await handlers.session.getContext({

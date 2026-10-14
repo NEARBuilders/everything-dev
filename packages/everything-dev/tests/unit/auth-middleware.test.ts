@@ -55,3 +55,41 @@ describe("organization approval middleware", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
+
+describe("requirePermission", () => {
+  const builder = os.$context<AuthContextShape>();
+  const { requirePermission } = createAuthMiddleware(builder);
+
+  const orgRoute = builder.use(requirePermission("proposal", "create")).handler(() => "ok");
+
+  const orgContext = {
+    userId: "requester",
+    user: {},
+    permissions: { proposal: ["create"], team: ["read"] },
+    organization: {
+      activeOrganizationId: "org-1",
+      teams: [
+        { id: "team-1", permissions: { team: ["update"] } },
+        { id: "team-2", permissions: { team: [] } },
+      ],
+    },
+  };
+
+  it("allows org-scoped actions the effective permissions grant", async () => {
+    await expect(call(orgRoute, undefined, { context: orgContext })).resolves.toBe("ok");
+  });
+
+  it("denies org-scoped actions with the missing grant in the data payload", async () => {
+    await expect(
+      call(orgRoute, undefined, {
+        context: { ...orgContext, permissions: { proposal: ["read"] } },
+      }),
+    ).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      data: { requiredPermissions: ["proposal:create"] },
+    });
+    await expect(call(orgRoute, undefined, { context: {} })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+  });
+});

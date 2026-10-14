@@ -48,7 +48,6 @@ export class TeamsService extends Context.Service<
       organizationId: string | undefined,
     ) => Effect.Effect<any, ORPCError<string, unknown>>;
     listTeamMembers: (
-      headers: Headers,
       userId: string,
       teamId: string,
     ) => Effect.Effect<any, ORPCError<string, unknown>>;
@@ -123,10 +122,6 @@ export const buildTeamsService = ({ auth, db }: { auth: Auth; db: Db }) =>
       userId: string,
       input: { teamId: string; organizationId?: string },
     ) {
-      // Clear directly in the database rather than through
-      // auth.api.setActiveTeam: that call would only echo back whatever
-      // session the request's session_data cookie already carries (see
-      // below), not the DB row this write targets.
       yield* attemptDb(() =>
         db
           .update(schema.session)
@@ -135,11 +130,6 @@ export const buildTeamsService = ({ auth, db }: { auth: Auth; db: Db }) =>
             and(eq(schema.session.userId, userId), eq(schema.session.activeTeamId, input.teamId)),
           ),
       );
-      // removeTeam's own FORBIDDEN-on-own-active-team guard resolves the
-      // session from the request's better-auth.session_data cookie, a
-      // short-lived cache of the session as of its last refresh — not the
-      // database row just cleared above. Strip it so removeTeam falls
-      // back to a fresh database read via the session token instead.
       yield* attemptAuth(() =>
         auth.api.removeTeam({
           headers: withoutSessionDataCookie(headers),
@@ -161,7 +151,6 @@ export const buildTeamsService = ({ auth, db }: { auth: Auth; db: Db }) =>
       ).pipe(Effect.map((result) => (result ?? []).map(toTeam))),
 
     listTeamMembers: Effect.fn("TeamsService.listTeamMembers")(function* (
-      headers: Headers,
       userId: string,
       teamId: string,
     ) {

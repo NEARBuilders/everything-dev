@@ -28,6 +28,7 @@ import {
   AuthServicesTag,
   MembershipPolicyTag,
   OnboardingCodeCipherTag,
+  PermissionRegistryTag,
 } from "./service-types";
 import { ApiKeysServiceLive } from "./services/api-keys";
 import { InvitationsServiceLive } from "./services/invitations";
@@ -70,6 +71,10 @@ export default createPlugin.withPlugins<PluginsClient>()({
         authConfig.organizationMembershipLimit,
       );
       const onboardingCodeCipher = createOnboardingCodeCipher(authConfig.secret);
+      const permissionRegistry = {
+        statements: authConfig.siwn.permissions.statements,
+        roleGrants: authConfig.siwn.permissions.roles,
+      };
 
       yield* Effect.log("[Auth] Better Auth instance created");
 
@@ -78,6 +83,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         Layer.succeed(DatabaseTag, db),
         Layer.succeed(OnboardingCodeCipherTag, onboardingCodeCipher),
         Layer.succeed(MembershipPolicyTag, membershipPolicy),
+        Layer.succeed(PermissionRegistryTag, permissionRegistry),
       );
 
       return Layer.mergeAll(
@@ -98,6 +104,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
           apiKeyHeaders,
           membershipPolicy,
           onboardingCodeCipher,
+          permissionRegistry,
         }),
         OrphanSweepLive(db),
       );

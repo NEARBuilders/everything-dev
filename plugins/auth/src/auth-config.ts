@@ -7,6 +7,11 @@ import type {
 
 export type AuthNetwork = "mainnet" | "testnet";
 
+export interface AuthPermissionStatements {
+  statements: Record<string, string[]>;
+  roles: Record<string, Record<string, string[]>>;
+}
+
 export interface AuthPasskeyConfig {
   rpID?: string;
   rpName?: string;
@@ -20,6 +25,7 @@ export interface AuthSiwnBaseConfig {
   relayer?: RelayerDualNetworkConfig;
   sessionGasKey?: SessionGasKeyDualNetworkConfig;
   subAccount?: SubAccountConfig | DualNetworkConfig<SubAccountConfig>;
+  permissions: AuthPermissionStatements;
 }
 
 export interface AuthSiwnRecipientConfig extends AuthSiwnBaseConfig {

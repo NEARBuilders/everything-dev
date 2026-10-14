@@ -6,6 +6,7 @@ import {
   isRecipientsConfig,
   resolvePasskeyRelyingPartyOptions,
 } from "../../src/auth-instance";
+import { TEST_PERMISSIONS } from "../helpers";
 
 describe("resolvePasskeyRelyingPartyOptions", () => {
   it("derives localhost relying party options from baseUrl", () => {
@@ -129,7 +130,7 @@ describe("resolvePasskeyRelyingPartyOptions", () => {
 const baseConfig: AuthConfig = {
   secret: "test-secret",
   baseUrl: "http://localhost:3000",
-  siwn: { recipient: "test.near" },
+  siwn: { recipient: "test.near", permissions: TEST_PERMISSIONS },
 };
 
 describe("isRecipientsConfig", () => {
