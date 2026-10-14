@@ -30,7 +30,36 @@ func mcpPayload(t *testing.T, body string) string {
 }
 
 func TestMcpEndpoint(t *testing.T) {
+	// Anonymous MCP access is rejected (#309): the tool catalog — including
+	// admin-only operations — must not be disclosed without a session or an
+	// API key.
+	t.Run("anonymous_rejected", func(t *testing.T) {
+		anonymous := regtest.NewCookieClient()
+
+		initReq := map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "initialize",
+			"params": map[string]any{
+				"protocolVersion": "2024-11-05",
+				"capabilities":    map[string]any{},
+				"clientInfo":      map[string]any{"name": "regression-test", "version": "1.0.0"},
+			},
+		}
+
+		status, _, body := regtest.PostJSON(t, anonymous, baseURL+"/api/mcp", initReq, mcpHeaders())
+		regtest.MustStatus(t, status, 401, body)
+		regtest.MustContain(t, body, "Authentication required")
+	})
+
 	client := regtest.NewCookieClient()
+
+	// The MCP surface gates on the same session resolution as every other API
+	// surface — a signed-in cookie session (anonymous user is enough) passes.
+	t.Run("sign_in", func(t *testing.T) {
+		status, _, body := regtest.PostEmpty(t, client, baseURL+"/api/auth/sign-in/anonymous")
+		regtest.MustStatus(t, status, 200, body)
+	})
 
 	t.Run("initialize", func(t *testing.T) {
 		initReq := map[string]any{
