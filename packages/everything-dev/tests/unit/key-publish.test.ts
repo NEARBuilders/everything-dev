@@ -101,7 +101,7 @@ describe("keyPublish handler removeOldKeys branches", () => {
     expect(result.status).toBe("published");
   });
 
-  it("defaults to removing old keys when removeOldKeys is unset (old readline default)", async () => {
+  it("defaults to keeping old keys when removeOldKeys is unset (#247)", async () => {
     mocks.listPublishKeys.mockResolvedValue(OLD_KEYS);
     mocks.addFunctionCallAccessKey.mockResolvedValue({
       publicKey: "ed25519:newpub",
@@ -115,7 +115,7 @@ describe("keyPublish handler removeOldKeys branches", () => {
       context,
     });
 
-    expect(mocks.deleteAccessKeys).toHaveBeenCalledWith("test.near", OLD_KEYS, "mainnet");
+    expect(mocks.deleteAccessKeys).not.toHaveBeenCalled();
     expect(result.status).toBe("published");
   });
 

@@ -20,6 +20,10 @@ export function hasFolderFormUi(cwd: string): boolean {
   );
 }
 
+export function uiDistDirFor(cwd: string): string {
+  return path.join(cwd, UI_DIR, "dist");
+}
+
 function generatedUiConfig(pluginId: string): string {
   return `import path from "node:path";
 import { createUiRsbuildConfig } from "every-plugin/build/ui";

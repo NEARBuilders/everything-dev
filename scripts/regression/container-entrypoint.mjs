@@ -17,7 +17,12 @@ import process from "node:process";
 
 const root = "/app";
 const imageDir = path.join(root, ".bos", "regression", "image");
-const variant = process.env.REGRESSION_VARIANT === "csr" ? "csr" : "ssr";
+const variantEnv = process.env.REGRESSION_VARIANT;
+const variant = variantEnv === undefined ? "ssr" : variantEnv;
+if (variant !== "ssr" && variant !== "csr") {
+  console.error(`[runtime] fatal: unknown REGRESSION_VARIANT "${variant}" — expected ssr | csr`);
+  process.exit(1);
+}
 
 const layout = JSON.parse(readFileSync(path.join(imageDir, "layout.json"), "utf8"));
 const configPath = path.join(imageDir, layout.configs[variant]);
@@ -131,6 +136,9 @@ const main = async () => {
       const res = await fetch(`http://localhost:${hostPort}/health`);
       ready = res.ok;
     } catch {
+      /* not up yet */
+    }
+    if (!ready && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }

@@ -74,7 +74,7 @@ export function registerKeys(builder: BosBuilder) {
             console.log(`    ${colors.dim(k)}`);
           }
 
-          if (input.removeOldKeys !== false) {
+          if (input.removeOldKeys === true) {
             try {
               await deleteAccessKeys(account, oldKeys, network);
               console.log(

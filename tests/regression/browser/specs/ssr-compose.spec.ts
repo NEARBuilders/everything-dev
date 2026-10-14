@@ -1,12 +1,13 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * SSR compose pin — the dev project boots `bos dev --ssr`, so the served HTML
- * is the host's manifest-composed render. These assertions check the raw
- * server HTML (request API — no client JS) so a compose fallback to the
- * core-only shell fails loudly. The /login route declares `ssr: false`, so
- * its value here is the compose payload embedded for client hydration; the
- * server-rendered content pin uses /about, a core route.
+ * SSR compose pin — runs under the start:ssr project (the dev:ssr project is
+ * smoke-only and excludes this spec), where the served HTML is the host's
+ * manifest-composed render. These assertions check the raw server HTML
+ * (request API — no client JS) so a compose fallback to the core-only shell
+ * fails loudly. The /login route declares `ssr: false`, so its value here is
+ * the compose payload embedded for client hydration; the server-rendered
+ * content pin uses /about, a core route.
  */
 test.describe("SSR compose", () => {
   test("served /login HTML embeds the composed payload with the auth remote", async ({
