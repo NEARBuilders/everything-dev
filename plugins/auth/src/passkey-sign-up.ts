@@ -57,11 +57,14 @@ export async function createPasskeySignUpUser(
   { ctx }: { ctx: GenericEndpointContext },
   emailDomain: string | undefined,
 ) {
-  const created = await ctx.context.internalAdapter.createUser({
-    email: `passkey-${crypto.randomUUID().slice(0, 8)}@${emailDomain}`,
-    name: "Passkey user",
-    emailVerified: false,
-  });
+  const created = await ctx.context.internalAdapter.createUser(
+    {
+      email: `passkey-${crypto.randomUUID().slice(0, 8)}@${emailDomain}`,
+      name: "Passkey user",
+      emailVerified: false,
+    },
+    { method: "passkey" },
+  );
   if (!created) {
     throw new APIError("INTERNAL_SERVER_ERROR", { message: "Failed to create user" });
   }
