@@ -29,7 +29,15 @@ import {
   MembershipPolicyTag,
   OnboardingCodeCipherTag,
 } from "./service-types";
+import { ApiKeysServiceLive } from "./services/api-keys";
+import { InvitationsServiceLive } from "./services/invitations";
+import { MembersServiceLive } from "./services/members";
+import { NearServiceLive } from "./services/near";
+import { OnboardingServiceLive } from "./services/onboarding";
 import { OrganizationsServiceLive } from "./services/organizations";
+import { PermissionsServiceLive } from "./services/permissions";
+import { SessionServiceLive } from "./services/session";
+import { TeamsServiceLive } from "./services/teams";
 import { toError } from "./utils";
 import { socialProviderWarnings } from "./warnings";
 
@@ -75,6 +83,14 @@ export default createPlugin.withPlugins<PluginsClient>()({
       return Layer.mergeAll(
         tagsLayer,
         OrganizationsServiceLive.pipe(Layer.provide(tagsLayer)),
+        InvitationsServiceLive.pipe(Layer.provide(tagsLayer)),
+        MembersServiceLive.pipe(Layer.provide(tagsLayer)),
+        TeamsServiceLive.pipe(Layer.provide(tagsLayer)),
+        PermissionsServiceLive.pipe(Layer.provide(tagsLayer)),
+        OnboardingServiceLive.pipe(Layer.provide(PermissionsServiceLive), Layer.provide(tagsLayer)),
+        NearServiceLive.pipe(Layer.provide(tagsLayer)),
+        SessionServiceLive.pipe(Layer.provide(tagsLayer)),
+        ApiKeysServiceLive.pipe(Layer.provide(tagsLayer)),
         Layer.succeed(AuthServicesTag, {
           auth,
           db,

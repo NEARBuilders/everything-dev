@@ -10,17 +10,33 @@ import {
   type OnboardingCodeCipherTag,
   type PluginServices,
 } from "./service-types";
+import type { ApiKeysService } from "./services/api-keys";
+import type { InvitationsService } from "./services/invitations";
+import type { MembersService } from "./services/members";
+import type { NearService } from "./services/near";
+import type { OnboardingService } from "./services/onboarding";
 import type { OrganizationsService } from "./services/organizations";
+import type { PermissionsService } from "./services/permissions";
+import type { SessionService } from "./services/session";
+import type { TeamsService } from "./services/teams";
 import { createHeaders } from "./utils";
 
 export type AuthSessionUser = PluginServices["auth"]["$Infer"]["Session"]["user"];
 
 export type AuthEffectServices =
   | AuthApiTag
+  | ApiKeysService
   | DatabaseTag
   | OnboardingCodeCipherTag
   | MembershipPolicyTag
-  | OrganizationsService;
+  | OrganizationsService
+  | InvitationsService
+  | MembersService
+  | TeamsService
+  | OnboardingService
+  | PermissionsService
+  | NearService
+  | SessionService;
 
 export type AuthHandlerContext = AuthContextShape &
   WithEffectContext<AuthEffectServices> & {
