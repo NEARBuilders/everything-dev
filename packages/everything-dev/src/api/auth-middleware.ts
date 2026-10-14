@@ -18,6 +18,7 @@ export interface AuthContextShape {
   user?: { role?: string | null } | null;
   userId?: string | null;
   apiKey?: { permissions?: Record<string, string[]> | null } | null;
+  permissions?: Record<string, string[]> | null;
   organization?: {
     activeOrganizationId?: string | null;
     member?: { id?: string | null; role?: string | null } | null;
@@ -234,6 +235,17 @@ export function createAuthMiddleware<
       return next({ context: { apiKey: context.apiKey } });
     }) as ApiKeyMiddleware;
 
+  const requirePermission = (resource: string, action: string) =>
+    builder.middleware(async ({ context, next }: { context: Ctx; next: any }) => {
+      if (!context.permissions?.[resource]?.includes(action)) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Requires permission: ${resource}:${action}`,
+          data: { requiredPermissions: [`${resource}:${action}`] },
+        });
+      }
+      return next({ context });
+    }) as DecoratedMiddleware<Ctx, Record<string, never>, any, any, any>;
+
   return {
     requireAuth,
     requireAuthOrApiKey,
@@ -242,6 +254,7 @@ export function createAuthMiddleware<
     requireOrganization,
     requireOrgRole,
     requireApiKey,
+    requirePermission,
   };
 }
 

@@ -5,7 +5,12 @@ import { attemptAuth, attemptDb } from "../attempts";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
-import { AuthApiTag, type PluginServices } from "../service-types";
+import {
+  AuthApiTag,
+  type PermissionRegistry,
+  PermissionRegistryTag,
+  type PluginServices,
+} from "../service-types";
 import { getActiveOrganizationId, getActiveTeamId, parseTeamAreas, tryJsonParse } from "../utils";
 
 type Auth = PluginServices["auth"];
@@ -55,10 +60,12 @@ export const buildSessionService = ({
   auth,
   apiKeyHeaders,
   db,
+  registry,
 }: {
   auth: Auth;
   apiKeyHeaders: string[];
   db: Db;
+  registry: PermissionRegistry;
 }) =>
   SessionService.of({
     health: () =>
@@ -131,6 +138,7 @@ export const buildSessionService = ({
         name: string | null;
         permissions: Record<string, string[]> | null;
       } | null = null;
+      let permissions: Record<string, string[]> | null = null;
       let resolvedOrganizationId: string | null = null;
       let session: {
         session: {
@@ -168,6 +176,7 @@ export const buildSessionService = ({
             name: key.name ?? null,
             permissions: parsedPermissions,
           };
+          permissions = parsedPermissions ?? {};
 
           if (key.configId === "user-keys") {
             const dbUser = yield* attemptDb(() =>
@@ -360,6 +369,10 @@ export const buildSessionService = ({
         }
       }
 
+      if (authMethod === "session" && organizationContext.member) {
+        permissions = registry.roleGrants[organizationContext.member.role] ?? {};
+      }
+
       const serializedPrincipal = principal
         ? principal.type === "user"
           ? {
@@ -402,6 +415,7 @@ export const buildSessionService = ({
         authMethod,
         principal: serializedPrincipal,
         apiKey: apiKeyInfo,
+        permissions,
         near: nearCapabilities,
         organization: organizationContext,
         organizations: organizations.length > 0 ? organizations : undefined,
@@ -414,6 +428,7 @@ export const SessionServiceLive = Layer.effect(
   Effect.gen(function* () {
     const { auth, apiKeyHeaders } = yield* AuthApiTag;
     const db = yield* DatabaseTag;
-    return buildSessionService({ auth, apiKeyHeaders, db });
+    const registry = yield* PermissionRegistryTag;
+    return buildSessionService({ auth, apiKeyHeaders, db, registry });
   }),
 );

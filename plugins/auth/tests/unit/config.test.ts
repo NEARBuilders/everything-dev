@@ -5,8 +5,10 @@ import {
   ensureOrigin,
   normalizeAuthConfig,
   parseTrustedOrigins,
+  validatePermissionGrants,
 } from "../../src/config";
 import type { AuthPluginSecrets, AuthPluginVariables } from "../../src/config-schemas";
+import { permissionsSchema } from "../../src/config-schemas";
 import { TEST_PERMISSIONS } from "../helpers";
 
 const baseSecrets: AuthPluginSecrets = {
@@ -492,5 +494,52 @@ describe("normalizeAuthConfig", () => {
     process.env.NODE_ENV = "production";
     const { authConfig } = normalizeAuthConfig(baseVariables, baseSecrets);
     expect(authConfig.isProduction).toBe(true);
+  });
+});
+
+describe("permission config validation", () => {
+  it("accepts the canonical posture", () => {
+    const parsed = permissionsSchema.safeParse(TEST_PERMISSIONS);
+    expect(parsed.success).toBe(true);
+    expect(() => normalizeAuthConfig(baseVariables, baseSecrets)).not.toThrow();
+  });
+
+  it("requires owner, admin, and member roles", () => {
+    const parsed = permissionsSchema.safeParse({
+      statements: TEST_PERMISSIONS.statements,
+      roles: { owner: {}, admin: {} },
+    });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      expect(issue?.message).toContain("owner, admin, and member");
+    }
+  });
+
+  it("throws naming the role for a grant on an undeclared statement", () => {
+    expect(() =>
+      validatePermissionGrants({
+        statements: { email: ["read"] },
+        roles: { owner: {}, admin: {}, member: { proposal: ["create"] } },
+      }),
+    ).toThrow(/role "member".*"proposal".*not declared/);
+  });
+
+  it("throws naming statement and action for an undeclared action", () => {
+    expect(() =>
+      validatePermissionGrants({
+        statements: { email: ["read"] },
+        roles: { owner: {}, admin: {}, member: { email: ["write"] } },
+      }),
+    ).toThrow(/"email:write".*not in the declared actions/);
+  });
+
+  it("accepts grants within the declared statement actions", () => {
+    expect(() =>
+      validatePermissionGrants({
+        statements: { email: ["read", "write"] },
+        roles: { owner: {}, admin: {}, member: { email: ["read"] } },
+      }),
+    ).not.toThrow();
   });
 });

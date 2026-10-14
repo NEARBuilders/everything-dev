@@ -104,7 +104,7 @@ builder.myRoute.use(requireAuth).handler(async ({ input, context }) => {
 });
 ```
 
-Available: `requireAuth`, `requireAuthOrApiKey`, `requireRole("admin")`, `requireOrganization`, `requireOrgRole("owner")`, `requireApiKey`. Apply via `.use()`:
+Available: `requireAuth`, `requireAuthOrApiKey`, `requireRole("admin")`, `requireOrganization`, `requireOrgRole("owner")`, `requireApiKey`, `requirePermission("resource", "action")` (gates on the caller's effective permissions from the auth plugin's `getContext` — see `references/middleware.md`). Apply via `.use()`:
 
 ```ts
 builder.authHealth.use(requireAuth).handler(...)

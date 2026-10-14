@@ -125,8 +125,7 @@ export default {
           testnet: testnetRecipient ?? "dev.everything.testnet",
         },
         permissions: {
-          statements:
-            configuredSiwn?.permissions?.statements ?? devPermissions.statements,
+          statements: configuredSiwn?.permissions?.statements ?? devPermissions.statements,
           roles: configuredSiwn?.permissions?.roles ?? devPermissions.roles,
         },
         rpcUrl: process.env.NEAR_RPC_URL,

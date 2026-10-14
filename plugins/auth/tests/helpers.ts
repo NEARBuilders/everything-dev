@@ -2,8 +2,8 @@ import "@orpc/experimental-effect/extensions/effect";
 import { call, implement } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
-import { type AuthConfig, createAuthInstance } from "../src/auth-instance";
 import type { AuthPermissionStatements } from "../src/auth-config";
+import { type AuthConfig, createAuthInstance } from "../src/auth-instance";
 import { type ContractType, contract, type InferInput, type InferOutput } from "../src/contract";
 import { createDatabaseDriver } from "../src/db";
 import { DatabaseTag } from "../src/db/layer";
@@ -114,6 +114,10 @@ export async function createTestServices(configOverrides?: Partial<AuthConfig>) 
     apiKeyHeaders,
     membershipPolicy,
     onboardingCodeCipher,
+    permissionRegistry: {
+      statements: TEST_PERMISSIONS.statements,
+      roleGrants: TEST_PERMISSIONS.roles,
+    },
   };
 
   return { services, driver };
@@ -302,6 +306,10 @@ export function createTestHandlers(services: PluginServices) {
         auth: services.auth,
         apiKeyHeaders: services.apiKeyHeaders,
         db: services.db,
+        registry: {
+          statements: TEST_PERMISSIONS.statements,
+          roleGrants: TEST_PERMISSIONS.roles,
+        },
       }),
     ),
     Context.add(

@@ -1,4 +1,4 @@
-import { ORPCError } from "@orpc/server";
+import type { ORPCError } from "@orpc/server";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth } from "../attempts";
 import { AuthApiTag, type PluginServices } from "../service-types";
@@ -61,7 +61,6 @@ export class NearService extends Context.Service<
     ) => Effect.Effect<any, ORPCError<string, unknown>>;
     nearRelayerInfo: (
       headers: Headers,
-      context: { user?: { role?: string | null } | null },
       network: NearNetwork | undefined,
     ) => Effect.Effect<any, ORPCError<string, unknown>>;
     nearRelayHistory: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
@@ -166,16 +165,8 @@ export const buildNearService = ({ auth }: { auth: Auth }) =>
         }),
       ),
 
-    nearRelayerInfo: (headers, context, network) =>
+    nearRelayerInfo: (headers, network) =>
       Effect.gen(function* () {
-        if (context.user?.role !== "admin") {
-          return yield* Effect.fail(
-            new ORPCError("FORBIDDEN", {
-              message: "Admin access required",
-              data: { action: "admin-access" },
-            }),
-          );
-        }
         const info = yield* attemptAuth(() =>
           auth.api.getRelayerInfo({
             headers,

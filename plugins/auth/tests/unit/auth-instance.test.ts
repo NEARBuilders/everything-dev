@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AuthConfig } from "../../src/auth-config";
-import { TEST_PERMISSIONS } from "../helpers";
 import {
   buildSiwnOptions,
   createAuthInstance,
   isRecipientsConfig,
   resolvePasskeyRelyingPartyOptions,
 } from "../../src/auth-instance";
+import { TEST_PERMISSIONS } from "../helpers";
 
 describe("resolvePasskeyRelyingPartyOptions", () => {
   it("derives localhost relying party options from baseUrl", () => {

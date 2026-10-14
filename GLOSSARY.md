@@ -42,6 +42,22 @@ _Avoid_: permission, role
 The organization view scoped to an Active Team and its granted feature areas.
 _Avoid_: organization account
 
+**Statement**:
+A declared resource-to-actions entry in the permission catalog (`email: ["read"]`); the only things a role can grant. Undeclared means denied.
+_Avoid_: permission (reserve for a statement:action pair), scope, binding
+
+**Role Grant**:
+The per-statement action grants a Role carries, declared in the runtime's `siwn.permissions.roles` config — the plugin ships no defaults.
+_Avoid_: role permissions, role config
+
+**Effective Permissions**:
+The caller's resolved statement-to-actions map as of the request: session principals get their active organization's role grants, API-key principals get the key's declared permissions, anonymous callers get none. Surfaced by `getContext` and checked by `requirePermission`.
+_Avoid_: permissions (unqualified, when you mean the resolved map), grants (when you mean the map)
+
+**Permission Registry**:
+The runtime's normalized statements catalog plus role grants, built from config at boot and exposed as the auth plugin's registry service.
+_Avoid_: ACL, access list
+
 **Gateway Origin**:
 The canonical base runtime origin for a network, where every passkey ceremony takes place regardless of which domain the member arrived from.
 _Avoid_: base URL, main domain

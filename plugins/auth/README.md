@@ -45,6 +45,8 @@ It runs inside the **everything-plugin** framework (oRPC + Effect) and is design
 | `passkey.rpID` | `string` | Derived from `baseUrl` | WebAuthn relying party ID |
 | `passkey.rpName` | `string` | `Everything Dev` | Human-readable relying party name |
 | `passkey.origin` | `string` | Derived from `baseUrl` | Browser origin for passkeys |
+| `siwn.permissions.statements` | `Record<string, string[]>` | — | **Required.** Permission catalog (statement → allowed actions); undeclared statements cannot be granted |
+| `siwn.permissions.roles` | `Record<string, Record<string, string[]>>` | — | **Required.** Role grant maps; `owner`/`admin`/`member` mandatory, custom roles allowed; grants must reference declared statements/actions or boot fails |
 | `siwn.recipient` | `string` | — | Single-network SIWN recipient |
 | `siwn.recipients.mainnet` | `string` | — | Mainnet SIWN recipient |
 | `siwn.recipients.testnet` | `string` | — | Testnet SIWN recipient |

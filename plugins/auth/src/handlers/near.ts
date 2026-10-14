@@ -1,6 +1,11 @@
 import type { Implementer } from "@orpc/server";
+import { createAuthMiddleware } from "everything-dev/api";
 import type { ContractType } from "../contract";
-import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
+import type {
+  AuthHandlerAuthedContext,
+  AuthHandlerContext,
+  RequireAuthMiddleware,
+} from "../middleware";
 import { NearService } from "../services/near";
 import { createHeaders } from "../utils";
 
@@ -8,6 +13,7 @@ export function createNearHandlers(
   builder: Implementer<ContractType, AuthHandlerContext>,
   requireAuth: RequireAuthMiddleware,
 ) {
+  const { requireAdmin } = createAuthMiddleware<AuthHandlerAuthedContext>(builder);
   return {
     nearNonce: builder.nearNonce.effect(function* ({ input }) {
       const near = yield* NearService;
@@ -58,17 +64,13 @@ export function createNearHandlers(
       return yield* near.nearRelayStatus(createHeaders(context.reqHeaders), input.txHash);
     }),
 
-    nearRelayerInfo: builder.nearRelayerInfo.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }) {
-      const near = yield* NearService;
-      return yield* near.nearRelayerInfo(
-        createHeaders(context.reqHeaders),
-        context,
-        input?.network,
-      );
-    }),
+    nearRelayerInfo: builder.nearRelayerInfo
+      .use(requireAuth)
+      .use(requireAdmin)
+      .effect(function* ({ input, context }) {
+        const near = yield* NearService;
+        return yield* near.nearRelayerInfo(createHeaders(context.reqHeaders), input?.network);
+      }),
 
     nearRelayHistory: builder.nearRelayHistory.use(requireAuth).effect(function* ({ context }) {
       const near = yield* NearService;

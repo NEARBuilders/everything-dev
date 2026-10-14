@@ -371,3 +371,40 @@ Removed in 1.8.1 — switch to `authClient.near.getNearClient()` (throws on the 
 | `Sub-account creation unavailable on <network>: parent key not configured...` (503) | `variables.siwn.subAccount` set but no `secrets.parentKey` server-side | Tell the user — the parent key is a server secret, not a config-file field |
 | `This NEAR account is already linked to another user` (400) | NEAR account bound to a different user row | Stop — tell the user; do not retry |
 | `Cannot unlink last authentication method. Link another account first.` (400) | Last auth method on the user | Tell the user to link another account first |
+
+## Organization permission surface (config-declared, no plugin defaults)
+
+The statements catalog and role grants live entirely in `variables.siwn.permissions` —
+the plugin ships no defaults (ADR 0028 in everything.dev). Boot fails loud on a
+missing declaration, missing `owner`/`admin`/`member` roles, or a grant referencing
+an undeclared statement/action.
+
+The root everything.dev runtime declares the canonical posture in `bos.app.ts`
+(copy it as your starting point); children extending the root inherit it through
+`extends` and override per-statement:
+
+```jsonc
+"siwn": {
+  "permissions": {
+    "statements": {
+      "organization": ["update", "delete"],
+      "member": ["create", "update", "delete"],
+      "invitation": ["create", "cancel"],
+      "team": ["create", "update", "delete"],
+      "ac": ["create", "read", "update", "delete"],
+      "apiKey": ["create", "read", "update", "delete"],
+      "email": ["read"]
+    },
+    "roles": {
+      "owner":  { "...": "full grants incl. email: ["read"]" },
+      "admin":  { "...": "..." },
+      "member": { "organization": [], "member": [], "invitation": [], "team": [], "ac": ["read"], "apiKey": ["read"], "email": [] }
+    }
+  }
+}
+```
+
+Email visibility is a role grant: `email: ["read"]` on a role controls whether its
+members see other members' emails. `getContext` returns the caller's effective
+permissions as a nullable `permissions` map; routes in any plugin gate on it with
+`requirePermission(resource, action)`.

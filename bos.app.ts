@@ -49,6 +49,51 @@ export default App({
           mainnet: "dev.everything.near",
           testnet: "dev.everything.testnet",
         },
+        // The permission surface is fully config-declared (ADR 0028) — the
+        // plugin ships no defaults. This is the canonical posture for the
+        // root runtime; child runtimes inherit it through extends and
+        // override per-statement. Transcribed from the pre-config behavior
+        // so nothing changes for this runtime.
+        permissions: {
+          statements: {
+            organization: ["update", "delete"],
+            member: ["create", "update", "delete"],
+            invitation: ["create", "cancel"],
+            team: ["create", "update", "delete"],
+            ac: ["create", "read", "update", "delete"],
+            apiKey: ["create", "read", "update", "delete"],
+            email: ["read"],
+          },
+          roles: {
+            owner: {
+              organization: ["update", "delete"],
+              member: ["create", "update", "delete"],
+              invitation: ["create", "cancel"],
+              team: ["create", "update", "delete"],
+              ac: ["create", "read", "update", "delete"],
+              apiKey: ["create", "read", "update", "delete"],
+              email: ["read"],
+            },
+            admin: {
+              organization: ["update"],
+              member: ["create", "update", "delete"],
+              invitation: ["create", "cancel"],
+              team: ["create", "update", "delete"],
+              ac: ["create", "read", "update", "delete"],
+              apiKey: ["create", "read", "update", "delete"],
+              email: ["read"],
+            },
+            member: {
+              organization: [],
+              member: [],
+              invitation: [],
+              team: [],
+              ac: ["read"],
+              apiKey: ["read"],
+              email: [],
+            },
+          },
+        },
       },
     },
   }),

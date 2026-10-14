@@ -7,11 +7,7 @@ import type {
   SubAccountConfig,
 } from "better-near-auth";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID } from "better-near-auth";
-import type {
-  AuthConfig,
-  AuthNetwork,
-  AuthPermissionStatements,
-} from "./auth-config";
+import type { AuthConfig, AuthNetwork, AuthPermissionStatements } from "./auth-config";
 import type { AuthPluginSecrets, AuthPluginVariables } from "./config-schemas";
 import { localDevTrustedOrigins } from "./utils";
 
@@ -108,7 +104,9 @@ export function buildRelayerConfig(
   };
 }
 
-export function buildSubAccountConfig(siwn: Partial<AuthPluginVariables["siwn"]>): DualNetworkConfig<SubAccountConfig> | undefined {
+export function buildSubAccountConfig(
+  siwn: Partial<AuthPluginVariables["siwn"]>,
+): DualNetworkConfig<SubAccountConfig> | undefined {
   if (!siwn.subAccount) return undefined;
 
   return {
@@ -117,7 +115,9 @@ export function buildSubAccountConfig(siwn: Partial<AuthPluginVariables["siwn"]>
   } as DualNetworkConfig<SubAccountConfig>;
 }
 
-export function buildSessionGasKeyConfig(siwn: Partial<AuthPluginVariables["siwn"]>): SessionGasKeyDualNetworkConfig | undefined {
+export function buildSessionGasKeyConfig(
+  siwn: Partial<AuthPluginVariables["siwn"]>,
+): SessionGasKeyDualNetworkConfig | undefined {
   if (!siwn.sessionGasKey) return undefined;
 
   return {
@@ -135,9 +135,7 @@ export function resolveAuthNetwork(variables: AuthPluginVariables): AuthNetwork 
   return networkOf(variables.siwn.recipient ?? variables.siwn.recipients?.mainnet ?? "");
 }
 
-export function validatePermissionGrants(
-  permissions: AuthPermissionStatements,
-): void {
+export function validatePermissionGrants(permissions: AuthPermissionStatements): void {
   const { statements, roles } = permissions;
   for (const [roleName, grants] of Object.entries(roles)) {
     for (const [statement, actions] of Object.entries(grants)) {

@@ -44,13 +44,10 @@ export const permissionsSchema = z.object({
   statements: z.record(z.string(), z.array(z.string())),
   roles: z
     .record(z.string(), z.record(z.string(), z.array(z.string())))
-    .refine(
-      (roles) => ["owner", "admin", "member"].every((name) => name in roles),
-      {
-        message:
-          "roles must declare owner, admin, and member — Better Auth assigns the owner role on organization creation and the plugin's member routes expect all three",
-      },
-    ),
+    .refine((roles) => ["owner", "admin", "member"].every((name) => name in roles), {
+      message:
+        "roles must declare owner, admin, and member — Better Auth assigns the owner role on organization creation and the plugin's member routes expect all three",
+    }),
 });
 
 export const authSiwnBaseSchema = z.object({

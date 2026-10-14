@@ -15,7 +15,8 @@ import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "bet
 import { eq, gt } from "drizzle-orm";
 import { BOS_CLI_CLIENT_ID, deviceLink } from "./device-link";
 import { organizationApproval } from "./organization-approval";
-import {  createPasskeySignUpUser,
+import {
+  createPasskeySignUpUser,
   passkeyAuthenticatorSelection,
   passkeySignUp,
   requireUserVerifiedSignIn,

@@ -105,6 +105,7 @@ export const requestContextSchema = z.object({
   authMethod: z.enum(["session", "apiKey", "anonymous", "none"]),
   principal: principalSchema.nullable(),
   apiKey: apiKeyContextSchema.nullable(),
+  permissions: z.record(z.string(), z.array(z.string())).nullable(),
   near: nearCapabilitiesSchema,
   organization: organizationContextSchema,
   organizations: z

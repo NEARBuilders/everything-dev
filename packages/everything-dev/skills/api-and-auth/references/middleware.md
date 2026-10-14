@@ -36,3 +36,27 @@ ctx.organization.organization?.metadata?.plan;
 ```
 
 Also available: `OrgMemberAuthenticatedContext<TMeta>` (guarantees `organization.member` is non-null).
+
+## `requirePermission(resource, action)`
+
+Gates a route on the caller's **effective permissions** — the map the auth plugin's
+`getContext` returns (session principals: the active organization's role grants;
+API-key principals: the key's declared permissions; anonymous: null, denied).
+
+```ts
+const { requirePermission } = createAuthMiddleware(builder);
+
+builder.createProposal
+  .use(requireAuth)
+  .use(requirePermission("proposal", "create"))
+  .handler(...);
+```
+
+Fails `FORBIDDEN` with `data: { requiredPermissions: ["proposal:create"] }` when the
+map lacks the grant. Scope boundary (ADR 0028): the middleware can only see the
+request context, so it gates *active-organization* permissions; checks against an
+*explicit* organization id from route input (or data-masking checks) stay
+service-side via Better Auth `hasPermission`, which evaluates the same
+config-declared roles. The permission surface itself is config-declared in the auth
+plugin's `siwn.permissions` — the plugin ships no defaults (see
+`docs/adr/0028-config-declared-permissions.md`).
