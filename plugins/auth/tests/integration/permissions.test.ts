@@ -88,6 +88,6 @@ describe("PermissionsService.requireOrganizer", () => {
         userId: member.userId,
         user: { id: member.userId },
       }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ _tag: "NotOrganizer" });
   });
 });

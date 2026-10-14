@@ -11,6 +11,7 @@ import {
   PermissionRegistryTag,
   type PluginServices,
 } from "../service-types";
+import { type AuthFailure } from "./domain-errors";
 import { getActiveOrganizationId, getActiveTeamId, parseTeamAreas, tryJsonParse } from "../utils";
 
 type Auth = PluginServices["auth"];
@@ -66,8 +67,8 @@ export class SessionService extends Context.Service<
   SessionService,
   {
     health: () => Effect.Effect<{ status: "ok"; timestamp: string }, never>;
-    getSession: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
-    getContext: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
+    getSession: (headers: Headers) => Effect.Effect<any, AuthFailure>;
+    getContext: (headers: Headers) => Effect.Effect<any, AuthFailure>;
   }
 >()("auth/SessionService") {}
 

@@ -1,4 +1,3 @@
-import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
@@ -6,7 +5,21 @@ import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toOrganizationInfo } from "../serializers";
 import { AuthApiTag, type PluginServices } from "../service-types";
-import { canReadMemberEmails, parseTeamAreas, toORPCError, tryJsonParse } from "../utils";
+import {
+  type AuthFailure,
+  AuthApiError,
+  mapDomainError,
+  OrgApprovalRequired,
+  OrgNotFound,
+  OrgRequiresApproval,
+} from "./domain-errors";
+import {
+  canReadMemberEmails,
+  parseTeamAreas,
+  toAuthApiError,
+  tryJsonParse,
+} from "../utils";
+import { isAuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -20,7 +33,7 @@ export interface OrganizationCaller {
 export class OrganizationsService extends Context.Service<
   OrganizationsService,
   {
-    listOrganizations: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
+    listOrganizations: (headers: Headers) => Effect.Effect<any, AuthFailure>;
     getFullOrganization: (
       caller: OrganizationCaller,
       input: {
@@ -28,8 +41,8 @@ export class OrganizationsService extends Context.Service<
         organizationSlug?: string;
         membersLimit?: number;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
-    getOrganizationById: (organizationId: string) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
+    getOrganizationById: (organizationId: string) => Effect.Effect<any, AuthFailure>;
     createOrganization: (
       headers: Headers,
       input: {
@@ -38,11 +51,11 @@ export class OrganizationsService extends Context.Service<
         logo?: string | null;
         metadata?: Record<string, unknown>;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
     setActiveOrganization: (
       headers: Headers,
       organizationId: string | null,
-    ) => Effect.Effect<void, ORPCError<string, unknown>>;
+    ) => Effect.Effect<void, AuthFailure>;
     updateOrganization: (
       headers: Headers,
       input: {
@@ -54,47 +67,44 @@ export class OrganizationsService extends Context.Service<
         };
         organizationId?: string;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
     leaveOrganization: (
       headers: Headers,
       organizationId: string,
-    ) => Effect.Effect<void, ORPCError<string, unknown>>;
+    ) => Effect.Effect<void, AuthFailure>;
     deleteOrganization: (
       headers: Headers,
       organizationId: string,
-    ) => Effect.Effect<void, ORPCError<string, unknown>>;
-    checkSlug: (slug: string) => Effect.Effect<{ status: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<void, AuthFailure>;
+    checkSlug: (slug: string) => Effect.Effect<{ status: boolean }, AuthFailure>;
     hasPermission: (
       headers: Headers,
       input: {
         organizationId?: string;
         permissions?: Record<string, string[]>;
       },
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
     linkDao: (
       headers: Headers,
       input: { organizationId: string; daoAccountId: string; daoNetwork?: string },
-    ) => Effect.Effect<void, ORPCError<string, unknown>>;
+    ) => Effect.Effect<void, AuthFailure>;
     unlinkDao: (
       headers: Headers,
       input: { organizationId: string },
-    ) => Effect.Effect<void, ORPCError<string, unknown>>;
+    ) => Effect.Effect<void, AuthFailure>;
     getDao: (
       headers: Headers,
       organizationId: string,
     ) => Effect.Effect<
       { daoAccountId: string | null; daoNetwork: "mainnet" | "testnet" | null },
-      ORPCError<string, unknown>
+      AuthFailure
     >;
   }
 >()("auth/OrganizationsService") {}
 
 export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) => {
   const notFound = (organizationId: string | undefined) =>
-    new ORPCError("NOT_FOUND", {
-      message: "Organization not found",
-      data: { resource: "organization", resourceId: organizationId },
-    });
+    new OrgNotFound({ message: "Organization not found", organizationId });
 
   const updateMetadata = (
     headers: Headers,
@@ -168,12 +178,12 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
                 : undefined,
             };
           } catch (error) {
-            const mapped = toORPCError(error);
+            const mapped = toAuthApiError(error);
             if (mapped.code === "NOT_FOUND" || mapped.code === "BAD_REQUEST") return null;
             throw mapped;
           }
         },
-        catch: (error) => (error instanceof ORPCError ? error : toORPCError(error)),
+        catch: (error) => (isAuthFailure(error) ? error : toAuthApiError(error)),
       }),
 
     getOrganizationById: (organizationId: string) =>
@@ -273,7 +283,7 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
       attemptAuth(() => auth.api.checkOrganizationSlug({ body: { slug } })).pipe(
         Effect.map((result) => ({ status: result.status })),
         Effect.catchIf(
-          (error) => error instanceof ORPCError && error.code === "BAD_REQUEST",
+          (error) => error instanceof AuthApiError && error.code === "BAD_REQUEST",
           () => Effect.succeed({ status: false } as const),
         ),
       ),

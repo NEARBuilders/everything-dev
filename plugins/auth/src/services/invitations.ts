@@ -1,4 +1,3 @@
-import { ORPCError } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth } from "../attempts";
@@ -10,6 +9,14 @@ import {
   nearInvitationEmail,
   normalizeNearAccountId,
 } from "../near-invitations";
+import {
+  AuthApiError,
+  InviteeAmbiguous,
+  InvalidNearAccountId,
+  NearNetworkOnEmailInvite,
+  NearNetworkRequired,
+  type AuthFailure,
+} from "./domain-errors";
 import { toInvitation } from "../serializers";
 import { AuthApiTag, type PluginServices } from "../service-types";
 import { canReadMemberEmails, type EmailVisibilityContext } from "../utils";
@@ -31,37 +38,37 @@ export class InvitationsService extends Context.Service<
         resend?: boolean;
         teamId?: string;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
-    getInvitation: (headers: Headers, id: string) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
+    getInvitation: (headers: Headers, id: string) => Effect.Effect<any, AuthFailure>;
     listInvitations: (
       headers: Headers,
       emailContext: EmailVisibilityContext,
       organizationId: string | undefined,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
     listUserInvitations: (
       headers: Headers,
       input: { userId: string; emailUnverified: boolean },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
     cancelInvitation: (
       headers: Headers,
       invitationId: string,
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
     acceptInvitation: (
       headers: Headers,
       invitationId: string,
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
     acceptNearInvitation: (
       headers: Headers,
       invitationId: string,
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
     rejectNearInvitation: (
       headers: Headers,
       invitationId: string,
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
     rejectInvitation: (
       headers: Headers,
       invitationId: string,
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
   }
 >()("auth/InvitationsService") {}
 
@@ -121,7 +128,7 @@ export const buildInvitationsService = ({ auth, db }: { auth: Auth; db: Db }) =>
       }).pipe(
         Effect.catchIf(
           (error) =>
-            error instanceof ORPCError &&
+            error instanceof AuthApiError &&
             (error.code === "NOT_FOUND" || error.code === "BAD_REQUEST"),
           () => Effect.succeed(null),
         ),
@@ -208,31 +215,25 @@ export const InvitationsServiceLive = Layer.effect(
 
 function resolveInvitee(input: { email?: string; nearAccountId?: string; nearNetwork?: string }) {
   if (!!input.email === !!input.nearAccountId) {
-    throw new ORPCError("BAD_REQUEST", {
-      message: "Provide either an email address or a NEAR account id",
-      data: {},
-    });
+    throw new InviteeAmbiguous({ message: "Provide either an email address or a NEAR account id" });
   }
   if (input.email) {
     if (input.nearNetwork !== undefined) {
-      throw new ORPCError("BAD_REQUEST", {
+      throw new NearNetworkOnEmailInvite({
         message: "A NEAR network can only be supplied for wallet invitations",
-        data: {},
       });
     }
     return { email: input.email };
   }
   const nearAccountId = normalizeNearAccountId(input.nearAccountId ?? "");
   if (!nearAccountId) {
-    throw new ORPCError("BAD_REQUEST", {
+    throw new InvalidNearAccountId({
       message: `"${input.nearAccountId}" is not a valid NEAR account id`,
-      data: {},
     });
   }
   if (!isNearNetwork(input.nearNetwork)) {
-    throw new ORPCError("BAD_REQUEST", {
+    throw new NearNetworkRequired({
       message: "A wallet invitation requires a mainnet or testnet network",
-      data: {},
     });
   }
   return {

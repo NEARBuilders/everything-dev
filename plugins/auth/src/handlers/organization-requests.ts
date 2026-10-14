@@ -1,3 +1,4 @@
+import { mapDomainError } from "../services/domain-errors";
 import type { WithEffectContext } from "@orpc/experimental-effect";
 import type { Implementer } from "@orpc/server";
 import { type AuthContextShape, createAuthMiddleware } from "everything-dev/api";
@@ -24,14 +25,14 @@ export function createOrganizationRequestHandlers(
       .use(requireAdmin)
       .effect(function* () {
         const members = yield* MembersService;
-        return yield* members.listPendingOrganizations();
+        return yield* mapDomainError(members.listPendingOrganizations());
       }),
     reviewOrganization: builder.reviewOrganization
       .use(requireAuth)
       .use(requireAdmin)
       .effect(function* ({ input }) {
         const members = yield* MembersService;
-        return yield* members.reviewOrganization(input);
+        return yield* mapDomainError(members.reviewOrganization(input));
       }),
   };
 }

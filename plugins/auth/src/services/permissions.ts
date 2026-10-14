@@ -1,4 +1,3 @@
-import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
@@ -10,6 +9,12 @@ import {
   PermissionRegistryTag,
   type PluginServices,
 } from "../service-types";
+import {
+  type AuthFailure,
+  NoOrganizationSelected,
+  NotOrganizer,
+  OrgRequiresApproval,
+} from "./domain-errors";
 import { createHeaders, getActiveOrganizationId, parseTeamAreas } from "../utils";
 
 type Auth = PluginServices["auth"];
@@ -30,7 +35,7 @@ export class PermissionsService extends Context.Service<
       inputOrganizationId: string | undefined,
     ) => Effect.Effect<
       { userId: string; organizationId: string; headers: Headers },
-      ORPCError<string, unknown>
+      AuthFailure
     >;
   }
 >()("auth/PermissionsService") {}
@@ -52,7 +57,7 @@ export const buildPermissionsService = ({ auth, db }: { auth: Auth; db: Db }) =>
         inputOrganizationId ?? getActiveOrganizationId(sessionData?.session) ?? null;
       if (!userId || !organizationId) {
         return yield* Effect.fail(
-          new ORPCError("BAD_REQUEST", { message: "No organization selected", data: {} }),
+          new NoOrganizationSelected({ message: "No organization selected" }),
         );
       }
       const organization = yield* attemptDb(() =>
@@ -62,10 +67,7 @@ export const buildPermissionsService = ({ auth, db }: { auth: Auth; db: Db }) =>
       );
       if (organization?.status !== "active") {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
-            message: "Organization requires platform-admin approval",
-            data: {},
-          }),
+          new OrgRequiresApproval({ message: "Organization requires platform-admin approval" }),
         );
       }
       const result = yield* attemptAuth(() =>
@@ -82,10 +84,9 @@ export const buildPermissionsService = ({ auth, db }: { auth: Auth; db: Db }) =>
           (yield* Effect.promise(() => belongsToEventsTeam(db, userId, organizationId))));
       if (!isOrganizer) {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
+          new NotOrganizer({
             message:
               "Only organizers — organization owners, admins, or members of a team with the events area — can manage onboarding codes",
-            data: { action: "manage-onboarding" },
           }),
         );
       }

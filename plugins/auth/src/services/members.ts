@@ -1,4 +1,3 @@
-import { ORPCError } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
@@ -6,6 +5,19 @@ import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toOrganizationRecord } from "../serializers";
 import { AuthApiTag, type PluginServices } from "../service-types";
+import {
+  AuthApiError,
+  MemberCreateNotPermitted,
+  MemberEmailsExportForbidden,
+  NoActiveOrganization,
+  OrgApprovalRequired,
+  OrgNotFound,
+  OrganizationNotPending,
+  OrganizationRequesterMissing,
+  OwnerRoleRequired,
+  RejectionReasonRequired,
+  type AuthFailure,
+} from "./domain-errors";
 import {
   canReadMemberEmails,
   type EmailVisibilityContext,
@@ -24,20 +36,20 @@ export class MembersService extends Context.Service<
       headers: Headers,
       context: EmailVisibilityContext,
       organizationId: string | undefined,
-    ) => Effect.Effect<{ csv: string }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ csv: string }, AuthFailure>;
     getActiveMember: (
       headers: Headers,
       organizationId: string | undefined,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
     getActiveMemberRole: (
       headers: Headers,
       organizationId: string | undefined,
-    ) => Effect.Effect<{ role: string | null }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ role: string | null }, AuthFailure>;
     listMembers: (
       headers: Headers,
       context: EmailVisibilityContext,
       input: { organizationId?: string; limit?: number; offset?: number },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
     addMember: (
       headers: Headers,
       context: EmailVisibilityContext & { userId: string },
@@ -46,11 +58,11 @@ export class MembersService extends Context.Service<
         role: "owner" | "admin" | "member";
         organizationId?: string;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
     removeMember: (
       headers: Headers,
       input: { memberIdOrEmail: string; organizationId?: string },
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
     updateMemberRole: (
       headers: Headers,
       context: EmailVisibilityContext,
@@ -59,13 +71,13 @@ export class MembersService extends Context.Service<
         memberId: string;
         organizationId?: string;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
-    listPendingOrganizations: () => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
+    listPendingOrganizations: () => Effect.Effect<any, AuthFailure>;
     reviewOrganization: (
       input:
         | { organizationId: string; decision: "approve" }
         | { organizationId: string; decision: "reject"; reason: string },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<any, AuthFailure>;
   }
 >()("auth/MembersService") {}
 
@@ -81,9 +93,8 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
       );
       if (!emailAllowed) {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
+          new MemberEmailsExportForbidden({
             message: "You do not have permission to export member emails",
-            data: {},
           }),
         );
       }
@@ -195,7 +206,7 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
       const organizationId = input.organizationId ?? activeSession?.activeOrganizationId;
       if (!organizationId) {
         return yield* Effect.fail(
-          new ORPCError("BAD_REQUEST", { message: "No active organization", data: {} }),
+          new NoActiveOrganization({ message: "No active organization" }),
         );
       }
       if (context.user?.role !== "admin") {
@@ -210,9 +221,8 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
         }
         if (!permitted) {
           return yield* Effect.fail(
-            new ORPCError("FORBIDDEN", {
+            new MemberCreateNotPermitted({
               message: "Only organization owners and admins can add members",
-              data: { requiredPermissions: ["member:create"] },
             }),
           );
         }
@@ -227,10 +237,7 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
           );
           if (!parseMemberRoles(caller?.role).includes("owner")) {
             return yield* Effect.fail(
-              new ORPCError("FORBIDDEN", {
-                message: "Only organization owners can add owners",
-                data: { action: "add-owner" },
-              }),
+              new OwnerRoleRequired({ message: "Only organization owners can add owners" }),
             );
           }
         }
@@ -242,17 +249,14 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
       );
       if (!organization) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", {
-            message: "Organization not found",
-            data: { resource: "organization", resourceId: organizationId },
-          }),
+          new OrgNotFound({ message: "Organization not found", organizationId }),
         );
       }
       if (organization.status !== "active") {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
+          new OrgApprovalRequired({
             message: "Organization approval is required",
-            data: { action: "add-member" },
+            action: "add-member",
           }),
         );
       }
@@ -291,9 +295,8 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
             input.decision !== "approve" &&
             (input.decision !== "reject" || !reason || reason.length > 2000)
           ) {
-            throw new ORPCError("BAD_REQUEST", {
+            throw new RejectionReasonRequired({
               message: "A rejection reason is required (up to 2000 characters)",
-              data: {},
             });
           }
           const [reviewed] = await tx
@@ -310,15 +313,13 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
             )
             .returning();
           if (!reviewed)
-            throw new ORPCError("BAD_REQUEST", {
+            throw new OrganizationNotPending({
               message: "Organization is no longer pending or does not exist",
-              data: {},
             });
           if (input.decision === "approve") {
             if (!reviewed.requestedBy)
-              throw new ORPCError("BAD_REQUEST", {
+              throw new OrganizationRequesterMissing({
                 message: "Organization requester is missing",
-                data: {},
               });
             const members = await tx
               .update(schema.member)
