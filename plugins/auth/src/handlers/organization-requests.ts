@@ -7,18 +7,7 @@ import type { ContractType } from "../contract";
 import * as schema from "../db/schema";
 import { AuthServicesTag } from "../service-types";
 import { tryJsonParse } from "../utils";
-
-const attempt = <A>(run: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: run,
-    catch: (error) =>
-      error instanceof ORPCError
-        ? error
-        : new ORPCError("INTERNAL_SERVER_ERROR", {
-            message: "Could not process the organization request",
-            cause: error,
-          }),
-  });
+import { attemptDb } from "./attempts";
 
 function serialize(organization: typeof schema.organization.$inferSelect) {
   return {
@@ -41,7 +30,7 @@ export function createOrganizationRequestHandlers(
       .use(requireAdmin)
       .effect(function* () {
         const services = yield* AuthServicesTag;
-        const organizations = yield* attempt(() =>
+        const organizations = yield* attemptDb(() =>
           services.db.query.organization.findMany({
             where: eq(schema.organization.status, "pending"),
             orderBy: asc(schema.organization.createdAt),
@@ -65,7 +54,7 @@ export function createOrganizationRequestHandlers(
             }),
           );
         }
-        const organization = yield* attempt(() =>
+        const organization = yield* attemptDb(() =>
           services.db.transaction(async (tx) => {
             const [reviewed] = await tx
               .update(schema.organization)
