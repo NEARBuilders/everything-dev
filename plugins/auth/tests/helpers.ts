@@ -1,12 +1,11 @@
 import "@orpc/experimental-effect/extensions/effect";
 import { call, implement } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
-import { Context, Effect } from "effect";
+import { Effect, Layer } from "effect";
 import type { AuthPermissionStatements } from "../src/auth-config";
 import { type AuthConfig, createAuthInstance } from "../src/auth-instance";
 import { type ContractType, contract, type InferInput, type InferOutput } from "../src/contract";
 import { createDatabaseDriver } from "../src/db";
-import { DatabaseTag } from "../src/db/layer";
 import { loadMigrations, migrate } from "../src/db/migrate";
 import * as schema from "../src/db/schema";
 import { createAdminUsersHandlers } from "../src/handlers/admin-users";
@@ -23,24 +22,8 @@ import { createTeamHandlers } from "../src/handlers/teams";
 import { type AuthHandlerContext, createRequireAuth } from "../src/middleware";
 import { createOnboardingCodeCipher } from "../src/onboarding-code-cipher";
 import { createOrganizationMembershipPolicy } from "../src/organization-membership-policy";
-import {
-  AuthApiTag,
-  AuthServicesTag,
-  MembershipPolicyTag,
-  OnboardingCodeCipherTag,
-  type PluginServices,
-} from "../src/service-types";
-import { AdminUsersService, buildAdminUsersService } from "../src/services/admin-users";
-import { ApiKeysService, buildApiKeysService } from "../src/services/api-keys";
-import { buildInvitationsService, InvitationsService } from "../src/services/invitations";
-import { buildMembersService, MembersService } from "../src/services/members";
-import { buildNearService, NearService } from "../src/services/near";
-import { buildOnboardingService, OnboardingService } from "../src/services/onboarding";
-import { buildOrganizationsService, OrganizationsService } from "../src/services/organizations";
-import { buildPasskeysService, PasskeysService } from "../src/services/passkeys";
-import { buildPermissionsService, PermissionsService } from "../src/services/permissions";
-import { buildSessionService, SessionService } from "../src/services/session";
-import { buildTeamsService, TeamsService } from "../src/services/teams";
+import type { PluginServices } from "../src/service-types";
+import { buildAuthServicesLayer } from "../src/service-wiring";
 
 const TEST_DB_URL = "pglite::memory:";
 
@@ -93,7 +76,10 @@ export const TEST_REGISTRY = {
 process.env.BETTER_AUTH_SECRET =
   process.env.BETTER_AUTH_SECRET || "test-secret-do-not-use-in-production";
 
-export async function createTestServices(configOverrides?: Partial<AuthConfig>) {
+export async function createTestServices(
+  configOverrides?: Partial<AuthConfig>,
+  secrets?: { email?: { resend?: string } },
+) {
   const driver = await createDatabaseDriver(TEST_DB_URL);
   const { migrations } = await Effect.runPromise(loadMigrations);
   if (migrations.length > 0) {
@@ -107,6 +93,7 @@ export async function createTestServices(configOverrides?: Partial<AuthConfig>) 
       ...configOverrides,
     },
     driver.db,
+    secrets,
   );
 
   const handler = (req: Request) => auth.handler(req);
@@ -281,62 +268,8 @@ type WrappedRouter<T extends Record<string, unknown>> = {
 };
 
 export function createTestHandlers(services: PluginServices) {
-  const effectContext = Context.make(AuthServicesTag, services).pipe(
-    Context.add(AuthApiTag, {
-      auth: services.auth,
-      handler: services.handler,
-      apiKeyHeaders: services.apiKeyHeaders,
-    }),
-    Context.add(DatabaseTag, services.db),
-    Context.add(ApiKeysService, buildApiKeysService({ auth: services.auth })),
-    Context.add(OnboardingCodeCipherTag, services.onboardingCodeCipher),
-    Context.add(MembershipPolicyTag, services.membershipPolicy),
-    Context.add(
-      OrganizationsService,
-      buildOrganizationsService({ auth: services.auth, db: services.db }),
-    ),
-    Context.add(
-      InvitationsService,
-      buildInvitationsService({ auth: services.auth, db: services.db }),
-    ),
-    Context.add(MembersService, buildMembersService({ auth: services.auth, db: services.db })),
-    Context.add(
-      TeamsService,
-      buildTeamsService({
-        auth: services.auth,
-        db: services.db,
-        registry: {
-          statements: TEST_PERMISSIONS.statements,
-          roleGrants: TEST_PERMISSIONS.roles,
-        },
-      }),
-    ),
-    Context.add(
-      PermissionsService,
-      buildPermissionsService({ auth: services.auth, db: services.db }),
-    ),
-    Context.add(NearService, buildNearService({ auth: services.auth })),
-    Context.add(AdminUsersService, buildAdminUsersService({ auth: services.auth })),
-    Context.add(PasskeysService, buildPasskeysService({ auth: services.auth })),
-    Context.add(
-      SessionService,
-      buildSessionService({
-        auth: services.auth,
-        apiKeyHeaders: services.apiKeyHeaders,
-        db: services.db,
-        registry: TEST_REGISTRY,
-      }),
-    ),
-    Context.add(
-      OnboardingService,
-      buildOnboardingService({
-        auth: services.auth,
-        db: services.db,
-        permissions: buildPermissionsService({ auth: services.auth, db: services.db }),
-        cipher: services.onboardingCodeCipher,
-        membershipPolicy: services.membershipPolicy,
-      }),
-    ),
+  const effectContext = Effect.runSync(
+    Effect.scoped(Layer.build(buildAuthServicesLayer(services))),
   );
   const builder = implement(contract).$context<AuthHandlerContext>();
   const requireAuth = createRequireAuth(builder);

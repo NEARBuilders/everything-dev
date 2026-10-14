@@ -1,8 +1,7 @@
 import { eq } from "drizzle-orm";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth } from "../attempts";
 import type { InferOutput } from "../contract";
-import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import {
   isNearNetwork,
@@ -11,7 +10,7 @@ import {
   normalizeNearAccountId,
 } from "../near-invitations";
 import { toInvitation } from "../serializers";
-import { AuthApiTag, type PluginServices } from "../service-types";
+import type { PluginServices } from "../service-types";
 import { canReadMemberEmails, type EmailVisibilityContext } from "../utils";
 import {
   AuthApiError,
@@ -207,15 +206,6 @@ export const buildInvitationsService = ({ auth, db }: { auth: Auth; db: Db }) =>
         Effect.as({ success: true }),
       ),
   });
-
-export const InvitationsServiceLive = Layer.effect(
-  InvitationsService,
-  Effect.gen(function* () {
-    const { auth } = yield* AuthApiTag;
-    const db = yield* DatabaseTag;
-    return buildInvitationsService({ auth, db });
-  }),
-);
 
 function resolveInvitee(input: { email?: string; nearAccountId?: string; nearNetwork?: string }) {
   if (!!input.email === !!input.nearAccountId) {

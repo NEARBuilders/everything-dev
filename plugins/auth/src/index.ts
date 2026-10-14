@@ -25,24 +25,8 @@ import { createRequireAuth } from "./middleware";
 import { createOnboardingCodeCipher } from "./onboarding-code-cipher";
 import { createOrganizationMembershipPolicy } from "./organization-membership-policy";
 import { OrphanSweepLive } from "./orphan-sweep";
-import {
-  AuthApiTag,
-  AuthServicesTag,
-  MembershipPolicyTag,
-  OnboardingCodeCipherTag,
-  PermissionRegistryTag,
-} from "./service-types";
-import { AdminUsersServiceLive } from "./services/admin-users";
-import { ApiKeysServiceLive } from "./services/api-keys";
-import { InvitationsServiceLive } from "./services/invitations";
-import { MembersServiceLive } from "./services/members";
-import { NearServiceLive } from "./services/near";
-import { OnboardingServiceLive } from "./services/onboarding";
-import { OrganizationsServiceLive } from "./services/organizations";
-import { PasskeysServiceLive } from "./services/passkeys";
-import { PermissionsServiceLive } from "./services/permissions";
-import { SessionServiceLive } from "./services/session";
-import { TeamsServiceLive } from "./services/teams";
+import { AuthServicesTag } from "./service-types";
+import { buildAuthServicesLayer } from "./service-wiring";
 import { toError } from "./utils";
 import { socialProviderWarnings } from "./warnings";
 
@@ -82,29 +66,8 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
       yield* Effect.log("[Auth] Better Auth instance created");
 
-      const tagsLayer = Layer.mergeAll(
-        Layer.succeed(AuthApiTag, { auth, handler, apiKeyHeaders }),
-        Layer.succeed(DatabaseTag, db),
-        Layer.succeed(OnboardingCodeCipherTag, onboardingCodeCipher),
-        Layer.succeed(MembershipPolicyTag, membershipPolicy),
-        Layer.succeed(PermissionRegistryTag, permissionRegistry),
-      );
-
       return Layer.mergeAll(
-        tagsLayer,
-        OrganizationsServiceLive.pipe(Layer.provide(tagsLayer)),
-        InvitationsServiceLive.pipe(Layer.provide(tagsLayer)),
-        MembersServiceLive.pipe(Layer.provide(tagsLayer)),
-        TeamsServiceLive.pipe(Layer.provide(tagsLayer)),
-        PermissionsServiceLive.pipe(Layer.provide(tagsLayer)),
-        OnboardingServiceLive.pipe(Layer.provide(PermissionsServiceLive), Layer.provide(tagsLayer)),
-        NearServiceLive.pipe(Layer.provide(tagsLayer)),
-        SessionServiceLive.pipe(Layer.provide(tagsLayer)),
-        PasskeysServiceLive.pipe(Layer.provide(tagsLayer)),
-        ApiKeysServiceLive.pipe(Layer.provide(tagsLayer)),
-        AdminUsersServiceLive.pipe(Layer.provide(tagsLayer)),
-        PasskeysServiceLive.pipe(Layer.provide(tagsLayer)),
-        Layer.succeed(AuthServicesTag, {
+        buildAuthServicesLayer({
           auth,
           db,
           handler,
@@ -130,7 +93,6 @@ export default createPlugin.withPlugins<PluginsClient>()({
       ...createApiKeyHandlers(builder, requireAuth),
       ...createTeamHandlers(builder, requireAuth),
       ...createAdminUsersHandlers(builder, requireAuth),
-      ...createPasskeyHandlers(builder, requireAuth),
       ...createNearHandlers(builder, requireAuth),
       ...createOnboardingHandlers(builder, requireAuth),
     };

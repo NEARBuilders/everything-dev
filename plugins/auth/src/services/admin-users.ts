@@ -1,8 +1,8 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth } from "../attempts";
 import type { InferInput, InferOutput } from "../contract";
 import { toAdminSession, toAdminUser } from "../serializers";
-import { AuthApiTag, type PluginServices } from "../service-types";
+import type { PluginServices } from "../service-types";
 import type { AuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
@@ -133,11 +133,3 @@ export const buildAdminUsersService = ({ auth }: { auth: Auth }) =>
         Effect.as({ success: true }),
       ),
   });
-
-export const AdminUsersServiceLive = Layer.effect(
-  AdminUsersService,
-  Effect.gen(function* () {
-    const { auth } = yield* AuthApiTag;
-    return buildAdminUsersService({ auth });
-  }),
-);

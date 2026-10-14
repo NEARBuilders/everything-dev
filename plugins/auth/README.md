@@ -125,6 +125,12 @@ AUTH_DATABASE_URL=postgres://user:pass@host:5432/dbname
 - Password reset via email
 - Sign-in with verified email
 
+```tip
+- **verify-on-claim**: when `RESEND_API_KEY` and `email.from` are configured, a claimed email lands `emailVerified: false`; a verification email is sent through better-auth's standard token flow, and `emailVerified` flips only on click. Without a provider, instant claim is kept unchanged.
+- **haveIBeenPwned**: the plugin rejects compromised passwords on signup/password change (k-anonymity API; disabled under `NODE_ENV === "test"`).
+- **lastLoginMethod**: per-user last authentication method is tracked.
+```
+
 ### Phone Number
 - OTP via SMS (preview mode logs to console)
 - Auto-creates temp email from phone number

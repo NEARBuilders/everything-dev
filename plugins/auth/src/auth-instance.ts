@@ -7,14 +7,27 @@ import {
   admin,
   anonymous,
   deviceAuthorization,
+  haveIBeenPwned,
+  lastLoginMethod,
   organization,
   phoneNumber,
 } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "better-near-auth";
 import { eq, gt } from "drizzle-orm";
+import type { AuthConfig, AuthPermissionStatements } from "./auth-config";
+import type { Database as AuthDatabase } from "./db";
+import * as schema from "./db/schema";
 import { BOS_CLI_CLIENT_ID, deviceLink } from "./device-link";
+import {
+  isNearInvitation,
+  isNearNetwork,
+  nearInvitationEmail,
+  nearInvitations,
+  normalizeNearAccountId,
+} from "./near-invitations";
 import { organizationApproval } from "./organization-approval";
+import { createOrganizationMembershipPolicy } from "./organization-membership-policy";
 import {
   createPasskeySignUpUser,
   passkeyAuthenticatorSelection,
@@ -22,6 +35,7 @@ import {
   requireUserVerifiedSignIn,
   requireWalletCapablePasskey,
 } from "./passkey-sign-up";
+import { setEmail } from "./set-email";
 
 function buildOrganizationAccess(permissions: AuthPermissionStatements) {
   const ac = createAccessControl(permissions.statements);
@@ -30,19 +44,6 @@ function buildOrganizationAccess(permissions: AuthPermissionStatements) {
   );
   return { ac, roles };
 }
-
-import type { AuthConfig, AuthPermissionStatements } from "./auth-config";
-import type { Database as AuthDatabase } from "./db";
-import * as schema from "./db/schema";
-import {
-  isNearInvitation,
-  isNearNetwork,
-  nearInvitationEmail,
-  nearInvitations,
-  normalizeNearAccountId,
-} from "./near-invitations";
-import { createOrganizationMembershipPolicy } from "./organization-membership-policy";
-import { setEmail } from "./set-email";
 
 export function isRecipientsConfig(config: SIWNPluginOptions): config is SIWNPluginOptions & {
   recipients: { mainnet: string; testnet: string };
@@ -138,33 +139,30 @@ async function sendEmail(
   emailApiKey?: string,
   from?: string,
 ) {
-  try {
-    if (!emailApiKey || !from) {
-      throw new Error("no email API key or from address configured");
+  if (!emailApiKey || !from) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Email delivery is not configured (RESEND_API_KEY and email.from required)");
     }
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${emailApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ from, to, subject, text, ...(html ? { html } : {}) }),
-    });
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Resend error ${res.status}: ${errorText}`);
-    }
-  } catch (err) {
-    console.log(`\n📧 [Email Preview — ${err instanceof Error ? err.message : "send failed"}] ===`);
+    console.log(`\n📧 [Email Preview — not configured] ===`);
     console.log(`To: ${to}`);
     console.log(`From: ${from ?? "(not configured)"}`);
     console.log(`Subject: ${subject}`);
     console.log(`----------------------------------------------------------------`);
     console.log(text);
-    if (html) {
-      console.log(`\n[HTML version available but not shown in console]`);
-    }
     console.log(`================================================================\n`);
+    return;
+  }
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${emailApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from, to, subject, text, ...(html ? { html } : {}) }),
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Resend error ${res.status}: ${errorText}`);
   }
 }
 
@@ -307,6 +305,8 @@ export function createAuthInstance(
       siwn(siwnOptions),
       admin({ defaultRole: "user", adminRoles: ["admin"] }),
       anonymous({ emailDomainName: mainnetRecipient }),
+      haveIBeenPwned({ enabled: process.env.NODE_ENV !== "test" }),
+      lastLoginMethod(),
       ...(twilioConfig
         ? [
             phoneNumber({
@@ -331,7 +331,7 @@ export function createAuthInstance(
         },
       }),
       passkeySignUp({ network }),
-      setEmail(),
+      setEmail({ requireVerification: Boolean(emailApiKey && emailConfig?.from) }),
       organizationApproval(db),
       organization({
         ac: orgAc,
@@ -490,6 +490,19 @@ export function createAuthInstance(
             to: user.email,
             subject: "Reset your password",
             text: `Click the link to reset your password: ${url}`,
+          },
+          emailApiKey,
+          emailConfig?.from,
+        );
+      },
+    },
+    emailVerification: {
+      sendVerificationEmail: async ({ user, url }) => {
+        await sendEmail(
+          {
+            to: user.email,
+            subject: "Verify your email",
+            text: `Click the link to verify your email: ${url}`,
           },
           emailApiKey,
           emailConfig?.from,

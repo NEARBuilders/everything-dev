@@ -1,15 +1,15 @@
 import { and, asc, eq } from "drizzle-orm";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
-import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toOrganizationRecord } from "../serializers";
-import { AuthApiTag, type PluginServices } from "../service-types";
+import type { PluginServices } from "../service-types";
 import {
   canReadMemberEmails,
   type EmailVisibilityContext,
   hasOrgPermission,
+  memberRoleOf,
   parseMemberRoles,
   visibleEmail,
 } from "../utils";
@@ -143,11 +143,7 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
           headers,
           query: organizationId ? { organizationId } : undefined,
         }),
-      ).pipe(
-        Effect.map((result) => ({
-          role: typeof result === "string" ? result : ((result as any)?.role ?? null),
-        })),
-      ),
+      ).pipe(Effect.map((result) => ({ role: memberRoleOf(result) }))),
 
     listMembers: Effect.fn("MembersService.listMembers")(function* (
       headers: Headers,
@@ -395,12 +391,3 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
       };
     }),
   });
-
-export const MembersServiceLive = Layer.effect(
-  MembersService,
-  Effect.gen(function* () {
-    const { auth } = yield* AuthApiTag;
-    const db = yield* DatabaseTag;
-    return buildMembersService({ auth, db });
-  }),
-);

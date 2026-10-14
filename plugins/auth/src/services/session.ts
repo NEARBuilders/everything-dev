@@ -1,17 +1,17 @@
 import { and, asc, eq } from "drizzle-orm";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
 import type { InferOutput } from "../contract";
-import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
+import type { PermissionRegistry, PluginServices } from "../service-types";
 import {
-  AuthApiTag,
-  type PermissionRegistry,
-  PermissionRegistryTag,
-  type PluginServices,
-} from "../service-types";
-import { getActiveOrganizationId, getActiveTeamId, parseTeamAreas, tryJsonParse } from "../utils";
+  getActiveOrganizationId,
+  getActiveTeamId,
+  parseTeamAreas,
+  sessionUserExtras,
+  tryJsonParse,
+} from "../utils";
 import type { AuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
@@ -113,8 +113,7 @@ export const buildSessionService = ({
                   emailVerified: u.emailVerified,
                   image: u.image ?? null,
                   role: u.role ?? null,
-                  isAnonymous: (u as any).isAnonymous ?? null,
-                  locale: (u as any).locale ?? null,
+                  ...sessionUserExtras(u),
                 }
               : null,
           };
@@ -443,13 +442,3 @@ export const buildSessionService = ({
       };
     }),
   });
-
-export const SessionServiceLive = Layer.effect(
-  SessionService,
-  Effect.gen(function* () {
-    const { auth, apiKeyHeaders } = yield* AuthApiTag;
-    const db = yield* DatabaseTag;
-    const registry = yield* PermissionRegistryTag;
-    return buildSessionService({ auth, apiKeyHeaders, db, registry });
-  }),
-);

@@ -1,7 +1,7 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth } from "../attempts";
 import type { InferOutput } from "../contract";
-import { AuthApiTag, type PluginServices } from "../service-types";
+import type { PluginServices } from "../service-types";
 import type { AuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
@@ -87,8 +87,10 @@ export class NearService extends Context.Service<
   }
 >()("auth/NearService") {}
 
-export const buildNearService = ({ auth }: { auth: Auth }) =>
-  NearService.of({
+export const buildNearService = ({ auth }: { auth: Auth }) => {
+  const siwnRequestUrl = (path: string) => `${auth.options.baseURL}/api/auth${path}`;
+
+  return NearService.of({
     nearNonce: (input) =>
       attemptAuth(() =>
         auth.api.getSiwnNonce({
@@ -98,7 +100,7 @@ export const buildNearService = ({ auth }: { auth: Auth }) =>
 
     nearVerify: (headers, input) =>
       attemptAuth(() => {
-        const req = new Request("http://localhost:3000/api/auth/near/verify", {
+        const req = new Request(siwnRequestUrl("/near/verify"), {
           method: "POST",
           headers,
           body: JSON.stringify(input),
@@ -125,7 +127,7 @@ export const buildNearService = ({ auth }: { auth: Auth }) =>
 
     nearLinkAccount: (reqHeaders, input) =>
       attemptAuth(() => {
-        const req = new Request("http://localhost:3000/api/auth/near/link", {
+        const req = new Request(siwnRequestUrl("/near/link"), {
           method: "POST",
           headers: reqHeaders,
           body: JSON.stringify(input),
@@ -224,11 +226,4 @@ export const buildNearService = ({ auth }: { auth: Auth }) =>
         }),
       ),
   });
-
-export const NearServiceLive = Layer.effect(
-  NearService,
-  Effect.gen(function* () {
-    const { auth } = yield* AuthApiTag;
-    return buildNearService({ auth });
-  }),
-);
+};

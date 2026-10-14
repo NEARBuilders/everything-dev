@@ -1,16 +1,14 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
-import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toDate, toOnboardingSummary } from "../serializers";
-import {
-  AuthApiTag,
+import type {
   MembershipPolicyTag,
   OnboardingCodeCipherTag,
-  type PluginServices,
+  PluginServices,
 } from "../service-types";
 import { createHeaders } from "../utils";
 import {
@@ -28,7 +26,7 @@ import {
   OrgRequiresApproval,
   RedeemOrgMissing,
 } from "./domain-errors";
-import { type OrganizerCaller, PermissionsService } from "./permissions";
+import type { OrganizerCaller, PermissionsService } from "./permissions";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -501,18 +499,6 @@ export const buildOnboardingService = ({
       };
     }),
   });
-
-export const OnboardingServiceLive = Layer.effect(
-  OnboardingService,
-  Effect.gen(function* () {
-    const { auth } = yield* AuthApiTag;
-    const db = yield* DatabaseTag;
-    const permissions = yield* PermissionsService;
-    const cipher = yield* OnboardingCodeCipherTag;
-    const membershipPolicy = yield* MembershipPolicyTag;
-    return buildOnboardingService({ auth, db, permissions, cipher, membershipPolicy });
-  }),
-);
 
 async function resolveEventTeamId(
   db: Db,

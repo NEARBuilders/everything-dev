@@ -1,16 +1,10 @@
 import { and, eq } from "drizzle-orm";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
-import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toDate, toTeam } from "../serializers";
-import {
-  AuthApiTag,
-  type PermissionRegistry,
-  PermissionRegistryTag,
-  type PluginServices,
-} from "../service-types";
+import type { PermissionRegistry, PluginServices } from "../service-types";
 import { getActiveOrganizationId, serializeTeamAreas, withoutSessionDataCookie } from "../utils";
 import {
   type AuthFailure,
@@ -264,13 +258,3 @@ export const buildTeamsService = ({
         }),
       ).pipe(Effect.as({ success: true })),
   });
-
-export const TeamsServiceLive = Layer.effect(
-  TeamsService,
-  Effect.gen(function* () {
-    const { auth } = yield* AuthApiTag;
-    const db = yield* DatabaseTag;
-    const registry = yield* PermissionRegistryTag;
-    return buildTeamsService({ auth, db, registry });
-  }),
-);

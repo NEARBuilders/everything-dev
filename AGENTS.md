@@ -431,8 +431,9 @@ shapes constrain the `data` payload — e.g. `UNAUTHORIZED` requires
 (async-generator) handlers. Do not introduce new plain `.handler(async)` routes with
 inline `Context.get` service access, and do not use the `createAuthMiddleware`
 middlewares via `.use()` for new routes — their `DecoratedMiddleware` typing does not
-currently compose with the `.use()` builder (see proposals plugin's local middleware
-for the workaround pattern).
+compose with the `.use()` builder without an explicit context generic (the auth
+plugin's `plugins/auth/src/handlers/admin-users.ts` passes `createAuthMiddleware<AuthHandlerAuthedContext>(builder)`
+to make it compose; the proposals plugin's local middleware is the alternative pattern).
 
 ### Plugin Architecture
 
