@@ -3,7 +3,7 @@ import { Config, Context, Effect, Layer } from "effect";
 import type { Context as HonoContext, MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { NONCE, secureHeaders } from "hono/secure-headers";
-import { rateLimiter } from "hono-rate-limiter";
+import { type ClientRateLimitInfo, rateLimiter, type Store } from "hono-rate-limiter";
 import { ConfigService, readCorsOrigins } from "../services/config";
 import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
@@ -12,6 +12,8 @@ import { originMatches } from "../utils/origin-match";
 export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 900_000;
 export const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX) || 2000;
 export const RATE_LIMIT_MUTATION_MAX = Number(process.env.RATE_LIMIT_MUTATION_MAX) || 60;
+export const RATE_LIMIT_STORE_MAX_ENTRIES =
+  Number(process.env.RATE_LIMIT_STORE_MAX_ENTRIES) || 10_000;
 export const BODY_LIMIT_MAX = Number(process.env.BODY_LIMIT_MAX) || 10 * 1024 * 1024;
 export const API_TIMEOUT_MS = Number(process.env.API_TIMEOUT_MS) || 30_000;
 
@@ -55,6 +57,67 @@ export function clientKeyOf(c: HonoContext): string {
     return info.remote.address ?? "unknown";
   } catch {
     return "unknown";
+  }
+}
+
+export class CappedStore implements Store {
+  private readonly hits = new Map<string, ClientRateLimitInfo>();
+
+  constructor(private readonly maxEntries: number) {}
+
+  localKeys = true;
+
+  increment = (key: string): ClientRateLimitInfo => {
+    const now = Date.now();
+    const existing = this.hits.get(key);
+    if (!existing || (existing.resetTime?.getTime() ?? 0) <= now) {
+      this.hits.delete(key);
+      const fresh: ClientRateLimitInfo = {
+        totalHits: 1,
+        resetTime: new Date(now + RATE_LIMIT_WINDOW_MS),
+      };
+      this.hits.set(key, fresh);
+      this.enforceCap();
+      return fresh;
+    }
+    existing.totalHits += 1;
+    return existing;
+  };
+
+  decrement = (key: string): void => {
+    const entry = this.hits.get(key);
+    if (entry && entry.totalHits > 0) entry.totalHits -= 1;
+  };
+
+  resetKey = (key: string): void => {
+    this.hits.delete(key);
+  };
+
+  resetAll = (): void => {
+    this.hits.clear();
+  };
+
+  get = (key: string): ClientRateLimitInfo | undefined => {
+    const entry = this.hits.get(key);
+    if (!entry) return undefined;
+    if ((entry.resetTime?.getTime() ?? 0) <= Date.now()) {
+      this.hits.delete(key);
+      return undefined;
+    }
+    return entry;
+  };
+
+  private enforceCap(): void {
+    if (this.hits.size <= this.maxEntries) return;
+    const now = Date.now();
+    for (const [key, entry] of this.hits) {
+      if ((entry.resetTime?.getTime() ?? 0) <= now) this.hits.delete(key);
+      if (this.hits.size <= this.maxEntries) return;
+    }
+    for (const key of this.hits.keys()) {
+      this.hits.delete(key);
+      if (this.hits.size <= this.maxEntries) return;
+    }
   }
 }
 
@@ -199,6 +262,7 @@ export class SecurityMiddleware extends Context.Service<
         skip: (c) => isProbeOrStatic(c) || isSensitiveMutation(c),
         handler: (c) => rateLimitExceededResponse(c),
         message: { error: "Too many requests, please try again later." },
+        store: new CappedStore(RATE_LIMIT_STORE_MAX_ENTRIES),
       });
 
       const rateLimitMutation: MiddlewareHandler = rateLimiter({
@@ -208,6 +272,7 @@ export class SecurityMiddleware extends Context.Service<
         skip: (c) => isProbeOrStatic(c) || !isSensitiveMutation(c),
         handler: (c) => rateLimitExceededResponse(c),
         message: { error: "Too many requests, please try again later." },
+        store: new CappedStore(RATE_LIMIT_STORE_MAX_ENTRIES),
       });
 
       const remoteOrigins = [

@@ -22,6 +22,10 @@ const mcpRequestStorage = new AsyncLocalStorage<McpRequestContext>();
 
 let mcpTransport: WebStandardStreamableHTTPServerTransport | null = null;
 
+export function isMcpRequestAuthorized(context: AuthPluginContext): boolean {
+  return context.isAuthenticated === true;
+}
+
 export function closeMcpServer(): Promise<void> {
   if (!mcpTransport) return Promise.resolve();
   const t = mcpTransport;
@@ -39,7 +43,6 @@ export async function mountMcpRoute(
   },
 ) {
   const { apiRouter, apiHandler, config, effectContext } = options;
-
   const generator = new OpenAPIGenerator({
     converters: [new ZodToJsonSchemaConverter()],
   });
@@ -219,6 +222,18 @@ export async function mountMcpRoute(
 
   app.all("/api/mcp", async (c: Context<HonoEnv>) => {
     const context = buildPluginContext(c);
+
+    if (!isMcpRequestAuthorized(context)) {
+      logger.warn(`[MCP] Rejected unauthenticated ${c.req.method} /api/mcp`);
+      return c.json(
+        {
+          error: "Authentication required. Pass an API key (x-api-key header) or sign in.",
+        },
+        401,
+        { "WWW-Authenticate": 'Bearer realm="mcp"' },
+      );
+    }
+
     const baseUrl = new URL(c.req.url).origin;
 
     let parsedBody: unknown;
