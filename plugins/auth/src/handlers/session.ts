@@ -96,10 +96,9 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
       const { auth, apiKeyHeaders } = yield* AuthApiTag;
       const db = yield* DatabaseTag;
       const headers = createHeaders(context.reqHeaders);
-      const apiKeyHeaderNames = apiKeyHeaders;
 
       let apiKeyValue: string | null = null;
-      for (const headerName of apiKeyHeaderNames) {
+      for (const headerName of apiKeyHeaders) {
         const value = headers.get(headerName.toLowerCase())?.trim();
         if (value) {
           apiKeyValue = value;
@@ -144,7 +143,7 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
 
       if (apiKeyValue) {
         const verifyHeaders = new Headers(headers);
-        for (const headerName of apiKeyHeaderNames) {
+        for (const headerName of apiKeyHeaders) {
           verifyHeaders.delete(headerName.toLowerCase());
         }
         verifyHeaders.delete("authorization");

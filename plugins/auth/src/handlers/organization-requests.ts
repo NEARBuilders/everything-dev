@@ -12,15 +12,8 @@ import type {
   AuthHandlerContext,
   RequireAuthMiddleware,
 } from "../middleware";
-import { tryJsonParse } from "../utils";
+import { toOrganizationRecord } from "../serializers";
 import { attemptDb } from "./attempts";
-
-function serialize(organization: typeof schema.organization.$inferSelect) {
-  return {
-    ...organization,
-    metadata: tryJsonParse<Record<string, unknown>>(organization.metadata),
-  };
-}
 
 export type OrganizationRequestContext = AuthContextShape &
   WithEffectContext<AuthEffectServices> & { reqHeaders?: Record<string, string> };
@@ -42,7 +35,7 @@ export function createOrganizationRequestHandlers(
             orderBy: asc(schema.organization.createdAt),
           }),
         );
-        return organizations.map(serialize);
+        return organizations.map(toOrganizationRecord);
       }),
     reviewOrganization: builder.reviewOrganization
       .use(requireAuth)
@@ -109,7 +102,7 @@ export function createOrganizationRequestHandlers(
             return reviewed;
           }),
         );
-        return serialize(organization);
+        return toOrganizationRecord(organization);
       }),
   };
 }

@@ -5,6 +5,7 @@ import type { ContractType, InferInput } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, AuthSessionUser, RequireAuthMiddleware } from "../middleware";
+import { toOrganizationInfo } from "../serializers";
 import { AuthApiTag, type PluginServices } from "../service-types";
 import {
   canReadMemberEmails,
@@ -14,44 +15,6 @@ import {
   tryJsonParse,
 } from "../utils";
 import { attemptAuth, attemptDb } from "./attempts";
-
-function toOrganizationInfo(organization: {
-  id: string;
-  name: string;
-  slug: string;
-  logo?: string | null;
-  metadata?: unknown;
-  status?: string;
-  requestedBy?: string | null;
-  rejectionReason?: string | null;
-}): {
-  id: string;
-  name: string;
-  slug: string;
-  logo: string | null;
-  status: "active" | "pending" | "rejected";
-  requestedBy: string | null;
-  rejectionReason: string | null;
-  metadata: Record<string, unknown> | null;
-} {
-  const status =
-    organization.status === "pending" || organization.status === "rejected"
-      ? organization.status
-      : "active";
-  return {
-    id: organization.id,
-    name: organization.name,
-    slug: organization.slug,
-    logo: organization.logo ?? null,
-    status,
-    requestedBy: organization.requestedBy ?? null,
-    rejectionReason: organization.rejectionReason ?? null,
-    metadata:
-      typeof organization.metadata === "string"
-        ? (tryJsonParse<Record<string, unknown>>(organization.metadata) ?? null)
-        : ((organization.metadata as Record<string, unknown> | null | undefined) ?? null),
-  };
-}
 
 async function getFullOrganizationOrNull(
   auth: PluginServices["auth"],

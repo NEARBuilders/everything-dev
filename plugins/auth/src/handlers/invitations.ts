@@ -11,9 +11,10 @@ import {
   nearInvitationEmail,
   normalizeNearAccountId,
 } from "../near-invitations";
+import { toInvitation } from "../serializers";
 import { AuthApiTag, type PluginServices } from "../service-types";
 import { canReadMemberEmails, createHeaders, toORPCError } from "../utils";
-import { attemptAuth, attemptDb } from "./attempts";
+import { attemptAuth } from "./attempts";
 
 function resolveInvitee(
   input: { email?: string; nearAccountId?: string; nearNetwork?: string },
@@ -51,22 +52,6 @@ function resolveInvitee(
     email: nearInvitationEmail(nearAccountId, input.nearNetwork),
     nearAccountId,
     nearNetwork: input.nearNetwork,
-  };
-}
-
-function toInvitation(invitation: any) {
-  return {
-    id: invitation.id,
-    organizationId: invitation.organizationId,
-    email: invitation.email,
-    role: invitation.role,
-    status: invitation.status,
-    expiresAt:
-      invitation.expiresAt instanceof Date ? invitation.expiresAt : new Date(invitation.expiresAt),
-    inviterId: invitation.inviterId,
-    teamId: invitation.teamId ?? null,
-    nearAccountId: invitation.nearAccountId ?? null,
-    nearNetwork: invitation.nearNetwork ?? null,
   };
 }
 
@@ -149,7 +134,7 @@ export function createInvitationHandlers(
       const { auth } = yield* AuthApiTag;
       const db = yield* DatabaseTag;
       const headers = createHeaders(context.reqHeaders ?? {});
-      return yield* attemptDb(() => getInvitationOrNull(auth, db, headers, input.id));
+      return yield* attemptAuth(() => getInvitationOrNull(auth, db, headers, input.id));
     }),
 
     listInvitations: builder.listInvitations.use(requireAuth).effect(function* ({

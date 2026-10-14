@@ -9,7 +9,7 @@ export type PluginServices = {
   db: Database;
   handler: (req: Request) => Promise<Response>;
   apiKeyHeaders: string[];
-  membershipPolicy?: OrganizationMembershipPolicy;
+  membershipPolicy: OrganizationMembershipPolicy;
   onboardingCodeCipher: OnboardingCodeCipher;
 };
 

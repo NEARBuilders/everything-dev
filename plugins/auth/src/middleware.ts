@@ -44,7 +44,7 @@ export function createRequireAuth(builder: any): RequireAuthMiddleware {
         ? (context.user as AuthSessionUser)
         : null;
       if (!user) {
-        const { auth, apiKeyHeaders } = Context.get(context["effect/context"], AuthApiTag);
+        const { auth } = Context.get(context["effect/context"], AuthApiTag);
         const headers = createHeaders(context.reqHeaders);
         const session = await auth.api.getSession({ headers });
         user = session?.user ?? null;

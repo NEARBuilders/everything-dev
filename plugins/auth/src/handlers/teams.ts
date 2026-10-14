@@ -5,27 +5,15 @@ import type { ContractType } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
-import { toDate } from "../serializers";
+import { toDate, toTeam } from "../serializers";
 import { AuthApiTag } from "../service-types";
 import {
   createHeaders,
   getActiveOrganizationId,
-  parseTeamAreas,
   serializeTeamAreas,
   withoutSessionDataCookie,
 } from "../utils";
 import { attemptAuth, attemptDb } from "./attempts";
-
-function toTeam(team: any) {
-  return {
-    id: team.id,
-    name: team.name,
-    organizationId: team.organizationId,
-    areas: parseTeamAreas(team.metadata),
-    createdAt: toDate(team.createdAt),
-    updatedAt: toDate(team.updatedAt),
-  };
-}
 
 export function createTeamHandlers(
   builder: Implementer<ContractType, AuthHandlerContext>,

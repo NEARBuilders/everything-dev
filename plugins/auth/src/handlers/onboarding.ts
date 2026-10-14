@@ -7,7 +7,7 @@ import type { AuthErrors, ContractType } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext, AuthSessionUser, RequireAuthMiddleware } from "../middleware";
-import { toDate } from "../serializers";
+import { toDate, toOnboardingSummary } from "../serializers";
 import {
   AuthApiTag,
   MembershipPolicyTag,
@@ -137,21 +137,6 @@ function codeState(
   return "active";
 }
 
-function toSummary(row: typeof schema.onboardingCode.$inferSelect) {
-  return {
-    id: row.id,
-    eventId: row.eventId,
-    eventName: row.eventName,
-    teamId: row.teamId,
-    role: row.role,
-    maxUses: row.maxUses,
-    usedCount: row.usedCount,
-    expiresAt: toDate(row.expiresAt),
-    revokedAt: row.revokedAt ? toDate(row.revokedAt) : null,
-    createdAt: toDate(row.createdAt),
-  };
-}
-
 export function createOnboardingHandlers(
   builder: Implementer<ContractType, AuthHandlerContext>,
   requireAuth: RequireAuthMiddleware,
@@ -216,7 +201,7 @@ export function createOnboardingHandlers(
         );
       }
 
-      return { ...toSummary(row), code };
+      return { ...toOnboardingSummary(row), code };
     }),
 
     listOnboardingCodes: builder.listOnboardingCodes.use(requireAuth).effect(function* ({
@@ -238,7 +223,7 @@ export function createOnboardingHandlers(
           .orderBy(desc(schema.onboardingCode.createdAt))
           .limit(20),
       );
-      return rows.map(toSummary);
+      return rows.map(toOnboardingSummary);
     }),
 
     revokeOnboardingCode: builder.revokeOnboardingCode.use(requireAuth).effect(function* ({
@@ -315,7 +300,7 @@ export function createOnboardingHandlers(
 
       const encryptedCode = row.encryptedCode;
       return {
-        ...toSummary(row),
+        ...toOnboardingSummary(row),
         code: yield* Effect.promise(() => onboardingCodeCipher.decrypt(encryptedCode)),
       };
     }),
@@ -370,7 +355,7 @@ export function createOnboardingHandlers(
       );
 
       return {
-        ...toSummary(row),
+        ...toOnboardingSummary(row),
         joined: joined.map((entry) => ({
           userId: entry.userId,
           userName: entry.userName ?? null,
