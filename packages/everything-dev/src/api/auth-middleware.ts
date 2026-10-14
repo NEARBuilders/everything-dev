@@ -23,6 +23,7 @@ export interface AuthContextShape {
     activeOrganizationId?: string | null;
     member?: { id?: string | null; role?: string | null } | null;
     organization?: { metadata?: Record<string, unknown> | null; status?: string } | null;
+    teams?: Array<{ id: string; permissions?: Record<string, string[]> }> | null;
   } | null;
 }
 
@@ -235,9 +236,21 @@ export function createAuthMiddleware<
       return next({ context: { apiKey: context.apiKey } });
     }) as ApiKeyMiddleware;
 
-  const requirePermission = (resource: string, action: string) =>
-    builder.middleware(async ({ context, next }: { context: Ctx; next: any }) => {
-      if (!context.permissions?.[resource]?.includes(action)) {
+  const requirePermission = (
+    resource: string,
+    action: string,
+    scope?: { scope?: "organization" | "team"; teamId?: (input: any) => string | undefined },
+  ) =>
+    builder.middleware(async ({ context, next }: { context: Ctx; next: any }, input: any) => {
+      let granted: string[] | undefined;
+      if (scope?.scope === "team") {
+        const teamId = scope.teamId?.(input);
+        const team = context.organization?.teams?.find((t) => t.id === teamId);
+        granted = team?.permissions?.[resource];
+      } else {
+        granted = context.permissions?.[resource];
+      }
+      if (!granted?.includes(action)) {
         throw new ORPCError("FORBIDDEN", {
           message: `Requires permission: ${resource}:${action}`,
           data: { requiredPermissions: [`${resource}:${action}`] },

@@ -78,6 +78,7 @@ export const teamRoutes = {
         teamId: z.string(),
         userId: z.string(),
         organizationId: z.string().optional(),
+        role: z.string().optional(),
       }),
     )
     .output(teamMemberSchema)

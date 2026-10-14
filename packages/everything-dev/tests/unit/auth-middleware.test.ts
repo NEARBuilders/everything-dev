@@ -1,5 +1,6 @@
 import { call, os } from "@orpc/server";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { type AuthContextShape, createAuthMiddleware } from "../../src/api/auth-middleware";
 
 describe("organization approval middleware", () => {
@@ -77,6 +78,31 @@ describe("requirePermission", () => {
 
   it("allows org-scoped actions the effective permissions grant", async () => {
     await expect(call(orgRoute, undefined, { context: orgContext })).resolves.toBe("ok");
+  });
+
+  const teamRoute = builder
+    .input(z.object({ teamId: z.string() }))
+    .use(
+      requirePermission("team", "update", {
+        scope: "team",
+        teamId: (input: { teamId?: string } | undefined) => input?.teamId,
+      }),
+    )
+    .handler(() => "ok");
+
+  it("allows team-scoped actions via the caller's team grants", async () => {
+    await expect(call(teamRoute, { teamId: "team-1" }, { context: orgContext })).resolves.toBe(
+      "ok",
+    );
+  });
+
+  it("denies team-scoped actions when the team is not the caller's or lacks the grant", async () => {
+    await expect(
+      call(teamRoute, { teamId: "team-2" }, { context: orgContext }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      call(teamRoute, { teamId: "other-team" }, { context: orgContext }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("denies org-scoped actions with the missing grant in the data payload", async () => {

@@ -5,7 +5,12 @@ import { attemptAuth, attemptDb } from "../attempts";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toDate, toTeam } from "../serializers";
-import { AuthApiTag, type PluginServices } from "../service-types";
+import {
+  AuthApiTag,
+  type PermissionRegistry,
+  PermissionRegistryTag,
+  type PluginServices,
+} from "../service-types";
 import { getActiveOrganizationId, serializeTeamAreas, withoutSessionDataCookie } from "../utils";
 
 type Auth = PluginServices["auth"];
@@ -53,7 +58,7 @@ export class TeamsService extends Context.Service<
     ) => Effect.Effect<any, ORPCError<string, unknown>>;
     addTeamMember: (
       headers: Headers,
-      input: { teamId: string; userId: string; organizationId?: string },
+      input: { teamId: string; userId: string; organizationId?: string; role?: string },
     ) => Effect.Effect<any, ORPCError<string, unknown>>;
     removeTeamMember: (
       headers: Headers,
@@ -62,7 +67,15 @@ export class TeamsService extends Context.Service<
   }
 >()("auth/TeamsService") {}
 
-export const buildTeamsService = ({ auth, db }: { auth: Auth; db: Db }) =>
+export const buildTeamsService = ({
+  auth,
+  db,
+  registry,
+}: {
+  auth: Auth;
+  db: Db;
+  registry: PermissionRegistry;
+}) =>
   TeamsService.of({
     setActiveTeam: (headers, teamId) =>
       attemptAuth(() => auth.api.setActiveTeam({ headers, body: { teamId } })).pipe(
@@ -192,12 +205,24 @@ export const buildTeamsService = ({ auth, db }: { auth: Auth; db: Db }) =>
         id: tm.id,
         teamId: tm.teamId,
         userId: tm.userId,
+        role: tm.role,
         createdAt: toDate(tm.createdAt),
       }));
     }),
 
-    addTeamMember: (headers, input) =>
-      attemptAuth(() =>
+    addTeamMember: Effect.fn("TeamsService.addTeamMember")(function* (
+      headers: Headers,
+      input: { teamId: string; userId: string; organizationId?: string; role?: string },
+    ) {
+      if (input.role !== undefined && !(input.role in registry.roleGrants)) {
+        return yield* Effect.fail(
+          new ORPCError("BAD_REQUEST", {
+            message: `Unknown team role "${input.role}" — declare it in siwn.permissions.roles (valid: ${Object.keys(registry.roleGrants).join(", ")})`,
+            data: {},
+          }),
+        );
+      }
+      const result = yield* attemptAuth(() =>
         auth.api.addTeamMember({
           headers,
           body: {
@@ -206,15 +231,28 @@ export const buildTeamsService = ({ auth, db }: { auth: Auth; db: Db }) =>
             organizationId: input.organizationId,
           },
         }),
-      ).pipe(
-        Effect.map((result) => ({
-          id: result.id,
-          teamId: result.teamId,
-          userId: result.userId,
-          createdAt:
-            result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
-        })),
-      ),
+      );
+      if (input.role !== undefined && input.role !== "member") {
+        yield* attemptDb(() =>
+          db
+            .update(schema.teamMember)
+            .set({ role: input.role })
+            .where(
+              and(
+                eq(schema.teamMember.teamId, input.teamId),
+                eq(schema.teamMember.userId, input.userId),
+              ),
+            ),
+        );
+      }
+      return {
+        id: result.id,
+        teamId: result.teamId,
+        userId: result.userId,
+        role: input.role ?? "member",
+        createdAt: result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
+      };
+    }),
 
     removeTeamMember: (headers, input) =>
       attemptAuth(() =>
@@ -234,6 +272,7 @@ export const TeamsServiceLive = Layer.effect(
   Effect.gen(function* () {
     const { auth } = yield* AuthApiTag;
     const db = yield* DatabaseTag;
-    return buildTeamsService({ auth, db });
+    const registry = yield* PermissionRegistryTag;
+    return buildTeamsService({ auth, db, registry });
   }),
 );

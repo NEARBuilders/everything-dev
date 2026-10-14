@@ -1,4 +1,6 @@
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import * as schema from "../../src/db/schema";
 import {
   addTestMember,
   createTestHandlers,
@@ -110,6 +112,58 @@ describe("team handlers", () => {
       expect(result.id).toBeDefined();
       expect(result.teamId).toBe(team.id);
       expect(result.userId).toBe(member.userId);
+      expect(result.role).toBe("member");
+    });
+
+    it("assigns a declared team role on add", async () => {
+      const owner = await createTestUser(services.services);
+      const member = await createTestUser(services.services, {
+        email: `tm-${crypto.randomUUID()}@example.com`,
+      });
+      const org = await createTestOrg(services.services, owner.userId);
+      await addTestMember(services.services, org.id, member.userId, "member");
+      const handlers = createTestHandlers(services.services);
+
+      const team = await handlers.teams.createTeam({
+        input: { name: "Curated", organizationId: org.id },
+        context: { reqHeaders: owner.reqHeaders },
+      });
+
+      const result = await handlers.teams.addTeamMember({
+        input: { teamId: team.id, userId: member.userId, organizationId: org.id, role: "owner" },
+        context: { reqHeaders: owner.reqHeaders },
+      });
+
+      expect(result.role).toBe("owner");
+      const row = await services.services.db.query.teamMember.findFirst({
+        where: and(
+          eq(schema.teamMember.teamId, team.id),
+          eq(schema.teamMember.userId, member.userId),
+        ),
+      });
+      expect(row?.role).toBe("owner");
+    });
+
+    it("rejects an undeclared team role", async () => {
+      const owner = await createTestUser(services.services);
+      const member = await createTestUser(services.services, {
+        email: `tm-${crypto.randomUUID()}@example.com`,
+      });
+      const org = await createTestOrg(services.services, owner.userId);
+      await addTestMember(services.services, org.id, member.userId, "member");
+      const handlers = createTestHandlers(services.services);
+
+      const team = await handlers.teams.createTeam({
+        input: { name: "Ghost", organizationId: org.id },
+        context: { reqHeaders: owner.reqHeaders },
+      });
+
+      await expect(
+        handlers.teams.addTeamMember({
+          input: { teamId: team.id, userId: member.userId, organizationId: org.id, role: "ghost" },
+          context: { reqHeaders: owner.reqHeaders },
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     });
   });
 

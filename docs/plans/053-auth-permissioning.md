@@ -41,22 +41,29 @@ ADR: `docs/adr/0028-config-declared-permissions.md`.
 
 ## Tier 2 checklist
 
-- [ ] Audit Better Auth `addTeamMember`/`removeTeamMember` source for missing permission checks (#313 class)
-- [ ] Migration `0011`: `team_member.role` (default `"member"`); `db/schema.ts` column
-- [ ] `PermissionsService.hasTeamPermission` (org ∪ team grants)
-- [ ] `getContext` team entries gain `permissions` (registry grants for the caller's team role)
-- [ ] `requirePermission` scope option: `{ scope: "team", teamId: (input) => string | undefined }`
-- [ ] Team-route gates from the audit → `requirePermission` team scope
-- [ ] Tests: gate allow/deny per team route, union semantics, team-scope middleware
-- [ ] Changeset: `@everything-dev/auth-plugin` (minor)
+- [x] Audit Better Auth team routes — **no #313-class gap**: all five management routes
+      gate on the caller's org role (`crud-team.mjs` :85/:167/:284/:591/:669), evaluated
+      against the config-declared roles. Team-scoped *elevation* (direct-write bypass of
+      the org-role checks) was **rejected (wontfix)**: no route may bypass Better Auth —
+      team-scoped roles are restriction-only, all management writes stay behind Better
+      Auth's endpoints and org-role checks.
+- [x] Migration `0011`: `team_member.role` (default `"member"`); `db/schema.ts` column
+- [x] `PermissionsService.hasTeamPermission` (org ∪ team grants) — **removed post-decision**:
+      the union evaluator existed only for the rejected elevation path; team-scope checks
+      read the caller's team-role grants from the context (restriction semantics)
+- [x] `getContext` team entries gain `permissions` (registry grants for the caller's team role)
+- [x] `requirePermission` scope option: `{ scope: "team", teamId: (input) => string | undefined }`
+- [x] Role assignment: `addTeamMember` accepts `role` (validated against the declared roles); `listTeamMembers` returns `role`
+- [x] Tests: union semantics (org ∪ team), role assignment + undeclared-role rejection, context team map
+- [x] Changeset: `@everything-dev/auth-plugin` (minor)
 
 ## Docs
 
 - [x] ADR 0028
-- [ ] GLOSSARY.md: Statement, Role grant, Effective permissions, Permission registry
-- [ ] `packages/better-near-auth/skills/auth-plugin/SKILL.md`: config surface + root posture
-- [ ] `packages/everything-dev/skills/api-and-auth/SKILL.md` + `references/middleware.md`: `requirePermission`
-- [ ] `plugins/auth/README.md`: config surface
+- [x] GLOSSARY.md: Statement, Role grant, Effective permissions, Permission registry
+- [x] `packages/better-near-auth/skills/auth-plugin/SKILL.md`: config surface + root posture
+- [x] `packages/everything-dev/skills/api-and-auth/SKILL.md` + `references/middleware.md`: `requirePermission` (+ team scope)
+- [x] `plugins/auth/README.md`: config surface
 
 ## Verification gates
 

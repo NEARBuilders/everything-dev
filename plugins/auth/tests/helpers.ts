@@ -296,7 +296,17 @@ export function createTestHandlers(services: PluginServices) {
       buildInvitationsService({ auth: services.auth, db: services.db }),
     ),
     Context.add(MembersService, buildMembersService({ auth: services.auth, db: services.db })),
-    Context.add(TeamsService, buildTeamsService({ auth: services.auth, db: services.db })),
+    Context.add(
+      TeamsService,
+      buildTeamsService({
+        auth: services.auth,
+        db: services.db,
+        registry: {
+          statements: TEST_PERMISSIONS.statements,
+          roleGrants: TEST_PERMISSIONS.roles,
+        },
+      }),
+    ),
     Context.add(
       PermissionsService,
       buildPermissionsService({ auth: services.auth, db: services.db }),

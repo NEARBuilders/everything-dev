@@ -2,7 +2,6 @@ import type { ORPCError } from "@orpc/server";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth } from "../attempts";
 import { AuthApiTag, type PluginServices } from "../service-types";
-import { createHeaders } from "../utils";
 
 type Auth = PluginServices["auth"];
 

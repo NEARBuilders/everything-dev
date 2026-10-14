@@ -4,7 +4,12 @@ import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
-import { AuthApiTag, type PluginServices } from "../service-types";
+import {
+  AuthApiTag,
+  type PermissionRegistry,
+  PermissionRegistryTag,
+  type PluginServices,
+} from "../service-types";
 import { createHeaders, getActiveOrganizationId, parseTeamAreas } from "../utils";
 
 type Auth = PluginServices["auth"];
