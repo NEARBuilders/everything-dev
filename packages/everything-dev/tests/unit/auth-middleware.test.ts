@@ -1,5 +1,4 @@
 import { call, os } from "@orpc/server";
-import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { type AuthContextShape, createAuthMiddleware } from "../../src/api/auth-middleware";
 
@@ -61,9 +60,7 @@ describe("requirePermission", () => {
   const builder = os.$context<AuthContextShape>();
   const { requirePermission } = createAuthMiddleware(builder);
 
-  const orgRoute = builder
-    .use(requirePermission("proposal", "create"))
-    .handler(() => "ok");
+  const orgRoute = builder.use(requirePermission("proposal", "create")).handler(() => "ok");
 
   const orgContext = {
     userId: "requester",
@@ -84,7 +81,9 @@ describe("requirePermission", () => {
 
   it("denies org-scoped actions with the missing grant in the data payload", async () => {
     await expect(
-      call(orgRoute, undefined, { context: { ...orgContext, permissions: { proposal: ["read"] } } }),
+      call(orgRoute, undefined, {
+        context: { ...orgContext, permissions: { proposal: ["read"] } },
+      }),
     ).rejects.toMatchObject({
       code: "FORBIDDEN",
       data: { requiredPermissions: ["proposal:create"] },
