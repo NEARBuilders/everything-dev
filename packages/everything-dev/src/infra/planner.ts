@@ -453,7 +453,22 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
       ui: input.bosConfig.ui?.source,
     });
 
-    const { dbs, redisPlans } = yield* allocateDatabases(input.bosConfig);
+    // DB/Redis port probes only matter for services that will actually spawn
+    // locally — their generated URLs are consumed exclusively by local spawn
+    // env (composeSpawnEnv). When every source is remote (start mode, ADR
+    // 0009), nothing binds those ports and the probes are wasted work in the
+    // container boot path — and a probe against an occupied port (the staged
+    // dist servers) can drift the whole plan (the #363 failure class).
+    const hasLocalServices =
+      input.bosConfig.host?.source === "local" ||
+      input.bosConfig.api?.source === "local" ||
+      input.bosConfig.auth?.source === "local" ||
+      input.bosConfig.ui?.source === "local" ||
+      Object.values(plugins).some((p) => p?.source === "local" || p?.ui?.source === "local");
+
+    const { dbs, redisPlans } = hasLocalServices
+      ? yield* allocateDatabases(input.bosConfig)
+      : { dbs: [], redisPlans: [] };
 
     const resolvedPorts: ResolvedPorts = { ...svcPorts };
 
