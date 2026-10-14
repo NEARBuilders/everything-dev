@@ -1,8 +1,7 @@
-import type { AuthClient, SessionData } from "../../src/ui/auth";
+import { type AuthClient, createAuthClient, type SessionData } from "../../src/ui/auth";
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
 type AssertNotAny<T, Msg extends string> = IsAny<T> extends true ? Msg : true;
-type AssertIsAny<T, Msg extends string> = IsAny<T> extends true ? true : Msg;
 
 export const authClientIsTyped: AssertNotAny<
   AuthClient,
@@ -59,25 +58,47 @@ export const nearRelayHistoryReturnIsTyped: AssertNotAny<
   "AuthClient.near.relayHistory return collapsed to any (issue #374)"
 > = true;
 
-export const getSessionDataIsAny: AssertIsAny<
-  Awaited<ReturnType<AuthClient["getSession"]>>,
-  "getSession data is now typed under tsgo — flip to AssertNotAny (see #374)"
-> = true;
-export const adminListUsersDataIsAny: AssertIsAny<
-  Awaited<ReturnType<AuthClient["admin"]["listUsers"]>>,
-  "admin.listUsers data is now typed under tsgo — flip to AssertNotAny (see #374)"
-> = true;
-export const passkeyListUserDataIsAny: AssertIsAny<
-  Awaited<ReturnType<AuthClient["passkey"]["listUserPasskeys"]>>,
-  "passkey.listUserPasskeys data is now typed under tsgo — flip to AssertNotAny (see #374)"
-> = true;
-export const organizationListMembersDataIsAny: AssertIsAny<
-  Awaited<ReturnType<AuthClient["organization"]["listMembers"]>>,
-  "organization.listMembers data is now typed under tsgo — flip to AssertNotAny (see #374)"
-> = true;
-export const apiKeyListDataIsAny: AssertIsAny<
-  Awaited<ReturnType<AuthClient["apiKey"]["list"]>>,
-  "apiKey.list data is now typed under tsgo — flip to AssertNotAny (see #374)"
+export async function probeCallSites() {
+  const client = createAuthClient();
+  const sess = await client.getSession();
+  const list = await client.admin.listUsers({ query: {} });
+  const members = await client.organization.listMembers({});
+  const keys = await client.apiKey.list({ query: {} });
+  const passkeys = await client.passkey.listUserPasskeys();
+
+  const sessionDataTyped: AssertNotAny<
+    typeof sess.data,
+    "getSession() response data collapsed to any (issue #374)"
+  > = true;
+  const listDataTyped: AssertNotAny<
+    (typeof list)["data"],
+    "admin.listUsers() response data collapsed to any (issue #374)"
+  > = true;
+  const membersDataTyped: AssertNotAny<
+    (typeof members)["data"],
+    "organization.listMembers() response data collapsed to any (issue #374)"
+  > = true;
+  const keysDataTyped: AssertNotAny<
+    (typeof keys)["data"],
+    "apiKey.list() response data collapsed to any (issue #374)"
+  > = true;
+  const passkeysDataTyped: AssertNotAny<
+    (typeof passkeys)["data"],
+    "passkey.listUserPasskeys() response data collapsed to any (issue #374)"
+  > = true;
+
+  return {
+    sessionDataTyped,
+    listDataTyped,
+    membersDataTyped,
+    keysDataTyped,
+    passkeysDataTyped,
+  };
+}
+
+export const sessionUserIdIsString: AssertNotAny<
+  SessionData["user"]["id"],
+  "SessionData.user.id collapsed to any (issue #374)"
 > = true;
 
 // @ts-expect-error AuthClient is a concrete client surface, not `any` — indexing
