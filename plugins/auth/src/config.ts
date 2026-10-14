@@ -7,7 +7,11 @@ import type {
   SubAccountConfig,
 } from "better-near-auth";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID } from "better-near-auth";
-import type { AuthConfig, AuthNetwork } from "./auth-config";
+import type {
+  AuthConfig,
+  AuthNetwork,
+  AuthPermissionStatements,
+} from "./auth-config";
 import type { AuthPluginSecrets, AuthPluginVariables } from "./config-schemas";
 import { localDevTrustedOrigins } from "./utils";
 
@@ -70,7 +74,7 @@ function pickDefined<T extends Record<string, unknown>>(obj: T | undefined): T |
 }
 
 export function buildRelayerConfig(
-  siwn: AuthPluginVariables["siwn"],
+  siwn: Partial<AuthPluginVariables["siwn"]>,
   secrets: AuthPluginSecrets,
 ): RelayerDualNetworkConfig | undefined {
   if (!siwn.relayer) return undefined;
@@ -104,9 +108,7 @@ export function buildRelayerConfig(
   };
 }
 
-export function buildSubAccountConfig(
-  siwn: AuthPluginVariables["siwn"],
-): DualNetworkConfig<SubAccountConfig> | undefined {
+export function buildSubAccountConfig(siwn: Partial<AuthPluginVariables["siwn"]>): DualNetworkConfig<SubAccountConfig> | undefined {
   if (!siwn.subAccount) return undefined;
 
   return {
@@ -115,9 +117,7 @@ export function buildSubAccountConfig(
   } as DualNetworkConfig<SubAccountConfig>;
 }
 
-export function buildSessionGasKeyConfig(
-  siwn: AuthPluginVariables["siwn"],
-): SessionGasKeyDualNetworkConfig | undefined {
+export function buildSessionGasKeyConfig(siwn: Partial<AuthPluginVariables["siwn"]>): SessionGasKeyDualNetworkConfig | undefined {
   if (!siwn.sessionGasKey) return undefined;
 
   return {
@@ -135,6 +135,29 @@ export function resolveAuthNetwork(variables: AuthPluginVariables): AuthNetwork 
   return networkOf(variables.siwn.recipient ?? variables.siwn.recipients?.mainnet ?? "");
 }
 
+export function validatePermissionGrants(
+  permissions: AuthPermissionStatements,
+): void {
+  const { statements, roles } = permissions;
+  for (const [roleName, grants] of Object.entries(roles)) {
+    for (const [statement, actions] of Object.entries(grants)) {
+      const declared = statements[statement];
+      if (!declared) {
+        throw new Error(
+          `[auth] role "${roleName}" grants statement "${statement}" which is not declared in siwn.permissions.statements — declare it or remove the grant`,
+        );
+      }
+      for (const action of actions) {
+        if (!declared.includes(action)) {
+          throw new Error(
+            `[auth] role "${roleName}" grants action "${statement}:${action}" which is not in the declared actions for "${statement}" (${declared.join(", ")})`,
+          );
+        }
+      }
+    }
+  }
+}
+
 export function normalizeAuthConfig(
   variables: AuthPluginVariables,
   secrets: AuthPluginSecrets,
@@ -147,12 +170,15 @@ export function normalizeAuthConfig(
   const relayer = buildRelayerConfig(variables.siwn, secrets);
   const sessionGasKey = buildSessionGasKeyConfig(variables.siwn);
   const subAccount = buildSubAccountConfig(variables.siwn);
+  const permissions = variables.siwn.permissions;
+  validatePermissionGrants(permissions);
   const commonSiwn = {
     apiKey: variables.siwn.apiKey,
     rpcUrl: variables.siwn.rpcUrl,
     relayer,
     sessionGasKey,
     subAccount,
+    permissions,
   };
 
   const siwn =

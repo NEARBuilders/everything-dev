@@ -7,6 +7,7 @@ import {
   parseTrustedOrigins,
 } from "../../src/config";
 import type { AuthPluginSecrets, AuthPluginVariables } from "../../src/config-schemas";
+import { TEST_PERMISSIONS } from "../helpers";
 
 const baseSecrets: AuthPluginSecrets = {
   AUTH_DATABASE_URL: "pglite::memory:",
@@ -17,6 +18,7 @@ const baseVariables: AuthPluginVariables = {
   apiKeyHeaders: ["x-api-key"],
   siwn: {
     recipient: "test.near",
+    permissions: TEST_PERMISSIONS,
   },
 };
 
@@ -305,7 +307,10 @@ describe("normalizeAuthConfig", () => {
       {
         ...baseVariables,
         account: "v1.citynode.testnet",
-        siwn: { recipients: { mainnet: "v1.citynode.near", testnet: "v1.citynode.testnet" } },
+        siwn: {
+          recipients: { mainnet: "v1.citynode.near", testnet: "v1.citynode.testnet" },
+          permissions: TEST_PERMISSIONS,
+        },
       },
       baseSecrets,
     );
@@ -314,7 +319,7 @@ describe("normalizeAuthConfig", () => {
 
   it("falls back to the SIWN recipient's network without a runtime account", () => {
     const { authConfig } = normalizeAuthConfig(
-      { ...baseVariables, siwn: { recipient: "app.testnet" } },
+      { ...baseVariables, siwn: { recipient: "app.testnet", permissions: TEST_PERMISSIONS } },
       baseSecrets,
     );
     expect(authConfig.network).toBe("testnet");
@@ -322,7 +327,7 @@ describe("normalizeAuthConfig", () => {
 
   it("uses recipient mode when recipient is set", () => {
     const { authConfig } = normalizeAuthConfig(
-      { ...baseVariables, siwn: { recipient: "myapp.near" } },
+      { ...baseVariables, siwn: { recipient: "myapp.near", permissions: TEST_PERMISSIONS } },
       baseSecrets,
     );
     expect((authConfig.siwn as any).recipient).toBe("myapp.near");
@@ -335,6 +340,7 @@ describe("normalizeAuthConfig", () => {
         ...baseVariables,
         siwn: {
           recipients: { mainnet: "myapp.near", testnet: "myapp.testnet" },
+          permissions: TEST_PERMISSIONS,
         },
       } as AuthPluginVariables,
       baseSecrets,
@@ -352,6 +358,7 @@ describe("normalizeAuthConfig", () => {
         ...baseVariables,
         siwn: {
           recipient: "test.near",
+          permissions: TEST_PERMISSIONS,
           relayer: {
             mainnet: { accountId: "relayer.near" },
           },
@@ -371,6 +378,7 @@ describe("normalizeAuthConfig", () => {
         ...baseVariables,
         siwn: {
           recipient: "test.near",
+          permissions: TEST_PERMISSIONS,
           subAccount: {
             mainnet: { parentAccount: "parent.near" },
           },

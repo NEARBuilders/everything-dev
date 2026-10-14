@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthConfig } from "../../src/auth-config";
+import { TEST_PERMISSIONS } from "../helpers";
 import {
   buildSiwnOptions,
   createAuthInstance,
@@ -129,7 +130,7 @@ describe("resolvePasskeyRelyingPartyOptions", () => {
 const baseConfig: AuthConfig = {
   secret: "test-secret",
   baseUrl: "http://localhost:3000",
-  siwn: { recipient: "test.near" },
+  siwn: { recipient: "test.near", permissions: TEST_PERMISSIONS },
 };
 
 describe("isRecipientsConfig", () => {

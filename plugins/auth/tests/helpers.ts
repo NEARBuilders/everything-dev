@@ -3,6 +3,7 @@ import { call, implement } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
 import { type AuthConfig, createAuthInstance } from "../src/auth-instance";
+import type { AuthPermissionStatements } from "../src/auth-config";
 import { type ContractType, contract, type InferInput, type InferOutput } from "../src/contract";
 import { createDatabaseDriver } from "../src/db";
 import { DatabaseTag } from "../src/db/layer";
@@ -39,6 +40,47 @@ import { buildTeamsService, TeamsService } from "../src/services/teams";
 
 const TEST_DB_URL = "pglite::memory:";
 
+export const TEST_PERMISSIONS: AuthPermissionStatements = {
+  statements: {
+    organization: ["update", "delete"],
+    member: ["create", "update", "delete"],
+    invitation: ["create", "cancel"],
+    team: ["create", "update", "delete"],
+    ac: ["create", "read", "update", "delete"],
+    apiKey: ["create", "read", "update", "delete"],
+    email: ["read"],
+  },
+  roles: {
+    owner: {
+      organization: ["update", "delete"],
+      member: ["create", "update", "delete"],
+      invitation: ["create", "cancel"],
+      team: ["create", "update", "delete"],
+      ac: ["create", "read", "update", "delete"],
+      apiKey: ["create", "read", "update", "delete"],
+      email: ["read"],
+    },
+    admin: {
+      organization: ["update"],
+      member: ["create", "update", "delete"],
+      invitation: ["create", "cancel"],
+      team: ["create", "update", "delete"],
+      ac: ["create", "read", "update", "delete"],
+      apiKey: ["create", "read", "update", "delete"],
+      email: ["read"],
+    },
+    member: {
+      organization: [],
+      member: [],
+      invitation: [],
+      team: [],
+      ac: ["read"],
+      apiKey: ["read"],
+      email: [],
+    },
+  },
+};
+
 process.env.BETTER_AUTH_SECRET =
   process.env.BETTER_AUTH_SECRET || "test-secret-do-not-use-in-production";
 
@@ -52,7 +94,7 @@ export async function createTestServices(configOverrides?: Partial<AuthConfig>) 
     {
       secret: process.env.BETTER_AUTH_SECRET!,
       baseUrl: "http://localhost:3000",
-      siwn: { recipient: "test.near" },
+      siwn: { recipient: "test.near", permissions: TEST_PERMISSIONS },
       ...configOverrides,
     },
     driver.db,
