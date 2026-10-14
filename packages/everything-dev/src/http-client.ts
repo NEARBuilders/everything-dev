@@ -148,10 +148,6 @@ export class HttpFetch extends Context.Service<HttpFetch, HttpFetchShape>()(
 
 const getCache = new Map<string, { data: unknown; expiresAt: number }>();
 const GET_CACHE_TTL_MS = 30_000;
-// Bounded by entry count (#339 class: TTL alone only reclaims on re-read, so
-// distinct-URL growth — tenant config endpoints, query keys, path segments —
-// creeps forever). Under pressure: drop expired entries first, then evict
-// oldest-inserted (Map preserves insertion order).
 const GET_CACHE_MAX_ENTRIES = 128;
 
 export function clearHttpCache(): void {

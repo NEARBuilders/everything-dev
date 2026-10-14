@@ -22,13 +22,6 @@ const mcpRequestStorage = new AsyncLocalStorage<McpRequestContext>();
 
 let mcpTransport: WebStandardStreamableHTTPServerTransport | null = null;
 
-/**
- * The MCP surface re-enters the same oRPC middleware chain at call time, so
- * unauthenticated tool *calls* are rejected — but `tools/list` ran unauthenticated
- * and disclosed the full catalog, including admin-only operations (#309). The
- * transport itself carries no auth, so the Hono route gates it with the same
- * session/API-key resolution every other API surface uses.
- */
 export function isMcpRequestAuthorized(context: AuthPluginContext): boolean {
   return context.isAuthenticated === true;
 }

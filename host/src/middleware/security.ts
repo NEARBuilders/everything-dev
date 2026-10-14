@@ -60,19 +60,11 @@ export function clientKeyOf(c: HonoContext): string {
   }
 }
 
-/**
- * hono-rate-limiter's default MemoryStore keeps one entry per distinct key
- * per window with no cap (#338's memory half): unbounded key growth toward
- * the failure-state memory ceiling. This store keeps the same window
- * semantics but bounds the entry count — under pressure it drops expired
- * windows first, then evicts the oldest-inserted keys.
- */
 export class CappedStore implements Store {
   private readonly hits = new Map<string, ClientRateLimitInfo>();
 
   constructor(private readonly maxEntries: number) {}
 
-  /** Per-instance memory: keys from one instance can't affect another's. */
   localKeys = true;
 
   increment = (key: string): ClientRateLimitInfo => {
