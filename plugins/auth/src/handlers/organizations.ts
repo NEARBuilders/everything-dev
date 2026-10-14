@@ -2,6 +2,7 @@ import type { Implementer } from "@orpc/server";
 import { Effect } from "effect";
 import type { ContractType } from "../contract";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
+import { mapDomainError } from "../services/domain-errors";
 import { OrganizationsService } from "../services/organizations";
 import { createHeaders } from "../utils";
 
@@ -12,7 +13,9 @@ export function createOrganizationHandlers(
   return {
     listOrganizations: builder.listOrganizations.use(requireAuth).effect(function* ({ context }) {
       const organizations = yield* OrganizationsService;
-      return yield* organizations.listOrganizations(createHeaders(context.reqHeaders));
+      return yield* mapDomainError(
+        organizations.listOrganizations(createHeaders(context.reqHeaders)),
+      );
     }),
 
     getFullOrganization: builder.getFullOrganization.use(requireAuth).effect(function* ({
@@ -20,13 +23,15 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      return yield* organizations.getFullOrganization(
-        {
-          headers: createHeaders(context.reqHeaders),
-          reqHeaders: context.reqHeaders,
-          user: context.user,
-        },
-        input,
+      return yield* mapDomainError(
+        organizations.getFullOrganization(
+          {
+            headers: createHeaders(context.reqHeaders),
+            reqHeaders: context.reqHeaders,
+            user: context.user,
+          },
+          input,
+        ),
       );
     }),
 
@@ -41,7 +46,7 @@ export function createOrganizationHandlers(
           errors.FORBIDDEN({ message: "Admin access required", data: { action: "admin-access" } }),
         );
       }
-      return yield* organizations.getOrganizationById(input.organizationId);
+      return yield* mapDomainError(organizations.getOrganizationById(input.organizationId));
     }),
 
     createOrganization: builder.createOrganization.use(requireAuth).effect(function* ({
@@ -49,7 +54,9 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      return yield* organizations.createOrganization(createHeaders(context.reqHeaders), input);
+      return yield* mapDomainError(
+        organizations.createOrganization(createHeaders(context.reqHeaders), input),
+      );
     }),
 
     setActiveOrganization: builder.setActiveOrganization.use(requireAuth).effect(function* ({
@@ -57,9 +64,11 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      yield* organizations.setActiveOrganization(
-        createHeaders(context.reqHeaders),
-        input.organizationId,
+      yield* mapDomainError(
+        organizations.setActiveOrganization(
+          createHeaders(context.reqHeaders),
+          input.organizationId,
+        ),
       );
       return { success: true };
     }),
@@ -69,7 +78,9 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      return yield* organizations.updateOrganization(createHeaders(context.reqHeaders), input);
+      return yield* mapDomainError(
+        organizations.updateOrganization(createHeaders(context.reqHeaders), input),
+      );
     }),
 
     leaveOrganization: builder.leaveOrganization.use(requireAuth).effect(function* ({
@@ -77,9 +88,8 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      yield* organizations.leaveOrganization(
-        createHeaders(context.reqHeaders),
-        input.organizationId,
+      yield* mapDomainError(
+        organizations.leaveOrganization(createHeaders(context.reqHeaders), input.organizationId),
       );
       return { success: true };
     }),
@@ -89,38 +99,41 @@ export function createOrganizationHandlers(
       context,
     }) {
       const organizations = yield* OrganizationsService;
-      yield* organizations.deleteOrganization(
-        createHeaders(context.reqHeaders),
-        input.organizationId,
+      yield* mapDomainError(
+        organizations.deleteOrganization(createHeaders(context.reqHeaders), input.organizationId),
       );
       return { success: true };
     }),
 
     checkSlug: builder.checkSlug.effect(function* ({ input }) {
       const organizations = yield* OrganizationsService;
-      return yield* organizations.checkSlug(input.slug);
+      return yield* mapDomainError(organizations.checkSlug(input.slug));
     }),
 
     hasPermission: builder.hasPermission.use(requireAuth).effect(function* ({ input, context }) {
       const organizations = yield* OrganizationsService;
-      return yield* organizations.hasPermission(createHeaders(context.reqHeaders), input);
+      return yield* mapDomainError(
+        organizations.hasPermission(createHeaders(context.reqHeaders), input),
+      );
     }),
 
     linkDao: builder.linkDao.use(requireAuth).effect(function* ({ input, context }) {
       const organizations = yield* OrganizationsService;
-      yield* organizations.linkDao(createHeaders(context.reqHeaders), input);
+      yield* mapDomainError(organizations.linkDao(createHeaders(context.reqHeaders), input));
       return { success: true };
     }),
 
     unlinkDao: builder.unlinkDao.use(requireAuth).effect(function* ({ input, context }) {
       const organizations = yield* OrganizationsService;
-      yield* organizations.unlinkDao(createHeaders(context.reqHeaders), input);
+      yield* mapDomainError(organizations.unlinkDao(createHeaders(context.reqHeaders), input));
       return { success: true };
     }),
 
     getDao: builder.getDao.use(requireAuth).effect(function* ({ input, context }) {
       const organizations = yield* OrganizationsService;
-      return yield* organizations.getDao(createHeaders(context.reqHeaders), input.organizationId);
+      return yield* mapDomainError(
+        organizations.getDao(createHeaders(context.reqHeaders), input.organizationId),
+      );
     }),
   };
 }

@@ -43,30 +43,54 @@ export function toOrganizationInfo(organization: {
   };
 }
 
-export function toOrganizationRecord<T extends { metadata: string | null }>(organization: T) {
+export function toOrganizationRecord<T extends { metadata: string | null }>(
+  organization: T,
+): Omit<T, "metadata"> & { metadata: Record<string, unknown> | null } {
   return {
     ...organization,
     metadata: tryJsonParse<Record<string, unknown>>(organization.metadata),
   };
 }
 
-export function toInvitation(invitation: any) {
+export interface InvitationRow {
+  id: string;
+  organizationId: string;
+  email?: string | null;
+  role?: string | null;
+  status: string;
+  expiresAt: Date | string;
+  inviterId: string;
+  teamId?: string | null;
+  nearAccountId?: string | null;
+  nearNetwork?: string | null;
+}
+
+export function toInvitation(invitation: InvitationRow) {
   return {
     id: invitation.id,
     organizationId: invitation.organizationId,
-    email: invitation.email,
-    role: invitation.role,
+    email: invitation.email ?? null,
+    role: invitation.role ?? null,
     status: invitation.status,
     expiresAt:
       invitation.expiresAt instanceof Date ? invitation.expiresAt : new Date(invitation.expiresAt),
     inviterId: invitation.inviterId,
     teamId: invitation.teamId ?? null,
     nearAccountId: invitation.nearAccountId ?? null,
-    nearNetwork: invitation.nearNetwork ?? null,
+    nearNetwork: (invitation.nearNetwork as "mainnet" | "testnet" | null | undefined) ?? null,
   };
 }
 
-export function toTeam(team: any) {
+export interface TeamRow {
+  id: string;
+  name: string;
+  organizationId: string;
+  metadata?: unknown;
+  createdAt: Date | string;
+  updatedAt?: Date | string;
+}
+
+export function toTeam(team: TeamRow) {
   return {
     id: team.id,
     name: team.name,

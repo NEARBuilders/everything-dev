@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { ORPCError } from "@orpc/server";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
+import type { InferOutput } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toDate, toOnboardingSummary } from "../serializers";
@@ -13,6 +13,21 @@ import {
   type PluginServices,
 } from "../service-types";
 import { createHeaders } from "../utils";
+import {
+  AuthenticationRequired,
+  type AuthFailure,
+  CodeCreateFailed,
+  CodeExpired,
+  CodeInactive,
+  CodeLimitReached,
+  CodeNotFound,
+  CodeRevoked,
+  EventEnded,
+  EventTeamCreateFailed,
+  OrgFull,
+  OrgRequiresApproval,
+  RedeemOrgMissing,
+} from "./domain-errors";
 import { type OrganizerCaller, PermissionsService } from "./permissions";
 
 type Auth = PluginServices["auth"];
@@ -50,28 +65,30 @@ export class OnboardingService extends Context.Service<
         maxUses?: number;
         expiresAt?: Date;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"createOnboardingCode">, AuthFailure>;
     listOnboardingCodes: (
       context: OrganizerCaller,
       organizationId: string | undefined,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"listOnboardingCodes">, AuthFailure>;
     revokeOnboardingCode: (
       context: OrganizerCaller,
       input: { organizationId?: string; codeId: string },
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
     getOnboardingStation: (
       context: OrganizerCaller,
       input: { organizationId?: string; codeId: string },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"getOnboardingStation">, AuthFailure>;
     getOnboardingStatus: (
       context: OrganizerCaller,
       input: { organizationId?: string; codeId: string },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
-    getOnboardingCodeInfo: (code: string) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"getOnboardingStatus">, AuthFailure>;
+    getOnboardingCodeInfo: (
+      code: string,
+    ) => Effect.Effect<InferOutput<"getOnboardingCodeInfo">, AuthFailure>;
     redeemOnboardingCode: (
       context: OrganizerCaller,
       code: string,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"redeemOnboardingCode">, AuthFailure>;
   }
 >()("auth/OnboardingService") {}
 
@@ -112,9 +129,8 @@ export const buildOnboardingService = ({
         : new Date(now.getTime() + DEFAULT_EXPIRES_IN_HOURS * 3_600_000);
       if (expiresAt <= now) {
         return yield* Effect.fail(
-          new ORPCError("BAD_REQUEST", {
+          new EventEnded({
             message: "This event has ended, so its onboarding code would already be expired",
-            data: {},
           }),
         );
       }
@@ -146,9 +162,7 @@ export const buildOnboardingService = ({
           .returning(),
       );
       if (!row) {
-        return yield* Effect.fail(
-          new ORPCError("INTERNAL_SERVER_ERROR", { message: "Failed to create code" }),
-        );
+        return yield* Effect.fail(new CodeCreateFailed({ message: "Failed to create code" }));
       }
 
       return { ...toOnboardingSummary(row), code };
@@ -193,10 +207,7 @@ export const buildOnboardingService = ({
       );
       if (!revoked) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", {
-            message: "Onboarding code not found",
-            data: { resource: "onboardingCode", resourceId: input.codeId },
-          }),
+          new CodeNotFound({ message: "Onboarding code not found", codeId: input.codeId }),
         );
       }
       return { success: true };
@@ -217,18 +228,12 @@ export const buildOnboardingService = ({
       );
       if (!row) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", {
-            message: "Onboarding code not found",
-            data: { resource: "onboardingCode", resourceId: input.codeId },
-          }),
+          new CodeNotFound({ message: "Onboarding code not found", codeId: input.codeId }),
         );
       }
       if (!row.encryptedCode || codeState(row) !== "active") {
         return yield* Effect.fail(
-          new ORPCError("BAD_REQUEST", {
-            message: "This onboarding code is no longer active",
-            data: {},
-          }),
+          new CodeInactive({ message: "This onboarding code is no longer active" }),
         );
       }
 
@@ -254,10 +259,7 @@ export const buildOnboardingService = ({
       );
       if (!row) {
         return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", {
-            message: "Onboarding code not found",
-            data: { resource: "onboardingCode", resourceId: input.codeId },
-          }),
+          new CodeNotFound({ message: "Onboarding code not found", codeId: input.codeId }),
         );
       }
 
@@ -336,10 +338,7 @@ export const buildOnboardingService = ({
       const userId = context.userId ?? sessionData?.user?.id ?? null;
       if (!userId || !sessionData?.session?.id) {
         return yield* Effect.fail(
-          new ORPCError("UNAUTHORIZED", {
-            message: "Authentication required",
-            data: { apiKeyProvided: false },
-          }),
+          new AuthenticationRequired({ message: "Authentication required" }),
         );
       }
       const sessionId = sessionData.session.id;
@@ -350,12 +349,7 @@ export const buildOnboardingService = ({
         }),
       );
       if (!codeRow) {
-        return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", {
-            message: "Onboarding code not found",
-            data: { resource: "onboardingCode" },
-          }),
-        );
+        return yield* Effect.fail(new CodeNotFound({ message: "Onboarding code not found" }));
       }
 
       const organization = yield* attemptDb(() =>
@@ -366,29 +360,19 @@ export const buildOnboardingService = ({
       const organizationName = organization?.name ?? "";
       if (organization?.status !== "active") {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
-            message: "Organization requires platform-admin approval",
-            data: {},
-          }),
+          new OrgRequiresApproval({ message: "Organization requires platform-admin approval" }),
         );
       }
 
       if (codeRow.revokedAt) {
-        return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", { message: "This onboarding code was revoked", data: {} }),
-        );
+        return yield* Effect.fail(new CodeRevoked({ message: "This onboarding code was revoked" }));
       }
       if (toDate(codeRow.expiresAt) < new Date()) {
-        return yield* Effect.fail(
-          new ORPCError("BAD_REQUEST", { message: "This onboarding code has expired", data: {} }),
-        );
+        return yield* Effect.fail(new CodeExpired({ message: "This onboarding code has expired" }));
       }
       if (codeRow.usedCount >= codeRow.maxUses) {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
-            message: "This onboarding code has reached its limit",
-            data: {},
-          }),
+          new CodeLimitReached({ message: "This onboarding code has reached its limit" }),
         );
       }
 
@@ -423,7 +407,7 @@ export const buildOnboardingService = ({
             .where(eq(schema.organization.id, codeRow.organizationId))
             .for("update");
           if (!orgRow) {
-            throw new ORPCError("BAD_REQUEST", { message: "Organization not found", data: {} });
+            throw new RedeemOrgMissing({ message: "Organization not found" });
           }
 
           const existingMember = await tx.query.member.findFirst({
@@ -438,9 +422,8 @@ export const buildOnboardingService = ({
               .from(schema.member)
               .where(eq(schema.member.organizationId, codeRow.organizationId));
             if (!membershipPolicy.hasCapacity(memberCount)) {
-              throw new ORPCError("FORBIDDEN", {
+              throw new OrgFull({
                 message: "This organization is full, so no more members can join",
-                data: {},
               });
             }
             await tx.insert(schema.member).values({
@@ -489,9 +472,8 @@ export const buildOnboardingService = ({
             )
             .returning();
           if (!updated) {
-            throw new ORPCError("FORBIDDEN", {
+            throw new CodeLimitReached({
               message: "This onboarding code has reached its limit",
-              data: {},
             });
           }
 
@@ -564,7 +546,7 @@ async function resolveEventTeamId(
     })
     .returning();
   if (!team) {
-    throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Failed to create event team" });
+    throw new EventTeamCreateFailed({ message: "Failed to create event team" });
   }
   return team.id;
 }

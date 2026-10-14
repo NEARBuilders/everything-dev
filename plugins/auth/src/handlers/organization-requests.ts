@@ -8,6 +8,7 @@ import type {
   AuthHandlerContext,
   RequireAuthMiddleware,
 } from "../middleware";
+import { mapDomainError } from "../services/domain-errors";
 import { MembersService } from "../services/members";
 
 export type OrganizationRequestContext = AuthContextShape &
@@ -24,14 +25,14 @@ export function createOrganizationRequestHandlers(
       .use(requireAdmin)
       .effect(function* () {
         const members = yield* MembersService;
-        return yield* members.listPendingOrganizations();
+        return yield* mapDomainError(members.listPendingOrganizations());
       }),
     reviewOrganization: builder.reviewOrganization
       .use(requireAuth)
       .use(requireAdmin)
       .effect(function* ({ input }) {
         const members = yield* MembersService;
-        return yield* members.reviewOrganization(input);
+        return yield* mapDomainError(members.reviewOrganization(input));
       }),
   };
 }

@@ -1,7 +1,7 @@
-import { ORPCError } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
+import type { InferOutput } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toDate, toTeam } from "../serializers";
@@ -12,6 +12,13 @@ import {
   type PluginServices,
 } from "../service-types";
 import { getActiveOrganizationId, serializeTeamAreas, withoutSessionDataCookie } from "../utils";
+import {
+  type AuthFailure,
+  NotOrgMember,
+  TeamNotFound,
+  TeamUpdateFailed,
+  UnknownTeamRole,
+} from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -22,11 +29,11 @@ export class TeamsService extends Context.Service<
     setActiveTeam: (
       headers: Headers,
       teamId: string | null,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"setActiveTeam">, AuthFailure>;
     listUserTeams: (
       headers: Headers,
       organizationId: string | undefined,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"listUserTeams">, AuthFailure>;
     createTeam: (
       headers: Headers,
       input: {
@@ -34,7 +41,7 @@ export class TeamsService extends Context.Service<
         organizationId?: string;
         areas?: string[];
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"createTeam">, AuthFailure>;
     updateTeam: (
       headers: Headers,
       input: {
@@ -42,28 +49,28 @@ export class TeamsService extends Context.Service<
         organizationId?: string;
         data: { name?: string; areas?: string[] };
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"updateTeam">, AuthFailure>;
     deleteTeam: (
       headers: Headers,
       userId: string,
       input: { teamId: string; organizationId?: string },
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
     listTeams: (
       headers: Headers,
       organizationId: string | undefined,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"listTeams">, AuthFailure>;
     listTeamMembers: (
       userId: string,
       teamId: string,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"listTeamMembers">, AuthFailure>;
     addTeamMember: (
       headers: Headers,
       input: { teamId: string; userId: string; organizationId?: string; role?: string },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"addTeamMember">, AuthFailure>;
     removeTeamMember: (
       headers: Headers,
       input: { teamId: string; userId: string; organizationId?: string },
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
   }
 >()("auth/TeamsService") {}
 
@@ -126,7 +133,7 @@ export const buildTeamsService = ({
         Effect.flatMap((result) =>
           result
             ? Effect.succeed(toTeam(result))
-            : Effect.fail(new ORPCError("INTERNAL_SERVER_ERROR", { message: "Team not found" })),
+            : Effect.fail(new TeamUpdateFailed({ message: "Team not found" })),
         ),
       ),
 
@@ -173,12 +180,7 @@ export const buildTeamsService = ({
         }),
       );
       if (!team) {
-        return yield* Effect.fail(
-          new ORPCError("NOT_FOUND", {
-            message: "Team not found",
-            data: { resource: "team", resourceId: teamId },
-          }),
-        );
+        return yield* Effect.fail(new TeamNotFound({ message: "Team not found", teamId }));
       }
       const membership = yield* attemptDb(() =>
         db.query.member.findFirst({
@@ -190,10 +192,7 @@ export const buildTeamsService = ({
       );
       if (!membership) {
         return yield* Effect.fail(
-          new ORPCError("FORBIDDEN", {
-            message: "You are not a member of this team's organization",
-            data: {},
-          }),
+          new NotOrgMember({ message: "You are not a member of this team's organization" }),
         );
       }
       const rows = yield* attemptDb(() =>
@@ -216,9 +215,8 @@ export const buildTeamsService = ({
     ) {
       if (input.role !== undefined && !(input.role in registry.roleGrants)) {
         return yield* Effect.fail(
-          new ORPCError("BAD_REQUEST", {
+          new UnknownTeamRole({
             message: `Unknown team role "${input.role}" — declare it in siwn.permissions.roles (valid: ${Object.keys(registry.roleGrants).join(", ")})`,
-            data: {},
           }),
         );
       }

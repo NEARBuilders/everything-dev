@@ -1,8 +1,8 @@
-import type { ORPCError } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
+import type { InferOutput } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import {
@@ -12,6 +12,7 @@ import {
   type PluginServices,
 } from "../service-types";
 import { getActiveOrganizationId, getActiveTeamId, parseTeamAreas, tryJsonParse } from "../utils";
+import type { AuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -66,8 +67,8 @@ export class SessionService extends Context.Service<
   SessionService,
   {
     health: () => Effect.Effect<{ status: "ok"; timestamp: string }, never>;
-    getSession: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
-    getContext: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
+    getSession: (headers: Headers) => Effect.Effect<InferOutput<"getSession">, AuthFailure>;
+    getContext: (headers: Headers) => Effect.Effect<InferOutput<"getContext">, AuthFailure>;
   }
 >()("auth/SessionService") {}
 
@@ -297,7 +298,12 @@ export const buildSessionService = ({
         member: null as { id: string; role: string } | null,
         isPersonal: false,
         hasOrganization: false,
-        teams: [] as Array<{ id: string; name: string; areas: string[] }>,
+        teams: [] as Array<{
+          id: string;
+          name: string;
+          areas: string[];
+          permissions: Record<string, string[]>;
+        }>,
         activeTeamId: null as string | null,
       };
 

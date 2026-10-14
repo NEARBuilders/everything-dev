@@ -1,8 +1,9 @@
-import { ORPCError } from "@orpc/server";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth } from "../attempts";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
+import type { InferOutput } from "../contract";
 import { AuthApiTag, type PluginServices } from "../service-types";
+import { ApiKeyNotFound, type AuthFailure, isAuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 
@@ -26,7 +27,7 @@ export class ApiKeysService extends Context.Service<
             sortDirection?: string;
           }
         | undefined,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"listApiKeys">, AuthFailure>;
     createApiKey: (
       userId: string,
       input: {
@@ -39,7 +40,7 @@ export class ApiKeysService extends Context.Service<
         configId?: string;
         rateLimit?: ApiKeyRateLimitInput;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"createApiKey">, AuthFailure>;
     updateApiKey: (
       userId: string,
       input: {
@@ -53,11 +54,11 @@ export class ApiKeysService extends Context.Service<
         configId?: string;
         rateLimit?: ApiKeyRateLimitInput;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"updateApiKey">, AuthFailure>;
     deleteApiKey: (
       headers: Headers,
       input: { id: string; configId?: string; organizationId?: string },
-    ) => Effect.Effect<{ success: boolean }, ORPCError<string, unknown>>;
+    ) => Effect.Effect<{ success: boolean }, AuthFailure>;
     verifyApiKey: (
       headers: Headers,
       input: {
@@ -65,7 +66,7 @@ export class ApiKeysService extends Context.Service<
         configId?: string;
         permissions?: Record<string, string[]>;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"verifyApiKey">, AuthFailure>;
   }
 >()("auth/ApiKeysService") {}
 
@@ -140,7 +141,7 @@ export const buildApiKeysService = ({ auth }: { auth: Auth }) =>
           });
           return;
         } catch (firstError) {
-          if (firstError instanceof ORPCError && firstError.code !== "NOT_FOUND") {
+          if (isAuthFailure(firstError) && !(firstError instanceof ApiKeyNotFound)) {
             throw firstError;
           }
           for (const fallbackConfigId of API_KEY_CONFIG_IDS) {
@@ -153,10 +154,7 @@ export const buildApiKeysService = ({ auth }: { auth: Auth }) =>
               return;
             } catch {}
           }
-          throw new ORPCError("NOT_FOUND", {
-            message: "API key not found",
-            data: { resource: "apiKey", resourceId: input.id },
-          });
+          throw new ApiKeyNotFound({ message: "API key not found", keyId: input.id });
         }
       }).pipe(Effect.as({ success: true })),
 

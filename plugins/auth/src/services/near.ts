@@ -1,7 +1,8 @@
-import type { ORPCError } from "@orpc/server";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth } from "../attempts";
+import type { InferOutput } from "../contract";
 import { AuthApiTag, type PluginServices } from "../service-types";
+import type { AuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 
@@ -20,7 +21,7 @@ export class NearService extends Context.Service<
     nearNonce: (input: {
       accountId: string;
       networkId: NearNetwork;
-    }) => Effect.Effect<any, ORPCError<string, unknown>>;
+    }) => Effect.Effect<InferOutput<"nearNonce">, AuthFailure>;
     nearVerify: (
       headers: Headers,
       input: {
@@ -30,11 +31,11 @@ export class NearService extends Context.Service<
         nonce: string;
         accountId: string;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"nearVerify">, AuthFailure>;
     nearProfile: (
       headers: Headers,
       accountId: string | undefined,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"nearProfile">, AuthFailure>;
     nearLinkAccount: (
       reqHeaders: Headers,
       input: {
@@ -44,33 +45,37 @@ export class NearService extends Context.Service<
         nonce: string;
         accountId: string;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"nearLinkAccount">, AuthFailure>;
     nearUnlinkAccount: (
       headers: Headers,
       input: { accountId: string; network?: NearNetwork },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
-    nearListAccounts: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"nearUnlinkAccount">, AuthFailure>;
+    nearListAccounts: (
+      headers: Headers,
+    ) => Effect.Effect<InferOutput<"nearListAccounts">, AuthFailure>;
     nearRelay: (
       headers: Headers,
       payload: string,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"nearRelay">, AuthFailure>;
     nearRelayStatus: (
       headers: Headers,
       txHash: string,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"nearRelayStatus">, AuthFailure>;
     nearRelayerInfo: (
       headers: Headers,
       network: NearNetwork | undefined,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
-    nearRelayHistory: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"nearRelayerInfo">, AuthFailure>;
+    nearRelayHistory: (
+      headers: Headers,
+    ) => Effect.Effect<InferOutput<"nearRelayHistory">, AuthFailure>;
     nearView: (
       headers: Headers,
       input: { contractId: string; methodName: string; args?: Record<string, any> },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"nearView">, AuthFailure>;
     nearCheckSubAccountAvailability: (
       headers: Headers,
       input: { subAccountName: string; network?: NearNetwork },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"nearCheckSubAccountAvailability">, AuthFailure>;
     nearCreateSubAccount: (
       headers: Headers,
       input: {
@@ -78,7 +83,7 @@ export class NearService extends Context.Service<
         publicKey: string;
         network?: NearNetwork;
       },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    ) => Effect.Effect<InferOutput<"nearCreateSubAccount">, AuthFailure>;
   }
 >()("auth/NearService") {}
 
