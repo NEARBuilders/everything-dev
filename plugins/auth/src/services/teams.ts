@@ -6,11 +6,7 @@ import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toDate, toTeam } from "../serializers";
 import { AuthApiTag, type PluginServices } from "../service-types";
-import {
-  getActiveOrganizationId,
-  serializeTeamAreas,
-  withoutSessionDataCookie,
-} from "../utils";
+import { getActiveOrganizationId, serializeTeamAreas, withoutSessionDataCookie } from "../utils";
 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
@@ -74,19 +70,20 @@ export const buildTeamsService = ({ auth, db }: { auth: Auth; db: Db }) =>
         Effect.map((result) => (result ? toTeam(result) : null)),
       ),
 
-    listUserTeams: Effect.fn("TeamsService.listUserTeams")(
-      function* (headers: Headers, organizationId: string | undefined) {
-        const resolved =
-          organizationId ??
-          getActiveOrganizationId(
-            (yield* attemptAuth(() => auth.api.getSession({ headers })))?.session,
-          );
-        const result = yield* attemptAuth(() => auth.api.listUserTeams({ headers }));
-        return (result ?? [])
-          .filter((team: any) => !resolved || team.organizationId === resolved)
-          .map(toTeam);
-      },
-    ),
+    listUserTeams: Effect.fn("TeamsService.listUserTeams")(function* (
+      headers: Headers,
+      organizationId: string | undefined,
+    ) {
+      const resolved =
+        organizationId ??
+        getActiveOrganizationId(
+          (yield* attemptAuth(() => auth.api.getSession({ headers })))?.session,
+        );
+      const result = yield* attemptAuth(() => auth.api.listUserTeams({ headers }));
+      return (result ?? [])
+        .filter((team: any) => !resolved || team.organizationId === resolved)
+        .map(toTeam);
+    }),
 
     createTeam: (headers, input) =>
       attemptAuth(() =>
@@ -117,46 +114,43 @@ export const buildTeamsService = ({ auth, db }: { auth: Auth; db: Db }) =>
         Effect.flatMap((result) =>
           result
             ? Effect.succeed(toTeam(result))
-            : Effect.fail(
-                new ORPCError("INTERNAL_SERVER_ERROR", { message: "Team not found" }),
-              ),
+            : Effect.fail(new ORPCError("INTERNAL_SERVER_ERROR", { message: "Team not found" })),
         ),
       ),
 
-    deleteTeam: Effect.fn("TeamsService.deleteTeam")(
-      function* (headers: Headers, userId: string, input: { teamId: string; organizationId?: string }) {
-        // Clear directly in the database rather than through
-        // auth.api.setActiveTeam: that call would only echo back whatever
-        // session the request's session_data cookie already carries (see
-        // below), not the DB row this write targets.
-        yield* attemptDb(() =>
-          db
-            .update(schema.session)
-            .set({ activeTeamId: null })
-            .where(
-              and(
-                eq(schema.session.userId, userId),
-                eq(schema.session.activeTeamId, input.teamId),
-              ),
-            ),
-        );
-        // removeTeam's own FORBIDDEN-on-own-active-team guard resolves the
-        // session from the request's better-auth.session_data cookie, a
-        // short-lived cache of the session as of its last refresh — not the
-        // database row just cleared above. Strip it so removeTeam falls
-        // back to a fresh database read via the session token instead.
-        yield* attemptAuth(() =>
-          auth.api.removeTeam({
-            headers: withoutSessionDataCookie(headers),
-            body: {
-              teamId: input.teamId,
-              organizationId: input.organizationId,
-            },
-          }),
-        );
-        return { success: true };
-      },
-    ),
+    deleteTeam: Effect.fn("TeamsService.deleteTeam")(function* (
+      headers: Headers,
+      userId: string,
+      input: { teamId: string; organizationId?: string },
+    ) {
+      // Clear directly in the database rather than through
+      // auth.api.setActiveTeam: that call would only echo back whatever
+      // session the request's session_data cookie already carries (see
+      // below), not the DB row this write targets.
+      yield* attemptDb(() =>
+        db
+          .update(schema.session)
+          .set({ activeTeamId: null })
+          .where(
+            and(eq(schema.session.userId, userId), eq(schema.session.activeTeamId, input.teamId)),
+          ),
+      );
+      // removeTeam's own FORBIDDEN-on-own-active-team guard resolves the
+      // session from the request's better-auth.session_data cookie, a
+      // short-lived cache of the session as of its last refresh — not the
+      // database row just cleared above. Strip it so removeTeam falls
+      // back to a fresh database read via the session token instead.
+      yield* attemptAuth(() =>
+        auth.api.removeTeam({
+          headers: withoutSessionDataCookie(headers),
+          body: {
+            teamId: input.teamId,
+            organizationId: input.organizationId,
+          },
+        }),
+      );
+      return { success: true };
+    }),
 
     listTeams: (headers, organizationId) =>
       attemptAuth(() =>
@@ -166,50 +160,52 @@ export const buildTeamsService = ({ auth, db }: { auth: Auth; db: Db }) =>
         }),
       ).pipe(Effect.map((result) => (result ?? []).map(toTeam))),
 
-    listTeamMembers: Effect.fn("TeamsService.listTeamMembers")(
-      function* (headers: Headers, userId: string, teamId: string) {
-        const team = yield* attemptDb(() =>
-          db.query.team.findFirst({
-            where: eq(schema.team.id, teamId),
+    listTeamMembers: Effect.fn("TeamsService.listTeamMembers")(function* (
+      headers: Headers,
+      userId: string,
+      teamId: string,
+    ) {
+      const team = yield* attemptDb(() =>
+        db.query.team.findFirst({
+          where: eq(schema.team.id, teamId),
+        }),
+      );
+      if (!team) {
+        return yield* Effect.fail(
+          new ORPCError("NOT_FOUND", {
+            message: "Team not found",
+            data: { resource: "team", resourceId: teamId },
           }),
         );
-        if (!team) {
-          return yield* Effect.fail(
-            new ORPCError("NOT_FOUND", {
-              message: "Team not found",
-              data: { resource: "team", resourceId: teamId },
-            }),
-          );
-        }
-        const membership = yield* attemptDb(() =>
-          db.query.member.findFirst({
-            where: and(
-              eq(schema.member.userId, userId),
-              eq(schema.member.organizationId, team.organizationId),
-            ),
+      }
+      const membership = yield* attemptDb(() =>
+        db.query.member.findFirst({
+          where: and(
+            eq(schema.member.userId, userId),
+            eq(schema.member.organizationId, team.organizationId),
+          ),
+        }),
+      );
+      if (!membership) {
+        return yield* Effect.fail(
+          new ORPCError("FORBIDDEN", {
+            message: "You are not a member of this team's organization",
+            data: {},
           }),
         );
-        if (!membership) {
-          return yield* Effect.fail(
-            new ORPCError("FORBIDDEN", {
-              message: "You are not a member of this team's organization",
-              data: {},
-            }),
-          );
-        }
-        const rows = yield* attemptDb(() =>
-          db.query.teamMember.findMany({
-            where: eq(schema.teamMember.teamId, team.id),
-          }),
-        );
-        return rows.map((tm) => ({
-          id: tm.id,
-          teamId: tm.teamId,
-          userId: tm.userId,
-          createdAt: toDate(tm.createdAt),
-        }));
-      },
-    ),
+      }
+      const rows = yield* attemptDb(() =>
+        db.query.teamMember.findMany({
+          where: eq(schema.teamMember.teamId, team.id),
+        }),
+      );
+      return rows.map((tm) => ({
+        id: tm.id,
+        teamId: tm.teamId,
+        userId: tm.userId,
+        createdAt: toDate(tm.createdAt),
+      }));
+    }),
 
     addTeamMember: (headers, input) =>
       attemptAuth(() =>
@@ -226,7 +222,8 @@ export const buildTeamsService = ({ auth, db }: { auth: Auth; db: Db }) =>
           id: result.id,
           teamId: result.teamId,
           userId: result.userId,
-          createdAt: result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
+          createdAt:
+            result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
         })),
       ),
 

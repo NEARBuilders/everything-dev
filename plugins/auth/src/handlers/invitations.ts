@@ -1,18 +1,15 @@
 import type { Implementer } from "@orpc/server";
 import type { ContractType } from "../contract";
-import { createHeaders } from "../utils";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
 import { InvitationsService } from "../services/invitations";
+import { createHeaders } from "../utils";
 
 export function createInvitationHandlers(
   builder: Implementer<ContractType, AuthHandlerContext>,
   requireAuth: RequireAuthMiddleware,
 ) {
   return {
-    inviteMember: builder.inviteMember.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }) {
+    inviteMember: builder.inviteMember.use(requireAuth).effect(function* ({ input, context }) {
       const invitations = yield* InvitationsService;
       return yield* invitations.inviteMember(createHeaders(context.reqHeaders), input);
     }),
@@ -49,7 +46,10 @@ export function createInvitationHandlers(
       context,
     }) {
       const invitations = yield* InvitationsService;
-      return yield* invitations.cancelInvitation(createHeaders(context.reqHeaders), input.invitationId);
+      return yield* invitations.cancelInvitation(
+        createHeaders(context.reqHeaders),
+        input.invitationId,
+      );
     }),
 
     acceptInvitation: builder.acceptInvitation.use(requireAuth).effect(function* ({
@@ -57,7 +57,10 @@ export function createInvitationHandlers(
       context,
     }) {
       const invitations = yield* InvitationsService;
-      return yield* invitations.acceptInvitation(createHeaders(context.reqHeaders), input.invitationId);
+      return yield* invitations.acceptInvitation(
+        createHeaders(context.reqHeaders),
+        input.invitationId,
+      );
     }),
 
     acceptNearInvitation: builder.acceptNearInvitation.use(requireAuth).effect(function* ({
@@ -87,7 +90,10 @@ export function createInvitationHandlers(
       context,
     }) {
       const invitations = yield* InvitationsService;
-      return yield* invitations.rejectInvitation(createHeaders(context.reqHeaders), input.invitationId);
+      return yield* invitations.rejectInvitation(
+        createHeaders(context.reqHeaders),
+        input.invitationId,
+      );
     }),
   };
 }

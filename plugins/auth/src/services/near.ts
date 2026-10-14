@@ -18,9 +18,10 @@ export type NearNetwork = "mainnet" | "testnet";
 export class NearService extends Context.Service<
   NearService,
   {
-    nearNonce: (
-      input: { accountId: string; networkId: NearNetwork },
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    nearNonce: (input: {
+      accountId: string;
+      networkId: NearNetwork;
+    }) => Effect.Effect<any, ORPCError<string, unknown>>;
     nearVerify: (
       headers: Headers,
       input: {
@@ -49,9 +50,7 @@ export class NearService extends Context.Service<
       headers: Headers,
       input: { accountId: string; network?: NearNetwork },
     ) => Effect.Effect<any, ORPCError<string, unknown>>;
-    nearListAccounts: (
-      headers: Headers,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    nearListAccounts: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
     nearRelay: (
       headers: Headers,
       payload: string,
@@ -65,9 +64,7 @@ export class NearService extends Context.Service<
       context: { user?: { role?: string | null } | null },
       network: NearNetwork | undefined,
     ) => Effect.Effect<any, ORPCError<string, unknown>>;
-    nearRelayHistory: (
-      headers: Headers,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    nearRelayHistory: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
     nearView: (
       headers: Headers,
       input: { contractId: string; methodName: string; args?: Record<string, any> },
@@ -151,8 +148,7 @@ export const buildNearService = ({ auth }: { auth: Auth }) =>
         }),
       ),
 
-    nearListAccounts: (headers) =>
-      attemptAuth(() => auth.api.listNearAccounts({ headers })),
+    nearListAccounts: (headers) => attemptAuth(() => auth.api.listNearAccounts({ headers })),
 
     nearRelay: (headers, payload) =>
       attemptAuth(() =>
@@ -196,8 +192,7 @@ export const buildNearService = ({ auth }: { auth: Auth }) =>
         };
       }),
 
-    nearRelayHistory: (headers) =>
-      attemptAuth(() => auth.api.getRelayHistory({ headers })),
+    nearRelayHistory: (headers) => attemptAuth(() => auth.api.getRelayHistory({ headers })),
 
     nearView: (headers, input) =>
       attemptAuth(() =>

@@ -27,15 +27,15 @@ import {
   OnboardingCodeCipherTag,
   type PluginServices,
 } from "../src/service-types";
-import { buildApiKeysService, ApiKeysService } from "../src/services/api-keys";
+import { ApiKeysService, buildApiKeysService } from "../src/services/api-keys";
 import { buildInvitationsService, InvitationsService } from "../src/services/invitations";
 import { buildMembersService, MembersService } from "../src/services/members";
 import { buildNearService, NearService } from "../src/services/near";
-import { buildSessionService, SessionService } from "../src/services/session";
 import { buildOnboardingService, OnboardingService } from "../src/services/onboarding";
-import { buildPermissionsService, PermissionsService } from "../src/services/permissions";
-import { buildTeamsService, TeamsService } from "../src/services/teams";
 import { buildOrganizationsService, OrganizationsService } from "../src/services/organizations";
+import { buildPermissionsService, PermissionsService } from "../src/services/permissions";
+import { buildSessionService, SessionService } from "../src/services/session";
+import { buildTeamsService, TeamsService } from "../src/services/teams";
 
 const TEST_DB_URL = "pglite::memory:";
 
@@ -236,10 +236,7 @@ export function createTestHandlers(services: PluginServices) {
       apiKeyHeaders: services.apiKeyHeaders,
     }),
     Context.add(DatabaseTag, services.db),
-    Context.add(
-      ApiKeysService,
-      buildApiKeysService({ auth: services.auth }),
-    ),
+    Context.add(ApiKeysService, buildApiKeysService({ auth: services.auth })),
     Context.add(OnboardingCodeCipherTag, services.onboardingCodeCipher),
     Context.add(MembershipPolicyTag, services.membershipPolicy),
     Context.add(
@@ -250,22 +247,13 @@ export function createTestHandlers(services: PluginServices) {
       InvitationsService,
       buildInvitationsService({ auth: services.auth, db: services.db }),
     ),
-    Context.add(
-      MembersService,
-      buildMembersService({ auth: services.auth, db: services.db }),
-    ),
-    Context.add(
-      TeamsService,
-      buildTeamsService({ auth: services.auth, db: services.db }),
-    ),
+    Context.add(MembersService, buildMembersService({ auth: services.auth, db: services.db })),
+    Context.add(TeamsService, buildTeamsService({ auth: services.auth, db: services.db })),
     Context.add(
       PermissionsService,
       buildPermissionsService({ auth: services.auth, db: services.db }),
     ),
-    Context.add(
-      NearService,
-      buildNearService({ auth: services.auth }),
-    ),
+    Context.add(NearService, buildNearService({ auth: services.auth })),
     Context.add(
       SessionService,
       buildSessionService({

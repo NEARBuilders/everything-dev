@@ -32,10 +32,7 @@ export class InvitationsService extends Context.Service<
         teamId?: string;
       },
     ) => Effect.Effect<any, ORPCError<string, unknown>>;
-    getInvitation: (
-      headers: Headers,
-      id: string,
-    ) => Effect.Effect<any, ORPCError<string, unknown>>;
+    getInvitation: (headers: Headers, id: string) => Effect.Effect<any, ORPCError<string, unknown>>;
     listInvitations: (
       headers: Headers,
       emailContext: EmailVisibilityContext,
@@ -130,46 +127,49 @@ export const buildInvitationsService = ({ auth, db }: { auth: Auth; db: Db }) =>
         ),
       ),
 
-    listInvitations: Effect.fn("InvitationsService.listInvitations")(
-      function* (headers: Headers, emailContext: EmailVisibilityContext, organizationId: string | undefined) {
-        const emailAllowed = yield* Effect.promise(() =>
-          canReadMemberEmails(auth, emailContext, organizationId),
-        );
-        const result = yield* attemptAuth(() =>
-          auth.api.listInvitations({
-            headers,
-            query: { organizationId },
-          }),
-        );
-        return (result ?? []).map((inv: any) => ({
-          ...toInvitation(inv),
-          ...(emailAllowed ? { email: inv.email } : { email: null }),
-        }));
-      },
-    ),
+    listInvitations: Effect.fn("InvitationsService.listInvitations")(function* (
+      headers: Headers,
+      emailContext: EmailVisibilityContext,
+      organizationId: string | undefined,
+    ) {
+      const emailAllowed = yield* Effect.promise(() =>
+        canReadMemberEmails(auth, emailContext, organizationId),
+      );
+      const result = yield* attemptAuth(() =>
+        auth.api.listInvitations({
+          headers,
+          query: { organizationId },
+        }),
+      );
+      return (result ?? []).map((inv: any) => ({
+        ...toInvitation(inv),
+        ...(emailAllowed ? { email: inv.email } : { email: null }),
+      }));
+    }),
 
-    listUserInvitations: Effect.fn("InvitationsService.listUserInvitations")(
-      function* (headers: Headers, input: { userId: string; emailUnverified: boolean }) {
-        const [emailInvitations, walletInvitations] = yield* Effect.all([
-          input.emailUnverified
-            ? Effect.succeed([])
-            : attemptAuth(() => auth.api.listUserInvitations({ headers })),
-          Effect.promise(() => listPendingNearInvitations(db, input.userId)),
-        ]);
-        return [
-          ...(emailInvitations ?? []).map((inv: any) => ({
-            ...toInvitation(inv),
-            ...(inv.organizationName ? { organizationName: inv.organizationName } : {}),
-            ...(inv.organizationSlug ? { organizationSlug: inv.organizationSlug } : {}),
-          })),
-          ...walletInvitations.map((row: any) => ({
-            ...toInvitation(row.invitation),
-            organizationName: row.organizationName,
-            organizationSlug: row.organizationSlug,
-          })),
-        ];
-      },
-    ),
+    listUserInvitations: Effect.fn("InvitationsService.listUserInvitations")(function* (
+      headers: Headers,
+      input: { userId: string; emailUnverified: boolean },
+    ) {
+      const [emailInvitations, walletInvitations] = yield* Effect.all([
+        input.emailUnverified
+          ? Effect.succeed([])
+          : attemptAuth(() => auth.api.listUserInvitations({ headers })),
+        Effect.promise(() => listPendingNearInvitations(db, input.userId)),
+      ]);
+      return [
+        ...(emailInvitations ?? []).map((inv: any) => ({
+          ...toInvitation(inv),
+          ...(inv.organizationName ? { organizationName: inv.organizationName } : {}),
+          ...(inv.organizationSlug ? { organizationSlug: inv.organizationSlug } : {}),
+        })),
+        ...walletInvitations.map((row: any) => ({
+          ...toInvitation(row.invitation),
+          organizationName: row.organizationName,
+          organizationSlug: row.organizationSlug,
+        })),
+      ];
+    }),
 
     cancelInvitation: (headers, invitationId) =>
       attemptAuth(() => auth.api.cancelInvitation({ headers, body: { invitationId } })).pipe(
@@ -182,14 +182,14 @@ export const buildInvitationsService = ({ auth, db }: { auth: Auth; db: Db }) =>
       ),
 
     acceptNearInvitation: (headers, invitationId) =>
-      attemptAuth(() =>
-        auth.api.acceptNearInvitation({ headers, body: { invitationId } }),
-      ).pipe(Effect.as({ success: true })),
+      attemptAuth(() => auth.api.acceptNearInvitation({ headers, body: { invitationId } })).pipe(
+        Effect.as({ success: true }),
+      ),
 
     rejectNearInvitation: (headers, invitationId) =>
-      attemptAuth(() =>
-        auth.api.rejectNearInvitation({ headers, body: { invitationId } }),
-      ).pipe(Effect.as({ success: true })),
+      attemptAuth(() => auth.api.rejectNearInvitation({ headers, body: { invitationId } })).pipe(
+        Effect.as({ success: true }),
+      ),
 
     rejectInvitation: (headers, invitationId) =>
       attemptAuth(() => auth.api.rejectInvitation({ headers, body: { invitationId } })).pipe(
@@ -206,11 +206,7 @@ export const InvitationsServiceLive = Layer.effect(
   }),
 );
 
-function resolveInvitee(input: {
-  email?: string;
-  nearAccountId?: string;
-  nearNetwork?: string;
-}) {
+function resolveInvitee(input: { email?: string; nearAccountId?: string; nearNetwork?: string }) {
   if (!!input.email === !!input.nearAccountId) {
     throw new ORPCError("BAD_REQUEST", {
       message: "Provide either an email address or a NEAR account id",

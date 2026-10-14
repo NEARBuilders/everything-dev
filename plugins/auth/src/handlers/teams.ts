@@ -16,10 +16,7 @@ export function createTeamHandlers(
 
     listUserTeams: builder.listUserTeams.use(requireAuth).effect(function* ({ input, context }) {
       const teams = yield* TeamsService;
-      return yield* teams.listUserTeams(
-        createHeaders(context.reqHeaders),
-        input?.organizationId,
-      );
+      return yield* teams.listUserTeams(createHeaders(context.reqHeaders), input?.organizationId);
     }),
 
     createTeam: builder.createTeam.use(requireAuth).effect(function* ({ input, context }) {
@@ -47,7 +44,11 @@ export function createTeamHandlers(
       context,
     }) {
       const teams = yield* TeamsService;
-      return yield* teams.listTeamMembers(createHeaders(context.reqHeaders), context.userId, input.teamId);
+      return yield* teams.listTeamMembers(
+        createHeaders(context.reqHeaders),
+        context.userId,
+        input.teamId,
+      );
     }),
 
     addTeamMember: builder.addTeamMember.use(requireAuth).effect(function* ({ input, context }) {

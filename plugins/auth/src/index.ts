@@ -9,7 +9,6 @@ import { normalizeAuthConfig } from "./config";
 import { authSecretsSchema, authVariablesSchema } from "./config-schemas";
 import { contract } from "./contract";
 import { DatabaseLive, DatabaseTag } from "./db/layer";
-import { ApiKeysServiceLive } from "./services/api-keys";
 import { createApiKeyHandlers } from "./handlers/api-keys";
 import { createInvitationHandlers } from "./handlers/invitations";
 import { createMemberHandlers } from "./handlers/members";
@@ -30,14 +29,15 @@ import {
   MembershipPolicyTag,
   OnboardingCodeCipherTag,
 } from "./service-types";
+import { ApiKeysServiceLive } from "./services/api-keys";
 import { InvitationsServiceLive } from "./services/invitations";
 import { MembersServiceLive } from "./services/members";
 import { NearServiceLive } from "./services/near";
-import { SessionServiceLive } from "./services/session";
 import { OnboardingServiceLive } from "./services/onboarding";
-import { PermissionsServiceLive } from "./services/permissions";
-import { TeamsServiceLive } from "./services/teams";
 import { OrganizationsServiceLive } from "./services/organizations";
+import { PermissionsServiceLive } from "./services/permissions";
+import { SessionServiceLive } from "./services/session";
+import { TeamsServiceLive } from "./services/teams";
 import { toError } from "./utils";
 import { socialProviderWarnings } from "./warnings";
 
@@ -87,10 +87,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
         MembersServiceLive.pipe(Layer.provide(tagsLayer)),
         TeamsServiceLive.pipe(Layer.provide(tagsLayer)),
         PermissionsServiceLive.pipe(Layer.provide(tagsLayer)),
-        OnboardingServiceLive.pipe(
-          Layer.provide(PermissionsServiceLive),
-          Layer.provide(tagsLayer),
-        ),
+        OnboardingServiceLive.pipe(Layer.provide(PermissionsServiceLive), Layer.provide(tagsLayer)),
         NearServiceLive.pipe(Layer.provide(tagsLayer)),
         SessionServiceLive.pipe(Layer.provide(tagsLayer)),
         ApiKeysServiceLive.pipe(Layer.provide(tagsLayer)),

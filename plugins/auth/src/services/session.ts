@@ -1,4 +1,4 @@
-import { ORPCError } from "@orpc/server";
+import type { ORPCError } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { Context, Effect, Layer } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
@@ -23,11 +23,7 @@ async function listMemberTeams(db: Db, userId: string, organizationId: string) {
   return rows.map((row) => ({ id: row.id, name: row.name, areas: parseTeamAreas(row.metadata) }));
 }
 
-async function verifyApiKeyAcrossConfigs(
-  auth: Auth,
-  verifyHeaders: Headers,
-  apiKeyValue: string,
-) {
+async function verifyApiKeyAcrossConfigs(auth: Auth, verifyHeaders: Headers, apiKeyValue: string) {
   for (const configId of API_KEY_CONFIG_IDS) {
     let keyResult: any;
     try {
@@ -49,10 +45,7 @@ async function verifyApiKeyAcrossConfigs(
 export class SessionService extends Context.Service<
   SessionService,
   {
-    health: () => Effect.Effect<
-      { status: "ok"; timestamp: string },
-      never
-    >;
+    health: () => Effect.Effect<{ status: "ok"; timestamp: string }, never>;
     getSession: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
     getContext: (headers: Headers) => Effect.Effect<any, ORPCError<string, unknown>>;
   }

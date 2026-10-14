@@ -9,10 +9,7 @@ export function createMemberHandlers(
   requireAuth: RequireAuthMiddleware,
 ) {
   return {
-    exportMembers: builder.exportMembers.use(requireAuth).effect(function* ({
-      input,
-      context,
-    }) {
+    exportMembers: builder.exportMembers.use(requireAuth).effect(function* ({ input, context }) {
       const members = yield* MembersService;
       return yield* members.exportMembers(
         createHeaders(context.reqHeaders),

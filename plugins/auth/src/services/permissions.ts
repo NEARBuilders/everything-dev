@@ -32,58 +32,60 @@ export class PermissionsService extends Context.Service<
 
 export const buildPermissionsService = ({ auth, db }: { auth: Auth; db: Db }) =>
   PermissionsService.of({
-    requireOrganizer: Effect.fn("PermissionsService.requireOrganizer")(
-      function* (context: OrganizerCaller, inputOrganizationId: string | undefined) {
-        const headers = createHeaders(context.reqHeaders);
-        const session = yield* attemptAuth(() => auth.api.getSession({ headers }));
-        const sessionData = session as {
-          user?: { id?: string };
-          session?: { activeOrganizationId?: string | null };
-        } | null;
-        const userId = context.userId ?? sessionData?.user?.id ?? null;
-        const organizationId =
-          inputOrganizationId ?? getActiveOrganizationId(sessionData?.session) ?? null;
-        if (!userId || !organizationId) {
-          return yield* Effect.fail(
-            new ORPCError("BAD_REQUEST", { message: "No organization selected", data: {} }),
-          );
-        }
-        const organization = yield* attemptDb(() =>
-          db.query.organization.findFirst({
-            where: eq(schema.organization.id, organizationId),
+    requireOrganizer: Effect.fn("PermissionsService.requireOrganizer")(function* (
+      context: OrganizerCaller,
+      inputOrganizationId: string | undefined,
+    ) {
+      const headers = createHeaders(context.reqHeaders);
+      const session = yield* attemptAuth(() => auth.api.getSession({ headers }));
+      const sessionData = session as {
+        user?: { id?: string };
+        session?: { activeOrganizationId?: string | null };
+      } | null;
+      const userId = context.userId ?? sessionData?.user?.id ?? null;
+      const organizationId =
+        inputOrganizationId ?? getActiveOrganizationId(sessionData?.session) ?? null;
+      if (!userId || !organizationId) {
+        return yield* Effect.fail(
+          new ORPCError("BAD_REQUEST", { message: "No organization selected", data: {} }),
+        );
+      }
+      const organization = yield* attemptDb(() =>
+        db.query.organization.findFirst({
+          where: eq(schema.organization.id, organizationId),
+        }),
+      );
+      if (organization?.status !== "active") {
+        return yield* Effect.fail(
+          new ORPCError("FORBIDDEN", {
+            message: "Organization requires platform-admin approval",
+            data: {},
           }),
         );
-        if (organization?.status !== "active") {
-          return yield* Effect.fail(
-            new ORPCError("FORBIDDEN", {
-              message: "Organization requires platform-admin approval",
-              data: {},
-            }),
-          );
-        }
-        const result = yield* attemptAuth(() =>
-          auth.api.getActiveMemberRole({
-            headers,
-            query: { organizationId },
+      }
+      const result = yield* attemptAuth(() =>
+        auth.api.getActiveMemberRole({
+          headers,
+          query: { organizationId },
+        }),
+      );
+      const role = typeof result === "string" ? result : ((result as any)?.role ?? null);
+      const isOrganizer =
+        role === "owner" ||
+        role === "admin" ||
+        (role !== null &&
+          (yield* Effect.promise(() => belongsToEventsTeam(db, userId, organizationId))));
+      if (!isOrganizer) {
+        return yield* Effect.fail(
+          new ORPCError("FORBIDDEN", {
+            message:
+              "Only organizers — organization owners, admins, or members of a team with the events area — can manage onboarding codes",
+            data: { action: "manage-onboarding" },
           }),
         );
-        const role = typeof result === "string" ? result : ((result as any)?.role ?? null);
-        const isOrganizer =
-          role === "owner" ||
-          role === "admin" ||
-          (role !== null && (yield* Effect.promise(() => belongsToEventsTeam(db, userId, organizationId))));
-        if (!isOrganizer) {
-          return yield* Effect.fail(
-            new ORPCError("FORBIDDEN", {
-              message:
-                "Only organizers — organization owners, admins, or members of a team with the events area — can manage onboarding codes",
-              data: { action: "manage-onboarding" },
-            }),
-          );
-        }
-        return { userId, organizationId, headers };
-      },
-    ),
+      }
+      return { userId, organizationId, headers };
+    }),
   });
 
 export const PermissionsServiceLive = Layer.effect(

@@ -63,7 +63,11 @@ export function createNearHandlers(
       context,
     }) {
       const near = yield* NearService;
-      return yield* near.nearRelayerInfo(createHeaders(context.reqHeaders), context, input?.network);
+      return yield* near.nearRelayerInfo(
+        createHeaders(context.reqHeaders),
+        context,
+        input?.network,
+      );
     }),
 
     nearRelayHistory: builder.nearRelayHistory.use(requireAuth).effect(function* ({ context }) {
@@ -80,7 +84,10 @@ export function createNearHandlers(
       .use(requireAuth)
       .effect(function* ({ input, context }) {
         const near = yield* NearService;
-        return yield* near.nearCheckSubAccountAvailability(createHeaders(context.reqHeaders), input);
+        return yield* near.nearCheckSubAccountAvailability(
+          createHeaders(context.reqHeaders),
+          input,
+        );
       }),
 
     nearCreateSubAccount: builder.nearCreateSubAccount.use(requireAuth).effect(function* ({
