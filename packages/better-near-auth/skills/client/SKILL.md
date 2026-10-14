@@ -408,7 +408,7 @@ nearState.subscribe(() => console.log(nearState.get()));
 
 // Vanilla: read the session-linked account (same fallback the hooks use) —
 // session.user.nearAccount is set by an after-hook, so narrow it via the helper
-import { readSessionNearAccountId } from "better-near-auth/client";
+import { readSessionNearAccountId } from "better-near-auth/react";
 const linkedAccountId = readSessionNearAccountId(sessionAtomValue);
 
 // Or check signing availability:

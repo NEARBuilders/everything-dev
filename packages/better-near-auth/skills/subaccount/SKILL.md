@@ -263,7 +263,7 @@ siwn({
 If `onCreated` throws, the plugin:
 1. Deletes internal DB records (nearAccount, internalAdapter)
 2. Calls `onRollback(ctx)` if provided (consumer cleanup)
-3. Automatically deletes the on-chain account (`deleteAccount({ beneficiary: parentAccount })`)
+3. **If `onRollback` is provided, the user handles on-chain cleanup; otherwise the plugin automatically deletes the on-chain account (`deleteAccount({ beneficiary: parentAccount })`) if a parent key exists**
 4. Returns a 500 error
 
 ```typescript
@@ -277,7 +277,7 @@ siwn({
     onRollback: async (ctx) => {
       // Clean up any consumer side effects
       await db.wiki.delete({ accountId: ctx.newAccountId }).catch(() => {});
-      // On-chain deleteAccount is handled automatically
+      // On-chain deleteAccount: if `onRollback` is provided the user handles cleanup; otherwise the plugin automatically deletes the on-chain account if a parent key exists
     },
   },
 });
@@ -290,10 +290,10 @@ The lifecycle flow:
    → fail → return error (nothing to rollback)
    → succeed → continue
 2. Write internal DB records (nearAccount, internalAdapter)
-   → fail → ROLLBACK: onRollback → delete DB records → deleteAccount → return 500
+   → fail → ROLLBACK: onRollback → delete DB records
    → succeed → continue
 3. Call onCreated(ctx)
-   → fail → ROLLBACK: onRollback → delete DB records → deleteAccount → return 500
+   → fail → ROLLBACK: onRollback → delete DB records
    → succeed → return 200 success
 ```
 
