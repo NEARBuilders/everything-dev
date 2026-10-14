@@ -58,6 +58,10 @@ _Avoid_: permissions (unqualified, when you mean the resolved map), grants (when
 The runtime's normalized statements catalog plus role grants, built from config at boot and exposed as the auth plugin's registry service.
 _Avoid_: ACL, access list
 
+**Session Data Cookie**:
+Better Auth's short-lived cookie cache of the session as of its last refresh; its team guards resolve the session from it, not from the database row. Writes that clear session state in the database strip it from the forwarded request so the guard re-reads the fresh row via the session token.
+_Avoid_: session cache, active-team cookie (say which state it caches)
+
 **Gateway Origin**:
 The canonical base runtime origin for a network, where every passkey ceremony takes place regardless of which domain the member arrived from.
 _Avoid_: base URL, main domain

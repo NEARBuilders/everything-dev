@@ -81,6 +81,11 @@ export const TEST_PERMISSIONS: AuthPermissionStatements = {
   },
 };
 
+export const TEST_REGISTRY = {
+  statements: TEST_PERMISSIONS.statements,
+  roleGrants: TEST_PERMISSIONS.roles,
+};
+
 process.env.BETTER_AUTH_SECRET =
   process.env.BETTER_AUTH_SECRET || "test-secret-do-not-use-in-production";
 
@@ -114,10 +119,7 @@ export async function createTestServices(configOverrides?: Partial<AuthConfig>) 
     apiKeyHeaders,
     membershipPolicy,
     onboardingCodeCipher,
-    permissionRegistry: {
-      statements: TEST_PERMISSIONS.statements,
-      roleGrants: TEST_PERMISSIONS.roles,
-    },
+    permissionRegistry: TEST_REGISTRY,
   };
 
   return { services, driver };
@@ -306,10 +308,7 @@ export function createTestHandlers(services: PluginServices) {
         auth: services.auth,
         apiKeyHeaders: services.apiKeyHeaders,
         db: services.db,
-        registry: {
-          statements: TEST_PERMISSIONS.statements,
-          roleGrants: TEST_PERMISSIONS.roles,
-        },
+        registry: TEST_REGISTRY,
       }),
     ),
     Context.add(

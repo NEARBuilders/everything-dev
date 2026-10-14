@@ -81,6 +81,46 @@ describe("descriptor golden fixture — bos.app.ts ↔ bos.config.json", () => {
     expect(resolved.domain).toBe("child.example");
     expect(canonicalize(resolved.app?.auth?.variables?.siwn)).toEqual({
       recipients: { mainnet: "child.example", testnet: "child.testnet" },
+      permissions: {
+        statements: {
+          organization: ["update", "delete"],
+          member: ["create", "update", "delete"],
+          invitation: ["create", "cancel"],
+          team: ["create", "update", "delete"],
+          ac: ["create", "read", "update", "delete"],
+          apiKey: ["create", "read", "update", "delete"],
+          email: ["read"],
+        },
+        roles: {
+          owner: {
+            organization: ["update", "delete"],
+            member: ["create", "update", "delete"],
+            invitation: ["create", "cancel"],
+            team: ["create", "update", "delete"],
+            ac: ["create", "read", "update", "delete"],
+            apiKey: ["create", "read", "update", "delete"],
+            email: ["read"],
+          },
+          admin: {
+            organization: ["update"],
+            member: ["create", "update", "delete"],
+            invitation: ["create", "cancel"],
+            team: ["create", "update", "delete"],
+            ac: ["create", "read", "update", "delete"],
+            apiKey: ["create", "read", "update", "delete"],
+            email: ["read"],
+          },
+          member: {
+            organization: [],
+            member: [],
+            invitation: [],
+            team: [],
+            ac: ["read"],
+            apiKey: ["read"],
+            email: [],
+          },
+        },
+      },
       relayer: {
         mainnet: {
           whitelistedContracts: ["child.example"],

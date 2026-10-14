@@ -53,7 +53,21 @@ builder.createProposal
 ```
 
 Fails `FORBIDDEN` with `data: { requiredPermissions: ["proposal:create"] }` when the
-map lacks the grant. Scope boundary (ADR 0028): the middleware can only see the
+map lacks the grant.
+
+**Team scope.** `getContext`'s `organization.teams` entries carry a per-team
+`permissions` map (the caller's `team_member.role` grants unioned per team). Pass a
+team resolver to gate on the team resolved from the route input:
+
+```ts
+builder.updateTeamTask
+  .use(requireAuth)
+  .use(requirePermission("team", "update", { scope: "team", teamId: (input) => input.teamId }))
+  .handler(...);
+```
+
+The check reads the caller's grants for that specific team; a team they are not a
+member of (or one lacking the grant) is denied. Scope boundary (ADR 0028): the middleware can only see the
 request context, so it gates *active-organization* permissions; checks against an
 *explicit* organization id from route input (or data-masking checks) stay
 service-side via Better Auth `hasPermission`, which evaluates the same

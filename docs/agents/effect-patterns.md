@@ -11,6 +11,16 @@ Effect 4 uses `Context.Service<Self, Shape>()("id")` class tags. `Context.Tag` a
 `Effect.Service` are removed. Methods returning effects have `R = never`; a service
 interface must never leak requirements.
 
+This repo's plugins (auth, proposals) use two shapes for the Live layer — both fine,
+pick per service and stay consistent within a plugin:
+
+- **Static layer** (docs exemplar below): `static readonly layer = Layer.effect(Tag, ...)` on the class.
+- **Module-level Live + plain factory** (auth plugin): `export const XServiceLive = Layer.effect(X, Effect.gen(...))`
+  with a `buildXService({ dep })` plain function returning `X.of({...})` — the factory is the
+  test-harness seam (tests assemble the service directly over test doubles); `X.of` makes the
+  class shape the single type-enforcement point. Structured methods use
+  `Effect.fn("XService.method")` for spans.
+
 ```ts
 import { Context, Effect, Layer } from "effect";
 
