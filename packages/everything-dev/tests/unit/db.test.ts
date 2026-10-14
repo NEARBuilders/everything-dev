@@ -116,6 +116,51 @@ describe("extractExpectedTables", () => {
   it("returns empty array when no CREATE TABLE", () => {
     expect(extractExpectedTables([{ sql: ["CREATE INDEX idx ON t (c)"] }])).toEqual([]);
   });
+
+  it("removes a table dropped by a later migration (#312)", () => {
+    expect(
+      extractExpectedTables([
+        { sql: ['CREATE TABLE IF NOT EXISTS "tenants" (...)'] },
+        { sql: ['DROP TABLE IF EXISTS "tenants" CASCADE;'] },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("handles schema-qualified drops", () => {
+    expect(
+      extractExpectedTables([
+        { sql: ['CREATE TABLE "public"."things" (...)'] },
+        { sql: ['DROP TABLE IF EXISTS "public"."things";'] },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("keeps tables not covered by the drop", () => {
+    expect(
+      extractExpectedTables([
+        { sql: ['CREATE TABLE "keep" (...); CREATE TABLE "dropme" (...)'] },
+        { sql: ["DROP TABLE dropme"] },
+      ]),
+    ).toEqual(["keep"]);
+  });
+
+  it("re-keys a table renamed by a later migration (#312)", () => {
+    expect(
+      extractExpectedTables([
+        { sql: ['CREATE TABLE IF NOT EXISTS "old_name" (...)'] },
+        { sql: ['ALTER TABLE "old_name" RENAME TO "new_name";'] },
+      ]),
+    ).toEqual(["new_name"]);
+  });
+
+  it("re-keys unquoted rename targets", () => {
+    expect(
+      extractExpectedTables([
+        { sql: ['CREATE TABLE IF NOT EXISTS "old_name" (...)'] },
+        { sql: ["ALTER TABLE old_name RENAME TO new_name"] },
+      ]),
+    ).toEqual(["new_name"]);
+  });
 });
 
 describe("pluginMigrationSlug", () => {

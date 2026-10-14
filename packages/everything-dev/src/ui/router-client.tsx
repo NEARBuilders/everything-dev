@@ -59,6 +59,10 @@ export function createRouter<
         }),
       session: opts.context.session,
       locale: opts.context.locale,
+      // Forwarded for parity with the server factory: without it the client
+      // router context drops the composed nav manifest and plugin-grafted
+      // sidebar items vanish after hydration (#356).
+      pluginNav: opts.context.pluginNav,
     },
     ...(cspNonce ? { ssr: { nonce: cspNonce } } : {}),
     defaultPreload: "intent",

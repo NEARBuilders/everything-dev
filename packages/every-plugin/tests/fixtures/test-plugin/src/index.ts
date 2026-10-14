@@ -155,6 +155,8 @@ export const TestPlugin = createPlugin({
         yield* client.streamItems(input.count, input.prefix);
       }),
 
+      // Intentionally empty: oxlint (require-yield) and biome (useYield) both
+      // flag it — the fixture exercises an empty AsyncIterable.
       // eslint-disable require-yield -- intentional empty async generator
       // biome-ignore lint/correctness/useYield: specific test case
       emptyStream: builder.emptyStream.handler(async function* ({ input }) {

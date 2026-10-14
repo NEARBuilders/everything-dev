@@ -7,7 +7,11 @@ import sirv from "sirv";
 import { DEV_ENTRY_FILENAME } from "../build/artifact-names";
 import { ensureGeneratedRspackConfig } from "../build/rspack/generated-config";
 import { getPluginInfo, loadDevConfig } from "../build/rspack/utils";
-import { ensureGeneratedUiRsbuildConfig, pluginLayoutKey } from "../build/ui/generated-config";
+import {
+  ensureGeneratedUiRsbuildConfig,
+  pluginLayoutKey,
+  uiDistDirFor,
+} from "../build/ui/generated-config";
 import { PLUGIN_ERROR_STATUS_MAP } from "../errors";
 import { loadRemoteWithRetry } from "../remote-entry";
 import { startDirectModuleHost } from "./host";
@@ -168,11 +172,12 @@ export async function startPluginDevServer(
     // Folder-form ui: one-shot build, then serve the ui source root's dist
     // (the factory's absolute distPath target) statically on the ui port.
     await runOnce("rsbuild", ["build", "--config", uiConfig]);
-    const uiDistDir =
-      path.basename(cwd) === "ui" ? path.join(cwd, "dist") : path.join(cwd, "ui", "dist");
+    const uiDistDir = uiDistDirFor(cwd);
     if (!fs.existsSync(path.join(uiDistDir, DEV_ENTRY_FILENAME))) {
-      console.error(
-        `❌ UI dist is missing at ${uiDistDir} — the ui static server would serve 404s for every asset (build output layout mismatch?)`,
+      // Fail loud (#343 class): warn-then-serve turned a build-layout
+      // mismatch into 404s for every ui asset with the stack "up".
+      throw new Error(
+        `❌ UI dist is missing at ${uiDistDir} after the rsbuild one-shot — build output layout mismatch?`,
       );
     }
     const serveUiStatic = sirv(uiDistDir, { dev: true });

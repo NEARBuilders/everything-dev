@@ -324,19 +324,25 @@ async function main() {
             }
           }
           if (listed?.length) {
+            // Default to keep (#247): removing keys is opt-in.
             const removeOldKeys = await p.confirm({
               message: `Remove ${listed.length} existing publish key${listed.length > 1 ? "s" : ""}?`,
-              initialValue: true,
+              initialValue: false,
             });
             if (p.isCancel(removeOldKeys)) {
               return;
             }
             keyPublishInput.removeOldKeys = removeOldKeys;
+          } else if (listed !== null) {
+            keyPublishInput.removeOldKeys = false;
           } else {
-            keyPublishInput.removeOldKeys = true;
+            // Listing failed — fail safe: keep the old keys, the user can
+            // remove them explicitly.
+            keyPublishInput.removeOldKeys = false;
           }
         } else {
-          keyPublishInput.removeOldKeys = true;
+          // Non-interactive defaults to keep (#247) — pass --remove-old-keys.
+          keyPublishInput.removeOldKeys = false;
         }
       }
     }

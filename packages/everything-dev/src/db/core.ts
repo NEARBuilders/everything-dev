@@ -231,14 +231,45 @@ export function suppressPgQueryQueueDeprecation(): void {
 }
 
 export function extractExpectedTables(migrations: { sql: string[] }[]): string[] {
+  // Track table lifecycle in migration order (#312): a table that a later
+  // migration drops (or renames) must leave the expected set — accumulating
+  // CREATE TABLE only bricked every boot after an intentional drop
+  // (drift-manual forever, unfixable by `bos db repair`).
   const tables = new Set<string>();
-  const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"([^"]+)"\.)?"([^"]+)"/gi;
+  const ident = String.raw`(?:"([^"]+)"|(\w+))`;
+  const qualified = String.raw`(?:${ident}\.)?`;
+  const createRe = new RegExp(
+    String.raw`CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?${qualified}${ident}`,
+    "gi",
+  );
+  const dropRe = new RegExp(
+    String.raw`DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?${qualified}${ident}`,
+    "gi",
+  );
+  const renameRe = new RegExp(
+    String.raw`ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?${qualified}${ident}${String.raw`\s+RENAME\s+TO\s+`}${ident}`,
+    "gi",
+  );
   for (const migration of migrations) {
     for (const stmt of migration.sql) {
-      for (const match of stmt.matchAll(re)) {
-        const tableName = match[2];
+      for (const match of stmt.matchAll(createRe)) {
+        const tableName = match[3] ?? match[4];
         if (tableName) {
           tables.add(tableName);
+        }
+      }
+      for (const match of stmt.matchAll(dropRe)) {
+        const tableName = match[3] ?? match[4];
+        if (tableName) {
+          tables.delete(tableName);
+        }
+      }
+      for (const match of stmt.matchAll(renameRe)) {
+        const from = match[3] ?? match[4];
+        const to = match[5] ?? match[6];
+        if (from && to) {
+          tables.delete(from);
+          tables.add(to);
         }
       }
     }

@@ -47,11 +47,15 @@ const waitForDatabases = async () => {
     while (Date.now() < deadline && !reachable) {
       reachable = await new Promise((resolve) => {
         const connection = net.connect(Number(parsed.port), parsed.hostname);
+        // A dropped SYN must not outlive the deadline (#344): bound each
+        // probe; `close` is the settle-all safety (resolve is idempotent).
+        connection.setTimeout(2_000, () => connection.destroy());
         connection.once("connect", () => {
           connection.end();
           resolve(true);
         });
         connection.once("error", () => resolve(false));
+        connection.once("close", () => resolve(false));
       });
       if (!reachable) await new Promise((resolve) => setTimeout(resolve, 500));
     }
@@ -94,7 +98,68 @@ const childEnv = {
   BOS_SNAPSHOT_WATCH_INTERVAL_MS: process.env.BOS_SNAPSHOT_WATCH_INTERVAL_MS ?? "0",
 };
 
-const dockerRun = () =>
+// spawnSync reports failures through `.status`/`.error` — it never throws,
+// so a try/catch here was dead code and a failed cleanup was silent (#344).
+const dockerRemove = (args, note) => {
+  const result = spawnSync("docker", ["rm", "-f", ...args], { stdio: "ignore" });
+  if (result.status !== 0) {
+    log(`${note} (docker rm -f exited ${result.status ?? "spawn-failure"})`);
+  }
+};
+
+// Prior runs' containers from dead sessions can squat the mapped ports.
+// Reap anything matching this variant's name prefix before the run — the
+// runner-side port sweep in regression-env.mjs covers stray processes; this
+// covers stray containers.
+const reapStaleContainers = () => {
+  const prefix = `bos-regression-${variant}-`;
+  const ps = spawnSync("docker", ["ps", "-aq", "--filter", `name=${prefix}`], {
+    encoding: "utf8",
+  });
+  const ids = (ps.stdout ?? "")
+    .split("\n")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (ids.length > 0) {
+    log(`reaping ${ids.length} stale ${prefix}* container(s) from prior runs`);
+    dockerRemove(ids, "stale-container reap");
+  }
+};
+
+// Derive the mapped range from the staged layout instead of a fixed +20
+// window (#344): more than 11 local plugins would land unmapped and the
+// browser hangs silently.
+const mappedRange = () => {
+  const fallback = [basePort, basePort + 20];
+  const result = spawnSync(
+    "docker",
+    ["run", "--rm", "--entrypoint", "cat", image, "/app/.bos/regression/image/layout.json"],
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0) {
+    log(
+      `could not read the staged layout (docker run exited ${result.status}) — mapping the fixed ${fallback[0]}-${fallback[1]} range`,
+    );
+    return fallback;
+  }
+  try {
+    const layout = JSON.parse(result.stdout);
+    const ports = [layout.basePort, ...layout.servers.map((server) => server.port)];
+    const low = Math.min(...ports);
+    const high = Math.max(...ports);
+    if (!Number.isInteger(low) || !Number.isInteger(high) || high < low) {
+      throw new Error("degenerate layout ports");
+    }
+    return [low, high];
+  } catch (error) {
+    log(
+      `unreadable staged layout (${error.message}) — mapping the fixed ${fallback[0]}-${fallback[1]} range`,
+    );
+    return fallback;
+  }
+};
+
+const dockerRun = (range) =>
   spawn(
     "docker",
     [
@@ -103,11 +168,11 @@ const dockerRun = () =>
       "--name",
       containerName,
       // Map the whole in-container port map, not just the host port: the
-      // runtime config embeds container-internal localhost URLs (ui 4103,
-      // auth-ui 4104, host-dist 4105) that the BROWSER on the runner must
-      // reach — a 4100-only map leaves every page load hanging.
+      // runtime config embeds container-internal localhost URLs (ui, auth-ui,
+      // host-dist, per-plugin) that the BROWSER on the runner must reach — a
+      // host-port-only map leaves every page load hanging.
       "-p",
-      `${basePort}-${basePort + 20}:${basePort}-${basePort + 20}`,
+      `${range[0]}-${range[1]}:${range[0]}-${range[1]}`,
       "--add-host=host.docker.internal:host-gateway",
       ...Object.entries(childEnv).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
       image,
@@ -117,22 +182,16 @@ const dockerRun = () =>
 
 const main = async () => {
   await waitForDatabases();
-  try {
-    spawnSync("docker", ["rm", "-f", containerName], { stdio: "ignore" });
-  } catch {
-    /* nothing to clean */
-  }
+  dockerRemove([containerName], "pre-run cleanup: nothing to remove");
+  reapStaleContainers();
 
   log(`building the deployment image (docker build --target regression)…`);
   await run("docker", ["build", "--target", "regression", "-t", image, "."]);
 
-  const child = dockerRun();
+  const range = mappedRange();
+  const child = dockerRun(range);
   const teardown = () => {
-    try {
-      spawnSync("docker", ["rm", "-f", containerName], { stdio: "ignore" });
-    } catch {
-      /* already gone */
-    }
+    dockerRemove([containerName], "teardown: container already gone");
   };
   process.on("SIGTERM", teardown);
   process.on("SIGINT", teardown);
@@ -144,10 +203,19 @@ const main = async () => {
   const deadline = Date.now() + 240_000;
   let ready = false;
   while (Date.now() < deadline && !ready) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      console.error(
+        `[start-container:${variant}] container exited early (code ${child.exitCode}, signal ${child.signalCode}) — skipping the remaining health budget`,
+      );
+      break;
+    }
     try {
       const res = await fetch(`${regressionEnv.baseUrl}/health`);
       ready = res.ok;
     } catch {
+      /* not up yet */
+    }
+    if (!ready && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
   }

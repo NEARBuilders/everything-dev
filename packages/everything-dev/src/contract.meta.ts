@@ -214,7 +214,7 @@ export const cliCommandMeta = {
       allowance: { description: "NEAR allowance for the key (default: 1NEAR, min: 0.3NEAR)" },
       removeOldKeys: {
         description:
-          "Remove existing publish key(s) without prompting (default: ask on a TTY, yes when non-interactive)",
+          "Remove existing publish key(s) without prompting (default: ask on a TTY, defaulting to keep; keep when non-interactive — pass --remove-old-keys to remove)",
       },
       registry: {
         description:
