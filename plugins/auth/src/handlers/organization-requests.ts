@@ -3,6 +3,7 @@ import type { Implementer } from "@orpc/server";
 import { and, asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { type AuthContextShape, createAuthMiddleware } from "everything-dev/api";
+import { attemptDb } from "../attempts";
 import type { ContractType } from "../contract";
 import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
@@ -13,7 +14,6 @@ import type {
   RequireAuthMiddleware,
 } from "../middleware";
 import { toOrganizationRecord } from "../serializers";
-import { attemptDb } from "./attempts";
 
 export type OrganizationRequestContext = AuthContextShape &
   WithEffectContext<AuthEffectServices> & { reqHeaders?: Record<string, string> };

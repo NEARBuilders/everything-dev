@@ -1,10 +1,10 @@
 import { type Implementer, ORPCError } from "@orpc/server";
+import { attemptAuth } from "../attempts";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
 import type { ContractType } from "../contract";
 import type { AuthHandlerContext, RequireAuthMiddleware } from "../middleware";
 import { AuthApiTag } from "../service-types";
 import { createHeaders } from "../utils";
-import { attemptAuth } from "./attempts";
 
 export function createApiKeyHandlers(
   builder: Implementer<ContractType, AuthHandlerContext>,
