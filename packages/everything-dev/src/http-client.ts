@@ -148,9 +148,32 @@ export class HttpFetch extends Context.Service<HttpFetch, HttpFetchShape>()(
 
 const getCache = new Map<string, { data: unknown; expiresAt: number }>();
 const GET_CACHE_TTL_MS = 30_000;
+// Bounded by entry count (#339 class: TTL alone only reclaims on re-read, so
+// distinct-URL growth — tenant config endpoints, query keys, path segments —
+// creeps forever). Under pressure: drop expired entries first, then evict
+// oldest-inserted (Map preserves insertion order).
+const GET_CACHE_MAX_ENTRIES = 128;
 
 export function clearHttpCache(): void {
   getCache.clear();
+}
+
+export function httpCacheSize(): number {
+  return getCache.size;
+}
+
+function setCached(url: string, data: unknown): void {
+  const now = Date.now();
+  for (const [key, entry] of getCache) {
+    if (entry.expiresAt <= now) getCache.delete(key);
+  }
+  if (getCache.size >= GET_CACHE_MAX_ENTRIES) {
+    for (const key of getCache.keys()) {
+      getCache.delete(key);
+      if (getCache.size < GET_CACHE_MAX_ENTRIES) break;
+    }
+  }
+  getCache.set(url, { data, expiresAt: now + GET_CACHE_TTL_MS });
 }
 
 function isCacheable(_url: string, options?: FetchWithRetryOptions): boolean {
@@ -212,7 +235,7 @@ export const fetchJsonOrNull = async <T>(
     const res = await Effect.runPromise(defaultHttpFetch.get(url, options));
     const data = (await res.json()) as T;
     if (isCacheable(url, options)) {
-      getCache.set(url, { data, expiresAt: Date.now() + GET_CACHE_TTL_MS });
+      setCached(url, data);
     }
     return data;
   } catch (error) {
