@@ -4,9 +4,10 @@ import { Effect } from "effect";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
 import type { ContractType } from "../contract";
 import type { Database } from "../db";
+import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import type { AuthHandlerContext } from "../middleware";
-import { AuthServicesTag, type PluginServices } from "../service-types";
+import { AuthApiTag, type PluginServices } from "../service-types";
 import {
   createHeaders,
   getActiveOrganizationId,
@@ -29,14 +30,14 @@ async function listMemberTeams(db: Database, userId: string, organizationId: str
 }
 
 async function verifyApiKeyAcrossConfigs(
-  services: PluginServices,
+  auth: PluginServices["auth"],
   verifyHeaders: Headers,
   apiKeyValue: string,
 ) {
   for (const configId of API_KEY_CONFIG_IDS) {
     let keyResult: any;
     try {
-      keyResult = await services.auth.api.verifyApiKey({
+      keyResult = await auth.api.verifyApiKey({
         headers: verifyHeaders,
         body: { key: apiKeyValue, configId },
       });
@@ -61,9 +62,9 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
     }),
 
     getSession: builder.getSession.effect(function* ({ context }) {
-      const services = yield* AuthServicesTag;
+      const { auth } = yield* AuthApiTag;
       const headers = createHeaders(context.reqHeaders);
-      const session = yield* attemptAuth(() => services.auth.api.getSession({ headers }));
+      const session = yield* attemptAuth(() => auth.api.getSession({ headers }));
       const s = session?.session ?? null;
       const u = session?.user ?? null;
       return {
@@ -92,12 +93,12 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
     }),
 
     getContext: builder.getContext.effect(function* ({ context }) {
-      const services = yield* AuthServicesTag;
+      const { auth, apiKeyHeaders } = yield* AuthApiTag;
+      const db = yield* DatabaseTag;
       const headers = createHeaders(context.reqHeaders);
-      const apiKeyHeaderNames = services.apiKeyHeaders;
 
       let apiKeyValue: string | null = null;
-      for (const headerName of apiKeyHeaderNames) {
+      for (const headerName of apiKeyHeaders) {
         const value = headers.get(headerName.toLowerCase())?.trim();
         if (value) {
           apiKeyValue = value;
@@ -142,13 +143,13 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
 
       if (apiKeyValue) {
         const verifyHeaders = new Headers(headers);
-        for (const headerName of apiKeyHeaderNames) {
+        for (const headerName of apiKeyHeaders) {
           verifyHeaders.delete(headerName.toLowerCase());
         }
         verifyHeaders.delete("authorization");
 
         const keyResult = yield* attemptAuth(() =>
-          verifyApiKeyAcrossConfigs(services, verifyHeaders, apiKeyValue),
+          verifyApiKeyAcrossConfigs(auth, verifyHeaders, apiKeyValue),
         );
 
         if (keyResult) {
@@ -168,7 +169,7 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
 
           if (key.configId === "user-keys") {
             const dbUser = yield* attemptDb(() =>
-              services.db.query.user.findFirst({
+              db.query.user.findFirst({
                 where: eq(schema.user.id, key.referenceId),
               }),
             );
@@ -194,7 +195,7 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
       }
 
       if (!apiKeyValue && !principal) {
-        const rawSession = yield* attemptAuth(() => services.auth.api.getSession({ headers }));
+        const rawSession = yield* attemptAuth(() => auth.api.getSession({ headers }));
         const rawUser = rawSession?.user ?? null;
         session = rawSession
           ? {
@@ -234,7 +235,7 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
 
       if (user?.id) {
         const nearAccounts = yield* attemptDb(() =>
-          services.db.query.nearAccount.findMany({
+          db.query.nearAccount.findMany({
             where: eq(schema.nearAccount.userId, user.id),
           }),
         );
@@ -283,7 +284,7 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
 
       if (principal?.type === "organization" && resolvedOrganizationId) {
         const org = yield* attemptDb(() =>
-          services.db.query.organization.findFirst({
+          db.query.organization.findFirst({
             where: eq(schema.organization.id, resolvedOrganizationId),
           }),
         );
@@ -308,7 +309,7 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
         }
       } else if (user?.id) {
         const memberships = yield* attemptDb(() =>
-          services.db.query.member.findMany({
+          db.query.member.findMany({
             where: eq(schema.member.userId, user.id),
             with: { organization: true },
           }),
@@ -332,7 +333,7 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
 
           if (activeMembership?.organization?.status === "active") {
             const org = activeMembership.organization;
-            const teams = yield* attemptDb(() => listMemberTeams(services.db, user.id, org.id));
+            const teams = yield* attemptDb(() => listMemberTeams(db, user.id, org.id));
             const sessionTeamId = getActiveTeamId(session?.session);
             organizationContext = {
               activeOrganizationId: activeOrgId,

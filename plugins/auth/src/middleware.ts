@@ -3,13 +3,25 @@ import type { DecoratedMiddleware } from "@orpc/server";
 import { ORPCError } from "@orpc/server";
 import { Context } from "effect";
 import type { AuthContextShape } from "everything-dev/api";
-import { AuthServicesTag, type PluginServices } from "./service-types";
+import type { DatabaseTag } from "./db/layer";
+import {
+  AuthApiTag,
+  type MembershipPolicyTag,
+  type OnboardingCodeCipherTag,
+  type PluginServices,
+} from "./service-types";
 import { createHeaders } from "./utils";
 
 export type AuthSessionUser = PluginServices["auth"]["$Infer"]["Session"]["user"];
 
+export type AuthEffectServices =
+  | AuthApiTag
+  | DatabaseTag
+  | OnboardingCodeCipherTag
+  | MembershipPolicyTag;
+
 export type AuthHandlerContext = AuthContextShape &
-  WithEffectContext<AuthServicesTag> & {
+  WithEffectContext<AuthEffectServices> & {
     reqHeaders?: Record<string, string>;
   };
 
@@ -32,15 +44,15 @@ export function createRequireAuth(builder: any): RequireAuthMiddleware {
         ? (context.user as AuthSessionUser)
         : null;
       if (!user) {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
+        const { auth } = Context.get(context["effect/context"], AuthApiTag);
         const headers = createHeaders(context.reqHeaders);
-        const session = await services.auth.api.getSession({ headers });
+        const session = await auth.api.getSession({ headers });
         user = session?.user ?? null;
       }
 
       if (!user?.id) {
-        const services = Context.get(context["effect/context"], AuthServicesTag);
-        const apiKeyProvided = (services.apiKeyHeaders ?? []).some(
+        const { apiKeyHeaders } = Context.get(context["effect/context"], AuthApiTag);
+        const apiKeyProvided = (apiKeyHeaders ?? []).some(
           (headerName) => context.reqHeaders?.[headerName] !== undefined,
         );
         throw new ORPCError("UNAUTHORIZED", {

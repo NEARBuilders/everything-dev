@@ -23,7 +23,12 @@ import { createRequireAuth } from "./middleware";
 import { createOnboardingCodeCipher } from "./onboarding-code-cipher";
 import { createOrganizationMembershipPolicy } from "./organization-membership-policy";
 import { OrphanSweepLive } from "./orphan-sweep";
-import { AuthServicesTag } from "./service-types";
+import {
+  AuthApiTag,
+  AuthServicesTag,
+  MembershipPolicyTag,
+  OnboardingCodeCipherTag,
+} from "./service-types";
 import { toError } from "./utils";
 import { socialProviderWarnings } from "./warnings";
 
@@ -51,19 +56,26 @@ export default createPlugin.withPlugins<PluginsClient>()({
       const auth = createAuthInstance(authConfig, db, {
         email: { resend: config.secrets.RESEND_API_KEY },
       });
+      const handler = (req: Request) => auth.handler(req);
+      const membershipPolicy = createOrganizationMembershipPolicy(
+        authConfig.organizationMembershipLimit,
+      );
+      const onboardingCodeCipher = createOnboardingCodeCipher(authConfig.secret);
 
       yield* Effect.log("[Auth] Better Auth instance created");
 
       return Layer.mergeAll(
+        Layer.succeed(AuthApiTag, { auth, handler, apiKeyHeaders }),
+        Layer.succeed(DatabaseTag, db),
+        Layer.succeed(OnboardingCodeCipherTag, onboardingCodeCipher),
+        Layer.succeed(MembershipPolicyTag, membershipPolicy),
         Layer.succeed(AuthServicesTag, {
           auth,
           db,
-          handler: (req: Request) => auth.handler(req),
+          handler,
           apiKeyHeaders,
-          membershipPolicy: createOrganizationMembershipPolicy(
-            authConfig.organizationMembershipLimit,
-          ),
-          onboardingCodeCipher: createOnboardingCodeCipher(authConfig.secret),
+          membershipPolicy,
+          onboardingCodeCipher,
         }),
         OrphanSweepLive(db),
       );
