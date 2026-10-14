@@ -1,5 +1,15 @@
 # host
 
+## 2.0.0-rc.3
+
+### Patch Changes
+
+- 20f2b95: `/.well-known/mcp.json`'s `auth` object gains a `login` field (`bos login`) so machine clients can discover the zero-UI credential path.
+- c1022af: `/api/mcp` now requires authentication (session or `x-api-key`), matching every other API surface (#309). Anonymous callers previously received the full tool catalog via `tools/list` — including admin-only operations — before being rejected at call time; unauthenticated requests now get a 401 with a `WWW-Authenticate` hint. Authenticated clients are unchanged.
+- c1022af: Bound the rate limiter's memory (#338): the hono-rate-limiter store now caps entries (`RATE_LIMIT_STORE_MAX_ENTRIES`, default 10 000) — under pressure it drops expired windows first, then evicts the oldest-inserted keys. Combined with the last-hop `x-forwarded-for` keying, a rotating-header client can no longer force unbounded key growth toward the memory ceiling. Window semantics unchanged.
+- Updated dependencies [2c1d2ce]
+  - every-plugin@3.0.0-rc.5
+
 ## 2.0.0-rc.2
 
 ### Patch Changes

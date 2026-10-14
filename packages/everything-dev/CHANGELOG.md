@@ -1,5 +1,21 @@
 # everything-dev
 
+## 2.0.0-rc.8
+
+### Minor Changes
+
+- 2d6fd86: The organization permission surface is now fully config-declared — the plugin ships no defaults. Auth runtimes must declare `siwn.permissions` (a `statements` catalog plus a `roles` grant map; `owner`/`admin`/`member` are required, arbitrary custom roles allowed). Boot fails loud on a missing declaration or a grant referencing an undeclared statement/action. The root `everything.dev` config declares the canonical posture; children inherit it via `extends` and override per-statement. Effective permissions surface in `getContext` output as a nullable `permissions` map (session principals: the active org's role grants; API-key principals: the key's declared permissions), and the shared middleware factory gains `requirePermission(resource, action)` for routes that gate on that map.
+
+### Patch Changes
+
+- 20f2b95: Document the agent authentication story where agents actually load it: the `talk-to-the-app` skill is now the canonical brief — every API surface (REST, RPC, **and MCP including `tools/list`**) requires a session or API key and 401s anonymous callers; credential paths are the Settings UI, `bos login` (device-flow API key persisted in `.bos/session.json`), `bos login --key` (publish FC key), device-link session tokens, and CI/headless key reuse. The `cli-reference` skill gains `bos login`/`bos logout` and documents `bos publish --wallet` and `key generate --remove-old-keys`. Child-scaffold generators (`buildChildSkillMd`, `buildChildLlmsTxt`, `buildChildAgentsInstructions`) fix the wrong `edk_` key prefix (real: `api_`), add the `bos login` path, and advertise the `/skills/` tree children serve but never linked.
+- 2c1d2ce: Migration drift detector tracks table lifecycle (#312): `extractExpectedTables` now removes tables on `DROP TABLE` and re-keys on `ALTER TABLE ... RENAME TO` (schema-qualified or bare, `IF [NOT] EXISTS` forms included) — dropping or renaming a table in a migration no longer puts every subsequent boot into unfixable `drift-manual`. Also: `bos key generate` defaults to **keeping** existing publish keys — removal requires an explicit prompt answer or `--remove-old-keys` (#247).
+- c1022af: Bound the boot-path HTTP GET cache (#339): entry count is capped (expired entries swept first, then oldest-inserted evicted) so distinct-URL growth — tenant config endpoints, integrity polls — can no longer creep without bound. TTL behavior unchanged.
+- Updated dependencies [cb4a0fe]
+- Updated dependencies [2c1d2ce]
+  - better-near-auth@2.0.0-rc.1
+  - every-plugin@3.0.0-rc.5
+
 ## 2.0.0-rc.7
 
 ### Patch Changes
