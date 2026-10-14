@@ -82,3 +82,12 @@ roles as explicit grant maps, and everything undeclared denied.
 - The `ac` statement (dynamic access control) is part of the declared catalog like
   any other; Tier 3 (Better Auth `dynamicAccessControl`) remains deferred.
 - Team-scoped grants (Tier 2) extend the same registry with `team_member.role`.
+- The canonical posture is intentionally transcribed in four places: `bos.app.ts`
+  (the authored source), the framework golden test (a deliberate drift detector —
+  it fails when the root declaration stops matching the flattened inheritance),
+  the auth plugin's test fixture, and `plugin.dev.ts`'s standalone-dev fallback.
+  All except `bos.app.ts` must mirror it verbatim; the golden test enforces the
+  root/flatten pair.
+- Team-scoped roles are restriction-only by decision (2026-10): they grant within
+  a team via `requirePermission`'s team scope; they do not bypass Better Auth's
+  org-role checks on team management routes, and no route may bypass Better Auth.
