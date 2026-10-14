@@ -1,6 +1,6 @@
 import type { InferContractRouterInputs, InferContractRouterOutputs } from "@orpc/contract";
 import { oc } from "@orpc/contract";
-
+import { adminUsersRoutes } from "./contract/admin-users.contract";
 import { apiKeyRoutes } from "./contract/api-keys.contract";
 import { invitationRoutes } from "./contract/invitations.contract";
 import { memberRoutes } from "./contract/members.contract";
@@ -25,6 +25,7 @@ export const contract = oc.router({
   ...onboardingRoutes,
   ...apiKeyRoutes,
   ...nearRoutes,
+  ...adminUsersRoutes,
   ...passkeyRoutes,
 });
 

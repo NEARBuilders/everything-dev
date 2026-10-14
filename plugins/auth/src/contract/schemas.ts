@@ -197,6 +197,34 @@ export const teamMemberSchema = z.object({
   createdAt: z.date(),
 });
 
+export const adminUserSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  email: z.string(),
+  emailVerified: z.boolean(),
+  image: z.string().nullable(),
+  isAnonymous: z.boolean().nullable(),
+  locale: z.string().nullable(),
+  role: z.string().nullable(),
+  banned: z.boolean().nullable(),
+  banReason: z.string().nullable(),
+  banExpires: z.date().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export const adminSessionSchema = z.object({
+  id: z.string(),
+  token: z.string(),
+  userId: z.string(),
+  expiresAt: z.date(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+  ipAddress: z.string().nullable(),
+  userAgent: z.string().nullable(),
+  impersonatedBy: z.string().nullable(),
+});
+
 export const passkeySchema = z.object({
   id: z.string(),
   name: z.string().nullable(),

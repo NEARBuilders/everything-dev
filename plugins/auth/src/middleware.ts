@@ -10,6 +10,7 @@ import {
   type OnboardingCodeCipherTag,
   type PluginServices,
 } from "./service-types";
+import type { AdminUsersService } from "./services/admin-users";
 import type { ApiKeysService } from "./services/api-keys";
 import type { InvitationsService } from "./services/invitations";
 import type { MembersService } from "./services/members";
@@ -27,6 +28,7 @@ export type AuthSessionUser = PluginServices["auth"]["$Infer"]["Session"]["user"
 export type AuthEffectServices =
   | AuthApiTag
   | ApiKeysService
+  | AdminUsersService
   | DatabaseTag
   | OnboardingCodeCipherTag
   | MembershipPolicyTag
@@ -35,6 +37,7 @@ export type AuthEffectServices =
   | MembersService
   | TeamsService
   | OnboardingService
+  | PasskeysService
   | PermissionsService
   | NearService
   | SessionService

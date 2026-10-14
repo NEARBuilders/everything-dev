@@ -10,6 +10,7 @@ import {
   PlusCircleIcon,
   ShieldIcon,
   SparkleIcon,
+  UsersThreeIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
 import type { FeatureArea } from "@/lib/feature-areas";
@@ -57,6 +58,13 @@ const ADMIN_CHILDREN: SidebarItem[] = [
     slug: "admin-overview",
     to: "/admin",
     exact: true,
+    roleRequired: "admin",
+  },
+  {
+    icon: UsersThreeIcon,
+    label: "Users",
+    slug: "admin-users",
+    to: "/admin/users",
     roleRequired: "admin",
   },
   {

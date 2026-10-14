@@ -2,13 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import {
-  type Passkey,
-  type SessionData,
-  sessionQueryOptions,
-  useApiClient,
-  useAuthClient,
-} from "@/app";
+import { type SessionData, sessionQueryOptions, useApiClient, useAuthClient } from "@/app";
 import { AddEmailDialog, PageContainer, PageHeader, SectionHeader, Skeleton } from "@/components";
 import { consumeAddEmailPromptPending } from "@/lib/add-email-prompt";
 import { type FeatureArea, isFeatureArea } from "@/lib/feature-areas";
@@ -21,6 +15,9 @@ import { type HomeInvitation, InvitationSteps } from "./-invitation-steps";
 import { getNextSteps } from "./-next-steps";
 import { NextStepsList } from "./-next-steps-list";
 import { RestrictedAreaNotice } from "./-restricted-area-notice";
+
+type ApiClientType = import("@/app").ApiClient;
+type PasskeyItem = Awaited<ReturnType<ApiClientType["auth"]["listUserPasskeys"]>>[number];
 
 export const Route = createFileRoute("/_authenticated/_dashboard/dashboard/")({
   validateSearch: (search: Record<string, unknown>): { restricted?: FeatureArea | "admin" } =>
@@ -48,9 +45,8 @@ function Home() {
 
   const passkeys = useQuery({
     queryKey: ["passkeys"],
-    queryFn: async () => {
-      const { data } = await auth.passkey.listUserPasskeys();
-      return (data || []) as Passkey[];
+    queryFn: async (): Promise<PasskeyItem[]> => {
+      return apiClient.auth.listUserPasskeys();
     },
     staleTime: 60 * 1000,
   });
