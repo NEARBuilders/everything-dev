@@ -241,25 +241,23 @@ export function createAuthMiddleware<
     action: string,
     scope?: { scope?: "organization" | "team"; teamId?: (input: any) => string | undefined },
   ) =>
-    builder.middleware(
-      async ({ context, input, next }: { context: Ctx; input: any; next: any }) => {
-        let granted: string[] | undefined;
-        if (scope?.scope === "team") {
-          const teamId = scope.teamId?.(input);
-          const team = context.organization?.teams?.find((t) => t.id === teamId);
-          granted = team?.permissions?.[resource];
-        } else {
-          granted = context.permissions?.[resource];
-        }
-        if (!granted?.includes(action)) {
-          throw new ORPCError("FORBIDDEN", {
-            message: `Requires permission: ${resource}:${action}`,
-            data: { requiredPermissions: [`${resource}:${action}`] },
-          });
-        }
-        return next({ context });
-      },
-    ) as DecoratedMiddleware<Ctx, Record<string, never>, any, any, any>;
+    builder.middleware(async ({ context, next }: { context: Ctx; next: any }, input: any) => {
+      let granted: string[] | undefined;
+      if (scope?.scope === "team") {
+        const teamId = scope.teamId?.(input);
+        const team = context.organization?.teams?.find((t) => t.id === teamId);
+        granted = team?.permissions?.[resource];
+      } else {
+        granted = context.permissions?.[resource];
+      }
+      if (!granted?.includes(action)) {
+        throw new ORPCError("FORBIDDEN", {
+          message: `Requires permission: ${resource}:${action}`,
+          data: { requiredPermissions: [`${resource}:${action}`] },
+        });
+      }
+      return next({ context });
+    }) as DecoratedMiddleware<Ctx, Record<string, never>, any, any, any>;
 
   return {
     requireAuth,
