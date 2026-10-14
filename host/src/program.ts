@@ -164,8 +164,9 @@ export const createStartServer = (onReady?: () => void) =>
         auth: {
           type: "api-key",
           header: "x-api-key",
+          login: "bos login",
           description:
-            "Pass an API key via the x-api-key header. Create one at /settings/api-keys after signing in with your NEAR wallet.",
+            "Pass an API key via the x-api-key header. Create one at /settings/api-keys after signing in with your NEAR wallet, or run `bos login` to mint one from a machine with a browser.",
         },
         docs: `${url.origin}/api`,
         spec: `${url.origin}/api/spec.json`,

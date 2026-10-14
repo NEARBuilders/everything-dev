@@ -36,19 +36,46 @@ There is no network parameter anywhere — the origin is the choice.
 
 ## Authentication
 
-All API operations require authentication. Use an **API key**:
+Every API surface — `/api/*` (REST), `/api/rpc/*` (oRPC RPC), and `/api/mcp`
+(MCP) — requires a session or an API key. Anonymous requests get `401` with a
+`WWW-Authenticate` hint (this includes MCP `tools/list`: the tool catalog is
+not disclosed to unauthenticated callers). Use an **API key**:
+
+**Path A — create one in the app UI.**
 
 1. Sign in with your NEAR wallet (SIWN) at the app.
 2. Navigate to **Settings → API Keys** at `/settings/api-keys`.
 3. Create a new key — the full secret (`api_...`) is shown once, copy it immediately.
-4. Pass it on every request:
+
+**Path B — no UI needed: `bos login`** (for CLI sessions and agents with a
+browser available):
+
+```bash
+bos login
+```
+
+Opens a browser, you approve once (NEAR SIWN), and the CLI persists a
+device-named API key in `.bos/session.json` (gitignored, 0600). Same key, same
+header — pass it on every request:
 
 ```
 x-api-key: api_your_key_here
 ```
 
-The header works for `/api/*` (REST), `/api/rpc/*` (oRPC RPC), and `/api/mcp`
-(MCP). Keys carry optional permissions; a call outside them refuses with 403.
+Keys carry optional permissions; a call outside them refuses with 403. Keys
+expire (90 days by default) and are revocable at `/settings/api-keys` —
+re-run `bos login` (or create a fresh key in the UI) when a key dies.
+
+**Other credentials:**
+
+- `bos login --key` mints a publish-scoped function-call access key
+  (`~/.near-credentials`) for the publish path — not an API-key replacement.
+- Device-link session tokens (`POST /device/token` +
+  `POST /device-link/claim`, one-time hashed claim) yield a real Better Auth
+  session that also passes the gate — cookie transport, no revocation UI.
+  For MCP and agent work, prefer the API key.
+- For CI or a browser-less agent: create a key once (UI or `bos login` from a
+  machine with a browser) and pass it as `x-api-key` in the pipeline.
 
 ## MCP
 
@@ -128,7 +155,7 @@ with write permission.
 
 | status | do |
 |---|---|
-| `401` | no or bad key — re-read `/settings/api-keys`; check the `x-api-key` header reached the request |
+| `401` | no key sent, a bad/revoked key, or an anonymous caller — if you have a key, check the `x-api-key` header reached the request; if not, get one (Paths A/B above); MCP `tools/list` is also gated |
 | `403` | the key lacks permission — the owner edits the key's permissions; do not retry unchanged |
 | `404` | wrong surface or path — re-check `/api/spec.json`; plugin RPC mounts are `/api/rpc/<pluginKey>` |
 | `429` | rate limited — wait as the response says, then once more |

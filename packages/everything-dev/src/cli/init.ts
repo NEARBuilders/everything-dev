@@ -1867,10 +1867,12 @@ The host exposes several surfaces for programmatic agent access:
 
 ### Authentication for agents
 
-1. Sign in with your NEAR wallet (SIWN) at the website.
+Every surface requires a session or API key — anonymous requests get \`401\` (including MCP \`tools/list\`).
+
+1. Sign in with your NEAR wallet (SIWN) at the website — or run \`bos login\` from a machine with a browser.
 2. Navigate to **Settings → API Keys** at \`/settings/api-keys\`.
-3. Create a new key — the full secret (\`edk_...\`) is shown once. Copy it immediately.
-4. Pass it on every request: \`x-api-key: edk_your_key_here\`
+3. Create a new key — the full secret (\`api_...\`) is shown once. Copy it immediately.
+4. Pass it on every request: \`x-api-key: api_your_key_here\`
 
 ### Architecture note: remotes are code bundles
 
@@ -1976,12 +1978,12 @@ export function buildChildLlmsTxt(title: string): string {
 
 ## Auth
 
-Authenticate to the API using an API key:
+Authenticate to the API using an API key (every surface — REST, RPC, MCP — requires a session or key; anonymous requests get \`401\`):
 
-1. Sign in with your NEAR wallet (SIWN) at the website.
+1. Sign in with your NEAR wallet (SIWN) at the website — or run \`bos login\` from a machine with a browser.
 2. Go to **Settings → API Keys** at \`/settings/api-keys\`.
-3. Create a key — the full secret (\`edk_...\`) is shown once.
-4. Pass it on every request: \`x-api-key: edk_your_key_here\`
+3. Create a key — the full secret (\`api_...\`) is shown once.
+4. Pass it on every request: \`x-api-key: api_your_key_here\`
 
 The \`x-api-key\` header works for \`/api/*\` (REST), \`/api/rpc/*\` (oRPC), and \`/api/mcp\` (MCP).
 
@@ -2017,12 +2019,22 @@ Transport: Streamable HTTP (stateless). Connect your MCP client to \`{origin}/ap
 
 ### Authentication
 
-Use an **API key**:
+Every API surface (REST, RPC, MCP) requires a session or an API key — anonymous
+requests get \`401\`. Use an **API key**:
 
 1. Sign in with your NEAR wallet at the website (SIWN).
 2. Navigate to **Settings → API Keys** at \`/settings/api-keys\`.
-3. Create a key — the full secret (\`edk_...\`) is shown once.
-4. Pass it on every request: \`x-api-key: edk_your_key_here\`
+3. Create a key — the full secret (\`api_...\`) is shown once.
+4. Pass it on every request: \`x-api-key: api_your_key_here\`
+
+Or from a machine with a browser: \`bos login\` — one approval, and the CLI
+persists an API key in \`.bos/session.json\` for headless use.
+
+### Deep dive
+
+The full API/auth skill is served by this app at
+\`{origin}/skills/everything-dev/talk-to-the-app/SKILL.md\` (MCP, REST, RPC,
+API keys, troubleshooting refusals).
 
 ### REST / OpenAPI
 

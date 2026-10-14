@@ -57,7 +57,7 @@ Two skills are read together more often than not:
 | API base | `http://localhost:3001` | same origin as the app (`/api/*`) |
 | MCP endpoint | `POST http://localhost:3001/api/mcp` | `POST <origin>/api/mcp` |
 | Skill family | served by the UI dev server | `<origin>/skills/<package>/<skill>/SKILL.md` |
-| Auth header | `x-api-key: api_...` (create at `/settings/api-keys`) | same |
+| Auth header | `x-api-key: api_...` (create at `/settings/api-keys`, or `bos login`) | same — every surface, MCP included, 401s without a session or key |
 | Runtime config | authored `bos.app.ts`, resolved under `.bos/` | published to FastKV (`apps/<account>/<gateway>/bos.config.json`) |
 
 There is no environment parameter anywhere — the origin is the choice.
