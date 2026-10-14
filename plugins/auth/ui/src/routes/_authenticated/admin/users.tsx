@@ -63,11 +63,7 @@ function adminUsersQueryKey(search: AdminSearch, offset: number) {
   return ["admin-users", search.field, search.value, offset] as const;
 }
 
-function adminUsersQueryOptions(
-  authApi: AuthApiClient,
-  search: AdminSearch,
-  offset: number,
-) {
+function adminUsersQueryOptions(authApi: AuthApiClient, search: AdminSearch, offset: number) {
   return {
     queryKey: adminUsersQueryKey(search, offset),
     queryFn: () =>

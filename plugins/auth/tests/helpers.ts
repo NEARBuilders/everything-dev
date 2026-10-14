@@ -364,7 +364,6 @@ export function createTestHandlers(services: PluginServices) {
     apiKeys: wrap(createApiKeyHandlers(builder, requireAuth)),
     teams: wrap(createTeamHandlers(builder, requireAuth)),
     adminUsers: wrap(createAdminUsersHandlers(builder, requireAuth)),
-    passkeys: wrap(createPasskeyHandlers(builder, requireAuth)),
     near: wrap(createNearHandlers(builder, requireAuth)),
     onboarding: wrap(createOnboardingHandlers(builder, requireAuth)),
   };

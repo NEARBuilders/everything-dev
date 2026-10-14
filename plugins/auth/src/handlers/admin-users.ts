@@ -7,6 +7,7 @@ import type {
   RequireAuthMiddleware,
 } from "../middleware";
 import { AdminUsersService } from "../services/admin-users";
+import { mapDomainError } from "../services/domain-errors";
 
 function headersOf(context: { reqHeaders?: Record<string, string> }): Headers {
   return new Headers(context.reqHeaders);
@@ -23,12 +24,14 @@ export function createAdminUsersHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const admin = yield* AdminUsersService;
-        return yield* admin.listUsers(headersOf(context), {
-          searchValue: input?.searchValue,
-          searchField: input?.searchField,
-          limit: input?.limit,
-          offset: input?.offset,
-        });
+        return yield* mapDomainError(
+          admin.listUsers(headersOf(context), {
+            searchValue: input?.searchValue,
+            searchField: input?.searchField,
+            limit: input?.limit,
+            offset: input?.offset,
+          }),
+        );
       }),
 
     adminGetUser: builder.adminGetUser
@@ -36,7 +39,7 @@ export function createAdminUsersHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const admin = yield* AdminUsersService;
-        return yield* admin.getUser(headersOf(context), input.userId);
+        return yield* mapDomainError(admin.getUser(headersOf(context), input.userId));
       }),
 
     adminSetRole: builder.adminSetRole
@@ -44,7 +47,7 @@ export function createAdminUsersHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const admin = yield* AdminUsersService;
-        return yield* admin.setRole(headersOf(context), input.userId, input.role);
+        return yield* mapDomainError(admin.setRole(headersOf(context), input.userId, input.role));
       }),
 
     adminBanUser: builder.adminBanUser
@@ -52,11 +55,13 @@ export function createAdminUsersHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const admin = yield* AdminUsersService;
-        return yield* admin.banUser(headersOf(context), {
-          userId: input.userId,
-          banReason: input.banReason,
-          banExpiresIn: input.banExpiresIn,
-        });
+        return yield* mapDomainError(
+          admin.banUser(headersOf(context), {
+            userId: input.userId,
+            banReason: input.banReason,
+            banExpiresIn: input.banExpiresIn,
+          }),
+        );
       }),
 
     adminUnbanUser: builder.adminUnbanUser
@@ -64,7 +69,7 @@ export function createAdminUsersHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const admin = yield* AdminUsersService;
-        return yield* admin.unbanUser(headersOf(context), input.userId);
+        return yield* mapDomainError(admin.unbanUser(headersOf(context), input.userId));
       }),
 
     adminListUserSessions: builder.adminListUserSessions
@@ -72,7 +77,7 @@ export function createAdminUsersHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const admin = yield* AdminUsersService;
-        return yield* admin.listUserSessions(headersOf(context), input.userId);
+        return yield* mapDomainError(admin.listUserSessions(headersOf(context), input.userId));
       }),
 
     adminRevokeUserSession: builder.adminRevokeUserSession
@@ -80,7 +85,9 @@ export function createAdminUsersHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const admin = yield* AdminUsersService;
-        return yield* admin.revokeUserSession(headersOf(context), input.sessionToken);
+        return yield* mapDomainError(
+          admin.revokeUserSession(headersOf(context), input.sessionToken),
+        );
       }),
 
     adminRevokeUserSessions: builder.adminRevokeUserSessions
@@ -88,7 +95,7 @@ export function createAdminUsersHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const admin = yield* AdminUsersService;
-        return yield* admin.revokeUserSessions(headersOf(context), input.userId);
+        return yield* mapDomainError(admin.revokeUserSessions(headersOf(context), input.userId));
       }),
 
     adminSetUserPassword: builder.adminSetUserPassword
@@ -96,7 +103,9 @@ export function createAdminUsersHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const admin = yield* AdminUsersService;
-        return yield* admin.setUserPassword(headersOf(context), input.userId, input.newPassword);
+        return yield* mapDomainError(
+          admin.setUserPassword(headersOf(context), input.userId, input.newPassword),
+        );
       }),
 
     adminRemoveUser: builder.adminRemoveUser
@@ -104,7 +113,7 @@ export function createAdminUsersHandlers(
       .use(requireAdmin)
       .effect(function* ({ input, context }) {
         const admin = yield* AdminUsersService;
-        return yield* admin.removeUser(headersOf(context), input.userId);
+        return yield* mapDomainError(admin.removeUser(headersOf(context), input.userId));
       }),
   };
 }
