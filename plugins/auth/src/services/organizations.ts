@@ -1,11 +1,10 @@
 import { eq } from "drizzle-orm";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
-import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
 import { toOrganizationInfo } from "../serializers";
-import { AuthApiTag, type PluginServices } from "../service-types";
+import type { PluginServices } from "../service-types";
 import { canReadMemberEmails, parseTeamAreas, toAuthApiError, tryJsonParse } from "../utils";
 import { AuthApiError, type AuthFailure, isAuthFailure, OrgNotFound } from "./domain-errors";
 
@@ -357,12 +356,3 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
 };
 
 export type OrganizationsServiceShape = ReturnType<typeof buildOrganizationsService>;
-
-export const OrganizationsServiceLive = Layer.effect(
-  OrganizationsService,
-  Effect.gen(function* () {
-    const { auth } = yield* AuthApiTag;
-    const db = yield* DatabaseTag;
-    return buildOrganizationsService({ auth, db });
-  }),
-);

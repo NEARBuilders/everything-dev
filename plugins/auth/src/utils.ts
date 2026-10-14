@@ -63,6 +63,27 @@ export function getActiveTeamId(session: unknown): string | null {
   return null;
 }
 
+export function memberRoleOf(result: unknown): string | null {
+  if (typeof result === "string") return result;
+  if (result && typeof result === "object" && "role" in result) {
+    const role = (result as { role: unknown }).role;
+    if (typeof role === "string") return role;
+  }
+  return null;
+}
+
+export function sessionUserExtras(user: unknown): {
+  isAnonymous: boolean | null;
+  locale: string | null;
+} {
+  if (!user || typeof user !== "object") return { isAnonymous: null, locale: null };
+  const extras = user as { isAnonymous?: unknown; locale?: unknown };
+  return {
+    isAnonymous: typeof extras.isAnonymous === "boolean" ? extras.isAnonymous : null,
+    locale: typeof extras.locale === "string" ? extras.locale : null,
+  };
+}
+
 function mapAuthError(error: unknown): {
   code: string;
   message: string;

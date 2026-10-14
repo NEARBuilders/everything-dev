@@ -1,8 +1,8 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth } from "../attempts";
 import type { InferOutput } from "../contract";
 import { toPasskey } from "../serializers";
-import { AuthApiTag, type PluginServices } from "../service-types";
+import type { PluginServices } from "../service-types";
 import type { AuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
@@ -23,11 +23,3 @@ export const buildPasskeysService = ({ auth }: { auth: Auth }) =>
         Effect.map((result) => (result ?? []).map(toPasskey)),
       ),
   });
-
-export const PasskeysServiceLive = Layer.effect(
-  PasskeysService,
-  Effect.gen(function* () {
-    const { auth } = yield* AuthApiTag;
-    return buildPasskeysService({ auth });
-  }),
-);

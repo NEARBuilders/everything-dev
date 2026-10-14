@@ -1,10 +1,9 @@
 import { and, eq } from "drizzle-orm";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
-import { DatabaseTag } from "../db/layer";
 import * as schema from "../db/schema";
-import { AuthApiTag, type PluginServices } from "../service-types";
-import { createHeaders, getActiveOrganizationId, parseTeamAreas } from "../utils";
+import type { PluginServices } from "../service-types";
+import { createHeaders, getActiveOrganizationId, memberRoleOf, parseTeamAreas } from "../utils";
 import {
   type AuthFailure,
   NoOrganizationSelected,
@@ -68,7 +67,7 @@ export const buildPermissionsService = ({ auth, db }: { auth: Auth; db: Db }) =>
           query: { organizationId },
         }),
       );
-      const role = typeof result === "string" ? result : ((result as any)?.role ?? null);
+      const role = memberRoleOf(result);
       const isOrganizer =
         role === "owner" ||
         role === "admin" ||
@@ -85,15 +84,6 @@ export const buildPermissionsService = ({ auth, db }: { auth: Auth; db: Db }) =>
       return { userId, organizationId, headers };
     }),
   });
-
-export const PermissionsServiceLive = Layer.effect(
-  PermissionsService,
-  Effect.gen(function* () {
-    const { auth } = yield* AuthApiTag;
-    const db = yield* DatabaseTag;
-    return buildPermissionsService({ auth, db });
-  }),
-);
 
 async function belongsToEventsTeam(
   db: Db,

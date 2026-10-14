@@ -1,8 +1,8 @@
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect } from "effect";
 import { attemptAuth } from "../attempts";
 import { API_KEY_CONFIG_IDS } from "../config-schemas";
 import type { InferOutput } from "../contract";
-import { AuthApiTag, type PluginServices } from "../service-types";
+import type { PluginServices } from "../service-types";
 import { ApiKeyNotFound, type AuthFailure, isAuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
@@ -176,14 +176,6 @@ export const buildApiKeysService = ({ auth }: { auth: Auth }) =>
           : verifyAcrossConfigs(auth, headers, input),
       ),
   });
-
-export const ApiKeysServiceLive = Layer.effect(
-  ApiKeysService,
-  Effect.gen(function* () {
-    const { auth } = yield* AuthApiTag;
-    return buildApiKeysService({ auth });
-  }),
-);
 
 function serializeVerifyResult(result: any) {
   return {

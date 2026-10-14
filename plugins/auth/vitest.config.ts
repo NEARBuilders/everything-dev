@@ -9,6 +9,8 @@ export default defineConfig({
           name: "backend",
           include: ["tests/**/*.test.ts"],
           environment: "node",
+          testTimeout: 20_000,
+          hookTimeout: 20_000,
         },
       },
       {

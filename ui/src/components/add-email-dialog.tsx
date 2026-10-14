@@ -35,7 +35,7 @@ export function AddEmailDialog({ open, onOpenChange }: AddEmailDialogProps) {
 
   const mutation = useMutation({
     mutationFn: async (newEmail: string) => {
-      const { error: apiError } = await auth.$fetch("/set-email", {
+      const { data, error: apiError } = await auth.$fetch("/set-email", {
         method: "POST",
         body: { email: newEmail },
       });
@@ -44,10 +44,15 @@ export function AddEmailDialog({ open, onOpenChange }: AddEmailDialogProps) {
           ? (apiError as { message?: string }).message
           : undefined;
       if (apiError) throw new Error(message || "Could not save email");
+      return (data as { status?: boolean; verificationRequired?: boolean } | null) ?? null;
     },
-    onSuccess: async () => {
+    onSuccess: async (data) => {
       await refreshSessionCache(auth, queryClient);
-      toast.success("Email saved");
+      if (data?.verificationRequired) {
+        toast.success("Verification email sent — open the link we emailed you to finish.");
+      } else {
+        toast.success("Email saved");
+      }
       onOpenChange(false);
     },
     onError: (err: Error) => {
