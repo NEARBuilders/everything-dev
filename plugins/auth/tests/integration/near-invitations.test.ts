@@ -342,7 +342,20 @@ describe("NEAR-account invitations", () => {
     expect(context.organization.member?.role).toBe("member");
     expect(context.organization.activeTeamId).toBe(team?.id);
     expect(context.organization.teams).toEqual([
-      { id: team?.id, name: "Node Operator", areas: ["node-operations"] },
+      {
+        id: team?.id,
+        name: "Node Operator",
+        areas: ["node-operations"],
+        permissions: {
+          ac: ["read"],
+          apiKey: ["read"],
+          email: [],
+          invitation: [],
+          member: [],
+          organization: [],
+          team: [],
+        },
+      },
     ]);
   });
 

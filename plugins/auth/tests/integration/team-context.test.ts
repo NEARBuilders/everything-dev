@@ -52,7 +52,20 @@ describe("team context", () => {
     });
 
     expect(context.organization.teams).toEqual([
-      { id: team.id, name: "Node Operator", areas: ["node-operations", "finance"] },
+      {
+        id: team.id,
+        name: "Node Operator",
+        areas: ["node-operations", "finance"],
+        permissions: {
+          ac: ["read"],
+          apiKey: ["read"],
+          email: [],
+          invitation: [],
+          member: [],
+          organization: [],
+          team: [],
+        },
+      },
     ]);
     expect(context.organization.activeTeamId).toBe(team.id);
   });

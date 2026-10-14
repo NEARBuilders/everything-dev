@@ -33,6 +33,7 @@ export const teamContextSchema = z.object({
   id: z.string(),
   name: z.string(),
   areas: z.array(z.string()),
+  permissions: z.record(z.string(), z.array(z.string())),
 });
 
 export const organizationContextSchema = z.object({
@@ -192,6 +193,7 @@ export const teamMemberSchema = z.object({
   id: z.string(),
   teamId: z.string(),
   userId: z.string(),
+  role: z.string(),
   createdAt: z.date(),
 });
 

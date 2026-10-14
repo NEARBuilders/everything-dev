@@ -63,7 +63,20 @@ describe("team-targeted email invitations", () => {
     expect(context.organization.activeOrganizationId).toBe(org.id);
     expect(context.organization.activeTeamId).toBe(team.id);
     expect(context.organization.teams).toEqual([
-      { id: team.id, name: "Finance", areas: ["finance"] },
+      {
+        id: team.id,
+        name: "Finance",
+        areas: ["finance"],
+        permissions: {
+          ac: ["read"],
+          apiKey: ["read"],
+          email: [],
+          invitation: [],
+          member: [],
+          organization: [],
+          team: [],
+        },
+      },
     ]);
   });
 

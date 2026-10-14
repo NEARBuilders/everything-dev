@@ -16,16 +16,31 @@ import { getActiveOrganizationId, getActiveTeamId, parseTeamAreas, tryJsonParse 
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
 
-async function listMemberTeams(db: Db, userId: string, organizationId: string) {
+async function listMemberTeams(
+  db: Db,
+  userId: string,
+  organizationId: string,
+  registry: PermissionRegistry,
+) {
   const rows = await db
-    .select({ id: schema.team.id, name: schema.team.name, metadata: schema.team.metadata })
+    .select({
+      id: schema.team.id,
+      name: schema.team.name,
+      metadata: schema.team.metadata,
+      teamRole: schema.teamMember.role,
+    })
     .from(schema.teamMember)
     .innerJoin(schema.team, eq(schema.teamMember.teamId, schema.team.id))
     .where(
       and(eq(schema.teamMember.userId, userId), eq(schema.team.organizationId, organizationId)),
     )
     .orderBy(asc(schema.team.name));
-  return rows.map((row) => ({ id: row.id, name: row.name, areas: parseTeamAreas(row.metadata) }));
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    areas: parseTeamAreas(row.metadata),
+    permissions: registry.roleGrants[row.teamRole] ?? {},
+  }));
 }
 
 async function verifyApiKeyAcrossConfigs(auth: Auth, verifyHeaders: Headers, apiKeyValue: string) {
@@ -344,7 +359,7 @@ export const buildSessionService = ({
 
           if (activeMembership?.organization?.status === "active") {
             const org = activeMembership.organization;
-            const teams = yield* attemptDb(() => listMemberTeams(db, user.id, org.id));
+            const teams = yield* attemptDb(() => listMemberTeams(db, user.id, org.id, registry));
             const sessionTeamId = getActiveTeamId(session?.session);
             organizationContext = {
               activeOrganizationId: activeOrgId,
