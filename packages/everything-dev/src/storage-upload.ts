@@ -64,6 +64,11 @@ export async function uploadBundle(input: {
   return result;
 }
 
+/** Per-request file-count cap for `uploadWorkspaceDist`: each file costs the
+ * server a stat+put round trip against object storage, so request count — not
+ * byte size — is what keeps a batch inside the CDN proxy's response timeout. */
+export const DEFAULT_MAX_FILES_PER_REQUEST = 100;
+
 export async function uploadWorkspaceDist(input: {
   origin: string;
   apiKey?: string;
@@ -72,9 +77,11 @@ export async function uploadWorkspaceDist(input: {
   workspace: string;
   files: DistFile[];
   maxRequestBytes?: number;
+  maxFilesPerRequest?: number;
 }): Promise<BundleUploadResult> {
   const maxRequestBytes =
     input.maxRequestBytes ?? (Number(process.env.BOS_MAX_BUNDLE_UPLOAD_BYTES) || 64 * 1024 * 1024);
+  const maxFilesPerRequest = input.maxFilesPerRequest ?? DEFAULT_MAX_FILES_PER_REQUEST;
 
   const merged: BundleUploadResult = { stored: 0, totalBytes: 0, integrity: {} };
   let batch: DistFile[] = [];
@@ -108,7 +115,10 @@ export async function uploadWorkspaceDist(input: {
         `[publish] ${input.workspace}/${file.path} (${file.bytes.byteLength} bytes) exceeds the per-request upload ceiling`,
       );
     }
-    if (batchBytes + cost > maxRequestBytes) {
+    // The serving CDN in front of the upload service rejects requests whose
+    // handler time exceeds its proxy timeout — the per-file stat/put count,
+    // not the byte total, dominates that wall clock, so bound the op count too.
+    if (batchBytes + cost > maxRequestBytes || batch.length >= maxFilesPerRequest) {
       await flush();
     }
     batch.push(file);
