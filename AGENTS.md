@@ -398,7 +398,6 @@ Run your own host instance on your own NEAR account while inheriting the base pl
 
 ### Making Changes
 - **Host Changes**: Edit `host/src/` when changing runtime resolution, auth wiring, SSR, proxying, or plugin mounting
-- **App Changes**: Edit `apps/<name>/` when changing a standalone service — apps are not plugins: no `bos.app.ts` registration, not composed via `pluginsClient`, own deploy lifecycle. See `apps/README.md` for the index
 - **UI Changes**: Edit `ui/src/` files → hot reload automatically
 - **API Changes**: Edit `api/src/` files → hot reload automatically
 - **CLI/Scaffolding Changes**: Edit `packages/everything-dev/` when changing init/dev/publish flows or child-project scaffolding
@@ -435,16 +434,6 @@ middlewares via `.use()` for new routes — their `DecoratedMiddleware` typing d
 compose with the `.use()` builder without an explicit context generic (the auth
 plugin's `plugins/auth/src/handlers/admin-users.ts` passes `createAuthMiddleware<AuthHandlerAuthedContext>(builder)`
 to make it compose; the proposals plugin's local middleware is the alternative pattern).
-
-### Apps tier (vs plugins vs packages)
-
-Directory taxonomy — where a deployable unit belongs:
-
-- **`packages/`** — runtime libraries and clients: imported by other code, never deployed alone
-- **`plugins/`** — composed plugins registered in `bos.app.ts`, loaded via Module Federation and composed in-process via `pluginsClient`
-- **`apps/`** — standalone services with their own deploy lifecycle, not registered in `bos.app.ts` (e.g. `apps/upload` → Railway service). Index and roadmap: `apps/README.md` (per ADR 0027, more apps absorb current plugins/UI over time)
-
-Every app runs the universal image and boots through the provider-generic chain documented in `docs/architecture/boot-chain.md` — identity (`BOS_ACCOUNT`/`BOS_GATEWAY`) → FastKV → CDN bundles → Module Federation. Read that doc before touching the boot path (`resolver.ts`, `orchestrator.ts`, `fastkv.ts`, `host/src/program.ts`); it is the contract those files implement. A hosting provider is anything that can `docker run` the image; Railway is the current instance only, and the `deployImageToRailway` deploy-train tail is optional (gated on `RAILWAY_TOKEN`, skipped loudly without it).
 
 ### Plugin Architecture
 
