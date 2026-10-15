@@ -1,5 +1,6 @@
 import { platform } from "node:os";
 import { execa } from "execa";
+import type { CustodyWalletRecord } from "./auth-session";
 
 const DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 const DEFAULT_CLIENT_ID = "bos-cli";
@@ -14,6 +15,8 @@ export interface DeviceLoginOptions {
   account?: string;
   /** delegate mode — the approval page adds this scoped function-call key to the user's account */
   delegate?: { pubKey: string; contract: string; network: string };
+  /** custody mode — the approval page also registers an OutLayer custody wallet under the user's account */
+  custody?: { network: "mainnet" | "testnet" };
   /** seconds the minted API key stays valid (login mode) */
   expiresIn?: number;
 }
@@ -24,6 +27,8 @@ export interface DeviceApproval {
   accountId: string | null;
   /** the minted CLI credential (login mode) */
   apiKey: { key: string; id: string } | null;
+  /** the custody wallet registered during approval (custody mode) — null when it could not be fetched */
+  custodyWallet: CustodyWalletRecord | null;
 }
 
 export interface DeviceLoginHandle {
@@ -192,6 +197,10 @@ function buildVerificationUrl(
     params.set("contract", opts.delegate.contract);
     params.set("network", opts.delegate.network);
   }
+  if (opts.custody) {
+    params.set("custody", "1");
+    params.set("network", opts.custody.network);
+  }
   return url.toString();
 }
 
@@ -220,7 +229,45 @@ async function completeLogin(
 
   const apiKey = await mintApiKey(siteUrl, cookiePair, opts);
   const accountId = await resolveNearAccount(siteUrl, cookiePair);
-  return { sessionToken, accountId, apiKey };
+  const custodyWallet = opts.custody
+    ? await fetchCustodyCredential(siteUrl, cookiePair, opts.custody.network).catch(() => null)
+    : null;
+  return { sessionToken, accountId, apiKey, custodyWallet };
+}
+
+interface CustodyCredentialResponse {
+  apiKey: string;
+  walletId: string;
+  nearAccountId: string;
+  network: string;
+  handoffUrl: string | null;
+  registeredAt?: string;
+}
+
+async function fetchCustodyCredential(
+  siteUrl: string,
+  cookiePair: string,
+  network: "mainnet" | "testnet",
+): Promise<CustodyWalletRecord> {
+  const { status, json } = await authFetch(siteUrl, "/custody/credential", { network }, cookiePair);
+  if (status !== 200) {
+    const detail = (json as { message?: string }).message;
+    throw new Error(
+      `Custody wallet credential could not be fetched${detail ? `: ${detail}` : ` (${status})`}`,
+    );
+  }
+  const data = json as CustodyCredentialResponse;
+  if (!data.apiKey?.startsWith("wk_")) {
+    throw new Error("Custody wallet credential returned no API key");
+  }
+  return {
+    apiKey: data.apiKey,
+    walletId: data.walletId,
+    nearAccountId: data.nearAccountId,
+    network: data.network === "testnet" ? "testnet" : "mainnet",
+    handoffUrl: data.handoffUrl ?? null,
+    registeredAt: data.registeredAt ?? new Date().toISOString(),
+  };
 }
 
 async function mintApiKey(

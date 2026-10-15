@@ -105,3 +105,13 @@ _Avoid_: provision, register
 **Lane**:
 One of a Gas Key's independent nonce sequences; parallel sends pick different Lanes and never serialize on each other.
 _Avoid_: nonce (the per-lane counter), slot
+
+## Custody publish
+
+**Custody Wallet**:
+An OutLayer Agent Custody wallet (`wk_…` key, TEE-held keys) registered once per user and network during `bos login --custody`; its implicit hex account is the signing identity for `publish.auth = "custody"` publishes.
+_Avoid_: outlayer credential, agent wallet (say custody)
+
+**Machine identity**:
+The custody wallet's implicit hex account as the deploy target: the authored config's `account` must equal it, so configs publish under `apps/<hex-account>/<gateway>` instead of a named account.
+_Avoid_: bot account (not a named account), executor (OutLayer's own term for something else)

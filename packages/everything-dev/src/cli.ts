@@ -1198,6 +1198,16 @@ async function main() {
           )}`,
         );
       }
+      if (result.custodyWallet) {
+        console.log(
+          `  ${colors.dim("Custody wallet:")} ${result.custodyWallet.nearAccountId} ${colors.dim(
+            `(${result.custodyWallet.network})`,
+          )}`,
+        );
+        if (result.custodyWallet.handoffUrl) {
+          console.log(`  ${colors.dim("Policy & funding:")} ${result.custodyWallet.handoffUrl}`);
+        }
+      }
       console.log();
       return;
     }

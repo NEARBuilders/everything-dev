@@ -132,6 +132,7 @@ export function registerKeys(builder: BosBuilder) {
           siteUrl,
           device: input.device,
           account: account || undefined,
+          custody: input.custody ? { network: getNetworkIdForAccount(account) } : undefined,
           expiresIn: input.expiresIn,
         });
 
@@ -155,7 +156,9 @@ export function registerKeys(builder: BosBuilder) {
         }
 
         const expiresAt = new Date(Date.now() + input.expiresIn * 1000).toISOString();
-        writeSessionHandle(deps.session?.root ?? process.cwd(), {
+        const configDir = deps.session?.root ?? process.cwd();
+        const existingSession = readSessionHandle(configDir);
+        writeSessionHandle(configDir, {
           version: 1,
           credential: {
             kind: "session",
@@ -169,11 +172,18 @@ export function registerKeys(builder: BosBuilder) {
           },
           publishKey: null,
           delegateKey: null,
+          custodyWallet: approval.custodyWallet ?? existingSession?.custodyWallet ?? null,
         });
 
         let warning: string | null = null;
+        if (input.custody && !approval.custodyWallet) {
+          warning =
+            "Custody wallet credential could not be fetched after approval. Re-run `bos login --custody` — the wallet is kept server-side.";
+        }
         if (account && approval.accountId && approval.accountId !== account) {
-          warning = `Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`;
+          warning = warning
+            ? `${warning} Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`
+            : `Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`;
         }
 
         let publishKey: LoginResult["publishKey"] = null;
@@ -194,6 +204,14 @@ export function registerKeys(builder: BosBuilder) {
           expiresAt,
           loginUrl: login.verificationUrl,
           publishKey,
+          custodyWallet: approval.custodyWallet
+            ? {
+                walletId: approval.custodyWallet.walletId,
+                nearAccountId: approval.custodyWallet.nearAccountId,
+                network: approval.custodyWallet.network,
+                handoffUrl: approval.custodyWallet.handoffUrl,
+              }
+            : null,
           warning,
         };
       } catch (error) {
