@@ -457,7 +457,8 @@ export const SyncResultSchema = z.object({
 
 export const ImportOptionsSchema = z.object({
   workspace: z.string(),
-  from: z.string(),
+  /** omitted → resolve the upstream from the authored config's extends chain */
+  from: z.string().optional(),
   yes: z.boolean().default(false),
   dryRun: z.boolean().default(false),
   noInstall: z.boolean().default(false),
@@ -498,6 +499,10 @@ export const ImportResultSchema = z.object({
   from: z.string(),
   ref: z.string(),
   resolvedSha: z.string().optional(),
+  /** the dereferenced upstream repository when the source was chain-resolved */
+  sourceRepository: z.string().optional(),
+  /** resolution notes (e.g. HEAD fallback when no git sha is pinned) */
+  warnings: z.array(z.string()).default([]),
   added: z.array(z.string()),
   updated: z.array(z.string()),
   unchanged: z.array(z.string()).default([]),

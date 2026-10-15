@@ -766,6 +766,16 @@ async function main() {
         if (result.reportPath) console.error(`  Report: ${result.reportPath}`);
         process.exit(1);
       }
+      if (result.sourceRepository) {
+        console.log(
+          `  ${colors.dim("Upstream:")} ${result.sourceRepository} @ ${
+            result.ref || "default branch"
+          }${result.resolvedSha ? colors.dim(` (commit ${result.resolvedSha})`) : ""}`,
+        );
+      }
+      for (const warning of result.warnings ?? []) {
+        console.log(`  ${colors.yellow("Note:")} ${warning}`);
+      }
       if (result.status === "dry-run") {
         console.log(colors.cyan(`${icons.ok} Dry run — no files written`));
       } else if (result.status === "imported") {

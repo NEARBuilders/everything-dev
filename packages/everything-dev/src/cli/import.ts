@@ -9,12 +9,19 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { glob } from "glob";
+import { localConfigEntryPath } from "../config";
 import type {
   ImportMigrationCollision,
   ImportOptions,
   ImportResult,
   ImportRouteDelta,
 } from "../contract";
+import { parseBosUrl } from "../fastkv";
+import { fetchResponse } from "../http-client";
+import { resolveExtendsRef } from "../merge";
+import type { ResolutionIo } from "../resolution/session";
+import { type WalkLink, walkExtendsChain } from "../resolution/session";
+import type { ExtendsConfig } from "../types";
 import { computeSnapshotHash } from "../utils/snapshot-hash";
 import { findWorkspaceRoot } from "../workspace";
 import { downloadTarball, parseGitHubUrl, runPnpmInstall, runTypesGen } from "./init";
@@ -36,7 +43,19 @@ export const IMPORT_REPORT_PATH = `.bos/${IMPORT_REPORT_FILE}`;
 
 export type ImportFromSpec =
   | { kind: "github"; repo: string; ref?: string }
+  | { kind: "bos"; bosUrl: string; account: string; gateway: string }
   | { kind: "local"; dir: string };
+
+export interface ImportChainProvenance {
+  /** the ref the chain was walked from: the bos:// source or the child's resolved extends */
+  extendsRef: string;
+  /** the runtime whose own config declares the workspace */
+  ancestorRef: string;
+  /** git ref pinned from the ancestor's published version manifest, when present */
+  pinnedSha?: string;
+  repository: string;
+  warnings: string[];
+}
 
 export type ImportFileClass =
   | { kind: "added" }
@@ -59,6 +78,7 @@ export interface ImportReportAnalysis {
   ref: string;
   resolvedSha?: string;
   sourceKind: "github" | "local";
+  chain?: ImportChainProvenance;
   added: string[];
   updated: string[];
   unchanged: string[];
@@ -104,8 +124,29 @@ export function parseFromSpec(spec: string): ImportFromSpec {
   const trimmed = spec.trim();
   if (!trimmed) {
     throw new Error(
-      "--from is required: <owner>/<repo>[@<ref>], a GitHub URL, or a local directory",
+      "--from is required: bos://<account>/<gateway>, <owner>/<repo>[@<ref>], a GitHub URL, or a local directory",
     );
+  }
+
+  if (trimmed.startsWith("bos://")) {
+    const hashIndex = trimmed.indexOf("#");
+    const bosPart = hashIndex === -1 ? trimmed : trimmed.slice(0, hashIndex);
+    const target = hashIndex === -1 ? undefined : trimmed.slice(hashIndex + 1).trim();
+    if (target) {
+      throw new Error(
+        `Targeted extends refs are not supported for import sources: ${spec}. Omit the #target and pass the workspace as the positional argument.`,
+      );
+    }
+    const parsed = parseBosUrl(bosPart);
+    if (parsed.pathSegments.length > 0) {
+      throw new Error(`Unsupported bos:// path — expected bos://<account>/<gateway>: ${spec}`);
+    }
+    return {
+      kind: "bos",
+      bosUrl: `bos://${parsed.accountId}/${parsed.gatewayId}`,
+      account: parsed.accountId,
+      gateway: parsed.gatewayId,
+    };
   }
 
   if (trimmed.startsWith("/") || trimmed.startsWith("./") || trimmed.startsWith("../")) {
@@ -135,7 +176,7 @@ export function parseFromSpec(spec: string): ImportFromSpec {
   }
 
   throw new Error(
-    `Cannot parse --from source: ${spec}. Expected <owner>/<repo>[@<ref>], a GitHub URL, or a local directory.`,
+    `Cannot parse --from source: ${spec}. Expected bos://<account>/<gateway>, <owner>/<repo>[@<ref>], a GitHub URL, or a local directory.`,
   );
 }
 
@@ -536,11 +577,21 @@ export function buildImportReport(
   const lines: string[] = [];
   lines.push(`# bos import report — \`${analysis.workspace}\``);
   lines.push("");
-  const source =
-    analysis.sourceKind === "local"
-      ? `\`${analysis.from}\` (local directory)`
-      : `\`${analysis.from}\`${analysis.ref ? ` @ \`${analysis.ref}\`` : ""}`;
-  lines.push(`- **Source:** ${source}`);
+  if (analysis.chain) {
+    lines.push(`- **Source:** \`${analysis.chain.extendsRef}\` (extends chain)`);
+    lines.push(
+      `- **Upstream:** \`${analysis.chain.repository}\` @ \`${analysis.ref}\`${analysis.chain.pinnedSha ? ` (pinned git sha \`${analysis.chain.pinnedSha}\`)` : ""}`,
+    );
+    for (const warning of analysis.chain.warnings) {
+      lines.push(`- **Note:** ${warning}`);
+    }
+  } else {
+    const source =
+      analysis.sourceKind === "local"
+        ? `\`${analysis.from}\` (local directory)`
+        : `\`${analysis.from}\`${analysis.ref ? ` @ \`${analysis.ref}\`` : ""}`;
+    lines.push(`- **Source:** ${source}`);
+  }
   if (analysis.resolvedSha) {
     lines.push(`- **Resolved commit:** \`${analysis.resolvedSha}\``);
   }
@@ -733,7 +784,254 @@ export function buildImportReport(
   return lines.join("\n");
 }
 
-async function resolveImportSource(spec: ImportFromSpec): Promise<{
+const LOCAL_PREFIX = "local:";
+
+export interface LocalWorkspaceSlot {
+  /** config address of the declaring entry, e.g. `app.auth` or `plugins.ai` */
+  slot: string;
+}
+
+export function localWorkspaceSlotOf(
+  config: unknown,
+  workspace: string,
+): LocalWorkspaceSlot | null {
+  if (!config || typeof config !== "object" || Array.isArray(config)) {
+    return null;
+  }
+  const node = config as Record<string, unknown>;
+  const matches = (ref: unknown): boolean =>
+    typeof ref === "string" &&
+    ref.startsWith(LOCAL_PREFIX) &&
+    ref.slice(LOCAL_PREFIX.length) === workspace;
+
+  const app = node.app as Record<string, unknown> | undefined;
+  if (app && typeof app === "object") {
+    for (const key of ["host", "ui", "api", "auth"]) {
+      const entry = app[key] as Record<string, unknown> | undefined;
+      if (entry && typeof entry === "object" && matches(entry.development)) {
+        return { slot: `app.${key}` };
+      }
+    }
+  }
+  const plugins = node.plugins as Record<string, unknown> | undefined;
+  if (plugins && typeof plugins === "object") {
+    for (const key of Object.keys(plugins)) {
+      const entry = plugins[key] as Record<string, unknown> | undefined;
+      if (
+        entry &&
+        typeof entry === "object" &&
+        !Array.isArray(entry) &&
+        matches(entry.development)
+      ) {
+        return { slot: `plugins.${key}` };
+      }
+    }
+  }
+  return null;
+}
+
+export function configEntryAt(config: unknown, slot: string): Record<string, unknown> | null {
+  if (!config || typeof config !== "object") {
+    return null;
+  }
+  const dot = slot.indexOf(".");
+  if (dot === -1) {
+    return null;
+  }
+  const container = (config as Record<string, unknown>)[slot.slice(0, dot)];
+  const key = slot.slice(dot + 1);
+  const entry =
+    typeof container === "object" && container !== null && !Array.isArray(container)
+      ? (container as Record<string, unknown>)[key]
+      : undefined;
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return null;
+  }
+  return entry as Record<string, unknown>;
+}
+
+const HEAD_FALLBACK_NOTE = "importing the default branch (HEAD)";
+
+export type VersionManifestFetcher = (url: string) => Promise<{ gitSha?: unknown }>;
+
+async function defaultVersionManifestFetch(url: string): Promise<{ gitSha?: unknown }> {
+  const response = await fetchResponse(url, { headers: { accept: "application/json" } });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return (await response.json()) as { gitSha?: unknown };
+}
+
+export async function resolvePinnedSha(
+  entry: Record<string, unknown> | null,
+  fetchManifest: VersionManifestFetcher = defaultVersionManifestFetch,
+): Promise<{ sha?: string; warning?: string }> {
+  if (!entry) {
+    return { warning: `no config entry found for the pinned slot — ${HEAD_FALLBACK_NOTE}` };
+  }
+  const pin = entry.pin as { manifest?: unknown } | undefined;
+  const manifest = typeof pin?.manifest === "string" ? pin.manifest : undefined;
+  const production = typeof entry.production === "string" ? entry.production : undefined;
+  if (!manifest || !production) {
+    return {
+      warning: `no pinned version manifest on the published config — ${HEAD_FALLBACK_NOTE}`,
+    };
+  }
+  const url = `${production.replace(/\/+$/, "")}/${manifest}`;
+  try {
+    const body = await fetchManifest(url);
+    if (typeof body.gitSha !== "string" || body.gitSha.length === 0) {
+      return {
+        warning: `the version manifest records no git sha (it pins content hashes only) — ${HEAD_FALLBACK_NOTE}; future deploys pin the exact commit`,
+      };
+    }
+    return { sha: body.gitSha };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { warning: `could not read the version manifest (${message}) — ${HEAD_FALLBACK_NOTE}` };
+  }
+}
+
+export async function resolveImportChain(input: {
+  workspace: string;
+  projectDir: string;
+  entrySpec?: { bosUrl: string; account: string; gateway: string };
+  io?: ResolutionIo;
+  fetchVersionManifest?: VersionManifestFetcher;
+}): Promise<{
+  spec: { kind: "github"; repo: string; ref?: string };
+  provenance: ImportChainProvenance;
+}> {
+  const fromBosSpec = input.entrySpec !== undefined;
+  const entry = fromBosSpec
+    ? `bos://${input.entrySpec!.account}/${input.entrySpec!.gateway}`
+    : (localConfigEntryPath(input.projectDir) ?? null);
+  if (!entry) {
+    throw new Error(
+      "No authored config (bos.app.ts) found — pass an upstream explicitly with --from",
+    );
+  }
+
+  const links: WalkLink[] = [];
+  await walkExtendsChain(entry, {
+    env: "production",
+    io: input.io,
+    visit: async (link) => {
+      links.push(link);
+    },
+  });
+  links.reverse();
+
+  if (links.length === 0) {
+    throw new Error(`Empty extends chain from ${entry}`);
+  }
+
+  const workspace = input.workspace;
+  const declaredIndex = links.findIndex(
+    (link) => localWorkspaceSlotOf(link.config, workspace) !== null,
+  );
+  if (declaredIndex === -1) {
+    const chainRefs = links.map((link) => link.ref).join(" -> ");
+    throw new Error(
+      `No runtime in the extends chain declares workspace "${workspace}" (${chainRefs}). Pass the upstream explicitly with --from.`,
+    );
+  }
+  if (!fromBosSpec && declaredIndex === 0) {
+    throw new Error(
+      `Workspace "${workspace}" is declared locally in your authored config — bos import targets an upstream ancestor`,
+    );
+  }
+
+  const ancestor = links[declaredIndex];
+  const ancestorRef = ancestor.ref.startsWith("bos://")
+    ? ancestor.ref
+    : `authored config at ${ancestor.ref}`;
+
+  let repository: string | undefined;
+  for (let i = declaredIndex; i < links.length && repository === undefined; i++) {
+    const value = (links[i].config as Record<string, unknown> | undefined)?.repository;
+    if (typeof value === "string" && value.trim().length > 0) {
+      repository = value;
+    }
+  }
+  if (!repository) {
+    throw new Error(
+      `No repository found along the extends chain above ${ancestorRef} — the declaring runtime must publish its source (repository field in bos.app.ts)`,
+    );
+  }
+
+  const warnings: string[] = [];
+  const slot = localWorkspaceSlotOf(ancestor.config, workspace)!.slot;
+  const pin = await resolvePinnedSha(
+    configEntryAt(ancestor.config, slot),
+    input.fetchVersionManifest,
+  );
+  if (pin.warning) warnings.push(pin.warning);
+
+  const extendsRef = fromBosSpec
+    ? entry
+    : (() => {
+        const selfConfig = links[0].config;
+        const extendsValue = (selfConfig as Record<string, unknown> | undefined)?.extends;
+        if (extendsValue === undefined) return "authored config";
+        try {
+          return (
+            resolveExtendsRef(extendsValue as string | ExtendsConfig, "production") ??
+            "authored config"
+          );
+        } catch {
+          return "authored config";
+        }
+      })();
+
+  return {
+    spec: { kind: "github", repo: repository, ...(pin.sha ? { ref: pin.sha } : {}) },
+    provenance: {
+      extendsRef,
+      ancestorRef,
+      repository,
+      ...(pin.sha ? { pinnedSha: pin.sha } : {}),
+      warnings,
+    },
+  };
+}
+
+interface ImportPlan {
+  fromLabel: string;
+  spec: ImportFromSpec & { kind: "github" | "local" };
+  chain?: ImportChainProvenance;
+}
+
+async function resolveImportPlan(input: {
+  workspace: string;
+  from?: string;
+  projectDir: string;
+}): Promise<ImportPlan> {
+  const from = input.from;
+  if (!from) {
+    const resolved = await resolveImportChain({
+      workspace: input.workspace,
+      projectDir: input.projectDir,
+    });
+    return {
+      fromLabel: resolved.provenance.extendsRef,
+      spec: resolved.spec,
+      chain: resolved.provenance,
+    };
+  }
+  const spec = parseFromSpec(from);
+  if (spec.kind === "bos") {
+    const resolved = await resolveImportChain({
+      workspace: input.workspace,
+      projectDir: input.projectDir,
+      entrySpec: spec,
+    });
+    return { fromLabel: spec.bosUrl, spec: resolved.spec, chain: resolved.provenance };
+  }
+  return { fromLabel: from, spec };
+}
+
+async function resolveImportSource(spec: ImportPlan["spec"]): Promise<{
   root: string;
   cleanup: () => Promise<void>;
   ref: string;
@@ -759,7 +1057,7 @@ export async function importWorkspace(
   const errorResult = (workspace: string, ref: string, message: string): ImportResult => ({
     status: "error",
     workspace,
-    from: options.from,
+    from: options.from ?? "",
     ref,
     added: [],
     updated: [],
@@ -769,6 +1067,7 @@ export async function importWorkspace(
     conflicts: [],
     heldBackMigrations: [],
     migrationCollisions: [],
+    warnings: [],
     error: message,
   });
 
@@ -776,10 +1075,19 @@ export async function importWorkspace(
     error instanceof Error ? error.message : String(error);
 
   let workspace = options.workspace;
+  let fromLabel = options.from ?? "";
   let ref = "";
+  let chain: ImportChainProvenance | undefined;
   try {
     workspace = normalizeWorkspacePath(options.workspace);
-    const spec = parseFromSpec(options.from);
+    const plan = await resolveImportPlan({
+      workspace,
+      from: options.from,
+      projectDir,
+    });
+    fromLabel = plan.fromLabel;
+    chain = plan.chain;
+    const spec = plan.spec;
     const source = await resolveImportSource(spec);
     ref = source.ref;
 
@@ -787,7 +1095,7 @@ export async function importWorkspace(
       const upstreamWorkspaceDir = join(source.root, workspace);
       if (!existsSync(upstreamWorkspaceDir) || !lstatSync(upstreamWorkspaceDir).isDirectory()) {
         throw new Error(
-          `Workspace "${workspace}" not found in ${options.from}${
+          `Workspace "${workspace}" not found in ${fromLabel}${
             source.ref !== "local" ? ` at ref ${source.ref}` : ""
           }`,
         );
@@ -973,10 +1281,11 @@ export async function importWorkspace(
 
       const analysis: ImportReportAnalysis = {
         workspace,
-        from: options.from,
+        from: fromLabel,
         ref: source.ref,
         resolvedSha: source.resolvedSha,
         sourceKind: spec.kind,
+        chain,
         added,
         updated,
         unchanged,
@@ -992,9 +1301,11 @@ export async function importWorkspace(
 
       const resultBase = {
         workspace,
-        from: options.from,
+        from: fromLabel,
         ref: source.ref,
         resolvedSha: source.resolvedSha,
+        sourceRepository: chain?.repository,
+        warnings: chain ? chain.warnings : [],
         added,
         updated,
         unchanged,
@@ -1152,7 +1463,7 @@ export async function importWorkspace(
         workspaces: {
           ...importSnapshot.workspaces,
           [workspace]: {
-            from: options.from,
+            from: fromLabel,
             ref: source.ref,
             timestamp: new Date().toISOString(),
             files: recorded,
