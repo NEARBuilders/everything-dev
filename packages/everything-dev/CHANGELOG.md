@@ -1,5 +1,18 @@
 # everything-dev
 
+## 2.0.0-rc.10
+
+### Minor Changes
+
+- 420604f: feat(auth): supported deploy-key mint — `bos login --key` now mints a key that passes bundle-upload verification. The CLI login's mint switches to the auth plugin's new server-side `createDeployKey` route (the only layer that may set better-auth `permissions`): the minted key carries `bundles:write` permissions and `account`/`gateway` scope metadata matching the authored config (`--env staging` scopes to `staging.domain ?? domain`), is stored as the session credential, and is printed as `BOS_STORAGE_API_KEY=…` with a non-TTY leak warning. Deploy keys default to 365-day expiry (`--expires-in` overrides; user-keys max raised to 3650 days). The auth plugin's `verifyApiKey` now distinguishes "key lacks required permissions (bundles:write)" (`KEY_MISSING_PERMISSIONS`) from an unknown key (`KEY_NOT_FOUND`) — previously both surfaced as `KEY_NOT_FOUND`/`Invalid API key`, and the upload service maps the richer code to `FORBIDDEN`. Consumer deploy workflows gain a `storage_origin` input (default `https://upload.everything.dev`) so self-hosted `apps/upload` deployments need no template fork, and the staging workflow prefers a dedicated `BOS_STAGING_STORAGE_API_KEY` secret (for consumers whose staging domain differs) before falling back to the shared key. The upload service warns at startup when production runs on the bootstrap key without `BOS_STORAGE_AUTH_ORIGIN` (every API-key upload would fail), and its README gains the deploy checklist.
+- 3559291: `RouterError` gains a `showErrorDetails` prop and no longer renders the error-details `<details>` block in server-rendered fallbacks by default — SSR HTML is what gets indexed, cached, and logged, so internal messages (RPC endpoints, digests, provider errors) stay out of it. Pass `showErrorDetails={true}` to render the (React-escaped) block everywhere, or `false` to never render it.
+
+### Patch Changes
+
+- 3559291: Fix generated child test scripts for pnpm 12: `--if-present` was passed after the script name (`pnpm --dir api run test --if-present`), where pnpm 12 forwards it to the script itself — vitest dies with `CACError: Unknown option --ifPresent`. The flag now precedes `run` in the `test`, `test:api`, `test:integration`, and `test:e2e` root scripts.
+- 3559291: `bos typecheck` now typechecks plugin UIs: each local plugin with a `ui/tsconfig.json` gets a `plugins/<key>/ui` row that runs the plugin's `typecheck:ui` script (falling back to `tsc --noEmit -p ui/tsconfig.json`), and the typecheck pass materializes the plugin ui's `routeTree.gen.ts` on disk so `createFileRoute` ids resolve. Generated children run `typecheck:ui` per plugin in the root script too. Broken plugin-UI code no longer ships type-clean.
+- 3559291: Fix the uninstallable npm tarballs (rc.5–rc.8): `@everything-dev/upload-app` is now a devDependency of `everything-dev` — the upload client is bundled into the published dist, so the leaked `"workspace:^"` runtime dependency is gone and standalone installs resolve again. Release staging now fails the release when any runtime/peer/optional dependency still carries an unresolvable `workspace:` ref, and the integration harness no longer papers over such leaks when installing the packed tarball.
+
 ## 2.0.0-rc.9
 
 ### Minor Changes
