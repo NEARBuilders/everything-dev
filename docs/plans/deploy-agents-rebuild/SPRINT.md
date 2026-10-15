@@ -1,6 +1,6 @@
 # Sprint: deploy-agents-rebuild
 
-One initiative, two streams, fifteen tickets. Shared tag: this folder.
+One initiative, two streams, two gates, seventeen tickets. Shared tag: this folder.
 
 ## Goal
 
@@ -20,6 +20,8 @@ One initiative, two streams, fifteen tickets. Shared tag: this folder.
 - Stream A (tickets 01–05): branch `chore/consolidate-deploy`
 - Stream B (tickets 06–13): its own feature branch
 - Stream C (tickets 14–15): upstream, gated behind Stream B completion
+- Gates: 16 (agent surface split decision, ADR 0029) blocks 08–09; 17 (MCP per-tool
+  permission filtering) blocks 13
 
 ## Dependency graph
 
@@ -30,9 +32,13 @@ One initiative, two streams, fifteen tickets. Shared tag: this folder.
        08 ──┴─ 09 ── 10 ── ┤
               │──── 11 ────┤
               │──── 12 ────┘
+
+16 ── 08 ── 09   (decision gates Stream B's start)
+17 ──────────── 13  (MCP filtering gates the join ticket)
 ```
 
 - 06 and 01 can start immediately in parallel.
+- 16 resolves before 08 begins; 09 inherits the outcome through 08.
 - 13 is the join point: the plugin ships on the consolidated deploy train.
 - 14 and 15 are the upstream proposals, strictly last.
 

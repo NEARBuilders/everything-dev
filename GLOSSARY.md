@@ -105,3 +105,17 @@ _Avoid_: provision, register
 **Lane**:
 One of a Gas Key's independent nonce sequences; parallel sends pick different Lanes and never serialize on each other.
 _Avoid_: nonce (the per-lane counter), slot
+
+## Agent surfaces
+
+**Connect Surface**:
+The owner-facing agent lifecycle in `better-near-auth`'s `agentConnect` — agent creation, grant issue/revoke, and intent signing/submission; gated by session plus wallet or passkey signature. See ADR 0029.
+_Avoid_: agent API (that's the upstream hosted service), agent endpoints
+
+**Operating Surface**:
+The `plugins/agents` contract-generated control plane over the vendored engine — reads, lifecycle, and delegated executions; session-gated for owner routes, grant-scoped for delegated ones, with declarative per-operation gates (undeclared means invisible). See ADR 0029.
+_Avoid_: agents plugin surface, agent RPC
+
+**Model Tools**:
+The MCP tool subset generated from the Operating Surface's OpenAPI spec — balances, rules, tokens, quotes, executions; one grant per MCP client, and never owner intents (those belong to the owner's UI with a wallet signature).
+_Avoid_: agent tools (unqualified), MCP surface (the catalog is larger than this subset)
