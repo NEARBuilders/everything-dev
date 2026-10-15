@@ -361,6 +361,8 @@ export type PublishAuth = z.infer<typeof PublishAuthSchema>;
 
 export const PublishConfigSchema = z.object({
   auth: PublishAuthSchema.optional(),
+  /** Publish per-workspace source archives beside the dists (#406). */
+  sourcePublish: z.boolean().optional(),
 });
 export type PublishConfig = z.infer<typeof PublishConfigSchema>;
 

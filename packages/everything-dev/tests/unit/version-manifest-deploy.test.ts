@@ -62,4 +62,32 @@ describe("composeWorkspaceVersionManifest", () => {
     expect(manifest.ssr).toBeUndefined();
     expect(manifest.entryIntegrity).toBe("sha384-entry");
   });
+
+  it("threads the source archive and gitSha into the manifest and the version hash", () => {
+    const base = composeWorkspaceVersionManifest({
+      report: { entry: "remoteEntry.83ba437f70018e7d.js" },
+      integrityMap: { "remoteEntry.83ba437f70018e7d.js": "sha384-entry" },
+    });
+    const manifest = composeWorkspaceVersionManifest({
+      report: { entry: "remoteEntry.83ba437f70018e7d.js" },
+      integrityMap: { "remoteEntry.83ba437f70018e7d.js": "sha384-entry" },
+      source: { file: "source/source.0123456789abcdef.tar.gz", integrity: "sha384-source" },
+      gitSha: "62b63bc4deadbeefcafebabe0123456789abcdef",
+    });
+    expect(manifest.source).toEqual({
+      file: "source/source.0123456789abcdef.tar.gz",
+      integrity: "sha384-source",
+    });
+    expect(manifest.gitSha).toBe("62b63bc4deadbeefcafebabe0123456789abcdef");
+    expect(manifest.version).not.toBe(base.version);
+  });
+
+  it("omits the source section and gitSha when not provided", () => {
+    const manifest = composeWorkspaceVersionManifest({
+      report: { entry: "remoteEntry.83ba437f70018e7d.js" },
+      integrityMap: { "remoteEntry.83ba437f70018e7d.js": "sha384-entry" },
+    });
+    expect(manifest.source).toBeUndefined();
+    expect(manifest.gitSha).toBeUndefined();
+  });
 });

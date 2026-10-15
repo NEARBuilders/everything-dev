@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
+  type SourceRef,
   type WorkspaceVersionManifest,
   WorkspaceVersionManifestSchema,
 } from "every-plugin/version-manifest";
@@ -29,6 +30,8 @@ export interface ResolvedSlotVersion {
   /** Full per-file digest map of the dist (object path → SRI), when the
    * pinned manifest carries one — the diff base for skip-unchanged uploads. */
   files?: Record<string, string>;
+  /** Source archive reference from the pinned manifest (publish.sourcePublish). */
+  source?: SourceRef;
 }
 
 export interface SlotPin {
@@ -69,6 +72,7 @@ function slotVersionFromManifest(
         }
       : {}),
     ...(manifest.files ? { files: manifest.files } : {}),
+    ...(manifest.source ? { source: manifest.source } : {}),
   };
 }
 

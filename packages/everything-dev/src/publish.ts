@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import process from "node:process";
 import { hasFolderFormUi } from "every-plugin/build/ui";
+import type { SourceRef } from "every-plugin/version-manifest";
 import { readSessionHandle } from "./auth-session";
 import { buildWorkspaceTargets, resolveWorkspaceTarget, selectWorkspaceTargets } from "./build";
 import { type CdnDeployInputs, probeStorageOrigin, resolveCdnDeployInputs } from "./cdn-deploy";
@@ -41,6 +42,7 @@ import { getNetworkIdForAccount } from "./network";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform-deploy";
 import { openResolution } from "./resolution/session";
 import { verifyRollbackSnapshot } from "./rollback";
+import { buildSourceArchive, makeSourceArchiveTempDir } from "./source-archive";
 import {
   collectDistFiles,
   type DistFile,
@@ -48,6 +50,7 @@ import {
   uploadWorkspaceDist,
 } from "./storage-upload";
 import type { BosConfig, BosConfigInput, PublishConfig, RuntimeConfig } from "./types";
+import { run } from "./utils/run";
 import { padRight } from "./utils/string";
 import { colors, icons } from "./utils/theme";
 import { composeWorkspaceVersionManifest, readBuildReport } from "./version-manifest-deploy";
@@ -87,6 +90,10 @@ async function pinWorkspaceVersionManifest(input: {
   integrityMap: Record<string, string>;
   /** full per-file SRI map of the dist — recorded for the next deploy's diff */
   files?: Record<string, string>;
+  /** source archive reference — server-computed SRI (MAP decision 6) */
+  source?: SourceRef;
+  /** repo HEAD the build was produced from — best-effort, may be absent */
+  gitSha?: string;
 }): Promise<VersionManifestPin | undefined> {
   if (!input.report) return undefined;
   const versionManifest = composeWorkspaceVersionManifest({
@@ -94,6 +101,8 @@ async function pinWorkspaceVersionManifest(input: {
     ssrReport: input.ssrReport,
     integrityMap: input.integrityMap,
     ...(input.files ? { files: input.files } : {}),
+    ...(input.source ? { source: input.source } : {}),
+    ...(input.gitSha ? { gitSha: input.gitSha } : {}),
   });
   if (!versionManifest) return undefined;
 
@@ -117,6 +126,85 @@ async function pinWorkspaceVersionManifest(input: {
     `    ${colors.dim(`${padRight("", 28)} version manifest ${manifestFile} (SRI pinned)`)}`,
   );
   return { file: manifestFile, integrity: manifestIntegrity, storage: manifestUpload.storage };
+}
+
+/**
+ * Best-effort repo HEAD for the version manifest (`gitSha`): non-git
+ * contexts (child bundles built outside a repo) omit the field silently —
+ * it never fails the deploy.
+ */
+async function resolveGitSha(cwd: string): Promise<string | undefined> {
+  try {
+    const result = await run("git", ["rev-parse", "HEAD"], { cwd, capture: true });
+    const sha = result?.stdout.trim();
+    return result && result.exitCode === 0 && sha ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The source-archive leg (publish.sourcePublish, #406): tar the workspace
+ * subtree, dedupe against the previous pin's manifest by archive SRI (reuse
+ * skips the upload), otherwise upload and take the **server-computed** SRI
+ * (MAP decision 6). The temp archive dir is cleaned up on every path — the
+ * manifest only carries `{ file, integrity }`, not the bytes.
+ */
+async function resolveSourceReference(input: {
+  origin: string;
+  apiKey?: string;
+  account: string;
+  gateway: string;
+  workspace: string;
+  base: string;
+  previousPin: PreviousPin | undefined;
+  repoRoot: string;
+  workspaceDir: string;
+}): Promise<{ source: SourceRef } | { memory: true }> {
+  const outDir = makeSourceArchiveTempDir();
+  try {
+    const archive = await buildSourceArchive({
+      repoRoot: input.repoRoot,
+      workspace: input.workspaceDir,
+      outDir,
+    });
+    if (input.previousPin) {
+      try {
+        const resolved = await resolveSlotVersion({ base: input.base, pin: input.previousPin });
+        if (resolved.source?.integrity === archive.integrity) {
+          console.log(
+            `    ${colors.dim(`${padRight(input.workspace, 28)} source unchanged — reusing ${archive.file}`)}`,
+          );
+          return {
+            source: { file: resolved.source.file, integrity: resolved.source.integrity },
+          };
+        }
+      } catch {
+        // previous manifest unusable — fall through to a full upload
+      }
+    }
+    const upload = await uploadBundle({
+      origin: input.origin,
+      apiKey: input.apiKey,
+      account: input.account,
+      gateway: input.gateway,
+      workspace: input.workspace,
+      files: [{ path: archive.file, bytes: new Uint8Array(readFileSync(archive.path)) }],
+    });
+    if (upload.storage === "memory") return { memory: true };
+    const integrity = upload.integrity[archive.file];
+    if (!integrity) {
+      throw new Error(
+        `[publish] source archive upload for ${input.workspace}: missing server SRI for ${archive.file}`,
+      );
+    }
+    console.log(
+      `    ${colors.dim(`${padRight(input.workspace, 28)} source archive ${archive.file}`)}`,
+    );
+    return { source: { file: archive.file, integrity } };
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
 }
 
 interface DiffUploadOutcome {
@@ -718,6 +806,17 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
 
   console.log();
   console.log(`  CDN deploy — uploading workspace dists to ${storageOrigin}...`);
+  const sourcePublish = bosConfig.publish?.sourcePublish === true;
+  const gitSha = await resolveGitSha(configDir);
+  const memoryBackendAbort = (): PublishToFastKvResult => ({
+    status: "error",
+    registryUrl,
+    built,
+    skipped,
+    deployResults,
+    error:
+      "The receiving instance is serving bundle storage from memory (BOS_STORAGE_* R2 credentials are not configured there) — uploaded bytes would be lost on restart. Aborting before publish.",
+  });
   for (const key of deployTargets) {
     const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
     if (!ws) continue;
@@ -757,6 +856,40 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
       ? outcome.fileIntegrity[`ssr/${ssrReport.entry}`]
       : undefined;
 
+    let sourceRef: SourceRef | undefined;
+    if (sourcePublish) {
+      if (outcome.result.storage === "memory") {
+        return memoryBackendAbort();
+      }
+      try {
+        const sourceOutcome = await resolveSourceReference({
+          origin: storageOrigin,
+          apiKey: storageApiKey,
+          account,
+          gateway,
+          workspace: key,
+          base: workspaceBase,
+          previousPin: prevPins[key],
+          repoRoot: dirname(ws.path),
+          workspaceDir: basename(ws.path),
+        });
+        if ("memory" in sourceOutcome) {
+          return memoryBackendAbort();
+        }
+        sourceRef = sourceOutcome.source;
+      } catch (error) {
+        return {
+          status: "error",
+          registryUrl,
+          built,
+          skipped,
+          deployResults,
+          error:
+            error instanceof Error ? error.message : `[publish] source archive for ${key} failed`,
+        };
+      }
+    }
+
     const manifestPointer = await pinWorkspaceVersionManifest({
       origin: storageOrigin,
       apiKey: storageApiKey,
@@ -767,6 +900,8 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
       ssrReport,
       integrityMap: outcome.fileIntegrity,
       files: outcome.fileIntegrity,
+      ...(sourceRef ? { source: sourceRef } : {}),
+      ...(gitSha ? { gitSha } : {}),
     });
     if (!manifestPointer) {
       return {
@@ -780,15 +915,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     }
 
     if (outcome.result.storage === "memory" || manifestPointer.storage === "memory") {
-      return {
-        status: "error",
-        registryUrl,
-        built,
-        skipped,
-        deployResults,
-        error:
-          "The receiving instance is serving bundle storage from memory (BOS_STORAGE_* R2 credentials are not configured there) — uploaded bytes would be lost on restart. Aborting before publish.",
-      };
+      return memoryBackendAbort();
     }
 
     console.log(
@@ -865,15 +992,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
         }
 
         if (uiOutcome.result.storage === "memory" || uiManifestPointer.storage === "memory") {
-          return {
-            status: "error",
-            registryUrl,
-            built,
-            skipped,
-            deployResults,
-            error:
-              "The receiving instance is serving bundle storage from memory (BOS_STORAGE_* R2 credentials are not configured there) — uploaded bytes would be lost on restart. Aborting before publish.",
-          };
+          return memoryBackendAbort();
         }
 
         console.log(

@@ -41,8 +41,25 @@ export const WorkspaceVersionManifestSchema = z.object({
    * ignore it (zod strips unknown keys). Participates in the version hash.
    */
   files: z.record(z.string(), SRI).optional(),
+  /**
+   * Source archive of the workspace subtree (object path → served-object SRI)
+   * published beside the dists when the runtime opts in via
+   * `publish.sourcePublish` — lets `bos import` dereference a published
+   * config slot to the exact source bytes that build came from, with no
+   * GitHub dependency. Readers that predate the field ignore it (zod strips
+   * unknown keys). Participates in the version hash.
+   */
+  source: z
+    .object({
+      file: z.string().min(1),
+      integrity: SRI,
+    })
+    .optional(),
 });
 export type WorkspaceVersionManifest = z.infer<typeof WorkspaceVersionManifestSchema>;
+
+/** A published-artifact coordinate: object path within the bundle namespace + its served SRI. */
+export type SourceRef = NonNullable<WorkspaceVersionManifest["source"]>;
 
 export interface VersionManifestInput {
   /** Omit: a per-build timestamp makes the same version id map to different
@@ -57,6 +74,7 @@ export interface VersionManifestInput {
   assets?: Record<string, string>;
   shared?: Record<string, string>;
   files?: Record<string, string>;
+  source?: { file: string; integrity: string };
 }
 
 /**

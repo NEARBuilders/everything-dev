@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { type BuildEntryReport, BuildEntryReportSchema } from "every-plugin/build/artifact-names";
 import {
   composeVersionManifest,
+  type SourceRef,
   type WorkspaceVersionManifest,
 } from "every-plugin/version-manifest";
 
@@ -31,8 +32,12 @@ export function composeWorkspaceVersionManifest(input: {
   integrityMap: Record<string, string>;
   /** full per-file SRI map of the dist — recorded for the next deploy's diff */
   files?: Record<string, string>;
+  /** source archive reference (publish.sourcePublish) — server-computed SRI */
+  source?: SourceRef;
+  /** the repo HEAD the build was produced from — best-effort, may be absent */
+  gitSha?: string;
 }): WorkspaceVersionManifest | null {
-  const { report, ssrReport, integrityMap, files } = input;
+  const { report, ssrReport, integrityMap, files, source, gitSha } = input;
 
   const entryIntegrity = integrityMap[report.entry];
   if (!entryIntegrity) return null;
@@ -58,5 +63,7 @@ export function composeWorkspaceVersionManifest(input: {
       ? { assets: { css: integrityMap[report.css]! } }
       : {}),
     ...(files ? { files } : {}),
+    ...(source ? { source } : {}),
+    ...(gitSha ? { gitSha } : {}),
   });
 }

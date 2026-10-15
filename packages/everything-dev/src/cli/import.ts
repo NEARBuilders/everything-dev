@@ -3,12 +3,17 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { type SourceRef, WorkspaceVersionManifestSchema } from "every-plugin/version-manifest";
 import { glob } from "glob";
+import { extract as tarExtract } from "tar";
 import { localConfigEntryPath } from "../config";
 import type {
   ImportMigrationCollision,
@@ -18,23 +23,17 @@ import type {
 } from "../contract";
 import { parseBosUrl } from "../fastkv";
 import { fetchResponse } from "../http-client";
+import { computeSriHash } from "../integrity";
 import { resolveExtendsRef } from "../merge";
 import type { ResolutionIo } from "../resolution/session";
 import { type WalkLink, walkExtendsChain } from "../resolution/session";
 import type { ExtendsConfig } from "../types";
 import { computeSnapshotHash } from "../utils/snapshot-hash";
+import { listWorkspaceSubtreeFiles } from "../utils/workspace-subtree";
 import { findWorkspaceRoot } from "../workspace";
 import { downloadTarball, parseGitHubUrl, runPnpmInstall, runTypesGen } from "./init";
 import { readSnapshot, writeSnapshot } from "./snapshot";
 import { mergePackageJson } from "./sync";
-
-const SUBTREE_IGNORE = [
-  "**/node_modules/**",
-  "**/.git/**",
-  "**/dist/**",
-  "**/.bos/**",
-  "**/.every-plugin/**",
-];
 
 const IMPORT_SNAPSHOT_FILE = "import-snapshot.json";
 const IMPORT_REPORT_FILE = "import-report.md";
@@ -43,6 +42,7 @@ export const IMPORT_REPORT_PATH = `.bos/${IMPORT_REPORT_FILE}`;
 
 export type ImportFromSpec =
   | { kind: "github"; repo: string; ref?: string }
+  | { kind: "archive"; url: string; integrity: string }
   | { kind: "bos"; bosUrl: string; account: string; gateway: string }
   | { kind: "local"; dir: string };
 
@@ -53,7 +53,10 @@ export interface ImportChainProvenance {
   ancestorRef: string;
   /** git ref pinned from the ancestor's published version manifest, when present */
   pinnedSha?: string;
-  repository: string;
+  /** GitHub coordinate resolved rootward, when the chain publishes one */
+  repository?: string;
+  /** source archive coordinate from the ancestor's version manifest, when published */
+  sourceArchive?: { file: string; url: string; integrity: string };
   warnings: string[];
 }
 
@@ -77,7 +80,7 @@ export interface ImportReportAnalysis {
   from: string;
   ref: string;
   resolvedSha?: string;
-  sourceKind: "github" | "local";
+  sourceKind: "github" | "local" | "archive";
   chain?: ImportChainProvenance;
   added: string[];
   updated: string[];
@@ -193,23 +196,6 @@ export function normalizeWorkspacePath(input: string): string {
     throw new Error(`Invalid workspace path: ${input}`);
   }
   return trimmed;
-}
-
-export async function listSubtreeFiles(root: string, workspace: string): Promise<string[]> {
-  const matches = await glob(`${workspace}/**`, {
-    cwd: root,
-    nodir: true,
-    dot: true,
-    absolute: false,
-    ignore: SUBTREE_IGNORE,
-  });
-  const files: string[] = [];
-  for (const match of matches) {
-    if (lstatSync(join(root, match)).isFile()) {
-      files.push(match);
-    }
-  }
-  return files.sort();
 }
 
 export function classifyImportFile(input: {
@@ -579,9 +565,14 @@ export function buildImportReport(
   lines.push("");
   if (analysis.chain) {
     lines.push(`- **Source:** \`${analysis.chain.extendsRef}\` (extends chain)`);
-    lines.push(
-      `- **Upstream:** \`${analysis.chain.repository}\` @ \`${analysis.ref}\`${analysis.chain.pinnedSha ? ` (pinned git sha \`${analysis.chain.pinnedSha}\`)` : ""}`,
-    );
+    if (analysis.chain.sourceArchive) {
+      lines.push(`- **Source archive:** \`${analysis.chain.sourceArchive.url}\``);
+    }
+    if (analysis.chain.repository) {
+      lines.push(
+        `- **Upstream:** \`${analysis.chain.repository}\` @ \`${analysis.ref}\`${analysis.chain.pinnedSha ? ` (pinned git sha \`${analysis.chain.pinnedSha}\`)` : ""}`,
+      );
+    }
     for (const warning of analysis.chain.warnings) {
       lines.push(`- **Note:** ${warning}`);
     }
@@ -852,24 +843,36 @@ export function configEntryAt(config: unknown, slot: string): Record<string, unk
 
 const HEAD_FALLBACK_NOTE = "importing the default branch (HEAD)";
 
-export type VersionManifestFetcher = (url: string) => Promise<{ gitSha?: unknown }>;
+export type VersionManifestFetcher = (url: string) => Promise<{
+  bytes: Uint8Array;
+  manifest: Record<string, unknown>;
+}>;
 
-async function defaultVersionManifestFetch(url: string): Promise<{ gitSha?: unknown }> {
+async function defaultVersionManifestFetch(
+  url: string,
+): Promise<{ bytes: Uint8Array; manifest: Record<string, unknown> }> {
   const response = await fetchResponse(url, { headers: { accept: "application/json" } });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
-  return (await response.json()) as { gitSha?: unknown };
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const manifest = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+  return { bytes, manifest };
 }
 
-export async function resolvePinnedSha(
+function manifestSourceOf(manifest: Record<string, unknown>): SourceRef | null {
+  const parsed = WorkspaceVersionManifestSchema.pick({ source: true }).safeParse(manifest);
+  return parsed.success ? (parsed.data.source ?? null) : null;
+}
+
+export async function resolvePinnedSource(
   entry: Record<string, unknown> | null,
   fetchManifest: VersionManifestFetcher = defaultVersionManifestFetch,
-): Promise<{ sha?: string; warning?: string }> {
+): Promise<{ sha?: string; source?: SourceRef; warning?: string }> {
   if (!entry) {
     return { warning: `no config entry found for the pinned slot — ${HEAD_FALLBACK_NOTE}` };
   }
-  const pin = entry.pin as { manifest?: unknown } | undefined;
+  const pin = entry.pin as { manifest?: unknown; integrity?: unknown } | undefined;
   const manifest = typeof pin?.manifest === "string" ? pin.manifest : undefined;
   const production = typeof entry.production === "string" ? entry.production : undefined;
   if (!manifest || !production) {
@@ -878,19 +881,34 @@ export async function resolvePinnedSha(
     };
   }
   const url = `${production.replace(/\/+$/, "")}/${manifest}`;
+  let body: { bytes: Uint8Array; manifest: Record<string, unknown> };
   try {
-    const body = await fetchManifest(url);
-    if (typeof body.gitSha !== "string" || body.gitSha.length === 0) {
-      return {
-        warning: `the version manifest records no git sha (it pins content hashes only) — ${HEAD_FALLBACK_NOTE}; future deploys pin the exact commit`,
-      };
-    }
-    return { sha: body.gitSha };
+    body = await fetchManifest(url);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return { warning: `could not read the version manifest (${message}) — ${HEAD_FALLBACK_NOTE}` };
   }
+  const pinIntegrity = typeof pin?.integrity === "string" ? pin.integrity : undefined;
+  if (pinIntegrity) {
+    const computed = computeSriHash(Buffer.from(body.bytes));
+    if (computed !== pinIntegrity) {
+      throw new Error(
+        `Version manifest integrity mismatch for ${url} — expected ${pinIntegrity}, computed ${computed}. Refusing to fall back to GitHub.`,
+      );
+    }
+  }
+  const source = manifestSourceOf(body.manifest);
+  if (typeof body.manifest.gitSha !== "string" || body.manifest.gitSha.length === 0) {
+    return {
+      warning: `the version manifest records no git sha (it pins content hashes only) — ${HEAD_FALLBACK_NOTE}; future deploys pin the exact commit`,
+      ...(source ? { source } : {}),
+    };
+  }
+  return { sha: body.manifest.gitSha, ...(source ? { source } : {}) };
 }
+
+const FROM_REMEDIES =
+  "Pass the upstream explicitly: --from bos://<account>/<gateway> or --from <owner>/<repo>";
 
 export async function resolveImportChain(input: {
   workspace: string;
@@ -899,7 +917,9 @@ export async function resolveImportChain(input: {
   io?: ResolutionIo;
   fetchVersionManifest?: VersionManifestFetcher;
 }): Promise<{
-  spec: { kind: "github"; repo: string; ref?: string };
+  spec:
+    | { kind: "github"; repo: string; ref?: string }
+    | { kind: "archive"; url: string; integrity: string };
   provenance: ImportChainProvenance;
 }> {
   const fromBosSpec = input.entrySpec !== undefined;
@@ -907,9 +927,7 @@ export async function resolveImportChain(input: {
     ? `bos://${input.entrySpec!.account}/${input.entrySpec!.gateway}`
     : (localConfigEntryPath(input.projectDir) ?? null);
   if (!entry) {
-    throw new Error(
-      "No authored config (bos.app.ts) found — pass an upstream explicitly with --from",
-    );
+    throw new Error(`No authored config (bos.app.ts) found — ${FROM_REMEDIES}`);
   }
 
   const links: WalkLink[] = [];
@@ -926,19 +944,18 @@ export async function resolveImportChain(input: {
     throw new Error(`Empty extends chain from ${entry}`);
   }
 
-  const workspace = input.workspace;
   const declaredIndex = links.findIndex(
-    (link) => localWorkspaceSlotOf(link.config, workspace) !== null,
+    (link) => localWorkspaceSlotOf(link.config, input.workspace) !== null,
   );
   if (declaredIndex === -1) {
     const chainRefs = links.map((link) => link.ref).join(" -> ");
     throw new Error(
-      `No runtime in the extends chain declares workspace "${workspace}" (${chainRefs}). Pass the upstream explicitly with --from.`,
+      `No runtime in the extends chain declares workspace "${input.workspace}" (${chainRefs}). ${FROM_REMEDIES}.`,
     );
   }
   if (!fromBosSpec && declaredIndex === 0) {
     throw new Error(
-      `Workspace "${workspace}" is declared locally in your authored config — bos import targets an upstream ancestor`,
+      `Workspace "${input.workspace}" is declared locally in your authored config — bos import targets an upstream ancestor`,
     );
   }
 
@@ -954,19 +971,28 @@ export async function resolveImportChain(input: {
       repository = value;
     }
   }
-  if (!repository) {
+
+  const warnings: string[] = [];
+  const slot = localWorkspaceSlotOf(ancestor.config, input.workspace)!.slot;
+  const ancestorEntry = configEntryAt(ancestor.config, slot);
+  const pin = await resolvePinnedSource(ancestorEntry, input.fetchVersionManifest);
+  if (pin.warning) warnings.push(pin.warning);
+
+  const production =
+    typeof ancestorEntry?.production === "string" ? ancestorEntry.production : undefined;
+  const sourceArchive =
+    pin.source && production
+      ? {
+          file: pin.source.file,
+          url: `${production.replace(/\/+$/, "")}/${pin.source.file}`,
+          integrity: pin.source.integrity,
+        }
+      : undefined;
+  if (!sourceArchive && !repository) {
     throw new Error(
       `No repository found along the extends chain above ${ancestorRef} — the declaring runtime must publish its source (repository field in bos.app.ts)`,
     );
   }
-
-  const warnings: string[] = [];
-  const slot = localWorkspaceSlotOf(ancestor.config, workspace)!.slot;
-  const pin = await resolvePinnedSha(
-    configEntryAt(ancestor.config, slot),
-    input.fetchVersionManifest,
-  );
-  if (pin.warning) warnings.push(pin.warning);
 
   const extendsRef = fromBosSpec
     ? entry
@@ -984,13 +1010,27 @@ export async function resolveImportChain(input: {
         }
       })();
 
+  if (sourceArchive) {
+    return {
+      spec: { kind: "archive", url: sourceArchive.url, integrity: sourceArchive.integrity },
+      provenance: {
+        extendsRef,
+        ancestorRef,
+        ...(repository ? { repository } : {}),
+        ...(pin.sha ? { pinnedSha: pin.sha } : {}),
+        sourceArchive,
+        warnings,
+      },
+    };
+  }
+
   return {
-    spec: { kind: "github", repo: repository, ...(pin.sha ? { ref: pin.sha } : {}) },
+    spec: { kind: "github", repo: repository!, ...(pin.sha ? { ref: pin.sha } : {}) },
     provenance: {
       extendsRef,
       ancestorRef,
-      repository,
       ...(pin.sha ? { pinnedSha: pin.sha } : {}),
+      repository: repository!,
       warnings,
     },
   };
@@ -998,7 +1038,7 @@ export async function resolveImportChain(input: {
 
 interface ImportPlan {
   fromLabel: string;
-  spec: ImportFromSpec & { kind: "github" | "local" };
+  spec: ImportFromSpec & { kind: "github" | "local" | "archive" };
   chain?: ImportChainProvenance;
 }
 
@@ -1031,22 +1071,153 @@ async function resolveImportPlan(input: {
   return { fromLabel: from, spec };
 }
 
-async function resolveImportSource(spec: ImportPlan["spec"]): Promise<{
+type TarballDownloader = (
+  repo: string,
+  ref?: string,
+) => Promise<{
+  dir: string;
+  cleanup: () => Promise<void>;
+  resolvedRef?: string;
+  resolvedSha?: string;
+}>;
+
+type ArchiveFetcher = (url: string) => Promise<Uint8Array>;
+
+async function defaultArchiveFetch(url: string): Promise<Uint8Array> {
+  const response = await fetchResponse(url, { redirect: "follow", timeout: "60 seconds" });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+async function extractArchive(bytes: Uint8Array): Promise<{
+  root: string;
+  cleanup: () => Promise<void>;
+}> {
+  const tmpDir = mkdtempSync(join(tmpdir(), "bos-import-archive-"));
+  const archivePath = join(tmpDir, "source.tar.gz");
+  const extractDir = mkdtempSync(join(tmpdir(), "bos-import-archive-src-"));
+  try {
+    writeFileSync(archivePath, bytes);
+    await tarExtract({ cwd: extractDir, file: archivePath, strip: 0 });
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+  return {
+    root: extractDir,
+    cleanup: async () => {
+      rmSync(extractDir, { recursive: true, force: true });
+    },
+  };
+}
+
+async function fetchGithubSource(input: {
+  repo: string;
+  ref?: string;
+  pinnedSha?: string;
+  download: TarballDownloader;
+}): Promise<{
+  source: { root: string; cleanup: () => Promise<void>; ref: string; resolvedSha?: string };
+  fallbackWarning?: string;
+}> {
+  const pinned = input.pinnedSha !== undefined && input.ref === input.pinnedSha;
+  try {
+    const tarball = await input.download(input.repo, input.ref);
+    return {
+      source: {
+        root: tarball.dir,
+        cleanup: tarball.cleanup,
+        ref: input.ref ?? tarball.resolvedRef ?? "main",
+        resolvedSha: tarball.resolvedSha,
+      },
+    };
+  } catch (error) {
+    if (!pinned) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    const tarball = await input.download(input.repo, undefined);
+    return {
+      source: {
+        root: tarball.dir,
+        cleanup: tarball.cleanup,
+        ref: tarball.resolvedRef ?? "main",
+        resolvedSha: tarball.resolvedSha,
+      },
+      fallbackWarning: `could not fetch the pinned commit ${input.pinnedSha} (${message}) — importing the default branch`,
+    };
+  }
+}
+
+export async function fetchSourceWithPinFallback(input: {
+  spec: ImportFromSpec & { kind: "github" | "local" | "archive" };
+  pinnedSha?: string;
+  download?: TarballDownloader;
+  fetchArchive?: ArchiveFetcher;
+  fallback?: { repo: string; ref?: string };
+}): Promise<{
+  source: { root: string; cleanup: () => Promise<void>; ref: string; resolvedSha?: string };
+  fallbackWarning?: string;
+}> {
+  if (input.spec.kind === "local") {
+    return { source: { root: input.spec.dir, cleanup: async () => {}, ref: "local" } };
+  }
+  const download = input.download ?? downloadTarball;
+  if (input.spec.kind === "archive") {
+    const fetchArchive = input.fetchArchive ?? defaultArchiveFetch;
+    try {
+      const bytes = await fetchArchive(input.spec.url);
+      const computed = computeSriHash(Buffer.from(bytes));
+      if (computed !== input.spec.integrity) {
+        throw new Error(
+          `integrity mismatch for ${input.spec.url} — expected ${input.spec.integrity}, computed ${computed}`,
+        );
+      }
+      const extracted = await extractArchive(bytes);
+      return { source: { ...extracted, ref: "source archive" } };
+    } catch (error) {
+      if (!input.fallback) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      const gh = await fetchGithubSource({
+        repo: input.fallback.repo,
+        ref: input.fallback.ref,
+        pinnedSha: input.pinnedSha,
+        download,
+      });
+      return {
+        ...gh,
+        fallbackWarning: `could not fetch the source archive (${message}) — importing from ${input.fallback.repo} instead`,
+      };
+    }
+  }
+  return fetchGithubSource({
+    repo: input.spec.repo,
+    ref: input.spec.ref,
+    pinnedSha: input.pinnedSha,
+    download,
+  });
+}
+
+async function resolveImportSource(
+  spec: ImportPlan["spec"],
+  chain?: ImportChainProvenance,
+): Promise<{
   root: string;
   cleanup: () => Promise<void>;
   ref: string;
   resolvedSha?: string;
+  fallbackWarning?: string;
 }> {
-  if (spec.kind === "local") {
-    return { root: spec.dir, cleanup: async () => {}, ref: "local" };
-  }
-  const tarball = await downloadTarball(spec.repo, spec.ref);
-  return {
-    root: tarball.dir,
-    cleanup: tarball.cleanup,
-    ref: spec.ref ?? tarball.resolvedRef ?? "main",
-    resolvedSha: tarball.resolvedSha,
-  };
+  const { source, fallbackWarning } = await fetchSourceWithPinFallback({
+    spec,
+    pinnedSha: chain?.pinnedSha,
+    fallback: chain?.repository
+      ? {
+          repo: chain.repository,
+          ...(chain.pinnedSha ? { ref: chain.pinnedSha } : {}),
+        }
+      : undefined,
+  });
+  return { ...source, fallbackWarning };
 }
 
 export async function importWorkspace(
@@ -1088,7 +1259,15 @@ export async function importWorkspace(
     fromLabel = plan.fromLabel;
     chain = plan.chain;
     const spec = plan.spec;
-    const source = await resolveImportSource(spec);
+    const source = await resolveImportSource(spec, chain);
+    if (source.fallbackWarning && chain) {
+      const { sourceArchive: _dropped, ...rest } = chain;
+      chain = {
+        ...rest,
+        pinnedSha: undefined,
+        warnings: [...chain.warnings, source.fallbackWarning],
+      };
+    }
     ref = source.ref;
 
     try {
@@ -1101,10 +1280,10 @@ export async function importWorkspace(
         );
       }
 
-      const upstreamFiles = await listSubtreeFiles(source.root, workspace);
+      const upstreamFiles = await listWorkspaceSubtreeFiles(source.root, workspace);
       const localWorkspaceDir = join(projectDir, workspace);
       const localFiles = existsSync(localWorkspaceDir)
-        ? await listSubtreeFiles(projectDir, workspace)
+        ? await listWorkspaceSubtreeFiles(projectDir, workspace)
         : [];
 
       const upstreamSet = new Set(upstreamFiles);

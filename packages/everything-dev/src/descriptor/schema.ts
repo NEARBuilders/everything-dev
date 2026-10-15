@@ -123,6 +123,7 @@ export const AppDescriptorSchema = z
     publish: z
       .object({
         auth: z.enum(["session", "key", "custody"]).optional(),
+        sourcePublish: z.boolean().optional(),
       })
       .strict()
       .optional(),
