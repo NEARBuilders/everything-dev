@@ -6,7 +6,6 @@ import { resetConfigPathCache } from "../../src/config";
 import type { ImportOptions } from "../../src/contract";
 
 const WS = "plugins/auth";
-const _SCRATCH = join(import.meta.dirname, "..", "fixtures", "bos-import-chain-int-scratch");
 
 describe("bos import — chain-resolved source (from omitted)", () => {
   let childDir: string;
@@ -83,7 +82,8 @@ export default App({
     const result = await importWorkspace(childDir, options());
     expect(result.status).toBe("error");
     expect(result.error).toContain(`No runtime in the extends chain declares workspace "${WS}"`);
-    expect(result.error).toContain("Pass the upstream explicitly with --from");
+    expect(result.error).toContain("--from bos://<account>/<gateway>");
+    expect(result.error).toContain("--from <owner>/<repo>");
   });
 
   it("rejects a targeted bos:// source", async () => {

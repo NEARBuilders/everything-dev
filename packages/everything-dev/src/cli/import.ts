@@ -892,6 +892,9 @@ export async function resolvePinnedSha(
   }
 }
 
+const FROM_REMEDIES =
+  "Pass the upstream explicitly: --from bos://<account>/<gateway> or --from <owner>/<repo>";
+
 export async function resolveImportChain(input: {
   workspace: string;
   projectDir: string;
@@ -907,9 +910,7 @@ export async function resolveImportChain(input: {
     ? `bos://${input.entrySpec!.account}/${input.entrySpec!.gateway}`
     : (localConfigEntryPath(input.projectDir) ?? null);
   if (!entry) {
-    throw new Error(
-      "No authored config (bos.app.ts) found — pass an upstream explicitly with --from",
-    );
+    throw new Error(`No authored config (bos.app.ts) found — ${FROM_REMEDIES}`);
   }
 
   const links: WalkLink[] = [];
@@ -926,19 +927,18 @@ export async function resolveImportChain(input: {
     throw new Error(`Empty extends chain from ${entry}`);
   }
 
-  const workspace = input.workspace;
   const declaredIndex = links.findIndex(
-    (link) => localWorkspaceSlotOf(link.config, workspace) !== null,
+    (link) => localWorkspaceSlotOf(link.config, input.workspace) !== null,
   );
   if (declaredIndex === -1) {
     const chainRefs = links.map((link) => link.ref).join(" -> ");
     throw new Error(
-      `No runtime in the extends chain declares workspace "${workspace}" (${chainRefs}). Pass the upstream explicitly with --from.`,
+      `No runtime in the extends chain declares workspace "${input.workspace}" (${chainRefs}). ${FROM_REMEDIES}.`,
     );
   }
   if (!fromBosSpec && declaredIndex === 0) {
     throw new Error(
-      `Workspace "${workspace}" is declared locally in your authored config — bos import targets an upstream ancestor`,
+      `Workspace "${input.workspace}" is declared locally in your authored config — bos import targets an upstream ancestor`,
     );
   }
 
@@ -961,7 +961,7 @@ export async function resolveImportChain(input: {
   }
 
   const warnings: string[] = [];
-  const slot = localWorkspaceSlotOf(ancestor.config, workspace)!.slot;
+  const slot = localWorkspaceSlotOf(ancestor.config, input.workspace)!.slot;
   const pin = await resolvePinnedSha(
     configEntryAt(ancestor.config, slot),
     input.fetchVersionManifest,
@@ -1031,22 +1031,67 @@ async function resolveImportPlan(input: {
   return { fromLabel: from, spec };
 }
 
-async function resolveImportSource(spec: ImportPlan["spec"]): Promise<{
+type TarballDownloader = (
+  repo: string,
+  ref?: string,
+) => Promise<{
+  dir: string;
+  cleanup: () => Promise<void>;
+  resolvedRef?: string;
+  resolvedSha?: string;
+}>;
+
+export async function fetchSourceWithPinFallback(input: {
+  spec: ImportFromSpec & { kind: "github" | "local" };
+  pinnedSha?: string;
+  download?: TarballDownloader;
+}): Promise<{
+  source: { root: string; cleanup: () => Promise<void>; ref: string; resolvedSha?: string };
+  fallbackWarning?: string;
+}> {
+  if (input.spec.kind === "local") {
+    return { source: { root: input.spec.dir, cleanup: async () => {}, ref: "local" } };
+  }
+  const download = input.download ?? downloadTarball;
+  const pinned = input.pinnedSha !== undefined && input.spec.ref === input.pinnedSha;
+  try {
+    const tarball = await download(input.spec.repo, input.spec.ref);
+    return {
+      source: {
+        root: tarball.dir,
+        cleanup: tarball.cleanup,
+        ref: input.spec.ref ?? tarball.resolvedRef ?? "main",
+        resolvedSha: tarball.resolvedSha,
+      },
+    };
+  } catch (error) {
+    if (!pinned) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    const tarball = await download(input.spec.repo, undefined);
+    return {
+      source: {
+        root: tarball.dir,
+        cleanup: tarball.cleanup,
+        ref: tarball.resolvedRef ?? "main",
+        resolvedSha: tarball.resolvedSha,
+      },
+      fallbackWarning: `could not fetch the pinned commit ${input.pinnedSha} (${message}) — importing the default branch`,
+    };
+  }
+}
+
+async function resolveImportSource(
+  spec: ImportPlan["spec"],
+  pinnedSha?: string,
+): Promise<{
   root: string;
   cleanup: () => Promise<void>;
   ref: string;
   resolvedSha?: string;
+  fallbackWarning?: string;
 }> {
-  if (spec.kind === "local") {
-    return { root: spec.dir, cleanup: async () => {}, ref: "local" };
-  }
-  const tarball = await downloadTarball(spec.repo, spec.ref);
-  return {
-    root: tarball.dir,
-    cleanup: tarball.cleanup,
-    ref: spec.ref ?? tarball.resolvedRef ?? "main",
-    resolvedSha: tarball.resolvedSha,
-  };
+  const { source, fallbackWarning } = await fetchSourceWithPinFallback({ spec, pinnedSha });
+  return { ...source, fallbackWarning };
 }
 
 export async function importWorkspace(
@@ -1088,7 +1133,14 @@ export async function importWorkspace(
     fromLabel = plan.fromLabel;
     chain = plan.chain;
     const spec = plan.spec;
-    const source = await resolveImportSource(spec);
+    const source = await resolveImportSource(spec, chain?.pinnedSha);
+    if (source.fallbackWarning && chain) {
+      chain = {
+        ...chain,
+        pinnedSha: undefined,
+        warnings: [...chain.warnings, source.fallbackWarning],
+      };
+    }
     ref = source.ref;
 
     try {

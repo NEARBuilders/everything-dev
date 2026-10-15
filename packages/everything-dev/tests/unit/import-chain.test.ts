@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   configEntryAt,
+  fetchSourceWithPinFallback,
   localWorkspaceSlotOf,
   resolveImportChain,
   resolvePinnedSha,
@@ -151,6 +152,69 @@ describe("bos import — configEntryAt / resolvePinnedSha", () => {
   });
 });
 
+describe("bos import — fetchSourceWithPinFallback", () => {
+  const tarball = (tag: string) => ({
+    dir: `/tmp/${tag}`,
+    cleanup: async () => {},
+    resolvedRef: tag,
+    resolvedSha: `sha-${tag}`,
+  });
+
+  it("downloads the pinned ref when it fetches cleanly", async () => {
+    const refs: Array<string | undefined> = [];
+    const result = await fetchSourceWithPinFallback({
+      spec: { kind: "github", repo: "https://github.com/a/b", ref: "deadbeef" },
+      pinnedSha: "deadbeef",
+      download: async (_repo, ref) => {
+        refs.push(ref);
+        return tarball(ref ?? "main");
+      },
+    });
+    expect(refs).toEqual(["deadbeef"]);
+    expect(result.source.ref).toBe("deadbeef");
+    expect(result.fallbackWarning).toBeUndefined();
+  });
+
+  it("falls back to the default branch when the pinned commit does not fetch", async () => {
+    const refs: Array<string | undefined> = [];
+    const result = await fetchSourceWithPinFallback({
+      spec: { kind: "github", repo: "https://github.com/a/b", ref: "deadbeef" },
+      pinnedSha: "deadbeef",
+      download: async (_repo, ref) => {
+        refs.push(ref);
+        if (ref) throw new Error(`ref ${ref} not found`);
+        return tarball("main");
+      },
+    });
+    expect(refs).toEqual(["deadbeef", undefined]);
+    expect(result.source.ref).toBe("main");
+    expect(result.fallbackWarning).toContain("deadbeef");
+    expect(result.fallbackWarning).toContain("default branch");
+  });
+
+  it("propagates failure when the ref was not chain-pinned", async () => {
+    await expect(
+      fetchSourceWithPinFallback({
+        spec: { kind: "github", repo: "https://github.com/a/b", ref: "v1" },
+        download: async () => {
+          throw new Error("network down");
+        },
+      }),
+    ).rejects.toThrow("network down");
+  });
+
+  it("passes local specs through untouched", async () => {
+    const result = await fetchSourceWithPinFallback({
+      spec: { kind: "local", dir: "/somewhere" },
+      pinnedSha: "deadbeef",
+      download: async () => {
+        throw new Error("must not download");
+      },
+    });
+    expect(result.source).toMatchObject({ root: "/somewhere", ref: "local" });
+  });
+});
+
 describe("bos import — resolveImportChain", () => {
   it("resolves the nearest ancestor declaring the workspace through the extends chain", async () => {
     const resolved = await resolveImportChain({
@@ -187,12 +251,19 @@ describe("bos import — resolveImportChain", () => {
     expect(resolved.provenance.ancestorRef).toBe("bos://base.near/base");
   });
 
-  it("prefers the declaring ancestor's repository before falling back rootward", async () => {
+  it("prefers the declaring ancestor's repository over the root's when both declare one", async () => {
     const resolved = await resolveImportChain({
       workspace: WS,
       projectDir: childDir,
       io: ioWithChain({
-        "bos://base.near/base": baseConfig({ repository: "https://github.com/base/runtime" }),
+        "bos://base.near/base": baseConfig({
+          repository: "https://github.com/base/runtime",
+          extends: "bos://root.near/root",
+        }),
+        "bos://root.near/root": {
+          ...grandparentConfig,
+          repository: "https://github.com/root/runtime",
+        },
       }),
     });
 
