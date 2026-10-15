@@ -121,6 +121,12 @@ export const authVariablesSchema = z.object({
     })
     .optional(),
   siwn: z.union([authSiwnRecipientSchema, authSiwnRecipientsSchema]),
+  agentApi: z
+    .object({
+      baseUrl: z.string().optional(),
+      timeoutMs: z.number().optional(),
+    })
+    .optional(),
   deviceLink: z
     .object({
       clientId: z.string().min(1).default(DEFAULT_DEVICE_LINK_CLIENT_ID),
@@ -144,6 +150,7 @@ export const authSecretsSchema = z.object({
   TWILIO_PHONE_NUMBER: z.string().optional(),
   NEAR_RELAYER_PRIVATE_KEY_MAINNET: z.string().optional(),
   NEAR_RELAYER_PRIVATE_KEY_TESTNET: z.string().optional(),
+  NEAR_INTENTS_AGENT_API_KEY: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
 });
 

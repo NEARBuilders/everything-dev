@@ -13,7 +13,19 @@ import {
   phoneNumber,
 } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
-import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "better-near-auth";
+import {
+  adminAc,
+  defaultStatements,
+  memberAc,
+  ownerAc,
+} from "better-auth/plugins/organization/access";
+import {
+  type AgentConnectOptions,
+  agentConnect,
+  DEFAULT_DEVICE_LINK_CLIENT_ID,
+  type SIWNPluginOptions,
+  siwn,
+} from "better-near-auth";
 import { eq, gt } from "drizzle-orm";
 import type { AuthConfig, AuthPermissionStatements } from "./auth-config";
 import type { Database as AuthDatabase } from "./db";
@@ -279,6 +291,15 @@ export function createAuthInstance(
   const mainnetRecipient = isRecipientsConfig(siwnOptions)
     ? siwnOptions.recipients.mainnet
     : siwnOptions.recipient;
+  const agentApiOptions: AgentConnectOptions = {
+    apiKey: config.agentApi?.apiKey,
+    baseUrl: config.agentApi?.baseUrl,
+    timeoutMs: config.agentApi?.timeoutMs,
+    passkeyOwner: {
+      rpId: passkeyOptions.rpID,
+      origin: passkeyOptions.origin[0] ?? config.baseUrl,
+    },
+  };
 
   return betterAuth({
     database: drizzleAdapter(db, {
@@ -303,6 +324,7 @@ export function createAuthInstance(
     socialProviders,
     plugins: [
       siwn(siwnOptions),
+      agentConnect(agentApiOptions),
       admin({ defaultRole: "user", adminRoles: ["admin"] }),
       anonymous({ emailDomainName: mainnetRecipient }),
       haveIBeenPwned({ enabled: process.env.NODE_ENV !== "test" }),

@@ -666,6 +666,9 @@ importers:
 
   packages/better-near-auth:
     dependencies:
+      '@near-intents-agent-api/sdk':
+        specifier: ^0.4.1
+        version: 0.4.1
       '@noble/curves':
         specifier: ^2.4.0
         version: 2.4.0
@@ -678,6 +681,9 @@ importers:
       '@scure/base':
         specifier: ^2.2.0
         version: 2.4.0
+      '@simplewebauthn/browser':
+        specifier: ^13.3.0
+        version: 13.3.0
       nanostores:
         specifier: ^1.1.0
         version: 1.5.4
@@ -3288,6 +3294,10 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
+
+  '@near-intents-agent-api/sdk@0.4.1':
+    resolution: {integrity: sha512-1b9QlOK/j2jiFPfFuSfUS9ZRox+EHOuF8gd0bfwzasAYdGZ1S5QOOIAAYS6Vv6DAhdJHWwH7xk/rgVaQmoQCQQ==}
+    engines: {node: '>=24'}
 
   '@neodrag/core@3.0.0-next.11':
     resolution: {integrity: sha512-3WQWxyrbxiaK9zS5JU2wJsW2gpoQlZBXVghduBh61JpqaeE0T0cte8R0qYK2RuJo3J2TYQYqxO19CpG/C1i5eg==}
@@ -9470,6 +9480,12 @@ snapshots:
       '@emnapi/runtime': 1.11.3
       '@tybys/wasm-util': 0.10.4
     optional: true
+
+  '@near-intents-agent-api/sdk@0.4.1':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@scure/base': 2.4.0
 
   '@neodrag/core@3.0.0-next.11': {}
 
