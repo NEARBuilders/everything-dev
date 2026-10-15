@@ -62,7 +62,9 @@ test.describe("Device Link", () => {
   test("malformed codes are rejected client-side without a roundtrip", async ({ page }) => {
     const claimRequests: string[] = [];
     page.on("request", (request) => {
-      if (/\/device\?/.test(request.url())) claimRequests.push(request.url());
+      if (/\/device\?/.test(request.url()) && request.resourceType() !== "document") {
+        claimRequests.push(request.url());
+      }
     });
 
     await page.goto("/login/device", { waitUntil: "domcontentloaded" });
@@ -79,7 +81,9 @@ test.describe("Device Link", () => {
 
     const claimRequests: string[] = [];
     page.on("request", (request) => {
-      if (/\/device\?/.test(request.url())) claimRequests.push(request.url());
+      if (/\/device\?/.test(request.url()) && request.resourceType() !== "document") {
+        claimRequests.push(request.url());
+      }
     });
 
     await page.goto("/login/device?user_code=ZZZZZZZZ", { waitUntil: "domcontentloaded" });
@@ -95,7 +99,15 @@ test.describe("Device Link", () => {
 
   test("a network failure while claiming surfaces a connection error", async ({ page }) => {
     await injectAdminCookies(page);
-    await page.route(/\/device\?/, (route) => route.abort("connectionrefused"));
+    // Abort the claim API, not the page navigation — /device? matches both,
+    // and aborting the document request would kill the goto itself.
+    await page.route(/\/device\?/, (route) => {
+      if (route.request().resourceType() === "document") {
+        void route.continue();
+        return;
+      }
+      void route.abort("connectionrefused");
+    });
 
     await page.goto("/login/device?user_code=ABCD2345", { waitUntil: "domcontentloaded" });
     await waitForApp(page);
