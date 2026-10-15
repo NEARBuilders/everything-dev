@@ -1208,6 +1208,17 @@ async function main() {
           console.log(`  ${colors.dim("Policy & funding:")} ${result.custodyWallet.handoffUrl}`);
         }
       }
+      if (result.outlayerCli?.status === "linked") {
+        console.log(
+          `  ${colors.dim("OutLayer CLI:")} logged in on ${result.outlayerCli.network}${result.outlayerCli.detail ? ` — ${result.outlayerCli.detail.split("\n")[0]}` : ""}`,
+        );
+      } else if (result.outlayerCli?.status === "cli-missing") {
+        console.log(
+          colors.dim(
+            "  OutLayer CLI not installed — cargo install outlayer-cli, then re-run `bos login --custody` to link it.",
+          ),
+        );
+      }
       console.log();
       return;
     }

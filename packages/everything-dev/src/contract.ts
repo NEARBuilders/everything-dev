@@ -391,6 +391,13 @@ export const LoginResultSchema = z.object({
       handoffUrl: z.string().nullish(),
     })
     .nullish(),
+  outlayerCli: z
+    .object({
+      status: z.enum(["linked", "cli-missing", "error"]),
+      network: z.enum(["mainnet", "testnet"]),
+      detail: z.string().nullish(),
+    })
+    .nullish(),
   warning: z.string().nullish(),
   error: z.string().optional(),
 });

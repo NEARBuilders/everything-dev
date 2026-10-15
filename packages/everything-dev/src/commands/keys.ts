@@ -22,6 +22,7 @@ import {
   listPublishKeys,
 } from "../near-cli";
 import { getNetworkIdForAccount } from "../network";
+import { loginOutlayerCli } from "../outlayer-login";
 import type { ResolutionSession } from "../resolution/session";
 import { colors } from "../utils/theme";
 import { type BosBuilder, BosDepsTag } from "./shared";
@@ -197,6 +198,15 @@ export function registerKeys(builder: BosBuilder) {
           }
         }
 
+        let outlayerCli: LoginResult["outlayerCli"] = null;
+        if (input.custody && approval.custodyWallet) {
+          outlayerCli = await loginOutlayerCli(approval.custodyWallet);
+          if (outlayerCli.status === "error") {
+            const failure = `OutLayer CLI login failed: ${outlayerCli.detail}`;
+            warning = warning ? `${warning} ${failure}` : failure;
+          }
+        }
+
         return {
           status: "logged-in" as const,
           siteUrl,
@@ -212,6 +222,7 @@ export function registerKeys(builder: BosBuilder) {
                 handoffUrl: approval.custodyWallet.handoffUrl,
               }
             : null,
+          outlayerCli,
           warning,
         };
       } catch (error) {
