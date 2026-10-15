@@ -413,7 +413,6 @@ export const custodyWallet = pgTable(
     walletId: text("wallet_id").notNull(),
     nearAccountId: text("near_account_id").notNull(),
     encryptedApiKey: text("encrypted_api_key").notNull(),
-    iv: text("iv").notNull(),
     handoffUrl: text("handoff_url"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     lastUsedAt: timestamp("last_used_at", { mode: "date", withTimezone: true }),

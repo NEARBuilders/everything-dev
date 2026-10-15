@@ -77,9 +77,6 @@ function DeviceApprovePage() {
     onSuccess: (data) => {
       setCustodyWallet(data);
     },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to provision the custody wallet");
-    },
   });
 
   const nearAccountsQuery = useQuery({

@@ -260,11 +260,14 @@ async function fetchCustodyCredential(
   if (!data.apiKey?.startsWith("wk_")) {
     throw new Error("Custody wallet credential returned no API key");
   }
+  if (data.network !== "mainnet" && data.network !== "testnet") {
+    throw new Error(`Custody wallet credential returned unknown network "${data.network}"`);
+  }
   return {
     apiKey: data.apiKey,
     walletId: data.walletId,
     nearAccountId: data.nearAccountId,
-    network: data.network === "testnet" ? "testnet" : "mainnet",
+    network: data.network,
     handoffUrl: data.handoffUrl ?? null,
     registeredAt: data.registeredAt ?? new Date().toISOString(),
   };

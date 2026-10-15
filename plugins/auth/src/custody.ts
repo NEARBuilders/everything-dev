@@ -6,62 +6,23 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "./db";
 import * as schema from "./db/schema";
+import { createSealedBox } from "./sealed-box";
 
 const KEY_SALT = "everything-dev-custody-wallet";
 const NETWORKS = ["mainnet", "testnet"] as const;
-type NearNetwork = (typeof NETWORKS)[number];
 
 const registerBody = z.object({
   network: z.enum(NETWORKS).optional(),
 });
 
-async function deriveAesKey(secret: string): Promise<CryptoKey> {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HKDF" },
-    false,
-    ["deriveKey"],
-  );
-  return crypto.subtle.deriveKey(
-    {
-      name: "HKDF",
-      hash: "SHA-256",
-      salt: new TextEncoder().encode(KEY_SALT),
-      info: new Uint8Array(0),
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
-}
+const credentialSummary = {
+  walletId: schema.custodyWallet.walletId,
+  nearAccountId: schema.custodyWallet.nearAccountId,
+  handoffUrl: schema.custodyWallet.handoffUrl,
+} as const;
 
-export async function sealApiKey(secret: string, apiKey: string) {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encrypted = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    await deriveAesKey(secret),
-    new TextEncoder().encode(apiKey),
-  );
-  return {
-    encryptedApiKey: `${Buffer.from(iv).toString("base64url")}.${Buffer.from(encrypted).toString("base64url")}`,
-    iv: Buffer.from(iv).toString("base64url"),
-  };
-}
-
-export async function openApiKey(secret: string, sealed: { encryptedApiKey: string; iv: string }) {
-  const [iv, encrypted] = sealed.encryptedApiKey.split(".");
-  if (!iv || !encrypted) throw new Error("Malformed custody wallet ciphertext");
-  const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: Buffer.from(iv, "base64url") },
-    await deriveAesKey(secret),
-    Buffer.from(encrypted, "base64url"),
-  );
-  return new TextDecoder().decode(decrypted);
-}
-
-export function custody(db: Database, secret: string, defaultNetwork: NearNetwork) {
+export function custody(db: Database, secret: string, defaultNetwork: (typeof NETWORKS)[number]) {
+  const box = createSealedBox(KEY_SALT, secret);
   return {
     id: "custody",
     endpoints: {
@@ -72,11 +33,7 @@ export function custody(db: Database, secret: string, defaultNetwork: NearNetwor
           const { user } = ctx.context.session;
           const network = ctx.body.network ?? defaultNetwork;
           const [existing] = await db
-            .select({
-              walletId: schema.custodyWallet.walletId,
-              nearAccountId: schema.custodyWallet.nearAccountId,
-              handoffUrl: schema.custodyWallet.handoffUrl,
-            })
+            .select(credentialSummary)
             .from(schema.custodyWallet)
             .where(
               and(
@@ -94,7 +51,6 @@ export function custody(db: Database, secret: string, defaultNetwork: NearNetwor
               message: "OutLayer wallet registration returned no API key",
             });
           }
-          const sealed = await sealApiKey(secret, registered.api_key);
           const [row] = await db
             .insert(schema.custodyWallet)
             .values({
@@ -104,13 +60,9 @@ export function custody(db: Database, secret: string, defaultNetwork: NearNetwor
               walletId: registered.wallet_id,
               nearAccountId: registered.near_account_id,
               handoffUrl: registered.handoff_url ?? null,
-              ...sealed,
+              encryptedApiKey: await box.seal(registered.api_key),
             })
-            .returning({
-              walletId: schema.custodyWallet.walletId,
-              nearAccountId: schema.custodyWallet.nearAccountId,
-              handoffUrl: schema.custodyWallet.handoffUrl,
-            });
+            .returning(credentialSummary);
           return ctx.json({ registered: true, network, ...row });
         },
       ),
@@ -140,7 +92,7 @@ export function custody(db: Database, secret: string, defaultNetwork: NearNetwor
             .set({ lastUsedAt: new Date() })
             .where(eq(schema.custodyWallet.id, row.id));
           return ctx.json({
-            apiKey: await openApiKey(secret, row),
+            apiKey: await box.open(row.encryptedApiKey),
             walletId: row.walletId,
             nearAccountId: row.nearAccountId,
             network,

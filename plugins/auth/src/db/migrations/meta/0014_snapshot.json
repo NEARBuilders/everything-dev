@@ -1,5 +1,5 @@
 {
-  "id": "52ba9e22-dfb9-4de0-9f0e-60744af87bc2",
+  "id": "293bc059-79e1-4ac2-a90d-63b2dd52a5fb",
   "prevId": "bbb1b325-4df5-4dc0-b58c-123a281e246a",
   "version": "7",
   "dialect": "postgresql",
@@ -356,12 +356,6 @@
         },
         "encrypted_api_key": {
           "name": "encrypted_api_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "iv": {
-          "name": "iv",
           "type": "text",
           "primaryKey": false,
           "notNull": true

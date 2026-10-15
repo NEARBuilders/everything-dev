@@ -146,9 +146,7 @@ export function resolveCdnDeployInputs(input: {
     };
   }
   const uploadIdentities = new Set(
-    [input.session?.accountId, input.custodyAccount].filter(
-      (id): id is string => !!id && id !== undefined,
-    ),
+    [input.session?.accountId, input.custodyAccount].filter((id): id is string => !!id),
   );
   if (uploadIdentities.size > 0 && !uploadIdentities.has(input.account)) {
     const sessionAccount = input.session?.accountId;

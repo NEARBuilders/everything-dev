@@ -1021,16 +1021,16 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
           status: "error",
           registryUrl,
           error:
-            'publish.auth = "custody" requires a custody wallet. Run `bos login --custody` first.',
+            'the authored config sets publish.auth = "custody", but no custody wallet is stored in ' +
+            ".bos/. Run `bos login --custody` first.",
         };
       }
-      await ensureCustodyBalance(custodyWallet, network);
+      await ensureCustodyBalance(custodyWallet);
       console.log(
         `  Signing via ${colors.cyan(`OutLayer custody wallet ${custodyWallet.nearAccountId}`)}`,
       );
       result = await submitRegistryWriteCustody({
         contract: registryNamespace,
-        network,
         args: registryEntries,
         custodyWallet,
         idempotencyKey: `bos-publish-${fingerprint}`,

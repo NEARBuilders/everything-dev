@@ -13,13 +13,13 @@ const OUTLAYER_HOSTS: Record<NetworkId, string> = {
 
 export interface CustodySubmitOptions {
   contract: string;
-  network: NetworkId;
   args: Record<string, string>;
   custodyWallet: CustodyWalletRecord;
   idempotencyKey?: string;
 }
 
-function custodyClient(custodyWallet: CustodyWalletRecord, network: NetworkId): OutlayerClient {
+function custodyClient(custodyWallet: CustodyWalletRecord): OutlayerClient {
+  const network = custodyWallet.network;
   return new OutlayerClient({
     apiKey: custodyWallet.apiKey,
     network,
@@ -31,22 +31,23 @@ export function custodyFundUrl(custodyWallet: CustodyWalletRecord): string {
   return `https://app.outlayer.ai/wallet/fund?to=${custodyWallet.nearAccountId}&amount=0.05&token=near`;
 }
 
-export async function ensureCustodyBalance(
-  custodyWallet: CustodyWalletRecord,
-  network: NetworkId,
-): Promise<void> {
-  const client = custodyClient(custodyWallet, network);
-  const { balance } = await client.getBalance({ chain: "near" });
-  if (BigInt(balance) < BigInt(MIN_GAS_BALANCE)) {
-    throw new Error(
-      `The custody wallet ${custodyWallet.nearAccountId} holds ${balance} yoctoNEAR on ${network}, ` +
-        `below the gas minimum. Fund it at ${custodyFundUrl(custodyWallet)}`,
-    );
+export async function ensureCustodyBalance(custodyWallet: CustodyWalletRecord): Promise<void> {
+  const client = custodyClient(custodyWallet);
+  try {
+    const { balance } = await client.getBalance({ chain: "near" });
+    if (BigInt(balance) < BigInt(MIN_GAS_BALANCE)) {
+      throw new Error(
+        `The custody wallet ${custodyWallet.nearAccountId} holds ${balance} yoctoNEAR on ` +
+          `${custodyWallet.network}, below the gas minimum. Fund it at ${custodyFundUrl(custodyWallet)}`,
+      );
+    }
+  } catch (error) {
+    throw custodyPublishError(error, custodyWallet);
   }
 }
 
 export async function submitRegistryWriteCustody(opts: CustodySubmitOptions): Promise<RelayResult> {
-  const client = custodyClient(opts.custodyWallet, opts.network);
+  const client = custodyClient(opts.custodyWallet);
   try {
     const result = await client.call({
       receiver_id: opts.contract,
@@ -69,7 +70,8 @@ export async function submitRegistryWriteCustody(opts: CustodySubmitOptions): Pr
     }
     return { success: true, txHash: result.tx_hash ?? undefined };
   } catch (error) {
-    if (error instanceof OutlayerError && error.code === "onchain_tx_failed") {
+    const code: string = error instanceof OutlayerError ? error.code : "";
+    if (code === "onchain_tx_failed") {
       return { success: true };
     }
     throw custodyPublishError(error, opts.custodyWallet);
@@ -78,6 +80,7 @@ export async function submitRegistryWriteCustody(opts: CustodySubmitOptions): Pr
 
 function custodyPublishError(error: unknown, custodyWallet: CustodyWalletRecord): unknown {
   if (!(error instanceof OutlayerError)) return error;
+  const code: string = error.code;
   const context = custodyWallet.handoffUrl
     ? ` Manage the wallet at ${custodyWallet.handoffUrl}.`
     : "";
@@ -87,16 +90,16 @@ function custodyPublishError(error: unknown, custodyWallet: CustodyWalletRecord)
   if (error instanceof WalletFrozenError) {
     return new Error(`The custody wallet is frozen.${context}`);
   }
-  if (error.code === "insufficient_balance" || error.code === "wallet_underfunded") {
+  if (code === "insufficient_balance" || code === "wallet_underfunded") {
     const detail = error.message ? ` (${error.message})` : "";
     return new Error(
       `The custody wallet ran out of gas for the publish${detail}. Fund it at ${custodyFundUrl(custodyWallet)}`,
     );
   }
-  if (error.code === "invalid_api_key" || error.code === "missing_auth") {
+  if (code === "invalid_api_key" || code === "missing_auth") {
     return new Error(
       `The stored custody wallet key was rejected. Re-run \`bos login --custody\` to re-register.`,
     );
   }
-  return new Error(`Custody publish failed (${error.code}): ${error.message}`);
+  return new Error(`Custody publish failed (${code}): ${error.message}`);
 }

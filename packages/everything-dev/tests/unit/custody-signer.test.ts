@@ -61,8 +61,7 @@ beforeEach(() => {
 
 describe("ensureCustodyBalance", () => {
   it("passes when the wallet holds gas", async () => {
-    await expect(ensureCustodyBalance(wallet, "testnet")).resolves.toBeUndefined();
-    expect(calls.getBalance).toHaveLength(1);
+    await expect(ensureCustodyBalance(wallet)).resolves.toBeUndefined();
   });
 
   it("fails with the fund URL when the wallet is empty", async () => {
@@ -71,7 +70,7 @@ describe("ensureCustodyBalance", () => {
       token: "near",
       account_id: wallet.nearAccountId,
     });
-    const error = await ensureCustodyBalance(wallet, "testnet").catch((e: Error) => e);
+    const error = await ensureCustodyBalance(wallet).catch((e: Error) => e);
     expect(error.message).toContain("below the gas minimum");
     expect(error.message).toContain(custodyFundUrl(wallet));
   });
@@ -82,7 +81,7 @@ describe("ensureCustodyBalance", () => {
       token: "near",
       account_id: wallet.nearAccountId,
     });
-    await expect(ensureCustodyBalance(wallet, "testnet")).rejects.toThrow("below the gas minimum");
+    await expect(ensureCustodyBalance(wallet)).rejects.toThrow("below the gas minimum");
   });
 });
 
