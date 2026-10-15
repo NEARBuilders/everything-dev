@@ -29,6 +29,7 @@
     "@orpc/openapi": "catalog:",
     "@orpc/server": "catalog:",
     "@orpc/tanstack-query": "catalog:",
+    "@outlayer/sdk": "catalog:",
     "@phosphor-icons/react": "^2.1.10",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",

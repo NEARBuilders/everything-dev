@@ -619,6 +619,10 @@ Two sponsorship models share the same funded account. The **Sponsor** is the eph
 
 To switch to `RelayerExplicitConfig`, replace the rich-object shape with `relayer: { accountId: "relayer.<your-domain>.near", privateKey: process.env.RELAYER_PRIVATE_KEY, whitelistedContracts: [...], maxGasPerTransaction: "...", maxDepositPerTransaction: "0" }` and re-add the env var. The ephemeral key in the `relayerKey` table is ignored once an explicit key is provided.
 
+### Custody publish (publish.auth = "custody")
+
+`bos login --custody` registers an OutLayer Agent Custody wallet (TEE-held keys, one per user and NEAR network, stored encrypted in the auth plugin's `custody_wallet` table and re-fetchable on every re-login). The wallet's implicit hex account is the deploy's **machine identity**: under `publish.auth = "custody"` the authored config's `account` must equal `custodyWallet.nearAccountId`, and the FastKV write is submitted through OutLayer's coordinator (`/wallet/v1/call` → `__fastdata_kv`). Same ADR 0001 semantics as every other signing path: the write is action-indexed, a chain-side execution revert (`onchain_tx_failed`) still counts as submitted, and the FastKV read-back stays the authoritative check. The coordinator charges prepaid gas against the wallet's own balance (`wallet_underfunded` at 402 carries the exact cost) — fund it via the OutLayer dashboard link surfaced at login and in publish errors. When the `outlayer` CLI is on PATH, `bos login --custody` also links the wallet into it (`outlayer login <network> --wallet-key`), so one login serves both toolchains; `bos logout` deliberately leaves outlayer credentials alone. The same `wk_` credential pays for agent compute (payment keys, connectors); no binding to the user's named account is ever created.
+
 ## Security
 
 ### Shared Singleton Trust Model

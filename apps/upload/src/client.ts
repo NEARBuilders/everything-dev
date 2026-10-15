@@ -110,7 +110,10 @@ export interface UploadClient {
 
 const STATUS_ATTEMPTS = 3;
 const TRANSPORT_ATTEMPTS = 5;
-const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+/** 522/524 are Cloudflare's "connection timed out"/"origin exceeded the proxy
+ * timeout" codes — the origin may still have applied the upload, and the
+ * server-side SRI dedupe makes a retry idempotent. */
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504, 522, 524]);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const backoffMs = (attempt: number) => 1000 * attempt + Math.floor(Math.random() * 500);
 
@@ -136,6 +139,9 @@ function describeTransferFailure(status: number, detail: string): string {
   const trimmed = detail.slice(0, 300);
   if (status === 408 || /request timeout|bundle upload timed out/i.test(trimmed)) {
     return `${trimmed} — the serving host timed out the upload; raise BOS_STORAGE_UPLOAD_TIMEOUT_MS there or upload smaller batches (BOS_MAX_BUNDLE_UPLOAD_BYTES)`;
+  }
+  if (status === 524) {
+    return `Cloudflare gave up waiting for the upload service (proxy timeout) — the upload may still have been applied (server-side SRI dedupe makes retries idempotent). Upload smaller batches (BOS_MAX_BUNDLE_UPLOAD_BYTES)`;
   }
   try {
     const parsed = JSON.parse(detail) as { code?: unknown; message?: unknown };

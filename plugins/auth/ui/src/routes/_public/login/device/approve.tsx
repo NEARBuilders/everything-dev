@@ -17,6 +17,7 @@ type SearchParams = {
   account?: string;
   network?: string;
   source?: string;
+  custody?: string;
 };
 
 export const Route = createFileRoute("/_public/login/device/approve")({
@@ -28,6 +29,7 @@ export const Route = createFileRoute("/_public/login/device/approve")({
     account: typeof search.account === "string" ? search.account : undefined,
     network: typeof search.network === "string" ? search.network : undefined,
     source: typeof search.source === "string" ? search.source : undefined,
+    custody: search.custody === "1" ? "1" : undefined,
   }),
   component: DeviceApprovePage,
 });
@@ -36,10 +38,46 @@ function DeviceApprovePage() {
   const navigate = useNavigate();
   const auth = useAuthClient();
   const { data: session } = useQuery(sessionQueryOptions(auth));
-  const { user_code, pubKey, contract, account: configAccount, source } = Route.useSearch();
+  const {
+    user_code,
+    pubKey,
+    contract,
+    account: configAccount,
+    network,
+    custody,
+    source,
+  } = Route.useSearch();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [approved, setApproved] = useState(false);
+  const [custodyWallet, setCustodyWallet] = useState<{
+    walletId: string;
+    nearAccountId: string;
+    handoffUrl: string | null;
+  } | null>(null);
+
+  const isCustody = custody === "1";
+  const custodyNetwork = network === "testnet" ? "testnet" : "mainnet";
+
+  const registerCustodyWallet = useMutation({
+    mutationFn: async () => {
+      const { data, error: registerError } = await auth.$fetch<{
+        registered: boolean;
+        walletId: string;
+        nearAccountId: string;
+        handoffUrl: string | null;
+      }>("/custody/register", {
+        method: "POST",
+        body: { network: custodyNetwork },
+      });
+      if (registerError)
+        throw new Error(registerError.message ?? "Custody wallet registration failed");
+      return data;
+    },
+    onSuccess: (data) => {
+      setCustodyWallet(data);
+    },
+  });
 
   const nearAccountsQuery = useQuery({
     queryKey: ["near-accounts"],
@@ -86,6 +124,15 @@ function DeviceApprovePage() {
     if (!user_code) return;
     setPending(true);
     setError(null);
+    if (isCustody && !custodyWallet) {
+      try {
+        await registerCustodyWallet.mutateAsync();
+      } catch {
+        setPending(false);
+        setError("Custody wallet provisioning failed. Nothing was approved — try again.");
+        return;
+      }
+    }
     if (isDelegateMode) {
       try {
         await addDelegateKey.mutateAsync();
@@ -183,6 +230,39 @@ function DeviceApprovePage() {
               You're signed in as {signedInAccountId}, not {configAccount}. The key will be added to{" "}
               {signedInAccountId}.
             </p>
+          )}
+        </div>
+      )}
+
+      {isCustody && (
+        <div className="flex flex-col gap-2" data-testid="device.approve-custody">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="text-muted-foreground">Custody wallet</span>
+            <InfoPopover
+              title="Custody wallet"
+              body="Creates a new NEAR account whose keys live in OutLayer's TEE enclave. It signs your config publishes and can pay for agent compute. It never touches your own NEAR account — fund it separately when deploys need gas."
+            />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Approving also registers a custody wallet on {custodyNetwork} under your account. You
+            can set its spending policy any time at the OutLayer dashboard.
+          </p>
+          {custodyWallet && (
+            <div className="flex flex-col gap-1 rounded-2xl bg-muted px-4 py-3 text-sm">
+              <span className="break-all font-mono text-xs text-foreground">
+                {custodyWallet.nearAccountId}
+              </span>
+              {custodyWallet.handoffUrl && (
+                <a
+                  href={custodyWallet.handoffUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-primary underline-offset-2 hover:underline"
+                >
+                  Set policy & fund the wallet
+                </a>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -29,6 +29,10 @@ const ContextSchema = z.custom<UploadAppContext>();
 
 const VERSION_MANIFESTS_PER_LISTING = 500;
 const MANIFEST_FETCH_CONCURRENCY = 8;
+/** R2 stat/put fan-out per upload request — high enough that a full-workspace
+ * batch finishes well inside the CDN proxy timeout (~100s), low enough to stay
+ * under R2 rate limits. */
+const STORAGE_PUT_CONCURRENCY = 16;
 
 class MissingStorageConfig extends Data.TaggedError("MissingStorageConfig")<{
   readonly message: string;
@@ -194,7 +198,7 @@ export default createPlugin({
             stored += 1;
             return [file.objectPath, integrity] as const;
           }),
-        { concurrency: 4 },
+        { concurrency: STORAGE_PUT_CONCURRENCY },
       );
 
       return {

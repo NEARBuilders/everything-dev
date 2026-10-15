@@ -194,6 +194,7 @@ export const cliCommandMeta = {
     interactive: true,
     fields: {
       key: { description: "Also mint and export a scoped publish key for headless/CI use" },
+      custody: { description: "Also register an OutLayer custody wallet for custody publishes" },
       site: { description: "Override site URL hosting the CLI login page" },
       device: { description: "Device label recorded on the credential (default: hostname)" },
       expiresIn: { description: "Session lifetime in seconds (default: 90 days)" },

@@ -10,6 +10,7 @@ import { formatDuration } from "./cli/timing";
 import { generateCodeArtifacts } from "./code-artifacts";
 import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "./config";
 import type { WorkspaceDeployResult } from "./contract";
+import { ensureCustodyBalance, submitRegistryWriteCustody } from "./custody-signer";
 import { ensureDelegateKey, submitRegistryWriteDelegated } from "./delegate-signer";
 import {
   diffWorkspaceFiles,
@@ -389,6 +390,7 @@ export interface PublishPreflightPlan {
   registryNamespace: string;
   targets: string[];
   useWallet: boolean;
+  useCustody: boolean;
   strategy?: SigningStrategy;
   cdnOrigin: string | undefined;
   storageOrigin: string;
@@ -498,10 +500,27 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
       );
     }
   }
-  if (publishAuth && !input.privateKey) {
-    if (publishAuth === "custody") {
+  const useCustody = publishAuth === "custody" && !input.privateKey && !input.wallet;
+  if (useCustody) {
+    const session = readSessionHandle(configDir);
+    const custodyWallet = session?.custodyWallet;
+    if (!custodyWallet) {
       return fail(
-        'the authored config sets publish.auth = "custody", but custody publish is not implemented yet (see NEARBuilders/everything-dev#291).',
+        'the authored config sets publish.auth = "custody", but no custody wallet is stored in ' +
+          ".bos/. Run `bos login --custody` first.",
+      );
+    }
+    if (custodyWallet.network !== network) {
+      return fail(
+        `The custody wallet was registered on ${custodyWallet.network}, but this project publishes ` +
+          `on ${network}. Run \`bos login --custody\` from a ${network} account.`,
+      );
+    }
+    if (custodyWallet.nearAccountId !== account) {
+      return fail(
+        `publish.auth = "custody" publishes under the custody wallet's account, but the configured ` +
+          `account is ${account} and the custody wallet account is ${custodyWallet.nearAccountId}. ` +
+          "Set the authored config's account to the custody wallet account.",
       );
     }
   }
@@ -550,6 +569,7 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
       env: process.env as Record<string, string | undefined>,
       bosConfig,
       session: session?.credential ?? null,
+      custodyAccount: useCustody ? session?.custodyWallet?.nearAccountId : undefined,
       account,
       gateway,
       uploadsPlanned: input.build,
@@ -603,6 +623,7 @@ export async function preflightPublish(input: PublishToFastKvInput): Promise<Pub
       registryNamespace: getRegistryNamespaceForNetwork(network, input.registry),
       targets: selectWorkspaceTargets(input.packages, bosConfig),
       useWallet,
+      useCustody,
       strategy,
       cdnOrigin: cdnDeploy.cdnOrigin,
       storageOrigin: cdnDeploy.storageOrigin,
@@ -639,6 +660,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     registryNamespace,
     targets,
     useWallet,
+    useCustody,
     strategy,
   } = plan;
   const storageOrigin = plan.storageOrigin;
@@ -1111,7 +1133,28 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
     console.log(`  Submitting transaction on ${network}...`);
 
     let result: { success: boolean; txHash?: string };
-    if (useWallet) {
+    if (useCustody) {
+      const custodyWallet = readSessionHandle(configDir)?.custodyWallet;
+      if (!custodyWallet) {
+        return {
+          status: "error",
+          registryUrl,
+          error:
+            'the authored config sets publish.auth = "custody", but no custody wallet is stored in ' +
+            ".bos/. Run `bos login --custody` first.",
+        };
+      }
+      await ensureCustodyBalance(custodyWallet);
+      console.log(
+        `  Signing via ${colors.cyan(`OutLayer custody wallet ${custodyWallet.nearAccountId}`)}`,
+      );
+      result = await submitRegistryWriteCustody({
+        contract: registryNamespace,
+        args: registryEntries,
+        custodyWallet,
+        idempotencyKey: `bos-publish-${fingerprint}`,
+      });
+    } else if (useWallet) {
       const session = readSessionHandle(configDir);
       const credential = session?.credential;
       if (!credential || credential.accountId !== account) {
