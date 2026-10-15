@@ -171,7 +171,10 @@ describe("source archive field", () => {
 
   it("rejects a source entry whose integrity is not a sha384 SRI", () => {
     expect(() =>
-      composeVersionManifest({ ...base, source: { file: "source/a.tar.gz", integrity: "md5-nope" } }),
+      composeVersionManifest({
+        ...base,
+        source: { file: "source/a.tar.gz", integrity: "md5-nope" },
+      }),
     ).toThrow();
   });
 });
