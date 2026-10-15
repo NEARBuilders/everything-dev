@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { type SourceRef, WorkspaceVersionManifestSchema } from "every-plugin/version-manifest";
 import { glob } from "glob";
 import { extract as tarExtract } from "tar";
 import { localConfigEntryPath } from "../config";
@@ -195,10 +196,6 @@ export function normalizeWorkspacePath(input: string): string {
     throw new Error(`Invalid workspace path: ${input}`);
   }
   return trimmed;
-}
-
-export async function listSubtreeFiles(root: string, workspace: string): Promise<string[]> {
-  return listWorkspaceSubtreeFiles(root, workspace);
 }
 
 export function classifyImportFile(input: {
@@ -863,27 +860,15 @@ async function defaultVersionManifestFetch(
   return { bytes, manifest };
 }
 
-function manifestSourceOf(manifest: Record<string, unknown>): {
-  file: string;
-  integrity: string;
-} | null {
-  const source = manifest.source as { file?: unknown; integrity?: unknown } | undefined;
-  if (
-    source &&
-    typeof source.file === "string" &&
-    source.file.length > 0 &&
-    typeof source.integrity === "string" &&
-    source.integrity.length > 0
-  ) {
-    return { file: source.file, integrity: source.integrity };
-  }
-  return null;
+function manifestSourceOf(manifest: Record<string, unknown>): SourceRef | null {
+  const parsed = WorkspaceVersionManifestSchema.pick({ source: true }).safeParse(manifest);
+  return parsed.success ? (parsed.data.source ?? null) : null;
 }
 
 export async function resolvePinnedSource(
   entry: Record<string, unknown> | null,
   fetchManifest: VersionManifestFetcher = defaultVersionManifestFetch,
-): Promise<{ sha?: string; source?: { file: string; integrity: string }; warning?: string }> {
+): Promise<{ sha?: string; source?: SourceRef; warning?: string }> {
   if (!entry) {
     return { warning: `no config entry found for the pinned slot — ${HEAD_FALLBACK_NOTE}` };
   }
@@ -1276,8 +1261,9 @@ export async function importWorkspace(
     const spec = plan.spec;
     const source = await resolveImportSource(spec, chain);
     if (source.fallbackWarning && chain) {
+      const { sourceArchive: _dropped, ...rest } = chain;
       chain = {
-        ...chain,
+        ...rest,
         pinnedSha: undefined,
         warnings: [...chain.warnings, source.fallbackWarning],
       };
@@ -1294,10 +1280,10 @@ export async function importWorkspace(
         );
       }
 
-      const upstreamFiles = await listSubtreeFiles(source.root, workspace);
+      const upstreamFiles = await listWorkspaceSubtreeFiles(source.root, workspace);
       const localWorkspaceDir = join(projectDir, workspace);
       const localFiles = existsSync(localWorkspaceDir)
-        ? await listSubtreeFiles(projectDir, workspace)
+        ? await listWorkspaceSubtreeFiles(projectDir, workspace)
         : [];
 
       const upstreamSet = new Set(upstreamFiles);

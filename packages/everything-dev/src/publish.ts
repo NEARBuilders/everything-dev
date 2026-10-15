@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import process from "node:process";
 import { hasFolderFormUi } from "every-plugin/build/ui";
+import type { SourceRef } from "every-plugin/version-manifest";
 import { readSessionHandle } from "./auth-session";
 import { buildWorkspaceTargets, resolveWorkspaceTarget, selectWorkspaceTargets } from "./build";
 import { type CdnDeployInputs, probeStorageOrigin, resolveCdnDeployInputs } from "./cdn-deploy";
@@ -41,7 +41,7 @@ import { getNetworkIdForAccount } from "./network";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform-deploy";
 import { openResolution } from "./resolution/session";
 import { verifyRollbackSnapshot } from "./rollback";
-import { buildSourceArchive } from "./source-archive";
+import { buildSourceArchive, makeSourceArchiveTempDir } from "./source-archive";
 import {
   collectDistFiles,
   type DistFile,
@@ -90,7 +90,7 @@ async function pinWorkspaceVersionManifest(input: {
   /** full per-file SRI map of the dist — recorded for the next deploy's diff */
   files?: Record<string, string>;
   /** source archive reference — server-computed SRI (MAP decision 6) */
-  source?: { file: string; integrity: string };
+  source?: SourceRef;
   /** repo HEAD the build was produced from — best-effort, may be absent */
   gitSha?: string;
 }): Promise<VersionManifestPin | undefined> {
@@ -159,8 +159,8 @@ async function resolveSourceReference(input: {
   previousPin: PreviousPin | undefined;
   repoRoot: string;
   workspaceDir: string;
-}): Promise<{ source: { file: string; integrity: string } } | { memory: true }> {
-  const outDir = mkdtempSync(join(tmpdir(), "bos-source-archive-"));
+}): Promise<{ source: SourceRef } | { memory: true }> {
+  const outDir = makeSourceArchiveTempDir();
   try {
     const archive = await buildSourceArchive({
       repoRoot: input.repoRoot,
@@ -834,7 +834,7 @@ export async function publishToFastKv(input: PublishToFastKvInput): Promise<Publ
       ? outcome.fileIntegrity[`ssr/${ssrReport.entry}`]
       : undefined;
 
-    let sourceRef: { file: string; integrity: string } | undefined;
+    let sourceRef: SourceRef | undefined;
     if (sourcePublish) {
       if (outcome.result.storage === "memory") {
         return memoryBackendAbort();

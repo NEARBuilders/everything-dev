@@ -58,6 +58,9 @@ export const WorkspaceVersionManifestSchema = z.object({
 });
 export type WorkspaceVersionManifest = z.infer<typeof WorkspaceVersionManifestSchema>;
 
+/** A published-artifact coordinate: object path within the bundle namespace + its served SRI. */
+export type SourceRef = NonNullable<WorkspaceVersionManifest["source"]>;
+
 export interface VersionManifestInput {
   /** Omit: a per-build timestamp makes the same version id map to different
    * manifest bytes per machine, breaking the pin's SRI against the image's

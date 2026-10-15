@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { type BuildEntryReport, BuildEntryReportSchema } from "every-plugin/build/artifact-names";
 import {
   composeVersionManifest,
+  type SourceRef,
   type WorkspaceVersionManifest,
 } from "every-plugin/version-manifest";
 
@@ -32,7 +33,7 @@ export function composeWorkspaceVersionManifest(input: {
   /** full per-file SRI map of the dist — recorded for the next deploy's diff */
   files?: Record<string, string>;
   /** source archive reference (publish.sourcePublish) — server-computed SRI */
-  source?: { file: string; integrity: string };
+  source?: SourceRef;
   /** the repo HEAD the build was produced from — best-effort, may be absent */
   gitSha?: string;
 }): WorkspaceVersionManifest | null {

@@ -6,6 +6,11 @@ import { create as tarCreate } from "tar";
 import { computeSriHash } from "./integrity";
 import { listWorkspaceSubtreeFiles } from "./utils/workspace-subtree";
 
+/** Temp directory for a source archive leg (caller passes it as `outDir`). */
+export function makeSourceArchiveTempDir(prefix = "bos-source-archive-"): string {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
+
 /**
  * A per-workspace source archive built for the deploy train (#406): the
  * workspace subtree tar'd under repo-root-relative paths, content-addressed
@@ -59,9 +64,4 @@ export async function buildSourceArchive(input: {
     integrity: computeSriHash(bytes),
     cleanup: () => rmSync(input.outDir, { recursive: true, force: true }),
   };
-}
-
-/** Temp directory for a source archive leg (caller passes it as `outDir`). */
-export function makeSourceArchiveTempDir(prefix = "bos-source-archive-"): string {
-  return mkdtempSync(join(tmpdir(), prefix));
 }
