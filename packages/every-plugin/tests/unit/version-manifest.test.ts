@@ -140,3 +140,38 @@ describe("files digest map", () => {
     expect(() => composeVersionManifest({ ...base, files: { "a.js": "md5-nope" } })).toThrow();
   });
 });
+
+describe("source archive field", () => {
+  const base = { entry: "remoteEntry.8f3ac1d2.js", entryIntegrity: "sha384-aaa" };
+
+  it("is recorded on the manifest and participates in the version hash", () => {
+    const withoutSource = composeVersionManifest(base);
+    const withSource = composeVersionManifest({
+      ...base,
+      source: { file: "source/source.8f3ac1d2feedbeef.tar.gz", integrity: "sha384-eee" },
+    });
+    expect(withSource.source).toEqual({
+      file: "source/source.8f3ac1d2feedbeef.tar.gz",
+      integrity: "sha384-eee",
+    });
+    expect(withSource.version).not.toBe(withoutSource.version);
+
+    const same = composeVersionManifest({
+      ...base,
+      source: { file: "source/source.8f3ac1d2feedbeef.tar.gz", integrity: "sha384-eee" },
+    });
+    expect(same.version).toBe(withSource.version);
+
+    const changed = composeVersionManifest({
+      ...base,
+      source: { file: "source/source.8f3ac1d2feedbeef.tar.gz", integrity: "sha384-fff" },
+    });
+    expect(changed.version).not.toBe(withSource.version);
+  });
+
+  it("rejects a source entry whose integrity is not a sha384 SRI", () => {
+    expect(() =>
+      composeVersionManifest({ ...base, source: { file: "source/a.tar.gz", integrity: "md5-nope" } }),
+    ).toThrow();
+  });
+});
