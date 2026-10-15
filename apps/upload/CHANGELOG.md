@@ -1,5 +1,13 @@
 # @everything-dev/upload-app
 
+## 1.0.0-rc.2
+
+### Patch Changes
+
+- 6902c4b: Unblock full-workspace CDN deploys from the Cloudflare proxy timeout. The upload service raises the per-request stat/put fan-out against object storage from 4 to 16 (a 324-file batch no longer exceeds the ~100s proxy window), the upload client retries Cloudflare 522/524 failures (server-side SRI dedupe makes retries idempotent) and maps a 524 to a "upload smaller batches" hint instead of raw HTML, and `uploadWorkspaceDist` caps requests at 100 files regardless of the byte budget so a large dist can never concentrate enough per-file stat/put round trips in one request to blow the proxy timeout.
+- Updated dependencies [0e4c4d7]
+  - every-plugin@3.0.0-rc.6
+
 ## 1.0.0-rc.1
 
 ### Minor Changes
