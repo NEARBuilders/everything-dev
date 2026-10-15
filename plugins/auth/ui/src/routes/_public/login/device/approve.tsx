@@ -1,6 +1,6 @@
 import { CheckCircleIcon, DevicesIcon, KeyIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { sessionQueryOptions, useAuthClient } from "everything-dev/ui/auth";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -9,29 +9,15 @@ import { InfoPopover } from "@/components/info-popover";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { LoginI18nProvider, useLoginTranslation } from "@/i18n/runtime";
-import { sanitizeUserCode } from "./-user-code";
-
-type SearchParams = {
-  user_code?: string;
-  pubKey?: string;
-  contract?: string;
-  account?: string;
-  network?: string;
-  source?: string;
-  custody?: string;
-};
+import {
+  type DevicePairingSearch,
+  devicePairingHref,
+  validateDevicePairingSearch,
+} from "./-pairing-search";
 
 export const Route = createFileRoute("/_public/login/device/approve")({
   ssr: false,
-  validateSearch: (search: Record<string, unknown>): SearchParams => ({
-    user_code: sanitizeUserCode(search.user_code),
-    pubKey: typeof search.pubKey === "string" ? search.pubKey : undefined,
-    contract: typeof search.contract === "string" ? search.contract : undefined,
-    account: typeof search.account === "string" ? search.account : undefined,
-    network: typeof search.network === "string" ? search.network : undefined,
-    source: typeof search.source === "string" ? search.source : undefined,
-    custody: search.custody === "1" ? "1" : undefined,
-  }),
+  validateSearch: validateDevicePairingSearch,
   component: DeviceApprovePage,
 });
 
@@ -48,15 +34,7 @@ function DeviceApproveContent() {
   const auth = useAuthClient();
   const t = useLoginTranslation();
   const { data: session } = useQuery(sessionQueryOptions(auth));
-  const {
-    user_code,
-    pubKey,
-    contract,
-    account: configAccount,
-    network,
-    custody,
-    source,
-  } = Route.useSearch();
+  const { user_code, pubKey, contract, account, network, custody, source } = Route.useSearch();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [approved, setApproved] = useState(false);
@@ -127,7 +105,7 @@ function DeviceApproveContent() {
   if (!session?.user) {
     return (
       <NavigateToLogin
-        search={{ user_code, pubKey, contract, account: configAccount, network, source, custody }}
+        search={{ user_code, pubKey, contract, account, network, source, custody }}
       />
     );
   }
@@ -257,14 +235,14 @@ function DeviceApproveContent() {
           >
             {pubKey}
           </p>
-          {configAccount && signedInAccountId && signedInAccountId !== configAccount && (
+          {account && signedInAccountId && signedInAccountId !== account && (
             <p
               className="text-sm wrap-anywhere text-warning-muted-foreground"
               data-testid="device.account-mismatch"
             >
               {t("auth.device.approve.accountMismatch", {
                 signedIn: signedInAccountId,
-                expected: configAccount,
+                expected: account,
               })}
             </p>
           )}
@@ -339,15 +317,10 @@ function DeviceApproveContent() {
   );
 }
 
-function NavigateToLogin({ search }: { search: SearchParams }) {
+function NavigateToLogin({ search }: { search: DevicePairingSearch }) {
   const navigate = useNavigate();
+  const router = useRouter();
   const t = useLoginTranslation();
-  const deviceSearch = new URLSearchParams();
-  for (const [key, value] of Object.entries(search)) {
-    if (value) deviceSearch.set(key, value);
-  }
-  const query = deviceSearch.toString();
-  const target = `/login/device${query ? `?${query}` : ""}`;
   return (
     <AuthPanel
       icon={<DevicesIcon />}
@@ -359,7 +332,9 @@ function NavigateToLogin({ search }: { search: SearchParams }) {
         type="button"
         size="lg"
         className="w-full"
-        onClick={() => void navigate({ to: "/login", search: { redirect: target } })}
+        onClick={() =>
+          void navigate({ to: "/login", search: { redirect: devicePairingHref(router, search) } })
+        }
         data-testid="device.approve-signin-button"
       >
         {t("auth.device.signIn")}

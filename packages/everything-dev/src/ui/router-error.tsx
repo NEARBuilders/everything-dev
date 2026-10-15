@@ -4,19 +4,25 @@
  * the app's UI kit, so primitives are plain markup + semantic tokens.
  */
 
+import { useSyncExternalStore } from "react";
+
+const subscribeToNothing = () => () => {};
+
 /**
  * Whether the error-details block renders. `undefined` (the default) shows
- * details on the client only — SSR HTML is what gets indexed, cached and
- * logged, so internal messages (RPC endpoints, digests, provider errors)
- * stay out of it. `true` always renders the block, `false` never does.
+ * details once the client is live — SSR HTML is what gets indexed, cached
+ * and logged, so internal messages (RPC endpoints, digests, provider errors)
+ * stay out of it, and the hydration pass renders the same details-free
+ * markup before revealing. `true` always renders the block, `false` never
+ * does. `suppress` is true while rendering on the server or pre-reveal.
  */
 export function shouldShowErrorDetails(
   showErrorDetails: boolean | undefined,
-  isServer: boolean,
+  suppress: boolean,
 ): boolean {
   if (showErrorDetails === false) return false;
   if (showErrorDetails === true) return true;
-  return !isServer;
+  return !suppress;
 }
 
 export function RouterError({
@@ -30,7 +36,12 @@ export function RouterError({
   messages?: { title: string; body: string; home: string; retry: string };
   showErrorDetails?: boolean;
 }) {
-  const showDetails = shouldShowErrorDetails(showErrorDetails, typeof window === "undefined");
+  const revealed = useSyncExternalStore(
+    subscribeToNothing,
+    () => true,
+    () => false,
+  );
+  const showDetails = shouldShowErrorDetails(showErrorDetails, !revealed);
   return (
     <div
       className="flex min-h-96 flex-1 items-center justify-center bg-background px-4 py-16"

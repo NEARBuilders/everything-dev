@@ -1,6 +1,6 @@
 import { DeviceMobileIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { sessionQueryOptions, useAuthClient } from "everything-dev/ui/auth";
 import { useEffect, useRef, useState } from "react";
 import { AuthPanel } from "@/components/auth-panel";
@@ -9,27 +9,12 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { LoginI18nProvider, useLoginTranslation } from "@/i18n/runtime";
+import { devicePairingHref, validateDevicePairingSearch } from "./-pairing-search";
 import { sanitizeUserCode } from "./-user-code";
-
-type SearchParams = {
-  user_code?: string;
-  pubKey?: string;
-  contract?: string;
-  account?: string;
-  network?: string;
-  source?: string;
-};
 
 export const Route = createFileRoute("/_public/login/device/")({
   ssr: false,
-  validateSearch: (search: Record<string, unknown>): SearchParams => ({
-    user_code: sanitizeUserCode(search.user_code),
-    pubKey: typeof search.pubKey === "string" ? search.pubKey : undefined,
-    contract: typeof search.contract === "string" ? search.contract : undefined,
-    account: typeof search.account === "string" ? search.account : undefined,
-    network: typeof search.network === "string" ? search.network : undefined,
-    source: typeof search.source === "string" ? search.source : undefined,
-  }),
+  validateSearch: validateDevicePairingSearch,
   component: DeviceVerifyPage,
 });
 
@@ -43,10 +28,11 @@ function DeviceVerifyPage() {
 
 function DeviceVerifyContent() {
   const navigate = useNavigate();
+  const router = useRouter();
   const auth = useAuthClient();
   const t = useLoginTranslation();
   const { data: session } = useQuery(sessionQueryOptions(auth));
-  const { user_code, pubKey, contract, account, network, source } = Route.useSearch();
+  const { user_code, pubKey, contract, account, network, source, custody } = Route.useSearch();
   const [code, setCode] = useState(user_code ?? "");
   const [error, setError] = useState<string | null>(null);
   const [claiming, setClaiming] = useState(false);
@@ -67,7 +53,7 @@ function DeviceVerifyContent() {
         }
         void navigate({
           to: "/login/device/approve",
-          search: { user_code, pubKey, contract, account, network, source },
+          search: { user_code, pubKey, contract, account, network, source, custody },
         });
       })
       .catch(() => {
@@ -86,6 +72,7 @@ function DeviceVerifyContent() {
     account,
     network,
     source,
+    custody,
   ]);
 
   const handleSubmit = (event: React.FormEvent) => {
@@ -99,26 +86,24 @@ function DeviceVerifyContent() {
     claimedCodeRef.current = null;
     void navigate({
       to: "/login/device",
-      search: { user_code: cleaned, pubKey, contract, account, network, source },
+      search: { user_code: cleaned, pubKey, contract, account, network, source, custody },
     });
   };
 
   const signInToContinue = () => {
-    const deviceSearch = new URLSearchParams();
-    for (const [key, value] of Object.entries({
-      user_code,
-      pubKey,
-      contract,
-      account,
-      network,
-      source,
-    })) {
-      if (value) deviceSearch.set(key, value);
-    }
-    const query = deviceSearch.toString();
     void navigate({
       to: "/login",
-      search: { redirect: `/login/device${query ? `?${query}` : ""}` },
+      search: {
+        redirect: devicePairingHref(router, {
+          user_code,
+          pubKey,
+          contract,
+          account,
+          network,
+          source,
+          custody,
+        }),
+      },
     });
   };
 

@@ -50,11 +50,7 @@ export const Route = createFileRoute("/_authenticated/admin/users")({
   beforeLoad: requireAdmin,
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(
-      adminUsersQueryOptions(
-        (context.apiClient as { auth: AuthApiClient }).auth,
-        { field: "email", value: "" },
-        0,
-      ),
+      adminUsersQueryOptions(context.apiClient.auth, { field: "email", value: "" }, 0),
     );
   },
   component: AdminUsers,
@@ -84,7 +80,7 @@ function adminUsersQueryOptions(authApi: AuthApiClient, search: AdminSearch, off
 
 function AdminUsers() {
   const auth = useAuthClient();
-  const authApi = Route.useRouteContext().apiClient.auth as AuthApiClient;
+  const authApi = Route.useRouteContext().apiClient.auth;
   const queryClient = useQueryClient();
   const router = useRouter();
 

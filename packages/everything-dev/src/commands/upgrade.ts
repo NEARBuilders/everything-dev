@@ -359,7 +359,17 @@ export function registerUpgrade(builder: BosBuilder) {
                 pluginName: entry.key,
                 emitRouteTree: true,
               });
-            } catch {}
+            } catch (error) {
+              checked.push(entry.label);
+              results.push({
+                workspace: entry.label,
+                passed: false,
+                error: `routeTree materialization failed: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              });
+              continue;
+            }
           }
 
           const packageJsonPath = join(entry.dir, "package.json");
