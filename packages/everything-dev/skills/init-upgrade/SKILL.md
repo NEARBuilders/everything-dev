@@ -222,9 +222,15 @@ Conflicts — and a migration chain that cannot be applied verbatim (next sectio
 
 A diverged `package.json` is never a conflict when both sides parse — it merges instead.
 
-### Migration chain safety
+### Migration chain reconciliation
 
-When both sides have `src/db/migrations/` journals and the chain cannot be applied verbatim — index reuse with a different tag, same tag hashing differently, an upstream entry below the local chain tail, or local-only journal entries — every migration-chain file in the write set is **held back**: the rest of the workspace imports normally, but `src/db/migrations/**` is untouched, because a verbatim overwrite would drop local journal entries and orphan already-applied hashes. A held chain gates the run even when no other file conflicts. Renumbering/append reconciliation is follow-up work (NEARBuilders/everything-dev#393).
+When both sides have `src/db/migrations/` journals, the chain is **reconciled** instead of overwritten:
+
+- **Applied entries win.** Every local journal entry is presumed applied to the database and is kept verbatim — never renumbered or rehashed.
+- **Colliding upstream migrations are renumbered and appended.** An upstream entry that shares an idx or lands below the local tail but is not present locally is renumbered after the local tail in upstream order: upstream `0011_team-member-role` with a local tail at idx 12 becomes `0013_team-member-role`. The `.sql` file is copied to the new name, `meta/<idx>_snapshot.json` is renamed to match, and `meta/_journal.json` is rebuilt (local entries verbatim + appended entries carrying upstream's `when`/`version`).
+- **Content matching keeps repeat imports convergent.** An upstream entry whose SQL content hash matches a local entry (e.g. one imported under a renumbered tag earlier) is treated as already imported — nothing is appended twice.
+- **Report.** The import report and console output show the kept set (applied), the appended set (`fromTag → toTag`, new idx), and what the next boot will apply versus what is already applied. Renamed snapshots record upstream intermediate schema states — review `drizzle-kit generate` output against the merged chain before generating new migrations.
+- **Held back.** Only unresolvable drift holds the chain now: a shared tag whose SQL content differs locally (already-applied hashes would drift), or an unreadable journal. Held chain files are not written; the rest of the workspace imports normally. A held chain gates the run even when no other file conflicts.
 
 ### Route-set delta
 
@@ -232,7 +238,7 @@ Both sides' contract surface is scanned for literal `.route({ method, path })` p
 
 ### Report and baselines
 
-Every run — dry-run, refused, or applied — writes `.bos/import-report.md`: summary table, conflict checklist with reasons and held markers, migration collisions and chain delta, route delta, bucket lists, and next steps. Written and unchanged files are recorded to `.bos/import-snapshot.json` (and merged into `.bos/sync-snapshot.json` when one exists) so the next import detects drift instead of starting from zero; held-back files are deliberately excluded until reconciliation lands.
+Every run — dry-run, refused, or applied — writes `.bos/import-report.md`: summary table, conflict checklist with reasons and held markers, the migration-chain reconciliation plan (kept/appended/held), route delta, bucket lists, and next steps. Written and unchanged files are recorded to `.bos/import-snapshot.json` (and merged into `.bos/sync-snapshot.json` when one exists) so the next import detects drift instead of starting from zero.
 
 ## bos publish
 

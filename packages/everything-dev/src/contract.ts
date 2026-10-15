@@ -470,11 +470,26 @@ export const ImportRouteDeltaSchema = z.object({
 });
 
 export const ImportMigrationCollisionSchema = z.object({
-  kind: z.enum(["idx-reuse", "tag-mismatch", "out-of-order"]),
+  kind: z.literal("tag-mismatch"),
   idx: z.number(),
   localTag: z.string().optional(),
   upstreamTag: z.string().optional(),
   message: z.string(),
+});
+
+export const ImportMigrationAppendSchema = z.object({
+  idx: z.number(),
+  fromTag: z.string(),
+  toTag: z.string(),
+});
+
+export const ImportMigrationReconciliationSchema = z.object({
+  /** local journal tags kept verbatim (already applied, never renumbered) */
+  kept: z.array(z.string()),
+  /** upstream migrations renumbered and appended after the local tail */
+  appended: z.array(ImportMigrationAppendSchema),
+  /** upstream migrations matched to local entries by SQL content hash */
+  contentMatched: z.array(z.string()),
 });
 
 export const ImportResultSchema = z.object({
@@ -492,6 +507,7 @@ export const ImportResultSchema = z.object({
   heldBackMigrations: z.array(z.string()).default([]),
   routeDelta: ImportRouteDeltaSchema.optional(),
   migrationCollisions: z.array(ImportMigrationCollisionSchema).default([]),
+  migrationReconciliation: ImportMigrationReconciliationSchema.optional(),
   backupDir: z.string().optional(),
   reportPath: z.string().optional(),
   error: z.string().optional(),
@@ -920,6 +936,8 @@ export type ImportOptions = z.infer<typeof ImportOptionsSchema>;
 export type ImportResult = z.infer<typeof ImportResultSchema>;
 export type ImportRouteDelta = z.infer<typeof ImportRouteDeltaSchema>;
 export type ImportMigrationCollision = z.infer<typeof ImportMigrationCollisionSchema>;
+export type ImportMigrationAppend = z.infer<typeof ImportMigrationAppendSchema>;
+export type ImportMigrationReconciliation = z.infer<typeof ImportMigrationReconciliationSchema>;
 export type UpgradeOptions = z.infer<typeof UpgradeOptionsSchema>;
 export type UpgradeResult = z.infer<typeof UpgradeResultSchema>;
 export type StatusResult = z.infer<typeof StatusResultSchema>;

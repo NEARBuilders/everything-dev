@@ -794,16 +794,34 @@ async function main() {
         }
       }
       if (result.heldBackMigrations?.length > 0) {
-        console.log(
-          `  ${colors.yellow("Migration chain held back")} (pending reconciliation #393):`,
-        );
+        console.log(`  ${colors.yellow("Migration chain held back")}:`);
         for (const file of result.heldBackMigrations) console.log(`    ${colors.dim(file)}`);
       }
       if (result.migrationCollisions.length > 0) {
-        console.log(`  ${colors.yellow("Migration collisions")}:`);
+        console.log(`  ${colors.yellow("Unresolvable migration collisions")}:`);
         for (const collision of result.migrationCollisions) {
           console.log(`    ${colors.dim(collision.message)}`);
         }
+      }
+      if (result.migrationReconciliation && result.migrationReconciliation.appended.length > 0) {
+        console.log(
+          `  ${colors.green("Migration chain reconciled")}: ${result.migrationReconciliation.kept.length} applied migration(s) kept, ${result.migrationReconciliation.appended.length} appended:`,
+        );
+        for (const append of result.migrationReconciliation.appended) {
+          console.log(
+            `    ${colors.dim(`${append.fromTag} → ${append.toTag} (idx ${append.idx})`)}`,
+          );
+        }
+        console.log(
+          `  ${colors.dim("Next boot applies the appended migration(s); renamed snapshots should be reviewed against `drizzle-kit generate` before generating new migrations.")}`,
+        );
+      } else if (
+        result.migrationReconciliation &&
+        result.migrationReconciliation.contentMatched.length > 0
+      ) {
+        console.log(
+          `  ${colors.dim("Migration chain:")} every upstream migration is already applied (kept: ${result.migrationReconciliation.kept.length}, matched by content: ${result.migrationReconciliation.contentMatched.length})`,
+        );
       }
       if (
         result.routeDelta &&

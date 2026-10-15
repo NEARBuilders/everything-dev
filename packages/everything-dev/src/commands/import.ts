@@ -38,17 +38,21 @@ export function registerImport(builder: BosBuilder) {
         ? async (info: Parameters<NonNullable<ImportDeps["confirm"]>>[0]): Promise<boolean> => {
             const collisionNote =
               info.migrationCollisionCount > 0
-                ? ` + ${info.migrationCollisionCount} migration collision(s)`
+                ? ` + ${info.migrationCollisionCount} unresolvable migration collision(s)`
                 : "";
             const heldNote =
               info.heldCount > 0
                 ? `; ${info.heldCount} migration-chain file(s) will be held back`
                 : "";
+            const appendedNote =
+              info.appendedCount > 0
+                ? `; ${info.appendedCount} upstream migration(s) will be renumbered and appended to the local chain`
+                : "";
             const answer = await p.confirm({
               message:
                 info.conflictCount > 0 || info.migrationCollisionCount > 0
                   ? `${info.conflictCount} conflicting file(s)${collisionNote} in ${info.workspace} — apply upstream over conflicting files (local copies backed up)${heldNote}?`
-                  : `Local migration entries exist that upstream lacks in ${info.workspace} — import the workspace and hold back the migration chain?`,
+                  : `Migration chain reconciliation in ${info.workspace}: apply upstream migrations${appendedNote}${heldNote}?`,
               initialValue: false,
             });
             if (p.isCancel(answer)) return false;

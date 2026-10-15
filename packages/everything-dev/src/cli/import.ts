@@ -68,8 +68,7 @@ export interface ImportReportAnalysis {
   conflicts: Array<{ path: string; reason: "no-baseline" | "both-changed"; held: boolean }>;
   routeDelta?: ImportRouteDelta;
   migrationCollisions: ImportMigrationCollision[];
-  localOnlyMigrations: string[];
-  upstreamOnlyMigrations: string[];
+  migrationReconciliation: MigrationReconciliation | null;
   heldBackMigrations: string[];
 }
 
@@ -79,6 +78,7 @@ export interface ImportDeps {
     conflictCount: number;
     migrationCollisionCount: number;
     heldCount: number;
+    appendedCount: number;
   }) => Promise<boolean>;
 }
 
@@ -270,7 +270,7 @@ function extractWorkspaceRoutes(sources: string[] | null): string[] | null {
 }
 
 export function loadMigrationEntries(root: string, workspace: string): MigrationEntry[] | null {
-  const journalPath = join(root, workspace, "src", "db", "migrations", "meta", "_journal.json");
+  const journalPath = journalPathFor(root, workspace);
   if (!existsSync(journalPath)) {
     return null;
   }
@@ -305,44 +305,131 @@ export function loadMigrationEntries(root: string, workspace: string): Migration
   return result.sort((a, b) => a.idx - b.idx);
 }
 
-export function detectMigrationCollisions(
+interface RawMigrationJournal {
+  journal: Record<string, unknown>;
+  entries: Record<string, unknown>[];
+}
+
+function journalPathFor(root: string, workspace: string): string {
+  return join(root, workspace, "src", "db", "migrations", "meta", "_journal.json");
+}
+
+function loadRawJournal(root: string, workspace: string): RawMigrationJournal | null {
+  const journalPath = journalPathFor(root, workspace);
+  if (!existsSync(journalPath)) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(journalPath, "utf-8"));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const entries = (parsed as { entries?: unknown }).entries;
+  if (!Array.isArray(entries)) {
+    return null;
+  }
+  return {
+    journal: parsed as Record<string, unknown>,
+    entries: entries as Record<string, unknown>[],
+  };
+}
+
+function buildMergedJournal(
+  localRoot: string,
+  upstreamRoot: string,
+  workspace: string,
+  appended: MigrationAppend[],
+): string | null {
+  const localRaw = loadRawJournal(localRoot, workspace);
+  const upstreamRaw = loadRawJournal(upstreamRoot, workspace);
+  if (!localRaw || !upstreamRaw) {
+    return null;
+  }
+  const upstreamEntryByTag = new Map<string, Record<string, unknown>>();
+  for (const entry of upstreamRaw.entries) {
+    if (typeof entry.tag === "string") {
+      upstreamEntryByTag.set(entry.tag, entry);
+    }
+  }
+  const maxLocalWhen = localRaw.entries.reduce(
+    (max, entry) => Math.max(max, typeof entry.when === "number" ? entry.when : 0),
+    0,
+  );
+  let appendedWhen = maxLocalWhen;
+  const appendedEntries = appended.map((append) => {
+    const raw = upstreamEntryByTag.get(append.fromTag);
+    const when =
+      typeof raw?.when === "number" && raw.when > appendedWhen ? raw.when : ++appendedWhen;
+    return { ...(raw ?? {}), idx: append.idx, tag: append.toTag, when };
+  });
+  const merged = { ...localRaw.journal, entries: [...localRaw.entries, ...appendedEntries] };
+  return `${JSON.stringify(merged, null, 2)}\n`;
+}
+
+export interface MigrationAppend {
+  idx: number;
+  fromTag: string;
+  toTag: string;
+}
+
+export interface MigrationReconciliation {
+  kept: string[];
+  appended: MigrationAppend[];
+  contentMatched: string[];
+  unresolvable: ImportMigrationCollision[];
+}
+
+const MIGRATION_TAG_PATTERN = /^(\d+)_(.+)$/;
+
+function migrationTagFor(idx: number, fromTag: string): string {
+  const suffix = fromTag.match(MIGRATION_TAG_PATTERN)?.[2];
+  return suffix ? `${String(idx).padStart(4, "0")}_${suffix}` : fromTag;
+}
+
+function snapshotPrefixOf(tag: string): string | null {
+  const match = tag.match(MIGRATION_TAG_PATTERN);
+  return match?.[1] ? match[1].padStart(4, "0") : null;
+}
+
+export function reconcileMigrationChains(
   local: MigrationEntry[],
   upstream: MigrationEntry[],
-): ImportMigrationCollision[] {
-  const collisions: ImportMigrationCollision[] = [];
-  const maxLocalIdx = local.reduce((max, entry) => Math.max(max, entry.idx), -1);
-  for (const entry of upstream) {
-    const atIdx = local.find((candidate) => candidate.idx === entry.idx);
-    if (atIdx) {
-      if (atIdx.tag !== entry.tag) {
-        collisions.push({
-          kind: "idx-reuse",
-          idx: entry.idx,
-          localTag: atIdx.tag,
-          upstreamTag: entry.tag,
-          message: `idx ${entry.idx} is ${atIdx.tag} locally but ${entry.tag} upstream`,
-        });
-      } else if (atIdx.sha && entry.sha && atIdx.sha !== entry.sha) {
-        collisions.push({
+): MigrationReconciliation {
+  const localTags = new Set(local.map((entry) => entry.tag));
+  const unresolvable: ImportMigrationCollision[] = [];
+  const appended: MigrationAppend[] = [];
+  const contentMatched: string[] = [];
+  let nextIdx = local.reduce((max, entry) => Math.max(max, entry.idx), -1) + 1;
+  for (const upstreamEntry of upstream) {
+    if (localTags.has(upstreamEntry.tag)) {
+      const localEntry = local.find((candidate) => candidate.tag === upstreamEntry.tag);
+      if (localEntry?.sha && upstreamEntry.sha && localEntry.sha !== upstreamEntry.sha) {
+        unresolvable.push({
           kind: "tag-mismatch",
-          idx: entry.idx,
-          localTag: atIdx.tag,
-          upstreamTag: entry.tag,
-          message: `${entry.tag} has different content locally than upstream — already-applied hashes would drift`,
+          idx: upstreamEntry.idx,
+          localTag: localEntry.tag,
+          upstreamTag: upstreamEntry.tag,
+          message: `${upstreamEntry.tag} has different content locally than upstream — already-applied hashes would drift`,
         });
       }
       continue;
     }
-    if (entry.idx <= maxLocalIdx) {
-      collisions.push({
-        kind: "out-of-order",
-        idx: entry.idx,
-        upstreamTag: entry.tag,
-        message: `upstream ${entry.tag} lands at idx ${entry.idx}, below the local chain tail (idx ${maxLocalIdx})`,
-      });
+    if (upstreamEntry.sha && local.some((candidate) => candidate.sha === upstreamEntry.sha)) {
+      contentMatched.push(upstreamEntry.tag);
+      continue;
     }
+    appended.push({
+      idx: nextIdx,
+      fromTag: upstreamEntry.tag,
+      toTag: migrationTagFor(nextIdx, upstreamEntry.tag),
+    });
+    nextIdx++;
   }
-  return collisions;
+  return { kept: local.map((entry) => entry.tag), appended, contentMatched, unresolvable };
 }
 
 function hashFile(root: string, path: string): string | null {
@@ -475,7 +562,10 @@ export function buildImportReport(
   lines.push(`| updated (local unchanged, upstream changed) | ${analysis.updated.length} |`);
   lines.push(`| merged (structured package.json merge) | ${analysis.merged.length} |`);
   lines.push(`| conflicts (unresolvable) | ${analysis.conflicts.length} |`);
-  lines.push(`| migration collisions | ${analysis.migrationCollisions.length} |`);
+  lines.push(`| migration collisions (unresolvable) | ${analysis.migrationCollisions.length} |`);
+  lines.push(
+    `| migrations appended (renumbered from upstream) | ${analysis.migrationReconciliation?.appended.length ?? 0} |`,
+  );
   lines.push(`| migration chain held back | ${analysis.heldBackMigrations.length} |`);
   lines.push(`| local-only (preserved) | ${analysis.preservedLocal.length} |`);
   lines.push(
@@ -525,8 +615,54 @@ export function buildImportReport(
     lines.push("");
   }
 
+  if (analysis.migrationReconciliation) {
+    const reconciliation = analysis.migrationReconciliation;
+    lines.push("## Migration chain reconciliation");
+    lines.push("");
+    lines.push("Applied locally — kept verbatim, never renumbered or rehashed:");
+    lines.push("");
+    if (reconciliation.kept.length === 0) {
+      lines.push("(no local journal entries)");
+      lines.push("");
+    } else {
+      for (const tag of reconciliation.kept) lines.push(`- \`${tag}\``);
+      lines.push("");
+    }
+    if (reconciliation.appended.length > 0) {
+      lines.push("Appended — colliding upstream migrations renumbered after the local tail:");
+      lines.push("");
+      lines.push("| upstream tag | new tag | new idx |");
+      lines.push("| --- | --- | --- |");
+      for (const append of reconciliation.appended) {
+        lines.push(`| \`${append.fromTag}\` | \`${append.toTag}\` | ${append.idx} |`);
+      }
+      lines.push("");
+      lines.push(
+        `Next boot will apply the ${reconciliation.appended.length} appended migration(s) above; the kept set is already applied to the database.`,
+      );
+      lines.push("");
+    } else {
+      lines.push(
+        "Nothing to append: every upstream migration is already applied (by tag or by content).",
+      );
+      lines.push("");
+    }
+    if (reconciliation.contentMatched.length > 0) {
+      lines.push("Already imported under another tag (matched by SQL content hash):");
+      lines.push("");
+      for (const tag of reconciliation.contentMatched) lines.push(`- \`${tag}\``);
+      lines.push("");
+    }
+    if (reconciliation.appended.length > 0) {
+      lines.push(
+        "Snapshot-chain note: renamed snapshot files record upstream intermediate schema states; review `drizzle-kit generate` output against the merged chain before generating new migrations.",
+      );
+      lines.push("");
+    }
+  }
+
   if (analysis.migrationCollisions.length > 0) {
-    lines.push("## Migration chain collisions");
+    lines.push("## Migration chain collisions — unresolvable");
     lines.push("");
     lines.push("| kind | idx | local | upstream | detail |");
     lines.push("| --- | --- | --- | --- | --- |");
@@ -536,10 +672,6 @@ export function buildImportReport(
       );
     }
     lines.push("");
-    lines.push(
-      "Migration renumbering is not performed by `bos import` yet — reconciliation lands in NEARBuilders/everything-dev#393.",
-    );
-    lines.push("");
   }
 
   if (analysis.heldBackMigrations.length > 0) {
@@ -548,26 +680,9 @@ export function buildImportReport(
     for (const path of analysis.heldBackMigrations) lines.push(`- \`${path}\``);
     lines.push("");
     lines.push(
-      "`src/db/migrations/**` was not modified: a verbatim overwrite would drop local journal entries that upstream lacks (or collide on shared indices), leaving applied hashes orphaned. The rest of the workspace imported normally; chain reconciliation lands in NEARBuilders/everything-dev#393.",
+      "`src/db/migrations/**` was not modified: reconciliation could not produce a safe merged chain (content drift on an already-applied migration, or an unreadable journal). Resolve the collisions above, then re-import. The rest of the workspace imported normally.",
     );
     lines.push("");
-  }
-
-  if (analysis.localOnlyMigrations.length > 0 || analysis.upstreamOnlyMigrations.length > 0) {
-    lines.push("## Migration chain delta");
-    lines.push("");
-    if (analysis.localOnlyMigrations.length > 0) {
-      lines.push("Local-only (preserved, never renumbered):");
-      lines.push("");
-      for (const tag of analysis.localOnlyMigrations) lines.push(`- \`${tag}\``);
-      lines.push("");
-    }
-    if (analysis.upstreamOnlyMigrations.length > 0) {
-      lines.push("Upstream-only:");
-      lines.push("");
-      for (const tag of analysis.upstreamOnlyMigrations) lines.push(`- \`${tag}\``);
-      lines.push("");
-    }
   }
 
   if (analysis.routeDelta) {
@@ -702,6 +817,72 @@ export async function importWorkspace(
         );
       })();
 
+      const chainPrefix = `${workspace}/src/db/migrations/`;
+      const chainJournalPath = `${chainPrefix}meta/_journal.json`;
+      const localMigrations = loadMigrationEntries(projectDir, workspace);
+      const upstreamMigrations = loadMigrationEntries(source.root, workspace);
+      const localJournalExists = existsSync(join(projectDir, chainJournalPath));
+      const reconciliation =
+        localMigrations && upstreamMigrations
+          ? reconcileMigrationChains(localMigrations, upstreamMigrations)
+          : null;
+
+      let chainUnsafe: boolean;
+      if (reconciliation) {
+        chainUnsafe = reconciliation.unresolvable.length > 0;
+      } else if (localMigrations === null && localJournalExists) {
+        chainUnsafe = true;
+      } else if (localMigrations !== null && upstreamMigrations === null) {
+        chainUnsafe = true;
+      } else {
+        chainUnsafe = false;
+      }
+
+      const migrationRemap = new Map<string, string>();
+      const migrationSkipped = new Set<string>();
+      if (reconciliation && !chainUnsafe) {
+        const appendedByFromTag = new Map(
+          reconciliation.appended.map((append) => [append.fromTag, append]),
+        );
+        const contentMatchedTags = new Set(reconciliation.contentMatched);
+        const upstreamTagBySnapshotPrefix = new Map<string, string>();
+        for (const entry of upstreamMigrations ?? []) {
+          const prefix = snapshotPrefixOf(entry.tag);
+          if (prefix) upstreamTagBySnapshotPrefix.set(prefix, entry.tag);
+        }
+        for (const path of upstreamFiles) {
+          if (!path.startsWith(chainPrefix) || path === chainJournalPath) continue;
+          const relInMigrations = path.slice(chainPrefix.length);
+          if (relInMigrations.endsWith(".sql")) {
+            const tag = relInMigrations.slice(0, -".sql".length);
+            const append = appendedByFromTag.get(tag);
+            if (append) {
+              migrationRemap.set(path, `${chainPrefix}${append.toTag}.sql`);
+            } else if (contentMatchedTags.has(tag)) {
+              migrationSkipped.add(path);
+            }
+          } else if (
+            relInMigrations.startsWith("meta/") &&
+            relInMigrations.endsWith("_snapshot.json")
+          ) {
+            const prefix = relInMigrations.slice(
+              "meta/".length,
+              relInMigrations.length - "_snapshot.json".length,
+            );
+            const tag = upstreamTagBySnapshotPrefix.get(prefix);
+            const append = tag ? appendedByFromTag.get(tag) : undefined;
+            if (append) {
+              migrationRemap.set(
+                path,
+                `${chainPrefix}meta/${String(append.idx).padStart(4, "0")}_snapshot.json`,
+              );
+            } else if (tag && contentMatchedTags.has(tag)) {
+              migrationSkipped.add(path);
+            }
+          }
+        }
+      }
+
       const added: string[] = [];
       const updated: string[] = [];
       const unchanged: string[] = [];
@@ -721,6 +902,8 @@ export async function importWorkspace(
           preservedLocal.push(path);
           continue;
         }
+        if (reconciliation && path === chainJournalPath) continue;
+        if (migrationRemap.has(path) || migrationSkipped.has(path)) continue;
         const localHash = localSet.has(path) ? hashFile(projectDir, path) : null;
         const upstreamHash = hashFile(source.root, path);
         if (upstreamHash === null) {
@@ -769,22 +952,8 @@ export async function importWorkspace(
         routeDelta = computeRouteDelta(localRoutes ?? [], upstreamRoutes ?? []);
       }
 
-      const localMigrations = loadMigrationEntries(projectDir, workspace);
-      const upstreamMigrations = loadMigrationEntries(source.root, workspace);
-      const migrationCollisions =
-        localMigrations && upstreamMigrations
-          ? detectMigrationCollisions(localMigrations, upstreamMigrations)
-          : [];
-      const localTags = new Set(localMigrations?.map((entry) => entry.tag) ?? []);
-      const upstreamTags = new Set(upstreamMigrations?.map((entry) => entry.tag) ?? []);
-      const localOnlyMigrations = [...localTags].filter((tag) => !upstreamTags.has(tag)).sort();
-      const upstreamOnlyMigrations = [...upstreamTags].filter((tag) => !localTags.has(tag)).sort();
+      const migrationCollisions = reconciliation?.unresolvable ?? [];
 
-      const chainPrefix = `${workspace}/src/db/migrations/`;
-      const chainUnsafe =
-        localMigrations !== null &&
-        upstreamMigrations !== null &&
-        (migrationCollisions.length > 0 || localOnlyMigrations.length > 0);
       const writeCandidates = new Set([
         ...added,
         ...updated,
@@ -794,6 +963,9 @@ export async function importWorkspace(
       const heldSet = new Set(
         chainUnsafe ? [...writeCandidates].filter((path) => path.startsWith(chainPrefix)) : [],
       );
+      if (chainUnsafe && reconciliation) {
+        heldSet.add(chainJournalPath);
+      }
       const heldBackMigrations = [...heldSet].sort();
       for (const conflict of conflicts) {
         conflict.held = heldSet.has(conflict.path);
@@ -814,8 +986,7 @@ export async function importWorkspace(
         conflicts,
         routeDelta,
         migrationCollisions,
-        localOnlyMigrations,
-        upstreamOnlyMigrations,
+        migrationReconciliation: reconciliation,
         heldBackMigrations,
       };
 
@@ -833,6 +1004,7 @@ export async function importWorkspace(
         heldBackMigrations,
         routeDelta,
         migrationCollisions,
+        migrationReconciliation: reconciliation ?? undefined,
       };
 
       if (options.dryRun) {
@@ -843,7 +1015,8 @@ export async function importWorkspace(
         return { status: "dry-run", ...resultBase, reportPath };
       }
 
-      const gated = conflicts.length > 0 || heldBackMigrations.length > 0;
+      const appendedCount = reconciliation?.appended.length ?? 0;
+      const gated = conflicts.length > 0 || heldBackMigrations.length > 0 || appendedCount > 0;
       if (gated && !options.yes) {
         let approved = false;
         if (deps?.confirm) {
@@ -852,6 +1025,7 @@ export async function importWorkspace(
             conflictCount: conflicts.length,
             migrationCollisionCount: migrationCollisions.length,
             heldCount: heldBackMigrations.length,
+            appendedCount,
           });
         }
         if (!approved) {
@@ -878,12 +1052,36 @@ export async function importWorkspace(
         );
       }
 
+      const reconciliationActive = reconciliation !== null && !chainUnsafe;
+      const journalRebuildContent =
+        reconciliationActive && reconciliation.appended.length > 0
+          ? buildMergedJournal(projectDir, source.root, workspace, reconciliation.appended)
+          : null;
+      const journalChanged =
+        journalRebuildContent !== null &&
+        journalRebuildContent !== readFileSync(join(projectDir, chainJournalPath), "utf-8");
+
+      const reconciliationOverwrites: Array<{ upstreamPath: string; localPath: string }> = [];
+      if (reconciliationActive) {
+        for (const [upstreamPath, localPath] of migrationRemap) {
+          const upstreamContent = readFileSync(join(source.root, upstreamPath), "utf-8");
+          if (
+            !existsSync(join(projectDir, localPath)) ||
+            readFileSync(join(projectDir, localPath), "utf-8") !== upstreamContent
+          ) {
+            reconciliationOverwrites.push({ upstreamPath, localPath });
+          }
+        }
+      }
+
       const overwritePaths = [
         ...updated.filter((path) => !isHeld(path)),
         ...conflicts.map((conflict) => conflict.path).filter((path) => !isHeld(path)),
         ...merged.filter(
           (path) => mergeContents.get(path) !== readFileSync(join(projectDir, path), "utf-8"),
         ),
+        ...(journalChanged ? [chainJournalPath] : []),
+        ...reconciliationOverwrites.map((write) => write.localPath),
       ];
       const backupDir = backupImportFiles(projectDir, overwritePaths);
 
@@ -910,6 +1108,16 @@ export async function importWorkspace(
         mkdirSync(dirname(dest), { recursive: true });
         writeFileSync(dest, content);
       }
+      for (const { upstreamPath, localPath } of reconciliationOverwrites) {
+        const dest = safeProjectPath(projectDir, localPath);
+        mkdirSync(dirname(dest), { recursive: true });
+        copyFileSync(join(source.root, upstreamPath), dest);
+      }
+      if (journalChanged && journalRebuildContent) {
+        const dest = safeProjectPath(projectDir, chainJournalPath);
+        mkdirSync(dirname(dest), { recursive: true });
+        writeFileSync(dest, journalRebuildContent);
+      }
 
       const writtenPaths = [
         ...added,
@@ -922,6 +1130,15 @@ export async function importWorkspace(
         const hash = hashFile(projectDir, path);
         if (hash) {
           recorded[path] = hash;
+        }
+      }
+      if (journalChanged && journalRebuildContent) {
+        recorded[chainJournalPath] = computeSnapshotHash(journalRebuildContent);
+      }
+      for (const { localPath } of reconciliationOverwrites) {
+        const hash = hashFile(projectDir, localPath);
+        if (hash) {
+          recorded[localPath] = hash;
         }
       }
       for (const path of [...unchanged, ...preservedLocalEdit]) {

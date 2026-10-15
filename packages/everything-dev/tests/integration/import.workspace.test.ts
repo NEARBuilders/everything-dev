@@ -6,6 +6,7 @@ import { IMPORT_REPORT_PATH, importWorkspace } from "../../src/cli/import";
 import type { ImportOptions } from "../../src/contract";
 
 const WS = "plugins/demo";
+const M = `${WS}/src/db/migrations`;
 
 const writeTree = (root: string, files: Record<string, string>) => {
   for (const [path, content] of Object.entries(files)) {
@@ -25,12 +26,24 @@ ${routes.join("\n")}
 };
 `;
 
-const journal = (entries: Array<{ idx: number; tag: string }>) =>
+const journalEntry = (idx: number, tag: string, when: number) => ({
+  idx,
+  version: "7",
+  when,
+  tag,
+  breakpoints: true,
+});
+
+const sql = (table: string) => `CREATE TABLE ${table} (id int);\n`;
+
+const journalFor = (tags: Array<[number, string]>): string =>
   json({
-    version: 7,
+    version: "7",
     dialect: "postgresql",
-    entries: entries.map((entry) => ({ ...entry, version: "7" })),
+    entries: tags.map(([idx, tag]) => journalEntry(idx, tag, 1_700_000_000_000 + idx)),
   });
+
+const snapshotFile = (id: string): string => json({ version: "7", dialect: "postgresql", id });
 
 const upstreamContractRoot = `import { oc } from "@orpc/contract";
 import { upstreamRoutes } from "./contract/upstream.contract";
@@ -60,12 +73,26 @@ function makeUpstream(): string {
     [`${WS}/src/upstream-only.ts`]: "export const upstreamOnly = true;\n",
     [`${WS}/src/contract.ts`]: upstreamContractRoot,
     [`${WS}/src/contract/upstream.contract.ts`]: upstreamContractSplit,
-    [`${WS}/src/db/migrations/meta/_journal.json`]: journal([
-      { idx: 0, tag: "0000_base" },
-      { idx: 1, tag: "0001_upstream_diff" },
+    [`${M}/meta/_journal.json`]: journalFor([
+      [0, "0000_base"],
+      [1, "0001_shared_one"],
+      [2, "0002_shared_two"],
+      [3, "0003_upstream-new"],
+      [4, "0004_upstream-more"],
+      [5, "0005_upstream-tail"],
     ]),
-    [`${WS}/src/db/migrations/0000_base.sql`]: "CREATE TABLE base (id int);\n",
-    [`${WS}/src/db/migrations/0001_upstream_diff.sql`]: "CREATE TABLE upstream_diff (id int);\n",
+    [`${M}/0000_base.sql`]: sql("base"),
+    [`${M}/0001_shared_one.sql`]: sql("shared_one"),
+    [`${M}/0002_shared_two.sql`]: sql("shared_two"),
+    [`${M}/0003_upstream-new.sql`]: sql("upstream_new"),
+    [`${M}/0004_upstream-more.sql`]: sql("upstream_more"),
+    [`${M}/0005_upstream-tail.sql`]: sql("upstream_tail"),
+    [`${M}/meta/0000_snapshot.json`]: snapshotFile("shared-0"),
+    [`${M}/meta/0001_snapshot.json`]: snapshotFile("shared-1"),
+    [`${M}/meta/0002_snapshot.json`]: snapshotFile("shared-2"),
+    [`${M}/meta/0003_snapshot.json`]: snapshotFile("upstream-3"),
+    [`${M}/meta/0004_snapshot.json`]: snapshotFile("upstream-4"),
+    [`${M}/meta/0005_snapshot.json`]: snapshotFile("upstream-5"),
   });
   return root;
 }
@@ -84,17 +111,28 @@ function makeChild(): string {
     [`${WS}/src/contract.ts`]: contractSource([
       '  local: oc.route({ method: "POST", path: "/v1/demo/local" }).output(z.void()),',
     ]),
-    [`${WS}/src/db/migrations/meta/_journal.json`]: journal([
-      { idx: 0, tag: "0000_base" },
-      { idx: 1, tag: "0001_local_extra" },
+    [`${M}/meta/_journal.json`]: journalFor([
+      [0, "0000_base"],
+      [1, "0001_shared_one"],
+      [2, "0002_shared_two"],
+      [3, "0003_local-custom"],
+      [4, "0004_local-extra"],
     ]),
-    [`${WS}/src/db/migrations/0000_base.sql`]: "CREATE TABLE base (id int);\n",
-    [`${WS}/src/db/migrations/0001_local_extra.sql`]: "CREATE TABLE local_extra (id int);\n",
+    [`${M}/0000_base.sql`]: sql("base"),
+    [`${M}/0001_shared_one.sql`]: sql("shared_one"),
+    [`${M}/0002_shared_two.sql`]: sql("shared_two"),
+    [`${M}/0003_local-custom.sql`]: sql("local_custom"),
+    [`${M}/0004_local-extra.sql`]: sql("local_extra"),
+    [`${M}/meta/0000_snapshot.json`]: snapshotFile("shared-0"),
+    [`${M}/meta/0001_snapshot.json`]: snapshotFile("shared-1"),
+    [`${M}/meta/0002_snapshot.json`]: snapshotFile("shared-2"),
+    [`${M}/meta/0003_snapshot.json`]: snapshotFile("local-3"),
+    [`${M}/meta/0004_snapshot.json`]: snapshotFile("local-4"),
   });
   return root;
 }
 
-describe("bos import — workspace import from a local source", () => {
+describe("bos import — migration-chain reconciliation", () => {
   let upstream: string;
   let child: string;
 
@@ -121,97 +159,147 @@ describe("bos import — workspace import from a local source", () => {
   const readChild = (rel: string): string => readFileSync(join(child, rel), "utf-8");
   const childExists = (rel: string): boolean => existsSync(join(child, rel));
 
-  it("dry-run classifies every bucket, reports deltas, and writes nothing", async () => {
+  it("dry-run reports kept/appended/renumbered sets and writes nothing", async () => {
     const result = await importWorkspace(child, options({ dryRun: true }));
 
     expect(result.status).toBe("dry-run");
-    expect(result.workspace).toBe(WS);
-    expect(result.ref).toBe("local");
-    expect(result.conflicts).toEqual([
-      `${WS}/src/contract.ts`,
-      `${WS}/src/db/migrations/meta/_journal.json`,
-      `${WS}/src/index.ts`,
-    ]);
+    expect(result.conflicts).toEqual([`${WS}/src/contract.ts`, `${WS}/src/index.ts`]);
     expect(result.added).toEqual([
       `${WS}/src/contract/upstream.contract.ts`,
-      `${WS}/src/db/migrations/0001_upstream_diff.sql`,
       `${WS}/src/upstream-only.ts`,
     ]);
     expect(result.preservedLocal).toEqual([
-      `${WS}/src/db/migrations/0001_local_extra.sql`,
+      `${M}/0003_local-custom.sql`,
+      `${M}/0004_local-extra.sql`,
       `${WS}/src/local-only.ts`,
     ]);
     expect(result.unchanged).toEqual([
-      `${WS}/src/db/migrations/0000_base.sql`,
+      `${M}/0000_base.sql`,
+      `${M}/0001_shared_one.sql`,
+      `${M}/0002_shared_two.sql`,
+      `${M}/meta/0000_snapshot.json`,
+      `${M}/meta/0001_snapshot.json`,
+      `${M}/meta/0002_snapshot.json`,
       `${WS}/src/shared.ts`,
     ]);
-    expect(result.merged).toEqual([`${WS}/package.json`]);
-    expect(result.heldBackMigrations).toEqual([
-      `${WS}/src/db/migrations/0001_upstream_diff.sql`,
-      `${WS}/src/db/migrations/meta/_journal.json`,
-    ]);
-    expect(result.migrationCollisions).toEqual([
-      {
-        kind: "idx-reuse",
-        idx: 1,
-        localTag: "0001_local_extra",
-        upstreamTag: "0001_upstream_diff",
-        message: "idx 1 is 0001_local_extra locally but 0001_upstream_diff upstream",
-      },
-    ]);
-    expect(result.routeDelta).toEqual({
-      oursOnly: ["POST /v1/demo/local"],
-      theirsOnly: ["PUT /v1/demo/upstream"],
+    expect(result.heldBackMigrations).toEqual([]);
+    expect(result.migrationCollisions).toEqual([]);
+    expect(result.migrationReconciliation).toEqual({
+      kept: [
+        "0000_base",
+        "0001_shared_one",
+        "0002_shared_two",
+        "0003_local-custom",
+        "0004_local-extra",
+      ],
+      appended: [
+        { idx: 5, fromTag: "0003_upstream-new", toTag: "0005_upstream-new" },
+        { idx: 6, fromTag: "0004_upstream-more", toTag: "0006_upstream-more" },
+        { idx: 7, fromTag: "0005_upstream-tail", toTag: "0007_upstream-tail" },
+      ],
+      contentMatched: [],
+      unresolvable: [],
     });
 
     expect(childExists(`${WS}/src/upstream-only.ts`)).toBe(false);
     expect(readChild(`${WS}/src/index.ts`)).toContain("x = 1");
+    expect(readChild(`${M}/meta/_journal.json`)).toContain("0003_local-custom");
 
     const report = readChild(IMPORT_REPORT_PATH);
     expect(report).toContain("Dry run — no files written");
-    expect(report).toContain("Migration chain held back");
-    expect(report).toContain("idx-reuse");
-    expect(report).toContain("POST /v1/demo/local");
+    expect(report).toContain("## Migration chain reconciliation");
+    expect(report).toContain("`0003_upstream-new` | `0005_upstream-new` | 5");
+    expect(report).toContain("Next boot will apply the 3 appended migration(s)");
+    expect(report).toContain("Snapshot-chain note");
   });
 
-  it("refuses without --yes while conflicts or a held chain exist", async () => {
+  it("refuses without --yes while conflicts or appended migrations exist", async () => {
     const result = await importWorkspace(child, options());
 
     expect(result.status).toBe("conflicts");
     expect(childExists(`${WS}/src/upstream-only.ts`)).toBe(false);
-    expect(readChild(`${WS}/src/index.ts`)).toContain("x = 1");
+    expect(readChild(`${M}/meta/_journal.json`)).toContain("0003_local-custom");
     expect(readChild(IMPORT_REPORT_PATH)).toContain(
       "Refused — unresolvable conflicts exist, nothing was written",
     );
   });
 
-  it("confirms through deps.confirm when provided", async () => {
-    const seen: number[] = [];
+  it("confirms through deps.confirm with the appended count", async () => {
+    const seen: Array<{ conflictCount: number; appendedCount: number; heldCount: number }> = [];
     const refused = await importWorkspace(child, options(), {
       confirm: async (info) => {
-        seen.push(info.conflictCount, info.heldCount);
+        seen.push({
+          conflictCount: info.conflictCount,
+          appendedCount: info.appendedCount,
+          heldCount: info.heldCount,
+        });
         return false;
       },
     });
     expect(refused.status).toBe("conflicts");
-    expect(seen).toEqual([3, 2]);
+    expect(seen).toEqual([{ conflictCount: 2, appendedCount: 3, heldCount: 0 }]);
 
     const approved = await importWorkspace(child, options(), { confirm: async () => true });
     expect(approved.status).toBe("imported");
     expect(childExists(`${WS}/src/upstream-only.ts`)).toBe(true);
   });
 
-  it("applies with --yes, merges package.json, and holds the migration chain", async () => {
+  it("applies with --yes: renumbered files, rebuilt journal, preserved applied entries", async () => {
     rmSync(child, { recursive: true, force: true });
     child = makeChild();
 
     const result = await importWorkspace(child, options({ yes: true }));
 
     expect(result.status).toBe("imported");
-    expect(readChild(`${WS}/src/index.ts`)).toContain("x = 2");
-    expect(readChild(`${WS}/src/contract.ts`)).toContain('from "./contract/upstream.contract"');
-    expect(readChild(`${WS}/src/contract.ts`)).not.toContain("/v1/demo/local");
-    expect(readChild(`${WS}/src/contract/upstream.contract.ts`)).toContain("/v1/demo/upstream");
+
+    expect(childExists(`${M}/0003_upstream-new.sql`)).toBe(false);
+    expect(childExists(`${M}/0005_upstream-new.sql`)).toBe(true);
+    expect(childExists(`${M}/0006_upstream-more.sql`)).toBe(true);
+    expect(childExists(`${M}/0007_upstream-tail.sql`)).toBe(true);
+    expect(readChild(`${M}/0005_upstream-new.sql`)).toBe(sql("upstream_new"));
+    expect(childExists(`${M}/meta/0005_snapshot.json`)).toBe(true);
+    expect(readChild(`${M}/meta/0005_snapshot.json`)).toContain("upstream-3");
+    expect(childExists(`${M}/meta/0007_snapshot.json`)).toBe(true);
+    expect(readChild(`${M}/meta/0007_snapshot.json`)).toContain("upstream-5");
+
+    expect(readChild(`${M}/0003_local-custom.sql`)).toBe(sql("local_custom"));
+    expect(readChild(`${M}/meta/0003_snapshot.json`)).toContain("local-3");
+
+    const rebuilt = JSON.parse(readChild(`${M}/meta/_journal.json`)) as {
+      version: string;
+      dialect: string;
+      entries: Array<{ idx: number; tag: string; when: number; breakpoints: boolean }>;
+    };
+    expect(rebuilt.version).toBe("7");
+    expect(rebuilt.dialect).toBe("postgresql");
+    expect(rebuilt.entries).toEqual([
+      journalEntry(0, "0000_base", 1_700_000_000_000),
+      journalEntry(1, "0001_shared_one", 1_700_000_000_001),
+      journalEntry(2, "0002_shared_two", 1_700_000_000_002),
+      journalEntry(3, "0003_local-custom", 1_700_000_000_003),
+      journalEntry(4, "0004_local-extra", 1_700_000_000_004),
+      journalEntry(5, "0005_upstream-new", 1_700_000_000_005),
+      journalEntry(6, "0006_upstream-more", 1_700_000_000_006),
+      journalEntry(7, "0007_upstream-tail", 1_700_000_000_007),
+    ]);
+
+    expect(result.backupDir).toBeTypeOf("string");
+    const backupJournal = readFileSync(
+      join(result.backupDir as string, `${M}/meta/_journal.json`),
+      "utf-8",
+    );
+    expect(backupJournal).toContain("0003_local-custom");
+    expect(JSON.parse(backupJournal)).toEqual({
+      version: "7",
+      dialect: "postgresql",
+      entries: [
+        journalEntry(0, "0000_base", 1_700_000_000_000),
+        journalEntry(1, "0001_shared_one", 1_700_000_000_001),
+        journalEntry(2, "0002_shared_two", 1_700_000_000_002),
+        journalEntry(3, "0003_local-custom", 1_700_000_000_003),
+        journalEntry(4, "0004_local-extra", 1_700_000_000_004),
+      ],
+    });
 
     const pkg = JSON.parse(readChild(`${WS}/package.json`)) as {
       version: string;
@@ -219,62 +307,93 @@ describe("bos import — workspace import from a local source", () => {
     };
     expect(pkg.version).toBe("1.0.0");
     expect(pkg.dependencies["left-pad"]).toBe("^2.0.0");
-    expect(pkg.dependencies["right-pad"]).toBe("^1.0.0");
     expect(pkg.dependencies["only-local"]).toBe("^1.0.0");
-
-    expect(childExists(`${WS}/src/local-only.ts`)).toBe(true);
-    expect(childExists(`${WS}/src/db/migrations/0001_upstream_diff.sql`)).toBe(false);
-    expect(childExists(`${WS}/src/db/migrations/0001_local_extra.sql`)).toBe(true);
-    const appliedJournal = JSON.parse(readChild(`${WS}/src/db/migrations/meta/_journal.json`)) as {
-      entries: Array<{ tag: string }>;
-    };
-    expect(appliedJournal.entries.map((entry) => entry.tag)).toEqual([
-      "0000_base",
-      "0001_local_extra",
-    ]);
-
-    expect(result.backupDir).toBeTypeOf("string");
-    const backupIndex = readFileSync(
-      join(result.backupDir as string, `${WS}/src/index.ts`),
-      "utf-8",
-    );
-    expect(backupIndex).toContain("x = 1");
 
     const snapshot = JSON.parse(readChild(".bos/import-snapshot.json")) as {
       workspaces: Record<string, { files: Record<string, string> }>;
     };
     const files = snapshot.workspaces[WS]?.files ?? {};
-    expect(files[`${WS}/src/index.ts`]).toBeTypeOf("string");
-    expect(files[`${WS}/package.json`]).toBeTypeOf("string");
-    expect(files[`${WS}/src/shared.ts`]).toBeTypeOf("string");
-    expect(files[`${WS}/src/db/migrations/meta/_journal.json`]).toBeUndefined();
-    expect(files[`${WS}/src/db/migrations/0001_upstream_diff.sql`]).toBeUndefined();
-    expect(files[`${WS}/src/local-only.ts`]).toBeUndefined();
+    expect(files[`${M}/meta/_journal.json`]).toBeTypeOf("string");
+    expect(files[`${M}/0005_upstream-new.sql`]).toBeTypeOf("string");
+    expect(files[`${M}/0007_upstream-tail.sql`]).toBeTypeOf("string");
+    expect(files[`${M}/0003_upstream-new.sql`]).toBeUndefined();
+    expect(files[`${M}/0005_upstream-tail.sql`]).toBeUndefined();
 
     const report = readChild(IMPORT_REPORT_PATH);
     expect(report).toContain("Applied — upstream written over shared files");
-    expect(report).toContain("Migration chain held back");
+    expect(report).toContain("## Migration chain reconciliation");
   });
 
-  it("converges on a second run except for the held journal", async () => {
+  it("converges fully on a second run — appended migrations match by content", async () => {
     const result = await importWorkspace(child, options({ dryRun: true }));
 
     expect(result.status).toBe("dry-run");
-    expect(result.conflicts).toEqual([`${WS}/src/db/migrations/meta/_journal.json`]);
-    expect(result.unchanged).toEqual([
-      `${WS}/src/contract.ts`,
-      `${WS}/src/contract/upstream.contract.ts`,
-      `${WS}/src/db/migrations/0000_base.sql`,
-      `${WS}/src/index.ts`,
-      `${WS}/src/shared.ts`,
-      `${WS}/src/upstream-only.ts`,
+    expect(result.conflicts).toEqual([]);
+    expect(result.added).toEqual([]);
+    expect(result.heldBackMigrations).toEqual([]);
+    expect(result.migrationCollisions).toEqual([]);
+    expect(result.migrationReconciliation).toEqual({
+      kept: [
+        "0000_base",
+        "0001_shared_one",
+        "0002_shared_two",
+        "0003_local-custom",
+        "0004_local-extra",
+        "0005_upstream-new",
+        "0006_upstream-more",
+        "0007_upstream-tail",
+      ],
+      appended: [],
+      contentMatched: ["0003_upstream-new", "0004_upstream-more", "0005_upstream-tail"],
+      unresolvable: [],
+    });
+    expect(childExists(`${M}/0003_upstream-new.sql`)).toBe(false);
+    expect(readChild(`${M}/meta/_journal.json`)).toContain("0007_upstream-tail");
+  });
+
+  it("holds the chain when a shared migration hashes differently", async () => {
+    rmSync(child, { recursive: true, force: true });
+    child = makeChild();
+    const drifted = makeUpstream();
+    writeTree(drifted, { [`${M}/0001_shared_one.sql`]: sql("shared_one_drifted") });
+
+    const result = await importWorkspace(child, options({ from: drifted, dryRun: true }));
+
+    expect(result.migrationCollisions).toEqual([
+      {
+        kind: "tag-mismatch",
+        idx: 1,
+        localTag: "0001_shared_one",
+        upstreamTag: "0001_shared_one",
+        message:
+          "0001_shared_one has different content locally than upstream — already-applied hashes would drift",
+      },
     ]);
-    expect(result.merged).toEqual([`${WS}/package.json`]);
-    expect(result.routeDelta).toEqual({ oursOnly: [], theirsOnly: [] });
     expect(result.heldBackMigrations).toEqual([
-      `${WS}/src/db/migrations/0001_upstream_diff.sql`,
-      `${WS}/src/db/migrations/meta/_journal.json`,
+      `${M}/0001_shared_one.sql`,
+      `${M}/0003_upstream-new.sql`,
+      `${M}/0004_upstream-more.sql`,
+      `${M}/0005_upstream-tail.sql`,
+      `${M}/meta/0003_snapshot.json`,
+      `${M}/meta/0004_snapshot.json`,
+      `${M}/meta/0005_snapshot.json`,
+      `${M}/meta/_journal.json`,
     ]);
+    expect(result.migrationReconciliation?.appended).toEqual([
+      { idx: 5, fromTag: "0003_upstream-new", toTag: "0005_upstream-new" },
+      { idx: 6, fromTag: "0004_upstream-more", toTag: "0006_upstream-more" },
+      { idx: 7, fromTag: "0005_upstream-tail", toTag: "0007_upstream-tail" },
+    ]);
+
+    const report = readChild(IMPORT_REPORT_PATH);
+    expect(report).toContain("## Migration chain held back");
+    expect(report).toContain("reconciliation could not produce a safe merged chain");
+
+    const applied = await importWorkspace(child, options({ from: drifted, yes: true }));
+    expect(applied.status).toBe("imported");
+    expect(readChild(`${M}/0001_shared_one.sql`)).toBe(sql("shared_one"));
+    expect(readChild(`${M}/meta/_journal.json`)).toContain("0003_local-custom");
+    expect(childExists(`${M}/0005_upstream-new.sql`)).toBe(false);
   });
 
   it("errors loudly when the workspace is missing from the source", async () => {

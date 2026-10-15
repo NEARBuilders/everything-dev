@@ -121,7 +121,7 @@ bos upgrade --no-sync       # only upgrade packages, skip template sync
 
 ### `bos import`
 
-Import a workspace subtree (e.g. `plugins/auth`) from an upstream GitHub repo or a local directory, without cloning. Per-file classification is snapshot-baselined; unresolvable conflicts and a non-appliable migration chain gate the run (exit 1) unless `--yes` or an interactive confirmation.
+Import a workspace subtree (e.g. `plugins/auth`) from an upstream GitHub repo or a local directory, without cloning. Per-file classification is snapshot-baselined; diverging migration chains are reconciled — applied local entries are kept verbatim, colliding upstream migrations are renumbered and appended, journal rebuilt. Unresolvable conflicts (content drift on an applied migration, unreadable journal) hold the chain and gate the run (exit 1) unless `--yes` or an interactive confirmation.
 
 **Flags:** `--from <owner/repo[@ref]|url|dir>` `--yes` `--dry-run` `--no-install` `--json`
 
@@ -131,7 +131,7 @@ bos import plugins/auth --from ./local-checkout --dry-run
 bos import plugins/auth --from owner/repo --yes
 ```
 
-→ [`init-upgrade`](.) skill for classification buckets, migration-chain safety, route deltas, and the `.bos/import-report.md` report.
+→ [`init-upgrade`](.) skill for classification buckets, migration-chain reconciliation, route deltas, and the `.bos/import-report.md` report.
 
 ### `bos status`
 
