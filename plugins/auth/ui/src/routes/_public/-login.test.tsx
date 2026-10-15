@@ -57,18 +57,22 @@ interface TestContext {
   session: SessionData | null | undefined;
 }
 
-/**
- * Stand-in for the core `_authenticated` guard (ui/src/lib/auth-guards.ts,
- * requireSession) — the plugin test tree cannot import core sources, so the
- * guard semantics (queryClient.query over sessionQueryOptions, banned
- * redirect) are mirrored.
- */
-function createAuthedGuard(root: ReturnType<typeof createRootRouteWithContext<TestContext>>) {
-  return createRoute({
+async function buildRouter(initialUrl: string, queryClient: QueryClient, authClient: AuthClient) {
+  const context: TestContext = { queryClient, authClient, session: undefined };
+
+  const root = createRootRouteWithContext<TestContext>()({ component: Outlet });
+
+  // Stand-in for the core `_authenticated` guard (ui/src/lib/auth-guards.ts,
+  // requireSession) — the plugin test tree cannot import core sources, so the
+  // guard semantics (queryClient.query over sessionQueryOptions, banned
+  // redirect) are mirrored.
+  const guardRoute = createRoute({
     getParentRoute: () => root,
     id: "_authenticated",
-    beforeLoad: async ({ context }: { context: TestContext }) => {
-      const session = await context.queryClient.query(sessionQueryOptions(context.authClient));
+    beforeLoad: async ({ context: routeContext }: { context: TestContext }) => {
+      const session = await routeContext.queryClient.query(
+        sessionQueryOptions(routeContext.authClient),
+      );
       if (!session?.user) {
         throw redirect({ href: `/login?redirect=%2Fdashboard` });
       }
@@ -79,16 +83,9 @@ function createAuthedGuard(root: ReturnType<typeof createRootRouteWithContext<Te
     },
     component: Outlet,
   });
-}
 
-async function buildRouter(initialUrl: string, queryClient: QueryClient, authClient: AuthClient) {
-  const context: TestContext = { queryClient, authClient, session: undefined };
-
-  const root = createRootRouteWithContext<TestContext>()({ component: Outlet });
-
-  const guardRoute = createAuthedGuard(root);
   const dashboardRoute = createRoute({
-    getParentRoute: () => guardRoute as never,
+    getParentRoute: () => guardRoute,
     path: "/dashboard",
     component: () => <div>dashboard</div>,
   });
@@ -98,7 +95,7 @@ async function buildRouter(initialUrl: string, queryClient: QueryClient, authCli
     getParentRoute: () => root,
     path: "/login",
     id: undefined,
-  });
+  } as never);
 
   const deviceApprovalRoute = createRoute({
     getParentRoute: () => root,

@@ -259,6 +259,14 @@ describe("bos init — structure", () => {
       expect(pkg.scripts?.["test:e2e"]).toBeUndefined();
       expect(pkg.scripts?.["dev:api"]).toBeDefined();
       expect(pkg.scripts?.["dev:ui"]).toBeUndefined();
+
+      // pnpm 12 forwards everything after `run <script>` to the script itself,
+      // so pnpm flags must precede `run` — a trailing --if-present reaches
+      // vitest and dies with `CACError: Unknown option --ifPresent`.
+      for (const script of [pkg.scripts?.["test:api"], pkg.scripts?.test]) {
+        expect(script).toMatch(/--if-present run /);
+        expect(script?.includes("run test --if-present")).toBe(false);
+      }
     } finally {
       rmSync(apiOnlyDir, { recursive: true, force: true });
     }

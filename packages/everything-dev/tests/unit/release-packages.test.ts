@@ -206,4 +206,76 @@ describe("stageReleasePackages", () => {
       }),
     ).toThrowError(/\.\/bad[\s\S]*\.\/src\/bad\.ts/);
   });
+
+  it("fails the release when a runtime dep keeps an unresolvable workspace: ref", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "everything-dev-release-"));
+    tempDirs.push(repoRoot);
+
+    mkdirSync(join(repoRoot, "packages", "everything-dev"), { recursive: true });
+    mkdirSync(join(repoRoot, "packages", "every-plugin"), { recursive: true });
+
+    writeFileSync(
+      join(repoRoot, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "monorepo",
+          workspaces: {
+            packages: ["packages/everything-dev", "packages/every-plugin"],
+            catalog: { "every-plugin": "3.4.5" },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    writeFileSync(
+      join(repoRoot, "packages", "everything-dev", "package.json"),
+      `${JSON.stringify(
+        {
+          name: "everything-dev",
+          version: "1.2.3",
+          dependencies: {
+            "every-plugin": "workspace:*",
+            "@everything-dev/upload-app": "workspace:^",
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    expect(() =>
+      stageReleasePackages({
+        repoRoot,
+        outDir: join(repoRoot, ".release"),
+        packageNames: ["everything-dev"],
+      }),
+    ).toThrowError(
+      /workspace: refs would ship to npm[\s\S]*dependencies\.@everything-dev\/upload-app/,
+    );
+  });
+
+  it("stages the real everything-dev manifest with resolvable runtime deps", () => {
+    const repoRoot = join(import.meta.dirname, "../../../..");
+    const outDir = join(mkdtempSync(join(tmpdir(), "everything-dev-release-real-")), ".release");
+    tempDirs.push(outDir);
+
+    stageReleasePackages({ repoRoot, outDir, packageNames: ["everything-dev"] });
+
+    const staged = JSON.parse(
+      readFileSync(join(outDir, "everything-dev", "package.json"), "utf-8"),
+    ) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+
+    for (const [name, version] of Object.entries(staged.dependencies ?? {})) {
+      expect(
+        version.startsWith("workspace:"),
+        `runtime dep ${name} must not ship a workspace: ref (got "${version}")`,
+      ).toBe(false);
+    }
+    expect(staged.dependencies?.["@everything-dev/upload-app"]).toBeUndefined();
+  });
 });

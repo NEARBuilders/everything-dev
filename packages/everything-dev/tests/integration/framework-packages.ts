@@ -47,27 +47,17 @@ async function buildFrameworkTarballs(repoRoot: string): Promise<FrameworkTarbal
     transitiveTarballs[packageName] = copy;
   }
 
-  // The upload app is a workspace dependency of everything-dev (the deploy
-  // train's client seam, ADR 0027) but is not a root-catalog entry — pack it
-  // as another transitive tarball so the child install can resolve it.
-  const uploadAppTarball = await stageAndPackFrameworkPackage({
-    repoRoot,
-    packageName: "upload-app",
-    sourceDir: "apps/upload",
-    tarballDir,
-    rootCatalog,
-    otherFrameworkTarballs: { "every-plugin": transitiveTarballs["every-plugin"] },
-  });
+  // @everything-dev/upload-app is a devDependency of everything-dev (the
+  // client is bundled into the dist), so it must NOT appear in the runtime
+  // dependency graph of the packed tarball — a devDep of a dependency is
+  // never installed by consumers, which is the whole point.
 
   const everythingDevTarball = await stageAndPackFrameworkPackage({
     repoRoot,
     packageName: "everything-dev",
     tarballDir,
     rootCatalog,
-    otherFrameworkTarballs: {
-      ...transitiveTarballs,
-      "@everything-dev/upload-app": uploadAppTarball,
-    },
+    otherFrameworkTarballs: transitiveTarballs,
   });
 
   return {
@@ -80,12 +70,11 @@ async function buildFrameworkTarballs(repoRoot: string): Promise<FrameworkTarbal
 async function stageAndPackFrameworkPackage(opts: {
   repoRoot: string;
   packageName: string;
-  sourceDir?: string;
   tarballDir: string;
   rootCatalog: Record<string, string>;
   otherFrameworkTarballs?: Record<string, string>;
 }): Promise<string> {
-  const sourceDir = join(opts.repoRoot, opts.sourceDir ?? join("packages", opts.packageName));
+  const sourceDir = join(opts.repoRoot, "packages", opts.packageName);
   const stageDir = mkdtempSync(join(tmpdir(), `${opts.packageName}-pack-stage-`));
 
   cpSync(sourceDir, stageDir, {

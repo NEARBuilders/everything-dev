@@ -4,15 +4,44 @@
  * the app's UI kit, so primitives are plain markup + semantic tokens.
  */
 
+import { useSyncExternalStore } from "react";
+
+const subscribeToNothing = () => () => {};
+
+/**
+ * Whether the error-details block renders. `undefined` (the default) shows
+ * details once the client is live — SSR HTML is what gets indexed, cached
+ * and logged, so internal messages (RPC endpoints, digests, provider errors)
+ * stay out of it, and the hydration pass renders the same details-free
+ * markup before revealing. `true` always renders the block, `false` never
+ * does. `suppress` is true while rendering on the server or pre-reveal.
+ */
+export function shouldShowErrorDetails(
+  showErrorDetails: boolean | undefined,
+  suppress: boolean,
+): boolean {
+  if (showErrorDetails === false) return false;
+  if (showErrorDetails === true) return true;
+  return !suppress;
+}
+
 export function RouterError({
   error,
   reset,
   messages,
+  showErrorDetails,
 }: {
   error: Error;
   reset?: () => void;
   messages?: { title: string; body: string; home: string; retry: string };
+  showErrorDetails?: boolean;
 }) {
+  const revealed = useSyncExternalStore(
+    subscribeToNothing,
+    () => true,
+    () => false,
+  );
+  const showDetails = shouldShowErrorDetails(showErrorDetails, !revealed);
   return (
     <div
       className="flex min-h-96 flex-1 items-center justify-center bg-background px-4 py-16"
@@ -50,12 +79,14 @@ export function RouterError({
             {messages?.retry ?? "Try again"}
           </button>
         </div>
-        <details className="w-full text-left text-sm text-muted-foreground">
-          <summary className="cursor-pointer text-center">Error details</summary>
-          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs">
-            {error.message}
-          </pre>
-        </details>
+        {showDetails && (
+          <details className="w-full text-left text-sm text-muted-foreground">
+            <summary className="cursor-pointer text-center">Error details</summary>
+            <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs">
+              {error.message}
+            </pre>
+          </details>
+        )}
       </div>
     </div>
   );

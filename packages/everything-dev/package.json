@@ -398,7 +398,6 @@
     "defu": "^6.1.7",
     "dotenv": "^17.3.1",
     "effect": "4.0.0-rc.117",
-    "@everything-dev/upload-app": "workspace:^",
     "every-plugin": "workspace:^",
     "execa": "^9.5.2",
     "glob": "^13.0.6",
@@ -468,6 +467,7 @@
   "devDependencies": {
     "@better-auth/api-key": "catalog:",
     "@better-auth/passkey": "catalog:",
+    "@everything-dev/upload-app": "workspace:^",
     "@lingui/core": "catalog:",
     "@lingui/react": "catalog:",
     "@module-federation/rsbuild-plugin": "catalog:",
