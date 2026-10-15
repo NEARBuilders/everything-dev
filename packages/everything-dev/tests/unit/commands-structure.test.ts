@@ -4,6 +4,7 @@ import { registerConfig } from "../../src/commands/config";
 import { registerDb } from "../../src/commands/db";
 import { registerDeploy } from "../../src/commands/deploy";
 import { registerDev } from "../../src/commands/dev";
+import { registerImport } from "../../src/commands/import";
 import { registerInit } from "../../src/commands/init";
 import { registerKeys } from "../../src/commands/keys";
 import { registerOps } from "../../src/commands/ops";
@@ -23,6 +24,7 @@ const registerFns = [
   registerSmoke,
   registerKeys,
   registerInit,
+  registerImport,
   registerUpgrade,
   registerDb,
   registerOps,

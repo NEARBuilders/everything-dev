@@ -755,6 +755,114 @@ async function main() {
       return;
     }
 
+    if (descriptor.key === "import") {
+      if ((input as any).json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      console.log();
+      if (result.status === "error") {
+        console.error(`[CLI] ${result.error || "Unknown error"}`);
+        if (result.reportPath) console.error(`  Report: ${result.reportPath}`);
+        process.exit(1);
+      }
+      if (result.sourceRepository) {
+        console.log(
+          `  ${colors.dim("Upstream:")} ${result.sourceRepository} @ ${
+            result.ref || "default branch"
+          }${result.resolvedSha ? colors.dim(` (commit ${result.resolvedSha})`) : ""}`,
+        );
+      }
+      for (const warning of result.warnings ?? []) {
+        console.log(`  ${colors.yellow("Note:")} ${warning}`);
+      }
+      if (result.status === "dry-run") {
+        console.log(colors.cyan(`${icons.ok} Dry run — no files written`));
+      } else if (result.status === "imported") {
+        console.log(colors.green(`${icons.ok} Imported ${result.workspace} from ${result.from}`));
+      } else {
+        console.log(colors.yellow(`${icons.err} Conflicts — nothing written`));
+      }
+      console.log(
+        `  ${colors.dim("Results:")} ${result.updated.length} updated, ${result.added.length} added, ${result.merged.length} merged, ${result.conflicts.length} conflicted, ${result.preservedLocal.length} local-only preserved, ${result.unchanged.length} unchanged`,
+      );
+      if (result.conflicts.length > 0) {
+        const heldSet: Set<string> = new Set(result.heldBackMigrations ?? []);
+        console.log(
+          `  ${colors.yellow("Conflicts")} (unresolvable — manual-port checklist${
+            result.status === "conflicts"
+              ? "; re-run with --yes to apply upstream"
+              : result.backupDir
+                ? `, upstream applied, local copies at ${result.backupDir}`
+                : ""
+          }):`,
+        );
+        for (const file of result.conflicts) {
+          console.log(
+            `    ${colors.dim(heldSet.has(file) ? `${file} (held — migration chain)` : file)}`,
+          );
+        }
+      }
+      if (result.heldBackMigrations?.length > 0) {
+        console.log(`  ${colors.yellow("Migration chain held back")}:`);
+        for (const file of result.heldBackMigrations) console.log(`    ${colors.dim(file)}`);
+      }
+      if (result.migrationCollisions.length > 0) {
+        console.log(`  ${colors.yellow("Unresolvable migration collisions")}:`);
+        for (const collision of result.migrationCollisions) {
+          console.log(`    ${colors.dim(collision.message)}`);
+        }
+      }
+      if (result.migrationReconciliation && result.migrationReconciliation.appended.length > 0) {
+        console.log(
+          `  ${colors.green("Migration chain reconciled")}: ${result.migrationReconciliation.kept.length} applied migration(s) kept, ${result.migrationReconciliation.appended.length} appended:`,
+        );
+        for (const append of result.migrationReconciliation.appended) {
+          console.log(
+            `    ${colors.dim(`${append.fromTag} → ${append.toTag} (idx ${append.idx})`)}`,
+          );
+        }
+        console.log(
+          `  ${colors.dim("Next boot applies the appended migration(s); renamed snapshots should be reviewed against `drizzle-kit generate` before generating new migrations.")}`,
+        );
+      } else if (
+        result.migrationReconciliation &&
+        result.migrationReconciliation.contentMatched.length > 0
+      ) {
+        console.log(
+          `  ${colors.dim("Migration chain:")} every upstream migration is already applied (kept: ${result.migrationReconciliation.kept.length}, matched by content: ${result.migrationReconciliation.contentMatched.length})`,
+        );
+      }
+      if (
+        result.routeDelta &&
+        (result.routeDelta.oursOnly.length > 0 || result.routeDelta.theirsOnly.length > 0)
+      ) {
+        console.log(
+          `  ${colors.dim("Route delta:")} ${result.routeDelta.oursOnly.length} ours-only, ${result.routeDelta.theirsOnly.length} theirs-only`,
+        );
+        for (const route of result.routeDelta.oursOnly)
+          console.log(`    ${colors.dim(`ours:   ${route}`)}`);
+        for (const route of result.routeDelta.theirsOnly)
+          console.log(`    ${colors.dim(`theirs: ${route}`)}`);
+      }
+      if (result.reportPath) {
+        console.log(`  Report: ${colors.dim(result.reportPath)}`);
+      }
+      if (result.status === "conflicts") {
+        console.log();
+        console.error(
+          `[CLI] ${result.conflicts.length} unresolvable conflict(s)${
+            result.migrationCollisions.length > 0
+              ? ` and ${result.migrationCollisions.length} migration collision(s)`
+              : ""
+          } — nothing was written. Re-run with --yes to apply upstream (local copies are backed up first).`,
+        );
+        process.exit(1);
+      }
+      console.log();
+      return;
+    }
+
     if (descriptor.key === "upgrade") {
       if ((input as any).json) {
         console.log(JSON.stringify(result, null, 2));

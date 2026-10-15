@@ -490,7 +490,13 @@ function normalizeGitUrl(url: string): string | undefined {
 
 export async function downloadTarball(
   repoUrl: string,
-): Promise<{ dir: string; cleanup: () => Promise<void> }> {
+  ref?: string,
+): Promise<{
+  dir: string;
+  cleanup: () => Promise<void>;
+  resolvedRef?: string;
+  resolvedSha?: string;
+}> {
   const parsed = parseGitHubUrl(repoUrl);
   if (!parsed) {
     throw new Error(`Cannot parse repository URL: ${repoUrl}`);
@@ -498,10 +504,12 @@ export async function downloadTarball(
 
   const { owner, repo } = parsed;
   let response: Response | null = null;
+  let resolvedRef: string | undefined;
 
-  for (const branch of ["main", "master"]) {
+  const candidates = ref ? [ref] : ["main", "master"];
+  for (const candidateRef of candidates) {
     const candidate = await fetchResponse(
-      `https://api.github.com/repos/${owner}/${repo}/tarball/${branch}`,
+      `https://api.github.com/repos/${owner}/${repo}/tarball/${encodeURIComponent(candidateRef)}`,
       {
         headers: { "User-Agent": "everything-dev" },
         redirect: "follow",
@@ -510,6 +518,7 @@ export async function downloadTarball(
     );
     if (candidate.ok) {
       response = candidate;
+      resolvedRef = candidateRef;
       break;
     }
     if (candidate.status !== 404) {
@@ -520,12 +529,18 @@ export async function downloadTarball(
   }
 
   if (!response) {
-    throw new Error(`GitHub tarball download failed for ${repoUrl}: tried main and master`);
+    throw new Error(
+      ref
+        ? `GitHub tarball download failed for ${repoUrl}: ref not found (${ref})`
+        : `GitHub tarball download failed for ${repoUrl}: tried main and master`,
+    );
   }
 
   if (!response.body) {
     throw new Error("GitHub tarball download returned empty body");
   }
+
+  const resolvedSha = response.url.match(/\/([0-9a-f]{40})(?:\.tar\.gz)?\b/)?.[1];
 
   const tmpDir = mkTmpDir("bos-init-tarball-");
   const tarballPath = join(tmpDir, "source.tar.gz");
@@ -545,13 +560,15 @@ export async function downloadTarball(
 
   return {
     dir: extractDir,
+    resolvedRef,
+    resolvedSha,
     cleanup: async () => {
       rmSync(extractDir, { recursive: true, force: true });
     },
   };
 }
 
-function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
+export function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   const httpsMatch = url.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/);
   if (httpsMatch?.[1] && httpsMatch[2]) {
     return { owner: httpsMatch[1], repo: httpsMatch[2] };

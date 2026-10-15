@@ -455,6 +455,69 @@ export const SyncResultSchema = z.object({
   error: z.string().optional(),
 });
 
+export const ImportOptionsSchema = z.object({
+  workspace: z.string(),
+  /** omitted → resolve the upstream from the authored config's extends chain */
+  from: z.string().optional(),
+  yes: z.boolean().default(false),
+  dryRun: z.boolean().default(false),
+  noInstall: z.boolean().default(false),
+  json: z.boolean().default(false),
+});
+
+export const ImportRouteDeltaSchema = z.object({
+  oursOnly: z.array(z.string()),
+  theirsOnly: z.array(z.string()),
+});
+
+export const ImportMigrationCollisionSchema = z.object({
+  kind: z.literal("tag-mismatch"),
+  idx: z.number(),
+  localTag: z.string().optional(),
+  upstreamTag: z.string().optional(),
+  message: z.string(),
+});
+
+export const ImportMigrationAppendSchema = z.object({
+  idx: z.number(),
+  fromTag: z.string(),
+  toTag: z.string(),
+});
+
+export const ImportMigrationReconciliationSchema = z.object({
+  /** local journal tags kept verbatim (already applied, never renumbered) */
+  kept: z.array(z.string()),
+  /** upstream migrations renumbered and appended after the local tail */
+  appended: z.array(ImportMigrationAppendSchema),
+  /** upstream migrations matched to local entries by SQL content hash */
+  contentMatched: z.array(z.string()),
+});
+
+export const ImportResultSchema = z.object({
+  status: z.enum(["imported", "dry-run", "conflicts", "error"]),
+  workspace: z.string(),
+  from: z.string(),
+  ref: z.string(),
+  resolvedSha: z.string().optional(),
+  /** the dereferenced upstream repository when the source was chain-resolved */
+  sourceRepository: z.string().optional(),
+  /** resolution notes (e.g. HEAD fallback when no git sha is pinned) */
+  warnings: z.array(z.string()).default([]),
+  added: z.array(z.string()),
+  updated: z.array(z.string()),
+  unchanged: z.array(z.string()).default([]),
+  preservedLocal: z.array(z.string()).default([]),
+  merged: z.array(z.string()).default([]),
+  conflicts: z.array(z.string()).default([]),
+  heldBackMigrations: z.array(z.string()).default([]),
+  routeDelta: ImportRouteDeltaSchema.optional(),
+  migrationCollisions: z.array(ImportMigrationCollisionSchema).default([]),
+  migrationReconciliation: ImportMigrationReconciliationSchema.optional(),
+  backupDir: z.string().optional(),
+  reportPath: z.string().optional(),
+  error: z.string().optional(),
+});
+
 export const UpgradeOptionsSchema = z.object({
   dryRun: z.boolean().default(false),
   noInstall: z.boolean().default(false),
@@ -717,6 +780,7 @@ export const commandOptionSchemas = {
   logout: LogoutOptionsSchema,
   init: InitOptionsSchema,
   sync: SyncOptionsSchema,
+  import: ImportOptionsSchema,
   upgrade: UpgradeOptionsSchema,
   typecheck: TypecheckOptionsSchema,
   mfCheck: MfCheckOptionsSchema,
@@ -795,6 +859,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/sync" })
     .input(SyncOptionsSchema)
     .output(SyncResultSchema),
+  import: oc
+    .route({ method: "POST", path: "/import" })
+    .input(ImportOptionsSchema)
+    .output(ImportResultSchema),
   upgrade: oc
     .route({ method: "POST", path: "/upgrade" })
     .input(UpgradeOptionsSchema)
@@ -869,6 +937,12 @@ export type OverrideSection = z.infer<typeof OverrideSectionSchema>;
 export type PhaseTiming = z.infer<typeof PhaseTimingSchema>;
 export type SyncOptions = z.infer<typeof SyncOptionsSchema>;
 export type SyncResult = z.infer<typeof SyncResultSchema>;
+export type ImportOptions = z.infer<typeof ImportOptionsSchema>;
+export type ImportResult = z.infer<typeof ImportResultSchema>;
+export type ImportRouteDelta = z.infer<typeof ImportRouteDeltaSchema>;
+export type ImportMigrationCollision = z.infer<typeof ImportMigrationCollisionSchema>;
+export type ImportMigrationAppend = z.infer<typeof ImportMigrationAppendSchema>;
+export type ImportMigrationReconciliation = z.infer<typeof ImportMigrationReconciliationSchema>;
 export type UpgradeOptions = z.infer<typeof UpgradeOptionsSchema>;
 export type UpgradeResult = z.infer<typeof UpgradeResultSchema>;
 export type StatusResult = z.infer<typeof StatusResultSchema>;
