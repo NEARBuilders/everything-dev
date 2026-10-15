@@ -24,7 +24,6 @@ catalog:
   "@module-federation/runtime-core": ^2.9.0
   "@module-federation/runtime-tools": ^2.9.0
   "@module-federation/sdk": ^2.9.0
-  "@outlayer/sdk": 0.1.0-alpha.4
   "@opentelemetry/api": ^1.9.0
   "@orpc/client": 2.0.0-beta.35
   "@orpc/contract": 2.0.0-beta.35
@@ -34,6 +33,7 @@ catalog:
   "@orpc/server": 2.0.0-beta.35
   "@orpc/tanstack-query": 2.0.0-beta.35
   "@orpc/zod": 2.0.0-beta.35
+  "@outlayer/sdk": 0.1.0-alpha.4
   "@rsbuild/core": 2.2.8
   "@rsbuild/plugin-react": 2.1.0
   "@rspack/cli": 2.2.6
@@ -62,8 +62,8 @@ catalog:
   drizzle-kit: ^0.31.8
   drizzle-orm: ^0.45.1
   effect: 4.0.0-rc.117
-  every-plugin: ^3.0.0-rc.5
-  everything-dev: ^2.0.0-rc.8
+  every-plugin: ^3.0.0-rc.6
+  everything-dev: ^2.0.0-rc.9
   near-kit: ^0.20.2
   pg: ^8.12.0
   react: 19.2.4
