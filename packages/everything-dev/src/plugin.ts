@@ -7,6 +7,7 @@ import { registerConfig } from "./commands/config";
 import { registerDb } from "./commands/db";
 import { registerDeploy } from "./commands/deploy";
 import { registerDev } from "./commands/dev";
+import { registerImport } from "./commands/import";
 import { registerInit } from "./commands/init";
 import { registerKeys } from "./commands/keys";
 import { registerOps } from "./commands/ops";
@@ -74,6 +75,7 @@ export default createPlugin({
     ...registerSmoke(builder),
     ...registerKeys(builder),
     ...registerInit(builder),
+    ...registerImport(builder),
     ...registerUpgrade(builder),
     ...registerDb(builder),
     ...registerOps(builder),

@@ -1,0 +1,5 @@
+---
+"everything-dev": minor
+---
+
+New `bos import <workspace> --from <owner/repo>[@ref]` command: imports a workspace subtree (e.g. `plugins/auth`) from an upstream GitHub repo or local directory without cloning. Every shared file is classified against a per-workspace baseline (`.bos/import-snapshot.json`, falling back to `.bos/sync-snapshot.json`) into added / unchanged / updated / preserved-local / preserved-local-edit / merged / conflict buckets; local-only files are never deleted and a diverged `package.json` is structurally merged instead of overwritten. Unresolvable conflicts (and a migration chain that cannot be applied verbatim — index reuse, content drift, local-only journal entries — which is held back rather than dropped) gate the run: nothing is written without `--yes` or an interactive confirmation, exiting non-zero with a full `.bos/import-report.md` divergence report covering the conflict checklist, migration chain collisions and delta, and the contract route-set delta. Successful imports back up overwritten files to `.bos/import-backup/`, record new baselines, and support `--dry-run`, `--no-install`, and `--json`.

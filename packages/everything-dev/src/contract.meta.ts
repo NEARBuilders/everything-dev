@@ -260,6 +260,20 @@ export const cliCommandMeta = {
       noInstall: { description: "Skip pnpm install" },
     },
   },
+  import: {
+    commandPath: ["import"],
+    summary: "Import a workspace subtree from an upstream repo without cloning",
+    interactive: true,
+    fields: {
+      workspace: { positional: true, description: "Workspace subtree path (e.g. plugins/auth)" },
+      from: {
+        description: "Upstream source: <owner>/<repo>[@<ref>], GitHub URL, or local directory",
+      },
+      yes: { description: "Apply upstream over conflicting files without prompting" },
+      dryRun: { description: "Preview classification and report without writing files" },
+      noInstall: { description: "Skip pnpm install" },
+    },
+  },
   upgrade: {
     commandPath: ["upgrade"],
     summary: "Upgrade framework packages and sync template files",
