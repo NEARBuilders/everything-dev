@@ -29,6 +29,8 @@ export interface ResolvedSlotVersion {
   /** Full per-file digest map of the dist (object path → SRI), when the
    * pinned manifest carries one — the diff base for skip-unchanged uploads. */
   files?: Record<string, string>;
+  /** Source archive reference from the pinned manifest (publish.sourcePublish). */
+  source?: { file: string; integrity: string };
 }
 
 export interface SlotPin {
@@ -69,6 +71,7 @@ function slotVersionFromManifest(
         }
       : {}),
     ...(manifest.files ? { files: manifest.files } : {}),
+    ...(manifest.source ? { source: manifest.source } : {}),
   };
 }
 
