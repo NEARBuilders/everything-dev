@@ -55,7 +55,7 @@ export const agentSchema = {
         type: "string",
         required: false,
       },
-      grantId: {
+      grantRowId: {
         type: "string",
         required: false,
       },

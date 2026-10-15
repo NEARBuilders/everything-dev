@@ -20,8 +20,7 @@ export interface NearConnectSigner {
 
 const signers = new Map<"mainnet" | "testnet", NearConnectSigner>();
 
-export function setWalletSigner(signer: NearConnectSigner | null): void {
-  if (!signer) return;
+export function setWalletSigner(signer: NearConnectSigner): void {
   signers.set(signer.network, signer);
 }
 

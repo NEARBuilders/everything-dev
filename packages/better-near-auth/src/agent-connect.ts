@@ -24,6 +24,7 @@ import { decryptPrivateKey, encryptPrivateKey } from "./utils.js";
 const GRANT_TOKEN_SALT = "better-near-auth-agents";
 const MAX_GRANT_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 const DEFAULT_GRANT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const PRE_SEND_TTL_MS = 15 * 60 * 1000;
 
 const INTENT_TYPES = [
   "agent_create",
@@ -95,7 +96,7 @@ export interface OwnerIntentRow {
   idempotencyKey: string;
   intentType: string;
   agentId?: string | null;
-  grantId?: string | null;
+  grantRowId?: string | null;
   userId: string;
   status: string;
   expiresAt: Date;
@@ -127,7 +128,18 @@ export type AgentConnectOptions = Omit<AgentApiOptions, "apiKey" | "grantToken">
   passkeyOwner?: AgentConnectPasskeyOwner;
 };
 
-const AGENT_API_ERROR_STATUS: Record<number, string> = {
+type APIErrorStatus =
+  | "BAD_REQUEST"
+  | "UNAUTHORIZED"
+  | "FORBIDDEN"
+  | "NOT_FOUND"
+  | "CONFLICT"
+  | "TOO_MANY_REQUESTS"
+  | "BAD_GATEWAY"
+  | "SERVICE_UNAVAILABLE"
+  | "INTERNAL_SERVER_ERROR";
+
+const AGENT_API_ERROR_STATUS: Record<number, APIErrorStatus> = {
   400: "BAD_REQUEST",
   401: "UNAUTHORIZED",
   403: "FORBIDDEN",
@@ -147,9 +159,7 @@ function mapAgentApiError(error: unknown): never {
     });
   }
   if (error instanceof AgentApiError) {
-    const betterAuthStatus = (AGENT_API_ERROR_STATUS[error.status] ??
-      "INTERNAL_SERVER_ERROR") as "BAD_REQUEST";
-    throw new APIError(betterAuthStatus, {
+    throw new APIError(AGENT_API_ERROR_STATUS[error.status] ?? "INTERNAL_SERVER_ERROR", {
       message: error.detail || error.title,
       code: error.code,
       retryable: error.retryable,
@@ -226,14 +236,8 @@ export const agentConnect = (options: AgentConnectOptions): BetterAuthPlugin => 
       model: "ownerIntent",
       where: [{ field: "correlationId", operator: "eq", value: correlationId }],
     })) as OwnerIntentRow | null;
-    if (!row) {
+    if (!row || row.userId !== userId) {
       throw new APIError("NOT_FOUND", { message: "Unknown correlation id", status: 404 });
-    }
-    if (row.userId !== userId) {
-      throw new APIError("FORBIDDEN", {
-        message: "This intent does not belong to the current session",
-        status: 403,
-      });
     }
     return row;
   };
@@ -282,33 +286,53 @@ export const agentConnect = (options: AgentConnectOptions): BetterAuthPlugin => 
     });
   };
 
-  const recordIntent = async (
+  const runIntent = async (
     adapter: DBAdapter,
     args: {
-      correlationId: string;
       idempotencyKey: string;
       intentType: string;
       agentId?: string | null;
-      grantId?: string | null;
+      grantRowId?: string | null;
       userId: string;
-      status: string;
-      expiresAt: string;
     },
-  ): Promise<void> => {
+    send: () => Promise<IdempotentResult<GenerateIntentResponse>>,
+  ): Promise<IdempotentResult<GenerateIntentResponse>> => {
     await adapter.create({
       model: "ownerIntent",
       data: {
-        correlationId: args.correlationId,
+        correlationId: `pending-${args.idempotencyKey}`,
         idempotencyKey: args.idempotencyKey,
         intentType: args.intentType,
         agentId: args.agentId ?? null,
-        grantId: args.grantId ?? null,
+        grantRowId: args.grantRowId ?? null,
         userId: args.userId,
-        status: args.status,
-        expiresAt: new Date(args.expiresAt),
+        status: "PENDING_SIGNATURE",
+        expiresAt: new Date(Date.now() + PRE_SEND_TTL_MS),
         createdAt: new Date(),
       },
     });
+
+    const generated = await send();
+
+    try {
+      await adapter.update({
+        model: "ownerIntent",
+        where: [{ field: "idempotencyKey", operator: "eq", value: args.idempotencyKey }],
+        update: {
+          correlationId: generated.correlation_id,
+          status: generated.status,
+          expiresAt: new Date(generated.expires_at),
+        },
+      });
+    } catch (error) {
+      console.error("[agentConnect] failed to link the generated intent to the ledger:", error);
+      throw new APIError("INTERNAL_SERVER_ERROR", {
+        message: "Agent intent was created but could not be recorded — retry to reuse it",
+        status: 500,
+      });
+    }
+
+    return generated;
   };
 
   const updateIntentStatus = async (
@@ -348,15 +372,24 @@ export const agentConnect = (options: AgentConnectOptions): BetterAuthPlugin => 
 
           let generated: IdempotentResult<GenerateIntentResponse>;
           try {
-            generated = await api.generateIntent(
+            generated = await runIntent(
+              ctx.context.adapter,
               {
-                type: "agent_create",
-                name,
-                external_user_id: userId,
-                owner,
-                policy,
+                idempotencyKey,
+                intentType: "agent_create",
+                userId,
               },
-              { idempotencyKey },
+              () =>
+                api.generateIntent(
+                  {
+                    type: "agent_create",
+                    name,
+                    external_user_id: userId,
+                    owner,
+                    policy,
+                  },
+                  { idempotencyKey },
+                ),
             );
           } catch (error) {
             mapAgentApiError(error);
@@ -374,15 +407,6 @@ export const agentConnect = (options: AgentConnectOptions): BetterAuthPlugin => 
                 status: "PENDING",
                 createdAt: new Date(),
               },
-            });
-            await recordIntent(ctx.context.adapter, {
-              correlationId: generated.correlation_id,
-              idempotencyKey: generated.idempotencyKey,
-              intentType: "agent_create",
-              agentId: generated.agent_id,
-              userId,
-              status: generated.status,
-              expiresAt: generated.expires_at,
             });
           } catch (error) {
             console.error("[agentConnect] failed to persist agent_create state:", error);
@@ -425,14 +449,14 @@ export const agentConnect = (options: AgentConnectOptions): BetterAuthPlugin => 
 
           await updateIntentStatus(ctx.context.adapter, correlationId, status.status);
 
-          if (type === "grant_issue" && status.status === "SUCCESS" && intentRow.grantId) {
+          if (type === "grant_issue" && status.status === "SUCCESS" && intentRow.grantRowId) {
             const details = status.details as { grant?: { grant_id: string } | null } | undefined;
             const issuedGrantId = details?.grant?.grant_id;
             if (issuedGrantId) {
               try {
                 await ctx.context.adapter.update({
                   model: "agentGrant",
-                  where: [{ field: "id", operator: "eq", value: intentRow.grantId }],
+                  where: [{ field: "id", operator: "eq", value: intentRow.grantRowId }],
                   update: { grantId: issuedGrantId },
                 });
               } catch (error) {
@@ -441,15 +465,11 @@ export const agentConnect = (options: AgentConnectOptions): BetterAuthPlugin => 
             }
           }
 
-          if (type === "grant_revoke" && status.status === "SUCCESS" && intentRow.grantId) {
+          if (type === "grant_revoke" && status.status === "SUCCESS" && intentRow.grantRowId) {
             try {
               await ctx.context.adapter.update({
                 model: "agentGrant",
-                where: [
-                  { field: "agentId", operator: "eq", value: intentRow.agentId ?? "" },
-                  { field: "grantId", operator: "eq", value: intentRow.grantId },
-                  { field: "userId", operator: "eq", value: userId },
-                ],
+                where: [{ field: "id", operator: "eq", value: intentRow.grantRowId }],
                 update: { revokedAt: new Date() },
               });
             } catch (error) {
@@ -574,33 +594,29 @@ export const agentConnect = (options: AgentConnectOptions): BetterAuthPlugin => 
           const idempotencyKey = createIdempotencyKey();
           let generated: IdempotentResult<GenerateIntentResponse>;
           try {
-            generated = await api.generateIntent(
+            generated = await runIntent(
+              ctx.context.adapter,
               {
-                type: "grant_issue",
-                agent_id: agentId,
-                label,
-                credential: commitment,
-                expires_at: new Date(resolvedExpiryMs).toISOString(),
+                idempotencyKey,
+                intentType: "grant_issue",
+                agentId,
+                grantRowId: grantRow?.id ?? null,
+                userId,
               },
-              { idempotencyKey },
+              () =>
+                api.generateIntent(
+                  {
+                    type: "grant_issue",
+                    agent_id: agentId,
+                    label,
+                    credential: commitment,
+                    expires_at: new Date(resolvedExpiryMs).toISOString(),
+                  },
+                  { idempotencyKey },
+                ),
             );
           } catch (error) {
             mapAgentApiError(error);
-          }
-
-          try {
-            await recordIntent(ctx.context.adapter, {
-              correlationId: generated.correlation_id,
-              idempotencyKey: generated.idempotencyKey,
-              intentType: "grant_issue",
-              agentId,
-              grantId: grantRow?.id ?? null,
-              userId,
-              status: generated.status,
-              expiresAt: generated.expires_at,
-            });
-          } catch (error) {
-            console.error("[agentConnect] failed to persist grant_issue state:", error);
           }
 
           return ctx.json(generated);
@@ -621,34 +637,45 @@ export const agentConnect = (options: AgentConnectOptions): BetterAuthPlugin => 
 
           await requireOwnedAgent(ctx.context.adapter, userId, agentId);
 
+          const grantRow = (await ctx.context.adapter.findOne({
+            model: "agentGrant",
+            where: [
+              { field: "agentId", operator: "eq", value: agentId },
+              { field: "grantId", operator: "eq", value: grantId },
+              { field: "userId", operator: "eq", value: userId },
+            ],
+          })) as AgentGrantRow | null;
+          if (!grantRow) {
+            throw new APIError("NOT_FOUND", {
+              message: "Grant not found for this user",
+              status: 404,
+            });
+          }
+
           const idempotencyKey = createIdempotencyKey();
           let generated: IdempotentResult<GenerateIntentResponse>;
           try {
-            generated = await api.generateIntent(
+            generated = await runIntent(
+              ctx.context.adapter,
               {
-                type: "grant_revoke",
-                agent_id: agentId,
-                grant_id: grantId,
+                idempotencyKey,
+                intentType: "grant_revoke",
+                agentId,
+                grantRowId: grantRow.id,
+                userId,
               },
-              { idempotencyKey },
+              () =>
+                api.generateIntent(
+                  {
+                    type: "grant_revoke",
+                    agent_id: agentId,
+                    grant_id: grantId,
+                  },
+                  { idempotencyKey },
+                ),
             );
           } catch (error) {
             mapAgentApiError(error);
-          }
-
-          try {
-            await recordIntent(ctx.context.adapter, {
-              correlationId: generated.correlation_id,
-              idempotencyKey: generated.idempotencyKey,
-              intentType: "grant_revoke",
-              agentId,
-              grantId,
-              userId,
-              status: generated.status,
-              expiresAt: generated.expires_at,
-            });
-          } catch (error) {
-            console.error("[agentConnect] failed to persist grant_revoke state:", error);
           }
 
           return ctx.json(generated);

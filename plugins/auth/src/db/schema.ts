@@ -430,7 +430,7 @@ export const ownerIntent = pgTable(
     idempotencyKey: text("idempotency_key").notNull(),
     intentType: text("intent_type").notNull(),
     agentId: text("agent_id"),
-    grantId: text("grant_id"),
+    grantRowId: text("grant_row_id"),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),

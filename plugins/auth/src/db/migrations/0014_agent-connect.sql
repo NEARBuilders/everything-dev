@@ -30,7 +30,7 @@ CREATE TABLE "owner_intent" (
 	"idempotency_key" text NOT NULL,
 	"intent_type" text NOT NULL,
 	"agent_id" text,
-	"grant_id" text,
+	"grant_row_id" text,
 	"user_id" text NOT NULL,
 	"status" text NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,

@@ -188,6 +188,18 @@ describe("agent connect grant credentials", () => {
     expect(commitment).toBe(createHash("sha256").update(token).digest("hex"));
     expect(commitment).toBe(grantCommitment(token));
   });
+
+  it("stores grant tokens encrypted and recovers them server-side only", async () => {
+    const { encryptGrantToken, decryptGrantToken } = await import("./agent-connect.js");
+    const secret = "test-auth-secret";
+    const { token } = createGrantCredential();
+
+    const stored = await encryptGrantToken(token, secret);
+    expect(stored.encrypted).not.toContain(token);
+    expect(stored.iv).not.toContain(token);
+    await expect(decryptGrantToken(stored.encrypted, stored.iv, "wrong-secret")).rejects.toThrow();
+    await expect(decryptGrantToken(stored.encrypted, stored.iv, secret)).resolves.toBe(token);
+  });
 });
 
 describe("agent connect routes", () => {
