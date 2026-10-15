@@ -1,3 +1,3 @@
-# dev.everything.dev
+# build.everything.dev
 
-Starter app with ui and api — per-project sidecar + dashboard (ADR 0027)
+Starter app with ui and api
