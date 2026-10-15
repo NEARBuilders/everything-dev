@@ -37,6 +37,19 @@ export const apiKeyRoutes = {
     .output(apiKeySchema.extend({ key: z.string() }))
     .errors(Errors),
 
+  createDeployKey: oc
+    .route({ method: "POST", path: "/v1/auth/deploy-keys" })
+    .input(
+      z.object({
+        account: z.string().min(1),
+        gateway: z.string().min(1),
+        name: z.string().optional(),
+        expiresIn: z.number().int().positive().optional(),
+      }),
+    )
+    .output(apiKeySchema.extend({ key: z.string() }))
+    .errors(Errors),
+
   updateApiKey: oc
     .route({ method: "PATCH", path: "/v1/auth/api-keys/{id}" })
     .input(

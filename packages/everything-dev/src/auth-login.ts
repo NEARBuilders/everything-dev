@@ -19,6 +19,8 @@ export interface DeviceLoginOptions {
   custody?: { network: "mainnet" | "testnet" };
   /** seconds the minted API key stays valid (login mode) */
   expiresIn?: number;
+  /** deploy-key mode — the mint switches to the auth plugin's server-side route and bakes bundle-write permissions plus account/gateway scope into the key */
+  deployKey?: { account: string; gateway: string };
 }
 
 export interface DeviceApproval {
@@ -227,7 +229,9 @@ async function completeLogin(
     throw new Error("Session claim returned no session cookie");
   }
 
-  const apiKey = await mintApiKey(siteUrl, cookiePair, opts);
+  const apiKey = await (opts.deployKey
+    ? mintDeployKey(siteUrl, cookiePair, opts)
+    : mintApiKey(siteUrl, cookiePair, opts));
   const accountId = await resolveNearAccount(siteUrl, cookiePair);
   const custodyWallet = opts.custody
     ? await fetchCustodyCredential(siteUrl, cookiePair, opts.custody.network).catch(() => null)
@@ -296,6 +300,48 @@ async function mintApiKey(
   }
   const created = json as ApiKeyCreated;
   if (!created.key) throw new Error("API key creation returned no key");
+  return { key: created.key, id: created.id };
+}
+
+/**
+ * Deploy-key mint: only the auth plugin's server-side route may set
+ * `permissions` (better-auth rejects client-set permissions with
+ * SERVER_ONLY_PROPERTY), so the scoped bundle-write key is minted through the
+ * plugin's oRPC route instead of better-auth's client endpoint.
+ */
+async function mintDeployKey(
+  siteUrl: string,
+  cookiePair: string,
+  opts: DeviceLoginOptions,
+): Promise<DeviceApproval["apiKey"]> {
+  const deployKey = opts.deployKey;
+  if (!deployKey) throw new Error("Deploy-key mint requested without account scope");
+  const origin = new URL(siteUrl).origin;
+  const response = await fetch(`${siteUrl.replace(/\/$/, "")}/api/rpc/auth/createDeployKey`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin, cookie: cookiePair },
+    body: JSON.stringify({
+      json: {
+        account: deployKey.account,
+        gateway: deployKey.gateway,
+        name: `bos deploy — ${opts.device ?? "cli"} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
+        ...(opts.expiresIn ? { expiresIn: opts.expiresIn } : {}),
+      },
+    }),
+  });
+  const body = (await response.json().catch(() => ({}))) as {
+    json?: ApiKeyCreated;
+    error?: { message?: string };
+    message?: string;
+  };
+  if (response.status !== 200) {
+    const detail = body.error?.message ?? body.message;
+    throw new Error(
+      `Deploy key could not be created${detail ? `: ${detail}` : ` (${response.status})`}`,
+    );
+  }
+  const created = body.json;
+  if (!created?.key) throw new Error("Deploy key creation returned no key");
   return { key: created.key, id: created.id };
 }
 

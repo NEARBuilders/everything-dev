@@ -463,6 +463,10 @@ export function createAuthInstance(
           enableSessionForAPIKeys: true,
           enableMetadata: true,
           maximumNameLength: 64,
+          keyExpiration: {
+            minExpiresIn: 1,
+            maxExpiresIn: 3650,
+          },
           rateLimit: {
             enabled: true,
             timeWindow: 60 * 1000,

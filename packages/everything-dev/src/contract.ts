@@ -357,13 +357,14 @@ export const KeyPublishResultSchema = z.object({
 
 export const OverrideSectionSchema = z.enum(["ui", "api", "host", "plugins"]);
 
-const DEFAULT_LOGIN_EXPIRES_IN_SECONDS = 90 * 24 * 60 * 60;
+export const DEFAULT_LOGIN_EXPIRES_IN_SECONDS = 90 * 24 * 60 * 60;
+export const DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS = 365 * 24 * 60 * 60;
 
 export const LoginOptionsSchema = z.object({
   key: z.boolean().default(false),
   custody: z.boolean().default(false),
   site: z.string().optional(),
-  expiresIn: z.number().int().positive().default(DEFAULT_LOGIN_EXPIRES_IN_SECONDS),
+  expiresIn: z.number().int().positive().optional(),
   device: z.string().optional(),
   env: z.enum(["production", "staging"]).default("production"),
   registry: z.string().optional(),
@@ -381,6 +382,13 @@ export const LoginResultSchema = z.object({
       network: z.enum(["mainnet", "testnet"]),
       contract: z.string(),
       exportedTo: z.string(),
+    })
+    .nullish(),
+  deployKey: z
+    .object({
+      key: z.string(),
+      account: z.string(),
+      gateway: z.string(),
     })
     .nullish(),
   custodyWallet: z

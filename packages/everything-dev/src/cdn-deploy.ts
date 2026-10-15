@@ -142,7 +142,7 @@ export function resolveCdnDeployInputs(input: {
       warning,
       error:
         "CDN deploy requires bundle-upload credentials — run `bos login --key` and add the printed key " +
-        "to GitHub secrets as BOS_STORAGE_API_KEY (or run `bos login` for interactive deploys)",
+        "to GitHub secrets as BOS_STORAGE_API_KEY (the deploy key also serves interactive deploys)",
     };
   }
   const uploadIdentities = new Set(

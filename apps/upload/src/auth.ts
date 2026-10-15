@@ -289,10 +289,24 @@ export async function authorizeUploadRequest(input: {
   const result = payload.json;
   if (!isRecord(result) || result.valid !== true) {
     const error = isRecord(result) && isRecord(result.error) ? result.error : null;
+    const message = typeof error?.message === "string" ? error.message : "Invalid API key";
+    if (error?.code === "KEY_MISSING_PERMISSIONS") {
+      return {
+        authorized: false,
+        status: "FORBIDDEN",
+        message,
+        data: {
+          requiredPermissions: Object.entries(requiredPermissions).flatMap(
+            ([permission, actions]) => actions.map((action) => `${permission}:${action}`),
+          ),
+          action: `${action} bundle`,
+        },
+      };
+    }
     return {
       authorized: false,
       status: "UNAUTHORIZED",
-      message: typeof error?.message === "string" ? error.message : "Invalid API key",
+      message,
       data: {
         apiKeyProvided: true,
         provider: input.config.authOrigin,

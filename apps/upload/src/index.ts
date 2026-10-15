@@ -88,6 +88,18 @@ export default createPlugin({
       );
     }
 
+    const uploadAuth = readUploadAuthConfig(process.env);
+    if (
+      process.env.NODE_ENV === "production" &&
+      uploadAuth.bootstrapApiKey &&
+      !uploadAuth.authOrigin
+    ) {
+      console.warn(
+        "[upload] BOS_STORAGE_AUTH_ORIGIN is not set — API-key verification is unavailable and every API-key upload will fail (bootstrap-key access only). " +
+          "Set BOS_STORAGE_AUTH_ORIGIN (the auth service origin) on the service before accepting deploys.",
+      );
+    }
+
     return Effect.succeed(storage);
   },
   createRouter: (builder) => ({

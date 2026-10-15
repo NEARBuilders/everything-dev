@@ -22,8 +22,10 @@ service.
 | `/api/storage/integrity` | GET | `bundles:read` | Returns a version's full manifest and re-verifies the entry object's bytes against `entryIntegrity`. |
 
 All routes are namespace-scoped: the API key's `account`/`gateway` metadata
-must match the request's namespace. Keys are minted in the base runtime's
-Settings → API Keys with `bundles:write` and/or `bundles:read` permissions.
+must match the request's namespace. Permissioned keys are minted server-side
+only (better-auth rejects client-set permissions): `bos login --key` mints a
+scoped deploy key (`bundles:write` + `account`/`gateway` metadata) through the
+auth plugin's `createDeployKey` route.
 The bootstrap key (`BOS_STORAGE_BOOTSTRAP_API_KEY` + `_ACCOUNT`/`_GATEWAY`)
 exists for first deploys and break-glass access; it is scope-pinned, not
 permission-checked.
@@ -52,6 +54,18 @@ CLI-side (the deploy train; see `.github/workflows/deploy.yml`):
   deploying account/gateway.
 
 ## Deploy
+
+### Deploy checklist
+
+- `BOS_STORAGE_AUTH_ORIGIN` must be set on the service (the auth service
+  origin) — without it every API-key upload 500s with
+  `CONNECTION_ERROR` before verification is even reached, while the service
+  itself boots fine on the bootstrap key. The service warns loudly at startup
+  (production + bootstrap key + no auth origin), but treat the variable as part
+  of the deploy checklist: a redeploy that drops it re-breaks every consumer's
+  CI silently.
+- `BOS_STORAGE_*` (endpoint/bucket/keys) — required or the service refuses to
+  boot in production.
 
 The `Dockerfile` builds a thin Node image running the standalone direct host
 (`server.ts`, port default 3014, `/health` probe). The build context is the

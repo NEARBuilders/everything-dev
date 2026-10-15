@@ -42,6 +42,15 @@ export class ApiKeysService extends Context.Service<
         rateLimit?: ApiKeyRateLimitInput;
       },
     ) => Effect.Effect<InferOutput<"createApiKey">, AuthFailure>;
+    createDeployKey: (
+      userId: string,
+      input: {
+        account: string;
+        gateway: string;
+        name?: string;
+        expiresIn?: number;
+      },
+    ) => Effect.Effect<InferOutput<"createApiKey">, AuthFailure>;
     updateApiKey: (
       userId: string,
       input: {
@@ -114,6 +123,20 @@ export const buildApiKeysService = ({ auth }: { auth: Auth }) =>
         }),
       ),
 
+    createDeployKey: (userId, input) =>
+      attemptAuth(() =>
+        auth.api.createApiKey({
+          body: {
+            userId,
+            configId: "user-keys",
+            name: input.name ?? `deploy key — ${input.account}/${input.gateway}`,
+            expiresIn: input.expiresIn,
+            permissions: DEPLOY_KEY_PERMISSIONS,
+            metadata: { account: input.account, gateway: input.gateway },
+          },
+        }),
+      ),
+
     updateApiKey: (userId, input) =>
       attemptAuth(() =>
         auth.api.updateApiKey({
@@ -161,21 +184,68 @@ export const buildApiKeysService = ({ auth }: { auth: Auth }) =>
       }).pipe(Effect.as({ success: true })),
 
     verifyApiKey: (headers, input) =>
-      attemptAuth(() =>
-        input.configId
-          ? auth.api
-              .verifyApiKey({
-                headers,
-                body: {
-                  key: input.key,
-                  configId: input.configId,
-                  permissions: input.permissions,
-                },
-              })
-              .then((result) => serializeVerifyResult(result))
-          : verifyAcrossConfigs(auth, headers, input),
-      ),
+      attemptAuth(() => verifyApiKeyWithFailureCause(auth, headers, input)),
   });
+
+const DEPLOY_KEY_PERMISSIONS = { bundles: ["write"] };
+
+function describePermissions(permissions: Record<string, string[]>): string {
+  return Object.entries(permissions)
+    .flatMap(([permission, actions]) => actions.map((action) => `${permission}:${action}`))
+    .join(", ");
+}
+
+/**
+ * Distinguishes "key lacks permissions" from "key not found": better-auth's
+ * permission check fails a permissions:null key with KEY_NOT_FOUND, so a
+ * permissioned verify that misses re-verifies without permissions — a key
+ * that only then surfaces is live but under-permissioned.
+ */
+async function verifyApiKeyWithFailureCause(
+  auth: Auth,
+  headers: Headers,
+  input: { key: string; configId?: string; permissions?: Record<string, string[]> },
+) {
+  const configIds = input.configId ? [input.configId] : API_KEY_CONFIG_IDS;
+  const verify = (configId: string, permissions?: Record<string, string[]>) =>
+    auth.api.verifyApiKey({
+      headers,
+      body: {
+        key: input.key,
+        configId,
+        permissions,
+      },
+    });
+
+  for (const configId of configIds) {
+    const result = await verify(configId, input.permissions);
+    if (result.valid) {
+      return serializeVerifyResult(result);
+    }
+  }
+
+  if (input.permissions) {
+    for (const configId of configIds) {
+      const result = await verify(configId, undefined);
+      if (result.valid) {
+        return {
+          valid: false,
+          error: {
+            code: "KEY_MISSING_PERMISSIONS",
+            message: `API key lacks required permissions (${describePermissions(input.permissions)})`,
+          },
+          key: null,
+        };
+      }
+    }
+  }
+
+  return {
+    valid: false,
+    error: { code: "KEY_NOT_FOUND", message: "Invalid API key" },
+    key: null,
+  };
+}
 
 function serializeVerifyResult(result: any) {
   return {
@@ -187,34 +257,5 @@ function serializeVerifyResult(result: any) {
         }
       : null,
     key: result.key ? { ...result.key, permissions: result.key.permissions ?? null } : null,
-  };
-}
-
-async function verifyAcrossConfigs(
-  auth: Auth,
-  headers: Headers,
-  input: { key: string; configId?: string; permissions?: Record<string, string[]> },
-) {
-  for (const configId of API_KEY_CONFIG_IDS) {
-    const result = await auth.api.verifyApiKey({
-      headers,
-      body: {
-        key: input.key,
-        configId,
-        permissions: input.permissions,
-      },
-    });
-    if (result.valid) {
-      return {
-        valid: true,
-        error: null,
-        key: result.key ? { ...result.key, permissions: result.key.permissions ?? null } : null,
-      };
-    }
-  }
-  return {
-    valid: false,
-    error: { code: "KEY_NOT_FOUND", message: "Invalid API key" },
-    key: null,
   };
 }
