@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { nearAccount } from "../../src/db/schema";
+import type { PluginServices } from "../../src/service-types";
 import {
   createTestApiKey,
   createTestHandlers,
@@ -16,6 +18,22 @@ beforeAll(async () => {
 afterAll(async () => {
   await services.driver.close();
 }, 30000);
+
+async function linkTestNearAccount(
+  svc: PluginServices,
+  userId: string,
+  accountId: string,
+): Promise<void> {
+  await svc.db.insert(nearAccount).values({
+    id: `na-${crypto.randomUUID()}`,
+    userId,
+    accountId,
+    network: "mainnet",
+    publicKey: "ed25519:test-public-key",
+    isPrimary: true,
+    createdAt: new Date(),
+  });
+}
 
 describe("API key handlers", () => {
   describe("createApiKey", () => {
@@ -136,6 +154,92 @@ describe("API key handlers", () => {
       });
 
       expect(result.valid).toBe(false);
+    });
+
+    it("distinguishes missing permissions from a missing key", async () => {
+      const user = await createTestUser(services.services);
+      const apiKey = await createTestApiKey(services.services, { userId: user.userId });
+      const handlers = createTestHandlers(services.services);
+
+      const result = await handlers.apiKeys.verifyApiKey({
+        input: { key: apiKey.key, permissions: { bundles: ["write"] } },
+        context: { reqHeaders: {} },
+      });
+
+      expect(result.valid).toBe(false);
+      expect(result.error?.code).toBe("KEY_MISSING_PERMISSIONS");
+      expect(result.error?.message).toContain("bundles:write");
+    });
+  });
+
+  describe("createDeployKey", () => {
+    it("mints a deploy key that passes verifyApiKey with bundles:write", async () => {
+      const user = await createTestUser(services.services);
+      await linkTestNearAccount(services.services, user.userId, "citynode.near");
+      const handlers = createTestHandlers(services.services);
+
+      const created = await handlers.apiKeys.createDeployKey({
+        input: { account: "citynode.near", gateway: "citynode.app" },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      expect(created.key).toMatch(/^api_/);
+
+      const verified = await handlers.apiKeys.verifyApiKey({
+        input: { key: created.key, permissions: { bundles: ["write"] } },
+        context: { reqHeaders: {} },
+      });
+      expect(verified.valid).toBe(true);
+      expect(verified.key).not.toBeNull();
+      expect(verified.key?.configId).toBe("user-keys");
+    });
+
+    it("scopes the key to the requested account and gateway metadata", async () => {
+      const user = await createTestUser(services.services);
+      await linkTestNearAccount(services.services, user.userId, "citynode.near");
+      const handlers = createTestHandlers(services.services);
+
+      const created = await handlers.apiKeys.createDeployKey({
+        input: { account: "citynode.near", gateway: "citynode.app" },
+        context: { reqHeaders: user.reqHeaders },
+      });
+
+      const verified = await handlers.apiKeys.verifyApiKey({
+        input: { key: created.key },
+        context: { reqHeaders: {} },
+      });
+      expect(verified.valid).toBe(true);
+      const metadata = verified.key?.metadata;
+      expect(metadata).toMatchObject({ account: "citynode.near", gateway: "citynode.app" });
+    });
+
+    it("honors a custom name and expiry", async () => {
+      const user = await createTestUser(services.services);
+      await linkTestNearAccount(services.services, user.userId, "citynode.near");
+      const handlers = createTestHandlers(services.services);
+
+      const created = await handlers.apiKeys.createDeployKey({
+        input: {
+          account: "citynode.near",
+          gateway: "citynode.app",
+          name: "ci deploy key",
+          expiresIn: 7 * 24 * 60 * 60,
+        },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      expect(created.name).toBe("ci deploy key");
+      expect(created.expiresAt).toBeDefined();
+    });
+
+    it("rejects accounts not linked to the signed-in user", async () => {
+      const user = await createTestUser(services.services);
+      const handlers = createTestHandlers(services.services);
+
+      await expect(
+        handlers.apiKeys.createDeployKey({
+          input: { account: "not-linked.near", gateway: "citynode.app" },
+          context: { reqHeaders: user.reqHeaders },
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
   });
 

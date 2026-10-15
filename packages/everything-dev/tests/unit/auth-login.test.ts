@@ -132,6 +132,95 @@ describe("device login client", () => {
     expect(keyBody.expiresIn).toBe(3600);
   });
 
+  it("mints a scoped deploy key through the auth plugin route when deployKey is set", async () => {
+    const { calls } = stubFetchSequence([
+      { match: "/api/auth/device/code", status: 200, body: deviceCodeResponse() },
+      {
+        match: "/api/auth/device/token",
+        status: 200,
+        body: { access_token: "session-token-1", token_type: "Bearer" },
+      },
+      {
+        match: "/api/auth/device-link/claim",
+        status: 200,
+        body: { success: true },
+        headers: { "set-cookie": `${CLAIMED_COOKIE}; Path=/; HttpOnly; SameSite=Lax` },
+      },
+      {
+        match: "/api/rpc/auth/createDeployKey",
+        status: 200,
+        body: { json: { id: "key-9", key: "api_deploy_key" }, meta: [] },
+      },
+      {
+        match: "/api/auth/near/list-accounts",
+        status: 200,
+        body: {
+          accounts: [{ accountId: "citynode.near" }],
+          activeAccount: { accountId: "citynode.near" },
+        },
+      },
+    ]);
+
+    const login = await startDeviceLogin({
+      siteUrl: SITE,
+      device: "ci",
+      expiresIn: 3600,
+      deployKey: { account: "citynode.near", gateway: "citynode.app" },
+    });
+    const approval = await login.waitForApproval();
+
+    expect(approval.apiKey).toEqual({ key: "api_deploy_key", id: "key-9" });
+    expect(calls.some((call) => call.url.includes("/api/auth/api-key/create"))).toBe(false);
+
+    const mint = calls.find((call) => call.url.includes("/api/rpc/auth/createDeployKey"));
+    const mintHeaders = new Headers(mint?.init.headers);
+    expect(mintHeaders.get("cookie")).toBe(CLAIMED_COOKIE);
+    expect(mintHeaders.get("origin")).toBe(SITE);
+    const mintBody = JSON.parse((await new Response(mint?.init.body ?? null).text()) || "{}") as {
+      json: { account: string; gateway: string; name: string; expiresIn: number };
+    };
+    expect(mintBody.json).toMatchObject({
+      account: "citynode.near",
+      gateway: "citynode.app",
+      expiresIn: 3600,
+    });
+    expect(mintBody.json.name).toContain("bos deploy");
+  });
+
+  it("surfaces the auth service's deploy-key mint failure verbatim", async () => {
+    stubFetchSequence([
+      { match: "/api/auth/device/code", status: 200, body: deviceCodeResponse() },
+      {
+        match: "/api/auth/device/token",
+        status: 200,
+        body: { access_token: "session-token-1", token_type: "Bearer" },
+      },
+      {
+        match: "/api/auth/device-link/claim",
+        status: 200,
+        body: { success: true },
+        headers: { "set-cookie": `${CLAIMED_COOKIE}; Path=/; HttpOnly; SameSite=Lax` },
+      },
+      {
+        match: "/api/rpc/auth/createDeployKey",
+        status: 403,
+        body: {
+          error: {
+            code: "FORBIDDEN",
+            message:
+              "Deploy keys can only be minted for NEAR accounts linked to your login — link citynode.near first",
+          },
+        },
+      },
+    ]);
+
+    const login = await startDeviceLogin({
+      siteUrl: SITE,
+      deployKey: { account: "citynode.near", gateway: "citynode.app" },
+    });
+    await expect(login.waitForApproval()).rejects.toThrow(/linked to your login/);
+  });
+
   it("reuses the claimed session cookie for https sites too", async () => {
     const { calls } = stubFetchSequence([
       {

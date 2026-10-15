@@ -12,7 +12,11 @@ import {
   writeSessionHandle,
 } from "../auth-session";
 import { MISSING_CONFIG_MESSAGE } from "../config";
-import type { LoginResult } from "../contract";
+import {
+  DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS,
+  DEFAULT_LOGIN_EXPIRES_IN_SECONDS,
+  type LoginResult,
+} from "../contract";
 import { getRegistryNamespaceForAccount } from "../fastkv";
 import {
   addFunctionCallAccessKey,
@@ -123,18 +127,38 @@ export function registerKeys(builder: BosBuilder) {
     login: builder.login.handler(async ({ input, context }) => {
       const deps = Context.get(context["effect/context"], BosDepsTag);
       const staging = input.env === "staging";
+      const config = deps.session?.config;
       const account = staging
-        ? (deps.session?.config?.staging?.account ?? deps.session?.config?.account ?? "")
-        : (deps.session?.config?.account ?? "");
+        ? (config?.staging?.account ?? config?.account ?? "")
+        : (config?.account ?? "");
+      const gateway = staging
+        ? (config?.staging?.domain ?? config?.domain ?? "")
+        : (config?.domain ?? "");
+      const expiresIn =
+        input.expiresIn ??
+        (input.key ? DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS : DEFAULT_LOGIN_EXPIRES_IN_SECONDS);
 
       try {
         const siteUrl = resolveLoginSiteUrl(input.site, deps.session, staging);
+        let deployKey: { account: string; gateway: string } | undefined;
+        if (input.key) {
+          if (!account || !gateway) {
+            return {
+              status: "error" as const,
+              siteUrl: siteUrl,
+              error:
+                "Deploy keys scope to the authored config's account and domain — set both in bos.config.json (or drop --key for a plain login)",
+            };
+          }
+          deployKey = { account, gateway };
+        }
         const login = await startDeviceLogin({
           siteUrl,
           device: input.device,
           account: account || undefined,
           custody: input.custody ? { network: getNetworkIdForAccount(account) } : undefined,
-          expiresIn: input.expiresIn,
+          expiresIn,
+          deployKey,
         });
 
         console.log();
@@ -156,7 +180,7 @@ export function registerKeys(builder: BosBuilder) {
           };
         }
 
-        const expiresAt = new Date(Date.now() + input.expiresIn * 1000).toISOString();
+        const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
         const configDir = deps.session?.root ?? process.cwd();
         const existingSession = readSessionHandle(configDir);
         writeSessionHandle(configDir, {
@@ -214,6 +238,14 @@ export function registerKeys(builder: BosBuilder) {
           expiresAt,
           loginUrl: login.verificationUrl,
           publishKey,
+          deployKey:
+            deployKey && approval.apiKey
+              ? {
+                  key: approval.apiKey.key,
+                  account: deployKey.account,
+                  gateway: deployKey.gateway,
+                }
+              : null,
           custodyWallet: approval.custodyWallet
             ? {
                 walletId: approval.custodyWallet.walletId,

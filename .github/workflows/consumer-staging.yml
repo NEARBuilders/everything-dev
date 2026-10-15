@@ -18,6 +18,11 @@ on:
         required: false
         type: boolean
         default: false
+      storage_origin:
+        description: 'Upload service origin (self-hosted apps/upload deployments override the default)'
+        required: false
+        type: string
+        default: https://upload.everything.dev
 
 permissions:
   contents: read
@@ -34,8 +39,11 @@ jobs:
         shell: bash
     env:
       NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
-      BOS_STORAGE_ORIGIN: https://upload.everything.dev
-      BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
+      BOS_STORAGE_ORIGIN: ${{ inputs.storage_origin }}
+      # Staging deploys publish to the staging gateway (staging.domain ?? domain),
+      # so a consumer with a distinct staging domain mints a second deploy key
+      # (`bos login --key --env staging`) — otherwise the production key matches.
+      BOS_STORAGE_API_KEY: ${{ secrets.BOS_STAGING_STORAGE_API_KEY || secrets.BOS_STORAGE_API_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:
       - name: Checkout code

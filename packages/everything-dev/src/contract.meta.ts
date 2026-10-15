@@ -193,11 +193,17 @@ export const cliCommandMeta = {
       "Sign in with your NEAR account via the hosted site (wallet, passkey, or social login)",
     interactive: true,
     fields: {
-      key: { description: "Also mint and export a scoped publish key for headless/CI use" },
+      key: {
+        description:
+          "Mint a scoped deploy key (bundles:write for the config's account/gateway), store it as the session credential, and print it for BOS_STORAGE_API_KEY — plus export the publish key for headless/CI use",
+      },
       custody: { description: "Also register an OutLayer custody wallet for custody publishes" },
       site: { description: "Override site URL hosting the CLI login page" },
       device: { description: "Device label recorded on the credential (default: hostname)" },
-      expiresIn: { description: "Session lifetime in seconds (default: 90 days)" },
+      expiresIn: {
+        description:
+          "Credential lifetime in seconds (default: 90 days; deploy keys with --key: 365 days)",
+      },
       env: { description: "Environment: production (default) or staging" },
     },
   },
