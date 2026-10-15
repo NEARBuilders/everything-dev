@@ -24,6 +24,7 @@ catalog:
   "@module-federation/runtime-core": ^2.9.0
   "@module-federation/runtime-tools": ^2.9.0
   "@module-federation/sdk": ^2.9.0
+  "@outlayer/sdk": 0.1.0-alpha.4
   "@opentelemetry/api": ^1.9.0
   "@orpc/client": 2.0.0-beta.35
   "@orpc/contract": 2.0.0-beta.35

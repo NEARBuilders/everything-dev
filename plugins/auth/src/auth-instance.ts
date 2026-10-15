@@ -16,6 +16,7 @@ import { createAccessControl } from "better-auth/plugins/access";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "better-near-auth";
 import { eq, gt } from "drizzle-orm";
 import type { AuthConfig, AuthPermissionStatements } from "./auth-config";
+import { custody } from "./custody";
 import type { Database as AuthDatabase } from "./db";
 import * as schema from "./db/schema";
 import { BOS_CLI_CLIENT_ID, deviceLink } from "./device-link";
@@ -453,6 +454,7 @@ export function createAuthInstance(
         validateClient: (clientId) => deviceClientIds.has(clientId),
       }),
       deviceLink(db),
+      custody(db, config.secret, network),
       apiKey([
         {
           configId: "user-keys",

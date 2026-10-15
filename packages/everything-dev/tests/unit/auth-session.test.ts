@@ -46,6 +46,7 @@ describe("auth-session", () => {
       },
       publishKey: null,
       delegateKey: null,
+      custodyWallet: null,
     };
 
     writeSessionHandle(configDir, session);
@@ -56,12 +57,43 @@ describe("auth-session", () => {
     expect(readSessionHandle(configDir)).toEqual(session);
   });
 
+  it("preserves the custody wallet slot across read/write", () => {
+    const custodyWallet = {
+      apiKey: "wk_test",
+      walletId: "wallet-1",
+      nearAccountId: "36842e2f73d0b7b2f2af6e0d94a7a997398c2c09d9cf09ca3fa23b5426fccf88",
+      network: "mainnet" as const,
+      handoffUrl: "https://app.outlayer.ai/wallet?key=wk_test",
+      registeredAt: new Date().toISOString(),
+    };
+    updateSessionHandle(configDir, (current) => ({ ...current, custodyWallet }));
+
+    const stored = readSessionHandle(configDir);
+    expect(stored?.custodyWallet).toEqual(custodyWallet);
+  });
+
+  it("reads a legacy session file without a custody wallet slot as null", () => {
+    mkdirSync(join(configDir, ".bos"), { recursive: true });
+    writeFileSync(
+      getSessionFilePath(configDir),
+      JSON.stringify({
+        version: 1,
+        credential: null,
+        publishKey: null,
+        delegateKey: null,
+      }),
+    );
+    const stored = readSessionHandle(configDir);
+    expect(stored?.custodyWallet).toBeNull();
+  });
+
   it("updateSessionHandle merges into the existing file", () => {
     writeSessionHandle(configDir, {
       version: 1,
       credential: null,
       publishKey: null,
       delegateKey: null,
+      custodyWallet: null,
     });
 
     updateSessionHandle(configDir, (current) => ({
@@ -91,6 +123,7 @@ describe("auth-session", () => {
       credential: null,
       publishKey: null,
       delegateKey: null,
+      custodyWallet: null,
     });
     deleteSessionHandle(configDir);
     expect(readSessionHandle(configDir)).toBeNull();
