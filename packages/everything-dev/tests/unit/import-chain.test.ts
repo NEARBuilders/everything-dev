@@ -1,16 +1,19 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { create as tarCreate } from "tar";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
+  buildImportReport,
   configEntryAt,
   fetchSourceWithPinFallback,
   localWorkspaceSlotOf,
   resolveImportChain,
-  resolvePinnedSha,
+  resolvePinnedSource,
   type VersionManifestFetcher,
 } from "../../src/cli/import";
 import { resetConfigPathCache } from "../../src/config";
+import { computeSriHash } from "../../src/integrity";
 import type { ResolutionIo } from "../../src/resolution/session";
 
 const WS = "plugins/auth";
@@ -45,6 +48,16 @@ function ioWithChain(configs: Record<string, Record<string, unknown>>): Resoluti
     importModule: async (path: string) => import(pathToFileURL(path).href),
   };
 }
+
+const manifestBytes = (
+  manifest: Record<string, unknown>,
+): {
+  bytes: Uint8Array;
+  integrity: string;
+} => {
+  const bytes = new Uint8Array(Buffer.from(JSON.stringify(manifest), "utf-8"));
+  return { bytes, integrity: computeSriHash(Buffer.from(bytes)) };
+};
 
 let childDir: string;
 const scratchDirs: string[] = [];
@@ -108,7 +121,7 @@ describe("bos import — localWorkspaceSlotOf", () => {
   });
 });
 
-describe("bos import — configEntryAt / resolvePinnedSha", () => {
+describe("bos import — configEntryAt / resolvePinnedSource", () => {
   it("reads the entry for app.<key> slots", () => {
     const config = { app: { auth: { pin: { manifest: "versions/a.json" } } } };
     expect(configEntryAt(config, "app.auth")).toMatchObject({
@@ -118,32 +131,74 @@ describe("bos import — configEntryAt / resolvePinnedSha", () => {
   });
 
   it("warns and returns no sha when there is no pin or production URL", async () => {
-    const result = await resolvePinnedSha({ development: "local:api" });
+    const result = await resolvePinnedSource({ development: "local:api" });
     expect(result.sha).toBeUndefined();
     expect(result.warning).toContain("no pinned version manifest");
   });
 
-  it("resolves the pinned git sha from the version manifest", async () => {
-    const fetcher: VersionManifestFetcher = async (url) => {
-      expect(url).toBe("https://cdn.test/base/auth/versions/abc.json");
-      return { gitSha: "deadbeef" };
+  it("verifies the manifest bytes against the pin integrity and returns sha + source from one fetch", async () => {
+    const manifest = {
+      gitSha: "deadbeef",
+      source: { file: "source/auth.tar.gz", integrity: "sha384-abc" },
     };
-    const result = await resolvePinnedSha(
+    const { bytes, integrity } = manifestBytes(manifest);
+    let calls = 0;
+    const fetcher: VersionManifestFetcher = async (url) => {
+      calls++;
+      expect(url).toBe("https://cdn.test/base/auth/versions/abc.json");
+      return { bytes, manifest };
+    };
+    const result = await resolvePinnedSource(
       {
         production: "https://cdn.test/base/auth/",
-        pin: { manifest: "versions/abc.json", integrity: "sha384-x" },
+        pin: { manifest: "versions/abc.json", integrity },
       },
       fetcher,
     );
-    expect(result).toEqual({ sha: "deadbeef" });
+    expect(calls).toBe(1);
+    expect(result).toEqual({
+      sha: "deadbeef",
+      source: { file: "source/auth.tar.gz", integrity: "sha384-abc" },
+    });
   });
 
-  it("warns when the manifest records no git sha", async () => {
-    const fetcher: VersionManifestFetcher = async () => ({});
-    const result = await resolvePinnedSha(
+  it("throws a hard error when the manifest bytes do not match the pin integrity", async () => {
+    const { bytes } = manifestBytes({ gitSha: "deadbeef" });
+    const fetcher: VersionManifestFetcher = async () => ({
+      bytes,
+      manifest: { gitSha: "deadbeef" },
+    });
+    await expect(
+      resolvePinnedSource(
+        {
+          production: "https://cdn.test/base/auth/",
+          pin: { manifest: "versions/abc.json", integrity: "sha384-tampered" },
+        },
+        fetcher,
+      ),
+    ).rejects.toThrow(/integrity/);
+  });
+
+  it("keeps the warning path when the pin carries no integrity", async () => {
+    const fetcher: VersionManifestFetcher = async () => ({ bytes: new Uint8Array(), manifest: {} });
+    const result = await resolvePinnedSource(
       {
         production: "https://cdn.test/base/auth/",
-        pin: { manifest: "versions/abc.json", integrity: "sha384-x" },
+        pin: { manifest: "versions/abc.json" },
+      },
+      fetcher,
+    );
+    expect(result.sha).toBeUndefined();
+    expect(result.warning).toContain("no git sha");
+  });
+
+  it("warns when the manifest records no git sha (pin integrity verified)", async () => {
+    const { bytes, integrity } = manifestBytes({});
+    const fetcher: VersionManifestFetcher = async () => ({ bytes, manifest: {} });
+    const result = await resolvePinnedSource(
+      {
+        production: "https://cdn.test/base/auth/",
+        pin: { manifest: "versions/abc.json", integrity },
       },
       fetcher,
     );
@@ -213,6 +268,103 @@ describe("bos import — fetchSourceWithPinFallback", () => {
     });
     expect(result.source).toMatchObject({ root: "/somewhere", ref: "local" });
   });
+
+  describe("archive branch", () => {
+    let archiveDir: string;
+    let archive: { bytes: Uint8Array; integrity: string };
+
+    const makeArchive = async (): Promise<{ bytes: Uint8Array; integrity: string }> => {
+      const srcDir = join(archiveDir, "repo-root");
+      mkdirSync(join(srcDir, "plugins", "auth", "src"), { recursive: true });
+      writeFileSync(
+        join(srcDir, "plugins", "auth", "src", "index.ts"),
+        "export const auth = true;\n",
+      );
+      writeFileSync(join(srcDir, "plugins", "auth", "package.json"), '{"name":"auth"}\n');
+      const tarPath = join(archiveDir, "source.tar.gz");
+      await tarCreate({ gzip: true, cwd: srcDir, file: tarPath, portable: true }, ["plugins"]);
+      const bytes = new Uint8Array(readFileSync(tarPath));
+      return { bytes, integrity: computeSriHash(Buffer.from(bytes)) };
+    };
+
+    beforeAll(async () => {
+      archiveDir = mkdtempSync(join(SCRATCH, "archive-"));
+      archive = await makeArchive();
+    });
+
+    it("extracts a verified archive to a temp dir with cleanup wired", async () => {
+      const result = await fetchSourceWithPinFallback({
+        spec: {
+          kind: "archive",
+          url: "https://cdn.test/base/auth/source/auth.tar.gz",
+          integrity: archive.integrity,
+        },
+        fetchArchive: async () => archive.bytes,
+      });
+      expect(result.source.ref).toBe("source archive");
+      expect(result.fallbackWarning).toBeUndefined();
+      expect(
+        readFileSync(join(result.source.root, "plugins", "auth", "src", "index.ts"), "utf-8"),
+      ).toContain("export const auth");
+      await result.source.cleanup();
+      expect(existsSync(result.source.root)).toBe(false);
+    });
+
+    it("falls back to github when the archive fetch fails and a fallback exists", async () => {
+      const result = await fetchSourceWithPinFallback({
+        spec: {
+          kind: "archive",
+          url: "https://cdn.test/base/auth/source/auth.tar.gz",
+          integrity: archive.integrity,
+        },
+        pinnedSha: "deadbeef",
+        fetchArchive: async () => {
+          throw new Error("cdn down");
+        },
+        fallback: { repo: "https://github.com/a/b", ref: "deadbeef" },
+        download: async () => tarball("deadbeef"),
+      });
+      expect(result.source.ref).toBe("deadbeef");
+      expect(result.fallbackWarning).toContain("could not fetch the source archive");
+      expect(result.fallbackWarning).toContain("cdn down");
+      expect(result.fallbackWarning).toContain("https://github.com/a/b");
+    });
+
+    it("falls back to github on an integrity mismatch", async () => {
+      const result = await fetchSourceWithPinFallback({
+        spec: {
+          kind: "archive",
+          url: "https://cdn.test/base/auth/source/auth.tar.gz",
+          integrity: "sha384-not-the-real-hash",
+        },
+        pinnedSha: "deadbeef",
+        fetchArchive: async () => archive.bytes,
+        fallback: { repo: "https://github.com/a/b", ref: "deadbeef" },
+        download: async () => tarball("deadbeef"),
+      });
+      expect(result.source.ref).toBe("deadbeef");
+      expect(result.fallbackWarning).toContain("could not fetch the source archive");
+    });
+
+    it("propagates the error when the archive fails with no fallback", async () => {
+      await expect(
+        fetchSourceWithPinFallback({
+          spec: {
+            kind: "archive",
+            url: "https://cdn.test/base/auth/source/auth.tar.gz",
+            integrity: archive.integrity,
+          },
+          pinnedSha: "deadbeef",
+          fetchArchive: async () => {
+            throw new Error("cdn down");
+          },
+          download: async () => {
+            throw new Error("must not download");
+          },
+        }),
+      ).rejects.toThrow("cdn down");
+    });
+  });
 });
 
 describe("bos import — resolveImportChain", () => {
@@ -272,6 +424,8 @@ describe("bos import — resolveImportChain", () => {
   });
 
   it("pins the ref to the ancestor's version-manifest git sha", async () => {
+    const manifest = { gitSha: "deadbeef" };
+    const { bytes, integrity } = manifestBytes(manifest);
     const resolved = await resolveImportChain({
       workspace: WS,
       projectDir: childDir,
@@ -280,13 +434,13 @@ describe("bos import — resolveImportChain", () => {
           repository: "https://github.com/base/runtime",
           appAuth: {
             production: "https://cdn.test/base/auth/",
-            pin: { manifest: "versions/abc.json", integrity: "sha384-x" },
+            pin: { manifest: "versions/abc.json", integrity },
           },
         }),
       }),
       fetchVersionManifest: async (url) => {
         expect(url).toBe("https://cdn.test/base/auth/versions/abc.json");
-        return { gitSha: "deadbeef" };
+        return { bytes, manifest };
       },
     });
 
@@ -297,6 +451,71 @@ describe("bos import — resolveImportChain", () => {
     });
     expect(resolved.provenance.pinnedSha).toBe("deadbeef");
     expect(resolved.provenance.warnings).toEqual([]);
+  });
+
+  it("imports from the source archive when the manifest carries one, even with no repository", async () => {
+    const manifest = {
+      gitSha: "deadbeef",
+      source: { file: "source/auth.tar.gz", integrity: "sha384-abc" },
+    };
+    const { bytes, integrity } = manifestBytes(manifest);
+    const repolessBase = baseConfig({
+      appAuth: {
+        production: "https://cdn.test/base/auth/",
+        pin: { manifest: "versions/abc.json", integrity },
+      },
+    });
+    delete repolessBase.repository;
+    const resolved = await resolveImportChain({
+      workspace: WS,
+      projectDir: childDir,
+      io: ioWithChain({ "bos://base.near/base": repolessBase }),
+      fetchVersionManifest: async () => ({ bytes, manifest }),
+    });
+
+    expect(resolved.spec).toEqual({
+      kind: "archive",
+      url: "https://cdn.test/base/auth/source/auth.tar.gz",
+      integrity: "sha384-abc",
+    });
+    expect(resolved.provenance.sourceArchive).toEqual({
+      file: "source/auth.tar.gz",
+      url: "https://cdn.test/base/auth/source/auth.tar.gz",
+      integrity: "sha384-abc",
+    });
+    expect(resolved.provenance.pinnedSha).toBe("deadbeef");
+    expect(resolved.provenance.repository).toBeUndefined();
+  });
+
+  it("keeps the repository rootward as the github fallback coordinate alongside the archive", async () => {
+    const manifest = {
+      gitSha: "deadbeef",
+      source: { file: "source/auth.tar.gz", integrity: "sha384-abc" },
+    };
+    const { bytes, integrity } = manifestBytes(manifest);
+    const resolved = await resolveImportChain({
+      workspace: WS,
+      projectDir: childDir,
+      io: ioWithChain({
+        "bos://base.near/base": baseConfig({
+          extends: "bos://root.near/root",
+          appAuth: {
+            production: "https://cdn.test/base/auth/",
+            pin: { manifest: "versions/abc.json", integrity },
+          },
+        }),
+        "bos://root.near/root": grandparentConfig,
+      }),
+      fetchVersionManifest: async () => ({ bytes, manifest }),
+    });
+
+    expect(resolved.spec).toEqual({
+      kind: "archive",
+      url: "https://cdn.test/base/auth/source/auth.tar.gz",
+      integrity: "sha384-abc",
+    });
+    expect(resolved.provenance.repository).toBe("https://github.com/root/runtime");
+    expect(resolved.provenance.sourceArchive).toBeDefined();
   });
 
   it("errors when the child itself declares the workspace locally", async () => {
@@ -329,7 +548,7 @@ describe("bos import — resolveImportChain", () => {
     }
   });
 
-  it("errors when the declaring ancestor and all ancestors above lack a repository", async () => {
+  it("errors when the declaring ancestor and all ancestors above lack a repository and no source archive exists", async () => {
     const repolessBase = baseConfig({ repository: undefined });
     delete repolessBase.repository;
     await expect(
@@ -339,5 +558,42 @@ describe("bos import — resolveImportChain", () => {
         io: ioWithChain({ "bos://base.near/base": repolessBase }),
       }),
     ).rejects.toThrow("No repository found along the extends chain");
+  });
+});
+
+describe("bos import — report provenance", () => {
+  it("lists the source archive coordinate when the archive path was taken", () => {
+    const report = buildImportReport(
+      {
+        workspace: WS,
+        from: "bos://base.near/base",
+        ref: "source archive",
+        sourceKind: "archive",
+        chain: {
+          extendsRef: "bos://base.near/base",
+          ancestorRef: "bos://base.near/base",
+          warnings: [],
+          sourceArchive: {
+            file: "source/auth.tar.gz",
+            url: "https://cdn.test/base/auth/source/auth.tar.gz",
+            integrity: "sha384-abc",
+          },
+        },
+        added: [],
+        updated: [],
+        unchanged: [],
+        preservedLocal: [],
+        preservedLocalEdit: [],
+        merged: [],
+        conflicts: [],
+        migrationCollisions: [],
+        migrationReconciliation: null,
+        heldBackMigrations: [],
+      },
+      { mode: "dry-run" },
+    );
+    expect(report).toContain(
+      "- **Source archive:** `https://cdn.test/base/auth/source/auth.tar.gz`",
+    );
   });
 });
