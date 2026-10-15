@@ -7,17 +7,14 @@ name: CI
 on:
   push:
     branches: [main]
+    # paths-ignore stays on push only: it gates Deploy (workflow_run). On
+    # pull_request a paths-ignored run never reports the required check,
+    # which permanently blocks docs-only PRs once branch protection is on.
     paths-ignore:
       - "**.md"
       - "docs/**"
       - ".changeset/**"
   pull_request:
-    # Docs-only PRs cannot affect lint/typecheck/tests; changeset-only PRs
-    # have nothing to validate here.
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".changeset/**"
   workflow_dispatch:
 
 permissions:
@@ -30,3 +27,19 @@ jobs:
     with:
       working_directory: .
     secrets: inherit
+
+  # Merge gate for branch protection. Require this check name ("Lint and Type
+  # Check") in Settings → Branches — it is child-owned and slash-free, unlike
+  # the reusable call, which GitHub renders as "CI / Lint, typecheck, and test"
+  # (the callee half cannot be overridden and breaks silently on upstream
+  # renames). A reusable job cannot take caller jobs in `needs`, so this gate
+  # lives here, not in the shared workflow. Once consumer-regression.yml
+  # (everything-dev#368) ships, add that job to `needs` if E2E should gate
+  # merges.
+  lint-and-typecheck-gate:
+    name: Lint and Type Check
+    needs: [ci]
+    if: always() # a plain needs-skip reports "skipped", not failure
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.ci.result }}" = "success"

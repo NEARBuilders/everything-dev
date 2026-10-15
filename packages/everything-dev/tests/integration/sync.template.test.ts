@@ -278,6 +278,17 @@ describe("syncTemplate", () => {
     );
 
     expect(childPublishWorkflow).toBe(templatePublishWorkflow);
+
+    const childCiWorkflow = readFileSync(
+      join(projectDir, ".github", "workflows", "ci.yml"),
+      "utf-8",
+    );
+    const templateCiWorkflow = readFileSync(
+      join(REPO_ROOT, ".github", "templates", "workflows", "ci.yml"),
+      "utf-8",
+    );
+
+    expect(childCiWorkflow).toBe(templateCiWorkflow);
   });
 
   it("keeps the plugins workspace override when no child plugins are selected", async () => {

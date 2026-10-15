@@ -118,6 +118,12 @@ All three take a `working_directory` input (default `.`): the directory from whi
 
 **Prerequisite:** the parent repo's Actions settings must allow these workflows to be accessed from other repositories (Settings → Actions → General → Access).
 
+**Branch protection / required checks:** point the child repo's rule at `Lint and Type Check` — the gate job the `ci.yml` template ships after the reusable call. GitHub names reusable-workflow jobs `<caller> / <callee>` (here `CI / Lint, typecheck, and test`) and the caller cannot override the callee half, so requiring that context couples the merge gate to the upstream callee's display name: an upstream rename breaks every child's merge gate silently, with nothing notifying the children. The gate job is child-owned and slash-free, so it is immune to upstream renames. A reusable job cannot take caller jobs in `needs`, which is why the gate lives in the child's `ci.yml` rather than in `consumer-ci.yml`.
+
+Two related caveats the template already handles:
+- `paths-ignore` is deliberately absent from the `pull_request` trigger — a paths-ignored PR never runs CI, so the required check is never reported and docs-only PRs are permanently blocked once branch protection is on. `push` keeps `paths-ignore` (it gates Deploy via `workflow_run`).
+- The gate uses `if: always()`: a plain `needs`-skip would report the gate as "skipped" instead of failed when the CI call fails, which some branch-protection configurations treat as non-blocking. With `always()`, a failed or skipped `ci` job fails the gate explicitly.
+
 **Pinning:** child wrappers currently reference `@main` — the same trust model `bos sync` already applies to all framework-owned files (children track the parent's `main`, snapshot conflict detection guards local edits). Upgrading to a maintained version tag is recorded as a follow-up in `docs/plans/049-workflow-hardening-and-consumer-reusable-workflows.md`.
 
 ## Required secrets
