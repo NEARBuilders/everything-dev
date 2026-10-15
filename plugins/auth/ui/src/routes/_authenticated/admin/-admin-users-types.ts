@@ -1,7 +1,4 @@
-import type { ContractRouterClient } from "@orpc/contract";
-import type { ContractType } from "../../../../../src/contract";
-
-export type AuthApiClient = ContractRouterClient<ContractType>;
+import type { AuthApiClient } from "@/lib/api";
 
 export type AdminUser = Awaited<ReturnType<AuthApiClient["adminListUsers"]>>["users"][number];
 

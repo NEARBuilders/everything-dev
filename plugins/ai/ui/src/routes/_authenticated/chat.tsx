@@ -2,12 +2,11 @@ import { ArrowUpIcon, SparkleIcon, StopIcon } from "@phosphor-icons/react";
 import { useChat } from "@tanstack/ai-react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import type { ClientRuntimeConfig } from "everything-dev/types";
-import { createPluginApiClient } from "everything-dev/ui/api";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import type { contract } from "../../../../src/contract";
+import { createAiApiClient } from "@/lib/api";
 import "../../styles.css";
 
 function resolveClientConfig(runtimeConfig?: Partial<ClientRuntimeConfig>): {
@@ -38,7 +37,7 @@ export const Route = createFileRoute("/_authenticated/chat")({
 function ChatPage() {
   const { runtimeConfig } = useRouter().options.context;
   const client = useMemo(
-    () => createPluginApiClient<typeof contract>("ai", resolveClientConfig(runtimeConfig)),
+    () => createAiApiClient(resolveClientConfig(runtimeConfig)),
     [runtimeConfig?.hostUrl, runtimeConfig?.rpcBase],
   );
 

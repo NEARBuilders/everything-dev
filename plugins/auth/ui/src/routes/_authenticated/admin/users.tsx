@@ -36,8 +36,9 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { AuthApiClient } from "@/lib/api";
 import { AdminBanDialog, AdminRoleDialog, AdminSessionsDialog } from "./-admin-users-dialogs";
-import type { AdminSession, AdminUser, AuthApiClient } from "./-admin-users-types";
+import type { AdminSession, AdminUser } from "./-admin-users-types";
 
 export const Route = createFileRoute("/_authenticated/admin/users")({
   head: () => ({
