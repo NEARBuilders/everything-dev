@@ -8,6 +8,7 @@ import { AuthPanel } from "@/components/auth-panel";
 import { InfoPopover } from "@/components/info-popover";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { LoginI18nProvider, useLoginTranslation } from "@/i18n/runtime";
 import { sanitizeUserCode } from "./-user-code";
 
 type SearchParams = {
@@ -35,8 +36,17 @@ export const Route = createFileRoute("/_public/login/device/approve")({
 });
 
 function DeviceApprovePage() {
+  return (
+    <LoginI18nProvider>
+      <DeviceApproveContent />
+    </LoginI18nProvider>
+  );
+}
+
+function DeviceApproveContent() {
   const navigate = useNavigate();
   const auth = useAuthClient();
+  const t = useLoginTranslation();
   const { data: session } = useQuery(sessionQueryOptions(auth));
   const {
     user_code,
@@ -82,8 +92,8 @@ function DeviceApprovePage() {
   const nearAccountsQuery = useQuery({
     queryKey: ["near-accounts"],
     queryFn: async () => {
-      const { data, error } = await auth.near.listAccounts();
-      if (error) throw new Error(error.message);
+      const { data, error: accountsError } = await auth.near.listAccounts();
+      if (accountsError) throw new Error(accountsError.message);
       return data as unknown as {
         accounts: { accountId: string }[];
         activeAccount: { accountId: string } | null;
@@ -109,13 +119,17 @@ function DeviceApprovePage() {
         .send();
       return true;
     },
-    onError: (error: Error) => {
-      toast.error(error.message || "Failed to add delegate key");
+    onError: (mutationError: Error) => {
+      toast.error(mutationError.message || t("auth.device.delegate.toastFailed"));
     },
   });
 
   if (!session?.user) {
-    return <NavigateToLogin userCode={user_code} />;
+    return (
+      <NavigateToLogin
+        search={{ user_code, pubKey, contract, account: configAccount, network, source, custody }}
+      />
+    );
   }
 
   const isDelegateMode = !!pubKey && !!contract;
@@ -129,7 +143,7 @@ function DeviceApprovePage() {
         await registerCustodyWallet.mutateAsync();
       } catch {
         setPending(false);
-        setError("Custody wallet provisioning failed. Nothing was approved — try again.");
+        setError(t("auth.device.custody.failed"));
         return;
       }
     }
@@ -138,31 +152,48 @@ function DeviceApprovePage() {
         await addDelegateKey.mutateAsync();
       } catch {
         setPending(false);
-        setError("The wallet did not add the delegate key. Nothing was approved — try again.");
+        setError(t("auth.device.delegate.failed"));
         return;
       }
     }
-    const { error: approveError } = await auth.device.approve({ userCode: user_code });
+    let approveFailed = false;
+    try {
+      const { error: approveError } = await auth.device.approve({ userCode: user_code });
+      approveFailed = !!approveError;
+    } catch {
+      approveFailed = true;
+    }
     setPending(false);
-    if (approveError) {
-      setError("Could not approve this code. It may have expired or been claimed elsewhere.");
+    if (approveFailed) {
+      setError(t("auth.device.approve.failed"));
       return;
     }
     if (isDelegateMode || source === "cli") {
       setApproved(true);
-      toast.success("Approved — return to your terminal");
+      toast.success(t("auth.device.approved.cli"));
       return;
     }
-    toast.success("Approved — your other device is signing in");
+    toast.success(t("auth.device.approved.device"));
     void navigate({ to: "/dashboard" });
   };
 
   const handleDeny = async () => {
     if (!user_code) return;
     setPending(true);
-    await auth.device.deny({ userCode: user_code });
+    setError(null);
+    let denyFailed = false;
+    try {
+      const { error: denyError } = await auth.device.deny({ userCode: user_code });
+      denyFailed = !!denyError;
+    } catch {
+      denyFailed = true;
+    }
     setPending(false);
-    toast.info("Sign-in request denied");
+    if (denyFailed) {
+      setError(t("auth.device.deny.failed"));
+      return;
+    }
+    toast.info(t("auth.device.deny.success"));
     void navigate({ to: "/", replace: true });
   };
 
@@ -170,9 +201,9 @@ function DeviceApprovePage() {
     return (
       <AuthPanel
         icon={<CheckCircleIcon />}
-        title="Return to your terminal"
+        title={t("auth.device.approved.title")}
         titleTestId="device.approved-heading"
-        description="The CLI received the credential. You can close this window."
+        description={t("auth.device.approved.description")}
       />
     );
   }
@@ -180,17 +211,21 @@ function DeviceApprovePage() {
   return (
     <AuthPanel
       icon={isDelegateMode ? <KeyIcon /> : <DevicesIcon />}
-      title={isDelegateMode ? "Approve publish key" : "Approve sign-in"}
+      title={
+        isDelegateMode ? t("auth.device.approve.delegateTitle") : t("auth.device.approve.title")
+      }
       titleTestId="device.approve-heading"
       description={
         isDelegateMode
-          ? "Adds a publish-only key to your NEAR account so the CLI can publish without gas."
-          : "Your other device will be signed in to this account."
+          ? t("auth.device.approve.delegateDescription")
+          : t("auth.device.approve.description")
       }
     >
       {user_code ? (
         <div className="flex flex-col items-center gap-2 rounded-3xl bg-muted px-6 py-8">
-          <span className="text-sm text-muted-foreground">Check it matches your other screen</span>
+          <span className="text-sm text-muted-foreground">
+            {t("auth.device.approve.checkMatch")}
+          </span>
           <span
             className="font-mono text-3xl font-semibold tracking-widest break-all text-foreground"
             data-testid="device.approve-code"
@@ -203,17 +238,17 @@ function DeviceApprovePage() {
           className="text-center text-sm text-muted-foreground"
           data-testid="device.approve-missing-code"
         >
-          No code provided. Start again from the other device.
+          {t("auth.device.approve.noCode")}
         </p>
       )}
 
       {isDelegateMode && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-muted-foreground">Public key</span>
+            <span className="text-muted-foreground">{t("auth.device.approve.publicKey")}</span>
             <InfoPopover
-              title="Publish key"
-              body="Only allowed to call __fastdata_kv on the registry, with a 1 NEAR gas allowance. The private key stays on your computer."
+              title={t("auth.device.approve.publishKeyTitle")}
+              body={t("auth.device.approve.publishKeyBody")}
             />
           </div>
           <p
@@ -227,8 +262,10 @@ function DeviceApprovePage() {
               className="text-sm wrap-anywhere text-warning-muted-foreground"
               data-testid="device.account-mismatch"
             >
-              You're signed in as {signedInAccountId}, not {configAccount}. The key will be added to{" "}
-              {signedInAccountId}.
+              {t("auth.device.approve.accountMismatch", {
+                signedIn: signedInAccountId,
+                expected: configAccount,
+              })}
             </p>
           )}
         </div>
@@ -237,15 +274,14 @@ function DeviceApprovePage() {
       {isCustody && (
         <div className="flex flex-col gap-2" data-testid="device.approve-custody">
           <div className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-muted-foreground">Custody wallet</span>
+            <span className="text-muted-foreground">{t("auth.device.custody.label")}</span>
             <InfoPopover
-              title="Custody wallet"
-              body="Creates a new NEAR account whose keys live in OutLayer's TEE enclave. It signs your config publishes and can pay for agent compute. It never touches your own NEAR account — fund it separately when deploys need gas."
+              title={t("auth.device.custody.label")}
+              body={t("auth.device.custody.body")}
             />
           </div>
           <p className="text-sm text-muted-foreground">
-            Approving also registers a custody wallet on {custodyNetwork} under your account. You
-            can set its spending policy any time at the OutLayer dashboard.
+            {t("auth.device.custody.description", { network: custodyNetwork })}
           </p>
           {custodyWallet && (
             <div className="flex flex-col gap-1 rounded-2xl bg-muted px-4 py-3 text-sm">
@@ -259,7 +295,7 @@ function DeviceApprovePage() {
                   rel="noreferrer"
                   className="text-xs text-primary underline-offset-2 hover:underline"
                 >
-                  Set policy & fund the wallet
+                  {t("auth.device.custody.dashboard")}
                 </a>
               )}
             </div>
@@ -279,23 +315,23 @@ function DeviceApprovePage() {
             type="button"
             size="lg"
             className="w-full"
-            onClick={handleApprove}
+            onClick={() => void handleApprove()}
             disabled={pending}
             data-testid="device.approve-button"
           >
             {pending && <Spinner data-icon="inline-start" />}
-            {isDelegateMode ? "Approve key" : "Approve"}
+            {isDelegateMode ? t("auth.device.approve.key") : t("auth.device.approve.approve")}
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="lg"
             className="w-full"
-            onClick={handleDeny}
+            onClick={() => void handleDeny()}
             disabled={pending}
             data-testid="device.deny-button"
           >
-            Deny
+            {t("auth.device.approve.deny")}
           </Button>
         </div>
       )}
@@ -303,15 +339,21 @@ function DeviceApprovePage() {
   );
 }
 
-function NavigateToLogin({ userCode }: { userCode?: string }) {
+function NavigateToLogin({ search }: { search: SearchParams }) {
   const navigate = useNavigate();
-  const target = userCode ? `/login/device?user_code=${userCode}` : "/login/device";
+  const t = useLoginTranslation();
+  const deviceSearch = new URLSearchParams();
+  for (const [key, value] of Object.entries(search)) {
+    if (value) deviceSearch.set(key, value);
+  }
+  const query = deviceSearch.toString();
+  const target = `/login/device${query ? `?${query}` : ""}`;
   return (
     <AuthPanel
       icon={<DevicesIcon />}
-      title="Sign in to approve"
+      title={t("auth.device.approve.signInTitle")}
       titleTestId="device.approve-heading"
-      description="Sign in on this device first, then approve the request."
+      description={t("auth.device.approve.signInDescription")}
     >
       <Button
         type="button"
@@ -320,7 +362,7 @@ function NavigateToLogin({ userCode }: { userCode?: string }) {
         onClick={() => void navigate({ to: "/login", search: { redirect: target } })}
         data-testid="device.approve-signin-button"
       >
-        Sign in to continue
+        {t("auth.device.signIn")}
       </Button>
     </AuthPanel>
   );

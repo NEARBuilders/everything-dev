@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
+import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { selectWorkspaceTargets } from "../build";
 import { syncTemplate } from "../cli/sync";
 import { upgradeTemplate } from "../cli/upgrade";
@@ -274,12 +275,14 @@ export function registerUpgrade(builder: BosBuilder) {
 
         await generateCodeArtifacts(projectDir, resolvedConfig, {
           runtimeConfig: runtime,
+          emitPluginUiRouteTree: true,
         });
         type AppTarget = { source?: string; localPath?: string };
         const workspaceEntries: Array<{
           key: string;
           label: string;
           dir: string;
+          ui?: boolean;
         }> = [];
         const skipped: Array<{ key: string; label: string }> = [];
 
@@ -314,14 +317,16 @@ export function registerUpgrade(builder: BosBuilder) {
 
         for (const [key, plugin] of Object.entries(runtime.plugins ?? {})) {
           const label = `plugins/${key}`;
-          if (
-            plugin.source === "local" &&
-            plugin.localPath &&
-            existsSync(join(plugin.localPath, "tsconfig.json"))
-          ) {
-            workspaceEntries.push({ key, label, dir: plugin.localPath });
+          const localPath = plugin.source === "local" ? plugin.localPath : undefined;
+          if (localPath && existsSync(join(localPath, "tsconfig.json"))) {
+            workspaceEntries.push({ key, label, dir: localPath });
           } else {
             skipped.push({ key, label });
+          }
+          // Plugin UIs are not in the plugin root tsconfig — they typecheck
+          // through their own ui/tsconfig.json (the typecheck:ui script).
+          if (localPath && existsSync(join(localPath, "ui", "tsconfig.json"))) {
+            workspaceEntries.push({ key, label: `${label}/ui`, dir: localPath, ui: true });
           }
         }
 
@@ -343,15 +348,32 @@ export function registerUpgrade(builder: BosBuilder) {
         }> = [];
 
         for (const entry of targets) {
+          // Builds keep the plugin ui's routeTree write on a scratch path
+          // (the router plugin owns the build-time tree), so typechecking a
+          // plugin ui first materializes ui/src/routeTree.gen.ts on disk —
+          // without it every createFileRoute call types as `undefined`.
+          if (entry.ui && !existsSync(join(entry.dir, "ui", "src", "routeTree.gen.ts"))) {
+            try {
+              await generateUiManifest({
+                workspaceRoot: join(entry.dir, "ui"),
+                pluginName: entry.key,
+                emitRouteTree: true,
+              });
+            } catch {}
+          }
+
           const packageJsonPath = join(entry.dir, "package.json");
-          let args: string[] = ["exec", "tsc", "--noEmit"];
+          let args: string[] = entry.ui
+            ? ["exec", "tsc", "--noEmit", "-p", "ui/tsconfig.json"]
+            : ["exec", "tsc", "--noEmit"];
           if (existsSync(packageJsonPath)) {
             try {
               const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
                 scripts?: Record<string, string>;
               };
-              if (pkg.scripts?.typecheck) {
-                args = ["run", "typecheck"];
+              const scriptName = entry.ui ? "typecheck:ui" : "typecheck";
+              if (pkg.scripts?.[scriptName]) {
+                args = ["run", scriptName];
               }
             } catch {}
           }

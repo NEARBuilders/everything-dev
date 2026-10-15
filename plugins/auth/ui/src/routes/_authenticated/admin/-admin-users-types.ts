@@ -1,5 +1,5 @@
 import type { ContractRouterClient } from "@orpc/contract";
-import type { ContractType } from "../../../src/contract";
+import type { ContractType } from "../../../../../src/contract";
 
 export type AuthApiClient = ContractRouterClient<ContractType>;
 

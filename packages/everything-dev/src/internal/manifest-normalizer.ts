@@ -272,6 +272,36 @@ function assertNoSourceExports(pkg: PackageJson, packageName: string) {
   }
 }
 
+// A published package's runtime deps must resolve on npm — a workspace: spec
+// that staging could not rewrite (neither a framework package nor a catalog
+// entry) makes the tarball uninstallable outside the monorepo (rc.5–rc.8
+// shipped "@everything-dev/upload-app": "workspace:^" exactly this way), so
+// fail the release instead. devDependencies are exempt: consumers never
+// install a dependency's devDependencies.
+function assertNoUnresolvedWorkspaceRefs(pkg: PackageJson, packageName: string) {
+  const sections = ["dependencies", "peerDependencies", "optionalDependencies"] as const;
+  const leaked: string[] = [];
+  for (const section of sections) {
+    const map = pkg[section];
+    if (!map || typeof map !== "object") continue;
+    for (const [name, version] of Object.entries(map as Record<string, string>)) {
+      if (typeof version === "string" && version.startsWith("workspace:")) {
+        leaked.push(`${section}.${name} ("${version}")`);
+      }
+    }
+  }
+
+  if (leaked.length > 0) {
+    throw new Error(
+      `${packageName}: unresolved workspace: refs would ship to npm and make the ` +
+        `tarball uninstallable. Publish the target package, use a resolvable range ` +
+        `(catalog: or a real version), or move the dep to devDependencies when the ` +
+        `dist bundles it:\n` +
+        leaked.map((entry) => `  - ${entry}`).join("\n"),
+    );
+  }
+}
+
 export function stageReleasePackage(opts: {
   repoRoot: string;
   packageName: string;
@@ -300,6 +330,7 @@ export function stageReleasePackage(opts: {
 
   stripDevelopmentExports(pkg);
   assertNoSourceExports(pkg, opts.packageName);
+  assertNoUnresolvedWorkspaceRefs(pkg, opts.packageName);
 
   writeJson(packageJsonPath, pkg);
 }

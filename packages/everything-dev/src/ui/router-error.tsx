@@ -4,15 +4,33 @@
  * the app's UI kit, so primitives are plain markup + semantic tokens.
  */
 
+/**
+ * Whether the error-details block renders. `undefined` (the default) shows
+ * details on the client only — SSR HTML is what gets indexed, cached and
+ * logged, so internal messages (RPC endpoints, digests, provider errors)
+ * stay out of it. `true` always renders the block, `false` never does.
+ */
+export function shouldShowErrorDetails(
+  showErrorDetails: boolean | undefined,
+  isServer: boolean,
+): boolean {
+  if (showErrorDetails === false) return false;
+  if (showErrorDetails === true) return true;
+  return !isServer;
+}
+
 export function RouterError({
   error,
   reset,
   messages,
+  showErrorDetails,
 }: {
   error: Error;
   reset?: () => void;
   messages?: { title: string; body: string; home: string; retry: string };
+  showErrorDetails?: boolean;
 }) {
+  const showDetails = shouldShowErrorDetails(showErrorDetails, typeof window === "undefined");
   return (
     <div
       className="flex min-h-96 flex-1 items-center justify-center bg-background px-4 py-16"
@@ -50,12 +68,14 @@ export function RouterError({
             {messages?.retry ?? "Try again"}
           </button>
         </div>
-        <details className="w-full text-left text-sm text-muted-foreground">
-          <summary className="cursor-pointer text-center">Error details</summary>
-          <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs">
-            {error.message}
-          </pre>
-        </details>
+        {showDetails && (
+          <details className="w-full text-left text-sm text-muted-foreground">
+            <summary className="cursor-pointer text-center">Error details</summary>
+            <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs">
+              {error.message}
+            </pre>
+          </details>
+        )}
       </div>
     </div>
   );

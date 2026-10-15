@@ -2,12 +2,13 @@ import { DeviceMobileIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { sessionQueryOptions, useAuthClient } from "everything-dev/ui/auth";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AuthPanel } from "@/components/auth-panel";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { LoginI18nProvider, useLoginTranslation } from "@/i18n/runtime";
 import { sanitizeUserCode } from "./-user-code";
 
 type SearchParams = {
@@ -33,35 +34,69 @@ export const Route = createFileRoute("/_public/login/device/")({
 });
 
 function DeviceVerifyPage() {
+  return (
+    <LoginI18nProvider>
+      <DeviceVerifyContent />
+    </LoginI18nProvider>
+  );
+}
+
+function DeviceVerifyContent() {
   const navigate = useNavigate();
   const auth = useAuthClient();
+  const t = useLoginTranslation();
   const { data: session } = useQuery(sessionQueryOptions(auth));
   const { user_code, pubKey, contract, account, network, source } = Route.useSearch();
   const [code, setCode] = useState(user_code ?? "");
   const [error, setError] = useState<string | null>(null);
   const [claiming, setClaiming] = useState(false);
+  const claimedCodeRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!session?.user || !user_code || claiming) return;
+    if (claimedCodeRef.current === user_code) return;
+    claimedCodeRef.current = user_code;
     setClaiming(true);
-    void auth.device({ query: { user_code } }).then(({ data, error }) => {
-      if (error || !data) {
+    auth
+      .device({ query: { user_code } })
+      .then(({ data, error: claimError }) => {
+        if (claimError || !data) {
+          setClaiming(false);
+          setError(t("auth.device.verify.claimFailed"));
+          return;
+        }
+        void navigate({
+          to: "/login/device/approve",
+          search: { user_code, pubKey, contract, account, network, source },
+        });
+      })
+      .catch(() => {
         setClaiming(false);
-        setError("This code is invalid or has expired. Ask for a new one.");
-        return;
-      }
-      void navigate({
-        to: "/login/device/approve",
-        search: { user_code, pubKey, contract, account, network, source },
+        setError(t("auth.device.verify.connection"));
       });
-    });
-  }, [session?.user, user_code, claiming, auth, navigate]);
+  }, [
+    session?.user,
+    user_code,
+    claiming,
+    auth,
+    navigate,
+    t,
+    pubKey,
+    contract,
+    account,
+    network,
+    source,
+  ]);
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
-    const cleaned = code.trim().replace(/-/g, "").toUpperCase();
-    if (!cleaned) return;
+    const cleaned = sanitizeUserCode(code);
+    if (!cleaned) {
+      setError(t("auth.device.verify.invalidCode"));
+      return;
+    }
+    claimedCodeRef.current = null;
     void navigate({
       to: "/login/device",
       search: { user_code: cleaned, pubKey, contract, account, network, source },
@@ -90,12 +125,12 @@ function DeviceVerifyPage() {
   return (
     <AuthPanel
       icon={<DeviceMobileIcon />}
-      title="Approve a sign-in"
+      title={t("auth.device.verify.title")}
       titleTestId="device.verify-heading"
       description={
         user_code
-          ? "Check this code matches the one on your other screen."
-          : "Enter the code shown on your other screen."
+          ? t("auth.device.verify.descriptionWithCode")
+          : t("auth.device.verify.descriptionNoCode")
       }
     >
       {user_code ? (
@@ -111,7 +146,7 @@ function DeviceVerifyPage() {
         <form onSubmit={handleSubmit}>
           <Field>
             <FieldLabel htmlFor="device-user-code" className="sr-only">
-              Device code
+              {t("auth.device.verify.codeLabel")}
             </FieldLabel>
             <div className="flex gap-2">
               <Input
@@ -127,7 +162,7 @@ function DeviceVerifyPage() {
                 data-testid="device.user-code-input"
               />
               <Button type="submit" disabled={!code.trim()} data-testid="device.verify-button">
-                Continue
+                {t("auth.device.verify.continue")}
               </Button>
             </div>
           </Field>
@@ -146,7 +181,7 @@ function DeviceVerifyPage() {
           data-testid="device.claiming"
         >
           <Spinner />
-          Checking the code…
+          {t("auth.device.verify.checking")}
         </p>
       )}
 
@@ -159,7 +194,7 @@ function DeviceVerifyPage() {
           onClick={signInToContinue}
           data-testid="device.signin-redirect-button"
         >
-          Sign in to continue
+          {t("auth.device.signIn")}
         </Button>
       )}
     </AuthPanel>

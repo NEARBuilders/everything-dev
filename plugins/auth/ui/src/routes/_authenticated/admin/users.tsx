@@ -7,7 +7,7 @@ import {
   UserCircleIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { refreshSessionCache, requireAdmin, useAuthClient } from "everything-dev/ui/auth";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -49,7 +49,11 @@ export const Route = createFileRoute("/_authenticated/admin/users")({
   beforeLoad: requireAdmin,
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(
-      adminUsersQueryOptions(context.apiClient.auth, { field: "email", value: "" }, 0),
+      adminUsersQueryOptions(
+        (context.apiClient as { auth: AuthApiClient }).auth,
+        { field: "email", value: "" },
+        0,
+      ),
     );
   },
   component: AdminUsers,
@@ -81,7 +85,7 @@ function AdminUsers() {
   const auth = useAuthClient();
   const authApi = Route.useRouteContext().apiClient.auth as AuthApiClient;
   const queryClient = useQueryClient();
-  const router = Route.useRouter();
+  const router = useRouter();
 
   const [search, setSearch] = useState<AdminSearch>({ field: "email", value: "" });
   const [offset, setOffset] = useState(0);
