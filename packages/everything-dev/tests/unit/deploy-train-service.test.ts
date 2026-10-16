@@ -407,4 +407,84 @@ describe("DeployTrainService", () => {
       probeStorageOriginOverride.fn = undefined;
     }
   });
+
+  it("an upload failure is never swallowed — the train fails before publish", async () => {
+    let uploadCalls = 0;
+    uploadWorkspaceBundleOverride.fn = async (input: { workspaceKey: string }) => {
+      uploadCalls += 1;
+      if (input.workspaceKey === "api") {
+        throw new PublishTrainError({
+          kind: "upload",
+          registryUrl: "",
+          error: "storage rejected",
+        });
+      }
+      return {
+        kind: "ok" as const,
+        entryIntegrity: "sha384-x",
+        ssrEntryIntegrity: undefined,
+        pin: undefined,
+        storage: "r2" as const,
+      };
+    };
+    probeStorageOriginOverride.fn = async () => undefined;
+    process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.test";
+    process.env.BOS_STORAGE_ORIGIN = "https://storage.test";
+    process.env.BOS_STORAGE_API_KEY = "key_test";
+
+    const scopedConfig = {
+      account: "v1.acct.near",
+      domain: "app.test",
+      app: {
+        api: { development: "local:api" },
+        ui: { development: "local:ui" },
+      },
+      plugins: {},
+    } as unknown as BosConfig;
+    openResolutionMock.mockResolvedValue({
+      config: scopedConfig,
+      rawConfig: scopedConfig,
+      runtime: null,
+      root: configDir,
+    });
+
+    try {
+      const { runPublishTrain } = await import("../../src/services/deploy/train");
+      const result = await runPublishTrain(
+        {
+          bosConfig: scopedConfig,
+          runtimeConfig: null,
+          configDir,
+          env: "production",
+          build: true,
+          dryRun: false,
+          verbose: false,
+          packages: "all",
+          privateKey: "ed25519:test",
+        },
+        {
+          storage: BundleStorage.of({} as never),
+          registry: {
+            fetchConfig: (async () => JSON.parse(JSON.stringify(scopedConfig))) as never,
+            fetchHistory: (async () => []) as never,
+          },
+          signer: { submit: (async () => ({ success: true })) as never } as never,
+          buildTrain: {
+            buildTargets: (async (input, deps) => {
+              for (const key of input.targets) deps?.onWorkspaceBuilt?.(key);
+              return { built: input.targets, skipped: [] };
+            }) as never,
+          },
+        },
+      );
+      void result;
+      expect.unreachable("the train must fail on an upload error");
+    } catch (error) {
+      expect(error).toBeInstanceOf(PublishTrainError);
+      expect((error as PublishTrainError).kind).toBe("upload");
+    }
+
+    // Both uploads pipelined; the failing one must surface, not mask.
+    expect(uploadCalls).toBe(2);
+  });
 });
