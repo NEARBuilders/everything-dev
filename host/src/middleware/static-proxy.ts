@@ -103,7 +103,6 @@ export function createStaticAssetProxyHandler(
       pathname === "/" ||
       pathname === "/api" ||
       pathname.startsWith("/api/") ||
-      pathname.startsWith("/bundles/") ||
       pathname === "/health"
     ) {
       return next();

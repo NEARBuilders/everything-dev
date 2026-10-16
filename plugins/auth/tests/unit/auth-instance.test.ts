@@ -316,4 +316,15 @@ describe("createAuthInstance cookie security", () => {
     const advanced = (auth.options as { advanced?: Record<string, unknown> }).advanced ?? {};
     expect(advanced.useSecureCookies).toBe(true);
   });
+
+  it("trusts x-forwarded-for for client-IP resolution behind a proxy", () => {
+    const auth = createAuthInstance(
+      { ...baseConfig, baseUrl: "https://citynode.app", isProduction: true },
+      dbStub,
+    );
+    const advanced = (auth.options as { advanced?: Record<string, unknown> }).advanced ?? {};
+    expect((advanced.ipAddress as Record<string, unknown> | undefined)?.ipAddressHeaders).toEqual([
+      "x-forwarded-for",
+    ]);
+  });
 });

@@ -81,6 +81,10 @@ async function handleOrpc(
     return c.text("Not Found", 404);
   }
 
+  if (result.response.status >= 400) {
+    logger.error(`[oRPC] ${c.req.method} ${c.req.path} → ${result.response.status}`);
+  }
+
   const contentType = result.response.headers.get("content-type") ?? "";
   if (contentType.includes("text/html")) {
     const nonce = c.get("secureHeadersNonce") as string | undefined;
