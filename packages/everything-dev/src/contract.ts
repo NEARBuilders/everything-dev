@@ -959,6 +959,7 @@ export type PluginPublishResult = z.infer<typeof PluginPublishResultSchema>;
 export type WorkspaceDeployResult = z.infer<typeof WorkspaceDeployResultSchema>;
 export type PublishOptions = z.infer<typeof PublishOptionsSchema>;
 export type PublishResult = z.infer<typeof PublishResultSchema>;
+export type RollbackResult = z.infer<typeof RollbackResultSchema>;
 export type DeployOptions = z.infer<typeof DeployOptionsSchema>;
 export type DeployResult = z.infer<typeof DeployResultSchema>;
 export type DeployLegOutcome = z.infer<typeof DeployLegOutcomeSchema>;

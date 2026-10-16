@@ -21,6 +21,7 @@ import { ProjectEnv, ProjectEnvLive } from "./env/project-env";
 import { registerProcesses } from "./handlers/processes";
 import { openResolution } from "./resolution/session";
 import { createPlugin, z } from "./sdk";
+import { DeployTrainService } from "./services/deploy/train";
 import { ProcessesService } from "./services/processes";
 
 export { resolveRemoteConfigChain } from "./commands/config";
@@ -69,6 +70,7 @@ export default createPlugin({
           drizzleKit: Context.get(services, DrizzleKit),
         } satisfies BosDeps),
         ProcessesService.Live,
+        DeployTrainService.Live,
       );
     }),
   createRouter: (builder) => ({

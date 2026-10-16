@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { fetchVerifiedManifest } from "./services/deploy/manifest-verify";
 import type { BosConfigInput } from "./types";
 
 /**
@@ -92,31 +92,11 @@ async function verifySlot(
   if (!base)
     return { slot, manifest, ok: false, reason: "no production URL to fetch the manifest from" };
 
-  const manifestUrl = `${base.replace(/\/$/, "")}/${manifest.replace(/^\//, "")}`;
-  try {
-    const response = await fetchImpl(manifestUrl);
-    if (!response.ok) {
-      return { slot, manifest, ok: false, reason: `manifest fetch failed: ${response.status}` };
-    }
-    const body = await response.text();
-    const computed = `sha384-${createHash("sha384").update(body).digest("base64")}`;
-    if (computed !== integrity) {
-      return {
-        slot,
-        manifest,
-        ok: false,
-        reason: `integrity mismatch for ${manifestUrl} (expected ${integrity}, computed ${computed})`,
-      };
-    }
-    return { slot, manifest, ok: true };
-  } catch (error) {
-    return {
-      slot,
-      manifest,
-      ok: false,
-      reason: `manifest fetch failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
+  const verified = await fetchVerifiedManifest({ base, pin: { manifest, integrity }, fetchImpl });
+  if (!verified.ok) {
+    return { slot, manifest, ok: false, reason: verified.reason };
   }
+  return { slot, manifest, ok: true };
 }
 
 export async function verifyRollbackSnapshot(

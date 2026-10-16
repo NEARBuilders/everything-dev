@@ -1,0 +1,5 @@
+---
+"everything-dev": minor
+---
+
+Deploy train extracted to `services/deploy/` behind a `DeployTrainService` (ADR 0031 shape): the publish core, preflight, upload leg, rollback flow, and post-publish legs are now service modules with a typed error channel (`PublishTrainError` — preflight/build/upload/pin/submit kinds) replacing string-error overloads between the train and the handlers. Duplicated flows collapsed to one implementation each: the folder-form `-ui` sub-leg now runs the same workspace upload as the main bundle, the smoke-failure rollback and `bos rollback` share the snapshot republish path, and manifest SRI verification (rollback gate + slot resolution) is a single module. Auth guards validate the session/custody handles once per run instead of twice. Behavior-preserving; `bos deploy` and `bos plugin publish` call the same train.

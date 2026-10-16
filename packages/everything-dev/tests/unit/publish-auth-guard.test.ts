@@ -27,7 +27,7 @@ vi.mock("../../src/fastkv", async (importOriginal) => {
   };
 });
 
-import { publishToFastKv } from "../../src/publish";
+import { publishToFastKv } from "../../src/services/deploy/train";
 import type { BosConfig } from "../../src/types";
 
 const bosConfig = {
