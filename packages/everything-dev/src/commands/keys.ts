@@ -1,42 +1,31 @@
-import { join } from "node:path";
 import process from "node:process";
-import { Context, Effect } from "effect";
-import { type KeyPair, parseKey } from "near-kit";
-import { openInBrowser, startDeviceLogin } from "../auth-login";
-import {
-  deleteSessionHandle,
-  nearCredentialsPath,
-  readSessionHandle,
-  removePublishedKeyFile,
-  type SessionCredential,
-  writeSessionHandle,
-} from "../auth-session";
+import { Effect } from "effect";
+import { parseKey } from "near-kit";
+import type { SessionCredential } from "../auth-session";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import {
   DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS,
   DEFAULT_LOGIN_EXPIRES_IN_SECONDS,
+  type KeyPublishResult,
   type LoginResult,
+  type LogoutResult,
 } from "../contract";
 import { getRegistryNamespaceForAccount } from "../fastkv";
-import {
-  addFunctionCallAccessKey,
-  deleteAccessKeys,
-  ensureNearCli,
-  generateNearKeyPair,
-  listPublishKeys,
-} from "../near-cli";
+import { deleteAccessKeys } from "../near-cli";
 import { getNetworkIdForAccount } from "../network";
 import { loginOutlayerCli } from "../outlayer-login";
 import type { ResolutionSession } from "../resolution/session";
+import { DeviceLoginService, openInBrowser } from "../services/auth/device-login";
+import { mintPublishKey, PUBLISH_FUNCTION_NAMES } from "../services/auth/publish-key";
+import { SessionStore } from "../services/auth/session-store";
+import { SiteClient, type SiteClientShape } from "../services/auth/site-client";
 import { colors } from "../utils/theme";
 import { type BosBuilder, BosDepsTag } from "./shared";
 
-const PUBLISH_FUNCTION_NAMES = ["__fastdata_kv"];
-
 export function registerKeys(builder: BosBuilder) {
   return {
-    keyPublish: builder.keyPublish.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
+    keyPublish: builder.keyPublish.effect(function* (_opts, input) {
+      const deps = yield* BosDepsTag;
       const session = deps.session;
       if (!session?.config) {
         return {
@@ -48,84 +37,28 @@ export function registerKeys(builder: BosBuilder) {
           allowance: input.allowance,
           functionNames: PUBLISH_FUNCTION_NAMES,
           error: MISSING_CONFIG_MESSAGE,
-        };
+        } satisfies KeyPublishResult;
       }
 
-      const account =
-        input.env === "staging"
-          ? (session.config.staging?.account ?? session.config.account)
-          : session.config.account;
-      const network = getNetworkIdForAccount(account);
-      const contract = getRegistryNamespaceForAccount(account, input.registry);
-      try {
-        await Effect.runPromise(ensureNearCli);
-
-        const oldKeys = await listPublishKeys({ account, contract, network });
-
-        const keyPair = await addFunctionCallAccessKey({
-          account,
-          contract,
-          allowance: input.allowance,
-          functionNames: PUBLISH_FUNCTION_NAMES,
-          network,
-        });
-
-        if (oldKeys.length > 0) {
-          console.log();
-          console.log(
-            `  Found ${oldKeys.length} existing publish key${oldKeys.length > 1 ? "s" : ""}:`,
-          );
-          for (const k of oldKeys) {
-            console.log(`    ${colors.dim(k)}`);
-          }
-
-          if (input.removeOldKeys === true) {
-            try {
-              await deleteAccessKeys(account, oldKeys, network);
-              console.log(
-                `  ${colors.green("✓")} Removed ${oldKeys.length} old key${
-                  oldKeys.length > 1 ? "s" : ""
-                }`,
-              );
-            } catch {
-              console.log(
-                `  ${colors.yellow("⚠")} Failed to remove old key${
-                  oldKeys.length > 1 ? "s" : ""
-                } (new key still active)`,
-              );
-            }
-          } else {
-            console.log(`  ${colors.dim("Old key(s) retained.")}`);
-          }
-        }
-
-        return {
-          status: "published" as const,
-          account,
-          network,
-          env: input.env,
-          contract,
-          allowance: input.allowance,
-          functionNames: PUBLISH_FUNCTION_NAMES,
-          publicKey: keyPair.publicKey,
-          privateKey: keyPair.privateKey,
-        };
-      } catch (error) {
-        return {
+      return yield* Effect.tryPromise({
+        try: () => keyPublishBody(session, input),
+        catch: (error) => ({
           status: "error" as const,
-          account,
-          network,
+          account: session.config?.account ?? "",
+          network: getNetworkIdForAccount(session.config?.account ?? ""),
           env: input.env,
-          contract,
+          contract: getRegistryNamespaceForAccount(session.config?.account ?? "", input.registry),
           allowance: input.allowance,
           functionNames: PUBLISH_FUNCTION_NAMES,
           error: error instanceof Error ? error.message : "Unknown error",
-        };
-      }
+        }),
+      });
     }),
 
-    login: builder.login.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
+    login: builder.login.effect(function* (_opts, input) {
+      const deps = yield* BosDepsTag;
+      const deviceLogin = yield* DeviceLoginService;
+      const sessions = yield* SessionStore;
       const staging = input.env === "staging";
       const config = deps.session?.config;
       const account = staging
@@ -148,11 +81,11 @@ export function registerKeys(builder: BosBuilder) {
               siteUrl: siteUrl,
               error:
                 "Deploy keys scope to the authored config's account and domain — set both in bos.config.json (or drop --key for a plain login)",
-            };
+            } satisfies LoginResult;
           }
           deployKey = { account, gateway };
         }
-        const login = await startDeviceLogin({
+        const login = yield* deviceLogin.start({
           siteUrl,
           device: input.device,
           account: account || undefined,
@@ -163,13 +96,16 @@ export function registerKeys(builder: BosBuilder) {
 
         console.log();
         console.log(`  One-time code: ${colors.cyan(login.userCode)}`);
-        await openInBrowser(login.verificationUrl).catch((error: unknown) => {
-          console.log(colors.yellow(`  ⚠ ${(error as Error).message}`));
-        });
+        yield* Effect.catchIf(
+          Effect.tryPromise(() => openInBrowser(login.verificationUrl)),
+          () => true,
+          (error) =>
+            Effect.sync(() => console.log(colors.yellow(`  ⚠ ${(error as Error).message}`))),
+        );
         console.log();
         console.log(`  Waiting for approval at ${colors.dim(login.verificationUrl)}…`);
 
-        const approval = await login.waitForApproval();
+        const approval = yield* Effect.tryPromise(() => login.waitForApproval());
 
         if (!approval.apiKey) {
           return {
@@ -177,13 +113,13 @@ export function registerKeys(builder: BosBuilder) {
             siteUrl,
             loginUrl: login.verificationUrl,
             error: "Login approved but no CLI credential was created",
-          };
+          } satisfies LoginResult;
         }
 
         const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
         const configDir = deps.session?.root ?? process.cwd();
-        const existingSession = readSessionHandle(configDir);
-        writeSessionHandle(configDir, {
+        const existingSession = sessions.read(configDir);
+        sessions.write(configDir, {
           version: 1,
           credential: {
             kind: "session",
@@ -214,7 +150,9 @@ export function registerKeys(builder: BosBuilder) {
         let publishKey: LoginResult["publishKey"] = null;
         if (input.key) {
           try {
-            publishKey = await exportPublishKey(account, input.registry);
+            publishKey = yield* Effect.tryPromise(() =>
+              exportPublishKey(sessions, account, input.registry),
+            );
           } catch (error) {
             warning = `Session stored, but publish-key export failed: ${
               error instanceof Error ? error.message : "unknown error"
@@ -224,7 +162,7 @@ export function registerKeys(builder: BosBuilder) {
 
         let outlayerCli: LoginResult["outlayerCli"] = null;
         if (input.custody && approval.custodyWallet) {
-          outlayerCli = await loginOutlayerCli(approval.custodyWallet);
+          outlayerCli = yield* Effect.tryPromise(() => loginOutlayerCli(approval.custodyWallet!));
           if (outlayerCli.status === "error") {
             const failure = `OutLayer CLI login failed: ${outlayerCli.detail}`;
             warning = warning ? `${warning} ${failure}` : failure;
@@ -256,28 +194,34 @@ export function registerKeys(builder: BosBuilder) {
             : null,
           outlayerCli,
           warning,
-        };
+        } satisfies LoginResult;
       } catch (error) {
         return {
           status: "error" as const,
           siteUrl: input.site ?? "",
           error: error instanceof Error ? error.message : "Unknown error",
-        };
+        } satisfies LoginResult;
       }
     }),
 
-    logout: builder.logout.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
+    logout: builder.logout.effect(function* (_opts, input) {
+      const deps = yield* BosDepsTag;
+      const siteClient = yield* SiteClient;
+      const sessions = yield* SessionStore;
       const configDir = input.configDir ?? deps.session?.root ?? process.cwd();
 
       try {
-        const session = readSessionHandle(configDir);
+        const session = sessions.read(configDir);
         let revokedApiKey = false;
         let removedPublishKey = false;
         let warning: string | null = null;
 
         if (session?.credential) {
-          revokedApiKey = await revokeApiKey(session.credential).catch(() => false);
+          revokedApiKey = yield* Effect.catchIf(
+            Effect.tryPromise(() => revokeApiKey(siteClient, session.credential!)),
+            () => true,
+            () => Effect.succeed(false),
+          );
           if (!revokedApiKey) {
             warning =
               "Could not revoke the API key remotely — revoke it manually under Settings → API keys.";
@@ -286,29 +230,94 @@ export function registerKeys(builder: BosBuilder) {
 
         if (session?.publishKey) {
           const account = session.credential?.accountId ?? deps.session?.config?.account ?? "";
-          removePublishedKeyFile(session.publishKey.network, account, session.publishKey.publicKey);
+          sessions.removePublishedKeyFile(
+            session.publishKey.network,
+            account,
+            session.publishKey.publicKey,
+          );
           removedPublishKey = true;
           warning = warning
             ? `${warning} Re-run ${colors.cyan("bos login --key")} to re-export a publish key.`
             : "Removed the exported publish key. Re-run bos login --key to re-export one.";
         }
 
-        deleteSessionHandle(configDir);
+        sessions.delete(configDir);
         return {
           status: "logged-out" as const,
           revokedApiKey,
           removedPublishKey,
           warning,
-        };
+        } satisfies LogoutResult;
       } catch (error) {
         return {
           status: "error" as const,
           revokedApiKey: false,
           removedPublishKey: false,
           error: error instanceof Error ? error.message : "Unknown error",
-        };
+        } satisfies LogoutResult;
       }
     }),
+  };
+}
+
+async function keyPublishBody(
+  session: { config: { account?: string; staging?: { account?: string } | undefined } | null },
+  input: {
+    env: "production" | "staging";
+    allowance: string;
+    registry?: string;
+    removeOldKeys?: boolean;
+  },
+): Promise<KeyPublishResult> {
+  const account =
+    input.env === "staging"
+      ? (session.config?.staging?.account ?? session.config?.account)
+      : session.config?.account;
+  const minted = await mintPublishKey({
+    account: account ?? "",
+    registry: input.registry,
+    allowance: input.allowance,
+  });
+
+  if (minted.oldKeys.length > 0) {
+    console.log();
+    console.log(
+      `  Found ${minted.oldKeys.length} existing publish key${minted.oldKeys.length > 1 ? "s" : ""}:`,
+    );
+    for (const k of minted.oldKeys) {
+      console.log(`    ${colors.dim(k)}`);
+    }
+
+    if (input.removeOldKeys === true) {
+      try {
+        await deleteAccessKeys(account ?? "", minted.oldKeys, minted.network);
+        console.log(
+          `  ${colors.green("✓")} Removed ${minted.oldKeys.length} old key${
+            minted.oldKeys.length > 1 ? "s" : ""
+          }`,
+        );
+      } catch {
+        console.log(
+          `  ${colors.yellow("⚠")} Failed to remove old key${
+            minted.oldKeys.length > 1 ? "s" : ""
+          } (new key still active)`,
+        );
+      }
+    } else {
+      console.log(`  ${colors.dim("Old key(s) retained.")}`);
+    }
+  }
+
+  return {
+    status: "published",
+    account: account ?? "",
+    network: minted.network,
+    env: input.env,
+    contract: minted.contract,
+    allowance: input.allowance,
+    functionNames: PUBLISH_FUNCTION_NAMES,
+    publicKey: minted.keyPair.publicKey,
+    privateKey: minted.keyPair.privateKey,
   };
 }
 
@@ -332,71 +341,52 @@ function resolveLoginSiteUrl(
   return domain ? `https://${domain}` : "";
 }
 
+/** `login --key`'s export: the shared mint, then the near-cli-rs keystore
+ * handoff (~/.near-credentials) with a 0600 permission fix-up. */
 async function exportPublishKey(
+  sessions: { nearCredentialsPath: (network: "mainnet" | "testnet", account: string) => string },
   account: string,
   registry: string | undefined,
 ): Promise<NonNullable<LoginResult["publishKey"]>> {
-  if (!account) {
-    throw new Error("the authored config has no account to export a publish key for");
-  }
-
-  await Effect.runPromise(ensureNearCli);
-
-  const network = getNetworkIdForAccount(account);
-  const contract = getRegistryNamespaceForAccount(account, registry);
-  await listPublishKeys({ account, contract, network });
-
-  const keyPair = generateNearKeyPair();
-  await addFunctionCallAccessKey({
-    account,
-    contract,
-    allowance: "1NEAR",
-    functionNames: PUBLISH_FUNCTION_NAMES,
-    network,
-    keyPair,
-  });
+  const minted = await mintPublishKey({ account, registry });
 
   const { FileKeyStore } = await import("near-kit/keys/file");
-  const keyStore = new FileKeyStore("~/.near-credentials", network);
-  await keyStore.add(account, parseNearPrivateKey(keyPair.privateKey));
+  const keyStore = new FileKeyStore("~/.near-credentials", minted.network);
+  await keyStore.add(account, parseNearPrivateKey(minted.keyPair.privateKey));
   try {
     const { statSync, chmodSync } = await import("node:fs");
-    const { homedir } = await import("node:os");
-    const credentialPath = join(
-      homedir(),
-      ".near-credentials",
-      network === "mainnet" ? "mainnet" : network,
-      `${account}.json`,
-    );
+    const credentialPath = sessions.nearCredentialsPath(minted.network, account);
     if (statSync(credentialPath).mode & 0o077) {
       chmodSync(credentialPath, 0o600);
     }
   } catch {}
 
   return {
-    publicKey: keyPair.publicKey,
-    network,
-    contract,
-    exportedTo: nearCredentialsPath(network, account),
+    publicKey: minted.keyPair.publicKey,
+    network: minted.network,
+    contract: minted.contract,
+    exportedTo: sessions.nearCredentialsPath(minted.network, account),
   };
 }
-function parseNearPrivateKey(privateKey: string): KeyPair {
-  return parseKey(privateKey) as KeyPair;
+
+function parseNearPrivateKey(privateKey: string): ReturnType<typeof parseKey> {
+  return parseKey(privateKey);
 }
 
-async function revokeApiKey(credential: SessionCredential): Promise<boolean> {
+async function revokeApiKey(
+  siteClient: SiteClientShape,
+  credential: SessionCredential,
+): Promise<boolean> {
   if (!credential.apiKey || !credential.siteUrl) return false;
   try {
-    const response = await fetch(`${credential.siteUrl}/api/auth/api-key/delete`, {
-      method: "POST",
-      headers: {
-        "x-api-key": credential.apiKey,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ keyId: credential.apiKeyId }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    return response.ok;
+    const response = await siteClient.authPost(
+      credential.siteUrl,
+      "/api-key/delete",
+      { keyId: credential.apiKeyId },
+      undefined,
+      { "x-api-key": credential.apiKey },
+    );
+    return response.status < 400;
   } catch {
     return false;
   }
