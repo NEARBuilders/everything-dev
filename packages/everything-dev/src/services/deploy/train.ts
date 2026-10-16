@@ -425,14 +425,6 @@ export async function runPublishTrain(
   // that order is the one thrown.
   const uploadConcurrency = Math.max(1, Number(process.env.BOS_UPLOAD_CONCURRENCY) || 4);
   const uploaded = new Map<string, Promise<DeployResultEntry[]>>();
-  // Rejections stay in the map until the drain's allSettled — deleting would
-  // both swallow the failure (the drain substitutes an empty result) and let
-  // the fallback loop silently re-attempt the upload. The immediate no-op
-  // catch keeps the pipelined rejection handled while the build continues.
-  const trackUpload = (key: string, pending: Promise<DeployResultEntry[]>) => {
-    uploaded.set(key, pending);
-    pending.catch(() => {});
-  };
   let inFlight = 0;
   const waiters: Array<() => void> = [];
   const acquireUploadSlot = () => {
@@ -448,17 +440,18 @@ export async function runPublishTrain(
   };
   const startUpload = (key: string) => {
     if (uploaded.has(key)) return;
-    trackUpload(
-      key,
-      (async () => {
-        await acquireUploadSlot();
-        try {
-          return await uploadOneWorkspace(key);
-        } finally {
-          releaseUploadSlot();
-        }
-      })(),
-    );
+    const pending = (async () => {
+      await acquireUploadSlot();
+      try {
+        return await uploadOneWorkspace(key);
+      } finally {
+        releaseUploadSlot();
+      }
+    })().catch((error) => {
+      uploaded.delete(key);
+      throw error;
+    });
+    uploaded.set(key, pending);
   };
 
   if (input.build) {
@@ -477,11 +470,7 @@ export async function runPublishTrain(
         verbose: input.verbose,
         ...(input.forceBuild ? { forceBuild: true } : {}),
       },
-      {
-        onWorkspaceBuilt: (key) => {
-          if (targets.includes(key)) startUpload(key);
-        },
-      },
+      { onWorkspaceBuilt: startUpload },
     );
     built = result.built;
     skipped = result.skipped;
