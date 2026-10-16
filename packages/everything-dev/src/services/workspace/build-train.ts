@@ -294,7 +294,12 @@ export async function buildWorkspaceTargets(
       force,
       env,
       ...(input.deploy && root && !force
-        ? { oracle: contentHashStalenessOracle(root.dir, root.members) }
+        ? {
+            oracle: contentHashStalenessOracle(root.dir, root.members, {
+              nodeEnv: input.deploy ? "production" : "development",
+              deploy: input.deploy,
+            }),
+          }
         : {}),
     },
   );
