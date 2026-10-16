@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
-
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import { resolveImageLegPlan, resolveRailwayLeg, resolveRuntimeTier } from "../../src/deploy-legs";
+import { type PostPublishLegsDeps, runPostPublishLegs } from "../../src/services/deploy/legs";
 
 describe("resolveRuntimeTier", () => {
   it("is root when ci.image is configured", () => {
@@ -131,6 +134,42 @@ describe("resolveRailwayLeg", () => {
       });
       expect(decision.action).toBe("redeploy");
       expect(decision.outcome).toBeUndefined();
+    }
+  });
+});
+
+describe("runPostPublishLegs — docker probe", () => {
+  it("skips the docker probe when a digest is prebuilt", async () => {
+    const sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-"));
+    writeFileSync(join(sessionRoot, "Dockerfile"), "FROM scratch\n");
+    try {
+      const deps = {
+        buildAndPushImage: vi.fn(),
+        hasDocker: vi.fn(async () => {
+          throw new Error("hasDocker must not be called when a digest is prebuilt");
+        }),
+        runSmoke: vi.fn(async () => ({ status: "skipped" as const, detail: "off" })),
+        deployImageToRailway: vi.fn(async () => ({ status: "ok" as const, detail: "r" })),
+        rollbackToPreviousSnapshot: vi.fn(),
+      } as unknown as PostPublishLegsDeps & { hasDocker: ReturnType<typeof vi.fn> };
+
+      await runPostPublishLegs(
+        {
+          sessionRoot,
+          env: "production",
+          smoke: false,
+          imageDigestInput:
+            "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          ciImage: "ghcr.io/nearbuilders/everything-dev",
+          runtimeConfig: null,
+        },
+        deps,
+      );
+
+      expect(deps.hasDocker).not.toHaveBeenCalled();
+      expect(deps.buildAndPushImage).not.toHaveBeenCalled();
+    } finally {
+      rmSync(sessionRoot, { recursive: true, force: true });
     }
   });
 });
