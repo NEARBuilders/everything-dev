@@ -14,7 +14,8 @@ export class ProcessesService extends Context.Service<
       list: () =>
         Effect.try({
           try: readRegistry,
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          // Non-Error throws keep the legacy "Unknown error" wording.
+          catch: (error) => (error instanceof Error ? error : new Error("Unknown error")),
         }).pipe(Effect.flatMap(pruneDeadEffect)),
     }),
   );

@@ -15,7 +15,7 @@ export function registerProcesses(builder: BosBuilder) {
             Effect.succeed({
               status: "error",
               entries: [],
-              error: error instanceof Error ? error.message : "Unknown error",
+              error: error.message,
             }),
         ),
       );

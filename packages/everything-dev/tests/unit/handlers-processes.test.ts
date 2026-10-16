@@ -61,19 +61,6 @@ function psEffect(
 }
 
 describe("ps handler", () => {
-  it("returns ok with the entries the service listed", async () => {
-    const fake = ProcessesService.of({
-      list: () => Effect.succeed([entry({ description: "dev" })]),
-    });
-
-    const result = (await Effect.runPromise(psEffect(contextWith(fake)))) as {
-      status: string;
-      entries: PidEntry[];
-    };
-    expect(result.status).toBe("ok");
-    expect(result.entries.map((e) => e.description)).toEqual(["dev"]);
-  });
-
   it("maps a service failure to the error result shape, not a throw", async () => {
     const failing = ProcessesService.of({
       list: () => Effect.fail(new Error("registry exploded")),

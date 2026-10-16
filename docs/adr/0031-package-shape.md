@@ -1,6 +1,6 @@
 # 0031. Package shape — contract → handlers → services, CLI as presentation
 
-Date: 2026-10-16
+Date: 2026-10-15
 Status: Accepted
 
 ## Context
