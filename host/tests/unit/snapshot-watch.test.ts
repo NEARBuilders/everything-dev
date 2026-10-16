@@ -3,7 +3,12 @@ import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";
 import { RuntimeSnapshot } from "../../src/services/runtime-snapshot";
-import { pointerFingerprint, runWatchTick } from "../../src/services/snapshot-watch";
+import {
+  adoptBackoffMs,
+  DEFAULT_WATCH_INTERVAL_MS,
+  pointerFingerprint,
+  runWatchTick,
+} from "../../src/services/snapshot-watch";
 
 const bootConfig = {
   env: "production",
@@ -69,6 +74,7 @@ const makeDeps = (overrides?: Partial<Parameters<typeof runWatchTick>[0]>) => {
 
 describe("runWatchTick", () => {
   beforeEach(async () => {
+    vi.clearAllMocks();
     snapshot = await Effect.runPromise(RuntimeSnapshot.pipe(Effect.provide(snapshotLayer)));
   });
 
@@ -122,5 +128,56 @@ describe("runWatchTick", () => {
     expect(deps.adopt).toHaveBeenCalledTimes(1);
     expect(lastSeen).toBeUndefined();
     expect(loggerMock.error).toHaveBeenCalled();
+  });
+
+  it("the adopt-failure log unwraps Effect's UnknownError wrapper to the real cause", async () => {
+    const realCause = new Error("pinned entry failed verification (https://cdn/ui/remoteEntry.js)");
+    const unknownErrorWrapper = Object.assign(new Error("An error occurred in Effect.tryPromise"), {
+      cause: realCause,
+    });
+    const deps = makeDeps({
+      adopt: vi.fn().mockRejectedValue(unknownErrorWrapper),
+    });
+
+    await Effect.runPromise(runWatchTick({ ...deps, lastSeen: undefined }));
+
+    const failure = loggerMock.error.mock.calls.find((call: unknown[]) =>
+      String(call[0]).includes("adopt failed"),
+    );
+    expect(failure).toBeDefined();
+    const rendered = String(failure![1]);
+    expect(rendered).toContain("pinned entry failed verification");
+  });
+
+  it("describeCauseChain walks nested causes and dedupes repeats", async () => {
+    const { describeCauseChain } = await import("../../src/services/snapshot-watch");
+    const inner = new Error("CDN 403 for versions/8f3ac1d2.json");
+    const outer = Object.assign(new Error("pre-warm compose failed"), { cause: inner });
+    const wrapper = Object.assign(new Error("An error occurred in Effect.tryPromise"), {
+      cause: outer,
+    });
+
+    const chain = describeCauseChain(wrapper);
+    expect(chain).toContain("pre-warm compose failed");
+    expect(chain).toContain("CDN 403 for versions/8f3ac1d2.json");
+
+    expect(describeCauseChain("plain string")).toBe("plain string");
+    expect(describeCauseChain(null)).toBe("null");
+  });
+});
+
+describe("adoptBackoffMs", () => {
+  it("keeps the base interval with no consecutive failures", () => {
+    expect(adoptBackoffMs(DEFAULT_WATCH_INTERVAL_MS, 0)).toBe(DEFAULT_WATCH_INTERVAL_MS);
+  });
+
+  it("doubles per consecutive failure and caps at 5 minutes", () => {
+    expect(adoptBackoffMs(30_000, 1)).toBe(30_000);
+    expect(adoptBackoffMs(30_000, 2)).toBe(60_000);
+    expect(adoptBackoffMs(30_000, 3)).toBe(120_000);
+    expect(adoptBackoffMs(30_000, 4)).toBe(240_000);
+    expect(adoptBackoffMs(30_000, 5)).toBe(300_000);
+    expect(adoptBackoffMs(30_000, 6)).toBe(300_000);
+    expect(adoptBackoffMs(30_000, 50)).toBe(300_000);
   });
 });

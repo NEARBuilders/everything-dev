@@ -546,6 +546,14 @@ export function createAuthInstance(
         sameSite: "lax",
         httpOnly: true,
       },
+      // Behind a reverse proxy (Railway, and most PaaS ingress) the socket
+      // address is the proxy's, so Better Auth cannot resolve the client IP
+      // and rate limiting collapses into one shared per-path bucket. Trust
+      // the standard forwarded header; deployments without a proxy are
+      // unaffected (the header is absent and the fallback applies).
+      ipAddress: {
+        ipAddressHeaders: ["x-forwarded-for"],
+      },
     },
   });
 }

@@ -355,6 +355,51 @@ describe("installBundleFetchFromEnv", () => {
     expect(installBundleFetchFromEnv({ configPath: null })).toBeNull();
   });
 
+  it("treats an empty or quoted-empty BOS_BUNDLE_DIR as unset — silently", () => {
+    delete process.env.BOS_ACCOUNT;
+    delete process.env.BOS_GATEWAY;
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    try {
+      process.env.BOS_BUNDLE_DIR = "";
+      expect(installBundleFetchFromEnv({ configPath: null })).toBeNull();
+
+      process.env.BOS_BUNDLE_DIR = '""';
+      expect(installBundleFetchFromEnv({ configPath: null })).toBeNull();
+
+      process.env.BOS_BUNDLE_DIR = "''";
+      expect(installBundleFetchFromEnv({ configPath: null })).toBeNull();
+
+      process.env.BOS_BUNDLE_DIR = "   ";
+      expect(installBundleFetchFromEnv({ configPath: null })).toBeNull();
+    } finally {
+      delete process.env.BOS_BUNDLE_DIR;
+      console.warn = originalWarn;
+    }
+  });
+
+  it("trims and unquotes a whitespace/quote-wrapped BOS_BUNDLE_DIR", async () => {
+    stageFixture();
+    process.env.BOS_BUNDLE_DIR = `" ${NAMESPACE.bundleDir} "`;
+    process.env.BOS_ACCOUNT = NAMESPACE.account;
+    process.env.BOS_GATEWAY = NAMESPACE.gateway;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response("from-network", { status: 200 });
+    try {
+      const handle = installBundleFetchFromEnv({ configPath: null });
+      try {
+        const res = await fetch(
+          "https://citynode.app/bundles/v1.citynode.near/citynode.app/apps/plugin.manifest.json",
+        );
+        expect(res.status).toBe(200);
+      } finally {
+        await handle!.uninstall();
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("enables the foreign-namespace cache with an explicit cache dir and no staged bundle dir", async () => {
     delete process.env.BOS_BUNDLE_DIR;
     const cacheDir = mkdtempSync(join(tmpdir(), "bundle-cache-"));

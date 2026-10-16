@@ -11,6 +11,16 @@ import { SnapshotCoordinator } from "./snapshot-coordinator";
 
 export const DEFAULT_WATCH_INTERVAL_MS = 30_000;
 
+/** Repeated adopt failures back off exponentially from the base interval,
+ * capped here — a deterministically failing adopt must not flood the logs
+ * every tick. Reset on any clean/swapped tick. */
+export const ADOPT_BACKOFF_CAP_MS = 5 * 60_000;
+
+export const adoptBackoffMs = (intervalMs: number, consecutiveFailures: number): number => {
+  if (consecutiveFailures <= 0) return intervalMs;
+  return Math.min(intervalMs * 2 ** (consecutiveFailures - 1), ADOPT_BACKOFF_CAP_MS);
+};
+
 /** Read BOS_SNAPSHOT_WATCH_INTERVAL_MS with the 30s default; 0 disables the
  * watch (a config-path boot's config is the truth — see the start stack). */
 export function watchIntervalMs(): number {
@@ -27,6 +37,32 @@ export function watchIntervalMs(): number {
 export { pointerFingerprint } from "everything-dev/fingerprint";
 
 export type WatchTickOutcome = "clean" | "swapped" | "swap-failed" | "pointer-unreachable";
+
+/**
+ * The full cause chain of a watch-tick failure. A bare `Effect.tryPromise`
+ * wraps its rejection in an `UnknownError` whose own message is the generic
+ * "An error occurred in Effect.tryPromise" — the real cause lives one or
+ * more `.cause` hops deeper. Walk the chain, dedupe adjacent repeats, and
+ * join so a single greppable line carries the whole story.
+ */
+export const describeCauseChain = (cause: unknown): string => {
+  const parts: string[] = [];
+  let current: unknown = cause;
+  for (let hops = 0; current != null && typeof current === "object" && hops < 6; hops += 1) {
+    if (current instanceof Error && current.message) {
+      const { message } = current;
+      if (message !== parts[parts.length - 1]) parts.push(message);
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  if (parts.length > 0) return parts.join(" → ");
+  if (typeof cause === "string") return cause;
+  try {
+    return JSON.stringify(cause) ?? String(cause);
+  } catch {
+    return String(cause);
+  }
+};
 
 export interface WatchTickDeps {
   snapshot: RuntimeSnapshot["Service"];
@@ -77,7 +113,7 @@ export const runWatchTick = (
           onFailure: (cause) => {
             logger.error(
               `[SnapshotWatch] adopt failed for ${fingerprint} — retrying next tick:`,
-              cause instanceof Error ? cause.message : cause,
+              describeCauseChain(cause),
             );
             return false;
           },
@@ -263,6 +299,7 @@ export class SnapshotWatch extends Context.Service<
 
         let lastSeen: string | undefined;
         let lastOutcome: WatchTickOutcome | undefined;
+        let consecutiveAdoptFailures = 0;
         const tick = Effect.gen(function* () {
           const result = yield* runWatchTick({
             snapshot,
@@ -308,7 +345,23 @@ export class SnapshotWatch extends Context.Service<
           `[SnapshotWatch] watching bos://${config.account}/${config.domain ?? "everything.dev"} every ${intervalMs / 1000}s`,
         );
         yield* Effect.forkScoped(
-          Effect.forever(Effect.flatMap(Effect.sleep(intervalMs), () => tick)),
+          Effect.gen(function* () {
+            while (true) {
+              yield* Effect.sleep(adoptBackoffMs(intervalMs, consecutiveAdoptFailures));
+              const { outcome } = yield* tick;
+              if (outcome === "swap-failed") {
+                consecutiveAdoptFailures += 1;
+                if (consecutiveAdoptFailures > 1) {
+                  const nextDelayS = adoptBackoffMs(intervalMs, consecutiveAdoptFailures) / 1000;
+                  logger.warn(
+                    `[SnapshotWatch] adopt still failing — next attempt in ${nextDelayS}s`,
+                  );
+                }
+              } else if (outcome === "clean" || outcome === "swapped") {
+                consecutiveAdoptFailures = 0;
+              }
+            }
+          }),
         );
         return SnapshotWatch.of({
           tick,

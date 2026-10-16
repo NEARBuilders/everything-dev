@@ -386,6 +386,23 @@ export function installGlobalBundleFetch(options: BundleFetchOptions): BundleFet
 }
 
 /**
+ * A deployment env that accidentally carries an empty or quoted-empty
+ * `BOS_BUNDLE_DIR` (e.g. the literal two characters `""` from a quoting
+ * mistake) normalizes to unset — silently, no warning.
+ */
+const normalizeBundleDir = (raw: string | undefined): string | undefined => {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  const unquoted =
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+      ? trimmed.slice(1, -1).trim()
+      : trimmed;
+  return unquoted.length > 0 ? unquoted : undefined;
+};
+
+/**
  * Boot-time installer for the CLI and the host server: derives the own
  * namespace from `BOS_BUNDLE_DIR` plus the runtime identity
  * (`BOS_ACCOUNT`/`BOS_GATEWAY` registry env taking precedence over the
@@ -400,7 +417,7 @@ export function installGlobalBundleFetch(options: BundleFetchOptions): BundleFet
 export function installBundleFetchFromEnv(input: {
   configPath?: string | null;
 }): BundleFetchHandle | null {
-  const bundleDir = process.env.BOS_BUNDLE_DIR;
+  const bundleDir = normalizeBundleDir(process.env.BOS_BUNDLE_DIR);
   const cacheDir = process.env.BOS_BUNDLE_CACHE_DIR;
   if (!bundleDir && cacheDir === undefined) return null;
 
@@ -430,7 +447,7 @@ export function installBundleFetchFromEnv(input: {
       namespace = { bundleDir, account, gateway };
     } else {
       console.warn(
-        `[bundles] staged namespace ${account}/${gateway} not found under ${bundleDir} — registry tier (network fetch)`,
+        `[bundles] staged namespace ${account}/${gateway} not found under ${JSON.stringify(bundleDir)} — registry tier (network fetch)`,
       );
     }
   }

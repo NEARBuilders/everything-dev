@@ -416,7 +416,8 @@ const stage = () => {
 
   // Namespace staging (plan 043): the same artifacts laid out at the exact
   // paths the /bundles/* FS route serves — bundles/<account>/<gateway>/<ws>/.
-  // The prod image's runtime points BOS_BUNDLE_DIR here. The template plugin
+  // The regression image's runtime stage points BOS_BUNDLE_DIR here (the
+  // deployment `runtime` stage is CDN-only — ADR 0021). The template plugin
   // is not staged: it stays registered and is built + uploaded by the deploy
   // train, so at boot its own-namespace miss falls through to the network
   // (unified resolution policy) and it loads from the CDN like a child.
