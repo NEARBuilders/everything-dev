@@ -109,6 +109,9 @@ export type WorkspaceBuildOutcome = {
   error?: string;
   durationMs: number;
   stderr: string;
+  /** Warning segments extracted from the build's own output — attributed to
+   * this workspace and rendered in the Build section, never interleaved raw. */
+  warnings: string[];
 };
 
 /** Render events the build train emits (#424) — the ✓/✗ table, the deploy
@@ -143,6 +146,27 @@ export interface BuildTargetsResult {
   deployResults?: WorkspaceDeployResult[];
 }
 
+/** Pulls warning segments out of a build's stderr: a WARNING/⚠ line opens a
+ * segment that runs to the next blank line; `$ ` command echoes never count. */
+export function extractBuildWarnings(stderr: string): string[] {
+  const warnings: string[] = [];
+  let current: string[] | null = null;
+  for (const line of stderr.split("\n")) {
+    if (current === null) {
+      if (!/^\$\s/.test(line.trim()) && /WARNING|⚠|\bwarning\b/i.test(line)) {
+        current = [line];
+      }
+    } else if (line.trim() === "") {
+      if (current.some((l) => l.trim().length > 0)) warnings.push(current.join("\n"));
+      current = null;
+    } else {
+      current.push(line);
+    }
+  }
+  if (current?.some((l) => l.trim().length > 0)) warnings.push(current.join("\n"));
+  return warnings;
+}
+
 async function buildOneWorkspace(
   ws: WorkspaceTarget,
   env: Record<string, string>,
@@ -152,6 +176,7 @@ async function buildOneWorkspace(
   const buildConfig = buildCommands[ws.key] ?? { cmd: "pnpm", args: ["run", "build"] };
   const verbose = opts.verbose ?? false;
   const startTime = Date.now();
+  const stderrBuffer: string[] = [];
 
   const proc = await (deps.runChild ?? run)(buildConfig.cmd, buildConfig.args, {
     cwd: ws.path,
@@ -159,7 +184,10 @@ async function buildOneWorkspace(
     capture: true,
     onChunk: (stream, chunk) => {
       if (stream === "stderr") {
-        process.stderr.write(chunk);
+        // Raw streaming is verbose-only; by default stderr is buffered and
+        // surfaced attributed — as warnings in the Build section (#431).
+        if (verbose) process.stderr.write(chunk);
+        stderrBuffer.push(chunk.toString());
       } else if (verbose) {
         process.stdout.write(chunk);
       }
@@ -174,6 +202,7 @@ async function buildOneWorkspace(
     kind: ws.kind,
     success: exitCode === 0,
     stderr: proc?.stderr ?? "",
+    warnings: extractBuildWarnings(`${stderrBuffer.join("")}${proc?.stderr ?? ""}`),
     ...(exitCode !== 0 && {
       error: `Build failed (exit code ${exitCode})\n${output.trim().split("\n").slice(-5).join("\n")}`,
     }),
@@ -288,6 +317,7 @@ export async function buildWorkspaceTargets(
           kind: ws.kind,
           success: false,
           error: result.reason?.message ?? "Unknown error",
+          warnings: [],
         });
       }
     }
