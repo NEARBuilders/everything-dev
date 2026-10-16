@@ -10,7 +10,7 @@ import { fetchBosConfigFromFastKv } from "../fastkv";
 import { pointerFingerprint } from "../fingerprint";
 import { ownerOfPort } from "../infra/port-ownership";
 import { killProcessGroupEscalating, reapGroup } from "../process-kill";
-import { isPidAlive, pruneDeadEffect, readRegistry, unregisterPid } from "../process-registry";
+import { isPidAlive, readRegistry, unregisterPid } from "../process-registry";
 import { openResolution } from "../resolution/session";
 import { computeDeployedVersionStatus, type DeployedVersionStatus } from "../version-status";
 import { type BosBuilder, type BosDeps, BosDepsTag } from "./shared";
@@ -72,22 +72,6 @@ export function registerOps(builder: BosBuilder) {
               ? `Failed to read logs: ${error.message}`
               : "Failed to read logs",
           ],
-        };
-      }
-    }),
-
-    ps: builder.ps.handler(async () => {
-      try {
-        const entries = await Effect.runPromise(pruneDeadEffect(readRegistry()));
-        return {
-          status: "ok" as const,
-          entries,
-        };
-      } catch (error) {
-        return {
-          status: "error" as const,
-          entries: [],
-          error: error instanceof Error ? error.message : "Unknown error",
         };
       }
     }),
