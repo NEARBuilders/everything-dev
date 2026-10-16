@@ -189,6 +189,8 @@ bos deploy --no-build                   # publish only, skip workspace build
 bos deploy --service my-railway         # override Railway service name
 ```
 
+**Deploy legs** (image / smoke / railway) report per-leg outcomes (✓ ok / – skipped / ✗ failed) and are tier-aware (ADR 0020/0021): a runtime that owns its image (`ci.image` configured or a Dockerfile at the config root) is "root" and must pin a digest before Railway; a runtime inheriting the universal image is "child" — image and smoke soft-skip, and the Railway redeploy runs without a digest (`railway redeploy --from-source` is a reload trigger). The deploy exits 0 whenever the config publishes and no leg failed; `RAILWAY_TOKEN` is optional.
+
 → [`publish-sync`](.) skill and [`super-app`](.) for tenant-aware deploy considerations.
 
 ### `bos login` / `bos logout`

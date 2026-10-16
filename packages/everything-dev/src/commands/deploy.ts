@@ -4,6 +4,12 @@ import process from "node:process";
 import { Context } from "effect";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import {
+  type DeployLegs,
+  resolveImageLegPlan,
+  resolveRailwayLeg,
+  resolveRuntimeTier,
+} from "../deploy-legs";
+import {
   type ConfigHistoryEntry,
   fetchBosConfigFromFastKv,
   fetchConfigHistory,
@@ -15,7 +21,6 @@ import {
   hasDocker,
   imageRefWithDigest,
   isValidImageDigest,
-  resolveDeployImagePlan,
   resolveImageRef,
 } from "../image-deploy";
 import { publishToFastKv } from "../publish";
@@ -90,11 +95,11 @@ async function rollbackToPreviousSnapshot(
     env: input.env,
     build: false,
     dryRun: false,
-    verbose: input.verbose,
+    verbose: input.verbose ?? false,
     packages: "all",
     network: input.network,
     privateKey: input.privateKey,
-    wallet: input.wallet,
+    wallet: input.wallet ?? false,
     registry: input.registry,
     exactPayload: true,
   });
@@ -415,8 +420,17 @@ export function registerDeploy(builder: BosBuilder) {
       let image: string | undefined;
       let imageDigest: string | undefined;
       let service: string | undefined;
+      const legs: DeployLegs = {};
 
-      const imagePlan = resolveDeployImagePlan({
+      const hasDockerfile = existsSync(join(session.root, "Dockerfile"));
+      const tier = resolveRuntimeTier({
+        ciImage: nextSession.config?.ci?.image,
+        imageEnv: process.env.BOS_IMAGE,
+        hasDockerfile,
+      });
+
+      const imagePlan = resolveImageLegPlan({
+        tier,
         // A prebuilt digest pairs with the pushed ref (BOS_IMAGE from the CI
         // image job, or repository derivation) — ci.image is a build-time
         // choice, not a pin-time one; letting it win here could pin a digest
@@ -427,16 +441,21 @@ export function registerDeploy(builder: BosBuilder) {
           env: process.env,
         }),
         imageDigest: imageDigestInput,
-        hasDocker: await hasDocker(),
-        hasDockerfile: existsSync(join(session.root, "Dockerfile")),
+        hasDocker: tier === "root" ? await hasDocker() : false,
+        hasDockerfile,
       });
 
       if (imagePlan.kind === "skip") {
+        legs.image = { status: "skipped", detail: imagePlan.reason };
         console.log();
         console.log(colors.yellow(`  Image skipped: ${imagePlan.reason}`));
       } else if (imagePlan.kind === "prebuilt") {
         image = imagePlan.image;
         imageDigest = imagePlan.digest;
+        legs.image = {
+          status: "ok",
+          detail: `pre-pushed ${imagePlan.image}@${imagePlan.digest.slice(0, 19)}…`,
+        };
         console.log();
         console.log(
           colors.green(
@@ -453,6 +472,10 @@ export function registerDeploy(builder: BosBuilder) {
           });
           image = imageResult.image;
           imageDigest = imageResult.digest;
+          legs.image = {
+            status: "ok",
+            detail: `built and pushed ${imageResult.image}:${imageResult.tag}`,
+          };
           console.log(
             colors.green(
               `  ${icons.ok} Image pushed ${imageResult.image}:${imageResult.tag}${imageResult.digest ? ` (${imageResult.digest.slice(0, 19)}…)` : ""}`,
@@ -464,10 +487,13 @@ export function registerDeploy(builder: BosBuilder) {
             message.includes("not found") || message.includes("ENOENT")
               ? "Docker not found — install Docker to build the runtime image"
               : `Image build/push failed: ${message}`;
+          legs.image = { status: "failed", detail: imageError };
           console.log(colors.yellow(`  ${imageError}`));
           return {
             status: "published" as const,
             ...configPublished,
+            image,
+            legs,
             error: `Config published but ${imageError}`,
           };
         }
@@ -480,12 +506,13 @@ export function registerDeploy(builder: BosBuilder) {
       // old-image window never survives the deploy run.
       if (input.smoke) {
         if (!image || !imageDigest) {
+          const smokeSkip =
+            tier === "child"
+              ? "child runtime inherits the root's universal image — no image digest to boot in this train"
+              : "no runtime image digest — set ci.image (or pass BOS_IMAGE_DIGEST)";
+          legs.smoke = { status: "skipped", detail: smokeSkip };
           console.log();
-          console.log(
-            colors.yellow(
-              "  Post-publish smoke skipped: no runtime image digest — set ci.image (or pass BOS_IMAGE_DIGEST)",
-            ),
-          );
+          console.log(colors.yellow(`  Post-publish smoke skipped: ${smokeSkip}`));
         } else {
           console.log();
           console.log(colors.cyan("  ▶ Post-publish smoke (boot gate)"));
@@ -501,6 +528,7 @@ export function registerDeploy(builder: BosBuilder) {
             if (smokeResult.diagnosis) {
               console.log(colors.yellow(`  ${smokeResult.diagnosis}`));
             }
+            legs.smoke = { status: "failed", detail: cause };
             const account = nextSession.config?.account;
             const domain = nextSession.config?.domain;
             if (!account || !domain) {
@@ -509,6 +537,7 @@ export function registerDeploy(builder: BosBuilder) {
                 status: "published" as const,
                 ...configPublished,
                 image,
+                legs,
                 error: `Post-publish smoke failed (${cause}) — config NOT rolled back: no registry identity`,
               };
             }
@@ -522,7 +551,6 @@ export function registerDeploy(builder: BosBuilder) {
               registry: input.registry,
               network: input.network,
               privateKey: input.privateKey,
-              wallet: input.wallet,
               verbose: input.verbose,
             });
             const rollbackNote = rollback.ok
@@ -533,73 +561,67 @@ export function registerDeploy(builder: BosBuilder) {
               status: "published" as const,
               ...configPublished,
               image,
+              legs,
               error: `Post-publish smoke failed (${cause}) — ${rollbackNote}`,
             };
           }
+          legs.smoke = { status: "ok", detail: smokeResult.summary };
           console.log(
             colors.green(`  ${icons.ok} Post-publish smoke passed: ${smokeResult.summary ?? ""}`),
           );
         }
       }
 
-      if (process.env.RAILWAY_TOKEN) {
-        const railwayService = input.service ?? nextSession.config?.ci?.railway?.service;
-        if (!railwayService) {
-          console.log();
-          console.log(
-            colors.yellow(
-              "  Railway deploy skipped: ci.railway.service is not configured in bos.config.json",
-            ),
-          );
-          return {
-            status: "published" as const,
-            ...configPublished,
-            image,
-            error:
-              "Config published but Railway deploy failed: ci.railway.service is not configured in bos.config.json",
-          };
-        }
-        if (!image || !imageDigest) {
-          console.log();
-          console.log(
-            colors.yellow(
-              "  Railway deploy skipped: no runtime image digest — set ci.image (or pass BOS_IMAGE_DIGEST) and make the image available",
-            ),
-          );
-          return {
-            status: "published" as const,
-            ...configPublished,
-            image,
-            service: railwayService,
-            error:
-              "Config published but Railway deploy requires a runtime image (set ci.image, or pass BOS_IMAGE_DIGEST for a pre-pushed image)",
-          };
-        }
+      const railwayService = input.service ?? nextSession.config?.ci?.railway?.service;
+      const railwayDecision = resolveRailwayLeg({
+        tier,
+        railwayToken: process.env.RAILWAY_TOKEN,
+        service: railwayService,
+        digest: imageDigest,
+      });
 
+      if (railwayDecision.action === "skip") {
+        legs.railway = railwayDecision.outcome;
+        console.log();
+        console.log(
+          railwayDecision.outcome.status === "failed"
+            ? colors.yellow(`  Railway deploy failed: ${railwayDecision.outcome.detail}`)
+            : colors.yellow(`  Railway deploy skipped: ${railwayDecision.outcome.detail}`),
+        );
+        if (railwayDecision.outcome.status === "failed") {
+          return {
+            status: "published" as const,
+            ...configPublished,
+            image,
+            legs,
+            error: `Config published but ${railwayDecision.outcome.detail}`,
+          };
+        }
+      } else {
         service = railwayService;
         try {
           await deployImageToRailway({
-            service: railwayService,
+            service: railwayService!,
             configDir: session.root,
           });
+          legs.railway = { status: "ok", detail: `redeployed ${service}` };
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           const railError =
             message.includes("not found") || message.includes("ENOENT")
               ? "Railway CLI not found. Install it: npm i -g @railway/cli"
               : `Railway deploy failed: ${message}`;
+          legs.railway = { status: "failed", detail: railError };
           console.log(colors.yellow(`  ${railError}`));
           return {
             status: "published" as const,
             ...configPublished,
             image,
             service,
+            legs,
             error: `Config published but ${railError}`,
           };
         }
-      } else {
-        console.log();
-        console.log(colors.yellow("  Railway deploy skipped (RAILWAY_TOKEN not set)"));
       }
 
       return {
@@ -607,6 +629,7 @@ export function registerDeploy(builder: BosBuilder) {
         ...configPublished,
         image,
         service,
+        legs,
       };
     }),
   };

@@ -28,6 +28,7 @@ import type {
   StartResult,
   TypecheckWorkspaceResult,
 } from "./contract";
+import type { DeployLegs } from "./deploy-legs";
 import type { StartSummary } from "./dev-program";
 import { getRegistryNamespaceForAccount } from "./fastkv";
 import { listPublishKeys } from "./near-cli";
@@ -194,6 +195,32 @@ async function warnIfOutdated(client: any, command: string): Promise<void> {
   } catch {
     // silently ignore if status check fails
   }
+}
+
+const DEPLOY_LEG_NAMES = ["image", "smoke", "railway"] as const;
+
+function renderDeployLegs(legs: DeployLegs | undefined): void {
+  if (!legs) return;
+  const rows: Array<readonly [string, DeployLegs["image"]]> = DEPLOY_LEG_NAMES.map((name) => [
+    name,
+    legs[name],
+  ]);
+  console.log();
+  for (const [name, leg] of rows) {
+    if (!leg) continue;
+    const mark =
+      leg.status === "ok"
+        ? colors.green(icons.ok)
+        : leg.status === "skipped"
+          ? colors.dim("-")
+          : colors.error(icons.err);
+    console.log(`  ${mark} ${name}${leg.detail ? colors.dim(` ${leg.detail}`) : ""}`);
+  }
+}
+
+function failedDeployLegs(legs: DeployLegs | undefined): string[] {
+  if (!legs) return [];
+  return DEPLOY_LEG_NAMES.filter((name) => legs[name]?.status === "failed");
 }
 
 async function main() {
@@ -1612,13 +1639,21 @@ async function main() {
         if (deployResult.service) {
           console.log(`  ${colors.dim("Railway:")} deployed ${deployResult.service}`);
         }
+        renderDeployLegs(deployResult.legs);
         console.log();
         return;
       }
 
       if (deployResult.status === "published") {
+        const failedLegs = failedDeployLegs(deployResult.legs);
         console.log();
-        console.log(colors.yellow(`${icons.err} Config published, but a deploy leg failed`));
+        console.log(
+          colors.yellow(
+            failedLegs.length > 0
+              ? `${icons.err} Config published, but the ${failedLegs.join(" and ")} leg(s) failed`
+              : `${icons.err} Config published, but a deploy leg failed`,
+          ),
+        );
         console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
         if (deployResult.txHash) {
           console.log(`  ${colors.dim("Transaction:")} ${deployResult.txHash}`);
@@ -1626,6 +1661,7 @@ async function main() {
         if (deployResult.error) {
           console.log(`  ${colors.dim("Error:")} ${deployResult.error}`);
         }
+        renderDeployLegs(deployResult.legs);
         console.log();
         process.exit(1);
       }

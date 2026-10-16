@@ -3,8 +3,12 @@ name: Consumer Deploy
 # Reusable production deploy for generated child repos — never runs in this
 # repo. The caller owns triggers, permissions policy, and secrets (pass
 # `secrets: inherit` or map them explicitly). Runs the child's deploy command
-# (`pnpm run bos deploy`) from `working_directory`; the CLI degrades
-# gracefully when no image or Railway service is configured.
+# (`pnpm run bos deploy`) from `working_directory`. Legs are tier-aware: a
+# child runtime (no `ci.image`, no Dockerfile) inherits the root's universal
+# image, so the image and smoke legs soft-skip; the Railway leg redeploys
+# without a digest when `RAILWAY_TOKEN` + `ci.railway.service` are set, and
+# soft-skips otherwise. The deploy exits 0 whenever the config publishes and
+# no leg failed — `RAILWAY_TOKEN` is optional.
 
 on:
   workflow_call:

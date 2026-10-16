@@ -274,6 +274,11 @@ export const DeployManifestListEntrySchema = z.object({
   publishedAt: z.string().optional(),
 });
 
+export const DeployLegOutcomeSchema = z.object({
+  status: z.enum(["ok", "skipped", "failed"]),
+  detail: z.string().optional(),
+});
+
 export const DeployResultSchema = z.object({
   status: z.enum(["deployed", "published", "error", "dry-run", "list"]),
   registryUrl: z.string(),
@@ -285,6 +290,13 @@ export const DeployResultSchema = z.object({
   skipped: z.array(z.string()).optional(),
   image: z.string().optional(),
   service: z.string().optional(),
+  legs: z
+    .object({
+      image: DeployLegOutcomeSchema.optional(),
+      smoke: DeployLegOutcomeSchema.optional(),
+      railway: DeployLegOutcomeSchema.optional(),
+    })
+    .optional(),
   error: z.string().optional(),
   deployResults: z.array(WorkspaceDeployResultSchema).optional(),
 });
@@ -949,6 +961,7 @@ export type PublishOptions = z.infer<typeof PublishOptionsSchema>;
 export type PublishResult = z.infer<typeof PublishResultSchema>;
 export type DeployOptions = z.infer<typeof DeployOptionsSchema>;
 export type DeployResult = z.infer<typeof DeployResultSchema>;
+export type DeployLegOutcome = z.infer<typeof DeployLegOutcomeSchema>;
 export type KeyPublishOptions = z.infer<typeof KeyPublishOptionsSchema>;
 export type KeyPublishResult = z.infer<typeof KeyPublishResultSchema>;
 export type LoginOptions = z.infer<typeof LoginOptionsSchema>;

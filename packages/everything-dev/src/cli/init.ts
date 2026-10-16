@@ -743,6 +743,21 @@ export function getParentOnlyScriptKeys(projectDir: string): string[] {
   }
 }
 
+/**
+ * The child root manifest carries exactly the framework packages plus the
+ * optional peers whose absence trips bundler warnings: `@better-auth/core`
+ * optionally peers `@opentelemetry/api`, pnpm does not auto-install optional
+ * peers, and nothing else in the child resolves it — undeclared, every child
+ * build warns "Module not found: Can't resolve '@opentelemetry/api'".
+ */
+export function childFrameworkDependencies(): Record<string, string> {
+  return {
+    "everything-dev": "catalog:",
+    "every-plugin": "catalog:",
+    "@opentelemetry/api": "catalog:",
+  };
+}
+
 export function buildChildRootScripts(sections: {
   ui: boolean;
   api: boolean;
@@ -1170,10 +1185,7 @@ export async function personalizeConfig(
     // The copied root manifest is the parent's — a monorepo root whose
     // dependencies (workspace members, vendored links) do not exist in the
     // child. The child root carries exactly the framework packages.
-    pkg.dependencies = {
-      "everything-dev": "catalog:",
-      "every-plugin": "catalog:",
-    };
+    pkg.dependencies = childFrameworkDependencies();
     const deps = pkg.dependencies as Record<string, string>;
     const spec = opts.workspaceOpts?.sourceDir
       ? loadManifestNormalizationSpec(opts.workspaceOpts.sourceDir)
@@ -1519,10 +1531,7 @@ export async function scaffoldMinimalProject(
       host: has("host"),
       plugins: has("plugins"),
     }),
-    dependencies: {
-      "everything-dev": "catalog:",
-      "every-plugin": "catalog:",
-    },
+    dependencies: childFrameworkDependencies(),
     devDependencies: {},
   };
   writeFileSync(join(destination, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
