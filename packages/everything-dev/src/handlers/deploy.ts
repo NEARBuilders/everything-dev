@@ -299,6 +299,7 @@ async function deployBody(
     service?: string;
     imageDigest?: string;
     fullUpload: boolean;
+    forceBuild: boolean;
     smoke: boolean;
   },
 ): Promise<DeployResult> {
@@ -364,6 +365,7 @@ async function deployBody(
         privateKey: input.privateKey,
         registry: input.registry,
         fullUpload: input.fullUpload,
+        forceBuild: input.forceBuild,
       })
       .pipe(Effect.catchTag("PublishTrainError", mapTrainError)),
   );

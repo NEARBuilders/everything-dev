@@ -1,4 +1,5 @@
 import { access, readFile } from "node:fs/promises";
+import os from "node:os";
 import process from "node:process";
 import { Context, Effect, Layer, Option } from "effect";
 import { resolveLocalDevelopmentPath } from "../../config";
@@ -6,7 +7,7 @@ import type { WorkspaceDeployResult } from "../../contract";
 import { syncResolvedSharedDeps } from "../../shared-deps";
 import type { BosConfig, BosPluginRef, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
-import { ensureFreshDeps, findWorkspaceRoot } from "../../workspace";
+import { contentHashStalenessOracle, ensureFreshDeps, findWorkspaceRoot } from "../../workspace";
 
 const buildCommands: Record<string, { cmd: string; args: string[] }> = {
   host: { cmd: "pnpm", args: ["run", "build"] },
@@ -128,6 +129,12 @@ export interface BuildTargetsInput {
   targets: string[];
   deploy: boolean;
   verbose?: boolean;
+  /** Parallel-build cap (#430) — defaults to ~os.cpus(). Unbounded parallelism
+   * oversubscribes 2-4 core CI runners. */
+  concurrency?: number;
+  /** Escape hatch for the content-hash oracle (#430): force every prerequisite
+   * rebuild (the pre-#430 deploy behavior). */
+  forceBuild?: boolean;
 }
 
 export interface BuildTargetsDeps {
@@ -135,6 +142,9 @@ export interface BuildTargetsDeps {
   freshDeps?: typeof ensureFreshDeps;
   fileExists?: typeof fileExists;
   render?: WorkspaceBuildRender;
+  /** Fired as each workspace's build SUCCEEDS (#430) — the deploy train
+   * pipelines that workspace's upload while the rest of the train builds. */
+  onWorkspaceBuilt?: (key: string) => void;
 }
 
 export interface BuildTargetsResult {
@@ -181,6 +191,7 @@ async function buildOneWorkspace(
   };
 
   if (!verbose) deps.render?.outcome?.(result);
+  if (result.success) deps.onWorkspaceBuilt?.(ws.key);
 
   return result;
 }
@@ -241,10 +252,22 @@ export async function buildWorkspaceTargets(
   if (input.deploy) env.DEPLOY = "true";
   else delete env.DEPLOY;
 
+  const root = findWorkspaceRoot(input.configDir);
+  // Deploy prerequisite freshness (#430): the content-hash oracle replaces the
+  // blanket force-rebuild — unknown hash or missing dist errs toward building.
+  // The force flag (input or BOS_FORCE_BUILD=1) keeps the old behavior as an
+  // escape hatch: a forced build never judges.
+  const force = input.deploy && (input.forceBuild === true || process.env.BOS_FORCE_BUILD === "1");
   const depsReport = await (deps.freshDeps ?? ensureFreshDeps)(
     input.configDir,
     existing.map((entry) => entry.path),
-    { force: input.deploy, env },
+    {
+      force,
+      env,
+      ...(input.deploy && root && !force
+        ? { oracle: contentHashStalenessOracle(root.dir, root.members) }
+        : {}),
+    },
   );
   if (depsReport.rebuilt.length > 0) {
     render?.prerequisites?.(depsReport.rebuilt.map((member) => member.name));
@@ -270,8 +293,10 @@ export async function buildWorkspaceTargets(
     const total = parallelGroup.length + sequentialGroup.length;
     render?.banner?.(total);
 
-    const results = await Promise.allSettled(
-      parallelGroup.map((ws) => buildOneWorkspace(ws, env, input, deps)),
+    const results = await mapWithConcurrency(
+      parallelGroup,
+      (ws) => buildOneWorkspace(ws, env, input, deps),
+      buildConcurrencyCap(input.concurrency),
     );
 
     for (let i = 0; i < parallelGroup.length; i++) {
@@ -317,6 +342,36 @@ export async function buildWorkspaceTargets(
   }
 
   return { built, skipped, deployResults: input.deploy ? deployResults : undefined };
+}
+
+export function buildConcurrencyCap(requested?: number): number {
+  const cpus = os.cpus().length;
+  const cap = Math.max(1, Math.min(requested ?? cpus, cpus));
+  return cap;
+}
+
+/** Runs `fn` over `items` with at most `limit` in flight; results keep input
+ * order. Rejections propagate after all in-flight work settles. */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  fn: (item: T, index: number) => Promise<R>,
+  limit: number,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      try {
+        results[index] = { status: "fulfilled", value: await fn(items[index], index) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /** Presentation seam the composition root wires to `cli/render` (#424). */
