@@ -517,6 +517,7 @@ async function main() {
     if (descriptor.key === "dbStudio") {
       if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
+        process.exit(1);
       }
 
       return;
@@ -525,6 +526,7 @@ async function main() {
     if (descriptor.key === "dbDoctor") {
       if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Diagnosis failed"}`);
+        process.exit(1);
       }
 
       const statusIcon = (() => {
@@ -606,6 +608,7 @@ async function main() {
       console.log();
       if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
+        process.exit(1);
       }
       if (result.status === "dry-run") {
         console.log(colors.cyan(`${icons.ok} Dry run — no files written`));
@@ -774,6 +777,7 @@ async function main() {
       console.log();
       if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
+        process.exit(1);
       }
       if (result.status === "dry-run") {
         console.log(colors.cyan(`${icons.ok} Dry run — no changes applied`));
@@ -882,6 +886,7 @@ async function main() {
       console.log();
       if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
+        process.exit(1);
       }
       console.log(colors.cyan(frames.top(52)));
       console.log(`  ${icons.app} ${gradients.cyber("STATUS")}`);
@@ -1029,6 +1034,7 @@ async function main() {
       console.log();
       if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
+        process.exit(1);
       }
       console.log(colors.green(`${icons.ok} Types generated`));
       if (result.generated.length > 0) {
@@ -1079,6 +1085,7 @@ async function main() {
       console.log();
       if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
+        process.exit(1);
       }
       const failed = result.results.filter((r: TypecheckWorkspaceResult) => !r.passed);
       const passed = result.results.filter((r: TypecheckWorkspaceResult) => r.passed);
@@ -1273,6 +1280,7 @@ async function main() {
       console.log();
       if (exitCodeFor(result) === 1) {
         console.error(colors.error(`${icons.err} ${result.error || "Unknown error"}`));
+        process.exit(1);
       }
       console.log(
         colors.green(
