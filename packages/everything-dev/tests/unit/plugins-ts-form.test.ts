@@ -1,12 +1,13 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context } from "effect";
+import { Context, Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerPlugins } from "../../src/commands/plugins";
 import type { BosBuilder, BosDeps } from "../../src/commands/shared";
 import { BosDepsTag } from "../../src/commands/shared";
 import { ResolutionSession } from "../../src/resolution/session";
+import { DeployTrainService } from "../../src/services/deploy/train";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../src/types";
 
 vi.mock("../../src/code-artifacts", () => ({
@@ -58,6 +59,9 @@ function tsSession(): ResolutionSession {
 
 function getHandler(name: string): (args: unknown) => Promise<any> {
   const records = new Map<string, unknown>();
+  const fakeTrain = DeployTrainService.of({
+    publish: () => Effect.succeed({ status: "published" as const, registryUrl: "" }),
+  });
   const builder = new Proxy(
     {},
     {
@@ -65,6 +69,15 @@ function getHandler(name: string): (args: unknown) => Promise<any> {
         handler: (handler: unknown) => {
           records.set(prop as string, handler);
           return { route: prop, handler };
+        },
+        effect: (gen: (opts: unknown, input: unknown) => Generator) => {
+          const fn = (opts: { context: Context.Context<never> }, input: unknown) =>
+            Effect.gen(() => gen(opts, input)).pipe(
+              Effect.provide(opts.context),
+              Effect.provideService(DeployTrainService, fakeTrain),
+            );
+          records.set(prop as string, fn);
+          return { route: prop, handler: fn };
         },
       }),
     },
