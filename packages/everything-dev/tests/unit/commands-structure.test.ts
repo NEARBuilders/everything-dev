@@ -9,10 +9,11 @@ import { registerInit } from "../../src/commands/init";
 import { registerKeys } from "../../src/commands/keys";
 import { registerOps } from "../../src/commands/ops";
 import { registerPlugins } from "../../src/commands/plugins";
-import type { BosBuilder } from "../../src/commands/shared";
+import { type BosBuilder } from "../../src/commands/shared";
 import { registerSmoke } from "../../src/commands/smoke";
 import { registerUpgrade } from "../../src/commands/upgrade";
 import { bosContract } from "../../src/contract";
+import { registerProcesses } from "../../src/handlers/processes";
 import bosPlugin from "../../src/plugin";
 
 const registerFns = [
@@ -23,6 +24,7 @@ const registerFns = [
   registerDeploy,
   registerSmoke,
   registerKeys,
+  registerProcesses,
   registerInit,
   registerImport,
   registerUpgrade,
@@ -36,11 +38,13 @@ function makeStubBuilder(records: Map<string, number>): BosBuilder {
     {
       get: (_target, prop) => {
         if (typeof prop !== "string") return undefined;
+        const record = (handler: unknown) => {
+          records.set(prop, (records.get(prop) ?? 0) + 1);
+          return { route: prop, handler };
+        };
         return {
-          handler: (handler: unknown) => {
-            records.set(prop, (records.get(prop) ?? 0) + 1);
-            return { route: prop, handler };
-          },
+          handler: record,
+          effect: record,
         };
       },
     },

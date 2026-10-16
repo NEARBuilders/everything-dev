@@ -18,8 +18,10 @@ import { registerUpgrade } from "./commands/upgrade";
 import { bosContract } from "./contract";
 import { DatabaseBindings, DrizzleKit, makeDatabaseBindings, makeDrizzleKitLive } from "./db";
 import { ProjectEnv, ProjectEnvLive } from "./env/project-env";
+import { registerProcesses } from "./handlers/processes";
 import { openResolution } from "./resolution/session";
 import { createPlugin, z } from "./sdk";
+import { ProcessesService } from "./services/processes";
 
 export { resolveRemoteConfigChain } from "./commands/config";
 export type { DevSessionData, StartSummary } from "./dev-program";
@@ -60,11 +62,14 @@ export default createPlugin({
         ),
       );
 
-      return Layer.succeed(BosDepsTag, {
-        session,
-        databaseBindings: Context.get(services, DatabaseBindings),
-        drizzleKit: Context.get(services, DrizzleKit),
-      } satisfies BosDeps);
+      return Layer.mergeAll(
+        Layer.succeed(BosDepsTag, {
+          session,
+          databaseBindings: Context.get(services, DatabaseBindings),
+          drizzleKit: Context.get(services, DrizzleKit),
+        } satisfies BosDeps),
+        ProcessesService.Live,
+      );
     }),
   createRouter: (builder) => ({
     ...registerConfig(builder),
@@ -74,6 +79,7 @@ export default createPlugin({
     ...registerDeploy(builder),
     ...registerSmoke(builder),
     ...registerKeys(builder),
+    ...registerProcesses(builder),
     ...registerInit(builder),
     ...registerImport(builder),
     ...registerUpgrade(builder),

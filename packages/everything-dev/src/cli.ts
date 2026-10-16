@@ -8,6 +8,7 @@ import { printHelp } from "./cli/help";
 import { runDockerComposeUp } from "./cli/init";
 import { parseCommandInput } from "./cli/parse";
 import { promptInitBasic, promptInitOverrides } from "./cli/prompts";
+import { renderPs } from "./cli/render/processes";
 import { compareSemver } from "./cli/status";
 import { formatDuration, sumPhaseDurations } from "./cli/timing";
 import { fetchInitParent } from "./commands/init";
@@ -28,6 +29,7 @@ import type {
   StartResult,
   TypecheckWorkspaceResult,
 } from "./contract";
+import type { DeployLegs } from "./deploy-legs";
 import type { StartSummary } from "./dev-program";
 import { getRegistryNamespaceForAccount } from "./fastkv";
 import { listPublishKeys } from "./near-cli";
@@ -194,6 +196,32 @@ async function warnIfOutdated(client: any, command: string): Promise<void> {
   } catch {
     // silently ignore if status check fails
   }
+}
+
+const DEPLOY_LEG_NAMES = ["image", "smoke", "railway"] as const;
+
+function renderDeployLegs(legs: DeployLegs | undefined): void {
+  if (!legs) return;
+  const rows: Array<readonly [string, DeployLegs["image"]]> = DEPLOY_LEG_NAMES.map((name) => [
+    name,
+    legs[name],
+  ]);
+  console.log();
+  for (const [name, leg] of rows) {
+    if (!leg) continue;
+    const mark =
+      leg.status === "ok"
+        ? colors.green(icons.ok)
+        : leg.status === "skipped"
+          ? colors.dim("-")
+          : colors.error(icons.err);
+    console.log(`  ${mark} ${name}${leg.detail ? colors.dim(` ${leg.detail}`) : ""}`);
+  }
+}
+
+function failedDeployLegs(legs: DeployLegs | undefined): string[] {
+  if (!legs) return [];
+  return DEPLOY_LEG_NAMES.filter((name) => legs[name]?.status === "failed");
 }
 
 async function main() {
@@ -1037,57 +1065,7 @@ async function main() {
     }
 
     if (descriptor.key === "ps") {
-      const psResult = result as PsResult;
-      console.log();
-      if (psResult.status === "error") {
-        console.error(`[CLI] ${psResult.error || "Unknown error"}`);
-        process.exit(1);
-      }
-      const entries = psResult.entries ?? [];
-      if (entries.length === 0) {
-        console.log(colors.dim("  No tracked development processes running."));
-        console.log();
-        console.log(
-          colors.dim(`  Start one with ${colors.cyan("bos dev")} and it will appear here.`),
-        );
-        console.log();
-        return;
-      }
-      console.log(colors.cyan(frames.top(60)));
-      console.log(`  ${icons.app} ${gradients.cyber("PROCESSES")}`);
-      console.log(colors.cyan(frames.bottom(60)));
-      console.log();
-      for (const entry of entries) {
-        const ageMs = Date.now() - entry.startedAt;
-        const ageStr =
-          ageMs < 60_000
-            ? `${Math.floor(ageMs / 1000)}s`
-            : ageMs < 3_600_000
-              ? `${Math.floor(ageMs / 60_000)}m`
-              : `${Math.floor(ageMs / 3_600_000)}h`;
-        const roleTag =
-          entry.role === "workspace-parent"
-            ? colors.magenta("parent")
-            : entry.role === "workspace-child"
-              ? colors.blue("child")
-              : colors.dim("dev");
-        console.log(`  ${colors.green(`pid ${entry.pid}`)}  ${roleTag}  ${colors.dim(ageStr)}`);
-        console.log(`    ${colors.dim("dir:")}    ${entry.configDir}`);
-        if (entry.parentPid !== undefined) {
-          console.log(`    ${colors.dim("parent:")} ${entry.parentPid}`);
-        }
-        const portPairs = Object.entries(entry.ports ?? {})
-          .filter(([, p]) => typeof p === "number")
-          .map(([k, v]) => `${k}=${v}`);
-        if (portPairs.length > 0) {
-          console.log(`    ${colors.dim("ports:")}  ${portPairs.join("  ")}`);
-        }
-        if (entry.budget) {
-          console.log(`    ${colors.dim("budget:")} [${entry.budget.min}, ${entry.budget.max}]`);
-        }
-        console.log(`    ${colors.dim("desc:")}   ${entry.description}`);
-        console.log();
-      }
+      renderPs(result as PsResult);
       return;
     }
 
@@ -1612,13 +1590,21 @@ async function main() {
         if (deployResult.service) {
           console.log(`  ${colors.dim("Railway:")} deployed ${deployResult.service}`);
         }
+        renderDeployLegs(deployResult.legs);
         console.log();
         return;
       }
 
       if (deployResult.status === "published") {
+        const failedLegs = failedDeployLegs(deployResult.legs);
         console.log();
-        console.log(colors.yellow(`${icons.err} Config published, but a deploy leg failed`));
+        console.log(
+          colors.yellow(
+            failedLegs.length > 0
+              ? `${icons.err} Config published, but the ${failedLegs.join(" and ")} leg(s) failed`
+              : `${icons.err} Config published, but a deploy leg failed`,
+          ),
+        );
         console.log(`  ${colors.dim("Registry URL:")} ${deployResult.registryUrl}`);
         if (deployResult.txHash) {
           console.log(`  ${colors.dim("Transaction:")} ${deployResult.txHash}`);
@@ -1626,6 +1612,7 @@ async function main() {
         if (deployResult.error) {
           console.log(`  ${colors.dim("Error:")} ${deployResult.error}`);
         }
+        renderDeployLegs(deployResult.legs);
         console.log();
         process.exit(1);
       }
