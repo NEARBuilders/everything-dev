@@ -40,7 +40,7 @@ describe("parseSiteErrorDetail", () => {
     ).toBe("Denied");
   });
 
-  it("falls back to the status code when no shape matches", () => {
+  it("returns undefined when no shape matches", () => {
     expect(parseSiteErrorDetail(403, {})).toBeUndefined();
     expect(parseSiteErrorDetail(403, undefined)).toBeUndefined();
   });

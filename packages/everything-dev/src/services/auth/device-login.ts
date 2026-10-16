@@ -106,7 +106,7 @@ export async function startDeviceLogin(
   const clientId = DEFAULT_CLIENT_ID;
 
   const codeResponse = await client.authPost(siteUrl, "/device/code", { client_id: clientId });
-  if (codeResponse.status !== 200) {
+  if (codeResponse.status >= 400) {
     throw new Error(
       `Device login could not start (${codeResponse.status}) — is ${siteUrl} running the platform auth plugin?`,
     );

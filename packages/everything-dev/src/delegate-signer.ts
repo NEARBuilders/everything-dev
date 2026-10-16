@@ -3,6 +3,9 @@ import { type DelegateKeyRecord, readSessionHandle, updateSessionHandle } from "
 import type { NetworkId } from "./fastkv";
 import { generateNearKeyPair } from "./near-cli";
 import { openInBrowser, startDeviceLogin } from "./services/auth/device-login";
+import { authPost as realAuthPost, type SiteClientShape } from "./services/auth/site-client";
+
+const realSiteClient = { authPost: realAuthPost } as Pick<SiteClientShape, "authPost">;
 
 export interface RelayResult {
   success: true;
@@ -26,6 +29,7 @@ function relayErrorMessage(message: string): string {
 
 export async function submitRegistryWriteDelegated(
   opts: DelegateSubmitOptions,
+  siteClient: Pick<SiteClientShape, "authPost"> = realSiteClient,
 ): Promise<RelayResult> {
   const near = new Near({
     network: opts.network,
@@ -41,30 +45,29 @@ export async function submitRegistryWriteDelegated(
     })
     .delegate({ receiverId: opts.contract, blockHeightOffset: 200 });
 
-  const response = await fetch(opts.relayEndpoint, {
-    method: "POST",
-    headers: {
-      "x-api-key": opts.apiKey,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ payload: delegate.payload }),
-  });
+  const { status, json } = await siteClient.authPost(
+    opts.relayEndpoint.replace(/\/api\/auth\/near\/relay$/, ""),
+    "/near/relay",
+    { payload: delegate.payload },
+    undefined,
+    { "x-api-key": opts.apiKey },
+  );
 
-  if (!response.ok) {
-    let detail = `Relay rejected the transaction (HTTP ${response.status})`;
-    try {
-      const body = (await response.json()) as { message?: string; error?: string };
-      const relayMessage = body.message ?? body.error;
-      if (relayMessage) {
-        detail = `${detail}: ${relayErrorMessage(relayMessage)}`;
-      }
-    } catch {
-      // keep the generic message
+  if (status >= 400) {
+    let detail = `Relay rejected the transaction (HTTP ${status})`;
+    const relayMessage =
+      typeof (json as { message?: string }).message === "string"
+        ? (json as { message: string }).message
+        : typeof (json as { error?: string }).error === "string"
+          ? (json as { error: string }).error
+          : undefined;
+    if (relayMessage) {
+      detail = `${detail}: ${relayErrorMessage(relayMessage)}`;
     }
     throw new Error(detail);
   }
 
-  const body = (await response.json()) as { txHash?: string };
+  const body = json as { txHash?: string };
   return { success: true, txHash: body.txHash };
 }
 
