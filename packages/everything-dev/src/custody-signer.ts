@@ -1,7 +1,7 @@
 import { OutlayerClient, OutlayerError, PolicyDeniedError, WalletFrozenError } from "@outlayer/sdk";
 import type { CustodyWalletRecord } from "./auth-session";
 import type { RelayResult } from "./delegate-signer";
-import type { NetworkId } from "./fastkv";
+import type { NetworkId } from "./services/registry/fastkv";
 
 const PUBLISH_GAS = "30000000000000";
 const MIN_GAS_BALANCE = "50000000000000000000000";

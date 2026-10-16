@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { BosConfig } from "./types";
+import type { BosConfig } from "../../types";
 
 /**
  * The published pointer's version identity (atomic-deploys 08/12): a hash

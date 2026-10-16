@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getResolvedConfigPath } from "../../src/config";
-import type { ResolvedConfigMeta } from "../../src/merge";
+import type { ResolvedConfigMeta } from "../../src/services/resolution/merge";
 import { syncResolvedSharedDeps } from "../../src/shared-deps";
 import type { BosConfig } from "../../src/types";
 import { readWorkspaceCatalog } from "../../src/workspace-catalog";

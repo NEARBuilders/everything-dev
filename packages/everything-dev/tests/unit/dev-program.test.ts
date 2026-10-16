@@ -8,7 +8,7 @@ import {
   devBootstrap,
 } from "../../src/dev-program";
 import { ProjectEnv } from "../../src/env/project-env";
-import { ResolutionSession } from "../../src/resolution/session";
+import { ResolutionSession } from "../../src/services/resolution/session";
 import type { BosConfig, RuntimeConfig } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({
@@ -32,8 +32,8 @@ vi.mock("../../src/workspace", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/resolution/session", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/resolution/session")>();
+vi.mock("../../src/services/resolution/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/resolution/session")>();
   return {
     ...actual,
     openResolution: mocks.openResolution,

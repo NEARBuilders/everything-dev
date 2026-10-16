@@ -23,13 +23,13 @@ import {
 import { findConfigPath, isAppDescriptorPath, loadAppDescriptorConfig } from "../config";
 import type { OverrideSection } from "../contract";
 import { serializeAppDescriptorSource } from "../descriptor/serialize";
-import { fetchBosConfigFromFastKv } from "../fastkv";
 import { fetchResponse } from "../http-client";
 import {
   loadManifestNormalizationSpec,
   normalizePackageManifestsInTree,
 } from "../internal/manifest-normalizer";
-import { walkExtendsChain } from "../resolution/session";
+import { fetchBosConfigFromFastKv } from "../services/registry/fastkv";
+import { walkExtendsChain } from "../services/resolution/session";
 import type { BosConfig, BosConfigInput, ParentStarterConfig, StarterLevel } from "../types";
 import { saveBosConfig } from "../utils/save-config";
 import { computeSnapshotHash as computeHash } from "../utils/snapshot-hash";

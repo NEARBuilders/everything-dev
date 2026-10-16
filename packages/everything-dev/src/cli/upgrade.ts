@@ -6,7 +6,7 @@ import * as p from "@clack/prompts";
 import { glob } from "glob";
 import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../contract";
-import { openResolution } from "../resolution/session";
+import { openResolution } from "../services/resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { saveBosConfig } from "../utils/save-config";
 import { findWorkspaceRoot } from "../workspace";

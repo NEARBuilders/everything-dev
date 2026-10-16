@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerPlugins } from "../../src/commands/plugins";
 import type { BosBuilder, BosDeps } from "../../src/commands/shared";
 import { BosDepsTag } from "../../src/commands/shared";
-import { ResolutionSession } from "../../src/resolution/session";
 import { DeployTrainService } from "../../src/services/deploy/train";
+import { ResolutionSession } from "../../src/services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../src/types";
 
 vi.mock("../../src/code-artifacts", () => ({

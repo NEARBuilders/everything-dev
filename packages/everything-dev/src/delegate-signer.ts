@@ -1,9 +1,9 @@
 import { isPrivateKey, Near, type PrivateKey } from "near-kit";
 import { type DelegateKeyRecord, readSessionHandle, updateSessionHandle } from "./auth-session";
-import type { NetworkId } from "./fastkv";
 import { generateNearKeyPair } from "./near-cli";
 import { openInBrowser, startDeviceLogin } from "./services/auth/device-login";
 import { authPost as realAuthPost, type SiteClientShape } from "./services/auth/site-client";
+import type { NetworkId } from "./services/registry/fastkv";
 
 const realSiteClient = { authPost: realAuthPost } as Pick<SiteClientShape, "authPost">;
 

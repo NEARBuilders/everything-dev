@@ -13,8 +13,8 @@ const { fetchBosConfigFromFastKvMock, resolveSigningStrategyMock, submitRegistry
     submitRegistryWriteMock: vi.fn(),
   }));
 
-vi.mock("../../src/fastkv", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/fastkv")>();
+vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/registry/fastkv")>();
   return { ...actual, fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock };
 });
 
@@ -39,13 +39,13 @@ vi.mock("../../src/services/workspace/build-train", async (importOriginal) => {
     }),
   };
 });
-vi.mock("../../src/resolution/session", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/resolution/session")>();
+vi.mock("../../src/services/resolution/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/resolution/session")>();
   return { ...actual, openResolution: vi.fn() };
 });
 
-import { openResolution } from "../../src/resolution/session";
 import { publishToFastKv } from "../../src/services/deploy/train";
+import { openResolution } from "../../src/services/resolution/session";
 
 const sriOf = (content: Buffer | string) =>
   `sha384-${createHash("sha384").update(content).digest("base64")}`;

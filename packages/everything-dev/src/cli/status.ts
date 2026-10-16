@@ -2,8 +2,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import type { StatusResult } from "../contract";
-import { fetchBosConfigFromFastKv } from "../fastkv";
 import { fetchJsonOrNull } from "../http-client";
+import { fetchBosConfigFromFastKv } from "../services/registry/fastkv";
 import { readInstalledFrameworkVersion, resolveFrameworkPackage } from "./framework-version";
 import { readSnapshot } from "./snapshot";
 

@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { localConfigEntryPath } from "../config";
 import { serializeAppDescriptorSource } from "../descriptor/serialize";
-import { rebuildOrderedConfig } from "../merge";
+import { rebuildOrderedConfig } from "../services/resolution/merge";
 import type { BosConfig, BosConfigInput } from "../types";
 
 /**
