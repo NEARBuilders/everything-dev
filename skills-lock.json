@@ -103,6 +103,12 @@
       "skillPath": "skills/misc/migrate-to-shoehorn/SKILL.md",
       "computedHash": "6397731ced114f3657aa88b55ed13d1344a56d77ca449c568e3200c21740fa99"
     },
+    "near-intents-agent-api": {
+      "source": "NEAR-Intents-Agent-API/skills",
+      "sourceType": "github",
+      "skillPath": "near-intents-agent-api/SKILL.md",
+      "computedHash": "86d548e72ff84470b3875b17cc36887c0e24ce542ca1bf958689b105b84db750"
+    },
     "pr": {
       "source": "mattpocock/skills",
       "sourceType": "github",
