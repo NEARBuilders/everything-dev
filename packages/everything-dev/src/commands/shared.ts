@@ -3,7 +3,7 @@ import type { Implementer } from "@orpc/server";
 import { Context } from "effect";
 import type { bosContract } from "../contract";
 import type { DatabaseBindingsService, DrizzleKitService } from "../db";
-import type { ResolutionSession } from "../resolution/session";
+import type { ResolutionSession } from "../services/resolution/session";
 
 export type BosDeps = {
   readonly session: ResolutionSession | null;

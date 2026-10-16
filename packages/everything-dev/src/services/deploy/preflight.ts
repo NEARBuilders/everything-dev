@@ -4,12 +4,6 @@ import process from "node:process";
 import type { CustodyWalletRecord, SessionCredential } from "../../auth-session";
 import { readSessionHandle } from "../../auth-session";
 import { type CdnDeployInputs, probeStorageOrigin, resolveCdnDeployInputs } from "../../cdn-deploy";
-import {
-  buildRegistryConfigUrlForNetwork,
-  fetchPublishedConfigFromFastKv,
-  getRegistryNamespaceForNetwork,
-  type NetworkId,
-} from "../../fastkv";
 import { fetchResponse } from "../../http-client";
 import {
   describeSigningStrategy,
@@ -20,6 +14,12 @@ import { getNetworkIdForAccount } from "../../network";
 import { selectWorkspaceTargets } from "../../services/workspace/build-train";
 import type { BosConfig, PublishConfig } from "../../types";
 import { colors } from "../../utils/theme";
+import {
+  buildRegistryConfigUrlForNetwork,
+  fetchPublishedConfigFromFastKv,
+  getRegistryNamespaceForNetwork,
+  type NetworkId,
+} from "../registry/fastkv";
 
 /**
  * Pure publish preflight (resolve, don't mutate) — every failure returns

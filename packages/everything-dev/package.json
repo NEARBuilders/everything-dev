@@ -38,12 +38,12 @@
     },
     "./resolution": {
       "development": {
-        "types": "./src/resolution/session.ts",
-        "import": "./src/resolution/session.ts"
+        "types": "./src/services/resolution/session.ts",
+        "import": "./src/services/resolution/session.ts"
       },
-      "types": "./dist/resolution/session.d.mts",
-      "import": "./dist/resolution/session.mjs",
-      "require": "./dist/resolution/session.cjs"
+      "types": "./dist/services/resolution/session.d.mts",
+      "import": "./dist/services/resolution/session.mjs",
+      "require": "./dist/services/resolution/session.cjs"
     },
     "./config": {
       "development": {
@@ -56,12 +56,12 @@
     },
     "./dag": {
       "development": {
-        "types": "./src/dag.ts",
-        "import": "./src/dag.ts"
+        "types": "./src/services/registry/dag.ts",
+        "import": "./src/services/registry/dag.ts"
       },
-      "types": "./dist/dag.d.mts",
-      "import": "./dist/dag.mjs",
-      "require": "./dist/dag.cjs"
+      "types": "./dist/services/registry/dag.d.mts",
+      "import": "./dist/services/registry/dag.mjs",
+      "require": "./dist/services/registry/dag.cjs"
     },
     "./bundle-cache": {
       "development": {
@@ -74,12 +74,12 @@
     },
     "./fingerprint": {
       "development": {
-        "types": "./src/fingerprint.ts",
-        "import": "./src/fingerprint.ts"
+        "types": "./src/services/registry/fingerprint.ts",
+        "import": "./src/services/registry/fingerprint.ts"
       },
-      "types": "./dist/fingerprint.d.mts",
-      "import": "./dist/fingerprint.mjs",
-      "require": "./dist/fingerprint.cjs"
+      "types": "./dist/services/registry/fingerprint.d.mts",
+      "import": "./dist/services/registry/fingerprint.mjs",
+      "require": "./dist/services/registry/fingerprint.cjs"
     },
     "./version-manifest-resolve": {
       "development": {
@@ -92,21 +92,21 @@
     },
     "./resolver": {
       "development": {
-        "types": "./src/resolver.ts",
-        "import": "./src/resolver.ts"
+        "types": "./src/services/resolution/resolver.ts",
+        "import": "./src/services/resolution/resolver.ts"
       },
-      "types": "./dist/resolver.d.mts",
-      "import": "./dist/resolver.mjs",
-      "require": "./dist/resolver.cjs"
+      "types": "./dist/services/resolution/resolver.d.mts",
+      "import": "./dist/services/resolution/resolver.mjs",
+      "require": "./dist/services/resolution/resolver.cjs"
     },
     "./fastkv": {
       "development": {
-        "types": "./src/fastkv.ts",
-        "import": "./src/fastkv.ts"
+        "types": "./src/services/registry/fastkv.ts",
+        "import": "./src/services/registry/fastkv.ts"
       },
-      "types": "./dist/fastkv.d.mts",
-      "import": "./dist/fastkv.mjs",
-      "require": "./dist/fastkv.cjs"
+      "types": "./dist/services/registry/fastkv.d.mts",
+      "import": "./dist/services/registry/fastkv.mjs",
+      "require": "./dist/services/registry/fastkv.cjs"
     },
     "./contract.meta": {
       "development": {
@@ -119,12 +119,12 @@
     },
     "./federation": {
       "development": {
-        "types": "./src/federation.ts",
-        "import": "./src/federation.ts"
+        "types": "./src/services/federation.ts",
+        "import": "./src/services/federation.ts"
       },
-      "types": "./dist/federation.d.mts",
-      "import": "./dist/federation.mjs",
-      "require": "./dist/federation.cjs"
+      "types": "./dist/services/federation.d.mts",
+      "import": "./dist/services/federation.mjs",
+      "require": "./dist/services/federation.cjs"
     },
     "./integrity": {
       "development": {

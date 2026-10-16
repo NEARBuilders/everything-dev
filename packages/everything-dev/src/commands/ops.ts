@@ -6,12 +6,12 @@ import { buildCiInfraPlan, type CiInfraPlan } from "../cli/infra";
 import { getStatus } from "../cli/status";
 import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
 import { readDevLatestLog, resolveDevLatestFile } from "../dev-logs";
-import { fetchBosConfigFromFastKv } from "../fastkv";
-import { pointerFingerprint } from "../fingerprint";
 import { ownerOfPort } from "../infra/port-ownership";
 import { killProcessGroupEscalating, reapGroup } from "../process-kill";
 import { isPidAlive, readRegistry, unregisterPid } from "../process-registry";
-import { openResolution } from "../resolution/session";
+import { fetchBosConfigFromFastKv } from "../services/registry/fastkv";
+import { pointerFingerprint } from "../services/registry/fingerprint";
+import { openResolution } from "../services/resolution/session";
 import { computeDeployedVersionStatus, type DeployedVersionStatus } from "../version-status";
 import { type BosBuilder, type BosDeps, BosDepsTag } from "./shared";
 

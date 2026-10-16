@@ -10,15 +10,15 @@ import {
   type LoginResult,
   type LogoutResult,
 } from "../contract";
-import { getRegistryNamespaceForAccount } from "../fastkv";
 import { deleteAccessKeys } from "../near-cli";
 import { getNetworkIdForAccount } from "../network";
 import { loginOutlayerCli } from "../outlayer-login";
-import type { ResolutionSession } from "../resolution/session";
 import { DeviceLoginService, openInBrowser } from "../services/auth/device-login";
 import { mintPublishKey, PUBLISH_FUNCTION_NAMES } from "../services/auth/publish-key";
 import { SessionStore } from "../services/auth/session-store";
 import { SiteClient, type SiteClientShape } from "../services/auth/site-client";
+import { getRegistryNamespaceForAccount } from "../services/registry/fastkv";
+import type { ResolutionSession } from "../services/resolution/session";
 import { colors } from "../utils/theme";
 import { type BosBuilder, BosDepsTag } from "./shared";
 

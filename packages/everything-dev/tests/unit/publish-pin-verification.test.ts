@@ -25,8 +25,8 @@ vi.mock("../../src/rollback", async (importOriginal) => {
   return { ...actual, verifyRollbackSnapshot: verifyRollbackSnapshotMock };
 });
 
-vi.mock("../../src/fastkv", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/fastkv")>();
+vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/registry/fastkv")>();
   return {
     ...actual,
     fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock,
@@ -43,7 +43,7 @@ vi.mock("../../src/near-signer", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/resolution/session", () => ({
+vi.mock("../../src/services/resolution/session", () => ({
   openResolution: openResolutionMock,
 }));
 

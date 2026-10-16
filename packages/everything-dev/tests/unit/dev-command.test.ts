@@ -4,7 +4,7 @@ import { registerDev } from "../../src/commands/dev";
 import type { BosBuilder, BosDeps } from "../../src/commands/shared";
 import { BosDepsTag } from "../../src/commands/shared";
 import type { DevSessionData, StartSummary } from "../../src/dev-program";
-import { ResolutionSession } from "../../src/resolution/session";
+import { ResolutionSession } from "../../src/services/resolution/session";
 import type { BosConfig, RuntimeConfig } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({

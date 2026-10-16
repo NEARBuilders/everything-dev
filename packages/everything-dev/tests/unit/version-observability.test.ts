@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchDeployManifests } from "../../src/fastkv";
 import { clearHttpCache } from "../../src/http-client";
+import { fetchDeployManifests } from "../../src/services/registry/fastkv";
 import { computeDeployedVersionStatus } from "../../src/version-status";
 
 beforeEach(() => {

@@ -3,7 +3,6 @@ import { Readable } from "node:stream";
 import { Data, Deferred, Effect, Option, Ref, Schedule, Schema, Stream } from "effect";
 import { stripAnsi } from "./dev-log-pipeline";
 import { ShellEnv } from "./env/project-env";
-import { loadRemoteModule, registerRemote } from "./federation";
 import { fetchRaw } from "./http-client";
 import {
   DevGeneratedEnv,
@@ -11,6 +10,7 @@ import {
   type ServiceDescriptor,
   ServiceDescriptorMap,
 } from "./service-descriptor";
+import { loadRemoteModule, registerRemote } from "./services/federation";
 import type { RuntimeConfig } from "./types";
 
 process.on("unhandledRejection", (reason) => {

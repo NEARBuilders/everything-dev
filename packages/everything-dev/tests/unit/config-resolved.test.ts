@@ -12,7 +12,7 @@ import {
   resolveBosConfigPath,
   writeResolvedConfig,
 } from "../../src/config";
-import { openResolution } from "../../src/resolution/session";
+import { openResolution } from "../../src/services/resolution/session";
 import { BosConfigInputSchema } from "../../src/types";
 
 vi.mock("../../src/version-manifest-resolve", () => ({
@@ -23,8 +23,8 @@ vi.mock("../../src/version-manifest-resolve", () => ({
   clearSlotVersionCache: vi.fn(),
 }));
 
-vi.mock("../../src/fastkv", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/fastkv")>();
+vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/registry/fastkv")>();
   return {
     ...actual,
     fetchBosConfigFromFastKv: async () => {

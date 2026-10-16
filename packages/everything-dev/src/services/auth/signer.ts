@@ -2,9 +2,9 @@ import { Context, Layer } from "effect";
 import type { CustodyWalletRecord, SessionCredential } from "../../auth-session";
 import { ensureCustodyBalance, submitRegistryWriteCustody } from "../../custody-signer";
 import { ensureDelegateKey, submitRegistryWriteDelegated } from "../../delegate-signer";
-import type { NetworkId } from "../../fastkv";
 import { type SigningStrategy, submitRegistryWrite } from "../../near-signer";
 import { colors } from "../../utils/theme";
+import type { NetworkId } from "../registry/fastkv";
 /**
  * The signing strategies as one Context.Service (ticket #423): the publish
  * train's custody / wallet-delegate / plain-key dispatch lives here instead

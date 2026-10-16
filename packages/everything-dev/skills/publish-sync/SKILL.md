@@ -2,7 +2,7 @@
 name: publish-sync
 description: Publish the authored config (bos.app.ts) to the FastKV registry, sync from upstream, and upgrade workspace packages. Use when deploying, syncing, or managing runtime configuration across projects.
 metadata:
-  sources: "packages/everything-dev/src/plugin.ts,packages/everything-dev/src/cli/sync.ts,packages/everything-dev/src/cli/upgrade.ts,packages/everything-dev/src/fastkv.ts,packages/everything-dev/src/integrity.ts,packages/everything-dev/src/config.ts"
+  sources: "packages/everything-dev/src/plugin.ts,packages/everything-dev/src/cli/sync.ts,packages/everything-dev/src/cli/upgrade.ts,packages/everything-dev/src/services/registry/fastkv.ts,packages/everything-dev/src/integrity.ts,packages/everything-dev/src/config.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.

@@ -21,7 +21,7 @@ import {
   checkFederationTrain,
   resolveAuthWorkspace,
 } from "../../packages/everything-dev/src/federation-train";
-import { openResolution } from "../../packages/everything-dev/src/resolution/session";
+import { openResolution } from "../../packages/everything-dev/src/services/resolution/session";
 import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/version-manifest-deploy";
 
 /**

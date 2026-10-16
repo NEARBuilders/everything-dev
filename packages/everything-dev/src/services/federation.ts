@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { isEffectCriticalSharedDep } from "every-plugin/build/rspack";
-import { readBundleCache, writeBundleCache } from "./bundle-cache";
-import { fetchRaw } from "./http-client";
-import { computeSriHash, type IntegrityRegistry } from "./integrity";
-import type { BosConfig, BosPluginRef } from "./types";
+import { readBundleCache, writeBundleCache } from "../bundle-cache";
+import { fetchRaw } from "../http-client";
+import { computeSriHash, type IntegrityRegistry } from "../integrity";
+import type { BosConfig, BosPluginRef } from "../types";
 
 type FederationInstance = ReturnType<typeof createInstance>;
 

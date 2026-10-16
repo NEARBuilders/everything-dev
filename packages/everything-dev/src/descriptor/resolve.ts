@@ -1,4 +1,4 @@
-import { mergeBosConfigWithExtends } from "../merge";
+import { mergeBosConfigWithExtends } from "../services/resolution/merge";
 import type { BosConfigInput } from "../types";
 import type { AppDescriptor, AppRegistry, AttachmentRef, PipelineFields } from "./schema";
 import { AppDescriptorSchema } from "./schema";

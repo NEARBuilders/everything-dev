@@ -5,8 +5,8 @@ import {
   type WorkspaceVersionManifest,
   WorkspaceVersionManifestSchema,
 } from "every-plugin/version-manifest";
-import { bundleUrlToStagedPath, resolveContained } from "./resolver";
 import { fetchVerifiedManifest, manifestDocumentUrl } from "./services/deploy/manifest-verify";
+import { bundleUrlToStagedPath, resolveContained } from "./services/resolution/resolver";
 
 /**
  * Version-manifest slot resolution (atomic-deploys 04): a config slot's

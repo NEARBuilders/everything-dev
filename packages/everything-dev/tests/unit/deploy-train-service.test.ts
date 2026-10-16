@@ -13,13 +13,13 @@ const openResolutionMock = vi.hoisted(() => vi.fn());
 const fetchPublishedConfigMock = vi.hoisted(() => vi.fn());
 const resolveSigningStrategyMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../../src/resolution/session", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/resolution/session")>();
+vi.mock("../../src/services/resolution/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/resolution/session")>();
   return { ...actual, openResolution: openResolutionMock };
 });
 
-vi.mock("../../src/fastkv", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/fastkv")>();
+vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/registry/fastkv")>();
   return {
     ...actual,
     fetchPublishedConfigFromFastKv: fetchPublishedConfigMock,

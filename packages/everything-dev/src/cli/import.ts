@@ -21,12 +21,12 @@ import type {
   ImportResult,
   ImportRouteDelta,
 } from "../contract";
-import { parseBosUrl } from "../fastkv";
 import { fetchResponse } from "../http-client";
 import { computeSriHash } from "../integrity";
-import { resolveExtendsRef } from "../merge";
-import type { ResolutionIo } from "../resolution/session";
-import { type WalkLink, walkExtendsChain } from "../resolution/session";
+import { parseBosUrl } from "../services/registry/fastkv";
+import { resolveExtendsRef } from "../services/resolution/merge";
+import type { ResolutionIo } from "../services/resolution/session";
+import { type WalkLink, walkExtendsChain } from "../services/resolution/session";
 import type { ExtendsConfig } from "../types";
 import { computeSnapshotHash } from "../utils/snapshot-hash";
 import { listWorkspaceSubtreeFiles } from "../utils/workspace-subtree";
