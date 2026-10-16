@@ -26,7 +26,6 @@ import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
-import { formatDuration } from "../../utils/timing";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import {
   type BuildTargetsDeps,

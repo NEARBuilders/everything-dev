@@ -40,6 +40,8 @@ const buildRenderLayer = Layer.succeed(
   WorkspaceBuildRenderService.of(cliWorkspaceBuildRender),
 );
 
+const buildTrainLayer = BuildTrainService.Live.pipe(Layer.provide(buildRenderLayer));
+
 export default createPlugin({
   variables: z.object({
     configPath: z.string().optional(),
@@ -86,14 +88,14 @@ export default createPlugin({
         SessionStore.Live,
         DeviceLoginService.Live.pipe(Layer.provide(SiteClient.Live)),
         buildRenderLayer,
-        BuildTrainService.Live.pipe(Layer.provide(buildRenderLayer)),
+        buildTrainLayer,
         DeployTrainService.Live.pipe(
           Layer.provide(
             Layer.mergeAll(
               BundleStorage.Live,
               RegistryStore.Live,
               SignerService.Live,
-              BuildTrainService.Live.pipe(Layer.provide(buildRenderLayer)),
+              buildTrainLayer,
             ),
           ),
         ),

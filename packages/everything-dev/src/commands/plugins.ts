@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
-import { Context } from "effect";
+import { Context, Effect } from "effect";
 import { generateCodeArtifacts } from "../code-artifacts";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { PluginListResult } from "../contract";
 import { fetchRemotePluginManifest } from "../fastkv";
 import { openResolution } from "../resolution/session";
-import { publishToFastKv } from "../services/deploy/train";
+import { DeployTrainService } from "../services/deploy/train";
 import { getPluginRef } from "../services/workspace/build-train";
 import type { BosConfig } from "../types";
 import { saveBosConfig } from "../utils/save-config";
@@ -163,8 +163,9 @@ export function registerPlugins(builder: BosBuilder) {
       };
     }),
 
-    pluginPublish: builder.pluginPublish.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
+    pluginPublish: builder.pluginPublish.effect(function* (_opts, input) {
+      const deps = yield* BosDepsTag;
+      const train = yield* DeployTrainService;
       const session = deps.session;
       if (!session?.config) {
         return {
@@ -192,16 +193,18 @@ export function registerPlugins(builder: BosBuilder) {
         };
       }
 
-      const result = await publishToFastKv({
-        bosConfig: session.config,
-        runtimeConfig: session.runtime,
-        configDir: session.root,
-        env: "production",
-        build: true,
-        dryRun: false,
-        verbose: false,
-        packages: input.key,
-      });
+      const result = yield* train
+        .publish({
+          bosConfig: session.config,
+          runtimeConfig: session.runtime,
+          configDir: session.root,
+          env: "production",
+          build: true,
+          dryRun: false,
+          verbose: false,
+          packages: input.key,
+        })
+        .pipe(Effect.catchTag("PublishTrainError", (error) => Effect.succeed(error.toResult())));
       if (result.status === "error") {
         return {
           status: "error" as const,
@@ -210,7 +213,11 @@ export function registerPlugins(builder: BosBuilder) {
         };
       }
 
-      const nextSession = (await openResolution({ cwd: session.root })) ?? session;
+      const nextSession =
+        (yield* Effect.tryPromise({
+          try: () => openResolution({ cwd: session.root }),
+          catch: () => null,
+        })) ?? session;
       const production = (
         nextSession.config?.plugins?.[input.key] as
           | {
@@ -219,9 +226,18 @@ export function registerPlugins(builder: BosBuilder) {
           | undefined
       )?.production;
 
-      const manifest = production ? await fetchRemotePluginManifest(production) : null;
-      if (production && nextSession.config) {
-        await generateCodeArtifacts(session.root, nextSession.config);
+      const manifest = production
+        ? yield* Effect.tryPromise({
+            try: () => fetchRemotePluginManifest(production),
+            catch: () => null,
+          })
+        : null;
+      const nextConfig = nextSession.config;
+      if (production && nextConfig) {
+        yield* Effect.tryPromise({
+          try: () => generateCodeArtifacts(session.root, nextConfig),
+          catch: () => undefined,
+        });
       }
 
       return {

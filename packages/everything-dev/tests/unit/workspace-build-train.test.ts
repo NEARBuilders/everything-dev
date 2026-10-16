@@ -1,3 +1,4 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,8 +12,17 @@ import type { BosConfig } from "../../src/types";
 
 const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
+const tmpRoots: string[] = [];
+
+afterEach(() => {
+  for (const dir of tmpRoots.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 afterEach(() => {
   consoleSpy.mockClear();
+  return () => consoleSpy.mockRestore();
 });
 
 const configDir = tmpdir();
@@ -61,7 +71,7 @@ async function runDeploy(input: { targets?: string[]; deps?: BuildTargetsDeps })
 describe("buildWorkspaceTargets", () => {
   it("runs the deploy build train with non-host targets in parallel and host after", async () => {
     const events: RunEvent[] = [];
-    const run = async (cmd: string, args: string[], opts: { cwd?: string }) => {
+    const run = async (_cmd: string, _args: string[], opts: { cwd?: string }) => {
       const target = opts.cwd?.split("/").pop() ?? "?";
       events.push({ target, event: "start" });
       await Promise.resolve();
@@ -206,31 +216,80 @@ describe("buildWorkspaceTargets", () => {
   });
 });
 
-describe("BuildTrainService", () => {
-  it("exposes the build train through the tag and renders via an injected render dep", async () => {
-    const rendered: string[] = [];
-    const { BuildTrainService } = await import("../../src/services/workspace/build-train");
-    const train = BuildTrainService.of({
-      buildTargets: (input, deps) =>
-        buildWorkspaceTargets(input, {
-          ...deps,
-          render: { outcome: (outcome) => rendered.push(`${outcome.key}:${outcome.success}`) },
-        }),
-    });
+function makeRealTargetRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), "build-train-live-"));
+  for (const key of ["ui", "host"]) {
+    mkdirSync(join(root, key), { recursive: true });
+    writeFileSync(join(root, key, "package.json"), "{}\n");
+  }
+  tmpRoots.push(root);
+  return root;
+}
 
-    const result = await train.buildTargets(
-      {
-        configDir,
-        bosConfig,
-        runtimeConfig: null,
-        targets: ["ui"],
-        deploy: true,
-        verbose: false,
-      },
-      makeDeps(),
+describe("BuildTrainService", () => {
+  it("Live resolves the composition-provided render through the context", async () => {
+    const rendered: string[] = [];
+    const { BuildTrainService, WorkspaceBuildRenderService } = await import(
+      "../../src/services/workspace/build-train"
+    );
+    const { Effect, Layer } = await import("effect");
+
+    const result = await Effect.gen(function* () {
+      const train = yield* BuildTrainService;
+      return yield* Effect.promise(() =>
+        train.buildTargets(
+          {
+            configDir: makeRealTargetRoot(),
+            bosConfig,
+            runtimeConfig: null,
+            targets: ["ui"],
+            deploy: true,
+            verbose: false,
+          },
+          makeDeps(),
+        ),
+      );
+    }).pipe(
+      Effect.provide(BuildTrainService.Live),
+      Effect.provide(
+        Layer.succeed(
+          WorkspaceBuildRenderService,
+          WorkspaceBuildRenderService.of({
+            outcome: (outcome) => rendered.push(`${outcome.key}:${outcome.success}`),
+          }),
+        ),
+      ),
+      Effect.runPromise,
     );
 
     expect(result.built).toEqual(["ui"]);
     expect(rendered).toEqual(["ui:true"]);
+  });
+
+  it("Live falls back to a quiet render when the composition provides none", async () => {
+    const { BuildTrainService } = await import("../../src/services/workspace/build-train");
+    const { Effect } = await import("effect");
+
+    const result = await Effect.gen(function* () {
+      const train = yield* BuildTrainService;
+      return yield* Effect.promise(() =>
+        train.buildTargets(
+          {
+            configDir: makeRealTargetRoot(),
+            bosConfig,
+            runtimeConfig: null,
+            targets: ["ui"],
+            deploy: true,
+            verbose: false,
+          },
+          makeDeps(),
+        ),
+      );
+    })
+      .pipe(Effect.provide(BuildTrainService.Live), Effect.runPromise)
+      .then((result) => ({ ...result, renderedOk: consoleSpy.mock.calls.length === 0 }));
+
+    expect(result.built).toEqual(["ui"]);
+    expect(result.renderedOk).toBe(true);
   });
 });
