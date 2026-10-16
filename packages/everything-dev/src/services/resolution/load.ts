@@ -2,10 +2,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Effect, Schema } from "effect";
+import { Schema } from "effect";
 import { resolveApp, toConfigInput } from "../../descriptor/resolve";
 import { type AppDescriptor, AppDescriptorSchema } from "../../descriptor/schema";
-import type { BosConfig, BosConfigInput, BosPluginRef, PluginEntryValue } from "../../types";
+import type { BosConfig, BosConfigInput, BosPluginRef } from "../../types";
 import { fetchBosConfigFromFastKv } from "../registry/fastkv";
 import { type BosEnv, bosConfigMerger, isPlainObject, resolveExtendsRef } from "./merge";
 
