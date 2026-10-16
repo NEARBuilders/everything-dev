@@ -4,8 +4,11 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { resolveCatalogChainSource } from "../../src/cli/init";
 import { resetConfigPathCache } from "../../src/config";
-import { mergeBosConfigWithExtends, rebuildOrderedConfig } from "../../src/merge";
-import { openResolution } from "../../src/resolution/session";
+import {
+  mergeBosConfigWithExtends,
+  rebuildOrderedConfig,
+} from "../../src/services/resolution/merge";
+import { openResolution } from "../../src/services/resolution/session";
 
 const BASE_CONFIG = {
   account: "parent.near",

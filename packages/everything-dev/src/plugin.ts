@@ -20,7 +20,6 @@ import { bosContract } from "./contract";
 import { DatabaseBindings, DrizzleKit, makeDatabaseBindings, makeDrizzleKitLive } from "./db";
 import { ProjectEnv, ProjectEnvLive } from "./env/project-env";
 import { registerProcesses } from "./handlers/processes";
-import { openResolution } from "./resolution/session";
 import { createPlugin, z } from "./sdk";
 import { DeviceLoginService } from "./services/auth/device-login";
 import { SessionStore } from "./services/auth/session-store";
@@ -29,6 +28,7 @@ import { SiteClient } from "./services/auth/site-client";
 import { BundleStorage, RegistryStore } from "./services/deploy/deps";
 import { DeployTrainService } from "./services/deploy/train";
 import { ProcessesService } from "./services/processes";
+import { openResolution } from "./services/resolution/session";
 import { BuildTrainService, WorkspaceBuildRenderService } from "./services/workspace/build-train";
 
 export { resolveRemoteConfigChain } from "./commands/config";

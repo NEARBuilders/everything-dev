@@ -1,8 +1,7 @@
 import { isPrivateKey, Near, type PrivateKey } from "near-kit";
 import { FileKeyStore } from "near-kit/keys/file";
-
-import type { NetworkId } from "./fastkv";
 import { executeKeychainTransaction, isNearCliInstalled, NearTransactionError } from "./near-cli";
+import type { NetworkId } from "./services/registry/fastkv";
 
 export type SigningKeySource = "provided" | "credentials-file";
 

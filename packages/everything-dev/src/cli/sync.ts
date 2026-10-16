@@ -9,8 +9,8 @@ import {
   isPlainObject as isPlainObjectFromMerge,
   mergeBosConfigWithTemplate,
   resolveExtendsRef,
-} from "../merge";
-import { openResolution } from "../resolution/session";
+} from "../services/resolution/merge";
+import { openResolution } from "../services/resolution/session";
 import { syncResolvedSharedDeps } from "../shared-deps";
 import { computeSnapshotHash as computeHash } from "../utils/snapshot-hash";
 import { findWorkspaceRoot } from "../workspace";

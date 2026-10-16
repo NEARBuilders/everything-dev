@@ -8,7 +8,7 @@ import {
   mergeManifestNodes,
   normalizeToNodes,
   topologicalSort,
-} from "../../src/dag";
+} from "../../src/services/registry/dag";
 import type { RuntimeConfig, RuntimeDependencyNode } from "../../src/types";
 
 const { fetchApiPluginManifestMock } = vi.hoisted(() => ({

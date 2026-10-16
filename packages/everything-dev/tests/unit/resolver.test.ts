@@ -8,7 +8,7 @@ import {
   bundleUrlToLocalPath,
   installBundleFetchFromEnv,
   installGlobalBundleFetch,
-} from "../../src/resolver";
+} from "../../src/services/resolution/resolver";
 
 const NAMESPACE: BundleNamespace = {
   bundleDir: join(tmpdir(), "resolver-test"),

@@ -7,9 +7,7 @@ import type {
   RollbackResult,
   WorkspaceDeployResult,
 } from "../contract";
-import { fetchDeployManifests } from "../fastkv";
 import { isValidImageDigest } from "../image-deploy";
-import { openResolution } from "../resolution/session";
 import { summarizeSlotPins, verifyRollbackSnapshot } from "../rollback";
 import type { PublishTrainError, PublishTrainOk } from "../services/deploy/errors";
 import { runPostPublishLegs } from "../services/deploy/legs";
@@ -20,6 +18,8 @@ import {
   publishRollbackSnapshot,
 } from "../services/deploy/rollback-flow";
 import { type DeployTrainInput, DeployTrainService } from "../services/deploy/train";
+import { fetchDeployManifests } from "../services/registry/fastkv";
+import { openResolution } from "../services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../types";
 import { type BosBuilder, BosDepsTag } from "./shared";
 

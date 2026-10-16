@@ -1,13 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { readWorkspaceCatalog, resolveSourceDir } from "../cli/init";
-import { parseBosRef } from "../cli/utils/helpers";
+import { readWorkspaceCatalog, resolveSourceDir } from "../../cli/init";
+import { parseBosRef } from "../../cli/utils/helpers";
+import { applyDevOverlay } from "../../descriptor/resolve";
+import type {
+  BosConfig,
+  BosConfigInput,
+  ExtendsConfig,
+  RuntimeConfig,
+  RuntimePluginConfig,
+} from "../../types";
+import { BosConfigSchema } from "../../types";
+import { fetchBosConfigFromFastKv } from "../registry/fastkv";
 import {
-  BosConfigSchema,
-  type BosEnv,
-  buildRuntimeConfig,
-  buildRuntimePluginsForConfig,
   CircularExtendsError,
   ConfigExtendsError,
   ConfigLoadError,
@@ -23,17 +29,10 @@ import {
   parseExtendsTarget,
   resolveConfigComposableEntries,
   runWithConfigWarningSink,
-} from "../config";
-import { applyDevOverlay } from "../descriptor/resolve";
-import { fetchBosConfigFromFastKv } from "../fastkv";
-import { mergeBosConfigWithExtends, resolveExtendsRef } from "../merge";
-import type {
-  BosConfig,
-  BosConfigInput,
-  ExtendsConfig,
-  RuntimeConfig,
-  RuntimePluginConfig,
-} from "../types";
+} from "./load";
+import type { BosEnv } from "./merge";
+import { mergeBosConfigWithExtends, resolveExtendsRef } from "./merge";
+import { buildRuntimeConfig, buildRuntimePluginsForConfig } from "./runtime";
 
 export interface ResolutionRequest {
   cwd?: string;

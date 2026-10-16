@@ -7,7 +7,7 @@ import {
   ResolutionSession,
   type WalkLink,
   walkExtendsChain,
-} from "../../src/resolution/session";
+} from "../../src/services/resolution/session";
 import type { BosConfigInput } from "../../src/types";
 
 const catalogMocks = vi.hoisted(() => ({

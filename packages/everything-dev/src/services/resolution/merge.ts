@@ -1,5 +1,5 @@
 import { createDefu } from "defu";
-import type { BosConfigInput, ExtendsConfig } from "./types";
+import type { BosConfigInput, ExtendsConfig } from "../../types";
 
 export const BOS_CONFIG_ORDER = [
   "extends",

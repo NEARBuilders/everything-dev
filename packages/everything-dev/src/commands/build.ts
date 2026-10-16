@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { generateCodeArtifacts } from "../code-artifacts";
 import { MISSING_CONFIG_MESSAGE } from "../config";
-import type { BosEnv } from "../merge";
+import type { BosEnv } from "../services/resolution/merge";
 import {
   type BuildTargetsInput,
   BuildTrainService,
