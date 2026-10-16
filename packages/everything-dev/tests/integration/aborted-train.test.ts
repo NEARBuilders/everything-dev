@@ -44,8 +44,8 @@ vi.mock("../../src/resolution/session", async (importOriginal) => {
   return { ...actual, openResolution: vi.fn() };
 });
 
-import { publishToFastKv } from "../../src/publish";
 import { openResolution } from "../../src/resolution/session";
+import { publishToFastKv } from "../../src/services/deploy/train";
 
 const sriOf = (content: Buffer | string) =>
   `sha384-${createHash("sha384").update(content).digest("base64")}`;

@@ -9,7 +9,7 @@ import { registerInit } from "../../src/commands/init";
 import { registerKeys } from "../../src/commands/keys";
 import { registerOps } from "../../src/commands/ops";
 import { registerPlugins } from "../../src/commands/plugins";
-import { type BosBuilder } from "../../src/commands/shared";
+import type { BosBuilder } from "../../src/commands/shared";
 import { registerSmoke } from "../../src/commands/smoke";
 import { registerUpgrade } from "../../src/commands/upgrade";
 import { bosContract } from "../../src/contract";
