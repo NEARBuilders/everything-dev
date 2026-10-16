@@ -1,8 +1,8 @@
 import { isPrivateKey, Near, type PrivateKey } from "near-kit";
-import { openInBrowser, startDeviceLogin } from "./auth-login";
 import { type DelegateKeyRecord, readSessionHandle, updateSessionHandle } from "./auth-session";
 import type { NetworkId } from "./fastkv";
 import { generateNearKeyPair } from "./near-cli";
+import { openInBrowser, startDeviceLogin } from "./services/auth/device-login";
 
 export interface RelayResult {
   success: true;

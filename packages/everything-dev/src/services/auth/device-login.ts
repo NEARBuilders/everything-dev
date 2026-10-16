@@ -1,6 +1,21 @@
 import { platform } from "node:os";
+import { Context, Effect, Layer } from "effect";
 import { execa } from "execa";
-import type { CustodyWalletRecord } from "./auth-session";
+import type { CustodyWalletRecord } from "../../auth-session";
+import {
+  parseSiteErrorDetail,
+  authPost as realAuthPost,
+  getJson as realGetJson,
+  rpcPost as realRpcPost,
+  SiteClient,
+  type SiteClientShape,
+} from "./site-client";
+
+const realSiteClient = {
+  authPost: realAuthPost,
+  rpcPost: realRpcPost,
+  getJson: realGetJson,
+} as Pick<SiteClientShape, "authPost" | "rpcPost" | "getJson">;
 
 const DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 const DEFAULT_CLIENT_ID = "bos-cli";
@@ -76,50 +91,27 @@ interface NearAccountsResponse {
   activeAccount: { accountId: string } | null;
 }
 
-async function authFetch(
-  siteUrl: string,
-  path: string,
-  body: unknown,
-  cookiePair?: string,
-): Promise<{ status: number; json: unknown; setCookie: string | null }> {
-  // Better Auth's origin check demands an Origin on cookie-bearing
-  // requests — present the site's own origin, exactly as a browser would.
-  const origin = new URL(siteUrl).origin;
-  const headers: Record<string, string> = { "content-type": "application/json", origin };
-  if (cookiePair) headers.cookie = cookiePair;
-  const response = await fetch(`${siteUrl.replace(/\/$/, "")}/api/auth${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-  return {
-    status: response.status,
-    json: await response.json().catch(() => ({})),
-    setCookie: response.headers.get("set-cookie"),
-  };
-}
-
 /**
  * CLI login via the OAuth 2.0 Device Flow (RFC 8628) — the same flow the
  * site's QR pairing uses. The CLI requests a device code, the user approves
  * at `/login/device` in any browser (same machine or not), and the CLI polls
- * the token endpoint until the grant completes.
+ * the token endpoint until the grant completes. All HTTP goes through the
+ * site client; the returned handle drives the poll loop from the handler.
  */
-export async function startDeviceLogin(opts: DeviceLoginOptions): Promise<DeviceLoginHandle> {
+export async function startDeviceLogin(
+  opts: DeviceLoginOptions,
+  client: Pick<SiteClientShape, "authPost" | "rpcPost" | "getJson"> = realSiteClient,
+): Promise<DeviceLoginHandle> {
   const siteUrl = opts.siteUrl.replace(/\/$/, "");
   const clientId = DEFAULT_CLIENT_ID;
 
-  const codeResponse = await fetch(`${siteUrl}/api/auth/device/code`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ client_id: clientId }),
-  });
-  if (!codeResponse.ok) {
+  const codeResponse = await client.authPost(siteUrl, "/device/code", { client_id: clientId });
+  if (codeResponse.status !== 200) {
     throw new Error(
       `Device login could not start (${codeResponse.status}) — is ${siteUrl} running the platform auth plugin?`,
     );
   }
-  const code = (await codeResponse.json()) as DeviceCodeResponse;
+  const code = codeResponse.json as DeviceCodeResponse;
 
   const verificationUrl = buildVerificationUrl(siteUrl, code, opts);
 
@@ -139,7 +131,7 @@ export async function startDeviceLogin(opts: DeviceLoginOptions): Promise<Device
         throw new Error("Login timed out — the device code expired before approval");
       }
 
-      const { status, json } = await authFetch(siteUrl, "/device/token", {
+      const { status, json } = await client.authPost(siteUrl, "/device/token", {
         grant_type: DEVICE_CODE_GRANT_TYPE,
         device_code: code.device_code,
         client_id: clientId,
@@ -147,7 +139,7 @@ export async function startDeviceLogin(opts: DeviceLoginOptions): Promise<Device
 
       if (status === 200) {
         const { access_token: sessionToken } = json as DeviceTokenSuccess;
-        return await completeLogin(siteUrl, sessionToken, opts);
+        return await completeLogin(siteUrl, sessionToken, opts, client);
       }
 
       const error = (json as DeviceTokenError).error;
@@ -183,6 +175,25 @@ export async function startDeviceLogin(opts: DeviceLoginOptions): Promise<Device
   };
 }
 
+/** The device login as a Context.Service tag (ticket #423) — the login
+ * handler yields it; tests provide fake site clients. */
+export class DeviceLoginService extends Context.Service<
+  DeviceLoginService,
+  {
+    start: (opts: DeviceLoginOptions) => Effect.Effect<DeviceLoginHandle, Error, SiteClientShape>;
+  }
+>()("everything-dev/auth/device-login") {
+  static readonly Live = Layer.effect(
+    this,
+    Effect.gen(function* () {
+      const client = yield* SiteClient;
+      return DeviceLoginService.of({
+        start: (opts) => Effect.tryPromise(() => startDeviceLogin(opts, client)),
+      });
+    }),
+  );
+}
+
 function buildVerificationUrl(
   siteUrl: string,
   code: DeviceCodeResponse,
@@ -210,16 +221,17 @@ async function completeLogin(
   siteUrl: string,
   sessionToken: string,
   opts: DeviceLoginOptions,
+  client: Pick<SiteClientShape, "authPost" | "rpcPost" | "getJson">,
 ): Promise<DeviceApproval> {
   // The token endpoint returns the raw session token; Better Auth session
   // cookies carry an HMAC signature, so exchange the token for a signed
   // session cookie via the device-link claim endpoint (the QR pairing path).
-  const claim = await authFetch(siteUrl, "/device-link/claim", {
+  const claim = await client.authPost(siteUrl, "/device-link/claim", {
     token: sessionToken,
     client_id: DEFAULT_CLIENT_ID,
   });
   if (claim.status !== 200) {
-    const detail = (claim.json as { message?: string }).message;
+    const detail = parseSiteErrorDetail(claim.status, claim.json);
     throw new Error(
       `Approved session could not be claimed${detail ? `: ${detail}` : ` (${claim.status})`}`,
     );
@@ -230,11 +242,13 @@ async function completeLogin(
   }
 
   const apiKey = await (opts.deployKey
-    ? mintDeployKey(siteUrl, cookiePair, opts)
-    : mintApiKey(siteUrl, cookiePair, opts));
-  const accountId = await resolveNearAccount(siteUrl, cookiePair);
+    ? mintDeployKey(siteUrl, cookiePair, opts, client)
+    : mintApiKey(siteUrl, cookiePair, opts, client));
+  const accountId = await resolveNearAccount(siteUrl, cookiePair, client);
   const custodyWallet = opts.custody
-    ? await fetchCustodyCredential(siteUrl, cookiePair, opts.custody.network).catch(() => null)
+    ? await fetchCustodyCredential(siteUrl, cookiePair, opts.custody.network, client).catch(
+        () => null,
+      )
     : null;
   return { sessionToken, accountId, apiKey, custodyWallet };
 }
@@ -252,10 +266,16 @@ async function fetchCustodyCredential(
   siteUrl: string,
   cookiePair: string,
   network: "mainnet" | "testnet",
+  client: Pick<SiteClientShape, "authPost">,
 ): Promise<CustodyWalletRecord> {
-  const { status, json } = await authFetch(siteUrl, "/custody/credential", { network }, cookiePair);
+  const { status, json } = await client.authPost(
+    siteUrl,
+    "/custody/credential",
+    { network },
+    cookiePair,
+  );
   if (status !== 200) {
-    const detail = (json as { message?: string }).message;
+    const detail = parseSiteErrorDetail(status, json);
     throw new Error(
       `Custody wallet credential could not be fetched${detail ? `: ${detail}` : ` (${status})`}`,
     );
@@ -281,8 +301,9 @@ async function mintApiKey(
   siteUrl: string,
   cookiePair: string,
   opts: DeviceLoginOptions,
+  client: Pick<SiteClientShape, "authPost">,
 ): Promise<DeviceApproval["apiKey"]> {
-  const { status, json } = await authFetch(
+  const { status, json } = await client.authPost(
     siteUrl,
     "/api-key/create",
     {
@@ -293,7 +314,7 @@ async function mintApiKey(
     cookiePair,
   );
   if (status !== 200) {
-    const detail = (json as { message?: string }).message;
+    const detail = parseSiteErrorDetail(status, json);
     throw new Error(
       `CLI credential could not be created${detail ? `: ${detail}` : ` (${status})`}`,
     );
@@ -307,51 +328,50 @@ async function mintApiKey(
  * Deploy-key mint: only the auth plugin's server-side route may set
  * `permissions` (better-auth rejects client-set permissions with
  * SERVER_ONLY_PROPERTY), so the scoped bundle-write key is minted through the
- * plugin's oRPC route instead of better-auth's client endpoint.
+ * plugin's oRPC route instead of better-auth's client endpoint. The oRPC
+ * envelope error body (`{ json: { code, message, data } }`) is parsed by the
+ * site client — the server's FORBIDDEN detail surfaces verbatim.
  */
 async function mintDeployKey(
   siteUrl: string,
   cookiePair: string,
   opts: DeviceLoginOptions,
+  client: Pick<SiteClientShape, "rpcPost">,
 ): Promise<DeviceApproval["apiKey"]> {
   const deployKey = opts.deployKey;
   if (!deployKey) throw new Error("Deploy-key mint requested without account scope");
-  const origin = new URL(siteUrl).origin;
-  const response = await fetch(`${siteUrl.replace(/\/$/, "")}/api/rpc/auth/createDeployKey`, {
-    method: "POST",
-    headers: { "content-type": "application/json", origin, cookie: cookiePair },
-    body: JSON.stringify({
-      json: {
-        account: deployKey.account,
-        gateway: deployKey.gateway,
-        name: `bos deploy — ${opts.device ?? "cli"} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
-        ...(opts.expiresIn ? { expiresIn: opts.expiresIn } : {}),
-      },
-    }),
-  });
-  const body = (await response.json().catch(() => ({}))) as {
-    json?: ApiKeyCreated;
-    error?: { message?: string };
-    message?: string;
-  };
+  const response = await client.rpcPost(
+    siteUrl,
+    "/api/rpc/auth/createDeployKey",
+    {
+      account: deployKey.account,
+      gateway: deployKey.gateway,
+      name: `bos deploy — ${opts.device ?? "cli"} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
+      ...(opts.expiresIn ? { expiresIn: opts.expiresIn } : {}),
+    },
+    cookiePair,
+  );
   if (response.status !== 200) {
-    const detail = body.error?.message ?? body.message;
+    const detail = parseSiteErrorDetail(response.status, response.json);
     throw new Error(
       `Deploy key could not be created${detail ? `: ${detail}` : ` (${response.status})`}`,
     );
   }
-  const created = body.json;
+  const created = (response.json as { json?: ApiKeyCreated }).json;
   if (!created?.key) throw new Error("Deploy key creation returned no key");
   return { key: created.key, id: created.id };
 }
 
-async function resolveNearAccount(siteUrl: string, cookiePair: string): Promise<string | null> {
+async function resolveNearAccount(
+  siteUrl: string,
+  cookiePair: string,
+  client: Pick<SiteClientShape, "getJson">,
+): Promise<string | null> {
   try {
-    const response = await fetch(`${siteUrl.replace(/\/$/, "")}/api/auth/near/list-accounts`, {
-      headers: { cookie: cookiePair },
-    });
-    if (!response.ok) return null;
-    const data = (await response.json()) as NearAccountsResponse;
+    const data = (await client.getJson(
+      `${siteUrl.replace(/\/$/, "")}/api/auth/near/list-accounts`,
+      cookiePair,
+    )) as NearAccountsResponse;
     return data.activeAccount?.accountId ?? null;
   } catch {
     return null;

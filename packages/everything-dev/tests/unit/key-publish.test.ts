@@ -1,4 +1,4 @@
-import { Context } from "effect";
+import { Context, Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerKeys } from "../../src/commands/keys";
 import type { BosBuilder, BosDeps } from "../../src/commands/shared";
@@ -37,20 +37,39 @@ const deps: BosDeps = {
 };
 
 function getKeyPublishHandler() {
-  const records = new Map<string, unknown>();
+  const callables = new Map<string, unknown>();
   const builder = new Proxy(
     {},
     {
       get: (_target, prop) => ({
         handler: (handler: unknown) => {
-          records.set(prop as string, handler);
+          callables.set(prop as string, handler);
           return { route: prop, handler };
+        },
+        // Mirrors @orpc/experimental-effect's handlerGen: run the generator,
+        // then provide the effect context from the call opts.
+        effect: (fn: (opts: unknown, input: unknown) => Generator) => {
+          const callable = (opts: { context?: Record<string, unknown> }, input: unknown) =>
+            Effect.gen(() => fn(opts, input)).pipe(
+              Effect.provide(
+                (opts.context?.["effect/context"] ?? Context.empty()) as Context.Context<never>,
+              ),
+            );
+          callables.set(prop as string, callable);
+          return callable;
         },
       }),
     },
   ) as BosBuilder;
   registerKeys(builder);
-  return records.get("keyPublish") as (args: unknown) => Promise<any>;
+  const handler = callables.get("keyPublish") as unknown as (
+    opts: unknown,
+    input: unknown,
+  ) => Promise<any>;
+  return (args: { input: unknown; context: unknown }) =>
+    Effect.runPromise(
+      handler(args, args.input) as Effect.Effect<unknown, unknown, never>,
+    ) as Promise<any>;
 }
 
 const context = { "effect/context": Context.make(BosDepsTag, deps) };
