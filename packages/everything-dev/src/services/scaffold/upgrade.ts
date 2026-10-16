@@ -4,16 +4,16 @@ import { join } from "node:path";
 import process from "node:process";
 import * as p from "@clack/prompts";
 import { glob } from "glob";
-import { readInstalledFrameworkVersion } from "../../cli/framework-version";
-import { timePhase } from "../../cli/timing";
-import { readJsonFile } from "../../cli/utils/helpers";
 import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../../contract";
 import { syncResolvedSharedDeps } from "../../shared-deps";
 import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
+import { readJsonFile } from "../../utils/json-file";
 import { saveBosConfig } from "../../utils/save-config";
+import { timePhase } from "../../utils/timing";
 import { findWorkspaceRoot } from "../../workspace";
 import { readWorkspaceCatalog, writeWorkspaceCatalog } from "../../workspace-catalog";
+import { readInstalledFrameworkVersion } from "../framework-version";
 import { openResolution } from "../resolution/session";
 import {
   buildChildRootScripts,
