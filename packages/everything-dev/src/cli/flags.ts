@@ -8,6 +8,7 @@ type SchemaLike = {
     innerType?: SchemaLike;
     shape?: Record<string, SchemaLike>;
     values?: Record<string, string> | string[];
+    defaultValue?: unknown;
   };
 };
 
@@ -44,27 +45,35 @@ function toFlagName(field: string): string {
   return `--${field.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()}`;
 }
 
+function defaultValueOf(schema: SchemaLike): unknown {
+  let current = schema;
+  while (true) {
+    const value = current.def?.defaultValue;
+    if (value !== undefined) return value;
+    const inner = current.def?.innerType;
+    if (!inner) break;
+    current = inner;
+  }
+  return undefined;
+}
+
 /** Flag help derived from the contract schemas (ticket #426) — the schema is
  * the single flag source; there is no parallel description table. */
 export function flagHelpLines(descriptor: CommandDescriptor): string[] {
   const schema = commandOptionSchemas[descriptor.key as keyof typeof commandOptionSchemas];
-  const shape = unwrap(schema as never as SchemaLike).def?.shape;
+  const shape = unwrap(schema as SchemaLike).def?.shape;
   if (!shape) return [];
 
   const lines: string[] = [];
   for (const [fieldName, fieldSchema] of Object.entries(shape)) {
     const flag = toFlagName(fieldName);
     const parts: string[] = [flag];
-    const description = describeOf(fieldSchema as never);
-    if (unwrap(fieldSchema as never as SchemaLike).def?.type === "boolean") {
+    const description = describeOf(fieldSchema as SchemaLike);
+    if (unwrap(fieldSchema as SchemaLike).def?.type === "boolean") {
       parts.push("(boolean)");
     }
     if (description) parts.push(description);
-    const def = (fieldSchema as never as { def?: { defaultValue?: unknown } }).def;
-    const inner = fieldSchema as never as {
-      def?: { innerType?: { def?: { defaultValue?: unknown } } };
-    };
-    const defaultValue = def?.defaultValue ?? inner.def?.innerType?.def?.defaultValue;
+    const defaultValue = defaultValueOf(fieldSchema as SchemaLike);
     if (defaultValue !== undefined && typeof defaultValue !== "function") {
       parts.push(`default: ${String(defaultValue)}`);
     }

@@ -1,15 +1,14 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { execa } from "execa";
 import { glob } from "glob";
-import { extract as tarExtract } from "tar";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   buildAuthContractStub,
   buildAuthExportStub,
   buildAuthTypesGenContent,
 } from "../../auth-types-gen";
-import { findConfigPath, isAppDescriptorPath, loadAppDescriptorConfig } from "../../config";
+import { loadAppDescriptorConfig } from "../../config";
 import type { OverrideSection } from "../../contract";
 import { serializeAppDescriptorSource } from "../../descriptor/serialize";
 import { resolveCatalogChainSource } from "../../init-source";
@@ -17,8 +16,7 @@ import {
   loadManifestNormalizationSpec,
   normalizePackageManifestsInTree,
 } from "../../internal/manifest-normalizer";
-import type { BosConfig, BosConfigInput, ParentStarterConfig, StarterLevel } from "../../types";
-import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
+import type { BosConfigInput, ParentStarterConfig, StarterLevel } from "../../types";
 import { saveBosConfig } from "../../utils/save-config";
 import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
 import { writeSnapshot } from "./snapshot";
