@@ -226,13 +226,6 @@ export function normalizeAuthConfig(
       ...siwn,
       apiKey: secrets.FASTNEAR_API_KEY,
     },
-    agentApi: secrets.NEAR_INTENTS_AGENT_API_KEY
-      ? {
-          apiKey: secrets.NEAR_INTENTS_AGENT_API_KEY,
-          baseUrl: variables.agentApi?.baseUrl,
-          timeoutMs: variables.agentApi?.timeoutMs,
-        }
-      : undefined,
     email: variables.email?.from
       ? {
           from: variables.email.from,

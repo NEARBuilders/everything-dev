@@ -37,13 +37,11 @@ CREATE TABLE "owner_intent" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "agent_account" ADD CONSTRAINT "agent_account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "agent_grant" ADD CONSTRAINT "agent_grant_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "owner_intent" ADD CONSTRAINT "owner_intent_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "agentAccount_agentId_uidx" ON "agent_account" USING btree ("agent_id");--> statement-breakpoint
 CREATE INDEX "agentAccount_userId_idx" ON "agent_account" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "agentGrant_agentId_idx" ON "agent_grant" USING btree ("agent_id");--> statement-breakpoint
 CREATE INDEX "agentGrant_userId_idx" ON "agent_grant" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "agentGrant_commitment_idx" ON "agent_grant" USING btree ("commitment");--> statement-breakpoint
 CREATE UNIQUE INDEX "ownerIntent_correlationId_uidx" ON "owner_intent" USING btree ("correlation_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "ownerIntent_idempotencyKey_uidx" ON "owner_intent" USING btree ("idempotency_key");--> statement-breakpoint
 CREATE INDEX "ownerIntent_userId_idx" ON "owner_intent" USING btree ("user_id");

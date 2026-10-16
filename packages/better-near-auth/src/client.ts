@@ -164,7 +164,7 @@ export interface SIWNClientActions {
   };
 }
 
-export { type AgentClientActions, agentConnectClient } from "./agent-connect-client.js";
+export { signAgentIntent } from "./agent-connect-client.js";
 export { DEFAULT_DEVICE_LINK_CLIENT_ID } from "./constants.js";
 export { isPasskeyWalletAvailable, type PasskeyWalletNetwork } from "./passkey.js";
 

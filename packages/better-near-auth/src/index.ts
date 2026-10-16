@@ -85,37 +85,6 @@ import {
   ViewContractResponse,
 } from "./types.js";
 
-export type {
-  AgentApiOptions,
-  AgentView,
-  GenerateIntentResponse,
-  GenerateIntentResponseOf,
-  GrantView,
-  Intent,
-  IntentPreview,
-  IntentType,
-  OwnerWallet,
-  Policy,
-  PolicyView,
-  SignedData,
-  StatusResponse,
-  StatusResponseOf,
-} from "./agent-api.js";
-export {
-  type AgentAccountRow,
-  type AgentConnectOptions,
-  type AgentConnectPasskeyOwner,
-  type AgentGrantRow,
-  type AgentStatusRequestT,
-  agentConnect,
-  agentSchema,
-  type CreateAgentRequestT,
-  type IssueAgentGrantRequestT,
-  type ListAgentGrantsRequestT,
-  type OwnerIntentRow,
-  type RevokeAgentGrantRequestT,
-  type SubmitAgentIntentRequestT,
-} from "./agent-connect.js";
 export {
   getPasskeyWalletFactory,
   isDeterministicAccountId,

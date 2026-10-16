@@ -121,12 +121,6 @@ export const authVariablesSchema = z.object({
     })
     .optional(),
   siwn: z.union([authSiwnRecipientSchema, authSiwnRecipientsSchema]),
-  agentApi: z
-    .object({
-      baseUrl: z.string().optional(),
-      timeoutMs: z.number().optional(),
-    })
-    .optional(),
   deviceLink: z
     .object({
       clientId: z.string().min(1).default(DEFAULT_DEVICE_LINK_CLIENT_ID),

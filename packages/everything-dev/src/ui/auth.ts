@@ -12,11 +12,7 @@ import {
 } from "better-auth/client/plugins";
 import { createAuthClient as createBetterAuthClient } from "better-auth/react";
 import type { PasskeyWalletLink, RelayedTransactionT } from "better-near-auth";
-import {
-  agentConnectClient,
-  DEFAULT_DEVICE_LINK_CLIENT_ID,
-  siwnClient,
-} from "better-near-auth/client";
+import { DEFAULT_DEVICE_LINK_CLIENT_ID, siwnClient } from "better-near-auth/client";
 import type { ClientRuntimeConfig } from "../types";
 import { getRuntimeConfig } from "./runtime";
 
@@ -123,7 +119,6 @@ export function createAuthClient(options: CreateAuthClientOptions = {}) {
         },
       }),
       siwnClient(nearAuthConfig),
-      agentConnectClient(),
       adminClient(),
       anonymousClient(),
       phoneNumberClient(),

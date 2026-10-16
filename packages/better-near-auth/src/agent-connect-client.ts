@@ -1,66 +1,15 @@
-import type {
-  BetterFetch,
-  BetterFetchOption,
-  BetterFetchResponse,
-  ClientStore,
-} from "better-auth/client";
-import type {
-  AgentView,
-  GenerateIntentResponse,
-  GenerateIntentResponseOf,
-  GrantView,
-  SignedData,
-  StatusResponse,
-} from "./agent-api.js";
-import type {
-  AgentStatusRequestT,
-  CreateAgentRequestT,
-  IssueAgentGrantRequestT,
-  ListAgentGrantsRequestT,
-  RevokeAgentGrantRequestT,
-  SubmitAgentIntentRequestT,
-} from "./agent-connect.js";
-import type { AuthCallbacks } from "./auth-callbacks.js";
+import type { GenerateIntentResponse, SignedData } from "@near-intents-agent-api/sdk";
 import { getWalletSigner } from "./wallet-signer.js";
 
-export interface AgentClientActions {
-  agent: {
-    create: (
-      params: CreateAgentRequestT,
-      fetchOptions?: BetterFetchOption,
-    ) => Promise<BetterFetchResponse<GenerateIntentResponseOf<"agent_create">>>;
-    submitIntent: (
-      params: SubmitAgentIntentRequestT,
-      fetchOptions?: BetterFetchOption,
-    ) => Promise<BetterFetchResponse<StatusResponse>>;
-    signIntent: (generated: GenerateIntentResponse) => Promise<SignedData>;
-    signAndSubmitIntent: (
-      generated: GenerateIntentResponse,
-      callbacks?: AuthCallbacks,
-    ) => Promise<BetterFetchResponse<StatusResponse>>;
-    status: (
-      params: AgentStatusRequestT,
-      fetchOptions?: BetterFetchOption,
-    ) => Promise<BetterFetchResponse<StatusResponse>>;
-    listAgents: (
-      fetchOptions?: BetterFetchOption,
-    ) => Promise<BetterFetchResponse<{ data: AgentView[]; nextCursor: string | null }>>;
-    issueGrant: (
-      params: IssueAgentGrantRequestT,
-      fetchOptions?: BetterFetchOption,
-    ) => Promise<BetterFetchResponse<GenerateIntentResponse>>;
-    revokeGrant: (
-      params: RevokeAgentGrantRequestT,
-      fetchOptions?: BetterFetchOption,
-    ) => Promise<BetterFetchResponse<GenerateIntentResponse>>;
-    listGrants: (
-      params: ListAgentGrantsRequestT,
-      fetchOptions?: BetterFetchOption,
-    ) => Promise<BetterFetchResponse<{ data: GrantView[] }>>;
-  };
-}
+/**
+ * Client-side agent wallet signing — the wallet-plumbing half of the BFF
+ * split. The server half (intent preparation, submission, grant vault) lives
+ * in the `agent-connect` plugin; this surface only signs a generated
+ * `intent.payload` with the connected wallet and returns the wallet's output,
+ * byte-for-byte, for the plugin's submit route.
+ */
 
-async function signIntentWithWallet(generated: GenerateIntentResponse): Promise<SignedData> {
+export async function signAgentIntent(generated: GenerateIntentResponse): Promise<SignedData> {
   const { standard, payload } = generated.intent;
 
   if (standard === "nep413") {
@@ -106,95 +55,3 @@ async function signIntentWithWallet(generated: GenerateIntentResponse): Promise<
 
   throw new Error(`Unsupported intent signing standard: ${standard}`);
 }
-
-export const agentConnectClient = () => {
-  const plugin = {
-    id: "agentConnect" as const,
-    $InferServerPlugin: {},
-
-    getActions: (
-      $fetch: BetterFetch,
-      $store: ClientStore,
-      _options: unknown,
-    ): AgentClientActions => {
-      void $store;
-
-      return {
-        agent: {
-          create: async (params, fetchOptions?) => {
-            return await $fetch("/agent/create", {
-              method: "POST",
-              body: params,
-              ...fetchOptions,
-            });
-          },
-          submitIntent: async (params, fetchOptions?) => {
-            return await $fetch("/agent/intents/submit", {
-              method: "POST",
-              body: params,
-              ...fetchOptions,
-            });
-          },
-          signIntent: async (generated) => {
-            return await signIntentWithWallet(generated);
-          },
-          signAndSubmitIntent: async (generated, callbacks?) => {
-            try {
-              const signedData = await signIntentWithWallet(generated);
-              const response = await $fetch<StatusResponse>("/agent/intents/submit", {
-                method: "POST",
-                body: {
-                  type: generated.type,
-                  correlationId: generated.correlation_id,
-                  signedData,
-                },
-              });
-              if (response.error) {
-                throw new Error(response.error.message || "Failed to submit signed intent");
-              }
-              callbacks?.onSuccess?.();
-              return response;
-            } catch (error) {
-              const err = error instanceof Error ? error : new Error(String(error));
-              callbacks?.onError?.(err);
-              throw err;
-            }
-          },
-          status: async (params, fetchOptions?) => {
-            return await $fetch("/agent/status", {
-              method: "POST",
-              body: params,
-              ...fetchOptions,
-            });
-          },
-          listAgents: async (fetchOptions?) => {
-            return await $fetch("/agent/list", { method: "GET", ...fetchOptions });
-          },
-          issueGrant: async (params, fetchOptions?) => {
-            return await $fetch("/agent/grants/issue", {
-              method: "POST",
-              body: params,
-              ...fetchOptions,
-            });
-          },
-          revokeGrant: async (params, fetchOptions?) => {
-            return await $fetch("/agent/grants/revoke", {
-              method: "POST",
-              body: params,
-              ...fetchOptions,
-            });
-          },
-          listGrants: async (params, fetchOptions?) => {
-            return await $fetch("/agent/grants", {
-              method: "POST",
-              body: params,
-              ...fetchOptions,
-            });
-          },
-        },
-      };
-    },
-  };
-
-  return plugin;
-};

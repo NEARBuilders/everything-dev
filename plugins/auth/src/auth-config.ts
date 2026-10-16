@@ -72,11 +72,6 @@ export interface AuthConfig {
     };
   };
   siwn: AuthSiwnConfig;
-  agentApi?: {
-    apiKey?: string;
-    baseUrl?: string;
-    timeoutMs?: number;
-  };
   email?: {
     from: string;
   };
