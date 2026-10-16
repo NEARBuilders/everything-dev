@@ -313,6 +313,9 @@ export async function uploadWorkspaceBundle(
 
     let sourceRef: SourceRef | undefined;
     if (input.source) {
+      if (outcome.result.storage === "memory") {
+        return { kind: "memory" };
+      }
       phase = "source";
       const sourceOutcome = await resolveSourceReference(deps, {
         origin: input.storageOrigin,
