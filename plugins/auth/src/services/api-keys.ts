@@ -1,11 +1,14 @@
+import { and, eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
-import { attemptAuth } from "../attempts";
-import { API_KEY_CONFIG_IDS } from "../config-schemas";
+import { attemptAuth, attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
+import * as schema from "../db/schema";
 import type { PluginServices } from "../service-types";
-import { ApiKeyNotFound, type AuthFailure, isAuthFailure } from "./domain-errors";
+import { deleteKeyAcrossConfigs, verifyKeyWithPermissionFallback } from "./api-key-verify";
+import { type AuthFailure, DeployKeyAccountNotLinked } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
+type Db = PluginServices["db"];
 
 export interface ApiKeyRateLimitInput {
   enabled?: boolean;
@@ -80,7 +83,7 @@ export class ApiKeysService extends Context.Service<
   }
 >()("auth/ApiKeysService") {}
 
-export const buildApiKeysService = ({ auth }: { auth: Auth }) =>
+export const buildApiKeysService = ({ auth, db }: { auth: Auth; db: Db }) =>
   ApiKeysService.of({
     listApiKeys: (headers, input) =>
       attemptAuth(() => {
@@ -124,18 +127,36 @@ export const buildApiKeysService = ({ auth }: { auth: Auth }) =>
       ),
 
     createDeployKey: (userId, input) =>
-      attemptAuth(() =>
-        auth.api.createApiKey({
-          body: {
-            userId,
-            configId: "user-keys",
-            name: input.name ?? `deploy key — ${input.account}/${input.gateway}`,
-            expiresIn: input.expiresIn,
-            permissions: DEPLOY_KEY_PERMISSIONS,
-            metadata: { account: input.account, gateway: input.gateway },
-          },
-        }),
-      ),
+      Effect.gen(function* () {
+        const linked = yield* attemptDb(() =>
+          db.query.nearAccount.findFirst({
+            where: and(
+              eq(schema.nearAccount.userId, userId),
+              eq(schema.nearAccount.accountId, input.account),
+            ),
+          }),
+        );
+        if (!linked) {
+          return yield* Effect.fail(
+            new DeployKeyAccountNotLinked({
+              message: `Deploy keys can only be minted for NEAR accounts linked to your login — link ${input.account} first`,
+              action: `deploy-key ${input.account}/${input.gateway}`,
+            }),
+          );
+        }
+        return yield* attemptAuth(() =>
+          auth.api.createApiKey({
+            body: {
+              userId,
+              configId: "user-keys",
+              name: input.name ?? `deploy key — ${input.account}/${input.gateway}`,
+              expiresIn: input.expiresIn,
+              permissions: DEPLOY_KEY_PERMISSIONS,
+              metadata: { account: input.account, gateway: input.gateway },
+            },
+          }),
+        );
+      }),
 
     updateApiKey: (userId, input) =>
       attemptAuth(() =>
@@ -157,105 +178,12 @@ export const buildApiKeysService = ({ auth }: { auth: Auth }) =>
       ),
 
     deleteApiKey: (headers, input) =>
-      attemptAuth(async () => {
-        const configId = input.configId ?? (input.organizationId ? "org-keys" : "user-keys");
-        try {
-          await auth.api.deleteApiKey({
-            headers,
-            body: { keyId: input.id, configId },
-          });
-          return;
-        } catch (firstError) {
-          if (isAuthFailure(firstError) && !(firstError instanceof ApiKeyNotFound)) {
-            throw firstError;
-          }
-          for (const fallbackConfigId of API_KEY_CONFIG_IDS) {
-            if (fallbackConfigId === configId) continue;
-            try {
-              await auth.api.deleteApiKey({
-                headers,
-                body: { keyId: input.id, configId: fallbackConfigId },
-              });
-              return;
-            } catch {}
-          }
-          throw new ApiKeyNotFound({ message: "API key not found", keyId: input.id });
-        }
-      }).pipe(Effect.as({ success: true })),
+      attemptAuth(() => deleteKeyAcrossConfigs(auth, headers, input)).pipe(
+        Effect.as({ success: true }),
+      ),
 
     verifyApiKey: (headers, input) =>
-      attemptAuth(() => verifyApiKeyWithFailureCause(auth, headers, input)),
+      attemptAuth(() => verifyKeyWithPermissionFallback(auth, headers, input)),
   });
 
 const DEPLOY_KEY_PERMISSIONS = { bundles: ["write"] };
-
-function describePermissions(permissions: Record<string, string[]>): string {
-  return Object.entries(permissions)
-    .flatMap(([permission, actions]) => actions.map((action) => `${permission}:${action}`))
-    .join(", ");
-}
-
-/**
- * Distinguishes "key lacks permissions" from "key not found": better-auth's
- * permission check fails a permissions:null key with KEY_NOT_FOUND, so a
- * permissioned verify that misses re-verifies without permissions — a key
- * that only then surfaces is live but under-permissioned.
- */
-async function verifyApiKeyWithFailureCause(
-  auth: Auth,
-  headers: Headers,
-  input: { key: string; configId?: string; permissions?: Record<string, string[]> },
-) {
-  const configIds = input.configId ? [input.configId] : API_KEY_CONFIG_IDS;
-  const verify = (configId: string, permissions?: Record<string, string[]>) =>
-    auth.api.verifyApiKey({
-      headers,
-      body: {
-        key: input.key,
-        configId,
-        permissions,
-      },
-    });
-
-  for (const configId of configIds) {
-    const result = await verify(configId, input.permissions);
-    if (result.valid) {
-      return serializeVerifyResult(result);
-    }
-  }
-
-  if (input.permissions) {
-    for (const configId of configIds) {
-      const result = await verify(configId, undefined);
-      if (result.valid) {
-        return {
-          valid: false,
-          error: {
-            code: "KEY_MISSING_PERMISSIONS",
-            message: `API key lacks required permissions (${describePermissions(input.permissions)})`,
-          },
-          key: null,
-        };
-      }
-    }
-  }
-
-  return {
-    valid: false,
-    error: { code: "KEY_NOT_FOUND", message: "Invalid API key" },
-    key: null,
-  };
-}
-
-function serializeVerifyResult(result: any) {
-  return {
-    valid: result.valid,
-    error: result.error
-      ? {
-          code: result.error.code ?? "UNKNOWN",
-          message: typeof result.error.message === "string" ? result.error.message : undefined,
-        }
-      : null,
-    key: result.key ? { ...result.key, permissions: result.key.permissions ?? null } : null,
-  };
-}

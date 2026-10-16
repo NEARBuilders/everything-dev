@@ -72,7 +72,7 @@ export function buildAuthServicesLayer(services: PluginServices) {
       }),
     ),
     Layer.succeed(PasskeysService, buildPasskeysService({ auth: services.auth })),
-    Layer.succeed(ApiKeysService, buildApiKeysService({ auth: services.auth })),
+    Layer.succeed(ApiKeysService, buildApiKeysService({ auth: services.auth, db: services.db })),
     Layer.succeed(AdminUsersService, buildAdminUsersService({ auth: services.auth })),
   );
 }

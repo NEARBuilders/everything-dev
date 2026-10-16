@@ -49,14 +49,8 @@ function DeviceApproveContent() {
 
   const registerCustodyWallet = useMutation({
     mutationFn: async () => {
-      const { data, error: registerError } = await auth.$fetch<{
-        registered: boolean;
-        walletId: string;
-        nearAccountId: string;
-        handoffUrl: string | null;
-      }>("/custody/register", {
-        method: "POST",
-        body: { network: custodyNetwork },
+      const { data, error: registerError } = await auth.custody.register({
+        network: custodyNetwork,
       });
       if (registerError)
         throw new Error(registerError.message ?? "Custody wallet registration failed");

@@ -1,4 +1,3 @@
-import type { InitResult } from "../contract";
 import { InitFlowService } from "../services/scaffold/init-flow";
 import type { BosBuilder } from "./shared";
 

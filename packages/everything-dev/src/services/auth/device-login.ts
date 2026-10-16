@@ -18,7 +18,14 @@ const realSiteClient = {
 } as Pick<SiteClientShape, "authPost" | "rpcPost" | "getJson">;
 
 const DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
-const DEFAULT_CLIENT_ID = "bos-cli";
+/**
+ * The device-flow client id the auth plugin's device-link hook records —
+ * must match BOS_CLI_CLIENT_ID in plugins/auth/src/device-link.ts (the two
+ * packages share no module; this is the protocol constant, not a value to
+ * diverge).
+ */
+export const DEVICE_LINK_CLIENT_ID = "bos-cli";
+const DEFAULT_CLIENT_ID = DEVICE_LINK_CLIENT_ID;
 const DEFAULT_POLL_INTERVAL_SECONDS = 5;
 const SLOW_DOWN_PENALTY_SECONDS = 5;
 

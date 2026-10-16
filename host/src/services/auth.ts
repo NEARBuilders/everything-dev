@@ -63,7 +63,10 @@ export function registerAuthHandler(app: Hono<HonoEnv>, plugins: PluginResult) {
     }
     return;
   }
-  app.on(["POST", "GET"], "/api/auth/*", (c) => {
+  // Every method: better-auth routes by method+path itself, and a method it
+  // does not serve must get better-auth's own 404 — not fall through to the
+  // SSR fallback (which only matches GET and would swallow the request).
+  app.all("/api/auth/*", (c) => {
     const pending = services.handler(c.req.raw);
     // Keep the rejection handled (no unhandled-rejection crash) while surfacing
     // the cause — this fires when the underlying call fails, including after

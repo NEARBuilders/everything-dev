@@ -1,9 +1,3 @@
-import type {
-  PluginAddResult,
-  PluginListResult,
-  PluginPublishResult,
-  PluginRemoveResult,
-} from "../contract";
 import { PluginAdminService } from "../services/plugins-admin";
 import { ResolutionSessionService } from "../services/resolution/session";
 import type { BosBuilder } from "./shared";
