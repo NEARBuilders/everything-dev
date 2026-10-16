@@ -1,3 +1,4 @@
+import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -62,6 +63,7 @@ function CodeBlock({ className, children }: { className?: string; children?: Rea
   const lang = LANG_ALIASES[match?.[1] ?? ""] ?? match?.[1];
   const source = String(children ?? "").replace(/\n$/, "");
   const [html, setHtml] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!lang) return;
@@ -77,24 +79,43 @@ function CodeBlock({ className, children }: { className?: string; children?: Rea
     };
   }, [lang, source]);
 
+  const copy = () => {
+    void navigator.clipboard.writeText(source).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
   if (!lang) {
     return <pre className="overflow-x-auto rounded-lg bg-muted p-4 text-sm">{children}</pre>;
   }
-  if (!html) {
-    return <pre className="overflow-x-auto rounded-lg bg-muted p-4 text-sm">{source}</pre>;
-  }
   return (
-    <div
-      className="overflow-x-auto rounded-lg [&_pre]:bg-transparent [&_pre]:p-4"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className="relative my-4" data-testid="docs.code-block">
+      <button
+        type="button"
+        onClick={copy}
+        aria-label={copied ? "Copied" : "Copy code"}
+        className="absolute top-2 right-2 z-10 rounded-md border border-border bg-card p-1.5 text-muted-foreground opacity-75 transition-colors hover:text-foreground hover:opacity-100"
+        data-testid="docs.copy-code"
+      >
+        {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+      </button>
+      {html ? (
+        <div
+          className="overflow-x-auto rounded-lg border [&_pre]:bg-transparent [&_pre]:p-4"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      ) : (
+        <pre className="overflow-x-auto rounded-lg border bg-muted p-4 text-sm">{source}</pre>
+      )}
+    </div>
   );
 }
 
 export function MarkdownRenderer({ content }: { content: string }) {
   return (
     <div
-      className="prose-base max-w-none text-foreground [&_a]:text-primary [&_a]:underline [&_blockquote]:border-border [&_blockquote]:border-l-2 [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-sm [&_h2]:mt-8 [&_h2]:mb-3 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold [&_hr]:border-border [&_li]:my-1 [&_p]:my-3 [&_pre]:not-italic [&_pre] [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_table]:w-full [&_table]:text-sm [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:p-2 [&_ul]:list-disc [&_ul]:pl-6"
+      className="max-w-none text-foreground [&_a]:text-primary [&_a]:underline [&_blockquote]:rounded-r-lg [&_blockquote]:border-l-[3px] [&_blockquote]:border-muted-foreground [&_blockquote]:bg-muted/60 [&_blockquote]:px-4 [&_blockquote]:py-2.5 [&_blockquote]:text-[0.93em] [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:border [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.86em] [&_h2]:mt-8 [&_h2]:mb-3 [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:text-xs [&_h3]:font-bold [&_h3]:tracking-wider [&_h3]:text-muted-foreground [&_h3]:uppercase [&_li]:my-1 [&_p]:my-3 [&_pre]:not-italic [&_pre]:border-0 [&_pre]:bg-transparent [&_pre]:p-0 [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_table]:w-full [&_table]:text-sm [&_td]:border [&_td]:border-border [&_td]:p-2 [&_th]:border [&_th]:border-border [&_th]:bg-muted/60 [&_th]:p-2 [&_ul]:list-disc [&_ul]:pl-6"
       data-testid="docs.markdown"
     >
       <Markdown

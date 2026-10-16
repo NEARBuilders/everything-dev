@@ -1368,6 +1368,9 @@ importers:
 
   plugins/docs:
     dependencies:
+      '@base-ui/react':
+        specifier: ^1.8.0
+        version: 1.8.0(@types/react@19.3.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@orpc/contract':
         specifier: 'catalog:'
         version: 2.0.0-beta.35
@@ -1386,6 +1389,9 @@ importers:
       '@tanstack/react-router':
         specifier: 'catalog:'
         version: 1.170.32(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
       cn:
         specifier: ^0.4.0
         version: 0.4.0
