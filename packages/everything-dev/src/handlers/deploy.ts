@@ -19,9 +19,9 @@ import {
 } from "../services/deploy/rollback-flow";
 import { type DeployTrainInput, DeployTrainService } from "../services/deploy/train";
 import { fetchDeployManifests } from "../services/registry/fastkv";
-import { openResolution } from "../services/resolution/session";
+import { openResolution, ResolutionSessionService } from "../services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../types";
-import { type BosBuilder, BosDepsTag } from "./shared";
+import type { BosBuilder } from "./shared";
 
 type TrainErrorResult = {
   status: "error";
@@ -39,18 +39,11 @@ type TrainResult = TrainOk | TrainErrorResult;
 const mapTrainError = (error: PublishTrainError) =>
   Effect.succeed({ ...error.toResult(), status: "error" as const }) as Effect.Effect<TrainResult>;
 
-const runTrain = (
-  train: { publish: (input: DeployTrainInput) => Effect.Effect<PublishTrainOk, PublishTrainError> },
-  input: DeployTrainInput,
-): Promise<TrainResult> =>
-  Effect.runPromise(train.publish(input).pipe(Effect.catchTag("PublishTrainError", mapTrainError)));
-
 export function registerDeploy(builder: BosBuilder) {
   return {
     publish: builder.publish.effect(function* (_opts, input) {
-      const deps = yield* BosDepsTag;
+      const session = yield* ResolutionSessionService;
       const train = yield* DeployTrainService;
-      const session = deps.session;
       if (!session?.config) {
         return {
           status: "error" as const,
@@ -88,8 +81,7 @@ export function registerDeploy(builder: BosBuilder) {
     }),
 
     rollback: builder.rollback.effect(function* (_opts, input) {
-      const deps = yield* BosDepsTag;
-      const session = deps.session;
+      const session = yield* ResolutionSessionService;
       if (!session) {
         return {
           status: "error" as const,
@@ -109,9 +101,8 @@ export function registerDeploy(builder: BosBuilder) {
     }),
 
     deploy: builder.deploy.effect(function* (_opts, input) {
-      const deps = yield* BosDepsTag;
+      const session = yield* ResolutionSessionService;
       const train = yield* DeployTrainService;
-      const session = deps.session;
       if (!session?.config) {
         return {
           status: "error" as const,
@@ -291,7 +282,9 @@ async function rollbackBody(
 }
 
 async function deployBody(
-  train: { publish: (input: DeployTrainInput) => Effect.Effect<PublishTrainOk, PublishTrainError> },
+  train: {
+    publish: (input: DeployTrainInput) => Effect.Effect<PublishTrainOk, PublishTrainError>;
+  },
   session: { config: BosConfig; runtime: RuntimeConfig | null; root: string },
   input: {
     registry?: string;
@@ -356,20 +349,24 @@ async function deployBody(
     };
   }
 
-  const result = await runTrain(train, {
-    bosConfig: session.config,
-    runtimeConfig: session.runtime,
-    configDir: session.root,
-    env: input.env,
-    build: input.build,
-    dryRun: input.dryRun,
-    verbose: input.verbose,
-    packages: input.packages,
-    network: input.network,
-    privateKey: input.privateKey,
-    registry: input.registry,
-    fullUpload: input.fullUpload,
-  });
+  const result = await Effect.runPromise(
+    train
+      .publish({
+        bosConfig: session.config,
+        runtimeConfig: session.runtime,
+        configDir: session.root,
+        env: input.env,
+        build: input.build,
+        dryRun: input.dryRun,
+        verbose: input.verbose,
+        packages: input.packages,
+        network: input.network,
+        privateKey: input.privateKey,
+        registry: input.registry,
+        fullUpload: input.fullUpload,
+      })
+      .pipe(Effect.catchTag("PublishTrainError", mapTrainError)),
+  );
 
   if (result.status === "error") {
     return {

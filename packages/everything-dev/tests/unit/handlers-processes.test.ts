@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import type { BosBuilder } from "../../src/commands/shared";
 import { registerProcesses } from "../../src/handlers/processes";
+import type { BosBuilder } from "../../src/handlers/shared";
 import type { PidEntry } from "../../src/process-registry";
 import { ProcessesService } from "../../src/services/processes";
 

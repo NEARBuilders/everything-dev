@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { registerBuild } from "../../src/commands/build";
-import { registerConfig } from "../../src/commands/config";
-import { registerDb } from "../../src/commands/db";
-import { registerDeploy } from "../../src/commands/deploy";
-import { registerDev } from "../../src/commands/dev";
-import { registerImport } from "../../src/commands/import";
-import { registerInit } from "../../src/commands/init";
-import { registerKeys } from "../../src/commands/keys";
-import { registerOps } from "../../src/commands/ops";
-import { registerPlugins } from "../../src/commands/plugins";
-import type { BosBuilder } from "../../src/commands/shared";
-import { registerSmoke } from "../../src/commands/smoke";
-import { registerUpgrade } from "../../src/commands/upgrade";
 import { bosContract } from "../../src/contract";
+import { registerBuild } from "../../src/handlers/build";
+import { registerConfig } from "../../src/handlers/config";
+import { registerDb } from "../../src/handlers/db";
+import { registerDeploy } from "../../src/handlers/deploy";
+import { registerDev } from "../../src/handlers/dev";
+import { registerImport } from "../../src/handlers/import";
+import { registerInit } from "../../src/handlers/init";
+import { registerKeys } from "../../src/handlers/keys";
+import { registerOps } from "../../src/handlers/ops";
+import { registerPlugins } from "../../src/handlers/plugins";
 import { registerProcesses } from "../../src/handlers/processes";
+import type { BosBuilder } from "../../src/handlers/shared";
+import { registerSmoke } from "../../src/handlers/smoke";
+import { registerUpgrade } from "../../src/handlers/upgrade";
 import bosPlugin from "../../src/plugin";
 
 const registerFns = [
@@ -51,7 +51,7 @@ function makeStubBuilder(records: Map<string, number>): BosBuilder {
   ) as BosBuilder;
 }
 
-describe("command module structure", () => {
+describe("handler module structure", () => {
   it("registers every contract route exactly once", () => {
     const records = new Map<string, number>();
     const builder = makeStubBuilder(records);

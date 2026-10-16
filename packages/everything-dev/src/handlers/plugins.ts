@@ -1,22 +1,21 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
-import { Context, Effect } from "effect";
+import { Effect } from "effect";
 import { generateCodeArtifacts } from "../code-artifacts";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { PluginListResult } from "../contract";
 import { DeployTrainService } from "../services/deploy/train";
 import { fetchRemotePluginManifest } from "../services/registry/fastkv";
-import { openResolution } from "../services/resolution/session";
+import { openResolution, ResolutionSessionService } from "../services/resolution/session";
 import { getPluginRef } from "../services/workspace/build-train";
 import type { BosConfig } from "../types";
 import { saveBosConfig } from "../utils/save-config";
-import { type BosBuilder, BosDepsTag } from "./shared";
+import type { BosBuilder } from "./shared";
 
 export function registerPlugins(builder: BosBuilder) {
   return {
-    pluginAdd: builder.pluginAdd.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
-      const session = deps.session;
+    pluginAdd: builder.pluginAdd.effect(function* (_opts, input) {
+      const session = yield* ResolutionSessionService;
       if (!session?.config) {
         return {
           status: "error" as const,
@@ -68,17 +67,21 @@ export function registerPlugins(builder: BosBuilder) {
             : authoredExisting && typeof authoredExisting === "object"
               ? (authoredExisting as Record<string, unknown>)
               : {};
-        await saveBosConfig(session.root, {
-          ...authored,
-          plugins: {
-            ...authored.plugins,
-            [key]: applyEntryDelta(authoredBase),
-          },
-        });
+        yield* Effect.tryPromise(() =>
+          saveBosConfig(session.root, {
+            ...authored,
+            plugins: {
+              ...authored.plugins,
+              [key]: applyEntryDelta(authoredBase),
+            },
+          }),
+        );
       } else {
-        await saveBosConfig(session.root, nextConfig);
+        yield* Effect.tryPromise(() => saveBosConfig(session.root, nextConfig));
       }
-      await generateCodeArtifacts(session.root, nextConfig);
+      yield* Effect.tryPromise(async () => {
+        await generateCodeArtifacts(session.root, nextConfig);
+      });
 
       const stored = nextConfig.plugins?.[key];
       const storedObj = stored && typeof stored === "object" ? stored : {};
@@ -93,9 +96,8 @@ export function registerPlugins(builder: BosBuilder) {
       };
     }),
 
-    pluginRemove: builder.pluginRemove.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
-      const session = deps.session;
+    pluginRemove: builder.pluginRemove.effect(function* (_opts, input) {
+      const session = yield* ResolutionSessionService;
       if (!session?.config) {
         return {
           status: "error" as const,
@@ -137,14 +139,18 @@ export function registerPlugins(builder: BosBuilder) {
         } else {
           delete authoredPlugins[input.key];
         }
-        await saveBosConfig(session.root, {
-          ...authored,
-          plugins: Object.keys(authoredPlugins).length > 0 ? authoredPlugins : undefined,
-        });
+        yield* Effect.tryPromise(() =>
+          saveBosConfig(session.root, {
+            ...authored,
+            plugins: Object.keys(authoredPlugins).length > 0 ? authoredPlugins : undefined,
+          }),
+        );
       } else {
-        await saveBosConfig(session.root, nextConfig);
+        yield* Effect.tryPromise(() => saveBosConfig(session.root, nextConfig));
       }
-      await generateCodeArtifacts(session.root, nextConfig);
+      yield* Effect.tryPromise(async () => {
+        await generateCodeArtifacts(session.root, nextConfig);
+      });
 
       return {
         status: "removed" as const,
@@ -152,11 +158,9 @@ export function registerPlugins(builder: BosBuilder) {
       };
     }),
 
-    pluginList: builder.pluginList.handler(async ({ context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
-      const plugins: PluginListResult["plugins"] = listPluginAttachments(
-        deps.session?.config ?? null,
-      );
+    pluginList: builder.pluginList.effect(function* () {
+      const session = yield* ResolutionSessionService;
+      const plugins: PluginListResult["plugins"] = listPluginAttachments(session?.config ?? null);
       return {
         status: "listed" as const,
         plugins,
@@ -164,9 +168,8 @@ export function registerPlugins(builder: BosBuilder) {
     }),
 
     pluginPublish: builder.pluginPublish.effect(function* (_opts, input) {
-      const deps = yield* BosDepsTag;
+      const session = yield* ResolutionSessionService;
       const train = yield* DeployTrainService;
-      const session = deps.session;
       if (!session?.config) {
         return {
           status: "error" as const,
@@ -235,7 +238,9 @@ export function registerPlugins(builder: BosBuilder) {
       const nextConfig = nextSession.config;
       if (production && nextConfig) {
         yield* Effect.tryPromise({
-          try: () => generateCodeArtifacts(session.root, nextConfig),
+          try: async () => {
+            await generateCodeArtifacts(session.root, nextConfig);
+          },
           catch: () => undefined,
         });
       }
