@@ -123,9 +123,11 @@ export async function waitForPublishedConfig(opts: {
             continue;
           }
         } catch (historyError) {
-          // A history probe failure must not starve the wait — fall back to
+          // A history probe failure must not starve the wait — the failed
+          // probe consumes a skip credit, so repeated failures fall back to
           // the plain equality poll.
           lastError = historyError;
+          txProbeSkips += 1;
         }
       }
 
@@ -190,6 +192,36 @@ export interface TrainDeps {
       deps?: BuildTargetsDeps,
     ) => Promise<BuildTargetsResult>;
   };
+}
+
+/**
+ * A counting semaphore with slot transfer: `release` hands its slot to a
+ * waiter (count conserved) instead of freeing it, so a burst of waiters can
+ * never push concurrency past the limit — the hand-rolled version leaked one
+ * count per transfer and over-admitted under late build completions (#430).
+ */
+export function createSemaphore(limit: number): {
+  acquire: () => Promise<() => void>;
+} {
+  let inFlight = 0;
+  const waiters: Array<() => void> = [];
+  return {
+    acquire: () => {
+      if (inFlight < limit) {
+        inFlight++;
+        return Promise.resolve(release);
+      }
+      return new Promise<() => void>((resolve) => waiters.push(() => resolve(release)));
+    },
+  };
+  function release(): void {
+    const wake = waiters.shift();
+    if (wake) {
+      wake();
+    } else {
+      inFlight--;
+    }
+  }
 }
 
 export interface DeployTrainInput {
@@ -453,6 +485,7 @@ export async function runPublishTrain(
   // target order (byte-identical to the serial train); the first failure in
   // that order is the one thrown.
   const uploadConcurrency = Math.max(1, Number(process.env.BOS_UPLOAD_CONCURRENCY) || 4);
+  const uploadRejections: Array<{ key: string; error: unknown }> = [];
   interface UploadUnitResult {
     entries: DeployResultEntry[];
     detail: UploadUnitDetail;
@@ -460,35 +493,26 @@ export async function runPublishTrain(
   const uploaded = new Map<string, Promise<UploadUnitResult>>();
   // Rejections stay in the map until the drain's allSettled — deleting would
   // both swallow the failure (the drain substitutes an empty result) and let
-  // the fallback loop silently re-attempt the upload. The immediate no-op
-  // catch keeps the pipelined rejection handled while the build continues.
+  // the fallback loop silently re-attempt the upload. The early catch records
+  // the reason so a build failure thrown before the drain can still name the
+  // parallel upload that died.
   const trackUpload = (key: string, pending: Promise<UploadUnitResult>) => {
     uploaded.set(key, pending);
-    pending.catch(() => {});
+    pending.catch((error) => {
+      uploadRejections.push({ key, error });
+    });
   };
-  let inFlight = 0;
-  const waiters: Array<() => void> = [];
-  const acquireUploadSlot = () => {
-    if (inFlight < uploadConcurrency) {
-      inFlight++;
-      return Promise.resolve();
-    }
-    return new Promise<void>((resolve) => waiters.push(resolve));
-  };
-  const releaseUploadSlot = () => {
-    inFlight--;
-    waiters.shift()?.();
-  };
+  const uploadSlots = createSemaphore(uploadConcurrency);
   const startUpload = (key: string) => {
     if (uploaded.has(key)) return;
     trackUpload(
       key,
       (async () => {
-        await acquireUploadSlot();
+        const release = await uploadSlots.acquire();
         try {
           return await uploadOneWorkspace(key);
         } finally {
-          releaseUploadSlot();
+          release();
         }
       })(),
     );
@@ -540,13 +564,17 @@ export async function runPublishTrain(
           console.log(colors.dim("  Run with --verbose for full build output."));
           console.log();
         }
+        const uploadNote =
+          uploadRejections.length > 0
+            ? `; a parallel upload also failed (${uploadRejections[0].error instanceof Error ? uploadRejections[0].error.message : String(uploadRejections[0].error)})`
+            : "";
         throw new PublishTrainError({
           kind: "build",
           registryUrl,
           built,
           skipped,
           deployResults,
-          error: `${failures.length} of ${total} workspaces failed to deploy`,
+          error: `${failures.length} of ${total} workspaces failed to deploy${uploadNote}`,
         });
       }
     }

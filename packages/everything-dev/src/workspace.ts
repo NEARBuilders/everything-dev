@@ -373,9 +373,13 @@ async function memberInputHash(
 export function contentHashStalenessOracle(
   rootDir: string,
   members: readonly WorkspaceMember[],
+  buildMode?: { nodeEnv?: string; deploy?: boolean },
 ): StalenessOracle {
   const cachePath = join(rootDir, ".bos", "build-cache.json");
-  const envKey = `${process.env.NODE_ENV ?? ""}|${process.env.DEPLOY ?? ""}`;
+  const envKey =
+    buildMode === undefined
+      ? `${process.env.NODE_ENV ?? ""}|${process.env.DEPLOY ?? ""}`
+      : `${buildMode.nodeEnv ?? ""}|${buildMode.deploy === true ? "deploy" : "build"}`;
   const byName = new Map(members.map((member) => [member.name, member]));
 
   const readCache = (): Record<string, { hash?: string }> => {

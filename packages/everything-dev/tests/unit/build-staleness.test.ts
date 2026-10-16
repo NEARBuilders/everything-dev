@@ -177,4 +177,21 @@ describe("contentHashStalenessOracle", () => {
     const second = contentHashStalenessOracle(root, [member]);
     expect(await second.isStale(member)).toBe(false);
   });
+
+  it("judges against the build mode it was given, not the shell env", async () => {
+    const root = mkTmp(join(tmpdir(), "bos-hash-root-"));
+    const dir = makePackageDir();
+    const member = makeMember(dir, "a");
+    const deploy = { nodeEnv: "production", deploy: true };
+
+    await contentHashStalenessOracle(root, [member], deploy).recordBuilt?.(member);
+    const judge = contentHashStalenessOracle(root, [member], deploy);
+    expect(await judge.isStale(member)).toBe(false);
+
+    const otherMode = contentHashStalenessOracle(root, [member], {
+      nodeEnv: "development",
+      deploy: false,
+    });
+    expect(await otherMode.isStale(member)).toBe(true);
+  });
 });
