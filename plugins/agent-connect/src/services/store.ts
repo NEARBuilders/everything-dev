@@ -36,6 +36,8 @@ export interface OwnerIntentRow {
   userId: string;
   status: string;
   expiresAt: Date;
+  request: unknown;
+  response: unknown;
   createdAt: Date;
 }
 
@@ -84,6 +86,7 @@ export interface AgentStoreShape {
     agentId: string | null;
     grantRowId: string | null;
     userId: string;
+    request: unknown;
     expiresAt: Date;
   }): Effect.Effect<OwnerIntentRow, StoreError>;
   linkIntent(input: {
@@ -91,10 +94,16 @@ export interface AgentStoreShape {
     correlationId: string;
     status: string;
     expiresAt: Date;
+    agentId?: string | null;
+    response?: unknown;
   }): Effect.Effect<void, StoreError>;
   findIntentByUser(
     userId: string,
     correlationId: string,
+  ): Effect.Effect<OwnerIntentRow | null, StoreError>;
+  findIntentByKey(
+    userId: string,
+    idempotencyKey: string,
   ): Effect.Effect<OwnerIntentRow | null, StoreError>;
   updateIntentStatus(correlationId: string, status: string): Effect.Effect<void, StoreError>;
   insertGrantRow(input: {
@@ -162,12 +171,18 @@ export const agentStoreLayer = Layer.effect(
           },
           catch: (cause) => storeError("Failed to record pending intent", cause),
         }),
-      linkIntent: ({ idempotencyKey, correlationId, status, expiresAt }) =>
+      linkIntent: ({ idempotencyKey, correlationId, status, expiresAt, agentId, response }) =>
         Effect.tryPromise({
           try: async () => {
             await db
               .update(ownerIntent)
-              .set({ correlationId, status, expiresAt })
+              .set({
+                correlationId,
+                status,
+                expiresAt,
+                ...(agentId !== undefined ? { agentId } : {}),
+                ...(response !== undefined ? { response } : {}),
+              })
               .where(eq(ownerIntent.idempotencyKey, idempotencyKey));
           },
           catch: (cause) => storeError("Failed to link the generated intent to the ledger", cause),
@@ -184,6 +199,22 @@ export const agentStoreLayer = Layer.effect(
               .limit(1)
               .then((rows) => rows[0] ?? null)) as OwnerIntentRow | null,
           catch: (cause) => storeError("Failed to load intent", cause),
+        }),
+      findIntentByKey: (userId, idempotencyKey) =>
+        Effect.tryPromise({
+          try: async () =>
+            (await db
+              .select()
+              .from(ownerIntent)
+              .where(
+                and(
+                  eq(ownerIntent.idempotencyKey, idempotencyKey),
+                  eq(ownerIntent.userId, userId),
+                ),
+              )
+              .limit(1)
+              .then((rows) => rows[0] ?? null)) as OwnerIntentRow | null,
+          catch: (cause) => storeError("Failed to load intent by idempotency key", cause),
         }),
       updateIntentStatus: (correlationId, status) =>
         Effect.tryPromise({

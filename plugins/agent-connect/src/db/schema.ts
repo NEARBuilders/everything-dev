@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 /**
  * Agent Connect control-plane tables (own plugin schema, `plugin_agent_connect`).
@@ -38,6 +38,8 @@ export const ownerIntent = pgTable(
     userId: text("user_id").notNull(),
     status: text("status").notNull(),
     expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    request: jsonb("request").$type<unknown>(),
+    response: jsonb("response").$type<unknown>(),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [

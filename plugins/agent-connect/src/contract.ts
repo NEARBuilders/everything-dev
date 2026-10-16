@@ -46,19 +46,38 @@ const SignedDataSchema = z
   .record(z.string(), z.unknown())
   .describe("The wallet's signature output over intent.payload, submitted unchanged");
 
+const IdempotencyKeySchema = z
+  .string()
+  .regex(/^[A-Za-z0-9._:-]{8,128}$/, "8–128 chars of [A-Za-z0-9._:-]")
+  .describe(
+    "Optional retry key: the same key with the same request returns the same intent (safe retry); the same key with a different request is a conflict",
+  );
+
 /**
  * The browser-visible intent envelope: `intent.payload` + `preview` are all a
  * browser ever sees — never the `naa_` partner key or an `ngt_` grant token.
+ * Fields beyond the typed subset pass through unwrapped.
  */
 const GeneratedIntentSchema = z.looseObject({
   correlation_id: z.string().describe("Tracking id of the generated owner intent"),
+  agent_id: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("The agent account id — agent_create reserves it and returns it immediately"),
   type: z.string().describe("Intent type, e.g. agent_create, grant_issue, grant_revoke"),
   status: z.string().describe("Intent status, e.g. PENDING_SIGNATURE"),
   expires_at: z.string().describe("ISO datetime after which the intent can no longer be signed"),
+  idempotencyKey: z.string().optional().describe("The idempotency key used for this intent"),
   intent: z.looseObject({
     standard: z.string().describe("Signing standard: nep413 | nep366 | eip712 | webauthn"),
     payload: z.record(z.string(), z.unknown()).describe("The exact bytes the owner's wallet signs"),
   }),
+  signer: z
+    .looseObject({ type: z.string() })
+    .nullable()
+    .optional()
+    .describe("The owner wallet that must sign this intent"),
   preview: z
     .unknown()
     .optional()
@@ -67,6 +86,7 @@ const GeneratedIntentSchema = z.looseObject({
 
 const StatusSchema = z.looseObject({
   correlation_id: z.string().describe("Tracking id of the intent"),
+  agent_id: z.string().nullable().optional().describe("The agent account the intent acts on"),
   status: z
     .string()
     .describe("SUCCESS | FAILED | PENDING_SIGNATURE | UNCERTAIN | NEEDS_REVIEW | …"),
@@ -74,17 +94,26 @@ const StatusSchema = z.looseObject({
   details: z.unknown().optional().describe("Intent-type-specific result details"),
 });
 
+const AgentViewSchema = z.looseObject({
+  id: z.string().describe("Agent account id"),
+  name: z.string().optional().describe("Display name"),
+  status: z.string().optional().describe("Agent status, e.g. PENDING | ACTIVE | FROZEN"),
+});
+
 const AgentPageSchema = z.looseObject({
-  data: z.array(z.unknown()).describe("Agent views"),
+  data: z.array(AgentViewSchema).describe("Agent views"),
   next_cursor: z.string().nullable().optional().describe("Cursor for the next page"),
 });
 
-const AgentViewSchema = z.looseObject({
-  id: z.string().describe("Agent account id"),
+const GrantViewSchema = z.looseObject({
+  grant_id: z.string().describe("Grant id (64 hex)"),
+  label: z.string().optional().describe("Grant label"),
+  expires_at: z.string().optional().describe("Grant expiry"),
+  revoked_at: z.string().nullable().optional().describe("When the grant was revoked, if it was"),
 });
 
 const GrantsSchema = z.object({
-  data: z.array(z.unknown()).describe("Grant views for the agent account"),
+  data: z.array(GrantViewSchema).describe("Grant views for the agent account"),
 });
 
 const PrepareIntentInputSchema = z.discriminatedUnion("type", [
@@ -92,6 +121,7 @@ const PrepareIntentInputSchema = z.discriminatedUnion("type", [
     type: z.literal("agent_create"),
     name: z.string().min(1).max(64).describe("Display name for the new agent account"),
     policy: PolicySchema,
+    idempotencyKey: IdempotencyKeySchema.optional(),
   }),
   z.object({
     type: z.literal("grant_issue"),
@@ -102,11 +132,13 @@ const PrepareIntentInputSchema = z.discriminatedUnion("type", [
       .datetime()
       .optional()
       .describe("Grant expiry; default 7 days, max 365 days"),
+    idempotencyKey: IdempotencyKeySchema.optional(),
   }),
   z.object({
     type: z.literal("grant_revoke"),
     agentId: z.string().min(1).describe("Agent account holding the grant"),
     grantId: z.string().min(1).describe("Grant to revoke"),
+    idempotencyKey: IdempotencyKeySchema.optional(),
   }),
 ]);
 
@@ -124,12 +156,14 @@ export const contract = oc.router({
       z.object({
         name: z.string().min(1).max(64).describe("Display name for the new agent account"),
         policy: PolicySchema,
+        idempotencyKey: IdempotencyKeySchema.optional(),
       }),
     )
     .output(GeneratedIntentSchema)
     .errors({
       UNAUTHORIZED: Errors.UNAUTHORIZED,
       BAD_REQUEST: Errors.BAD_REQUEST,
+      CONFLICT: Errors.CONFLICT,
       SERVICE_UNAVAILABLE: Errors.SERVICE_UNAVAILABLE,
       TOO_MANY_REQUESTS: Errors.TOO_MANY_REQUESTS,
       BAD_GATEWAY: Errors.BAD_GATEWAY,
@@ -195,6 +229,7 @@ export const contract = oc.router({
       UNAUTHORIZED: Errors.UNAUTHORIZED,
       NOT_FOUND: Errors.NOT_FOUND,
       BAD_REQUEST: Errors.BAD_REQUEST,
+      CONFLICT: Errors.CONFLICT,
       SERVICE_UNAVAILABLE: Errors.SERVICE_UNAVAILABLE,
       TOO_MANY_REQUESTS: Errors.TOO_MANY_REQUESTS,
       BAD_GATEWAY: Errors.BAD_GATEWAY,
@@ -224,6 +259,7 @@ export const contract = oc.router({
       UNAUTHORIZED: Errors.UNAUTHORIZED,
       NOT_FOUND: Errors.NOT_FOUND,
       BAD_REQUEST: Errors.BAD_REQUEST,
+      CONFLICT: Errors.CONFLICT,
       SERVICE_UNAVAILABLE: Errors.SERVICE_UNAVAILABLE,
       TOO_MANY_REQUESTS: Errors.TOO_MANY_REQUESTS,
       BAD_GATEWAY: Errors.BAD_GATEWAY,

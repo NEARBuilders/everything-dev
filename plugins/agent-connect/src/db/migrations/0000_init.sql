@@ -34,6 +34,8 @@ CREATE TABLE "owner_intent" (
 	"user_id" text NOT NULL,
 	"status" text NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,
+	"request" jsonb,
+	"response" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
