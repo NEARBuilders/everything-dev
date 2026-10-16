@@ -22,6 +22,7 @@ const uploadWorkspaceBundleOverride = vi.hoisted(() => ({
         ssrEntryIntegrity?: string;
         pin?: unknown;
         storage: "r2";
+        detail: { base: string; notes: string[] };
       }>),
 }));
 
@@ -316,6 +317,7 @@ describe("DeployTrainService", () => {
         ssrEntryIntegrity: undefined,
         pin: undefined,
         storage: "r2" as const,
+        detail: { base: `https://cdn.test/bundles/app.test/${input.workspaceKey}/`, notes: [] },
       };
     };
 
@@ -425,6 +427,7 @@ describe("DeployTrainService", () => {
         ssrEntryIntegrity: undefined,
         pin: undefined,
         storage: "r2" as const,
+        detail: { base: `https://cdn.test/bundles/app.test/${input.workspaceKey}/`, notes: [] },
       };
     };
     probeStorageOriginOverride.fn = async () => undefined;

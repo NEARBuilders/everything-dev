@@ -205,6 +205,9 @@ export const WorkspaceDeployResultSchema = z.object({
   success: z.boolean(),
   error: z.string().optional(),
   durationMs: z.number().optional(),
+  /** Build warnings captured from the workspace's own build output —
+   * attributed here, never streamed as raw interleaved stderr. */
+  warnings: z.array(z.string()).default([]),
 });
 
 export const PublishOptionsSchema = z.object({

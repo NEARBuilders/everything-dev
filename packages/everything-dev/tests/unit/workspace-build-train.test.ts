@@ -90,6 +90,30 @@ describe("buildWorkspaceTargets", () => {
     ]);
   });
 
+  it("buffers child stderr and attributes warnings to the workspace outcome", async () => {
+    const stderrChunks: string[] = [];
+    const run = async () => {
+      // Simulate a plugin build: a banner line, a WARNING box, ordinary noise.
+      stderrChunks.push(
+        "$ every-plugin build\n",
+        "WARNING in ./src/index.ts\n  ⚠ something smells (rsbuild)\n\n",
+      );
+      return { stdout: "", stderr: stderrChunks.join(""), exitCode: 0 };
+    };
+
+    const outcomes: WorkspaceBuildOutcome[] = [];
+    const render: WorkspaceBuildRender = { outcome: (o) => outcomes.push(o) };
+    const { built } = await runDeploy({
+      targets: ["ui"],
+      deps: makeDeps({ run, render }),
+    });
+
+    expect(built).toEqual(["ui"]);
+    const warnings = outcomes[0]?.warnings ?? [];
+    expect(warnings.some((w) => w.includes("WARNING in ./src/index.ts"))).toBe(true);
+    expect(warnings.some((w) => w.includes("every-plugin build"))).toBe(false);
+  });
+
   it("caps parallel deploy builds at the input concurrency", async () => {
     let running = 0;
     let maxRunning = 0;

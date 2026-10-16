@@ -39,6 +39,7 @@ import { BundleStorage, RegistryStore, type RegistryStoreShape } from "./deps";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
 import { formatNearError } from "./format";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
+import { type DeployTrainRender, DeployTrainRenderService } from "./render";
 import {
   realStorageLegDeps,
   type StorageLegDeps,
@@ -167,10 +168,22 @@ export async function isConfigAlreadyPublished(opts: {
   }
 }
 
+/** Per-workspace upload facts the renderer needs (#431) — the leg reports,
+ * the renderer shows. */
+export interface UploadUnitDetail {
+  base: string;
+  uploaded: number;
+  skipped: number;
+  durationMs: number;
+  notes: string[];
+}
+
 export interface TrainDeps {
   storage: StorageLegDeps;
   registry: RegistryStoreShape;
   signer: SignerServiceShape;
+  /** presentation seam (#431) — sections render; the train never prints */
+  render?: DeployTrainRender;
   buildTrain: {
     buildTargets: (
       input: BuildTargetsInput,
@@ -246,6 +259,7 @@ export async function runPublishTrain(
   const storageApiKey = plan.storageApiKey;
 
   const { configDir } = input;
+  const render = deps.render;
   let bosConfig = input.bosConfig;
   const runtimeConfig = input.runtimeConfig;
   let built: string[] | undefined;
@@ -284,17 +298,23 @@ export async function runPublishTrain(
         ...pinsFromDeployState(configDir, account, gateway),
       };
 
-  console.log();
-  console.log(`  CDN deploy — uploading workspace dists to ${storageOrigin}...`);
+  render?.cdnBanner?.(storageOrigin);
 
   // One workspace = one upload unit: the workspace bundle, then (for
   // folder-form plugin workspaces) its <plugin>/ui/dist as its own bundle
   // key. Workspace paths resolve from the authored config — identical before
   // and after the post-build config refresh — so pipelined uploads (#430) can
   // start the moment a build completes.
-  const uploadOneWorkspace = async (key: string): Promise<DeployResultEntry[]> => {
+  const uploadOneWorkspace = async (
+    key: string,
+  ): Promise<{ entries: DeployResultEntry[]; detail: UploadUnitDetail }> => {
+    const startedAt = Date.now();
     const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
-    if (!ws) return [];
+    if (!ws)
+      return {
+        entries: [],
+        detail: { base: "", uploaded: 0, skipped: 0, durationMs: 0, notes: [] },
+      };
 
     const outcome = await uploadWorkspaceBundle({
       account,
@@ -415,7 +435,16 @@ export async function runPublishTrain(
       );
     }
 
-    return entries;
+    return {
+      entries,
+      detail: {
+        base: outcome.detail.base,
+        uploaded: outcome.uploaded,
+        skipped: outcome.skipped,
+        durationMs: Date.now() - startedAt,
+        notes: outcome.detail.notes,
+      },
+    };
   };
 
   // Uploads are independent bundle keys (#430): bounded concurrency, and —
@@ -424,12 +453,16 @@ export async function runPublishTrain(
   // target order (byte-identical to the serial train); the first failure in
   // that order is the one thrown.
   const uploadConcurrency = Math.max(1, Number(process.env.BOS_UPLOAD_CONCURRENCY) || 4);
-  const uploaded = new Map<string, Promise<DeployResultEntry[]>>();
+  interface UploadUnitResult {
+    entries: DeployResultEntry[];
+    detail: UploadUnitDetail;
+  }
+  const uploaded = new Map<string, Promise<UploadUnitResult>>();
   // Rejections stay in the map until the drain's allSettled — deleting would
   // both swallow the failure (the drain substitutes an empty result) and let
   // the fallback loop silently re-attempt the upload. The immediate no-op
   // catch keeps the pipelined rejection handled while the build continues.
-  const trackUpload = (key: string, pending: Promise<DeployResultEntry[]>) => {
+  const trackUpload = (key: string, pending: Promise<UploadUnitResult>) => {
     uploaded.set(key, pending);
     pending.catch(() => {});
   };
@@ -592,7 +625,14 @@ export async function runPublishTrain(
 
   const deployTargets = (built ?? []).filter((key) => targets.includes(key));
   const settled = await Promise.allSettled(
-    deployTargets.map((key) => uploaded.get(key) ?? Promise.resolve([] as DeployResultEntry[])),
+    deployTargets.map(
+      (key) =>
+        uploaded.get(key) ??
+        Promise.resolve({
+          entries: [],
+          detail: { base: "", uploaded: 0, skipped: 0, durationMs: 0, notes: [] },
+        }),
+    ),
   );
 
   const uploadFailures = settled
@@ -605,8 +645,17 @@ export async function runPublishTrain(
 
   for (let index = 0; index < deployTargets.length; index++) {
     const result = settled[index];
+    const key = deployTargets[index];
     if (result.status === "fulfilled") {
-      platformEntries.push(...result.value);
+      platformEntries.push(...result.value.entries);
+      render?.uploadOutcome?.({
+        key,
+        ok: true,
+        ...(input.verbose ? { detailNotes: result.value.detail.notes } : {}),
+        ...result.value.detail,
+      });
+    } else {
+      render?.uploadOutcome?.({ key, ok: false });
     }
   }
 
@@ -684,17 +733,12 @@ export async function runPublishTrain(
     registryUrl,
   });
 
-  console.log();
-  console.log("  Publishing to:");
-  console.log(`    ${colors.cyan(registryUrl)}`);
-  console.log(`    ${colors.dim("Fingerprint:")} ${fingerprint}`);
-  for (const [slot, pin] of Object.entries(publishSlotPins)) {
-    console.log(`    ${colors.dim(`${slot}:`)}`);
-    console.log(`      ${pin}`);
-  }
-  console.log(
-    `    ${colors.dim(`+ per-deploy manifest ${manifestKey.split("/").pop()} (audit trail)`)}`,
-  );
+  render?.publish?.({
+    registryUrl,
+    fingerprint,
+    slotPins: Object.entries(publishSlotPins),
+    auditManifestFile: manifestKey.split("/").pop() ?? manifestKey,
+  });
 
   // Record the live pins for the next deploy's diff upload — only after the
   // config is confirmed published, so the pointer never claims undeployed state.
@@ -902,6 +946,7 @@ export class DeployTrainService extends Context.Service<
       const registry = yield* RegistryStore;
       const signer = yield* SignerService;
       const buildTrainOption = yield* Effect.serviceOption(BuildTrainService);
+      const renderOption = yield* Effect.serviceOption(DeployTrainRenderService);
       return DeployTrainService.of({
         publish: (input: DeployTrainInput) =>
           Effect.tryPromise({
@@ -911,6 +956,7 @@ export class DeployTrainService extends Context.Service<
                 registry,
                 signer,
                 buildTrain: Option.getOrUndefined(buildTrainOption) ?? defaultBuildTrain,
+                render: Option.getOrUndefined(renderOption),
               }),
             catch: (error) =>
               error instanceof PublishTrainError
