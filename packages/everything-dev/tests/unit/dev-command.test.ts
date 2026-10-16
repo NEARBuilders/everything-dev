@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DevSessionData, StartSummary } from "../../src/dev-program";
 import { registerDev } from "../../src/handlers/dev";
 import type { BosBuilder } from "../../src/handlers/shared";
+import { DevFlowService } from "../../src/services/dev-flow";
 import { ResolutionSession, ResolutionSessionService } from "../../src/services/resolution/session";
 import type { BosConfig, RuntimeConfig } from "../../src/types";
 
@@ -55,6 +56,7 @@ function getHandlers(): Map<string, unknown> {
           const callable = (opts: unknown, input: unknown) =>
             Effect.gen(() => fn(opts, input)).pipe(
               Effect.provideService(ResolutionSessionService, session),
+              Effect.provide(DevFlowService.Live),
             );
           records.set(prop as string, callable);
           return { route: prop, handler: callable };

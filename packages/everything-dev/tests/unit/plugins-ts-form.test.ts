@@ -1,11 +1,12 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerPlugins } from "../../src/handlers/plugins";
 import type { BosBuilder } from "../../src/handlers/shared";
 import { DeployTrainService } from "../../src/services/deploy/train";
+import { PluginAdminService } from "../../src/services/plugins-admin";
 import { ResolutionSession, ResolutionSessionService } from "../../src/services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../src/types";
 
@@ -76,7 +77,11 @@ function getHandler(name: string): (args: unknown) => Promise<any> {
             Effect.runPromise(
               Effect.gen(() => gen(args, args.input)).pipe(
                 Effect.provideService(ResolutionSessionService, tsSession()),
-                Effect.provideService(DeployTrainService, fakeTrain),
+                Effect.provide(
+                  PluginAdminService.Live.pipe(
+                    Layer.provide(Layer.succeed(DeployTrainService, fakeTrain)),
+                  ),
+                ),
               ) as Effect.Effect<unknown, unknown, never>,
             ) as Promise<any>;
           records.set(prop as string, fn);

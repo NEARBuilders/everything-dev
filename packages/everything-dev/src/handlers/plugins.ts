@@ -1,166 +1,31 @@
-import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
-import { Effect } from "effect";
-import { generateCodeArtifacts } from "../code-artifacts";
-import { MISSING_CONFIG_MESSAGE } from "../config";
-import type { PluginListResult } from "../contract";
-import { DeployTrainService } from "../services/deploy/train";
-import { fetchRemotePluginManifest } from "../services/registry/fastkv";
-import { openResolution, ResolutionSessionService } from "../services/resolution/session";
-import { getPluginRef } from "../services/workspace/build-train";
-import type { BosConfig } from "../types";
-import { saveBosConfig } from "../utils/save-config";
+import type {
+  PluginAddResult,
+  PluginListResult,
+  PluginPublishResult,
+  PluginRemoveResult,
+} from "../contract";
+import { PluginAdminService } from "../services/plugins-admin";
+import { ResolutionSessionService } from "../services/resolution/session";
 import type { BosBuilder } from "./shared";
 
 export function registerPlugins(builder: BosBuilder) {
   return {
     pluginAdd: builder.pluginAdd.effect(function* (_opts, input) {
       const session = yield* ResolutionSessionService;
-      if (!session?.config) {
-        return {
-          status: "error" as const,
-          key: "",
-          error: MISSING_CONFIG_MESSAGE,
-        };
-      }
-
-      const isBosRef = input.source.startsWith("bos://");
-      const isLocal = input.source.startsWith("local:");
-      const key = sanitizePluginKey(
-        input.as ??
-          (isBosRef ? (input.source.split("/").pop() ?? "plugin") : defaultPluginKey(input.source)),
-      );
-      const existing = session.config.plugins?.[key];
-      const existingEntry = existing && typeof existing === "object" ? existing : {};
-      // Adding a source is a switch, not an additive patch: a remote URL (or
-      // bos:// ref) replaces a conflicting local development ref. Dual-mode
-      // (local in dev, production URL in prod) remains expressible by
-      // hand-editing the authored config.
-      const applyEntryDelta = (base: Record<string, unknown>): Record<string, unknown> => {
-        if (isBosRef) {
-          const { development: _dropped, ...rest } = base;
-          return { ...rest, extends: input.source };
-        }
-        if (isLocal) {
-          const { extends: _dropped, ...rest } = base;
-          return { ...rest, development: input.source };
-        }
-        const { development: _dropped, ...rest } = base;
-        return { ...rest, production: input.production ?? input.source };
-      };
-      const nextPlugins = { ...session.config.plugins };
-      nextPlugins[key] = applyEntryDelta(existingEntry);
-
-      const nextConfig: BosConfig = {
-        ...session.config,
-        plugins: nextPlugins,
-      };
-
-      const authored = session.rawConfig;
-      if (authored) {
-        // Authoring-surface save: the authored leaf input + delta, never the
-        // resolved config (which would bake inherited values into the file).
-        const authoredExisting = authored.plugins?.[key];
-        const authoredBase: Record<string, unknown> =
-          typeof authoredExisting === "string"
-            ? { extends: authoredExisting }
-            : authoredExisting && typeof authoredExisting === "object"
-              ? (authoredExisting as Record<string, unknown>)
-              : {};
-        yield* Effect.tryPromise(() =>
-          saveBosConfig(session.root, {
-            ...authored,
-            plugins: {
-              ...authored.plugins,
-              [key]: applyEntryDelta(authoredBase),
-            },
-          }),
-        );
-      } else {
-        yield* Effect.tryPromise(() => saveBosConfig(session.root, nextConfig));
-      }
-      yield* Effect.tryPromise(async () => {
-        await generateCodeArtifacts(session.root, nextConfig);
-      });
-
-      const stored = nextConfig.plugins?.[key];
-      const storedObj = stored && typeof stored === "object" ? stored : {};
-
-      return {
-        status: "added" as const,
-        key,
-        development: storedObj.development,
-        production: storedObj.production,
-        integrity: storedObj.integrity,
-        version: storedObj.version,
-      };
+      const admin = yield* PluginAdminService;
+      return yield* admin.add(session, input);
     }),
 
     pluginRemove: builder.pluginRemove.effect(function* (_opts, input) {
       const session = yield* ResolutionSessionService;
-      if (!session?.config) {
-        return {
-          status: "error" as const,
-          key: input.key,
-          error: MISSING_CONFIG_MESSAGE,
-        };
-      }
-
-      if (!session.config.plugins?.[input.key]) {
-        return {
-          status: "error" as const,
-          key: input.key,
-          error: `Plugin '${input.key}' is not configured`,
-        };
-      }
-
-      const nextPlugins = { ...session.config.plugins };
-      delete nextPlugins[input.key];
-      const nextConfig: BosConfig = {
-        ...session.config,
-        plugins: Object.keys(nextPlugins).length > 0 ? nextPlugins : undefined,
-      };
-
-      const authored = session.rawConfig;
-      if (authored) {
-        const authoredPlugins: Record<string, unknown> = { ...authored.plugins };
-        if (authoredPlugins[input.key] === undefined) {
-          // Inherited from the parent runtime. JSON-form children can express
-          // removal with a null sentinel (dropped by the extends merge); the
-          // TS descriptor schema cannot, so only those error out.
-          if (existsSync(join(session.root, "bos.app.ts"))) {
-            return {
-              status: "error" as const,
-              key: input.key,
-              error: `'${input.key}' is inherited from the parent runtime — remove it in the parent config or override it there (the authored descriptor cannot express removal)`,
-            };
-          }
-          authoredPlugins[input.key] = null;
-        } else {
-          delete authoredPlugins[input.key];
-        }
-        yield* Effect.tryPromise(() =>
-          saveBosConfig(session.root, {
-            ...authored,
-            plugins: Object.keys(authoredPlugins).length > 0 ? authoredPlugins : undefined,
-          }),
-        );
-      } else {
-        yield* Effect.tryPromise(() => saveBosConfig(session.root, nextConfig));
-      }
-      yield* Effect.tryPromise(async () => {
-        await generateCodeArtifacts(session.root, nextConfig);
-      });
-
-      return {
-        status: "removed" as const,
-        key: input.key,
-      };
+      const admin = yield* PluginAdminService;
+      return yield* admin.remove(session, input);
     }),
 
     pluginList: builder.pluginList.effect(function* () {
       const session = yield* ResolutionSessionService;
-      const plugins: PluginListResult["plugins"] = listPluginAttachments(session?.config ?? null);
+      const admin = yield* PluginAdminService;
+      const plugins = yield* admin.list(session);
       return {
         status: "listed" as const,
         plugins,
@@ -169,147 +34,8 @@ export function registerPlugins(builder: BosBuilder) {
 
     pluginPublish: builder.pluginPublish.effect(function* (_opts, input) {
       const session = yield* ResolutionSessionService;
-      const train = yield* DeployTrainService;
-      if (!session?.config) {
-        return {
-          status: "error" as const,
-          key: input.key,
-          error: MISSING_CONFIG_MESSAGE,
-        };
-      }
-
-      const attachment = session.config?.plugins?.[input.key];
-      if (!attachment) {
-        return {
-          status: "error" as const,
-          key: input.key,
-          error: `Plugin '${input.key}' is not configured`,
-        };
-      }
-
-      const localPath = pluginLocalPath(session.root, attachment);
-      if (!localPath) {
-        return {
-          status: "error" as const,
-          key: input.key,
-          error: `Plugin '${input.key}' does not have a local development path`,
-        };
-      }
-
-      const result = yield* train
-        .publish({
-          bosConfig: session.config,
-          runtimeConfig: session.runtime,
-          configDir: session.root,
-          env: "production",
-          build: true,
-          dryRun: false,
-          verbose: false,
-          packages: input.key,
-        })
-        .pipe(Effect.catchTag("PublishTrainError", (error) => Effect.succeed(error.toResult())));
-      if (result.status === "error") {
-        return {
-          status: "error" as const,
-          key: input.key,
-          error: result.error,
-        };
-      }
-
-      const nextSession =
-        (yield* Effect.tryPromise({
-          try: () => openResolution({ cwd: session.root }),
-          catch: () => null,
-        })) ?? session;
-      const production = (
-        nextSession.config?.plugins?.[input.key] as
-          | {
-              production?: string;
-            }
-          | undefined
-      )?.production;
-
-      const manifest = production
-        ? yield* Effect.tryPromise({
-            try: () => fetchRemotePluginManifest(production),
-            catch: () => null,
-          })
-        : null;
-      const nextConfig = nextSession.config;
-      if (production && nextConfig) {
-        yield* Effect.tryPromise({
-          try: async () => {
-            await generateCodeArtifacts(session.root, nextConfig);
-          },
-          catch: () => undefined,
-        });
-      }
-
-      return {
-        status: "published" as const,
-        key: input.key,
-        path: localPath,
-        production,
-        fingerprint: result.fingerprint,
-        version: manifest?.plugin.version,
-      };
+      const admin = yield* PluginAdminService;
+      return yield* admin.publish(session, input);
     }),
   };
-}
-
-type PluginAttachmentConfig = NonNullable<BosConfig["plugins"]>[string];
-
-function sanitizePluginKey(value: string): string {
-  return value
-    .replace(/[^A-Za-z0-9/_-]/g, "-")
-    .replace(/\/+/g, "/")
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => segment.replace(/[^A-Za-z0-9_-]/g, "-"))
-    .join("/")
-    .replace(/^\/+|\/+$/g, "");
-}
-
-function defaultPluginKey(source: string): string {
-  const normalized = source.replace(/^local:/, "").replace(/\/$/, "");
-  if (source.startsWith("local:")) {
-    return sanitizePluginKey(basename(normalized)) || "plugin";
-  }
-
-  try {
-    const url = new URL(source);
-    return sanitizePluginKey(basename(url.pathname) || url.hostname) || "plugin";
-  } catch {
-    return sanitizePluginKey(source) || "plugin";
-  }
-}
-
-function pluginLocalPath(configDir: string, attachment: PluginAttachmentConfig): string | null {
-  const ref = getPluginRef(attachment);
-  const source = ref?.development ?? ref?.production;
-  if (!source?.startsWith("local:")) {
-    return null;
-  }
-
-  return join(configDir, source.slice("local:".length));
-}
-
-function listPluginAttachments(config: BosConfig | null) {
-  return (Object.entries(config?.plugins ?? {}) as Array<[string, PluginAttachmentConfig]>)
-    .map(([key, attachment]) => {
-      const ref = getPluginRef(attachment);
-      return {
-        key,
-        development: ref?.development,
-        production: ref?.production,
-        localPath: ref?.development?.startsWith("local:")
-          ? ref.development.slice("local:".length)
-          : undefined,
-        source: ref?.development?.startsWith("local:") ? ("local" as const) : ("remote" as const),
-        integrity: ref?.integrity,
-        version: ref?.version,
-        name: ref?.name,
-      };
-    })
-    .sort((a, b) => a.key.localeCompare(b.key));
 }
