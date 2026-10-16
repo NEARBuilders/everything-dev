@@ -1,5 +1,4 @@
 import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
-import type { DbDoctorResult, DbRepairResult, DbStudioResult } from "../contract";
 import { DbOpsService } from "../services/db-ops";
 import type { BosBuilder } from "./shared";
 
