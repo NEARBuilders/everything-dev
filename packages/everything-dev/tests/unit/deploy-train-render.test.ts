@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import { beforeAll, describe, expect, it } from "vitest";
-import { cliDeployTrainRender } from "../../src/cli/render/deploy-train";
+import { cliDeployTrainRender, renderBuildWarnings } from "../../src/cli/render/deploy-train";
 
 const quietConsole = () => {
   const printed: string[] = [];
@@ -83,6 +83,39 @@ describe("cliDeployTrainRender (output snapshots)", () => {
           "    + per-deploy manifest 2026-10-16T16-49-02-220Z.json (audit trail)",
         ]
       `);
+    } finally {
+      restore();
+    }
+  });
+
+  it("build warnings render attributed per workspace", () => {
+    const { printed, restore } = quietConsole();
+    try {
+      renderBuildWarnings([
+        { key: "ui", warnings: ["WARNING in ./src/index.ts\n  ⚠ something smells (rsbuild)"] },
+        { key: "api", warnings: [] },
+        { key: "votes", warnings: ["WARN stale lockfile detected"] },
+      ]);
+
+      expect(printed).toMatchInlineSnapshot(`
+        [
+          "",
+          "  ⚠ Build warnings:",
+          "    ui                           WARNING in ./src/index.ts",
+          "                                   ⚠ something smells (rsbuild)",
+          "    votes                        WARN stale lockfile detected",
+        ]
+      `);
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders nothing when no workspace has warnings", () => {
+    const { printed, restore } = quietConsole();
+    try {
+      renderBuildWarnings([{ key: "ui", warnings: [] }]);
+      expect(printed).toEqual([]);
     } finally {
       restore();
     }

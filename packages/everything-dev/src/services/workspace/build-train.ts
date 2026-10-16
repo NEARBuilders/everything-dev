@@ -212,7 +212,7 @@ async function buildOneWorkspace(
     kind: ws.kind,
     success: exitCode === 0,
     stderr: proc?.stderr ?? "",
-    warnings: extractBuildWarnings(`${stderrBuffer.join("")}${proc?.stderr ?? ""}`),
+    warnings: extractBuildWarnings(stderrBuffer.join("")),
     ...(exitCode !== 0 && {
       error: `Build failed (exit code ${exitCode})\n${output.trim().split("\n").slice(-5).join("\n")}`,
     }),

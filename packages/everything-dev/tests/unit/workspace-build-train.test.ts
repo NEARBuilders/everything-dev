@@ -91,14 +91,17 @@ describe("buildWorkspaceTargets", () => {
   });
 
   it("buffers child stderr and attributes warnings to the workspace outcome", async () => {
-    const stderrChunks: string[] = [];
-    const run = async () => {
-      // Simulate a plugin build: a banner line, a WARNING box, ordinary noise.
-      stderrChunks.push(
-        "$ every-plugin build\n",
-        "WARNING in ./src/index.ts\n  ⚠ something smells (rsbuild)\n\n",
-      );
-      return { stdout: "", stderr: stderrChunks.join(""), exitCode: 0 };
+    const run = async (
+      _cmd: string,
+      _args: string[],
+      opts: { onChunk?: (stream: "stdout" | "stderr", chunk: Buffer) => void } | undefined,
+    ) => {
+      // Simulate a plugin build via the chunk stream: a banner line, a
+      // WARNING box, ordinary noise.
+      opts?.onChunk?.("stderr", Buffer.from("$ every-plugin build\n"));
+      opts?.onChunk?.("stderr", Buffer.from("WARNING in ./src/index.ts\n"));
+      opts?.onChunk?.("stderr", Buffer.from("  ⚠ something smells (rsbuild)\n\n"));
+      return { stdout: "", stderr: "", exitCode: 0 };
     };
 
     const outcomes: WorkspaceBuildOutcome[] = [];

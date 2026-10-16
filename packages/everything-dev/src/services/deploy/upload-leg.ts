@@ -195,7 +195,7 @@ async function resolveSourceReference(
     notes: string[];
   },
 ): Promise<{ source: SourceRef } | { memory: true }> {
-  const notes = input.notes ?? [];
+  const notes = input.notes;
   const outDir = makeSourceArchiveTempDir();
   try {
     const archive = await deps.buildSourceArchive({
