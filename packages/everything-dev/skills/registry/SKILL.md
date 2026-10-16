@@ -2,7 +2,7 @@
 name: registry
 description: Read and write the FastKV config registry efficiently — key layout, namespace=signer semantics, integrity, and composing published runtimes into the local authored config. Use when publishing configs, composing another runtime's UI/host/api/plugins, or debugging why a published config doesn't resolve.
 metadata:
-  sources: "packages/everything-dev/src/services/registry/fastkv.ts,packages/everything-dev/src/services/deploy/train.ts,packages/everything-dev/src/services/auth/signer.ts,packages/everything-dev/src/registry-use.ts,packages/everything-dev/src/plugin.ts"
+  sources: "packages/everything-dev/src/services/registry/fastkv.ts,packages/everything-dev/src/services/deploy/train.ts,packages/everything-dev/src/services/auth/signer.ts,packages/everything-dev/src/near-signer.ts,packages/everything-dev/src/registry-use.ts,packages/everything-dev/src/plugin.ts"
 ---
 
 # FastKV Registry — Efficient Read & Write
