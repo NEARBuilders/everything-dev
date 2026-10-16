@@ -24,10 +24,15 @@ import { DeviceLoginService } from "./services/auth/device-login";
 import { SessionStore } from "./services/auth/session-store";
 import { SignerService } from "./services/auth/signer";
 import { SiteClient } from "./services/auth/site-client";
+import { DbOpsService } from "./services/db-ops";
 import { BundleStorage, RegistryStore } from "./services/deploy/deps";
 import { DeployTrainService } from "./services/deploy/train";
+import { DevFlowService } from "./services/dev-flow";
+import { OpsService } from "./services/ops";
+import { PluginAdminService } from "./services/plugins-admin";
 import { ProcessesService } from "./services/processes";
 import { openResolution, ResolutionSessionService } from "./services/resolution/session";
+import { InitFlowService } from "./services/scaffold/init-flow";
 import { BuildTrainService, WorkspaceBuildRenderService } from "./services/workspace/build-train";
 
 export type { DevSessionData, StartSummary } from "./dev-program";
@@ -76,26 +81,38 @@ export default createPlugin({
         ),
       );
 
+      const dbBindingsLayer = Layer.succeed(
+        DatabaseBindings,
+        Context.get(services, DatabaseBindings),
+      );
+      const drizzleKitLayer = Layer.succeed(DrizzleKit, Context.get(services, DrizzleKit));
+      const deployTrainLayer = DeployTrainService.Live.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            BundleStorage.Live,
+            RegistryStore.Live,
+            SignerService.Live,
+            buildTrainLayer,
+          ),
+        ),
+      );
+
       return Layer.mergeAll(
         Layer.succeed(ResolutionSessionService, session),
-        Layer.succeed(DatabaseBindings, Context.get(services, DatabaseBindings)),
-        Layer.succeed(DrizzleKit, Context.get(services, DrizzleKit)),
+        dbBindingsLayer,
+        drizzleKitLayer,
         ProcessesService.Live,
         SiteClient.Live,
         SessionStore.Live,
         DeviceLoginService.Live.pipe(Layer.provide(SiteClient.Live)),
         buildRenderLayer,
         buildTrainLayer,
-        DeployTrainService.Live.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              BundleStorage.Live,
-              RegistryStore.Live,
-              SignerService.Live,
-              buildTrainLayer,
-            ),
-          ),
-        ),
+        deployTrainLayer,
+        OpsService.Live,
+        DbOpsService.Live.pipe(Layer.provide(Layer.mergeAll(dbBindingsLayer, drizzleKitLayer))),
+        PluginAdminService.Live.pipe(Layer.provide(deployTrainLayer)),
+        DevFlowService.Live,
+        InitFlowService.Live,
       );
     }),
   createRouter: (builder) => ({
