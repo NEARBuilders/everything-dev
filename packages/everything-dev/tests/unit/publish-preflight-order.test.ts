@@ -90,7 +90,7 @@ vi.mock("../../src/cdn-deploy", async (importOriginal) => {
 });
 
 import { writeSessionHandle } from "../../src/auth-session";
-import { publishToFastKv } from "../../src/publish";
+import { publishToFastKv } from "../../src/services/deploy/train";
 
 const bosConfig = {
   account: "dev.everything.near",

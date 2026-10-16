@@ -52,7 +52,7 @@ vi.mock("../../src/build", async (importOriginal) => {
   return { ...actual, buildWorkspaceTargets: buildWorkspaceTargetsMock };
 });
 
-import { publishToFastKv } from "../../src/publish";
+import { publishToFastKv } from "../../src/services/deploy/train";
 
 const bosConfig = {
   account: "dev.everything.near",

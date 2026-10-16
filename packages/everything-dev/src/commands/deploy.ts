@@ -1,636 +1,452 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import process from "node:process";
-import { Context } from "effect";
+import { Effect } from "effect";
 import { MISSING_CONFIG_MESSAGE } from "../config";
-import {
-  type DeployLegs,
-  resolveImageLegPlan,
-  resolveRailwayLeg,
-  resolveRuntimeTier,
-} from "../deploy-legs";
-import {
-  type ConfigHistoryEntry,
-  fetchBosConfigFromFastKv,
-  fetchConfigHistory,
-  fetchDeployManifests,
-} from "../fastkv";
-import {
-  buildAndPushImage,
-  deployImageToRailway,
-  hasDocker,
-  imageRefWithDigest,
-  isValidImageDigest,
-  resolveImageRef,
-} from "../image-deploy";
-import { publishToFastKv } from "../publish";
+import type {
+  DeployResult,
+  PublishResult,
+  RollbackResult,
+  WorkspaceDeployResult,
+} from "../contract";
+import { fetchDeployManifests } from "../fastkv";
+import { isValidImageDigest } from "../image-deploy";
 import { openResolution } from "../resolution/session";
-import { buildRollbackPayload, summarizeSlotPins, verifyRollbackSnapshot } from "../rollback";
-import { runSmoke } from "../smoke";
-import type { BosConfigInput } from "../types";
-import { BosConfigSchema } from "../types";
-import { colors, icons } from "../utils/theme";
+import { summarizeSlotPins, verifyRollbackSnapshot } from "../rollback";
+import type { PublishTrainError, PublishTrainOk } from "../services/deploy/errors";
+import { runPostPublishLegs } from "../services/deploy/legs";
+import {
+  fetchLiveConfig,
+  fetchRollbackHistory,
+  isSnapshotLive,
+  publishRollbackSnapshot,
+} from "../services/deploy/rollback-flow";
+import { type DeployTrainInput, DeployTrainService } from "../services/deploy/train";
+import type { BosConfig, BosConfigInput, RuntimeConfig } from "../types";
 import { type BosBuilder, BosDepsTag } from "./shared";
 
-interface RollbackToPreviousInput {
-  account: string;
-  domain: string;
-  env: "production" | "staging";
-  runtimeConfig: Parameters<typeof publishToFastKv>[0]["runtimeConfig"];
-  configDir: string;
-  registry?: string;
-  network?: "mainnet" | "testnet";
-  privateKey?: string;
-  wallet?: boolean;
-  verbose?: boolean;
-}
+type TrainErrorResult = {
+  status: "error";
+  registryUrl: string;
+  error: string;
+  txHash?: string;
+  built?: string[];
+  skipped?: string[];
+  deployResults?: WorkspaceDeployResult[];
+};
 
-/** Roll the registry config back to the previous snapshot in the FastKV
- * publish history — the post-publish smoke failure protocol (ADR 0021):
- * a red boot gate must never leave a new config live against an old image,
- * so the promotion is halted and the config reverts to the last known-good
- * snapshot within seconds. */
-async function rollbackToPreviousSnapshot(
-  input: RollbackToPreviousInput,
-): Promise<{ ok: boolean; blockHeight?: string; error?: string }> {
-  let history: ConfigHistoryEntry[];
-  try {
-    history = await fetchConfigHistory({
-      accountId: input.account,
-      gatewayId: input.domain,
-      registry: input.registry,
-      limit: 20,
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      error: `fetching publish history failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
+type TrainOk = PublishTrainOk & { status: "published" | "dry-run" };
+type TrainResult = TrainOk | TrainErrorResult;
 
-  const previous = history[1];
-  if (!previous) {
-    return {
-      ok: false,
-      error: "no previous snapshot in the publish history — nothing to roll back to",
-    };
-  }
+const mapTrainError = (error: PublishTrainError) =>
+  Effect.succeed({ ...error.toResult(), status: "error" as const }) as Effect.Effect<TrainResult>;
 
-  const verification = await verifyRollbackSnapshot(previous.value as BosConfigInput);
-  if (!verification.ok && verification.verifiable) {
-    return {
-      ok: false,
-      error: "rollback refused — a pinned slot's bytes are gone or no longer match their SRI",
-    };
-  }
-
-  const payload = buildRollbackPayload(
-    BosConfigSchema.parse(previous.value),
-    new Date().toISOString(),
-  );
-  const result = await publishToFastKv({
-    bosConfig: payload,
-    runtimeConfig: input.runtimeConfig,
-    configDir: input.configDir,
-    env: input.env,
-    build: false,
-    dryRun: false,
-    verbose: input.verbose ?? false,
-    packages: "all",
-    network: input.network,
-    privateKey: input.privateKey,
-    wallet: input.wallet ?? false,
-    registry: input.registry,
-    exactPayload: true,
-  });
-  if (result.status !== "published") {
-    return {
-      ok: false,
-      error: `rollback publish failed: ${result.error ?? result.status}`,
-    };
-  }
-  return { ok: true, blockHeight: String(previous.blockHeight) };
-}
+const runTrain = (
+  train: { publish: (input: DeployTrainInput) => Effect.Effect<PublishTrainOk, PublishTrainError> },
+  input: DeployTrainInput,
+): Promise<TrainResult> =>
+  Effect.runPromise(train.publish(input).pipe(Effect.catchTag("PublishTrainError", mapTrainError)));
 
 export function registerDeploy(builder: BosBuilder) {
   return {
-    publish: builder.publish.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
+    publish: builder.publish.effect(function* (_opts, input) {
+      const deps = yield* BosDepsTag;
+      const train = yield* DeployTrainService;
       const session = deps.session;
       if (!session?.config) {
         return {
           status: "error" as const,
           registryUrl: "",
           error: MISSING_CONFIG_MESSAGE,
-        };
+        } satisfies PublishResult;
       }
 
-      const result = await publishToFastKv({
-        bosConfig: session.config,
-        runtimeConfig: session.runtime,
-        configDir: session.root,
-        env: input.env,
-        build: false,
-        dryRun: input.dryRun,
-        verbose: input.verbose,
-        packages: "all",
-        network: input.network,
-        privateKey: input.privateKey,
-        wallet: input.wallet,
-        registry: input.registry,
-      });
+      const result: TrainResult = yield* train
+        .publish({
+          bosConfig: session.config,
+          runtimeConfig: session.runtime,
+          configDir: session.root,
+          env: input.env,
+          build: false,
+          dryRun: input.dryRun,
+          verbose: input.verbose,
+          packages: "all",
+          network: input.network,
+          privateKey: input.privateKey,
+          wallet: input.wallet,
+          registry: input.registry,
+        })
+        .pipe(Effect.catchTag("PublishTrainError", mapTrainError));
 
       return {
         status: result.status,
         registryUrl: result.registryUrl,
         txHash: result.txHash,
-        error: result.error,
+        ...(result.status === "error" && result.error ? { error: result.error } : {}),
         built: result.built,
         skipped: result.skipped,
         deployResults: result.deployResults,
-      };
+      } satisfies PublishResult;
     }),
 
-    rollback: builder.rollback.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
+    rollback: builder.rollback.effect(function* (_opts, input) {
+      const deps = yield* BosDepsTag;
       const session = deps.session;
       if (!session) {
         return {
           status: "error" as const,
           registryUrl: "",
           error: MISSING_CONFIG_MESSAGE,
-        };
+        } satisfies RollbackResult;
       }
 
-      const { account, domain } = session.config ?? {};
-      if (!account || !domain) {
-        return {
+      return yield* Effect.tryPromise({
+        try: () => rollbackBody(session, input),
+        catch: (error) => ({
           status: "error" as const,
           registryUrl: "",
-          error: "authored config must define account and domain to roll back",
-        };
-      }
-
-      let history: ConfigHistoryEntry[];
-      try {
-        history = await fetchConfigHistory({
-          accountId: account,
-          gatewayId: domain,
-          registry: input.registry,
-          limit: input.limit,
-        });
-      } catch (error) {
-        return {
-          status: "error" as const,
-          registryUrl: "",
-          error: `Failed to fetch publish history: ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
-
-      if (history.length === 0) {
-        return {
-          status: "error" as const,
-          registryUrl: "",
-          error: `No publish history for ${account}/${domain} — nothing to roll back to`,
-        };
-      }
-
-      const historyEntries = history.map((entry) => ({
-        blockHeight: entry.blockHeight,
-        blockTimestamp: new Date(Number(entry.blockTimestampNs.slice(0, 13))).toISOString(),
-        ...(entry.txHash ? { txHash: entry.txHash } : {}),
-        summary: summarizeSlotPins(entry.value as BosConfigInput),
-      }));
-
-      if (input.listOnly) {
-        return {
-          status: "list" as const,
-          registryUrl: "",
-          history: historyEntries,
-        };
-      }
-
-      const target =
-        input.version !== undefined
-          ? history.find((entry) => {
-              const iso = new Date(Number(entry.blockTimestampNs.slice(0, 13))).toISOString();
-              return (
-                String(entry.blockHeight) === input.version ||
-                iso.startsWith(input.version as string)
-              );
-            })
-          : input.previous
-            ? history[1]
-            : undefined;
-
-      if (!target) {
-        return {
-          status: "error" as const,
-          registryUrl: "",
-          history: historyEntries,
-          error: input.version
-            ? `No history entry matches "${input.version}" — pick a block height from the listing`
-            : "Specify --version <block-height> or --previous (interactive selection happens CLI-side)",
-        };
-      }
-
-      let liveValue: unknown;
-      try {
-        liveValue = await fetchBosConfigFromFastKv<unknown>(
-          `bos://${account}/${domain}`,
-          input.registry,
-        );
-      } catch {
-        liveValue = undefined;
-      }
-      if (liveValue && JSON.stringify(liveValue) === JSON.stringify(target.value)) {
-        return {
-          status: "error" as const,
-          registryUrl: "",
-          error: "The selected snapshot is identical to the live config — nothing to do",
-        };
-      }
-
-      const verification = await verifyRollbackSnapshot(target.value as BosConfigInput);
-      const slotChecks = verification.slots.map((check) => ({
-        slot: check.slot,
-        ok: check.ok,
-        ...(check.reason ? { reason: check.reason } : {}),
-      }));
-      if (!verification.ok && verification.verifiable) {
-        return {
-          status: "error" as const,
-          registryUrl: "",
-          verification: slotChecks,
-          error:
-            "Refusing to roll back — a pinned slot's bytes are gone or no longer match their SRI",
-        };
-      }
-
-      if (!verification.verifiable && !input.force) {
-        return {
-          status: "error" as const,
-          registryUrl: "",
-          error:
-            "Snapshot predates version manifests and cannot be verified — its bytes were overwritten in place. Re-run with --force to publish it anyway.",
-        };
-      }
-
-      const parsedTarget = BosConfigSchema.parse(target.value);
-      const payload = buildRollbackPayload(parsedTarget, new Date().toISOString());
-
-      const result = await publishToFastKv({
-        bosConfig: payload,
-        runtimeConfig: session.runtime,
-        configDir: session.root,
-        env: input.env,
-        build: false,
-        dryRun: input.dryRun,
-        verbose: input.verbose,
-        packages: "all",
-        network: input.network,
-        privateKey: input.privateKey,
-        wallet: input.wallet,
-        registry: input.registry,
-        exactPayload: true,
+          error: error instanceof Error ? error.message : String(error),
+        }),
       });
-
-      return {
-        status: result.status,
-        registryUrl: result.registryUrl,
-        txHash: result.txHash,
-        error: result.error,
-        history: historyEntries,
-        ...(slotChecks.length > 0 ? { verification: slotChecks } : {}),
-      };
     }),
 
-    deploy: builder.deploy.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
+    deploy: builder.deploy.effect(function* (_opts, input) {
+      const deps = yield* BosDepsTag;
+      const train = yield* DeployTrainService;
       const session = deps.session;
       if (!session?.config) {
         return {
           status: "error" as const,
           registryUrl: "",
           error: MISSING_CONFIG_MESSAGE,
-        };
+        } satisfies DeployResult;
       }
+      const config = session.config;
+      const deploySession = { config, runtime: session.runtime, root: session.root };
 
-      if (input.statusList) {
-        if (!session.config?.account || !session.config.domain) {
-          return {
-            status: "error" as const,
-            registryUrl: "",
-            error: "authored config must define account and domain to list deploy manifests",
-          };
-        }
-        try {
-          const manifests = await fetchDeployManifests({
-            accountId: session.config.account,
-            gatewayId: session.config.domain,
-            registry: input.registry,
-          });
-          return {
-            status: "list" as const,
-            registryUrl: "",
-            history: manifests.map((entry) => ({
-              key: entry.key,
-              blockHeight: entry.blockHeight,
-              blockTimestamp: new Date(Number(entry.blockTimestampNs.slice(0, 13))).toISOString(),
-              ...((entry.value as { txHash?: string } | undefined)?.txHash
-                ? { txHash: (entry.value as { txHash?: string }).txHash }
-                : {}),
-              ...((entry.value as { publishedAt?: string } | undefined)?.publishedAt
-                ? { publishedAt: (entry.value as { publishedAt?: string }).publishedAt }
-                : {}),
-            })),
-          };
-        } catch (error) {
-          return {
-            status: "error" as const,
-            registryUrl: "",
-            error: `Failed to list deploy manifests: ${error instanceof Error ? error.message : String(error)}`,
-          };
-        }
-      }
-
-      const imageDigestInput = input.imageDigest ?? process.env.BOS_IMAGE_DIGEST;
-      if (imageDigestInput && !isValidImageDigest(imageDigestInput)) {
-        return {
+      return yield* Effect.tryPromise({
+        try: () => deployBody(train, deploySession, input),
+        catch: (error) => ({
           status: "error" as const,
           registryUrl: "",
-          error: `Invalid image digest "${imageDigestInput}" — expected sha256:<64 hex characters> (--image-digest / BOS_IMAGE_DIGEST)`,
-        };
-      }
-
-      const result = await publishToFastKv({
-        bosConfig: session.config,
-        runtimeConfig: session.runtime,
-        configDir: session.root,
-        env: input.env,
-        build: input.build,
-        dryRun: input.dryRun,
-        verbose: input.verbose,
-        packages: input.packages,
-        network: input.network,
-        privateKey: input.privateKey,
-        registry: input.registry,
-        fullUpload: input.fullUpload,
-      });
-
-      if (result.status === "error") {
-        return {
-          status: "error" as const,
-          registryUrl: result.registryUrl,
-          txHash: result.txHash,
-          built: result.built,
-          skipped: result.skipped,
-          error: result.error,
-          deployResults: result.deployResults,
-        };
-      }
-
-      if (result.status === "dry-run") {
-        return {
-          status: "dry-run" as const,
-          registryUrl: result.registryUrl,
-          built: result.built,
-          skipped: result.skipped,
-        };
-      }
-
-      let nextSession = session;
-      if (result.publishConfig) {
-        const opened = await openResolution({ cwd: session.root });
-        if (opened) {
-          nextSession = opened;
-        }
-      }
-
-      const configPublished = {
-        registryUrl: result.registryUrl,
-        txHash: result.txHash,
-        fingerprint: result.fingerprint,
-        slotPins: result.slotPins,
-        built: result.built,
-        skipped: result.skipped,
-        deployResults: result.deployResults,
-      } as const;
-
-      let image: string | undefined;
-      let imageDigest: string | undefined;
-      let service: string | undefined;
-      const legs: DeployLegs = {};
-
-      const hasDockerfile = existsSync(join(session.root, "Dockerfile"));
-      const tier = resolveRuntimeTier({
-        ciImage: nextSession.config?.ci?.image,
-        imageEnv: process.env.BOS_IMAGE,
-        hasDockerfile,
-      });
-
-      const imagePlan = resolveImageLegPlan({
-        tier,
-        // A prebuilt digest pairs with the pushed ref (BOS_IMAGE from the CI
-        // image job, or repository derivation) — ci.image is a build-time
-        // choice, not a pin-time one; letting it win here could pin a digest
-        // from a different image.
-        imageRef: resolveImageRef({
-          ciImage: imageDigestInput ? undefined : nextSession.config?.ci?.image,
-          repository: nextSession.config?.repository,
-          env: process.env,
+          error: error instanceof Error ? error.message : String(error),
         }),
-        imageDigest: imageDigestInput,
-        hasDocker: tier === "root" ? await hasDocker() : false,
-        hasDockerfile,
       });
-
-      if (imagePlan.kind === "skip") {
-        legs.image = { status: "skipped", detail: imagePlan.reason };
-        console.log();
-        console.log(colors.yellow(`  Image skipped: ${imagePlan.reason}`));
-      } else if (imagePlan.kind === "prebuilt") {
-        image = imagePlan.image;
-        imageDigest = imagePlan.digest;
-        legs.image = {
-          status: "ok",
-          detail: `pre-pushed ${imagePlan.image}@${imagePlan.digest.slice(0, 19)}…`,
-        };
-        console.log();
-        console.log(
-          colors.green(
-            `  ${icons.ok} Using pre-pushed image ${imagePlan.image}@${imagePlan.digest.slice(0, 19)}…`,
-          ),
-        );
-      } else {
-        console.log();
-        try {
-          const imageResult = await buildAndPushImage({
-            image: imagePlan.image,
-            configDir: session.root,
-            verbose: input.verbose,
-          });
-          image = imageResult.image;
-          imageDigest = imageResult.digest;
-          legs.image = {
-            status: "ok",
-            detail: `built and pushed ${imageResult.image}:${imageResult.tag}`,
-          };
-          console.log(
-            colors.green(
-              `  ${icons.ok} Image pushed ${imageResult.image}:${imageResult.tag}${imageResult.digest ? ` (${imageResult.digest.slice(0, 19)}…)` : ""}`,
-            ),
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          const imageError =
-            message.includes("not found") || message.includes("ENOENT")
-              ? "Docker not found — install Docker to build the runtime image"
-              : `Image build/push failed: ${message}`;
-          legs.image = { status: "failed", detail: imageError };
-          console.log(colors.yellow(`  ${imageError}`));
-          return {
-            status: "published" as const,
-            ...configPublished,
-            image,
-            legs,
-            error: `Config published but ${imageError}`,
-          };
-        }
-      }
-
-      // Post-publish boot gate (publish → smoke → Railway, ADR 0021): the
-      // just-published config is only promoted to Railway if the runtime
-      // image — the one this train pinned — boots against it. A red smoke
-      // rolls the config back to the previous snapshot, so the new-config/
-      // old-image window never survives the deploy run.
-      if (input.smoke) {
-        if (!image || !imageDigest) {
-          const smokeSkip =
-            tier === "child"
-              ? "child runtime inherits the root's universal image — no image digest to boot in this train"
-              : "no runtime image digest — set ci.image (or pass BOS_IMAGE_DIGEST)";
-          legs.smoke = { status: "skipped", detail: smokeSkip };
-          console.log();
-          console.log(colors.yellow(`  Post-publish smoke skipped: ${smokeSkip}`));
-        } else {
-          console.log();
-          console.log(colors.cyan("  ▶ Post-publish smoke (boot gate)"));
-          const smokeResult = await runSmoke({
-            image: imageRefWithDigest(image, imageDigest),
-            account: nextSession.config?.account,
-            gateway: nextSession.config?.domain,
-          });
-          if (!smokeResult.ok) {
-            const cause = smokeResult.error ?? "unknown failure";
-            console.log();
-            console.log(colors.error(`  ${icons.err} Post-publish smoke failed: ${cause}`));
-            if (smokeResult.diagnosis) {
-              console.log(colors.yellow(`  ${smokeResult.diagnosis}`));
-            }
-            legs.smoke = { status: "failed", detail: cause };
-            const account = nextSession.config?.account;
-            const domain = nextSession.config?.domain;
-            if (!account || !domain) {
-              console.log(colors.yellow("  Rollback skipped: no registry identity in the session"));
-              return {
-                status: "published" as const,
-                ...configPublished,
-                image,
-                legs,
-                error: `Post-publish smoke failed (${cause}) — config NOT rolled back: no registry identity`,
-              };
-            }
-            console.log(colors.yellow("  Rolling the published config back…"));
-            const rollback = await rollbackToPreviousSnapshot({
-              account,
-              domain,
-              env: input.env,
-              runtimeConfig: nextSession.runtime,
-              configDir: nextSession.root,
-              registry: input.registry,
-              network: input.network,
-              privateKey: input.privateKey,
-              verbose: input.verbose,
-            });
-            const rollbackNote = rollback.ok
-              ? `config rolled back to block ${rollback.blockHeight}`
-              : `config NOT rolled back: ${rollback.error ?? "unknown"}`;
-            console.log(colors.yellow(`  ${rollbackNote}`));
-            return {
-              status: "published" as const,
-              ...configPublished,
-              image,
-              legs,
-              error: `Post-publish smoke failed (${cause}) — ${rollbackNote}`,
-            };
-          }
-          legs.smoke = { status: "ok", detail: smokeResult.summary };
-          console.log(
-            colors.green(`  ${icons.ok} Post-publish smoke passed: ${smokeResult.summary ?? ""}`),
-          );
-        }
-      }
-
-      const railwayService = input.service ?? nextSession.config?.ci?.railway?.service;
-      const railwayDecision = resolveRailwayLeg({
-        tier,
-        railwayToken: process.env.RAILWAY_TOKEN,
-        service: railwayService,
-        digest: imageDigest,
-      });
-
-      if (railwayDecision.action === "skip") {
-        legs.railway = railwayDecision.outcome;
-        console.log();
-        console.log(
-          railwayDecision.outcome.status === "failed"
-            ? colors.yellow(`  Railway deploy failed: ${railwayDecision.outcome.detail}`)
-            : colors.yellow(`  Railway deploy skipped: ${railwayDecision.outcome.detail}`),
-        );
-        if (railwayDecision.outcome.status === "failed") {
-          return {
-            status: "published" as const,
-            ...configPublished,
-            image,
-            legs,
-            error: `Config published but ${railwayDecision.outcome.detail}`,
-          };
-        }
-      } else {
-        service = railwayService;
-        try {
-          await deployImageToRailway({
-            service: railwayService!,
-            configDir: session.root,
-          });
-          legs.railway = { status: "ok", detail: `redeployed ${service}` };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          const railError =
-            message.includes("not found") || message.includes("ENOENT")
-              ? "Railway CLI not found. Install it: npm i -g @railway/cli"
-              : `Railway deploy failed: ${message}`;
-          legs.railway = { status: "failed", detail: railError };
-          console.log(colors.yellow(`  ${railError}`));
-          return {
-            status: "published" as const,
-            ...configPublished,
-            image,
-            service,
-            legs,
-            error: `Config published but ${railError}`,
-          };
-        }
-      }
-
-      return {
-        status: "deployed" as const,
-        ...configPublished,
-        image,
-        service,
-        legs,
-      };
     }),
+  };
+}
+
+async function rollbackBody(
+  session: { config: BosConfig | null; runtime: RuntimeConfig | null; root: string },
+  input: {
+    registry?: string;
+    limit: number;
+    listOnly: boolean;
+    version?: string;
+    previous: boolean;
+    force: boolean;
+    env: "production" | "staging";
+    dryRun: boolean;
+    verbose: boolean;
+    network?: "mainnet" | "testnet";
+    privateKey?: string;
+    wallet: boolean;
+  },
+): Promise<RollbackResult> {
+  const { account, domain } = session.config ?? {};
+  if (!account || !domain) {
+    return {
+      status: "error",
+      registryUrl: "",
+      error: "authored config must define account and domain to roll back",
+    };
+  }
+
+  let history: Awaited<ReturnType<typeof fetchRollbackHistory>>;
+  try {
+    history = await fetchRollbackHistory({
+      account,
+      domain,
+      registry: input.registry,
+      limit: input.limit,
+    });
+  } catch (error) {
+    return {
+      status: "error",
+      registryUrl: "",
+      error: `Failed to fetch publish history: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  if (history.length === 0) {
+    return {
+      status: "error",
+      registryUrl: "",
+      error: `No publish history for ${account}/${domain} — nothing to roll back to`,
+    };
+  }
+
+  const historyEntries = history.map((entry) => ({
+    blockHeight: entry.blockHeight,
+    blockTimestamp: new Date(Number(entry.blockTimestampNs.slice(0, 13))).toISOString(),
+    ...(entry.txHash ? { txHash: entry.txHash } : {}),
+    summary: summarizeSlotPins(entry.value as BosConfigInput),
+  }));
+
+  if (input.listOnly) {
+    return {
+      status: "list",
+      registryUrl: "",
+      history: historyEntries,
+    };
+  }
+
+  const target =
+    input.version !== undefined
+      ? history.find((entry) => {
+          const iso = new Date(Number(entry.blockTimestampNs.slice(0, 13))).toISOString();
+          return (
+            String(entry.blockHeight) === input.version || iso.startsWith(input.version as string)
+          );
+        })
+      : input.previous
+        ? history[1]
+        : undefined;
+
+  if (!target) {
+    return {
+      status: "error",
+      registryUrl: "",
+      history: historyEntries,
+      error: input.version
+        ? `No history entry matches "${input.version}" — pick a block height from the listing`
+        : "Specify --version <block-height> or --previous (interactive selection happens CLI-side)",
+    };
+  }
+
+  const liveValue = await fetchLiveConfig({ account, domain, registry: input.registry });
+  if (liveValue !== undefined && isSnapshotLive(target.value, liveValue)) {
+    return {
+      status: "error",
+      registryUrl: "",
+      error: "The selected snapshot is identical to the live config — nothing to do",
+    };
+  }
+
+  const verification = await verifyRollbackSnapshot(target.value as BosConfigInput);
+  const slotChecks = verification.slots.map((check) => ({
+    slot: check.slot,
+    ok: check.ok,
+    ...(check.reason ? { reason: check.reason } : {}),
+  }));
+  if (!verification.ok && verification.verifiable) {
+    return {
+      status: "error",
+      registryUrl: "",
+      verification: slotChecks,
+      error: "Refusing to roll back — a pinned slot's bytes are gone or no longer match their SRI",
+    };
+  }
+
+  if (!verification.verifiable && !input.force) {
+    return {
+      status: "error",
+      registryUrl: "",
+      error:
+        "Snapshot predates version manifests and cannot be verified — its bytes were overwritten in place. Re-run with --force to publish it anyway.",
+    };
+  }
+
+  const rollback = await publishRollbackSnapshot(
+    target.value,
+    {
+      account,
+      domain,
+      env: input.env,
+      runtimeConfig: session.runtime,
+      configDir: session.root,
+      registry: input.registry,
+      network: input.network,
+      privateKey: input.privateKey,
+      wallet: input.wallet,
+      verbose: input.verbose,
+      dryRun: input.dryRun,
+    },
+    { skipVerify: true },
+  );
+  if (!rollback.ok) {
+    return {
+      status: "error",
+      registryUrl: rollback.registryUrl,
+      history: historyEntries,
+      error: rollback.error,
+    };
+  }
+
+  return {
+    status: rollback.dryRun ? "dry-run" : "published",
+    registryUrl: rollback.registryUrl,
+    txHash: rollback.txHash,
+    history: historyEntries,
+    ...(slotChecks.length > 0 ? { verification: slotChecks } : {}),
+  };
+}
+
+async function deployBody(
+  train: { publish: (input: DeployTrainInput) => Effect.Effect<PublishTrainOk, PublishTrainError> },
+  session: { config: BosConfig; runtime: RuntimeConfig | null; root: string },
+  input: {
+    registry?: string;
+    statusList: boolean;
+    env: "production" | "staging";
+    build: boolean;
+    dryRun: boolean;
+    verbose: boolean;
+    packages: string;
+    network?: "mainnet" | "testnet";
+    privateKey?: string;
+    service?: string;
+    imageDigest?: string;
+    fullUpload: boolean;
+    smoke: boolean;
+  },
+): Promise<DeployResult> {
+  if (input.statusList) {
+    if (!session.config?.account || !session.config.domain) {
+      return {
+        status: "error",
+        registryUrl: "",
+        error: "authored config must define account and domain to list deploy manifests",
+      };
+    }
+    try {
+      const manifests = await fetchDeployManifests({
+        accountId: session.config.account,
+        gatewayId: session.config.domain,
+        registry: input.registry,
+      });
+      return {
+        status: "list",
+        registryUrl: "",
+        history: manifests.map((entry) => ({
+          key: entry.key,
+          blockHeight: entry.blockHeight,
+          blockTimestamp: new Date(Number(entry.blockTimestampNs.slice(0, 13))).toISOString(),
+          ...((entry.value as { txHash?: string } | undefined)?.txHash
+            ? { txHash: (entry.value as { txHash?: string }).txHash }
+            : {}),
+          ...((entry.value as { publishedAt?: string } | undefined)?.publishedAt
+            ? { publishedAt: (entry.value as { publishedAt?: string }).publishedAt }
+            : {}),
+        })),
+      };
+    } catch (error) {
+      return {
+        status: "error",
+        registryUrl: "",
+        error: `Failed to list deploy manifests: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  const imageDigestInput = input.imageDigest ?? process.env.BOS_IMAGE_DIGEST;
+  if (imageDigestInput && !isValidImageDigest(imageDigestInput)) {
+    return {
+      status: "error",
+      registryUrl: "",
+      error: `Invalid image digest "${imageDigestInput}" — expected sha256:<64 hex characters> (--image-digest / BOS_IMAGE_DIGEST)`,
+    };
+  }
+
+  const result = await runTrain(train, {
+    bosConfig: session.config,
+    runtimeConfig: session.runtime,
+    configDir: session.root,
+    env: input.env,
+    build: input.build,
+    dryRun: input.dryRun,
+    verbose: input.verbose,
+    packages: input.packages,
+    network: input.network,
+    privateKey: input.privateKey,
+    registry: input.registry,
+    fullUpload: input.fullUpload,
+  });
+
+  if (result.status === "error") {
+    return {
+      status: "error",
+      registryUrl: result.registryUrl,
+      txHash: result.txHash,
+      built: result.built,
+      skipped: result.skipped,
+      error: result.error,
+      deployResults: result.deployResults,
+    };
+  }
+
+  if (result.status === "dry-run") {
+    return {
+      status: "dry-run",
+      registryUrl: result.registryUrl,
+      built: result.built,
+      skipped: result.skipped,
+    };
+  }
+
+  let nextSession: { config: BosConfig | null; runtime: RuntimeConfig | null; root: string } = {
+    config: session.config,
+    runtime: session.runtime,
+    root: session.root,
+  };
+  if (result.publishConfig) {
+    const opened = await openResolution({ cwd: session.root });
+    if (opened) {
+      nextSession = { config: opened.config, runtime: opened.runtime, root: opened.root };
+    }
+  }
+
+  const configPublished = {
+    registryUrl: result.registryUrl,
+    txHash: result.txHash,
+    fingerprint: result.fingerprint,
+    slotPins: result.slotPins,
+    built: result.built,
+    skipped: result.skipped,
+    deployResults: result.deployResults,
+  } as const;
+
+  const legsOutcome = await runPostPublishLegs({
+    sessionRoot: session.root,
+    env: input.env,
+    smoke: input.smoke,
+    imageDigestInput,
+    railwayService: input.service ?? nextSession.config?.ci?.railway?.service,
+    registry: input.registry,
+    network: input.network,
+    privateKey: input.privateKey,
+    verbose: input.verbose,
+    account: nextSession.config?.account,
+    domain: nextSession.config?.domain,
+    runtimeConfig: nextSession.runtime,
+    ciImage: nextSession.config?.ci?.image,
+    repository: nextSession.config?.repository,
+  });
+
+  if (legsOutcome.failure) {
+    return {
+      status: "published",
+      ...configPublished,
+      image: legsOutcome.image,
+      service: legsOutcome.service,
+      legs: legsOutcome.legs,
+      error: legsOutcome.failure,
+    };
+  }
+
+  return {
+    status: "deployed",
+    ...configPublished,
+    image: legsOutcome.image,
+    service: legsOutcome.service,
+    legs: legsOutcome.legs,
   };
 }

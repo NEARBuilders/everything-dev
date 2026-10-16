@@ -215,7 +215,7 @@ describe("rollback dedup guard", () => {
           }),
       ),
     );
-    const { isConfigAlreadyPublished } = await import("../../src/publish");
+    const { isConfigAlreadyPublished } = await import("../../src/services/deploy/train");
 
     const unstamped = await isConfigAlreadyPublished({
       account: "v1.citynode.near",
