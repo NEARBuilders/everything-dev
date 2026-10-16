@@ -48,8 +48,6 @@ export interface ResolutionRequest {
   collectCatalogs?: boolean;
 }
 
-/** The plugin-bootstrap resolution (nullable — no authored config is a
- * valid boot). Handlers yield this instead of the old BosDeps grab-bag. */
 export class ResolutionSessionService extends Context.Service<
   ResolutionSessionService,
   ResolutionSession | null
