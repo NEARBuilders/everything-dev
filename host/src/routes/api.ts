@@ -181,9 +181,16 @@ export async function setupApiRoutes(
       onError: (c) => c.json({ error: "Request body too large" }, 413),
     }),
   );
-  app.use(
-    "/api/*",
-    timeout(API_TIMEOUT_MS, () => new HTTPException(408, { message: "Request timeout" })),
+  // The auth routes enforce their own deadline (services/auth.ts
+  // AUTH_TIMEOUT_MS); exempting by PATH here — not by registration order — is
+  // what makes the /api/auth/* scoping structural: either middleware can be
+  // registered first without changing behavior.
+  const timeoutMw = timeout(
+    API_TIMEOUT_MS,
+    () => new HTTPException(408, { message: "Request timeout" }),
+  );
+  app.use("/api/*", (c, next) =>
+    c.req.path.startsWith("/api/auth/") ? next() : timeoutMw(c, next),
   );
 
   app.use("/api/*", sessionMiddleware);

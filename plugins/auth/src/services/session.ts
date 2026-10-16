@@ -1,7 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
-import { API_KEY_CONFIG_IDS } from "../config-schemas";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
 import type { PermissionRegistry, PluginServices } from "../service-types";
@@ -12,6 +11,7 @@ import {
   sessionUserExtras,
   tryJsonParse,
 } from "../utils";
+import { verifyKeyAcrossConfigs } from "./api-key-verify";
 import type { AuthFailure } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
@@ -42,25 +42,6 @@ async function listMemberTeams(
     areas: parseTeamAreas(row.metadata),
     permissions: registry.roleGrants[row.teamRole] ?? {},
   }));
-}
-
-async function verifyApiKeyAcrossConfigs(auth: Auth, verifyHeaders: Headers, apiKeyValue: string) {
-  for (const configId of API_KEY_CONFIG_IDS) {
-    let keyResult: any;
-    try {
-      keyResult = await auth.api.verifyApiKey({
-        headers: verifyHeaders,
-        body: { key: apiKeyValue, configId },
-      });
-    } catch {
-      continue;
-    }
-
-    if (!keyResult.valid || !keyResult.key) continue;
-
-    return keyResult;
-  }
-  return null;
 }
 
 export class SessionService extends Context.Service<
@@ -174,7 +155,7 @@ export const buildSessionService = ({
         verifyHeaders.delete("authorization");
 
         const keyResult = yield* attemptAuth(() =>
-          verifyApiKeyAcrossConfigs(auth, verifyHeaders, apiKeyValue),
+          verifyKeyAcrossConfigs(auth, verifyHeaders, { key: apiKeyValue }),
         );
 
         if (keyResult) {

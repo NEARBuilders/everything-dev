@@ -1,6 +1,8 @@
+import { Effect, Exit } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { nearAccount } from "../../src/db/schema";
 import type { PluginServices } from "../../src/service-types";
+import { buildApiKeysService } from "../../src/services/api-keys";
 import {
   createTestApiKey,
   createTestHandlers,
@@ -292,6 +294,46 @@ describe("API key handlers", () => {
       });
 
       expect(result.enabled).toBe(false);
+    });
+  });
+
+  describe("ApiKeysService seam", () => {
+    it("fails DeployKeyAccountNotLinked from the service when the account is not linked", async () => {
+      const user = await createTestUser(services.services);
+      const apiKeys = buildApiKeysService({
+        auth: services.services.auth,
+        db: services.services.db,
+      });
+
+      const exit = await Effect.runPromiseExit(
+        apiKeys.createDeployKey(user.userId, {
+          account: "not-linked.near",
+          gateway: "citynode.app",
+        }),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const failures = exit.cause.reasons
+          .map((r: unknown) => (r as { error?: { _tag?: string } } | undefined)?.error)
+          .filter(Boolean) as Array<{ _tag?: string }>;
+        expect(failures.some((f) => f._tag === "DeployKeyAccountNotLinked")).toBe(true);
+      }
+    });
+
+    it("mints from the service when the account is linked", async () => {
+      const user = await createTestUser(services.services);
+      await linkTestNearAccount(services.services, user.userId, "citynode.near");
+      const apiKeys = buildApiKeysService({
+        auth: services.services.auth,
+        db: services.services.db,
+      });
+
+      const created = await Effect.runPromise(
+        apiKeys.createDeployKey(user.userId, { account: "citynode.near", gateway: "citynode.app" }),
+      );
+
+      expect(created.key).toMatch(/^api_/);
     });
   });
 

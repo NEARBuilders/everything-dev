@@ -9,7 +9,7 @@ import { ownerOfPort } from "../infra/port-ownership";
 import { killProcessGroupEscalating, reapGroup } from "../process-kill";
 import { isPidAlive, readRegistry, unregisterPid } from "../process-registry";
 import { computeDeployedVersionStatus, type DeployedVersionStatus } from "../version-status";
-import { buildCiInfraPlan, type CiInfraPlan } from "./infra";
+import { buildCiInfraPlan } from "./infra";
 import { fetchBosConfigFromFastKv } from "./registry/fastkv";
 import { pointerFingerprint } from "./registry/fingerprint";
 import type { ResolutionSession } from "./resolution/session";

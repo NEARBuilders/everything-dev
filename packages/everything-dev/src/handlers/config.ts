@@ -12,11 +12,7 @@ import {
 import type { BosConfigResult } from "../contract";
 import { applyRegistrySections } from "../registry-use";
 import { fetchBosConfigFromFastKv } from "../services/registry/fastkv";
-import {
-  type ResolutionSession,
-  ResolutionSessionService,
-  walkExtendsChain,
-} from "../services/resolution/session";
+import { ResolutionSessionService, walkExtendsChain } from "../services/resolution/session";
 import type { BosConfig, BosConfigInput } from "../types";
 import { BosConfigSchema } from "../types";
 import { saveBosConfig } from "../utils/save-config";

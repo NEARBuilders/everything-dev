@@ -336,5 +336,74 @@ describe("API Proxy", () => {
       expect(await response.text()).toBe("auth ok");
       expect(authHandler).toHaveBeenCalledTimes(1);
     });
+
+    it("routes every method on /api/auth/* to the auth handler (no SSR/404 swallow)", async () => {
+      const app = new Hono<HonoEnv>();
+      const authHandler = vi.fn(async () => new Response("auth ok", { status: 200 }));
+
+      const config = {
+        hostUrl: "http://localhost:3000",
+        api: {
+          name: "api",
+          url: "http://localhost:3001",
+          source: "local" as const,
+        },
+        ui: {
+          name: "ui",
+          url: "http://localhost:3003",
+          source: "local" as const,
+        },
+      } as any;
+
+      const plugins: PluginResult = {
+        runtime: null,
+        auth: {
+          key: "auth",
+          name: "auth",
+          createClient: () => ({}),
+          router: {},
+          metadata: { remoteUrl: "local" },
+          initialized: {
+            effectContext: EffectContext.make(authServicesTag, {
+              handler: authHandler,
+              auth: { api: { getSession: vi.fn() } },
+              db: {} as any,
+            } as any),
+            plugin: { servicesTag: authServicesTag },
+          },
+        } as any,
+        api: null,
+        plugins: {},
+        authClient: null,
+        status: {
+          available: false,
+          pluginName: null,
+          error: null,
+          errorDetails: null,
+          loadedPlugins: [],
+          failures: [],
+          warnings: [],
+        },
+      };
+
+      registerAuthHandler(app, plugins);
+
+      await setupApiRoutes(app, config, plugins, async (_c, next) => next(), {
+        status: "ready",
+        startTime: Date.now(),
+        milestones: [],
+        error: null,
+        ssrEnabled: false,
+      });
+
+      for (const method of ["PUT", "PATCH", "DELETE"]) {
+        const response = await app.fetch(
+          new Request("http://localhost:3000/api/auth/session", { method }),
+        );
+        expect(response.status, method).toBe(200);
+        expect(await response.text()).toBe("auth ok");
+      }
+      expect(authHandler).toHaveBeenCalledTimes(3);
+    });
   });
 });

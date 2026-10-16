@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import type { ImportDeps } from "../cli/import";
 import { importWorkspace } from "../cli/import";
 import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
-import type { ImportOptions, ImportResult } from "../contract";
+import type { ImportOptions } from "../contract";
 import type { BosBuilder } from "./shared";
 
 export function registerImport(builder: BosBuilder) {

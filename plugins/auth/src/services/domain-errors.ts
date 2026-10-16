@@ -160,6 +160,11 @@ export class UnknownTeamRole extends Schema.TaggedError<UnknownTeamRole>()("Unkn
   message: Schema.String,
 }) {}
 
+export class DeployKeyAccountNotLinked extends Schema.TaggedError<DeployKeyAccountNotLinked>()(
+  "DeployKeyAccountNotLinked",
+  { message: Schema.String, action: Schema.String },
+) {}
+
 const FAILURE_TAGS = new Set([
   "AuthApiError",
   "DbError",
@@ -195,6 +200,7 @@ const FAILURE_TAGS = new Set([
   "NearNetworkRequired",
   "ApiKeyNotFound",
   "UnknownTeamRole",
+  "DeployKeyAccountNotLinked",
 ]);
 
 export const isAuthFailure = (error: unknown): error is AuthFailure =>
@@ -235,7 +241,8 @@ export type AuthFailure =
   | InvalidNearAccountId
   | NearNetworkRequired
   | ApiKeyNotFound
-  | UnknownTeamRole;
+  | UnknownTeamRole
+  | DeployKeyAccountNotLinked;
 
 export function toTransportError(error: AuthFailure): ORPCError<string, unknown> {
   switch (error._tag) {
@@ -340,6 +347,11 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
       });
     case "UnknownTeamRole":
       return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
+    case "DeployKeyAccountNotLinked":
+      return new ORPCError("FORBIDDEN", {
+        message: error.message,
+        data: { action: error.action },
+      });
   }
 }
 

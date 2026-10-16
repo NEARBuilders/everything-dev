@@ -2,6 +2,7 @@ import { apiKeyClient } from "@better-auth/api-key/client";
 import { passkeyClient } from "@better-auth/passkey/client";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
+import type { BetterFetch } from "better-auth/client";
 import {
   adminClient,
   anonymousClient,
@@ -103,6 +104,36 @@ export function getDeviceLinkClientId(config?: Partial<ClientRuntimeConfig>): st
   return variables?.deviceLink?.clientId ?? DEFAULT_DEVICE_LINK_CLIENT_ID;
 }
 
+export interface CustodyWalletRegistration {
+  registered: boolean;
+  network?: string;
+  walletId: string;
+  nearAccountId: string;
+  handoffUrl: string | null;
+}
+
+/**
+ * Typed client surface for the auth plugin's custody endpoints — the
+ * escape-hatch replacement for raw `auth.$fetch("/custody/register")` on the
+ * device approval page.
+ */
+function custodyClient() {
+  return {
+    id: "custody" as const,
+    $InferServerPlugin: {},
+    getActions: ($fetch: BetterFetch) => ({
+      custody: {
+        register: async (params: { network: "mainnet" | "testnet" }) => {
+          return await $fetch<CustodyWalletRegistration>("/custody/register", {
+            method: "POST",
+            body: params,
+          });
+        },
+      },
+    }),
+  };
+}
+
 export function createAuthClient(options: CreateAuthClientOptions = {}) {
   const nearAuthConfig = getSiwnClientConfig(options);
 
@@ -126,6 +157,7 @@ export function createAuthClient(options: CreateAuthClientOptions = {}) {
       organizationClient({ teams: { enabled: true } }),
       apiKeyClient(),
       deviceAuthorizationClient(),
+      custodyClient(),
     ],
   });
 }
