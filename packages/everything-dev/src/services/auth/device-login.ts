@@ -180,7 +180,7 @@ export async function startDeviceLogin(
 export class DeviceLoginService extends Context.Service<
   DeviceLoginService,
   {
-    start: (opts: DeviceLoginOptions) => Effect.Effect<DeviceLoginHandle, Error, SiteClientShape>;
+    start: (opts: DeviceLoginOptions) => Effect.Effect<DeviceLoginHandle, Error>;
   }
 >()("everything-dev/auth/device-login") {
   static readonly Live = Layer.effect(
