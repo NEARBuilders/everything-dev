@@ -161,7 +161,7 @@ export interface SIWNClientActions {
   };
 }
 
-export { DEFAULT_DEVICE_LINK_CLIENT_ID } from "./constants.js";
+export { BOS_CLI_CLIENT_ID, DEFAULT_DEVICE_LINK_CLIENT_ID } from "./constants.js";
 export { isPasskeyWalletAvailable, type PasskeyWalletNetwork } from "./passkey.js";
 
 /**
