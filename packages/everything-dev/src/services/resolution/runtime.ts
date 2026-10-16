@@ -8,7 +8,6 @@ import { fetchJsonOrNull } from "../../http-client";
 import { getNetworkIdForAccount } from "../../network";
 import type {
   BosConfig,
-  BosConfigInput,
   BosPluginRef,
   JsonObject,
   JsonValue,
