@@ -1,9 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { readWorkspaceCatalog, resolveSourceDir } from "../../cli/init";
-import { parseBosRef } from "../../cli/utils/helpers";
 import { applyDevOverlay } from "../../descriptor/resolve";
+import { readWorkspaceCatalog, resolveSourceDir } from "../../init-source";
 import type {
   BosConfig,
   BosConfigInput,
@@ -12,6 +11,7 @@ import type {
   RuntimePluginConfig,
 } from "../../types";
 import { BosConfigSchema } from "../../types";
+import { parseBosRef } from "../../utils/bos-ref";
 import { fetchBosConfigFromFastKv } from "../registry/fastkv";
 import {
   CircularExtendsError,
