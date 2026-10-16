@@ -174,6 +174,7 @@ describe("BundleResolver global fetch adapter", () => {
     const handle = installGlobalBundleFetch({
       namespace: NAMESPACE,
       cacheDir,
+      timeoutMs: 100,
     });
     try {
       const foreign =
@@ -196,7 +197,7 @@ describe("BundleResolver global fetch adapter", () => {
       await handle.uninstall();
       globalThis.fetch = originalFetch;
     }
-  });
+  }, 15000);
 
   it("does not cache when no cache dir is configured", async () => {
     const fallthrough = new Response("from-network", { status: 200 });
