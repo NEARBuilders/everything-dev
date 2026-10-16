@@ -47,8 +47,8 @@ vi.mock("../../src/resolution/session", () => ({
   openResolution: openResolutionMock,
 }));
 
-vi.mock("../../src/build", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/build")>();
+vi.mock("../../src/services/workspace/build-train", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/workspace/build-train")>();
   return { ...actual, buildWorkspaceTargets: buildWorkspaceTargetsMock };
 });
 

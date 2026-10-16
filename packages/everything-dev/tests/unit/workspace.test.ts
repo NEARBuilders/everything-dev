@@ -9,6 +9,7 @@ import {
   ensureFreshDeps,
   findWorkspaceRoot,
   localDepsOf,
+  mtimeStalenessOracle,
   type WorkspaceMember,
   type WorkspaceRoot,
 } from "../../src/workspace";
@@ -197,40 +198,28 @@ describe("buildLayers", () => {
   });
 });
 
+function writeBuildFixture(root: string, name: string, deps: Record<string, string>): string {
+  const memberDir = join(root, "pkgs", name);
+  mkdirSync(memberDir, { recursive: true });
+  writeFileSync(
+    join(memberDir, "package.json"),
+    `${JSON.stringify(
+      {
+        name,
+        module: "dist/index.mjs",
+        scripts: { build: "mkdir -p dist && printf 'built' > dist/index.mjs" },
+        dependencies: deps,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  mkdirSync(join(memberDir, "src"), { recursive: true });
+  writeFileSync(join(memberDir, "src", "index.ts"), "export {};\n");
+  return memberDir;
+}
+
 describe("ensureFreshDeps", () => {
-  function writeBuildFixture(root: string, name: string, deps: Record<string, string>): string {
-    const memberDir = join(root, "pkgs", name);
-    mkdirSync(memberDir, { recursive: true });
-    writeFileSync(
-      join(memberDir, "package.json"),
-      `${JSON.stringify(
-        {
-          name,
-          module: "dist/index.mjs",
-          scripts: { build: "mkdir -p dist && printf 'built' > dist/index.mjs" },
-          dependencies: deps,
-        },
-        null,
-        2,
-      )}\n`,
-    );
-    mkdirSync(join(memberDir, "src"), { recursive: true });
-    writeFileSync(join(memberDir, "src", "index.ts"), "export {};\n");
-    return memberDir;
-  }
-
-  function writeGraph(): { root: string; app: string; mid: string; base: string } {
-    const root = makeRoot({});
-    writeFileSync(
-      join(root, "package.json"),
-      `${JSON.stringify({ workspaces: ["pkgs/*", "app"] }, null, 2)}\n`,
-    );
-    const app = writeBuildFixture(root, "app", { mid: "*" });
-    const mid = writeBuildFixture(root, "mid", { base: "*" });
-    const base = writeBuildFixture(root, "base", {});
-    return { root, app, mid, base };
-  }
-
   it("builds the stale dependency closure and reports it", async () => {
     const { root, app } = writeGraph();
 
@@ -363,5 +352,67 @@ describe("ensureFreshDeps", () => {
     const report = await ensureFreshDeps(join(root, "pkg"), []);
 
     expect(report).toEqual({ rebuilt: [], fresh: [] });
+  });
+});
+function writeGraph(): { root: string; app: string; mid: string; base: string } {
+  const root = makeRoot({});
+  writeFileSync(
+    join(root, "package.json"),
+    `${JSON.stringify({ workspaces: ["pkgs/*", "app"] }, null, 2)}\n`,
+  );
+  const app = writeBuildFixture(root, "app", { mid: "*" });
+  const mid = writeBuildFixture(root, "mid", { base: "*" });
+  const base = writeBuildFixture(root, "base", {});
+  return { root, app, mid, base };
+}
+
+describe("ensureFreshDeps staleness oracle seam", () => {
+  it("consults the injected oracle instead of the mtime default", async () => {
+    const { root, app } = writeGraph();
+    const judged: string[] = [];
+
+    const report = await ensureFreshDeps(root, [app], {
+      oracle: {
+        isStale: async (member) => {
+          judged.push(member.name);
+          return member.name === "mid";
+        },
+      },
+    });
+
+    expect(judged.sort()).toEqual(["base", "mid"]);
+    expect(report.rebuilt.map((member) => member.name)).toEqual(["mid"]);
+    expect(report.fresh.map((member) => member.name)).toEqual(["base"]);
+  });
+
+  it("force skips the oracle entirely", async () => {
+    const { root, app } = writeGraph();
+
+    const report = await ensureFreshDeps(root, [app], {
+      force: true,
+      oracle: {
+        isStale: async () => {
+          throw new Error("oracle must not run under force");
+        },
+      },
+    });
+
+    expect(report.rebuilt.map((member) => member.name).sort()).toEqual(["base", "mid"]);
+  });
+
+  it("exposes the mtime oracle as the default seam implementation", async () => {
+    const { root, app, mid, base } = writeGraph();
+    await ensureFreshDeps(root, [app]);
+    const future = new Date(Date.now() + 60_000);
+    for (const dir of [mid, base]) {
+      utimesSync(join(dir, "dist", "index.mjs"), future, future);
+    }
+
+    const report = await ensureFreshDeps(root, [app], {
+      oracle: mtimeStalenessOracle,
+    });
+
+    expect(report.rebuilt).toEqual([]);
+    expect(report.fresh.map((member) => member.name).sort()).toEqual(["base", "mid"]);
   });
 });

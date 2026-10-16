@@ -1,13 +1,13 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { Context } from "effect";
-import { getPluginRef } from "../build";
 import { generateCodeArtifacts } from "../code-artifacts";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { PluginListResult } from "../contract";
 import { fetchRemotePluginManifest } from "../fastkv";
 import { openResolution } from "../resolution/session";
 import { publishToFastKv } from "../services/deploy/train";
+import { getPluginRef } from "../services/workspace/build-train";
 import type { BosConfig } from "../types";
 import { saveBosConfig } from "../utils/save-config";
 import { type BosBuilder, BosDepsTag } from "./shared";
