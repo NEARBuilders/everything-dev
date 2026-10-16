@@ -21,7 +21,11 @@ import { ProjectEnv, ProjectEnvLive } from "./env/project-env";
 import { registerProcesses } from "./handlers/processes";
 import { openResolution } from "./resolution/session";
 import { createPlugin, z } from "./sdk";
-import { BundleStorage, RegistrySigner, RegistryStore } from "./services/deploy/deps";
+import { DeviceLoginService } from "./services/auth/device-login";
+import { SessionStore } from "./services/auth/session-store";
+import { SignerService } from "./services/auth/signer";
+import { SiteClient } from "./services/auth/site-client";
+import { BundleStorage, RegistryStore } from "./services/deploy/deps";
 import { DeployTrainService } from "./services/deploy/train";
 import { ProcessesService } from "./services/processes";
 
@@ -71,10 +75,11 @@ export default createPlugin({
           drizzleKit: Context.get(services, DrizzleKit),
         } satisfies BosDeps),
         ProcessesService.Live,
+        SiteClient.Live,
+        SessionStore.Live,
+        DeviceLoginService.Live.pipe(Layer.provide(SiteClient.Live)),
         DeployTrainService.Live.pipe(
-          Layer.provide(
-            Layer.mergeAll(BundleStorage.Live, RegistryStore.Live, RegistrySigner.Live),
-          ),
+          Layer.provide(Layer.mergeAll(BundleStorage.Live, RegistryStore.Live, SignerService.Live)),
         ),
       );
     }),

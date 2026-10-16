@@ -1,8 +1,5 @@
 import { Context, Layer } from "effect";
-import { ensureCustodyBalance, submitRegistryWriteCustody } from "../../custody-signer";
-import { ensureDelegateKey, submitRegistryWriteDelegated } from "../../delegate-signer";
 import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../../fastkv";
-import { submitRegistryWrite } from "../../near-signer";
 import { buildSourceArchive } from "../../source-archive";
 import { collectDistFiles, uploadBundle, uploadWorkspaceDist } from "../../storage-upload";
 import { composeWorkspaceVersionManifest, readBuildReport } from "../../version-manifest-deploy";
@@ -46,29 +43,6 @@ export class RegistryStore extends Context.Service<RegistryStore, RegistryStoreS
     RegistryStore.of({
       fetchConfig: fetchBosConfigFromFastKv,
       fetchHistory: fetchConfigHistory,
-    }),
-  );
-}
-
-export interface RegistrySignerShape {
-  submitRegistryWrite: typeof submitRegistryWrite;
-  submitRegistryWriteDelegated: typeof submitRegistryWriteDelegated;
-  submitRegistryWriteCustody: typeof submitRegistryWriteCustody;
-  ensureDelegateKey: typeof ensureDelegateKey;
-  ensureCustodyBalance: typeof ensureCustodyBalance;
-}
-
-export class RegistrySigner extends Context.Service<RegistrySigner, RegistrySignerShape>()(
-  "everything-dev/deploy/signer",
-) {
-  static readonly Live = Layer.succeed(
-    this,
-    RegistrySigner.of({
-      submitRegistryWrite,
-      submitRegistryWriteDelegated,
-      submitRegistryWriteCustody,
-      ensureDelegateKey,
-      ensureCustodyBalance,
     }),
   );
 }

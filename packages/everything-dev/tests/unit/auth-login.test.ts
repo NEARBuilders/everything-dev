@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { startDeviceLogin } from "../../src/auth-login";
+import { startDeviceLogin } from "../../src/services/auth/device-login";
 
 type FetchCall = { url: string; init: RequestInit };
 
@@ -219,6 +219,43 @@ describe("device login client", () => {
       deployKey: { account: "citynode.near", gateway: "citynode.app" },
     });
     await expect(login.waitForApproval()).rejects.toThrow(/linked to your login/);
+  });
+
+  it("parses the oRPC envelope error body so the server's FORBIDDEN detail surfaces (the bare-403 case)", async () => {
+    stubFetchSequence([
+      { match: "/api/auth/device/code", status: 200, body: deviceCodeResponse() },
+      {
+        match: "/api/auth/device/token",
+        status: 200,
+        body: { access_token: "session-token-1", token_type: "Bearer" },
+      },
+      {
+        match: "/api/auth/device-link/claim",
+        status: 200,
+        body: { success: true },
+        headers: { "set-cookie": `${CLAIMED_COOKIE}; Path=/; HttpOnly; SameSite=Lax` },
+      },
+      {
+        match: "/api/rpc/auth/createDeployKey",
+        status: 403,
+        body: {
+          json: {
+            defined: true,
+            code: "FORBIDDEN",
+            message:
+              "Deploy keys can only be minted for NEAR accounts linked to your login — link citynode.near first",
+            data: { action: "deploy-key citynode.near/citynode.app" },
+          },
+          meta: [],
+        },
+      },
+    ]);
+
+    const login = await startDeviceLogin({
+      siteUrl: SITE,
+      deployKey: { account: "citynode.near", gateway: "citynode.app" },
+    });
+    await expect(login.waitForApproval()).rejects.toThrow(/link citynode.near first/);
   });
 
   it("reuses the claimed session cookie for https sites too", async () => {

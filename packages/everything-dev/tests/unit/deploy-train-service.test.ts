@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BundleStorage, RegistrySigner, RegistryStore } from "../../src/services/deploy/deps";
+import { SignerService } from "../../src/services/auth/signer";
+import { BundleStorage, RegistryStore } from "../../src/services/deploy/deps";
 import { PublishTrainError } from "../../src/services/deploy/errors";
 import { DeployTrainService } from "../../src/services/deploy/train";
 import type { BosConfig } from "../../src/types";
@@ -46,7 +47,7 @@ const baseInput = {
 };
 
 const trainLayers = DeployTrainService.Live.pipe(
-  Layer.provide(Layer.mergeAll(BundleStorage.Live, RegistryStore.Live, RegistrySigner.Live)),
+  Layer.provide(Layer.mergeAll(BundleStorage.Live, RegistryStore.Live, SignerService.Live)),
 );
 
 const configDir = mkdtempSync(join(tmpdir(), "bos-train-service-"));
@@ -150,11 +151,10 @@ describe("DeployTrainService", () => {
       }),
     );
     const fakeSigner = Layer.succeed(
-      RegistrySigner,
-      RegistrySigner.of({
-        submitRegistryWrite: (async (input: { account: string }) => {
-          submitted.push(input.account);
-          return { success: true, txHash: "tx_test" };
+      SignerService,
+      SignerService.of({
+        submitRegistryWrite: (async () => {
+          throw new Error("not used");
         }) as never,
         submitRegistryWriteDelegated: (async () => {
           throw new Error("not used");
@@ -166,6 +166,10 @@ describe("DeployTrainService", () => {
           throw new Error("not used");
         }) as never,
         ensureCustodyBalance: (async () => {}) as never,
+        submit: (async (input: { account: string }) => {
+          submitted.push(input.account);
+          return { success: true, txHash: "tx_test" };
+        }) as never,
       }),
     );
 
