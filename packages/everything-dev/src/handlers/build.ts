@@ -2,19 +2,19 @@ import { Effect } from "effect";
 import { generateCodeArtifacts } from "../code-artifacts";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { BosEnv } from "../services/resolution/merge";
+import { ResolutionSessionService } from "../services/resolution/session";
 import {
   type BuildTargetsInput,
   BuildTrainService,
   selectWorkspaceTargets,
 } from "../services/workspace/build-train";
-import { type BosBuilder, BosDepsTag } from "./shared";
+import type { BosBuilder } from "./shared";
 
 export function registerBuild(builder: BosBuilder) {
   return {
     build: builder.build.effect(function* (_opts, input) {
-      const deps = yield* BosDepsTag;
+      const session = yield* ResolutionSessionService;
       const train = yield* BuildTrainService;
-      const session = deps.session;
       if (!session?.config) {
         return {
           status: "error" as const,
