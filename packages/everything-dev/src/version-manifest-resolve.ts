@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
@@ -6,7 +5,8 @@ import {
   type WorkspaceVersionManifest,
   WorkspaceVersionManifestSchema,
 } from "every-plugin/version-manifest";
-import { bundleUrlToStagedPath, resolveContained } from "./resolver";
+import { fetchVerifiedManifest, manifestDocumentUrl } from "./services/deploy/manifest-verify";
+import { bundleUrlToStagedPath, resolveContained } from "./services/resolution/resolver";
 
 /**
  * Version-manifest slot resolution (atomic-deploys 04): a config slot's
@@ -45,13 +45,6 @@ const cache = new Map<string, ResolvedSlotVersion>();
 
 export function clearSlotVersionCache(): void {
   cache.clear();
-}
-
-function fetchText(url: string, fetchImpl: typeof fetch): Promise<string> {
-  return fetchImpl(url).then((response) => {
-    if (!response.ok) throw new Error(`version manifest fetch failed: ${response.status}`);
-    return response.text();
-  });
 }
 
 function slotVersionFromManifest(
@@ -136,15 +129,20 @@ export async function resolveSlotVersion(input: {
     return staged;
   }
 
-  const manifestUrl = `${input.base.replace(/\/$/, "")}/${input.pin.manifest.replace(/^\//, "")}`;
-  const body = await fetchText(manifestUrl, input.fetchImpl ?? fetch);
-  const computed = `sha384-${createHash("sha384").update(body).digest("base64")}`;
-  if (computed !== input.pin.integrity) {
+  const manifestUrl = manifestDocumentUrl(input.base, input.pin.manifest);
+  const verified = await fetchVerifiedManifest({
+    base: input.base,
+    pin: input.pin,
+    fetchImpl: input.fetchImpl,
+  });
+  if (!verified.ok) {
     throw new Error(
-      `[SRI] version manifest integrity mismatch for ${manifestUrl}\n  Expected: ${input.pin.integrity}\n  Computed: ${computed}`,
+      `[SRI] version manifest verification failed for ${manifestUrl}: ${verified.reason}`,
     );
   }
-  const manifest: WorkspaceVersionManifest = WorkspaceVersionManifestSchema.parse(JSON.parse(body));
+  const manifest: WorkspaceVersionManifest = WorkspaceVersionManifestSchema.parse(
+    JSON.parse(verified.text),
+  );
 
   const resolved = slotVersionFromManifest(input.base, manifest);
   cache.set(key, resolved);

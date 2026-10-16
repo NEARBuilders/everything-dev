@@ -6,8 +6,8 @@ import { CORE_UI_PLUGIN_KEY } from "every-plugin/ui/manifest";
 import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { type ContractBridgeStatus, syncApiContractBridge } from "./api-contract";
 import { writeResolvedConfig } from "./config";
-import type { BosEnv } from "./merge";
-import { openResolution } from "./resolution/session";
+import type { BosEnv } from "./services/resolution/merge";
+import { openResolution } from "./services/resolution/session";
 import type { BosConfig, RuntimeConfig } from "./types";
 
 export class ArtifactGenError extends Schema.TaggedError<ArtifactGenError>()("ArtifactGenError", {

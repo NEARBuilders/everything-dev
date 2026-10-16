@@ -1,0 +1,113 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import process from "node:process";
+import { Effect } from "effect";
+import {
+  loadAppDescriptorConfig,
+  localConfigEntryPath,
+  readAuthoredConfigInput,
+  readLocalAuthoredConfigInput,
+  resolveConfigComposableEntries,
+} from "../config";
+import type { BosConfigResult } from "../contract";
+import { applyRegistrySections } from "../registry-use";
+import { fetchBosConfigFromFastKv } from "../services/registry/fastkv";
+import { ResolutionSessionService, walkExtendsChain } from "../services/resolution/session";
+import type { BosConfig, BosConfigInput } from "../types";
+import { BosConfigSchema } from "../types";
+import { saveBosConfig } from "../utils/save-config";
+import type { BosBuilder } from "./shared";
+
+export function registerConfig(builder: BosBuilder) {
+  return {
+    config: builder.config.effect(function* (_opts, input) {
+      const session = yield* ResolutionSessionService;
+      if (input.full) {
+        return buildConfigResult(session?.config ?? null, true);
+      }
+
+      const localConfig = yield* Effect.promise(() => readAuthoredConfigInput(session?.root));
+      return buildConfigResult(localConfig, false);
+    }),
+
+    registryUse: builder.registryUse.effect(function* (_opts, input) {
+      const session = yield* ResolutionSessionService;
+      const root = session?.root ?? process.cwd();
+      const configPath = localConfigEntryPath(root) ?? join(root, "bos.config.json");
+      const normalizedFrom = input.from.startsWith("bos://") ? input.from : `bos://${input.from}`;
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const remote = await fetchBosConfigFromFastKv<Record<string, unknown>>(normalizedFrom);
+          const localRaw = await readLocalAuthoredConfigInput(root);
+          const local = (localRaw ??
+            (configPath.endsWith(".json")
+              ? (JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>)
+              : ((await loadAppDescriptorConfig(configPath)) as unknown as Record<
+                  string,
+                  unknown
+                >))) as Record<string, unknown>;
+          const { config: merged, applied } = applyRegistrySections(
+            local as never,
+            remote as never,
+            input.sections,
+          );
+
+          if (input.dryRun) {
+            return {
+              status: "dry-run" as const,
+              from: normalizedFrom,
+              applied,
+              configPath,
+            };
+          }
+
+          await saveBosConfig(root, merged);
+
+          return {
+            status: "updated" as const,
+            from: normalizedFrom,
+            applied,
+            configPath,
+          };
+        },
+        catch: (error) => ({
+          status: "error" as const,
+          from: normalizedFrom,
+          applied: [],
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    }),
+  };
+}
+
+function buildConfigResult(
+  bosConfig: BosConfigInput | BosConfig | null,
+  full = false,
+): BosConfigResult {
+  const packages =
+    bosConfig?.app && typeof bosConfig.app === "object" ? Object.keys(bosConfig.app) : [];
+  const remotes = packages.filter((name) => name !== "host");
+
+  return {
+    config: bosConfig ?? null,
+    packages,
+    remotes,
+    full,
+  };
+}
+
+export async function resolveRemoteConfigChain(
+  accountId: string,
+  gatewayId: string,
+  registry?: string,
+): Promise<BosConfig> {
+  const { config: merged } = await walkExtendsChain(`bos://${accountId}/${gatewayId}`, {
+    env: "production",
+    registry,
+    visit: async () => {},
+  });
+
+  return resolveConfigComposableEntries(BosConfigSchema.parse(merged), process.cwd(), "production");
+}

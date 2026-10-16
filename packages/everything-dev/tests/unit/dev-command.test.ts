@@ -1,10 +1,10 @@
-import { Context, Effect } from "effect";
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { registerDev } from "../../src/commands/dev";
-import type { BosBuilder, BosDeps } from "../../src/commands/shared";
-import { BosDepsTag } from "../../src/commands/shared";
 import type { DevSessionData, StartSummary } from "../../src/dev-program";
-import { ResolutionSession } from "../../src/resolution/session";
+import { registerDev } from "../../src/handlers/dev";
+import type { BosBuilder } from "../../src/handlers/shared";
+import { DevFlowService } from "../../src/services/dev-flow";
+import { ResolutionSession, ResolutionSessionService } from "../../src/services/resolution/session";
 import type { BosConfig, RuntimeConfig } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({
@@ -26,12 +26,6 @@ const session = ResolutionSession.fromParts({
   runtime: {} as RuntimeConfig,
   root: "/fixture-root",
 });
-
-const deps: BosDeps = {
-  session,
-  databaseBindings: undefined as never,
-  drizzleKit: undefined as never,
-};
 
 const sessionData = {
   orchestrator: { packages: [], env: {}, description: "fixture" },
@@ -58,6 +52,15 @@ function getHandlers(): Map<string, unknown> {
           records.set(prop as string, handler);
           return { route: prop, handler };
         },
+        effect: (fn: (opts: unknown, input: unknown) => Generator) => {
+          const callable = (opts: unknown, input: unknown) =>
+            Effect.gen(() => fn(opts, input)).pipe(
+              Effect.provideService(ResolutionSessionService, session),
+              Effect.provide(DevFlowService.Live),
+            );
+          records.set(prop as string, callable);
+          return { route: prop, handler: callable };
+        },
       }),
     },
   ) as BosBuilder;
@@ -65,8 +68,12 @@ function getHandlers(): Map<string, unknown> {
   return records;
 }
 
-function makeContext() {
-  return { "effect/context": Context.make(BosDepsTag, deps) };
+function run(name: string, input: Record<string, unknown>): Promise<any> {
+  const handler = getHandlers().get(name) as unknown as (
+    opts: unknown,
+    input: unknown,
+  ) => Effect.Effect<unknown>;
+  return Effect.runPromise(handler({}, input) as Effect.Effect<unknown, unknown, never>);
 }
 
 describe("dev/start handlers carry the session on the oRPC result", () => {
@@ -74,9 +81,8 @@ describe("dev/start handlers carry the session on the oRPC result", () => {
     mocks.devBootstrap.mockReturnValue(
       Effect.succeed({ session: sessionData, description: "ok", processes: ["host"] }),
     );
-    const dev = getHandlers().get("dev") as (args: unknown) => Promise<any>;
 
-    const result = await dev({ input: {}, context: makeContext() });
+    const result = await run("dev", {});
 
     expect(result.status).toBe("started");
     expect(result.session).toBe(sessionData);
@@ -84,9 +90,8 @@ describe("dev/start handlers carry the session on the oRPC result", () => {
 
   it("dev returns no session on the error path", async () => {
     mocks.devBootstrap.mockReturnValue(Effect.succeed({ failed: "No bos.config.json found" }));
-    const dev = getHandlers().get("dev") as (args: unknown) => Promise<any>;
 
-    const result = await dev({ input: {}, context: makeContext() });
+    const result = await run("dev", {});
 
     expect(result.status).toBe("error");
     expect(result.session).toBeUndefined();
@@ -96,9 +101,8 @@ describe("dev/start handlers carry the session on the oRPC result", () => {
     mocks.startBootstrap.mockReturnValue(
       Effect.succeed({ session: sessionData, summary, url: "http://localhost:3000" }),
     );
-    const start = getHandlers().get("start") as (args: unknown) => Promise<any>;
 
-    const result = await start({ input: {}, context: makeContext() });
+    const result = await run("start", {});
 
     expect(result.status).toBe("running");
     expect(result.session).toBe(sessionData);
@@ -107,9 +111,8 @@ describe("dev/start handlers carry the session on the oRPC result", () => {
 
   it("start returns no session on the error path", async () => {
     mocks.startBootstrap.mockReturnValue(Effect.succeed({ failed: "boom" }));
-    const start = getHandlers().get("start") as (args: unknown) => Promise<any>;
 
-    const result = await start({ input: {}, context: makeContext() });
+    const result = await run("start", {});
 
     expect(result.status).toBe("error");
     expect(result.session).toBeUndefined();

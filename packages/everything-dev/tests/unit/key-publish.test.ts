@@ -1,9 +1,8 @@
-import { Context } from "effect";
+import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { registerKeys } from "../../src/commands/keys";
-import type { BosBuilder, BosDeps } from "../../src/commands/shared";
-import { BosDepsTag } from "../../src/commands/shared";
-import { ResolutionSession } from "../../src/resolution/session";
+import { registerKeys } from "../../src/handlers/keys";
+import type { BosBuilder } from "../../src/handlers/shared";
+import { ResolutionSession, ResolutionSessionService } from "../../src/services/resolution/session";
 import type { BosConfig, RuntimeConfig } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({
@@ -30,30 +29,37 @@ const session = ResolutionSession.fromParts({
   root: "/fixture-root",
 });
 
-const deps: BosDeps = {
-  session,
-  databaseBindings: undefined as never,
-  drizzleKit: undefined as never,
-};
-
 function getKeyPublishHandler() {
-  const records = new Map<string, unknown>();
+  const callables = new Map<string, unknown>();
   const builder = new Proxy(
     {},
     {
       get: (_target, prop) => ({
         handler: (handler: unknown) => {
-          records.set(prop as string, handler);
+          callables.set(prop as string, handler);
           return { route: prop, handler };
+        },
+        // Mirrors @orpc/experimental-effect's handlerGen: run the generator,
+        // then provide the plugin services from the ambient layers.
+        effect: (fn: (opts: unknown, input: unknown) => Generator) => {
+          const callable = (opts: unknown, input: unknown) =>
+            Effect.gen(() => fn(opts, input)).pipe(
+              Effect.provideService(ResolutionSessionService, session),
+            );
+          callables.set(prop as string, callable);
+          return callable;
         },
       }),
     },
   ) as BosBuilder;
   registerKeys(builder);
-  return records.get("keyPublish") as (args: unknown) => Promise<any>;
+  const handler = callables.get("keyPublish") as unknown as (
+    opts: unknown,
+    input: unknown,
+  ) => Effect.Effect<unknown, unknown, never>;
+  return (args: { input: unknown; context: unknown }) =>
+    Effect.runPromise(handler(args, args.input)) as Promise<any>;
 }
-
-const context = { "effect/context": Context.make(BosDepsTag, deps) };
 
 const OLD_KEYS = ["ed25519:oldkey1", "ed25519:oldkey2"];
 
@@ -75,7 +81,6 @@ describe("keyPublish handler removeOldKeys branches", () => {
 
     const result = await handler({
       input: { allowance: "1NEAR", env: "production", removeOldKeys: true },
-      context,
     });
 
     expect(mocks.deleteAccessKeys).toHaveBeenCalledWith("test.near", OLD_KEYS, "mainnet");
@@ -94,7 +99,6 @@ describe("keyPublish handler removeOldKeys branches", () => {
 
     const result = await handler({
       input: { allowance: "1NEAR", env: "production", removeOldKeys: false },
-      context,
     });
 
     expect(mocks.deleteAccessKeys).not.toHaveBeenCalled();
@@ -112,7 +116,6 @@ describe("keyPublish handler removeOldKeys branches", () => {
 
     const result = await handler({
       input: { allowance: "1NEAR", env: "production" },
-      context,
     });
 
     expect(mocks.deleteAccessKeys).not.toHaveBeenCalled();
@@ -130,7 +133,6 @@ describe("keyPublish handler removeOldKeys branches", () => {
 
     const result = await handler({
       input: { allowance: "1NEAR", env: "production", removeOldKeys: true },
-      context,
     });
 
     expect(result.status).toBe("published");
@@ -147,7 +149,6 @@ describe("keyPublish handler removeOldKeys branches", () => {
 
     const result = await handler({
       input: { allowance: "1NEAR", env: "production", removeOldKeys: true },
-      context,
     });
 
     expect(mocks.deleteAccessKeys).not.toHaveBeenCalled();

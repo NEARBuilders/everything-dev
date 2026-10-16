@@ -2,7 +2,10 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { findUnpublishedFrameworkPackages, npmVersionPublished } from "../../src/publish";
+import {
+  findUnpublishedFrameworkPackages,
+  npmVersionPublished,
+} from "../../src/services/deploy/preflight";
 
 const fetchResponse = vi.hoisted(() => vi.fn());
 

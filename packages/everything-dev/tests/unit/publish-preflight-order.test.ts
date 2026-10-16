@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyDeployResults } from "../../src/integrity";
-import { mergeAuthoredOverPublished } from "../../src/merge";
+import { mergeAuthoredOverPublished } from "../../src/services/resolution/merge";
 import type { BosConfig } from "../../src/types";
 
 const {
@@ -36,8 +36,8 @@ const {
   probeStorageOriginMock: vi.fn(),
 }));
 
-vi.mock("../../src/build", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/build")>();
+vi.mock("../../src/services/workspace/build-train", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/workspace/build-train")>();
   return { ...actual, buildWorkspaceTargets: buildWorkspaceTargetsMock };
 });
 
@@ -45,8 +45,8 @@ vi.mock("../../src/code-artifacts", () => ({
   generateCodeArtifacts: generateCodeArtifactsMock,
 }));
 
-vi.mock("../../src/fastkv", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/fastkv")>();
+vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/registry/fastkv")>();
   return {
     ...actual,
     fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock,
@@ -63,8 +63,8 @@ vi.mock("../../src/near-signer", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/resolution/session", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/resolution/session")>();
+vi.mock("../../src/services/resolution/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/resolution/session")>();
   return { ...actual, openResolution: openResolutionMock };
 });
 
@@ -90,7 +90,7 @@ vi.mock("../../src/cdn-deploy", async (importOriginal) => {
 });
 
 import { writeSessionHandle } from "../../src/auth-session";
-import { publishToFastKv } from "../../src/publish";
+import { publishToFastKv } from "../../src/services/deploy/train";
 
 const bosConfig = {
   account: "dev.everything.near",

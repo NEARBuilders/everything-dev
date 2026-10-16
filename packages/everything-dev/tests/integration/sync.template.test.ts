@@ -18,7 +18,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
-import * as initModule from "../../src/cli/init";
 import {
   buildInitPatterns,
   copyFilteredFiles,
@@ -27,7 +26,9 @@ import {
 } from "../../src/cli/init";
 import { readSnapshot } from "../../src/cli/snapshot";
 import { syncTemplate } from "../../src/cli/sync";
-import * as sessionModule from "../../src/resolution/session";
+import * as initSourceModule from "../../src/init-source";
+import * as sessionModule from "../../src/services/resolution/session";
+import * as scaffoldInitModule from "../../src/services/scaffold/init";
 import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
@@ -104,7 +105,7 @@ describe("syncTemplate", () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
-    vi.spyOn(initModule, "resolveSourceDir").mockResolvedValue({
+    vi.spyOn(initSourceModule, "resolveSourceDir").mockResolvedValue({
       sourceDir: REPO_ROOT,
       parentConfig: ROOT_CONFIG as never,
       cleanup: async () => {},
@@ -115,8 +116,8 @@ describe("syncTemplate", () => {
       }
       return { runtime: { plugins: {} } } as never;
     });
-    vi.spyOn(initModule, "runPnpmInstall").mockResolvedValue();
-    vi.spyOn(initModule, "runTypesGen").mockResolvedValue();
+    vi.spyOn(scaffoldInitModule, "runPnpmInstall").mockResolvedValue();
+    vi.spyOn(scaffoldInitModule, "runTypesGen").mockResolvedValue();
   });
 
   afterEach(() => {

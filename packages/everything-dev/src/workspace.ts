@@ -214,6 +214,9 @@ export async function ensureFreshDeps(
      * resolves differently without it. Callers that pass nothing keep the
      * ambient env (dev-time staleness rebuilds). */
     readonly env?: Record<string, string>;
+    /** Staleness oracle seam (#424): defaults to the mtime oracle. Force
+     * skips the oracle entirely — a forced build never judges. */
+    readonly oracle?: StalenessOracle;
   },
 ): Promise<DepsReport> {
   const root = findWorkspaceRoot(startDir);
@@ -221,8 +224,9 @@ export async function ensureFreshDeps(
 
   const closure = localDepsOf(root, targetDirs);
   const force = opts?.force ?? false;
+  const oracle = opts?.oracle ?? mtimeStalenessOracle;
   const judgements = await Promise.all(
-    closure.map(async (member) => force || (await isStaleMember(member))),
+    closure.map(async (member) => force || (await oracle.isStale(member))),
   );
   const rebuilt = closure.filter((_, index) => judgements[index]);
   const fresh = closure.filter((_, index) => !judgements[index]);
@@ -291,6 +295,14 @@ async function isStaleMember(member: WorkspaceMember): Promise<boolean> {
   if (!oracle) return false;
   return isWorkspaceDistStale(member.dir, oracle);
 }
+
+export interface StalenessOracle {
+  isStale(member: WorkspaceMember): Promise<boolean>;
+}
+
+export const mtimeStalenessOracle: StalenessOracle = {
+  isStale: isStaleMember,
+};
 
 function distOracle(memberDir: string): string | null {
   const manifest = readManifest(join(memberDir, "package.json"));

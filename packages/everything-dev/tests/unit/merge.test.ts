@@ -5,7 +5,7 @@ import {
   mergeBosConfigWithTemplate,
   rebuildOrderedConfig,
   resolveExtendsRef,
-} from "../../src/merge";
+} from "../../src/services/resolution/merge";
 
 describe("mergeBosConfigWithExtends", () => {
   it("child scalars override parent scalars", () => {

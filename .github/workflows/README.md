@@ -82,7 +82,7 @@ This is the canonical [changesets/action](https://github.com/changesets/changese
 **Behavior:**
 - A `gate` job first verifies the CI-validated commit is still the tip of `main` — if `main` moved on, this run is skipped and the run queued for the new tip deploys instead
 - The `image` job is self-contained (the Dockerfile builds all workspaces from source in-image — no node/pnpm setup); it fails fast and blocks the deploy job when it cannot push the image or capture its digest
-- Runs `pnpm run bos deploy` — the CLI handles every remaining stage; missing pieces (no `ci.image`, no `RAILWAY_TOKEN`) degrade gracefully with a notice
+- Runs `pnpm run bos deploy` — the CLI handles every remaining stage; missing pieces (e.g. no `RAILWAY_TOKEN`) soft-skip their leg with a notice, and the deploy exits 0 whenever the config publishes and no leg failed
 - Checks out the exact commit CI validated (`github.event.workflow_run.head_sha`)
 - Keeps the bundle compatibility check (`bos mf check`) and the remote smoke test as workflow-level verification
 - Does **not** commit anything back — the runtime fetches the published config from FastKV (`bos start` resolves `BOS_ACCOUNT`/`BOS_GATEWAY`); the authored `bos.app.ts` is the publish *input*, not the deploy output
@@ -114,6 +114,8 @@ The `consumer-*.yml` workflows are `workflow_call`-only — they never run in th
 - `consumer-deploy.yml` — checkout the CI-validated commit, install, `pnpm run bos deploy`
 - `consumer-staging.yml` — checkout the pushed commit, install, `pnpm run bos deploy --env staging`
 
+Deploy legs are tier-aware (ADR 0020/0021): a child runtime (no `ci.image`, no Dockerfile at the config root) inherits the root's universal image, so the image and smoke legs soft-skip with a notice; the Railway leg redeploys without a digest when `RAILWAY_TOKEN` and `ci.railway.service` (inherited or set) are present, and soft-skips otherwise. The deploy exits 0 whenever the config publishes and no leg failed — `RAILWAY_TOKEN` is optional for consumers.
+
 All three take a `working_directory` input (default `.`): the directory from which the child repo's standard scripts are valid. The workflows never assume `packages/`, `host/`, or any fixed layout — where the app root lives is the child repo's business. The deploy workflows also take a `storage_origin` input (default `https://upload.everything.dev`) — consumers self-hosting `apps/upload` point at their own service by passing the input or setting a `BOS_STORAGE_ORIGIN` repository variable, no template fork needed.
 
 **Prerequisite:** the parent repo's Actions settings must allow these workflows to be accessed from other repositories (Settings → Actions → General → Access).
@@ -133,5 +135,5 @@ Two related caveats the template already handles:
 | `NEAR_PRIVATE_KEY` | Deploy | Signs the FastKV config publish |
 | `NEAR_TESTNET_PRIVATE_KEY` | Staging | Signs the staging FastKV config publish |
 | `BOS_STORAGE_API_KEY` | Deploy, Staging | Bundle upload to the R2-backed storage — a scoped deploy key (`bos login --key`); staging with a distinct staging domain mints its own via `--env staging` and stores it as `BOS_STAGING_STORAGE_API_KEY` |
-| `RAILWAY_TOKEN` | Deploy | Production Railway deploy |
-| `RAILWAY_STAGING_TOKEN` | Staging | Staging Railway deploy |
+| `RAILWAY_TOKEN` | Deploy | Production Railway deploy — optional for consumer repos: without it the Railway leg soft-skips and the deploy still exits green |
+| `RAILWAY_STAGING_TOKEN` | Staging | Staging Railway deploy — same optional-for-consumers semantics |

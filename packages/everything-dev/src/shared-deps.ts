@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { loadAppDescriptorConfig } from "./config";
-import { type BosEnv, isPlainObject, type ResolvedConfigMeta, rebuildOrderedConfig } from "./merge";
+import {
+  type BosEnv,
+  isPlainObject,
+  type ResolvedConfigMeta,
+  rebuildOrderedConfig,
+} from "./services/resolution/merge";
 import { type SharedDepConfig, SharedDepMapSchema } from "./types";
 import { findWorkspaceRoot } from "./workspace";
 import { readWorkspaceCatalog, writeWorkspaceCatalog } from "./workspace-catalog";

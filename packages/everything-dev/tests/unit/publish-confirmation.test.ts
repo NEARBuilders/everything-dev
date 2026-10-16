@@ -4,15 +4,15 @@ const { fetchBosConfigFromFastKvMock } = vi.hoisted(() => ({
   fetchBosConfigFromFastKvMock: vi.fn(),
 }));
 
-vi.mock("../../src/fastkv", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/fastkv")>();
+vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/registry/fastkv")>();
   return {
     ...actual,
     fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock,
   };
 });
 
-import { isConfigAlreadyPublished, waitForPublishedConfig } from "../../src/publish";
+import { isConfigAlreadyPublished, waitForPublishedConfig } from "../../src/services/deploy/train";
 import type { BosConfig } from "../../src/types";
 
 const publishConfig: BosConfig = {

@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { openResolution } from "../../src/resolution/session";
+import { openResolution } from "../../src/services/resolution/session";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../..");
 

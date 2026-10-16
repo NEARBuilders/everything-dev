@@ -6,7 +6,7 @@ import { convertChildConfigToAppForm } from "../../src/cli/init";
 import { loadAppDescriptorConfig, resetConfigPathCache } from "../../src/config";
 import { App } from "../../src/descriptor/constructors";
 import { configInputToDescriptor, toConfigInput } from "../../src/descriptor/resolve";
-import { openResolution } from "../../src/resolution/session";
+import { openResolution } from "../../src/services/resolution/session";
 
 const fixtures = join(import.meta.dirname, "..", "fixtures", "bos-app-loader");
 

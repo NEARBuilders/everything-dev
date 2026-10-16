@@ -1,12 +1,13 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context } from "effect";
+import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { registerPlugins } from "../../src/commands/plugins";
-import type { BosBuilder, BosDeps } from "../../src/commands/shared";
-import { BosDepsTag } from "../../src/commands/shared";
-import { ResolutionSession } from "../../src/resolution/session";
+import { registerPlugins } from "../../src/handlers/plugins";
+import type { BosBuilder } from "../../src/handlers/shared";
+import { DeployTrainService } from "../../src/services/deploy/train";
+import { PluginAdminService } from "../../src/services/plugins-admin";
+import { ResolutionSession, ResolutionSessionService } from "../../src/services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../src/types";
 
 vi.mock("../../src/code-artifacts", () => ({
@@ -58,6 +59,9 @@ function tsSession(): ResolutionSession {
 
 function getHandler(name: string): (args: unknown) => Promise<any> {
   const records = new Map<string, unknown>();
+  const fakeTrain = DeployTrainService.of({
+    publish: () => Effect.succeed({ status: "published" as const, registryUrl: "" }),
+  });
   const builder = new Proxy(
     {},
     {
@@ -66,20 +70,28 @@ function getHandler(name: string): (args: unknown) => Promise<any> {
           records.set(prop as string, handler);
           return { route: prop, handler };
         },
+        effect: (gen: (opts: unknown, input: unknown) => Generator) => {
+          // Mirrors @orpc/experimental-effect's handlerGen: run the generator
+          // with (opts, input), provide the plugin services, return a promise.
+          const fn = (args: { input: unknown }) =>
+            Effect.runPromise(
+              Effect.gen(() => gen(args, args.input)).pipe(
+                Effect.provideService(ResolutionSessionService, tsSession()),
+                Effect.provide(
+                  PluginAdminService.Live.pipe(
+                    Layer.provide(Layer.succeed(DeployTrainService, fakeTrain)),
+                  ),
+                ),
+              ) as Effect.Effect<unknown, unknown, never>,
+            ) as Promise<any>;
+          records.set(prop as string, fn);
+          return { route: prop, handler: fn };
+        },
       }),
     },
   ) as BosBuilder;
   registerPlugins(builder);
   return records.get(name) as (args: unknown) => Promise<any>;
-}
-
-function makeContext(session: ResolutionSession) {
-  const deps: BosDeps = {
-    session,
-    databaseBindings: undefined as never,
-    drizzleKit: undefined as never,
-  };
-  return { context: { "effect/context": Context.make(BosDepsTag, deps) } };
 }
 
 beforeEach(() => {
@@ -96,7 +108,6 @@ describe("pluginAdd on a TS-form project", () => {
     const handler = getHandler("pluginAdd");
     const result = await handler({
       input: { source: "local:plugins/newplugin" },
-      ...makeContext(tsSession()),
     });
 
     expect(result.status).toBe("added");
@@ -112,7 +123,6 @@ describe("pluginAdd on a TS-form project", () => {
     const handler = getHandler("pluginAdd");
     await handler({
       input: { source: "local:plugins/newplugin" },
-      ...makeContext(tsSession()),
     });
     const source = readFileSync(join(configDir, "bos.app.ts"), "utf-8");
     expect(source).toContain("plugins/registry");
@@ -125,7 +135,6 @@ describe("pluginRemove on a TS-form project", () => {
     const handler = getHandler("pluginRemove");
     const result = await handler({
       input: { key: "registry" },
-      ...makeContext(tsSession()),
     });
 
     expect(result.status).toBe("removed");
@@ -138,7 +147,6 @@ describe("pluginRemove on a TS-form project", () => {
     const handler = getHandler("pluginRemove");
     const result = await handler({
       input: { key: "apps" },
-      ...makeContext(tsSession()),
     });
 
     expect(result.status).toBe("error");
@@ -174,7 +182,6 @@ describe("pluginRemove on a JSON-form child", () => {
     const handler = getHandler("pluginRemove");
     const result = await handler({
       input: { key: "apps" },
-      ...makeContext(tsSession()),
     });
 
     expect(result.status).toBe("removed");

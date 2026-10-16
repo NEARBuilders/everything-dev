@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiPluginManifest } from "../../src/api-contract";
-import { buildDependencyDAG } from "../../src/dag";
+import { buildDependencyDAG } from "../../src/services/registry/dag";
 
 // the stacking tests below are about manifest discovery + DAG order, not
 // version-manifest resolution — every remote slot pins a manifest, and

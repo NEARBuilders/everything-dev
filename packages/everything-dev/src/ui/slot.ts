@@ -2,7 +2,7 @@ import {
   UI_REMOTE_ENTRY_FILENAME,
   UI_REMOTE_SERVER_ENTRY_FILENAME,
 } from "every-plugin/ui/manifest";
-import type { BosEnv } from "../merge";
+import type { BosEnv } from "../services/resolution/merge";
 
 /**
  * The host's entry-URL SlotResolver: one pure derivation from a stamped
