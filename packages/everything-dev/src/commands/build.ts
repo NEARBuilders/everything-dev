@@ -1,14 +1,19 @@
-import { Context } from "effect";
-import { buildWorkspaceTargets, selectWorkspaceTargets } from "../build";
+import { Effect } from "effect";
 import { generateCodeArtifacts } from "../code-artifacts";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { BosEnv } from "../merge";
+import {
+  type BuildTargetsInput,
+  BuildTrainService,
+  selectWorkspaceTargets,
+} from "../services/workspace/build-train";
 import { type BosBuilder, BosDepsTag } from "./shared";
 
 export function registerBuild(builder: BosBuilder) {
   return {
-    build: builder.build.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
+    build: builder.build.effect(function* (_opts, input) {
+      const deps = yield* BosDepsTag;
+      const train = yield* BuildTrainService;
       const session = deps.session;
       if (!session?.config) {
         return {
@@ -36,29 +41,56 @@ export function registerBuild(builder: BosBuilder) {
         };
       }
 
-      const runtimeConfig = await session.buildRuntime({
-        uiSource: bosConfig.app.ui?.development ? "local" : "remote",
-        apiSource: bosConfig.app.api?.development ? "local" : "remote",
-        authSource: bosConfig.app.auth?.development ? "local" : "remote",
-        hostSource: bosConfig.app.host?.development ? "local" : "remote",
-        env: buildEnv,
-        plugins: session.runtime?.plugins,
+      const runtimeConfig = yield* Effect.tryPromise({
+        try: () =>
+          session.buildRuntime({
+            uiSource: bosConfig.app.ui?.development ? "local" : "remote",
+            apiSource: bosConfig.app.api?.development ? "local" : "remote",
+            authSource: bosConfig.app.auth?.development ? "local" : "remote",
+            hostSource: bosConfig.app.host?.development ? "local" : "remote",
+            env: buildEnv,
+            plugins: session.runtime?.plugins,
+          }),
+        catch: () => ({
+          status: "error" as const,
+          error: "Could not build the runtime config",
+          built: [],
+          skipped: [],
+        }),
       });
       for (const message of session.warnings) {
         console.warn(message);
       }
 
-      await generateCodeArtifacts(session.root, bosConfig, {
-        env: buildEnv,
-        runtimeConfig,
+      yield* Effect.tryPromise({
+        try: () =>
+          generateCodeArtifacts(session.root, bosConfig, {
+            env: buildEnv,
+            runtimeConfig,
+          }),
+        catch: () => ({
+          status: "error" as const,
+          error: "Could not generate code artifacts",
+          built: [],
+          skipped: [],
+        }),
       });
 
-      const { built, skipped } = await buildWorkspaceTargets({
+      const buildInput: BuildTargetsInput = {
         configDir: session.root,
         bosConfig,
-        runtimeConfig: runtimeConfig,
+        runtimeConfig,
         targets,
         deploy: false,
+      };
+      const { built, skipped } = yield* Effect.tryPromise({
+        try: () => train.buildTargets(buildInput),
+        catch: (error) => ({
+          status: "error" as const,
+          error: error instanceof Error ? error.message : "Unknown error",
+          built: [],
+          skipped: [],
+        }),
       });
 
       if (built.length === 0) {

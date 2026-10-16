@@ -3,7 +3,6 @@ import { join } from "node:path";
 import process from "node:process";
 import type { CustodyWalletRecord, SessionCredential } from "../../auth-session";
 import { readSessionHandle } from "../../auth-session";
-import { selectWorkspaceTargets } from "../../build";
 import { type CdnDeployInputs, probeStorageOrigin, resolveCdnDeployInputs } from "../../cdn-deploy";
 import {
   buildRegistryConfigUrlForNetwork,
@@ -18,6 +17,7 @@ import {
   type SigningStrategy,
 } from "../../near-signer";
 import { getNetworkIdForAccount } from "../../network";
+import { selectWorkspaceTargets } from "../../services/workspace/build-train";
 import type { BosConfig, PublishConfig } from "../../types";
 import { colors } from "../../utils/theme";
 

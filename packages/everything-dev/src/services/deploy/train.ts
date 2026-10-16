@@ -1,9 +1,8 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import { hasFolderFormUi } from "every-plugin/build/ui";
-import { buildWorkspaceTargets, resolveWorkspaceTarget } from "../../build";
 import { generateCodeArtifacts } from "../../code-artifacts";
 import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "../../config";
 import type { WorkspaceDeployResult } from "../../contract";
@@ -27,8 +26,15 @@ import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
-import { formatDuration } from "../../utils/timing";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
+import {
+  type BuildTargetsDeps,
+  type BuildTargetsInput,
+  type BuildTargetsResult,
+  BuildTrainService,
+  buildWorkspaceTargets,
+  resolveWorkspaceTarget,
+} from "../workspace/build-train";
 import { BundleStorage, RegistryStore, type RegistryStoreShape } from "./deps";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
 import { formatNearError } from "./format";
@@ -122,6 +128,12 @@ export interface TrainDeps {
   storage: StorageLegDeps;
   registry: RegistryStoreShape;
   signer: SignerServiceShape;
+  buildTrain: {
+    buildTargets: (
+      input: BuildTargetsInput,
+      deps?: BuildTargetsDeps,
+    ) => Promise<BuildTargetsResult>;
+  };
 }
 
 export interface DeployTrainInput {
@@ -201,7 +213,7 @@ export async function runPublishTrain(
       runtimeConfig: runtimeConfig ?? undefined,
     });
 
-    const result = await buildWorkspaceTargets({
+    const result = await deps.buildTrain.buildTargets({
       configDir,
       bosConfig,
       runtimeConfig,
@@ -700,7 +712,13 @@ export async function publishToFastKv(input: DeployTrainInput): Promise<PublishT
   }
 }
 
+const defaultBuildTrain = {
+  buildTargets: (input: BuildTargetsInput, deps?: BuildTargetsDeps) =>
+    buildWorkspaceTargets(input, deps),
+};
+
 export const realTrainDeps: TrainDeps = {
+  buildTrain: defaultBuildTrain,
   storage: realStorageLegDeps,
   registry: { fetchConfig: fetchBosConfigFromFastKv, fetchHistory: fetchConfigHistory },
   signer: {
@@ -732,10 +750,17 @@ export class DeployTrainService extends Context.Service<
       const storage = yield* BundleStorage;
       const registry = yield* RegistryStore;
       const signer = yield* SignerService;
+      const buildTrainOption = yield* Effect.serviceOption(BuildTrainService);
       return DeployTrainService.of({
         publish: (input: DeployTrainInput) =>
           Effect.tryPromise({
-            try: () => runPublishTrain(input, { storage, registry, signer }),
+            try: () =>
+              runPublishTrain(input, {
+                storage,
+                registry,
+                signer,
+                buildTrain: Option.getOrUndefined(buildTrainOption) ?? defaultBuildTrain,
+              }),
             catch: (error) =>
               error instanceof PublishTrainError
                 ? error

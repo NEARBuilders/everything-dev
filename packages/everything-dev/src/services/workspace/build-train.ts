@@ -1,14 +1,12 @@
 import { access, readFile } from "node:fs/promises";
 import process from "node:process";
-import { formatDuration } from "./cli/timing";
-import { resolveLocalDevelopmentPath } from "./config";
-import type { WorkspaceDeployResult } from "./contract";
-import { syncResolvedSharedDeps } from "./shared-deps";
-import type { BosConfig, BosPluginRef, RuntimeConfig } from "./types";
-import { run } from "./utils/run";
-import { padRight } from "./utils/string";
-import { colors, icons } from "./utils/theme";
-import { ensureFreshDeps, findWorkspaceRoot } from "./workspace";
+import { Context, Effect, Layer, Option } from "effect";
+import { resolveLocalDevelopmentPath } from "../../config";
+import type { WorkspaceDeployResult } from "../../contract";
+import { syncResolvedSharedDeps } from "../../shared-deps";
+import type { BosConfig, BosPluginRef, RuntimeConfig } from "../../types";
+import { run } from "../../utils/run";
+import { ensureFreshDeps, findWorkspaceRoot } from "../../workspace";
 
 const buildCommands: Record<string, { cmd: string; args: string[] }> = {
   host: { cmd: "pnpm", args: ["run", "build"] },
@@ -104,24 +102,58 @@ function isLocalTarget(key: string, bosConfig: BosConfig | null): boolean {
   return typeof dev === "string" && dev.startsWith("local:");
 }
 
-interface WorkspaceBuildOutcome {
+export type WorkspaceBuildOutcome = {
   key: string;
   kind: "app" | "plugin";
   success: boolean;
   error?: string;
   durationMs: number;
+  stderr: string;
+};
+
+/** Render events the build train emits (#424) — the ✓/✗ table, the deploy
+ * banner, and the prerequisite line are presentation: the service only
+ * decides WHEN, `cli/render/workspace-build` decides HOW. */
+export interface WorkspaceBuildRender {
+  banner?(total: number): void;
+  prerequisites?(names: readonly string[]): void;
+  outcome?(outcome: WorkspaceBuildOutcome): void;
+  end?(): void;
+}
+
+export interface BuildTargetsInput {
+  configDir: string;
+  bosConfig: BosConfig | null;
+  runtimeConfig: RuntimeConfig | null;
+  targets: string[];
+  deploy: boolean;
+  verbose?: boolean;
+}
+
+export interface BuildTargetsDeps {
+  runChild?: typeof run;
+  freshDeps?: typeof ensureFreshDeps;
+  fileExists?: typeof fileExists;
+  render?: WorkspaceBuildRender;
+}
+
+export interface BuildTargetsResult {
+  built: string[];
+  skipped: string[];
+  deployResults?: WorkspaceDeployResult[];
 }
 
 async function buildOneWorkspace(
   ws: WorkspaceTarget,
   env: Record<string, string>,
   opts: { verbose?: boolean },
+  deps: BuildTargetsDeps,
 ): Promise<WorkspaceBuildOutcome> {
   const buildConfig = buildCommands[ws.key] ?? { cmd: "pnpm", args: ["run", "build"] };
   const verbose = opts.verbose ?? false;
   const startTime = Date.now();
 
-  const proc = await run(buildConfig.cmd, buildConfig.args, {
+  const proc = await (deps.runChild ?? run)(buildConfig.cmd, buildConfig.args, {
     cwd: ws.path,
     env,
     capture: true,
@@ -141,53 +173,39 @@ async function buildOneWorkspace(
     key: ws.key,
     kind: ws.kind,
     success: exitCode === 0,
+    stderr: proc?.stderr ?? "",
     ...(exitCode !== 0 && {
       error: `Build failed (exit code ${exitCode})\n${output.trim().split("\n").slice(-5).join("\n")}`,
     }),
     durationMs,
   };
 
-  if (!verbose) {
-    const name = padRight(ws.key, 28);
-    if (result.success) {
-      console.log(`  ${colors.green(icons.ok)} ${name} ${colors.dim(formatDuration(durationMs))}`);
-    } else {
-      const errorLine = (result.error ?? "Failed").split("\n")[0];
-      console.log(`  ${colors.error(icons.err)} ${name} ${errorLine}`);
-    }
-  }
+  if (!verbose) deps.render?.outcome?.(result);
 
   return result;
 }
 
-export async function buildWorkspaceTargets(opts: {
-  configDir: string;
-  bosConfig: BosConfig | null;
-  runtimeConfig: RuntimeConfig | null;
-  targets: string[];
-  deploy: boolean;
-  verbose?: boolean;
-}): Promise<{
-  built: string[];
-  skipped: string[];
-  deployResults?: WorkspaceDeployResult[];
-}> {
+export async function buildWorkspaceTargets(
+  input: BuildTargetsInput,
+  deps: BuildTargetsDeps = {},
+): Promise<BuildTargetsResult> {
+  const render = deps.render;
   const existing: WorkspaceTarget[] = [];
   const skipped: string[] = [];
 
-  for (const target of opts.targets) {
+  for (const target of input.targets) {
     const resolved = resolveWorkspaceTarget(
       target,
-      opts.bosConfig,
-      opts.runtimeConfig,
-      opts.configDir,
+      input.bosConfig,
+      input.runtimeConfig,
+      input.configDir,
     );
     if (!resolved) {
       skipped.push(target);
       continue;
     }
 
-    const exists = await fileExists(`${resolved.path}/package.json`);
+    const exists = await (deps.fileExists ?? fileExists)(`${resolved.path}/package.json`);
     if (exists) existing.push(resolved);
     else skipped.push(target);
   }
@@ -197,14 +215,14 @@ export async function buildWorkspaceTargets(opts: {
   }
 
   const sharedSync = await syncResolvedSharedDeps({
-    configDir: opts.configDir,
+    configDir: input.configDir,
     hostMode: "local",
-    bosConfig: opts.bosConfig ?? undefined,
+    bosConfig: input.bosConfig ?? undefined,
     extendsChain: [],
   });
   if (sharedSync.catalogChanged) {
     await run("pnpm", ["install"], {
-      cwd: findWorkspaceRoot(opts.configDir)?.dir ?? opts.configDir,
+      cwd: findWorkspaceRoot(input.configDir)?.dir ?? input.configDir,
     });
   }
 
@@ -216,25 +234,23 @@ export async function buildWorkspaceTargets(opts: {
   // contract for every deploy build child.
   const env: Record<string, string> = {
     ...process.env,
-    NODE_ENV: opts.deploy ? "production" : "development",
+    NODE_ENV: input.deploy ? "production" : "development",
   };
   // Dist-first deploy builds (ADR 0018): a deploy build must never inherit a
   // DEPLOY value from the operator's shell, and a dev build must never see one.
-  if (opts.deploy) env.DEPLOY = "true";
+  if (input.deploy) env.DEPLOY = "true";
   else delete env.DEPLOY;
 
-  const depsReport = await ensureFreshDeps(
-    opts.configDir,
+  const depsReport = await (deps.freshDeps ?? ensureFreshDeps)(
+    input.configDir,
     existing.map((entry) => entry.path),
-    { force: opts.deploy, env },
+    { force: input.deploy, env },
   );
   if (depsReport.rebuilt.length > 0) {
-    console.log(
-      `  ${colors.dim(`prerequisites: rebuilt ${depsReport.rebuilt.map((member) => member.name).join(", ")}`)}`,
-    );
+    render?.prerequisites?.(depsReport.rebuilt.map((member) => member.name));
   }
 
-  const orderedExisting = opts.deploy
+  const orderedExisting = input.deploy
     ? [
         ...existing.filter((entry) => entry.kind === "app" && entry.key !== "host"),
         ...existing.filter((entry) => entry.kind === "plugin"),
@@ -242,22 +258,20 @@ export async function buildWorkspaceTargets(opts: {
       ]
     : existing;
 
-  const parallelGroup = opts.deploy
+  const parallelGroup = input.deploy
     ? orderedExisting.filter((e) => e.key !== "host")
     : orderedExisting;
-  const sequentialGroup = opts.deploy ? orderedExisting.filter((e) => e.key === "host") : [];
+  const sequentialGroup = input.deploy ? orderedExisting.filter((e) => e.key === "host") : [];
 
   const built: string[] = [];
   const deployResults: WorkspaceDeployResult[] = [];
 
-  if (opts.deploy && parallelGroup.length > 0) {
+  if (input.deploy && parallelGroup.length > 0) {
     const total = parallelGroup.length + sequentialGroup.length;
-    console.log();
-    console.log(`  Building ${total} workspace${total > 1 ? "s" : ""}...`);
-    console.log();
+    render?.banner?.(total);
 
     const results = await Promise.allSettled(
-      parallelGroup.map((ws) => buildOneWorkspace(ws, env, opts)),
+      parallelGroup.map((ws) => buildOneWorkspace(ws, env, input, deps)),
     );
 
     for (let i = 0; i < parallelGroup.length; i++) {
@@ -279,14 +293,14 @@ export async function buildWorkspaceTargets(opts: {
     }
 
     for (const ws of sequentialGroup) {
-      const result = await buildOneWorkspace(ws, env, opts);
+      const result = await buildOneWorkspace(ws, env, input, deps);
       if (result.success) {
         built.push(ws.key);
       }
       deployResults.push(result);
     }
 
-    console.log();
+    render?.end?.();
   } else {
     for (const resolved of orderedExisting) {
       const buildConfig = buildCommands[resolved.key] ?? {
@@ -294,7 +308,7 @@ export async function buildWorkspaceTargets(opts: {
         args: ["run", "build"],
       };
 
-      await run(buildConfig.cmd, buildConfig.args, {
+      await (deps.runChild ?? run)(buildConfig.cmd, buildConfig.args, {
         cwd: resolved.path,
         env,
       });
@@ -302,5 +316,40 @@ export async function buildWorkspaceTargets(opts: {
     }
   }
 
-  return { built, skipped, deployResults: opts.deploy ? deployResults : undefined };
+  return { built, skipped, deployResults: input.deploy ? deployResults : undefined };
+}
+
+/** Presentation seam the composition root wires to `cli/render` (#424). */
+export class WorkspaceBuildRenderService extends Context.Service<
+  WorkspaceBuildRenderService,
+  WorkspaceBuildRender
+>()("everything-dev/workspace/build-render") {}
+
+/**
+ * The build train as a Context.Service (ticket #424): parallel/sequential
+ * group logic and the prerequisite train behind one tag; the ✓ table renders
+ * through the composition root's render, never the service.
+ */
+export class BuildTrainService extends Context.Service<
+  BuildTrainService,
+  {
+    buildTargets: (
+      input: BuildTargetsInput,
+      deps?: BuildTargetsDeps,
+    ) => Promise<BuildTargetsResult>;
+  }
+>()("everything-dev/workspace/build-train") {
+  static readonly Live = Layer.effect(
+    this,
+    Effect.gen(function* () {
+      const renderOption = yield* Effect.serviceOption(WorkspaceBuildRenderService);
+      return BuildTrainService.of({
+        buildTargets: (input, deps) =>
+          buildWorkspaceTargets(input, {
+            ...deps,
+            render: deps?.render ?? Option.getOrUndefined(renderOption),
+          }),
+      });
+    }),
+  );
 }

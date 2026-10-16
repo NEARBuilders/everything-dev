@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectWorkspaceTargets } from "../../src/build";
+import { selectWorkspaceTargets } from "../../src/services/workspace/build-train";
 
 describe('selectWorkspaceTargets "local"', () => {
   it("returns only keys whose app.development starts with local:", () => {

@@ -2,6 +2,7 @@ import process from "node:process";
 import * as p from "@clack/prompts";
 import { Context, Effect, Layer } from "effect";
 import { buildScoped, buildScopedContext } from "every-plugin";
+import { cliWorkspaceBuildRender } from "./cli/render/workspace-build";
 import { registerBuild } from "./commands/build";
 import { registerConfig } from "./commands/config";
 import { registerDb } from "./commands/db";
@@ -28,10 +29,18 @@ import { SiteClient } from "./services/auth/site-client";
 import { BundleStorage, RegistryStore } from "./services/deploy/deps";
 import { DeployTrainService } from "./services/deploy/train";
 import { ProcessesService } from "./services/processes";
+import { BuildTrainService, WorkspaceBuildRenderService } from "./services/workspace/build-train";
 
 export { resolveRemoteConfigChain } from "./commands/config";
 export type { DevSessionData, StartSummary } from "./dev-program";
 export { type ProgressEvent, pluginEvents } from "./progress";
+
+const buildRenderLayer = Layer.succeed(
+  WorkspaceBuildRenderService,
+  WorkspaceBuildRenderService.of(cliWorkspaceBuildRender),
+);
+
+const buildTrainLayer = BuildTrainService.Live.pipe(Layer.provide(buildRenderLayer));
 
 export default createPlugin({
   variables: z.object({
@@ -78,8 +87,17 @@ export default createPlugin({
         SiteClient.Live,
         SessionStore.Live,
         DeviceLoginService.Live.pipe(Layer.provide(SiteClient.Live)),
+        buildRenderLayer,
+        buildTrainLayer,
         DeployTrainService.Live.pipe(
-          Layer.provide(Layer.mergeAll(BundleStorage.Live, RegistryStore.Live, SignerService.Live)),
+          Layer.provide(
+            Layer.mergeAll(
+              BundleStorage.Live,
+              RegistryStore.Live,
+              SignerService.Live,
+              buildTrainLayer,
+            ),
+          ),
         ),
       );
     }),
