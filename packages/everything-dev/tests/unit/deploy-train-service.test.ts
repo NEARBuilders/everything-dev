@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer } from "effect";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SignerService } from "../../src/services/auth/signer";
 import { BundleStorage, RegistryStore } from "../../src/services/deploy/deps";
 import { PublishTrainError } from "../../src/services/deploy/errors";
