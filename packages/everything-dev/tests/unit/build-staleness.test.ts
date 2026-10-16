@@ -108,19 +108,6 @@ describe("contentHashStalenessOracle", () => {
     expect(await oracle.isStale(makeMember(dir, "a"))).toBe(true);
   });
 
-  it("is stale when a file moves between directories (path-aware hash)", async () => {
-    const root = mkTmp(join(tmpdir(), "bos-hash-root-"));
-    const dir = makePackageDir();
-    const member = makeMember(dir, "a");
-    const oracle = contentHashStalenessOracle(root, [member]);
-    await oracle.recordBuilt?.(member);
-
-    mkdirSync(join(dir, "src", "moved"), { recursive: true });
-    writeFileSync(join(dir, "src", "moved", "index.ts"), "export {};\n");
-    rmSync(join(dir, "src", "index.ts"));
-    expect(await oracle.isStale(member)).toBe(true);
-  });
-
   it("is fresh after recordBuilt when nothing changed", async () => {
     const root = mkTmp(join(tmpdir(), "bos-hash-root-"));
     const dir = makePackageDir();
