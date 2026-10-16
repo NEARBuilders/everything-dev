@@ -20,7 +20,11 @@ export const DevOptionsSchema = z.object({
   ui: SourceModeSchema.default("local"),
   api: SourceModeSchema.default("local"),
   auth: SourceModeSchema.default("local"),
-  remotePlugins: z.array(z.string()).optional(),
+  remotePlugins: z
+    .array(z.string())
+    .optional()
+    .describe("Comma-separated plugin IDs to force remote (e.g. --remote-plugins auth,registry)"),
+
   proxy: z.boolean().default(false),
   ssr: z.boolean().default(false),
   port: z.number().optional(),
@@ -29,7 +33,12 @@ export const DevOptionsSchema = z.object({
   authPort: z.number().optional(),
   pluginPortStart: z.number().optional(),
   interactive: z.boolean().optional(),
-  logLevel: z.enum(["error", "warn", "info", "debug"]).optional(),
+  logLevel: z
+    .enum(["error", "warn", "info", "debug"])
+    .optional()
+    .describe(
+      "Log tail level: error, warn (default), info, or debug (overrides BOS_LOG_LEVEL; the file always gets everything)",
+    ),
 });
 
 export const DevResultSchema = z.object({
@@ -43,11 +52,27 @@ export const DevResultSchema = z.object({
 export const StartOptionsSchema = z.object({
   port: z.number().optional(),
   interactive: z.boolean().optional(),
-  account: z.string().optional(),
+  account: z.string().optional().describe("New project NEAR account (auto-derived from extends)"),
+
   domain: z.string().optional(),
-  env: z.enum(["production", "staging"]).default("production"),
-  registry: z.string().optional(),
-  configPath: z.string().optional(),
+  env: z
+    .enum(["production", "staging"])
+    .default("production")
+    .describe("Environment: production or staging"),
+
+  registry: z
+    .string()
+    .optional()
+    .describe(
+      "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+    ),
+
+  configPath: z
+    .string()
+    .optional()
+    .describe(
+      "Boot from a local bos config file — skips FastKV resolution and SRI integrity verification",
+    ),
 });
 
 export const StartResultSchema = z.object({
@@ -65,7 +90,12 @@ export const BuildOptionsSchema = z.object({
     .describe(
       "Comma-separated keys, 'all' (default), or 'local' (only this repo's local plugins hosted via 'local:…')",
     ),
-  force: z.boolean().default(false),
+  force: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Allow pre-Phase-A snapshots without verifiable manifest pins (their bytes were overwritten in place)",
+    ),
 });
 
 export const BuildResultSchema = z.object({
@@ -76,7 +106,7 @@ export const BuildResultSchema = z.object({
 });
 
 export const ConfigOptionsSchema = z.object({
-  full: z.boolean().default(false),
+  full: z.boolean().default(false).describe("Print the fully resolved configuration"),
 });
 
 export const ConfigResultSchema = z.object({
@@ -92,7 +122,7 @@ export const RegistryUseOptionsSchema = z.object({
     .array(z.string())
     .min(1)
     .describe("Sections to compose: app.ui, app.host, app.api, app.auth, plugins.<key>"),
-  dryRun: z.boolean().default(false),
+  dryRun: z.boolean().default(false).describe("Preview the merged config without writing"),
 });
 
 export const RegistryUseResultSchema = z.object({
@@ -104,9 +134,10 @@ export const RegistryUseResultSchema = z.object({
 });
 
 export const PluginAddOptionsSchema = z.object({
-  source: z.string(),
-  as: z.string().optional(),
-  production: z.string().optional(),
+  source: z.string().describe("Plugin source (local:path, bos://account/domain, or URL)"),
+  as: z.string().optional().describe("Plugin alias"),
+
+  production: z.string().optional().describe("Production URL override"),
 });
 
 export const PluginAddResultSchema = z.object({
@@ -115,7 +146,11 @@ export const PluginAddResultSchema = z.object({
   development: z.string().optional(),
   production: z.string().optional(),
   integrity: z.string().optional(),
-  version: z.string().optional(),
+  version: z
+    .string()
+    .optional()
+    .describe("Block height (or timestamp) of the snapshot from the listing"),
+
   error: z.string().optional(),
 });
 
@@ -155,7 +190,11 @@ export const PluginPublishResultSchema = z.object({
   key: z.string(),
   path: z.string().optional(),
   production: z.string().optional(),
-  version: z.string().optional(),
+  version: z
+    .string()
+    .optional()
+    .describe("Block height (or timestamp) of the snapshot from the listing"),
+
   fingerprint: z.string().optional(),
   error: z.string().optional(),
 });
@@ -169,28 +208,75 @@ export const WorkspaceDeployResultSchema = z.object({
 });
 
 export const PublishOptionsSchema = z.object({
-  dryRun: z.boolean().default(false),
-  verbose: z.boolean().default(false),
-  network: z.enum(["mainnet", "testnet"]).optional(),
+  dryRun: z.boolean().default(false).describe("Preview what would be published without writing"),
+
+  verbose: z.boolean().default(false).describe("Show full build output instead of clean summary"),
+
+  network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
+
   privateKey: z.string().optional(),
-  wallet: z.boolean().default(false),
-  env: z.enum(["production", "staging"]).default("production"),
-  registry: z.string().optional(),
+  wallet: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Publish gaslessly with a one-time wallet approval (NEP-366 delegate action relayed by the platform relayer)",
+    ),
+
+  env: z
+    .enum(["production", "staging"])
+    .default("production")
+    .describe("Environment: production or staging"),
+
+  registry: z
+    .string()
+    .optional()
+    .describe(
+      "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+    ),
 });
 
 export const RollbackOptionsSchema = z.object({
   listOnly: z.boolean().default(false),
   version: z.string().optional(),
-  previous: z.boolean().default(false),
-  force: z.boolean().default(false),
-  limit: z.number().int().min(1).max(200).default(20),
-  dryRun: z.boolean().default(false),
-  verbose: z.boolean().default(false),
-  network: z.enum(["mainnet", "testnet"]).optional(),
+  previous: z
+    .boolean()
+    .default(false)
+    .describe("Roll back to the write immediately before the current one"),
+
+  force: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Allow pre-Phase-A snapshots without verifiable manifest pins (their bytes were overwritten in place)",
+    ),
+
+  limit: z.number().int().min(1).max(200).default(20).describe("Listing depth (1-200, default 20)"),
+
+  dryRun: z.boolean().default(false).describe("Preview the rollback without publishing"),
+
+  verbose: z.boolean().default(false).describe("Show full build output instead of clean summary"),
+
+  network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
+
   privateKey: z.string().optional(),
-  wallet: z.boolean().default(false),
-  env: z.enum(["production", "staging"]).default("production"),
-  registry: z.string().optional(),
+  wallet: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Publish gaslessly with a one-time wallet approval (NEP-366 delegate action relayed by the platform relayer)",
+    ),
+
+  env: z
+    .enum(["production", "staging"])
+    .default("production")
+    .describe("Environment: production or staging"),
+
+  registry: z
+    .string()
+    .optional()
+    .describe(
+      "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+    ),
 });
 
 export const RollbackHistoryEntrySchema = z.object({
@@ -229,9 +315,18 @@ export const PublishResultSchema = z.object({
 
 export const DeployOptionsSchema = z.object({
   statusList: z.boolean().default(false),
-  env: z.enum(["production", "staging"]).default("production"),
-  build: z.boolean().default(true),
-  dryRun: z.boolean().default(false),
+  env: z
+    .enum(["production", "staging"])
+    .default("production")
+    .describe("Environment: production or staging"),
+
+  build: z
+    .boolean()
+    .default(true)
+    .describe("Build and deploy workspaces before publish (default: true)"),
+
+  dryRun: z.boolean().default(false).describe("Preview what would be deployed without writing"),
+
   verbose: z.boolean().default(false),
   packages: z
     .string()
@@ -239,10 +334,18 @@ export const DeployOptionsSchema = z.object({
     .describe(
       "Comma-separated keys, 'all' (default), or 'local' (only this repo's local plugins hosted via 'local:…')",
     ),
-  network: z.enum(["mainnet", "testnet"]).optional(),
+  network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
+
   privateKey: z.string().optional(),
-  service: z.string().optional(),
-  registry: z.string().optional(),
+  service: z.string().optional().describe("Override Railway service name from config"),
+
+  registry: z
+    .string()
+    .optional()
+    .describe(
+      "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+    ),
+
   imageDigest: z
     .string()
     .optional()
@@ -306,8 +409,14 @@ export const SmokeOptionsSchema = z.object({
     .string()
     .optional()
     .describe("Runtime image ref to boot — required unless defaulted by the deploy train"),
-  port: z.number().int().default(3000),
-  keep: z.boolean().default(false),
+  port: z
+    .number()
+    .int()
+    .default(3000)
+    .describe("Host port to publish the container on (default: 3000)"),
+
+  keep: z.boolean().default(false).describe("Keep the container after the run (debugging)"),
+
   account: z
     .string()
     .optional()
@@ -315,8 +424,17 @@ export const SmokeOptionsSchema = z.object({
   gateway: z.string().optional(),
   apiDatabaseUrl: z.string().optional(),
   authDatabaseUrl: z.string().optional(),
-  env: z.enum(["production", "staging"]).default("production"),
-  registry: z.string().optional(),
+  env: z
+    .enum(["production", "staging"])
+    .default("production")
+    .describe("Environment: production or staging"),
+
+  registry: z
+    .string()
+    .optional()
+    .describe(
+      "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+    ),
 });
 
 export const SmokeResultSchema = z.object({
@@ -348,10 +466,21 @@ export const KeyPublishOptionsSchema = z.object({
       {
         message: `Allowance must be at least ${MIN_PUBLISH_ALLOWANCE_NEAR} NEAR to cover the transaction cost`,
       },
-    ),
-  env: z.enum(["production", "staging"]).default("production"),
+    )
+    .describe("NEAR allowance for the key (default: 1NEAR, min: 0.3NEAR)"),
+
+  env: z
+    .enum(["production", "staging"])
+    .default("production")
+    .describe("Environment: production (default) or staging"),
+
   registry: z.string().optional(),
-  removeOldKeys: z.boolean().optional(),
+  removeOldKeys: z
+    .boolean()
+    .optional()
+    .describe(
+      "Remove existing publish key(s) without prompting (default: ask on a TTY, defaulting to keep; keep when non-interactive — pass --remove-old-keys to remove)",
+    ),
 });
 
 export const KeyPublishResultSchema = z.object({
@@ -373,11 +502,34 @@ export const DEFAULT_LOGIN_EXPIRES_IN_SECONDS = 90 * 24 * 60 * 60;
 export const DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS = 365 * 24 * 60 * 60;
 
 export const LoginOptionsSchema = z.object({
-  key: z.boolean().default(false),
-  custody: z.boolean().default(false),
-  site: z.string().optional(),
-  expiresIn: z.number().int().positive().optional(),
-  device: z.string().optional(),
+  key: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Mint a scoped deploy key (bundles:write for the config's account/gateway), store it as the session credential, and print it for BOS_STORAGE_API_KEY — plus export the publish key for headless/CI use",
+    ),
+
+  custody: z
+    .boolean()
+    .default(false)
+    .describe("Also register an OutLayer custody wallet for custody publishes"),
+
+  site: z.string().optional().describe("Override site URL hosting the CLI login page"),
+
+  expiresIn: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "Credential lifetime in seconds (default: 90 days; deploy keys with --key: 365 days)",
+    ),
+
+  device: z
+    .string()
+    .optional()
+    .describe("Device label recorded on the credential (default: hostname)"),
+
   env: z.enum(["production", "staging"]).default("production"),
   registry: z.string().optional(),
 });
@@ -423,7 +575,7 @@ export const LoginResultSchema = z.object({
 });
 
 export const LogoutOptionsSchema = z.object({
-  configDir: z.string().optional(),
+  configDir: z.string().optional().describe("Override config directory"),
 });
 
 export const LogoutResultSchema = z.object({
@@ -442,16 +594,32 @@ export const RuntimeOverrideTargetSchema = z.union([
 ]);
 
 export const InitOptionsSchema = z.object({
-  extends: z.string().optional(),
-  directory: z.string().optional(),
-  account: z.string().optional(),
-  domain: z.string().optional(),
-  source: z.string().optional(),
-  plugins: z.array(z.string()).optional(),
-  overrides: z.array(OverrideSectionSchema).optional(),
-  level: StarterLevelSchema.optional(),
-  noInteractive: z.boolean().default(false),
-  noInstall: z.boolean().default(false),
+  extends: z
+    .string()
+    .optional()
+    .describe("Parent to extend from (e.g. bos://account/gateway or account/gateway)"),
+  directory: z.string().optional().describe("Target directory (auto-derived from domain)"),
+
+  account: z.string().optional().describe("New project NEAR account (auto-derived from extends)"),
+
+  domain: z.string().optional().describe("New project domain (e.g. myapp.everything.dev)"),
+  source: z.string().optional().describe("Local source dir (skips GitHub download)"),
+
+  plugins: z
+    .array(z.string())
+    .optional()
+    .describe("Comma-separated plugin keys to include (requires --overrides=plugins)"),
+  overrides: z
+    .array(OverrideSectionSchema)
+    .optional()
+    .describe("Comma-separated sections to customize locally: ui,api,host,plugins"),
+  level: StarterLevelSchema.optional().describe(
+    "Starter complexity: simple (public shell) or advanced (adds dashboard, orgs, admin)",
+  ),
+
+  noInteractive: z.boolean().default(false).describe("Skip prompts, use flags only"),
+
+  noInstall: z.boolean().default(false).describe("Skip pnpm install"),
 });
 
 export const InitResultSchema = z.object({
@@ -470,8 +638,10 @@ export const InitResultSchema = z.object({
 });
 
 export const SyncOptionsSchema = z.object({
-  dryRun: z.boolean().default(false),
-  noInstall: z.boolean().default(false),
+  dryRun: z.boolean().default(false).describe("Preview changes without writing files"),
+
+  noInstall: z.boolean().default(false).describe("Skip pnpm install"),
+
   json: z.boolean().default(false),
 });
 
@@ -492,12 +662,27 @@ export const SyncResultSchema = z.object({
 });
 
 export const ImportOptionsSchema = z.object({
-  workspace: z.string(),
+  workspace: z.string().describe("Workspace subtree path (e.g. plugins/auth)"),
   /** omitted → resolve the upstream from the authored config's extends chain */
-  from: z.string().optional(),
-  yes: z.boolean().default(false),
-  dryRun: z.boolean().default(false),
-  noInstall: z.boolean().default(false),
+  from: z
+    .string()
+    .optional()
+    .describe(
+      "Upstream source: bos://<account>/<gateway>, <owner>/<repo>[@<ref>], GitHub URL, or local directory — defaults to the authored config's extends chain",
+    ),
+
+  yes: z
+    .boolean()
+    .default(false)
+    .describe("Apply upstream over conflicting files without prompting"),
+
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe("Preview classification and report without writing files"),
+
+  noInstall: z.boolean().default(false).describe("Skip pnpm install"),
+
   json: z.boolean().default(false),
 });
 
@@ -555,9 +740,12 @@ export const ImportResultSchema = z.object({
 });
 
 export const UpgradeOptionsSchema = z.object({
-  dryRun: z.boolean().default(false),
-  noInstall: z.boolean().default(false),
-  noSync: z.boolean().default(false),
+  dryRun: z.boolean().default(false).describe("Preview changes without writing"),
+
+  noInstall: z.boolean().default(false).describe("Skip pnpm install"),
+
+  noSync: z.boolean().default(false).describe("Only upgrade packages, skip template sync"),
+
   json: z.boolean().default(false),
   migrationsOnly: z.boolean().default(false),
 });
@@ -609,9 +797,20 @@ export const StatusResultSchema = z.object({
 });
 
 export const TypesGenOptionsSchema = z.object({
-  env: z.enum(["development", "production"]).optional(),
-  dryRun: z.boolean().default(false),
-  remotePlugins: z.array(z.string()).optional(),
+  env: z
+    .enum(["development", "production"])
+    .optional()
+    .describe("Environment: development (default) or production"),
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe("Preview what would be fetched without writing files"),
+  remotePlugins: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Comma-separated plugin IDs to fetch contract types remotely (e.g. --remote-plugins auth,registry)",
+    ),
 });
 
 export const TypesGenResultSchema = z.object({
@@ -624,7 +823,10 @@ export const TypesGenResultSchema = z.object({
 });
 
 export const DbStudioOptionsSchema = z.object({
-  plugin: z.string().default("api"),
+  plugin: z
+    .string()
+    .default("api")
+    .describe("Plugin key: api, auth, or a plugin name (default: api)"),
 });
 
 export const DbStudioResultSchema = z.object({
@@ -639,7 +841,7 @@ export const DbStudioResultSchema = z.object({
 });
 
 export const DbDoctorOptionsSchema = z.object({
-  plugin: z.string(),
+  plugin: z.string().describe("Plugin key: api, auth, or a plugin name"),
 });
 
 export const DbDoctorResultSchema = z.object({
@@ -660,9 +862,12 @@ export const DbDoctorResultSchema = z.object({
 });
 
 export const DbRepairOptionsSchema = z.object({
-  plugin: z.string(),
-  mode: z.enum(["history-reset", "recreate"]).default("history-reset"),
-  yes: z.boolean().optional(),
+  plugin: z.string().describe("Plugin key: api, auth, or a plugin name"),
+  mode: z
+    .enum(["history-reset", "recreate"])
+    .default("history-reset")
+    .describe("Repair mode: history-reset (default) or recreate (not yet supported)"),
+  yes: z.boolean().optional().describe("Skip confirmation prompt"),
 });
 
 export const DbRepairResultSchema = z.object({
@@ -704,9 +909,13 @@ export const PsResultSchema = z.object({
 });
 
 export const LogsOptionsSchema = z.object({
-  service: z.string().optional(),
-  tail: z.number().int().positive().max(100_000).optional(),
-  follow: z.boolean().optional(),
+  service: z
+    .string()
+    .optional()
+    .describe("Filter by service name (e.g. host, api, auth, ui, plugin:votes)"),
+  tail: z.number().int().positive().max(100_000).optional().describe("Show only the last N lines"),
+
+  follow: z.boolean().optional().describe("Stream the log as lines are appended"),
 });
 
 export const LogsResultSchema = z.object({
@@ -715,9 +924,17 @@ export const LogsResultSchema = z.object({
 });
 
 export const KillOptionsSchema = z.object({
-  configDir: z.string().optional(),
-  signal: z.enum(["SIGTERM", "SIGKILL"]).default("SIGTERM"),
-  all: z.boolean().default(false),
+  configDir: z
+    .string()
+    .optional()
+    .describe("Kill processes owned by a config directory (defaults to cwd)"),
+
+  signal: z
+    .enum(["SIGTERM", "SIGKILL"])
+    .default("SIGTERM")
+    .describe("Signal: SIGTERM (default) or SIGKILL"),
+
+  all: z.boolean().default(false).describe("Kill processes across all config directories"),
 });
 
 export const KillResultSchema = z.object({
@@ -728,7 +945,7 @@ export const KillResultSchema = z.object({
 });
 
 export const TypecheckOptionsSchema = z.object({
-  packages: z.string().default("all"),
+  packages: z.string().default("all").describe("Comma-separated workspace list (default: all)"),
 });
 
 export const TypecheckWorkspaceResultSchema = z.object({
@@ -763,9 +980,10 @@ export const InfraExportServiceSchema = z.object({
 });
 
 export const InfraExportOptionsSchema = z.object({
-  target: z.enum(["ci", "local"]).default("ci"),
+  target: z.enum(["ci", "local"]).default("ci").describe("Export target: ci (default) or local"),
+
   network: z.enum(["mainnet", "testnet"]).optional(),
-  configDir: z.string().optional(),
+  configDir: z.string().optional().describe("Override config directory"),
 });
 
 export const InfraExportResultSchema = z.object({
@@ -1008,3 +1226,203 @@ export type MfCheckOptions = z.infer<typeof MfCheckOptionsSchema>;
 export type MfCheckResult = z.infer<typeof MfCheckResultSchema>;
 export type InfraExportResult = z.infer<typeof InfraExportResultSchema>;
 export type InfraExportService = z.infer<typeof InfraExportServiceSchema>;
+
+export type CliCommandMeta = {
+  commandPath?: string[];
+  summary: string;
+  description?: string;
+  examples?: string[];
+  interactive?: boolean;
+  longRunning?: boolean;
+  fields?: Record<string, { positional?: boolean; description?: string }>;
+};
+
+export const cliCommandMeta = {
+  dev: {
+    commandPath: ["dev"],
+    summary: "Start a development session",
+    interactive: true,
+    longRunning: true,
+  },
+  start: {
+    commandPath: ["start"],
+    summary: "Start the production host",
+    interactive: false,
+    longRunning: true,
+  },
+  build: {
+    commandPath: ["build"],
+    summary: "Build selected workspaces",
+    interactive: false,
+    fields: {
+      packages: { positional: true },
+    },
+  },
+  config: {
+    commandPath: ["config"],
+    summary: "Print the loaded BOS configuration",
+    interactive: false,
+  },
+  registryUse: {
+    commandPath: ["registry", "use"],
+    summary:
+      "Compose app.ui/app.host/app.api/plugins.<key> sections from a published runtime into bos.config.json",
+    interactive: false,
+    fields: {
+      from: { positional: true },
+    },
+  },
+  pluginAdd: {
+    commandPath: ["plugin", "add"],
+    summary: "Add a plugin attachment",
+    interactive: false,
+    fields: {
+      source: { positional: true },
+    },
+  },
+  pluginRemove: {
+    commandPath: ["plugin", "remove"],
+    summary: "Remove a plugin attachment",
+    interactive: false,
+  },
+  pluginList: {
+    commandPath: ["plugin", "list"],
+    summary: "List configured plugins",
+    interactive: false,
+  },
+  pluginPublish: {
+    commandPath: ["plugin", "publish"],
+    summary: "Publish a single plugin",
+    interactive: false,
+  },
+  publish: {
+    commandPath: ["publish"],
+    summary:
+      "Publish the current workspace configuration (no build — use bos deploy for the full train)",
+    interactive: false,
+  },
+  rollback: {
+    commandPath: ["rollback"],
+    summary: "Republish an earlier config snapshot from the registry publish history",
+    interactive: true,
+  },
+  deploy: {
+    commandPath: ["deploy"],
+    summary:
+      "Deploy train: preflight → build → upload bundles → publish config → runtime image (pre-pushed digest or local docker build) → post-publish smoke (optional) → Railway (image-backed, no build)",
+    interactive: false,
+  },
+  smoke: {
+    commandPath: ["smoke"],
+    summary:
+      "Boot a runtime image the way production boots (identity-driven, published config) and assert the boot surface: /health, SSR, OpenAPI spec, in-image mf check",
+    interactive: false,
+  },
+  login: {
+    commandPath: ["login"],
+    summary:
+      "Sign in with your NEAR account via the hosted site (wallet, passkey, or social login)",
+    interactive: true,
+  },
+  logout: {
+    commandPath: ["logout"],
+    summary: "Revoke the stored CLI session and delete the exported publish key",
+    interactive: false,
+  },
+  keyPublish: {
+    commandPath: ["key", "generate"],
+    summary: "Generate a publish access key",
+    interactive: true,
+  },
+  init: {
+    commandPath: ["init"],
+    summary: "Scaffold a new project by extending a deployed app or template",
+    interactive: true,
+    fields: {
+      domain: { positional: true },
+    },
+  },
+  sync: {
+    commandPath: ["sync"],
+    summary: "Sync template files from parent project",
+    interactive: false,
+  },
+  import: {
+    commandPath: ["import"],
+    summary: "Import a workspace subtree from an upstream repo without cloning",
+    interactive: true,
+    fields: {
+      workspace: { positional: true },
+    },
+  },
+  upgrade: {
+    commandPath: ["upgrade"],
+    summary: "Upgrade framework packages and sync template files",
+    interactive: true,
+  },
+  typesGen: {
+    commandPath: ["types", "gen"],
+    summary: "Generate type definitions from configured API and plugin contracts",
+    interactive: false,
+  },
+  typecheck: {
+    commandPath: ["typecheck"],
+    summary: "Run TypeScript type checking across all local workspaces",
+    interactive: false,
+    fields: {
+      packages: { positional: true },
+    },
+  },
+  mfCheck: {
+    commandPath: ["mf", "check"],
+    summary:
+      "Verify Module Federation runtime compatibility across published host + plugin bundles",
+    interactive: false,
+  },
+  dbStudio: {
+    commandPath: ["db", "studio"],
+    summary: "Open Drizzle Studio for a plugin's database",
+    fields: {
+      plugin: { positional: true },
+    },
+  },
+  dbDoctor: {
+    commandPath: ["db", "doctor"],
+    summary: "Diagnose migration health for a plugin's database",
+    fields: {
+      plugin: { positional: true },
+    },
+  },
+  dbRepair: {
+    commandPath: ["db", "repair"],
+    summary: "Reset migration history and reapply migrations for a plugin",
+    fields: {
+      plugin: { positional: true },
+    },
+  },
+  status: {
+    commandPath: ["status"],
+    summary: "Show project health, versions, and update availability",
+    interactive: false,
+  },
+  ps: {
+    commandPath: ["ps"],
+    summary: "List tracked development processes",
+    interactive: false,
+  },
+  logs: {
+    commandPath: ["logs"],
+    summary: "Read dev session logs (.bos/logs/dev-latest.log)",
+    interactive: false,
+  },
+  kill: {
+    commandPath: ["kill"],
+    summary: "Stop tracked development processes",
+    interactive: false,
+  },
+  infraExport: {
+    commandPath: ["infra", "export"],
+    summary: "Emit the resolved CI infra plan (env + services) for the current runtime",
+    interactive: false,
+  },
+} as const satisfies Record<string, CliCommandMeta>;

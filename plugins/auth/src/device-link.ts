@@ -2,17 +2,30 @@ import { createHash, randomUUID } from "node:crypto";
 import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthEndpoint, createAuthMiddleware } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
+import { BOS_CLI_CLIENT_ID } from "better-near-auth";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "./db";
 import * as schema from "./db/schema";
 
 export const DEVICE_LINK_CLAIM_TTL_MS = 60_000;
-export const BOS_CLI_CLIENT_ID = "bos-cli";
+export { BOS_CLI_CLIENT_ID };
+
+/**
+ * better-auth's device-authorization endpoint — the hook fires after a token
+ * poll approves a session. Vendored path, named once so the matcher and any
+ * caller-side reference share one typed constant (the CLI posts it from
+ * everything-dev's device-login flow, client id BOS_CLI_CLIENT_ID).
+ */
+export const DEVICE_TOKEN_ROUTE = "/device/token";
 
 const claimBody = z.object({
   token: z.string().min(1),
   client_id: z.string().min(1),
+});
+
+const deviceTokenBody = z.object({
+  client_id: z.string().min(1).optional(),
 });
 
 function hashToken(token: string) {
@@ -53,10 +66,10 @@ export function deviceLink(db: Database) {
     hooks: {
       after: [
         {
-          matcher: (ctx) => ctx.path === "/device/token",
+          matcher: (ctx) => ctx.path === DEVICE_TOKEN_ROUTE,
           handler: createAuthMiddleware(async (ctx) => {
             const issued = ctx.context.newSession;
-            const clientId = (ctx.body as { client_id?: unknown } | undefined)?.client_id;
+            const clientId = deviceTokenBody.safeParse(ctx.body).data?.client_id;
             if (!issued || typeof clientId !== "string") return;
             await db.transaction(async (tx) => {
               await activateLatestOrganization(tx, issued.user.id, issued.session.token);

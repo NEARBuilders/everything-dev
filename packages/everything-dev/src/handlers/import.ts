@@ -1,15 +1,16 @@
 import { dirname } from "node:path";
 import process from "node:process";
 import * as p from "@clack/prompts";
+import { Effect } from "effect";
 import type { ImportDeps } from "../cli/import";
 import { importWorkspace } from "../cli/import";
 import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
-import type { ImportOptions, ImportResult } from "../contract";
+import type { ImportOptions } from "../contract";
 import type { BosBuilder } from "./shared";
 
 export function registerImport(builder: BosBuilder) {
   return {
-    import: builder.import.handler(async ({ input }): Promise<ImportResult> => {
+    import: builder.import.effect(function* (_opts, input) {
       const configPath = findConfigPath();
       if (!configPath) {
         return {
@@ -61,7 +62,7 @@ export function registerImport(builder: BosBuilder) {
           }
         : undefined;
 
-      return importWorkspace(projectDir, options, { confirm });
+      return yield* Effect.tryPromise(() => importWorkspace(projectDir, options, { confirm }));
     }),
   };
 }

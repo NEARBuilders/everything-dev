@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Context } from "effect";
 import { applyDevOverlay } from "../../descriptor/resolve";
 import { readWorkspaceCatalog, resolveSourceDir } from "../../init-source";
 import type {
@@ -46,6 +47,11 @@ export interface ResolutionRequest {
   remotePlugins?: string[];
   collectCatalogs?: boolean;
 }
+
+export class ResolutionSessionService extends Context.Service<
+  ResolutionSessionService,
+  ResolutionSession | null
+>()("bos/ResolutionSessionService") {}
 
 export interface ResolutionIo {
   fetchBosConfig?: (bosUrl: string, registry?: string) => Promise<unknown>;

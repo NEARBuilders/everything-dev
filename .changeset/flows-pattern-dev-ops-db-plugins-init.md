@@ -1,0 +1,5 @@
+---
+"everything-dev": minor
+---
+
+The remaining command groups follow the plugin pattern end to end (ADR 0031): `ops` (`OpsService` — status/logs/kill/infra-export, including the deployed-version probe), `db` (`DbOpsService` — studio/doctor/repair, built over `DatabaseBindings`/`DrizzleKit`), `plugins` (`PluginAdminService` — add/remove/list/publish, closed over the deploy train at the composition root), `dev` (`DevFlowService` — the dev/start bootstrap and error-tag mapping), and `init` (`InitFlowService` — the full scaffold orchestration, timings included). Handlers are now thin adapters: yield the session, yield the service, return the contract result. Domain logic still reachable from `cli/` moved into `services/` behind thin facades — `services/status.ts` (was `cli/status.ts`), `services/infra.ts` (was `cli/infra.ts`), `services/db/{doctor,repair}.ts` (were `cli/db-*.ts`), `services/scaffold/prune.ts` (was `cli/prune.ts`) — the `cli/*` paths re-export unchanged surfaces. `infra/materializer` and `infra/planner` no longer import from `cli/` either. Behavior-preserving: same result shapes, error wording, timing phases, and exit semantics.

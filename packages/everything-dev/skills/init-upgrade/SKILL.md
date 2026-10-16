@@ -2,7 +2,7 @@
 name: init-upgrade
 description: bos init, bos sync, bos import, and bos upgrade workflows — template download, snapshot-based conflict detection, workspace import from upstream repos with divergence reporting, package version bumps, and how init/sync select and own files. Use when scaffolding new projects, syncing upstream changes, importing a workspace subtree from another repo, or upgrading framework packages.
 metadata:
-  sources: "packages/everything-dev/src/cli/init.ts,packages/everything-dev/src/cli/sync.ts,packages/everything-dev/src/cli/import.ts,packages/everything-dev/src/commands/import.ts,packages/everything-dev/src/cli/upgrade.ts,packages/everything-dev/src/cli/snapshot.ts,packages/everything-dev/src/cli.ts,packages/everything-dev/src/services/resolution/merge.ts"
+  sources: "packages/everything-dev/src/cli/init.ts,packages/everything-dev/src/services/scaffold/sync.ts,packages/everything-dev/src/services/scaffold/import.ts,packages/everything-dev/src/handlers/import.ts,packages/everything-dev/src/services/scaffold/upgrade.ts,packages/everything-dev/src/services/scaffold/snapshot.ts,packages/everything-dev/src/cli.ts,packages/everything-dev/src/services/resolution/merge.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.

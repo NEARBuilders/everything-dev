@@ -3,36 +3,40 @@ import * as p from "@clack/prompts";
 import { Context, Effect, Layer } from "effect";
 import { buildScoped, buildScopedContext } from "every-plugin";
 import { cliWorkspaceBuildRender } from "./cli/render/workspace-build";
-import { registerBuild } from "./commands/build";
-import { registerConfig } from "./commands/config";
-import { registerDb } from "./commands/db";
-import { registerDeploy } from "./commands/deploy";
-import { registerDev } from "./commands/dev";
-import { registerImport } from "./commands/import";
-import { registerInit } from "./commands/init";
-import { registerKeys } from "./commands/keys";
-import { registerOps } from "./commands/ops";
-import { registerPlugins } from "./commands/plugins";
-import { type BosDeps, BosDepsTag } from "./commands/shared";
-import { registerSmoke } from "./commands/smoke";
-import { registerUpgrade } from "./commands/upgrade";
 import { bosContract } from "./contract";
 import { DatabaseBindings, DrizzleKit, makeDatabaseBindings, makeDrizzleKitLive } from "./db";
 import { ProjectEnv, ProjectEnvLive } from "./env/project-env";
+import { registerBuild } from "./handlers/build";
+import { registerConfig } from "./handlers/config";
+import { registerDb } from "./handlers/db";
+import { registerDeploy } from "./handlers/deploy";
+import { registerDev } from "./handlers/dev";
+import { registerImport } from "./handlers/import";
+import { registerInit } from "./handlers/init";
+import { registerKeys } from "./handlers/keys";
+import { registerOps } from "./handlers/ops";
+import { registerPlugins } from "./handlers/plugins";
 import { registerProcesses } from "./handlers/processes";
+import { registerSmoke } from "./handlers/smoke";
+import { registerUpgrade } from "./handlers/upgrade";
 import { createPlugin, z } from "./sdk";
 import { DeviceLoginService } from "./services/auth/device-login";
 import { SessionStore } from "./services/auth/session-store";
 import { SignerService } from "./services/auth/signer";
 import { SiteClient } from "./services/auth/site-client";
+import { DbOpsService } from "./services/db-ops";
 import { BundleStorage, RegistryStore } from "./services/deploy/deps";
 import { DeployTrainService } from "./services/deploy/train";
+import { DevFlowService } from "./services/dev-flow";
+import { OpsService } from "./services/ops";
+import { PluginAdminService } from "./services/plugins-admin";
 import { ProcessesService } from "./services/processes";
-import { openResolution } from "./services/resolution/session";
+import { openResolution, ResolutionSessionService } from "./services/resolution/session";
+import { InitFlowService } from "./services/scaffold/init-flow";
 import { BuildTrainService, WorkspaceBuildRenderService } from "./services/workspace/build-train";
 
-export { resolveRemoteConfigChain } from "./commands/config";
 export type { DevSessionData, StartSummary } from "./dev-program";
+export { resolveRemoteConfigChain } from "./handlers/config";
 export { type ProgressEvent, pluginEvents } from "./progress";
 
 const buildRenderLayer = Layer.succeed(
@@ -77,28 +81,38 @@ export default createPlugin({
         ),
       );
 
+      const dbBindingsLayer = Layer.succeed(
+        DatabaseBindings,
+        Context.get(services, DatabaseBindings),
+      );
+      const drizzleKitLayer = Layer.succeed(DrizzleKit, Context.get(services, DrizzleKit));
+      const deployTrainLayer = DeployTrainService.Live.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            BundleStorage.Live,
+            RegistryStore.Live,
+            SignerService.Live,
+            buildTrainLayer,
+          ),
+        ),
+      );
+
       return Layer.mergeAll(
-        Layer.succeed(BosDepsTag, {
-          session,
-          databaseBindings: Context.get(services, DatabaseBindings),
-          drizzleKit: Context.get(services, DrizzleKit),
-        } satisfies BosDeps),
+        Layer.succeed(ResolutionSessionService, session),
+        dbBindingsLayer,
+        drizzleKitLayer,
         ProcessesService.Live,
         SiteClient.Live,
         SessionStore.Live,
         DeviceLoginService.Live.pipe(Layer.provide(SiteClient.Live)),
         buildRenderLayer,
         buildTrainLayer,
-        DeployTrainService.Live.pipe(
-          Layer.provide(
-            Layer.mergeAll(
-              BundleStorage.Live,
-              RegistryStore.Live,
-              SignerService.Live,
-              buildTrainLayer,
-            ),
-          ),
-        ),
+        deployTrainLayer,
+        OpsService.Live,
+        DbOpsService.Live.pipe(Layer.provide(Layer.mergeAll(dbBindingsLayer, drizzleKitLayer))),
+        PluginAdminService.Live.pipe(Layer.provide(deployTrainLayer)),
+        DevFlowService.Live,
+        InitFlowService.Live,
       );
     }),
   createRouter: (builder) => ({

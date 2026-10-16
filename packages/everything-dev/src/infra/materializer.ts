@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Context, Effect, Layer } from "effect";
-import { getSecretGroups, renderEnvFile, renderEnvTestFile } from "../cli/infra";
+import { getSecretGroups, renderEnvFile, renderEnvTestFile } from "../services/infra";
 import type { RuntimeConfig } from "../types";
 import { InfraError, type InfraPhase } from "./types";
 

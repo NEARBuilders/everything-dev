@@ -3,17 +3,17 @@ import { resolve } from "node:path";
 import { Clock, Effect } from "effect";
 import { PortAllocator, type PortBlockEntry } from "../app";
 import {
+  type AuthSlotShape,
+  buildDescription,
+  isAuthMirrorPluginEntry,
+} from "../service-descriptor";
+import {
   buildConventionalDatabases,
   buildConventionalRedis,
   getSecretGroups,
   loadPortState,
   savePortState,
-} from "../cli/infra";
-import {
-  type AuthSlotShape,
-  buildDescription,
-  isAuthMirrorPluginEntry,
-} from "../service-descriptor";
+} from "../services/infra";
 import type { RuntimeConfig } from "../types";
 import { shouldPersistPortState } from "./materializer";
 import { ownerOfPort } from "./port-ownership";

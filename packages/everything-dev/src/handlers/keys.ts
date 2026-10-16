@@ -19,14 +19,14 @@ import { SessionStore } from "../services/auth/session-store";
 import { SiteClient, type SiteClientShape } from "../services/auth/site-client";
 import { getRegistryNamespaceForAccount } from "../services/registry/fastkv";
 import type { ResolutionSession } from "../services/resolution/session";
+import { ResolutionSessionService } from "../services/resolution/session";
 import { colors } from "../utils/theme";
-import { type BosBuilder, BosDepsTag } from "./shared";
+import type { BosBuilder } from "./shared";
 
 export function registerKeys(builder: BosBuilder) {
   return {
     keyPublish: builder.keyPublish.effect(function* (_opts, input) {
-      const deps = yield* BosDepsTag;
-      const session = deps.session;
+      const session = yield* ResolutionSessionService;
       if (!session?.config) {
         return {
           status: "error" as const,
@@ -59,11 +59,11 @@ export function registerKeys(builder: BosBuilder) {
     }),
 
     login: builder.login.effect(function* (_opts, input) {
-      const deps = yield* BosDepsTag;
+      const session = yield* ResolutionSessionService;
       const deviceLogin = yield* DeviceLoginService;
       const sessions = yield* SessionStore;
       const staging = input.env === "staging";
-      const config = deps.session?.config;
+      const config = session?.config;
       const account = staging
         ? (config?.staging?.account ?? config?.account ?? "")
         : (config?.account ?? "");
@@ -74,195 +74,217 @@ export function registerKeys(builder: BosBuilder) {
         input.expiresIn ??
         (input.key ? DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS : DEFAULT_LOGIN_EXPIRES_IN_SECONDS);
 
-      try {
-        const siteUrl = resolveLoginSiteUrl(input.site, deps.session, staging);
-        let deployKey: { account: string; gateway: string } | undefined;
-        if (input.key) {
-          if (!account || !gateway) {
-            return {
-              status: "error" as const,
-              siteUrl: siteUrl,
-              error:
-                "Deploy keys scope to the authored config's account and domain — set both in bos.config.json (or drop --key for a plain login)",
-            } satisfies LoginResult;
-          }
-          deployKey = { account, gateway };
+      const siteUrl = resolveLoginSiteUrl(input.site, session, staging);
+      let deployKey: { account: string; gateway: string } | undefined;
+      if (input.key) {
+        if (!account || !gateway) {
+          return {
+            status: "error" as const,
+            siteUrl: siteUrl,
+            error:
+              "Deploy keys scope to the authored config's account and domain — set both in bos.config.json (or drop --key for a plain login)",
+          } satisfies LoginResult;
         }
-        const login = yield* deviceLogin.start({
+        deployKey = { account, gateway };
+      }
+
+      const login = yield* deviceLogin
+        .start({
           siteUrl,
           device: input.device,
           account: account || undefined,
           custody: input.custody ? { network: getNetworkIdForAccount(account) } : undefined,
           expiresIn,
           deployKey,
-        });
-
-        console.log();
-        console.log(`  One-time code: ${colors.cyan(login.userCode)}`);
-        yield* Effect.catchIf(
-          Effect.tryPromise(() => openInBrowser(login.verificationUrl)),
-          () => true,
-          (error) =>
-            Effect.sync(() => console.log(colors.yellow(`  ⚠ ${(error as Error).message}`))),
+        })
+        .pipe(
+          Effect.catchIf(
+            () => true,
+            (error: Error) => Effect.succeed({ startFailed: error.message } as const),
+          ),
         );
-        console.log();
-        console.log(`  Waiting for approval at ${colors.dim(login.verificationUrl)}…`);
-
-        const approval = yield* Effect.tryPromise(() => login.waitForApproval());
-
-        if (!approval.apiKey) {
-          return {
-            status: "error" as const,
-            siteUrl,
-            loginUrl: login.verificationUrl,
-            error: "Login approved but no CLI credential was created",
-          } satisfies LoginResult;
-        }
-
-        const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-        const configDir = deps.session?.root ?? process.cwd();
-        const existingSession = sessions.read(configDir);
-        sessions.write(configDir, {
-          version: 1,
-          credential: {
-            kind: "session",
-            apiKey: approval.apiKey.key,
-            apiKeyId: approval.apiKey.id,
-            accountId: approval.accountId,
-            label: input.device ?? siteUrl,
-            siteUrl,
-            createdAt: new Date().toISOString(),
-            expiresAt,
-          },
-          publishKey: null,
-          delegateKey: null,
-          custodyWallet: approval.custodyWallet ?? existingSession?.custodyWallet ?? null,
-        });
-
-        let warning: string | null = null;
-        if (input.custody && !approval.custodyWallet) {
-          warning =
-            "Custody wallet credential could not be fetched after approval. Re-run `bos login --custody` — the wallet is kept server-side.";
-        }
-        if (account && approval.accountId && approval.accountId !== account) {
-          warning = warning
-            ? `${warning} Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`
-            : `Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`;
-        }
-
-        let publishKey: LoginResult["publishKey"] = null;
-        if (input.key) {
-          try {
-            publishKey = yield* Effect.tryPromise(() =>
-              exportPublishKey(sessions, account, input.registry),
-            );
-          } catch (error) {
-            warning = `Session stored, but publish-key export failed: ${
-              error instanceof Error ? error.message : "unknown error"
-            }`;
-          }
-        }
-
-        let outlayerCli: LoginResult["outlayerCli"] = null;
-        const custodyWallet = approval.custodyWallet;
-        if (input.custody && custodyWallet) {
-          outlayerCli = yield* Effect.tryPromise(() => loginOutlayerCli(custodyWallet));
-          if (outlayerCli.status === "error") {
-            const failure = `OutLayer CLI login failed: ${outlayerCli.detail}`;
-            warning = warning ? `${warning} ${failure}` : failure;
-          }
-        }
-
-        return {
-          status: "logged-in" as const,
-          siteUrl,
-          accountId: approval.accountId,
-          expiresAt,
-          loginUrl: login.verificationUrl,
-          publishKey,
-          deployKey:
-            deployKey && approval.apiKey
-              ? {
-                  key: approval.apiKey.key,
-                  account: deployKey.account,
-                  gateway: deployKey.gateway,
-                }
-              : null,
-          custodyWallet: approval.custodyWallet
-            ? {
-                walletId: approval.custodyWallet.walletId,
-                nearAccountId: approval.custodyWallet.nearAccountId,
-                network: approval.custodyWallet.network,
-                handoffUrl: approval.custodyWallet.handoffUrl,
-              }
-            : null,
-          outlayerCli,
-          warning,
-        } satisfies LoginResult;
-      } catch (error) {
+      if ("startFailed" in login) {
         return {
           status: "error" as const,
           siteUrl: input.site ?? "",
-          error: error instanceof Error ? error.message : "Unknown error",
+          error: login.startFailed,
         } satisfies LoginResult;
       }
+
+      console.log();
+      console.log(`  One-time code: ${colors.cyan(login.userCode)}`);
+      yield* Effect.catchIf(
+        Effect.tryPromise(() => openInBrowser(login.verificationUrl)),
+        () => true,
+        (error) => Effect.sync(() => console.log(colors.yellow(`  ⚠ ${(error as Error).message}`))),
+      );
+      console.log();
+      console.log(`  Waiting for approval at ${colors.dim(login.verificationUrl)}…`);
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const approval = await login.waitForApproval();
+
+          if (!approval.apiKey) {
+            return {
+              status: "error" as const,
+              siteUrl,
+              loginUrl: login.verificationUrl,
+              error: "Login approved but no CLI credential was created",
+            } satisfies LoginResult;
+          }
+
+          const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+          const configDir = session?.root ?? process.cwd();
+          const existingSession = sessions.read(configDir);
+          sessions.write(configDir, {
+            version: 1,
+            credential: {
+              kind: "session",
+              apiKey: approval.apiKey.key,
+              apiKeyId: approval.apiKey.id,
+              accountId: approval.accountId,
+              label: input.device ?? siteUrl,
+              siteUrl,
+              createdAt: new Date().toISOString(),
+              expiresAt,
+            },
+            publishKey: null,
+            delegateKey: null,
+            custodyWallet: approval.custodyWallet ?? existingSession?.custodyWallet ?? null,
+          });
+
+          let warning: string | null = null;
+          if (input.custody && !approval.custodyWallet) {
+            warning =
+              "Custody wallet credential could not be fetched after approval. Re-run `bos login --custody` — the wallet is kept server-side.";
+          }
+          if (account && approval.accountId && approval.accountId !== account) {
+            warning = warning
+              ? `${warning} Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`
+              : `Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`;
+          }
+
+          let publishKey: LoginResult["publishKey"] = null;
+          if (input.key) {
+            try {
+              publishKey = await exportPublishKey(sessions, account, input.registry);
+            } catch (error) {
+              warning = `Session stored, but publish-key export failed: ${
+                error instanceof Error ? error.message : "unknown error"
+              }`;
+            }
+          }
+
+          let outlayerCli: LoginResult["outlayerCli"] = null;
+          const custodyWallet = approval.custodyWallet;
+          if (input.custody && custodyWallet) {
+            outlayerCli = await loginOutlayerCli(custodyWallet);
+            if (outlayerCli.status === "error") {
+              const failure = `OutLayer CLI login failed: ${outlayerCli.detail}`;
+              warning = warning ? `${warning} ${failure}` : failure;
+            }
+          }
+
+          return {
+            status: "logged-in" as const,
+            siteUrl,
+            accountId: approval.accountId,
+            expiresAt,
+            loginUrl: login.verificationUrl,
+            publishKey,
+            deployKey:
+              deployKey && approval.apiKey
+                ? {
+                    key: approval.apiKey.key,
+                    account: deployKey.account,
+                    gateway: deployKey.gateway,
+                  }
+                : null,
+            custodyWallet: approval.custodyWallet
+              ? {
+                  walletId: approval.custodyWallet.walletId,
+                  nearAccountId: approval.custodyWallet.nearAccountId,
+                  network: approval.custodyWallet.network,
+                  handoffUrl: approval.custodyWallet.handoffUrl,
+                }
+              : null,
+            outlayerCli,
+            warning,
+          } satisfies LoginResult;
+        },
+        catch: (error) =>
+          ({
+            status: "error" as const,
+            siteUrl: input.site ?? "",
+            error: error instanceof Error ? error.message : "Unknown error",
+          }) satisfies LoginResult,
+      });
     }),
 
     logout: builder.logout.effect(function* (_opts, input) {
-      const deps = yield* BosDepsTag;
+      const session = yield* ResolutionSessionService;
       const siteClient = yield* SiteClient;
       const sessions = yield* SessionStore;
-      const configDir = input.configDir ?? deps.session?.root ?? process.cwd();
+      const configDir = input.configDir ?? session?.root ?? process.cwd();
 
-      try {
-        const session = sessions.read(configDir);
-        let revokedApiKey = false;
-        let removedPublishKey = false;
-        let warning: string | null = null;
-
-        const credential = session?.credential;
-        if (credential) {
-          revokedApiKey = yield* Effect.catchIf(
-            Effect.tryPromise(() => revokeApiKey(siteClient, credential)),
-            () => true,
-            () => Effect.succeed(false),
-          );
-          if (!revokedApiKey) {
-            warning =
-              "Could not revoke the API key remotely — revoke it manually under Settings → API keys.";
-          }
-        }
-
-        if (session?.publishKey) {
-          const account = session.credential?.accountId ?? deps.session?.config?.account ?? "";
-          sessions.removePublishedKeyFile(
-            session.publishKey.network,
-            account,
-            session.publishKey.publicKey,
-          );
-          removedPublishKey = true;
-          warning = warning
-            ? `${warning} Re-run ${colors.cyan("bos login --key")} to re-export a publish key.`
-            : "Removed the exported publish key. Re-run bos login --key to re-export one.";
-        }
-
-        sessions.delete(configDir);
-        return {
-          status: "logged-out" as const,
-          revokedApiKey,
-          removedPublishKey,
-          warning,
-        } satisfies LogoutResult;
-      } catch (error) {
-        return {
-          status: "error" as const,
-          revokedApiKey: false,
-          removedPublishKey: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        } satisfies LogoutResult;
-      }
+      return yield* Effect.tryPromise({
+        try: () => logoutBody({ siteClient, sessions, session }, configDir),
+        catch: (error) =>
+          ({
+            status: "error" as const,
+            revokedApiKey: false,
+            removedPublishKey: false,
+            error: error instanceof Error ? error.message : "Unknown error",
+          }) satisfies LogoutResult,
+      });
     }),
   };
+}
+
+async function logoutBody(
+  deps: {
+    siteClient: SiteClientShape;
+    sessions: SessionStore["Service"];
+    session: ResolutionSession | null;
+  },
+  configDir: string,
+): Promise<LogoutResult> {
+  const { siteClient, sessions, session } = deps;
+  const stored = sessions.read(configDir);
+  let revokedApiKey = false;
+  let removedPublishKey = false;
+  let warning: string | null = null;
+
+  const credential = stored?.credential;
+  if (credential) {
+    revokedApiKey = await revokeApiKey(siteClient, credential).catch(() => false);
+    if (!revokedApiKey) {
+      warning =
+        "Could not revoke the API key remotely — revoke it manually under Settings → API keys.";
+    }
+  }
+
+  if (stored?.publishKey) {
+    const account = stored.credential?.accountId ?? session?.config?.account ?? "";
+    sessions.removePublishedKeyFile(
+      stored.publishKey.network,
+      account,
+      stored.publishKey.publicKey,
+    );
+    removedPublishKey = true;
+    warning = warning
+      ? `${warning} Re-run ${colors.cyan("bos login --key")} to re-export a publish key.`
+      : "Removed the exported publish key. Re-run bos login --key to re-export one.";
+  }
+
+  sessions.delete(configDir);
+  return {
+    status: "logged-out" as const,
+    revokedApiKey,
+    removedPublishKey,
+    warning,
+  } satisfies LogoutResult;
 }
 
 function keyPublishAccount(

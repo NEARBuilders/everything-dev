@@ -3,15 +3,19 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import * as p from "@clack/prompts";
 import { findCommandDescriptor } from "./cli/catalog";
+import { exitCodeFor } from "./cli/exit-codes";
 import { resolveFrameworkPackage } from "./cli/framework-version";
-import { printHelp } from "./cli/help";
+import { printCommandHelp, printHelp } from "./cli/help";
 import { runDockerComposeUp } from "./cli/init";
 import { parseCommandInput } from "./cli/parse";
 import { promptInitBasic, promptInitOverrides } from "./cli/prompts";
+import { printConfigView } from "./cli/render/config";
+import { failedDeployLegs, renderDeployLegs } from "./cli/render/deploy";
+import { clearSpinnerStopLine, printStartSummary, printTimingSummary } from "./cli/render/dev";
+import { formatTimeAgo } from "./cli/render/logs";
 import { renderPs } from "./cli/render/processes";
+import { printStubMigrationGuide } from "./cli/render/sync";
 import { compareSemver } from "./cli/status";
-import { formatDuration, sumPhaseDurations } from "./cli/timing";
-import { fetchInitParent } from "./commands/init";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "./config";
 import type {
   DevOptions,
@@ -29,8 +33,7 @@ import type {
   StartResult,
   TypecheckWorkspaceResult,
 } from "./contract";
-import type { DeployLegs } from "./deploy-legs";
-import type { StartSummary } from "./dev-program";
+import { fetchInitParent } from "./handlers/init";
 import { listPublishKeys } from "./near-cli";
 import { getNetworkIdForAccount } from "./network";
 import bosPlugin from "./plugin";
@@ -41,115 +44,10 @@ import { installBundleFetchFromEnv } from "./services/resolution/resolver";
 import { printBanner } from "./utils/banner";
 import { colors, frames, gradients, icons } from "./utils/theme";
 
-function printConfigView(result: {
-  account: string;
-  domain?: string;
-  staging?: { domain: string };
-  app?: {
-    host: { name?: string; development: string; production?: string };
-    ui: { name?: string; development?: string; production?: string; ssr?: string };
-    api: { name?: string; development?: string; production?: string; proxy?: string };
-  };
-}) {
-  console.log();
-  console.log(colors.cyan(frames.top(52)));
-  console.log(`  ${icons.app} ${gradients.cyber("CONFIG")}`);
-  console.log(colors.cyan(frames.bottom(52)));
-  console.log();
-
-  console.log(`  ${colors.dim("Account")}  ${colors.cyan(result.account)}`);
-  console.log(`  ${colors.dim("Domain")}   ${colors.white(result.domain ?? "not configured")}`);
-  if (result.staging) {
-    console.log(`  ${colors.dim("Staging")}  ${colors.magenta(result.staging.domain)}`);
-  }
-  console.log();
-}
-
-function formatTimeAgo(isoTimestamp: string): string {
-  const now = Date.now();
-  const then = new Date(isoTimestamp).getTime();
-  const diffMs = now - then;
-  const diffMins = Math.floor(diffMs / 60_000);
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
-  return isoTimestamp.split("T")[0] ?? isoTimestamp;
-}
-
-const RETIRED_BOOTSTRAP_STUBS = [
-  "ui/src/entry.ts",
-  "ui/src/hydrate.tsx",
-  "ui/src/router.server.tsx",
-  "ui/src/compose.ts",
-];
-
 /**
  * Hand-modified bootstrap stubs retire as conflicted (backed up, then
  * deleted) — print the mechanical port into the authored seams (ADR 0023).
  */
-function printStubMigrationGuide(retiredConflicted: string[] | undefined) {
-  const handModified = (retiredConflicted ?? []).filter((f) => RETIRED_BOOTSTRAP_STUBS.includes(f));
-  if (handModified.length === 0) return;
-  console.log(`  ${colors.yellow("Port your stub customizations into the authored seams:")}`);
-  console.log(
-    `    ${colors.dim("- defaultErrorComponent / defaultPendingComponent / defaultNotFoundComponent")}`,
-  );
-  console.log(
-    `    ${colors.dim("  → set them inside the createRouter factory in ui/src/router.tsx (after ...opts)")}`,
-  );
-  console.log(
-    `    ${colors.dim("- apiConnectionError copy + SSR locale config (locales, defaultLocale, cookieName)")}`,
-  );
-  console.log(
-    `    ${colors.dim("  → export apiConnectionError / appLocale from ui/src/app.ts (see the scaffold template)")}`,
-  );
-  console.log(`    ${colors.dim("  backed-up originals: .bos/sync-backup/<timestamp>/")}`);
-}
-
-function printTimingSummary(timings: Array<{ name: string; durationMs: number }> | undefined) {
-  if (!timings || timings.length === 0) return;
-
-  console.log(`  ${colors.dim("Timings:")}`);
-  for (const timing of timings) {
-    console.log(`    ${colors.dim(timing.name.padEnd(22))} ${formatDuration(timing.durationMs)}`);
-  }
-  console.log(
-    `    ${colors.dim("total".padEnd(22))} ${formatDuration(sumPhaseDurations(timings))}`,
-  );
-}
-
-function printStartSummary(summary: StartSummary) {
-  console.log();
-  console.log(`  ${colors.dim("Config Source:")}  ${summary.configSource}`);
-  if (summary.configSourceHttp) {
-    console.log(`                  ${colors.dim(summary.configSourceHttp)}`);
-  }
-  console.log(`  ${colors.dim("Account:")}        ${summary.account}`);
-  console.log(`  ${colors.dim("Domain:")}         ${summary.domain ?? "not configured"}`);
-  console.log();
-  console.log(`  ${colors.dim("Modules:")}`);
-  console.log(`    ${colors.dim("HOST")}  → ${summary.modules.host ?? "local"}`);
-  console.log(`    ${colors.dim("UI")}   → ${summary.modules.ui ?? "local"}`);
-  console.log(`    ${colors.dim("API")}  → ${summary.modules.api ?? "local"}`);
-  if (summary.modules.auth) {
-    console.log(`    ${colors.dim("AUTH")}  → ${summary.modules.auth}`);
-  }
-  if (summary.warnings.length > 0) {
-    console.log();
-    for (const w of summary.warnings) {
-      console.log(`  ${colors.yellow(w)}`);
-    }
-  }
-  console.log();
-}
-
-function clearSpinnerStopLine() {
-  if (!process.stdout.isTTY) return;
-  process.stdout.write("\u001B[1A\u001B[2K\u001B[1G");
-}
 
 async function warnIfOutdated(client: any, command: string): Promise<void> {
   if (!["dev", "build", "start"].includes(command)) return;
@@ -198,36 +96,16 @@ async function warnIfOutdated(client: any, command: string): Promise<void> {
   }
 }
 
-const DEPLOY_LEG_NAMES = ["image", "smoke", "railway"] as const;
-
-function renderDeployLegs(legs: DeployLegs | undefined): void {
-  if (!legs) return;
-  const rows: Array<readonly [string, DeployLegs["image"]]> = DEPLOY_LEG_NAMES.map((name) => [
-    name,
-    legs[name],
-  ]);
-  console.log();
-  for (const [name, leg] of rows) {
-    if (!leg) continue;
-    const mark =
-      leg.status === "ok"
-        ? colors.green(icons.ok)
-        : leg.status === "skipped"
-          ? colors.dim("-")
-          : colors.error(icons.err);
-    console.log(`  ${mark} ${name}${leg.detail ? colors.dim(` ${leg.detail}`) : ""}`);
-  }
-}
-
-function failedDeployLegs(legs: DeployLegs | undefined): string[] {
-  if (!legs) return [];
-  return DEPLOY_LEG_NAMES.filter((name) => legs[name]?.status === "failed");
-}
-
 async function main() {
   const args = process.argv.slice(2);
 
-  if (args.includes("--help") || args.includes("-h")) {
+  const helpIndex = args.indexOf("--help") !== -1 ? args.indexOf("--help") : args.indexOf("-h");
+  if (helpIndex !== -1) {
+    const helpTarget = findCommandDescriptor(args.slice(0, helpIndex));
+    if (helpTarget) {
+      printCommandHelp(helpTarget.descriptor);
+      return;
+    }
     printHelp();
     return;
   }
@@ -400,7 +278,7 @@ async function main() {
         pluginEvents.off("progress", onDevProgress);
       }
 
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         devSpinner.stop("Failed");
         console.error(`[CLI] ${result.description}`);
         process.exit(1);
@@ -449,7 +327,7 @@ async function main() {
         pluginEvents.off("progress", onStartProgress);
       }
 
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         startSpinner.stop("Failed");
         console.error(`[CLI] ${result.error || "Unknown error"}`);
         process.exit(1);
@@ -581,7 +459,7 @@ async function main() {
         pluginEvents.off("progress", onProgress);
       }
 
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         initSpinner.stop("Failed");
         console.error(`[CLI] ${result.error || "Unknown error"}`);
         process.exit(1);
@@ -637,7 +515,7 @@ async function main() {
     const result = await (client as any)[descriptor.key](input);
 
     if (descriptor.key === "dbStudio") {
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
         process.exit(1);
       }
@@ -646,7 +524,7 @@ async function main() {
     }
 
     if (descriptor.key === "dbDoctor") {
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Diagnosis failed"}`);
         process.exit(1);
       }
@@ -698,7 +576,7 @@ async function main() {
         process.exit(0);
       }
 
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.error(`\n${colors.error("✗")}  Repair failed`);
         console.error(`  ${result.message}`);
         console.error();
@@ -728,7 +606,7 @@ async function main() {
         return;
       }
       console.log();
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
         process.exit(1);
       }
@@ -789,7 +667,7 @@ async function main() {
         return;
       }
       console.log();
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
         if (result.reportPath) console.error(`  Report: ${result.reportPath}`);
         process.exit(1);
@@ -897,7 +775,7 @@ async function main() {
         return;
       }
       console.log();
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
         process.exit(1);
       }
@@ -1006,7 +884,7 @@ async function main() {
 
     if (descriptor.key === "status") {
       console.log();
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
         process.exit(1);
       }
@@ -1154,7 +1032,7 @@ async function main() {
 
     if (descriptor.key === "typesGen") {
       console.log();
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
         process.exit(1);
       }
@@ -1205,7 +1083,7 @@ async function main() {
 
     if (descriptor.key === "typecheck") {
       console.log();
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.error(`[CLI] ${result.error || "Unknown error"}`);
         process.exit(1);
       }
@@ -1400,7 +1278,7 @@ async function main() {
 
     if (descriptor.key === "registryUse") {
       console.log();
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.error(colors.error(`${icons.err} ${result.error || "Unknown error"}`));
         process.exit(1);
       }
@@ -1431,7 +1309,7 @@ async function main() {
         return;
       }
 
-      if (result.status === "error") {
+      if (exitCodeFor(result) === 1) {
         console.log();
         console.log(colors.error(`${icons.err} Publish failed`));
         if (result.error) {
