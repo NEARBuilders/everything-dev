@@ -2,14 +2,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import * as initModule from "../../src/cli/init";
-import * as syncModule from "../../src/cli/sync";
 import {
   migrateBosConfigFiles,
   migrateChildRootPackageJson,
   rewriteLegacyDistImports,
   upgradeTemplate,
 } from "../../src/cli/upgrade";
+import * as initSourceModule from "../../src/init-source";
+import * as scaffoldInitModule from "../../src/services/scaffold/init";
+import * as syncModule from "../../src/services/scaffold/sync";
 import * as sharedDepsModule from "../../src/shared-deps";
 
 describe("upgrade bos config migration", () => {
@@ -430,10 +431,10 @@ describe("upgrade bos config migration", () => {
     );
     writeFileSync(join(projectDir, "ui", "src", "lib", "auth-utils.ts"), "export {}\n");
 
-    vi.spyOn(initModule, "fetchParentConfig").mockResolvedValue({
+    vi.spyOn(initSourceModule, "fetchParentConfig").mockResolvedValue({
       repository: "https://github.com/NEARBuilders/everything-dev",
     } as never);
-    vi.spyOn(initModule, "resolveCatalogChainSource").mockResolvedValue({
+    vi.spyOn(initSourceModule, "resolveCatalogChainSource").mockResolvedValue({
       catalog: {},
       repository: "https://github.com/NEARBuilders/everything-dev",
       extendsChain: [],
@@ -603,10 +604,10 @@ describe("upgrade bos config migration", () => {
       )}\n`,
     );
 
-    vi.spyOn(initModule, "fetchParentConfig").mockResolvedValue({
+    vi.spyOn(initSourceModule, "fetchParentConfig").mockResolvedValue({
       repository: "https://github.com/NEARBuilders/everything-dev",
     } as never);
-    vi.spyOn(initModule, "resolveCatalogChainSource").mockResolvedValue({
+    vi.spyOn(initSourceModule, "resolveCatalogChainSource").mockResolvedValue({
       catalog: {
         effect: "3.21.0",
         "everything-dev": "^1.28.11",
@@ -615,10 +616,10 @@ describe("upgrade bos config migration", () => {
       repository: "https://github.com/NEARBuilders/everything-dev",
       extendsChain: [],
     } as never);
-    vi.spyOn(initModule, "runPnpmInstallForUpgrade").mockResolvedValue();
-    vi.spyOn(initModule, "runTypesGen").mockResolvedValue();
+    vi.spyOn(scaffoldInitModule, "runPnpmInstallForUpgrade").mockResolvedValue();
+    vi.spyOn(scaffoldInitModule, "runTypesGen").mockResolvedValue();
     vi.spyOn(syncModule, "syncTemplate").mockImplementation(async (dir, _options) => {
-      await initModule.personalizeConfig(dir, {
+      await scaffoldInitModule.personalizeConfig(dir, {
         extendsAccount: "dev.everything.near",
         extendsGateway: "everything.dev",
         account: "test.near",

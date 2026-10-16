@@ -1,0 +1,5 @@
+---
+"everything-dev": minor
+---
+
+CLI split (ADR 0031 #426): the contract is now the **single flag source** — every flag description moved from `contract.meta.ts` onto the Zod option schemas, the command meta (summaries, paths, interactive/long-running) merged into `contract.ts`, and `contract.meta.ts` is a thin facade re-exporting it. Help derives from the schemas: `bos <command> --help` renders per-command flags (names, booleans, defaults, descriptions) straight from the option definitions. The CLI's exit-code mapping is extracted to `cli/exit-codes.ts` (`exitCodeFor`, unit-tested) and the presentation helpers moved to `cli/render/<command>` modules (`config`, `dev`, `deploy`, `logs`, `sync`, `processes`). The scaffold domain moves behind `services/scaffold/`: `init`, `import`, `sync`, `upgrade` (plus the snapshot persistence), with `src/cli/{init,import,sync,upgrade,snapshot}.ts` as thin facades — the `./cli/init` subpath and all internal imports stay stable. Source-discovery helpers live in `init-source.ts` (no cli imports from services). Behavior pinned by the existing init/sync/import/upgrade test suites and `test:structure`.
