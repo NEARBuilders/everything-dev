@@ -4,7 +4,6 @@ import process from "node:process";
 import { Context, Effect, Layer } from "effect";
 import { hasFolderFormUi } from "every-plugin/build/ui";
 import { buildWorkspaceTargets, resolveWorkspaceTarget } from "../../build";
-import { formatDuration } from "../../cli/timing";
 import { generateCodeArtifacts } from "../../code-artifacts";
 import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "../../config";
 import type { WorkspaceDeployResult } from "../../contract";
@@ -16,7 +15,7 @@ import {
   pinsFromPublishedConfig,
   upsertDeployStatePins,
 } from "../../deploy-diff";
-import { fetchBosConfigFromFastKv } from "../../fastkv";
+import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../../fastkv";
 import { pointerFingerprint, slotPins } from "../../fingerprint";
 import { applyDeployResults, type DeployResultEntry } from "../../integrity";
 import { mergeAuthoredOverPublished } from "../../merge";
@@ -28,10 +27,23 @@ import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
+import { formatDuration } from "../../utils/timing";
+import {
+  BundleStorage,
+  RegistrySigner,
+  type RegistrySignerShape,
+  RegistryStore,
+  type RegistryStoreShape,
+} from "./deps";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
 import { formatNearError } from "./format";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
-import { sourceLegDirs, uploadWorkspaceBundle } from "./upload-leg";
+import {
+  realStorageLegDeps,
+  type StorageLegDeps,
+  sourceLegDirs,
+  uploadWorkspaceBundle,
+} from "./upload-leg";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,7 +69,9 @@ export async function waitForPublishedConfig(opts: {
   registry?: string;
   timeoutMs?: number;
   intervalMs?: number;
+  fetchConfig?: typeof fetchBosConfigFromFastKv;
 }): Promise<void> {
+  const fetchConfig = opts.fetchConfig ?? fetchBosConfigFromFastKv;
   const envTimeoutMs = Number(process.env.BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS);
   const envIntervalMs = Number(process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS);
   const timeoutMs =
@@ -69,7 +83,7 @@ export async function waitForPublishedConfig(opts: {
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const verifiedConfig = await fetchBosConfigFromFastKv<BosConfigInput>(
+      const verifiedConfig = await fetchConfig<BosConfigInput>(
         `bos://${opts.account}/${opts.gateway}`,
         opts.registry,
       );
@@ -95,9 +109,11 @@ export async function isConfigAlreadyPublished(opts: {
   gateway: string;
   publishConfig: BosConfigInput;
   registry?: string;
+  fetchConfig?: typeof fetchBosConfigFromFastKv;
 }): Promise<boolean> {
+  const fetchConfig = opts.fetchConfig ?? fetchBosConfigFromFastKv;
   try {
-    const current = await fetchBosConfigFromFastKv<BosConfigInput>(
+    const current = await fetchConfig<BosConfigInput>(
       `bos://${opts.account}/${opts.gateway}`,
       opts.registry,
     );
@@ -105,6 +121,12 @@ export async function isConfigAlreadyPublished(opts: {
   } catch {
     return false;
   }
+}
+
+export interface TrainDeps {
+  storage: StorageLegDeps;
+  registry: RegistryStoreShape;
+  signer: RegistrySignerShape;
 }
 
 export interface DeployTrainInput {
@@ -139,7 +161,10 @@ export interface DeployTrainInput {
  * Terminal failures throw `PublishTrainError` (the typed channel, ticket
  * #422); callers behind the service map it to wire shapes mechanically.
  */
-export async function runPublishTrain(input: DeployTrainInput): Promise<PublishTrainOk> {
+export async function runPublishTrain(
+  input: DeployTrainInput,
+  deps: TrainDeps,
+): Promise<PublishTrainOk> {
   const preflight = await preflightPublish(input);
   if (preflight.kind === "error") {
     throw new PublishTrainError({
@@ -337,6 +362,7 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
       previousPin: prevPins[key],
       ...(sourcePublish ? { source: sourceLegDirs(ws.path) } : {}),
       ...(gitSha ? { gitSha } : {}),
+      deps: deps.storage,
     });
     if (outcome.kind === "error") {
       throw new PublishTrainError({
@@ -359,6 +385,8 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
         error: `bundle upload for ${key}: version manifest missing — the dist predates hashed entry names (rebuild required; atomic-deploys hard break)`,
       });
     }
+
+    if (sourcePublish && outcome.storage === "memory") throw memoryBackendAbort();
 
     platformEntries.push(
       ...platformUrlDeployEntries({
@@ -383,7 +411,7 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
         | Record<string, Record<string, unknown> | undefined>
         | undefined;
       const rawUi = rawSlot?.[key]?.ui as Record<string, unknown> | undefined;
-      const uiName = resolveUiRuntimeName(rawUi, uiDistDir, key);
+      const uiName = resolveUiRuntimeName(rawUi, join(ws.path, "ui"), key);
       let uiIntegrity: string | undefined;
       let uiSsrIntegrity: string | undefined;
       let uiPin: (typeof outcome)["pin"] | undefined;
@@ -397,6 +425,7 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
           storageApiKey,
           urlOrigin,
           previousPin: prevPins[`${key}-ui`],
+          deps: deps.storage,
         });
         if (uiOutcome.kind === "error") {
           throw new PublishTrainError({
@@ -540,6 +569,7 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
       gateway,
       publishConfig: publishPayload,
       registry: input.registry,
+      fetchConfig: deps.registry.fetchConfig,
     });
     if (alreadyPublished) {
       console.log("  Already up to date — skipping transaction");
@@ -568,11 +598,11 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
           error: "custody publish requires the preflight custody wallet",
         });
       }
-      await ensureCustodyBalance(custodyWallet);
+      await deps.signer.ensureCustodyBalance(custodyWallet);
       console.log(
         `  Signing via ${colors.cyan(`OutLayer custody wallet ${custodyWallet.nearAccountId}`)}`,
       );
-      result = await submitRegistryWriteCustody({
+      result = await deps.signer.submitRegistryWriteCustody({
         contract: registryNamespace,
         args: registryEntries,
         custodyWallet,
@@ -587,14 +617,14 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
           error: `--wallet requires a CLI session under ${account}. Run bos login first.`,
         });
       }
-      const record = await ensureDelegateKey({
+      const record = await deps.signer.ensureDelegateKey({
         configDir,
         account,
         contract: registryNamespace,
         network,
         siteUrl: credential.siteUrl,
       });
-      result = await submitRegistryWriteDelegated({
+      result = await deps.signer.submitRegistryWriteDelegated({
         account,
         contract: registryNamespace,
         network,
@@ -611,7 +641,7 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
           error: "non-wallet publish requires a resolved signing strategy",
         });
       }
-      result = await submitRegistryWrite(
+      result = await deps.signer.submitRegistryWrite(
         {
           account,
           contract: registryNamespace,
@@ -629,12 +659,24 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
     }
 
     console.log("  Waiting for publish confirmation...");
-    await waitForPublishedConfig({
-      account,
-      gateway,
-      publishConfig: publishPayload,
-      registry: input.registry,
-    });
+    try {
+      await waitForPublishedConfig({
+        account,
+        gateway,
+        publishConfig: publishPayload,
+        registry: input.registry,
+        fetchConfig: deps.registry.fetchConfig,
+      });
+    } catch (error) {
+      throw new PublishTrainError({
+        kind: "confirm",
+        registryUrl,
+        error: formatNearError(error),
+        built,
+        skipped,
+        deployResults,
+      });
+    }
     persistDeployState();
 
     return {
@@ -651,7 +693,7 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
   } catch (error) {
     if (error instanceof PublishTrainError) throw error;
     throw new PublishTrainError({
-      kind: "submit",
+      kind: "sign",
       registryUrl,
       error: formatNearError(error),
       built,
@@ -666,13 +708,25 @@ export async function runPublishTrain(input: DeployTrainInput): Promise<PublishT
  * typed channel. */
 export async function publishToFastKv(input: DeployTrainInput): Promise<PublishToFastKvResult> {
   try {
-    const ok = await runPublishTrain(input);
+    const ok = await runPublishTrain(input, realTrainDeps);
     return ok;
   } catch (error) {
     if (error instanceof PublishTrainError) return error.toResult();
     throw error;
   }
 }
+
+export const realTrainDeps: TrainDeps = {
+  storage: realStorageLegDeps,
+  registry: { fetchConfig: fetchBosConfigFromFastKv, fetchHistory: fetchConfigHistory },
+  signer: {
+    submitRegistryWrite,
+    submitRegistryWriteDelegated,
+    submitRegistryWriteCustody,
+    ensureDelegateKey,
+    ensureCustodyBalance,
+  },
+};
 
 export type PublishToFastKvResult = PublishTrainOk | PublishTrainFailureResult;
 
@@ -687,17 +741,22 @@ export class DeployTrainService extends Context.Service<
     publish: (input: DeployTrainInput) => Effect.Effect<PublishTrainOk, PublishTrainError>;
   }
 >()("everything-dev/deploy/train") {
-  static readonly Live = Layer.succeed(
+  static readonly Live = Layer.effect(
     this,
-    DeployTrainService.of({
-      publish: (input: DeployTrainInput) =>
-        Effect.tryPromise({
-          try: () => runPublishTrain(input),
-          catch: (error) =>
-            error instanceof PublishTrainError
-              ? error
-              : new PublishTrainError({ kind: "submit", registryUrl: "", error: String(error) }),
-        }),
+    Effect.gen(function* () {
+      const storage = yield* BundleStorage;
+      const registry = yield* RegistryStore;
+      const signer = yield* RegistrySigner;
+      return DeployTrainService.of({
+        publish: (input: DeployTrainInput) =>
+          Effect.tryPromise({
+            try: () => runPublishTrain(input, { storage, registry, signer }),
+            catch: (error) =>
+              error instanceof PublishTrainError
+                ? error
+                : new PublishTrainError({ kind: "submit", registryUrl: "", error: String(error) }),
+          }),
+      });
     }),
   );
 }

@@ -1,3 +1,5 @@
+export { formatDuration } from "../utils/timing";
+
 import type { spinner as clackSpinner } from "@clack/prompts";
 
 type Spinner = ReturnType<typeof clackSpinner>;
@@ -45,19 +47,4 @@ export async function timePhase<T>(
 
 export function sumPhaseDurations(timings: PhaseTiming[]): number {
   return timings.reduce((total, timing) => total + timing.durationMs, 0);
-}
-
-export function formatDuration(durationMs: number): string {
-  if (durationMs < 1000) {
-    return `${durationMs}ms`;
-  }
-
-  if (durationMs < 60_000) {
-    const seconds = durationMs / 1000;
-    return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
-  }
-
-  const minutes = Math.floor(durationMs / 60_000);
-  const seconds = Math.round((durationMs % 60_000) / 1000);
-  return `${minutes}m ${seconds}s`;
 }

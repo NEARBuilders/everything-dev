@@ -21,6 +21,7 @@ import { ProjectEnv, ProjectEnvLive } from "./env/project-env";
 import { registerProcesses } from "./handlers/processes";
 import { openResolution } from "./resolution/session";
 import { createPlugin, z } from "./sdk";
+import { BundleStorage, RegistrySigner, RegistryStore } from "./services/deploy/deps";
 import { DeployTrainService } from "./services/deploy/train";
 import { ProcessesService } from "./services/processes";
 
@@ -70,7 +71,11 @@ export default createPlugin({
           drizzleKit: Context.get(services, DrizzleKit),
         } satisfies BosDeps),
         ProcessesService.Live,
-        DeployTrainService.Live,
+        DeployTrainService.Live.pipe(
+          Layer.provide(
+            Layer.mergeAll(BundleStorage.Live, RegistryStore.Live, RegistrySigner.Live),
+          ),
+        ),
       );
     }),
   createRouter: (builder) => ({
