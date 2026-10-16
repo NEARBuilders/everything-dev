@@ -13,6 +13,12 @@ import {
   phoneNumber,
 } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
+import {
+  adminAc,
+  defaultStatements,
+  memberAc,
+  ownerAc,
+} from "better-auth/plugins/organization/access";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "better-near-auth";
 import { eq, gt } from "drizzle-orm";
 import type { AuthConfig, AuthPermissionStatements } from "./auth-config";

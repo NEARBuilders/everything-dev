@@ -120,5 +120,16 @@ export default App({
       secrets: ["AI_API_KEY"],
       ui: { name: "ai-ui", path: "plugins/ai/ui" },
     }),
+    "agent-connect": Plugin("agent-connect").path("plugins/agent-connect", {
+      name: "@everything-dev/agent-connect-plugin",
+      variables: {
+        apiBaseUrl: "https://api.agentsonintents.com",
+      },
+      secrets: [
+        "NEAR_INTENTS_AGENT_API_KEY",
+        "AGENT_CONNECT_ENCRYPTION_KEY",
+        "AGENT_CONNECT_DATABASE_URL",
+      ],
+    }),
   },
 });
