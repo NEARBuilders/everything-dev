@@ -9,7 +9,7 @@ import {
   resolveBosConfigPath,
   writeResolvedConfig,
 } from "../../src/config";
-import type { ResolvedConfigMeta } from "../../src/merge";
+import type { ResolvedConfigMeta } from "../../src/services/resolution/merge";
 
 const VALID_CONFIG: Record<string, unknown> = {
   account: "test.near",

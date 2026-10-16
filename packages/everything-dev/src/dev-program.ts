@@ -26,7 +26,6 @@ import {
   ProjectEnvLive,
   type ProjectEnvService,
 } from "./env/project-env";
-import { buildRegistryConfigUrl } from "./fastkv";
 import {
   detectAutoStartContext,
   isDockerAvailable,
@@ -39,13 +38,18 @@ import { preflightLocalInfra } from "./infra/preflight";
 import type { InfraPlan } from "./infra/types";
 import { mergeGeneratedOverFileEnv } from "./orchestrator";
 import { emitProgress, timedPhase } from "./progress";
-import { openResolution, type ResolutionSession, walkExtendsChain } from "./resolution/session";
 import {
   type AppOrchestrator,
   buildDescription,
   buildServiceDescriptorMap,
   buildServiceDescriptorMapFromPlan,
 } from "./service-descriptor";
+import { buildRegistryConfigUrl } from "./services/registry/fastkv";
+import {
+  openResolution,
+  type ResolutionSession,
+  walkExtendsChain,
+} from "./services/resolution/session";
 import { syncResolvedSharedDeps } from "./shared-deps";
 import {
   isRegistryStart,

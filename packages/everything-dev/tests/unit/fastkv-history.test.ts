@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchConfigHistory } from "../../src/fastkv";
 import { clearHttpCache } from "../../src/http-client";
+import { fetchConfigHistory } from "../../src/services/registry/fastkv";
 
 beforeEach(() => {
   clearHttpCache();

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerKeys } from "../../src/commands/keys";
 import type { BosBuilder, BosDeps } from "../../src/commands/shared";
 import { BosDepsTag } from "../../src/commands/shared";
-import { ResolutionSession } from "../../src/resolution/session";
+import { ResolutionSession } from "../../src/services/resolution/session";
 import type { BosConfig, RuntimeConfig } from "../../src/types";
 
 const mocks = vi.hoisted(() => ({

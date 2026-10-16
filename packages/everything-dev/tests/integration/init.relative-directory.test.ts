@@ -6,12 +6,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildInitPatterns, copyFilteredFiles, personalizeConfig } from "../../src/cli/init";
 import { makeProjectEnv } from "../../src/env/project-env";
 import { InfraMaterializer, InfraMaterializerLive } from "../../src/infra/materializer";
-import { openResolution } from "../../src/resolution/session";
+import { openResolution } from "../../src/services/resolution/session";
 import type { RuntimeConfig } from "../../src/types";
 import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
-vi.mock("../../src/fastkv", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/fastkv")>();
+vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/registry/fastkv")>();
   return {
     ...actual,
     fetchBosConfigFromFastKv: async <T>() => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeBosConfigWithExtends } from "../../src/merge";
+import { mergeBosConfigWithExtends } from "../../src/services/resolution/merge";
 import type { ExtendsConfig } from "../../src/types";
 
 describe("env-specific extends in merge scenario", () => {

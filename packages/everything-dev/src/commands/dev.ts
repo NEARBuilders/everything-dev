@@ -4,7 +4,7 @@ import { MISSING_CONFIG_MESSAGE } from "../config";
 import type { PhaseTiming } from "../contract";
 import { type LogLevelEnv, resolveLogLevel, toEffectLogLevel } from "../dev-log-pipeline";
 import { bootstrapLayers, devBootstrap, startBootstrap } from "../dev-program";
-import { openResolution } from "../resolution/session";
+import { openResolution } from "../services/resolution/session";
 import { type BosBuilder, BosDepsTag } from "./shared";
 
 export function registerDev(builder: BosBuilder) {

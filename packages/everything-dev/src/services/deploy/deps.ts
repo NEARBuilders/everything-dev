@@ -1,9 +1,9 @@
 import { Context, Layer } from "effect";
-import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../../fastkv";
 import { buildSourceArchive } from "../../source-archive";
 import { collectDistFiles, uploadBundle, uploadWorkspaceDist } from "../../storage-upload";
 import { composeWorkspaceVersionManifest, readBuildReport } from "../../version-manifest-deploy";
 import { resolveSlotVersion } from "../../version-manifest-resolve";
+import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
 import type { StorageLegDeps } from "./upload-leg";
 
 /**

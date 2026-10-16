@@ -14,7 +14,7 @@ import {
 } from "../../src/cli/import";
 import { resetConfigPathCache } from "../../src/config";
 import { computeSriHash } from "../../src/integrity";
-import type { ResolutionIo } from "../../src/resolution/session";
+import type { ResolutionIo } from "../../src/services/resolution/session";
 
 const WS = "plugins/auth";
 const SCRATCH = join(import.meta.dirname, "..", "fixtures", "bos-import-chain-scratch");

@@ -14,19 +14,19 @@ import {
   pinsFromPublishedConfig,
   upsertDeployStatePins,
 } from "../../deploy-diff";
-import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../../fastkv";
-import { pointerFingerprint, slotPins } from "../../fingerprint";
 import { applyDeployResults, type DeployResultEntry } from "../../integrity";
-import { mergeAuthoredOverPublished } from "../../merge";
 import { submitRegistryWrite } from "../../near-signer";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "../../platform-deploy";
-import { openResolution } from "../../resolution/session";
 import { verifyRollbackSnapshot } from "../../rollback";
+import { openResolution } from "../../services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
+import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
+import { pointerFingerprint, slotPins } from "../registry/fingerprint";
+import { mergeAuthoredOverPublished } from "../resolution/merge";
 import {
   type BuildTargetsDeps,
   type BuildTargetsInput,

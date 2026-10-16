@@ -1,3 +1,5 @@
+import { Context, Layer } from "effect";
+
 export type NetworkId = "mainnet" | "testnet";
 
 interface FastKvEntry {
@@ -8,7 +10,7 @@ interface FastKvListResponse {
   entries?: Array<FastKvEntry | null>;
 }
 
-import { fetchJsonOrNull, fetchRaw } from "./http-client";
+import { fetchJsonOrNull, fetchRaw } from "../../http-client";
 
 function getNetworkIdForAccount(accountId: string): NetworkId {
   return accountId.endsWith(".testnet") ? "testnet" : "mainnet";
@@ -272,4 +274,31 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> 
     body: init?.body ?? undefined,
     retries: 3,
   });
+}
+
+/**
+ * The FastKV registry as a Context.Service (#425): reads (config, published
+ * config, history, deploy manifests) and the bos:// URL algebra behind one
+ * tag. The registry WRITE is a signing concern — it rides the signer
+ * services (#423), not this tag. Callers may keep using the plain
+ * functions — the module is the implementation; the tag is the seam.
+ */
+export class FastKVRegistryService extends Context.Service<
+  FastKVRegistryService,
+  {
+    fetchBosConfigFromFastKv: typeof fetchBosConfigFromFastKv;
+    fetchPublishedConfigFromFastKv: typeof fetchPublishedConfigFromFastKv;
+    fetchConfigHistory: typeof fetchConfigHistory;
+    fetchDeployManifests: typeof fetchDeployManifests;
+  }
+>()("everything-dev/registry/fastkv") {
+  static readonly Live = Layer.succeed(
+    this,
+    this.of({
+      fetchBosConfigFromFastKv,
+      fetchPublishedConfigFromFastKv,
+      fetchConfigHistory,
+      fetchDeployManifests,
+    }),
+  );
 }

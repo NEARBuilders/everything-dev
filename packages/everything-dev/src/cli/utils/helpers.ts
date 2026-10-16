@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { resolveExtendsRef } from "../../merge";
+import { resolveExtendsRef } from "../../services/resolution/merge";
 
 export function getExtendsRef(config: Record<string, unknown>): string | undefined {
   if (typeof config.extends === "string") {

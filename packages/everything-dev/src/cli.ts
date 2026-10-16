@@ -31,13 +31,13 @@ import type {
 } from "./contract";
 import type { DeployLegs } from "./deploy-legs";
 import type { StartSummary } from "./dev-program";
-import { getRegistryNamespaceForAccount } from "./fastkv";
 import { listPublishKeys } from "./near-cli";
 import { getNetworkIdForAccount } from "./network";
 import bosPlugin from "./plugin";
 import { type ProgressEvent, pluginEvents } from "./progress";
-import { installBundleFetchFromEnv } from "./resolver";
 import { createPluginRuntime } from "./sdk";
+import { getRegistryNamespaceForAccount } from "./services/registry/fastkv";
+import { installBundleFetchFromEnv } from "./services/resolution/resolver";
 import { printBanner } from "./utils/banner";
 import { colors, frames, gradients, icons } from "./utils/theme";
 
