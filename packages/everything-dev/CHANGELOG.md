@@ -1,5 +1,57 @@
 # everything-dev
 
+## 2.0.0-rc.11
+
+### Minor Changes
+
+- 88dbfd9: Deploy legs report structured outcomes and are runtime-tier aware: `bos deploy` exits 0 for consumer/child runtimes that publish successfully, instead of failing when the Railway leg cannot run. Each leg (image / smoke / railway) now carries `{ status: ok | skipped | failed, detail }` on the deploy result and the CLI renders a per-leg summary (✓ / – / ✗). A runtime that owns its image (`ci.image` configured or a Dockerfile at the config root) is "root" and keeps the hard gates — Railway requires a pinned digest. A runtime inheriting the universal image (ADR 0020/0021) is "child": the image and smoke legs soft-skip with a notice, and the Railway redeploy runs without a digest (`railway redeploy --from-source` is a reload trigger for the freshly published config; the token is project-scoped). "Config published, but the … leg(s) failed" names the failed legs. Child scaffolds declare `@opentelemetry/api` at the root so the `@better-auth/core` optional peer resolves — removing the recurring "Module not found" build warning in consumer CI (existing children are unaffected — the warning is cosmetic).
+- 522397c: Deploy output polish (ticket #431) — a sectioned train renderer with attributed warnings:
+
+  - **Sections**: Build / Upload / Publish render through a new `DeployTrainRenderService` (implemented by `cli/render/deploy-train.ts`), in deterministic target order — parallel upload units can no longer interleave their output. Image+Railway leg rows keep `renderDeployLegs`.
+  - **Attributed warnings**: `WorkspaceDeployResult` gains the structured `warnings` field the CLI was already rendering — build stderr is buffered per workspace, warning segments (rsbuild boxes, WARNING lines) are extracted and attributed to the workspace; raw stderr streams only under `--verbose`. `$ ` command echoes never count as warnings.
+  - **One line per workspace upload by default**: the ✓ line carries the aligned 28-char name column, the bundle base, upload/skip counts, and duration; detail lines (manifest-diff skips, the version-manifest pin row, source archive) print only under `--verbose`, indented under the workspace's named ✓ line — the version-manifest row is no longer a context-free empty-pad row that parallel uploads scatter across other workspaces' output. The upload leg itself is silent — it returns structured detail and the renderer decides.
+  - **Output snapshot tests** pin the section layout: column alignment, default-vs-verbose, the publish section (registry URL, fingerprint, slot pins, audit manifest), and the attributed warnings block. Image+Railway keep their existing leg rows (`renderDeployLegs`) — the one section that was already sectioned.
+
+- 1555405: Deploy speed (ticket #430), in the new service structure:
+
+  - **Content-hash rebuild oracle** behind the staleness seam: a Turborepo-style `contentHashStalenessOracle` (workspace tree + transitive local-dependency hashes + build-mode env, persisted at `.bos/build-cache.json`, unknown → build) replaces the deploy blanket force-rebuild of the prerequisite closure. On this repo (13 members) recording costs 765ms and a full freshness judgement 604ms — a warm deploy skips every fresh prerequisite instead of rebuilding them all. `--force-build` (and `BOS_FORCE_BUILD=1`) retains the forced-rebuild escape hatch.
+  - **Build concurrency capped** at ~`os.cpus()` (overridable per call via `concurrency`); unbounded parallel workspace builds oversubscribed 2–4 core CI runners.
+  - **Uploads concurrent and pipelined**: independent bundle keys upload with bounded concurrency (`BOS_UPLOAD_CONCURRENCY`, default 4) and each workspace's upload starts as its build completes instead of after the whole train; outcomes assemble in target order, so the published config is byte-identical to the serial train's, and the first failure in target order is the one thrown.
+  - **Redundant work trimmed**: the docker probe is skipped when an image digest is prebuilt (it could never reach the build branch), and the publish-confirmation wait tracks the submitted transaction — cheap history probes with a 2-probe trial window, then one authoritative read-back; a registry whose history never carries the tx falls back to plain equality polling. The preflight/idempotency config-fetch dedupe was attempted and reverted: the two readers normalize differently (raw JSON vs Zod-parsed), so comparing across them misdetects drift — config reads went 3→2, not 1. Pin-verification's manifest fetch is unchanged (the fetch is the propagation check it exists to be).
+
+  Timing on a fully representative deploy (real uploads + NEAR transaction) requires a funded run; the structural measurements above are from this repo's own workspace closure.
+
+- 92a39ec: Deploy train extracted to `services/deploy/` behind a `DeployTrainService` (ADR 0031 shape): the publish core, preflight, upload leg, rollback flow, and post-publish legs are now service modules with a typed error channel (`PublishTrainError` — preflight/build/reload/upload/missing-manifest/memory-backend/config-write/pin-verification/sign/submit/confirm kinds) replacing string-error overloads between the train and the handlers. Storage, registry reads, and signing are injectable `Context.Service` tags (`BundleStorage`, `RegistryStore`, `RegistrySigner`). Duplicated flows collapsed to one implementation each: the folder-form `-ui` sub-leg now runs the same workspace upload as the main bundle, the smoke-failure rollback and `bos rollback` share the snapshot republish path, and manifest SRI verification (rollback gate + slot resolution) is a single module. Auth guards validate the session/custody handles once per run instead of twice. Behavior-preserving; `bos deploy` and `bos plugin publish` call the same train.
+- a499320: The remaining command groups follow the plugin pattern end to end (ADR 0031): `ops` (`OpsService` — status/logs/kill/infra-export, including the deployed-version probe), `db` (`DbOpsService` — studio/doctor/repair, built over `DatabaseBindings`/`DrizzleKit`), `plugins` (`PluginAdminService` — add/remove/list/publish, closed over the deploy train at the composition root), `dev` (`DevFlowService` — the dev/start bootstrap and error-tag mapping), and `init` (`InitFlowService` — the full scaffold orchestration, timings included). Handlers are now thin adapters: yield the session, yield the service, return the contract result. Domain logic still reachable from `cli/` moved into `services/` behind thin facades — `services/status.ts` (was `cli/status.ts`), `services/infra.ts` (was `cli/infra.ts`), `services/db/{doctor,repair}.ts` (were `cli/db-*.ts`), `services/scaffold/prune.ts` (was `cli/prune.ts`) — the `cli/*` paths re-export unchanged surfaces. `infra/materializer` and `infra/planner` no longer import from `cli/` either. Behavior-preserving: same result shapes, error wording, timing phases, and exit semantics.
+- a499320: Package restructure (ADR 0031): `everything-dev` now follows the same `contract / handlers / services` shape as every other plugin. The public subpaths are unchanged in name and surface, but several now resolve to new sources — **if you deep-import source paths, update your imports**:
+
+  | Old source                                       | New source                                                                     |
+  | ------------------------------------------------ | ------------------------------------------------------------------------------ |
+  | `src/fastkv.ts`                                  | `src/services/registry/fastkv.ts`                                              |
+  | `src/fingerprint.ts`                             | `src/services/registry/fingerprint.ts`                                         |
+  | `src/dag.ts`                                     | `src/services/registry/dag.ts`                                                 |
+  | `src/resolver.ts`                                | `src/services/resolution/resolver.ts`                                          |
+  | `src/merge.ts` (internal)                        | `src/services/resolution/merge.ts`                                             |
+  | `src/resolution/session.ts`                      | `src/services/resolution/session.ts`                                           |
+  | `src/federation.ts`                              | `src/services/federation.ts`                                                   |
+  | `src/build.ts`                                   | `src/services/workspace/build-train.ts`                                        |
+  | `src/auth-login.ts`                              | `src/services/auth/device-login.ts`                                            |
+  | `src/near-signer.ts`                             | `src/services/auth/signer.ts`                                                  |
+  | `src/publish.ts`                                 | `src/services/deploy/train.ts`                                                 |
+  | `src/cli/{init,import,sync,upgrade,snapshot}.ts` | `src/services/scaffold/*.ts` (thin facades kept — `./cli/init` subpath stable) |
+  | `src/commands/*`                                 | `src/handlers/*.ts` as `.effect()` generators (directory deleted)              |
+
+  Domain highlights: the deploy train is `DeployTrainService` (`services/deploy/`), the workspace build train `BuildTrainService` (staleness oracle injectable), auth flows are `DeviceLoginService`/`SessionStore`/`SignerService` behind one `SiteClient` (oRPC error envelopes now surface the server's detail verbatim), registry services behind `FastKVRegistryService`, and the `BosDepsTag` grab-bag dissolved into real `Context.Service` tags handlers `yield*` (`ResolutionSessionService`, `DatabaseBindings`, `DrizzleKit`). The contract is the single flag source — `bos <command> --help` renders flags straight from the Zod option schemas (`contract.meta.ts` is a facade). All subpath exports (`./fastkv`, `./fingerprint`, `./dag`, `./resolver`, `./federation`, `./resolution`, `./config`, `./cli/init`, …) keep their names and type surfaces; `./config` consumers are unaffected (barrel re-exports the identical surface). Behavior-preserving throughout: same merge semantics, same exit codes, same login matrix, same build/deploy leg sequencing — pinned by the existing suites.
+
+### Patch Changes
+
+- 1555405: A bogus `BOS_BUNDLE_DIR` normalizes to unset instead of warning
+
+  An empty, whitespace-only, or quoted-empty value (e.g. the literal two characters `""` from a quoting mistake in a deployment env) is treated as unset — the runtime boots in the registry tier silently, with no `staged namespace … not found under ""` warning. A genuinely-set-but-missing bundle dir still warns, now with the value `JSON.stringify`'d so quoting mistakes are self-evident.
+
+- Updated dependencies [a499320]
+  - better-near-auth@2.0.0-rc.2
+
 ## 2.0.0-rc.10
 
 ### Minor Changes
