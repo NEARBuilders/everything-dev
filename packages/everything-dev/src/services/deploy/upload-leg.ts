@@ -1,7 +1,6 @@
 import { readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { SourceRef } from "every-plugin/version-manifest";
-import { formatDuration } from "../../cli/timing";
 import {
   diffWorkspaceFiles,
   localSriMap,
@@ -18,6 +17,7 @@ import {
 } from "../../storage-upload";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
+import { formatDuration } from "../../utils/timing";
 import { composeWorkspaceVersionManifest, readBuildReport } from "../../version-manifest-deploy";
 import { resolveSlotVersion } from "../../version-manifest-resolve";
 
@@ -271,6 +271,8 @@ export type WorkspaceBundleUpload =
   | {
       kind: "ok";
       pin: VersionManifestPin;
+      /** the serving backend of the diff upload — memory aborts the train */
+      storage?: "s3" | "memory";
       /** entry SRI keyed by the build report's hashed name */
       entryIntegrity?: string;
       ssrEntryIntegrity?: string;
@@ -289,6 +291,7 @@ export async function uploadWorkspaceBundle(
   const deps = input.deps ?? realStorageLegDeps;
   const base = `${input.urlOrigin}/bundles/${input.account}/${input.gateway}/${input.workspaceKey}/`;
   const startedAt = Date.now();
+  let phase: "upload" | "source" = "upload";
   try {
     const distFiles = await deps.collectDistFiles(input.distDir);
     const outcome = await diffUploadWorkspace(deps, {
@@ -310,6 +313,7 @@ export async function uploadWorkspaceBundle(
 
     let sourceRef: SourceRef | undefined;
     if (input.source) {
+      phase = "source";
       const sourceOutcome = await resolveSourceReference(deps, {
         origin: input.storageOrigin,
         apiKey: input.storageApiKey,
@@ -323,6 +327,7 @@ export async function uploadWorkspaceBundle(
       });
       if ("memory" in sourceOutcome) return { kind: "memory" };
       sourceRef = sourceOutcome.source;
+      phase = "upload";
     }
 
     const pin = await pinWorkspaceVersionManifest(deps, {
@@ -349,6 +354,7 @@ export async function uploadWorkspaceBundle(
     return {
       kind: "ok",
       pin,
+      storage: outcome.result.storage,
       entryIntegrity,
       ssrEntryIntegrity,
       uploaded: outcome.uploaded,
@@ -358,7 +364,12 @@ export async function uploadWorkspaceBundle(
   } catch (error) {
     return {
       kind: "error",
-      message: error instanceof Error ? error.message : String(error),
+      message:
+        error instanceof Error
+          ? error.message
+          : phase === "source"
+            ? `[publish] source archive for ${input.workspaceKey} failed`
+            : `[publish] bundle upload for ${input.workspaceKey} failed`,
     };
   }
 }

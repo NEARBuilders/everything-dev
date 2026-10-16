@@ -20,7 +20,9 @@ export type TrainErrorKind =
   | "memory-backend"
   | "config-write"
   | "pin-verification"
-  | "submit";
+  | "sign"
+  | "submit"
+  | "confirm";
 
 export interface PublishTrainOk {
   status: "published" | "dry-run";
