@@ -3,6 +3,8 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { ContractRouterClient } from "@orpc/contract";
 import { RPCHandler } from "@orpc/server/node";
+import type { Context } from "effect";
+
 import { createPluginRuntime } from "every-plugin";
 import type { contract } from "@/contract";
 import Plugin from "@/index";
@@ -27,6 +29,18 @@ export const runtime = createPluginRuntime({
 let server: ReturnType<typeof createServer> | null = null;
 let baseUrl = "";
 let port = 0;
+let pluginEffectContext: Context.Context<any> | null = null;
+
+/**
+ * The plugin's initialized Effect context — services (AgentStore, …) can be
+ * read from it in tests via `Context.get`.
+ */
+export function getPluginEffectContext(): Context.Context<any> {
+  if (!pluginEffectContext) {
+    throw new Error("getPluginClient() must run before getPluginEffectContext()");
+  }
+  return pluginEffectContext;
+}
 
 export async function getPluginClient(context?: {
   userId?: string;
@@ -37,6 +51,7 @@ export async function getPluginClient(context?: {
     const { router, initialized } = await runtime.usePlugin(TEST_PLUGIN_ID, TEST_CONFIG);
     const rpcHandler = new RPCHandler(router);
     const effectContext = initialized.effectContext;
+    pluginEffectContext = effectContext;
 
     // Find an available port
     const testPort = 3000 + Math.floor(Math.random() * 1000);

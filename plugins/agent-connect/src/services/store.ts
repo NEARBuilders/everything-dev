@@ -118,6 +118,7 @@ export interface AgentStoreShape {
   }): Effect.Effect<AgentGrantRow, StoreError>;
   linkGrantId(rowId: string, grantId: string): Effect.Effect<void, StoreError>;
   markGrantRevoked(rowId: string): Effect.Effect<void, StoreError>;
+  findGrantById(rowId: string): Effect.Effect<AgentGrantRow | null, StoreError>;
   findGrantByUser(
     userId: string,
     agentId: string,
@@ -207,10 +208,7 @@ export const agentStoreLayer = Layer.effect(
               .select()
               .from(ownerIntent)
               .where(
-                and(
-                  eq(ownerIntent.idempotencyKey, idempotencyKey),
-                  eq(ownerIntent.userId, userId),
-                ),
+                and(eq(ownerIntent.idempotencyKey, idempotencyKey), eq(ownerIntent.userId, userId)),
               )
               .limit(1)
               .then((rows) => rows[0] ?? null)) as OwnerIntentRow | null,
@@ -250,6 +248,17 @@ export const agentStoreLayer = Layer.effect(
               .where(eq(agentGrant.id, rowId));
           },
           catch: (cause) => storeError("Failed to mark grant revoked", cause),
+        }),
+      findGrantById: (rowId) =>
+        Effect.tryPromise({
+          try: async () =>
+            (await db
+              .select()
+              .from(agentGrant)
+              .where(eq(agentGrant.id, rowId))
+              .limit(1)
+              .then((rows) => rows[0] ?? null)) as AgentGrantRow | null,
+          catch: (cause) => storeError("Failed to load grant", cause),
         }),
       findGrantByUser: (userId, agentId, grantId) =>
         Effect.tryPromise({

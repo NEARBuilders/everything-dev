@@ -12,9 +12,19 @@ import { z } from "zod";
 import { contract } from "./contract";
 import { DatabaseLive } from "./db/layer";
 import { ContextSchema } from "./lib/context";
-import { AgentApiClient, type AgentApiClientShape, type AgentApiServiceError, agentApiClientLayer } from "./services/agent-api";
-import { agentStoreLayer, AgentStore, type AgentStoreShape, type OwnerIntentRow } from "./services/store";
-import { grantVaultLayer, GrantVault } from "./services/vault";
+import {
+  AgentApiClient,
+  type AgentApiClientShape,
+  type AgentApiServiceError,
+  agentApiClientLayer,
+} from "./services/agent-api";
+import {
+  AgentStore,
+  type AgentStoreShape,
+  agentStoreLayer,
+  type OwnerIntentRow,
+} from "./services/store";
+import { GrantVault, grantVaultLayer } from "./services/vault";
 
 /**
  * Agent Connect — the control plane giving every signed-in user an
@@ -289,22 +299,26 @@ export default createPlugin({
           }
         }
         if (intentRow.intentType === "grant_revoke" && intentRow.grantRowId) {
-          yield* store.markGrantRevoked(intentRow.grantRowId).pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("[agent-connect] failed to mark grant revoked:", error).pipe(
-                Effect.asVoid,
+          yield* store
+            .markGrantRevoked(intentRow.grantRowId)
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("[agent-connect] failed to mark grant revoked:", error).pipe(
+                  Effect.asVoid,
+                ),
               ),
-            ),
-          );
+            );
         }
         if (intentRow.intentType === "agent_create" && intentRow.agentId) {
-          yield* store.activateAgent(userId, intentRow.agentId).pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("[agent-connect] failed to activate agent row:", error).pipe(
-                Effect.asVoid,
+          yield* store
+            .activateAgent(userId, intentRow.agentId)
+            .pipe(
+              Effect.catch((error) =>
+                Effect.logWarning("[agent-connect] failed to activate agent row:", error).pipe(
+                  Effect.asVoid,
+                ),
               ),
-            ),
-          );
+            );
         }
       });
 

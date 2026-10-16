@@ -1,4 +1,11 @@
 import "@orpc/openapi/extensions/route";
+import type {
+  AgentPage,
+  AgentView,
+  GenerateIntentResponse,
+  GrantView,
+  StatusResponse,
+} from "@near-intents-agent-api/sdk";
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 
@@ -54,67 +61,34 @@ const IdempotencyKeySchema = z
   );
 
 /**
- * The browser-visible intent envelope: `intent.payload` + `preview` are all a
- * browser ever sees — never the `naa_` partner key or an `ngt_` grant token.
- * Fields beyond the typed subset pass through unwrapped.
+ * Output envelopes are the SDK's own types (`z.custom`) — the hosted Agent
+ * API (via `@near-intents-agent-api/sdk`) is the source of truth for every
+ * domain shape; re-declaring them here would drift. The type-level test
+ * asserts the generated client drives `signAgentIntent` and the UI without
+ * casts. The browser sees `intent.payload` + `preview` only — never the
+ * `naa_` partner key or an `ngt_` grant token.
  */
-const GeneratedIntentSchema = z.looseObject({
-  correlation_id: z.string().describe("Tracking id of the generated owner intent"),
-  agent_id: z
-    .string()
-    .nullable()
-    .optional()
-    .describe("The agent account id — agent_create reserves it and returns it immediately"),
-  type: z.string().describe("Intent type, e.g. agent_create, grant_issue, grant_revoke"),
-  status: z.string().describe("Intent status, e.g. PENDING_SIGNATURE"),
-  expires_at: z.string().describe("ISO datetime after which the intent can no longer be signed"),
-  idempotencyKey: z.string().optional().describe("The idempotency key used for this intent"),
-  intent: z.looseObject({
-    standard: z.string().describe("Signing standard: nep413 | nep366 | eip712 | webauthn"),
-    payload: z.record(z.string(), z.unknown()).describe("The exact bytes the owner's wallet signs"),
-  }),
-  signer: z
-    .looseObject({ type: z.string() })
-    .nullable()
-    .optional()
-    .describe("The owner wallet that must sign this intent"),
-  preview: z
-    .unknown()
-    .optional()
-    .describe("Human-readable summary shown to the owner before signing"),
-});
+const GeneratedIntentSchema = z
+  .custom<GenerateIntentResponse>()
+  .describe(
+    "Generated owner intent: correlation_id, agent_id, type, status (PENDING_SIGNATURE), expires_at, signer, intent { standard, payload }, preview, idempotencyKey",
+  );
 
-const StatusSchema = z.looseObject({
-  correlation_id: z.string().describe("Tracking id of the intent"),
-  agent_id: z.string().nullable().optional().describe("The agent account the intent acts on"),
-  status: z
-    .string()
-    .describe("SUCCESS | FAILED | PENDING_SIGNATURE | UNCERTAIN | NEEDS_REVIEW | …"),
-  type: z.string().optional().describe("Intent type"),
-  details: z.unknown().optional().describe("Intent-type-specific result details"),
-});
+const StatusSchema = z
+  .custom<StatusResponse>()
+  .describe(
+    "Intent/operation status: correlation_id, agent_id, type, status, failure_code, details (shape varies by type)",
+  );
 
-const AgentViewSchema = z.looseObject({
-  id: z.string().describe("Agent account id"),
-  name: z.string().optional().describe("Display name"),
-  status: z.string().optional().describe("Agent status, e.g. PENDING | ACTIVE | FROZEN"),
-});
+const AgentPageSchema = z
+  .custom<AgentPage>()
+  .describe("Page of agent views: { data, next_cursor }");
 
-const AgentPageSchema = z.looseObject({
-  data: z.array(AgentViewSchema).describe("Agent views"),
-  next_cursor: z.string().nullable().optional().describe("Cursor for the next page"),
-});
+const AgentViewSchema = z.custom<AgentView>().describe("Agent account view (SDK AgentView)");
 
-const GrantViewSchema = z.looseObject({
-  grant_id: z.string().describe("Grant id (64 hex)"),
-  label: z.string().optional().describe("Grant label"),
-  expires_at: z.string().optional().describe("Grant expiry"),
-  revoked_at: z.string().nullable().optional().describe("When the grant was revoked, if it was"),
-});
-
-const GrantsSchema = z.object({
-  data: z.array(GrantViewSchema).describe("Grant views for the agent account"),
-});
+const GrantsSchema = z
+  .object({ data: z.array(z.custom<GrantView>()) })
+  .describe("Grant views for the agent account (revoked included)");
 
 const PrepareIntentInputSchema = z.discriminatedUnion("type", [
   z.object({

@@ -30,7 +30,15 @@ The `naa_` partner key and `ngt_` grant tokens never reach a browser.
 3. Intents are persisted **before** the send (status `PENDING_SIGNATURE`, 15-minute
    pre-send TTL) and linked to the real correlation id after; a failed link asks the
    caller to retry, which reuses the same idempotency key.
-4. Status updates from submit/poll are best-effort; ledger link failures are fatal.
+4. Idempotent prepare: `agentCreate`/`prepareIntent` accept an optional client
+   `idempotencyKey` (8–128 chars, `[A-Za-z0-9._:-]`) — the same key with the same
+   request replays the stored intent (or resends the exact stored request body under
+   the same key), and the same key with a different request type conflicts. Upstream
+   still enforces body equality (`409 idempotency_conflict`).
+5. Submit and status polling share one reconciliation path: a `SUCCESS` observed
+   later applies the same local effects as an immediate one (grant id linked, revoke
+   marked, agent row activated). Ledger writes are best-effort; the intent-link
+   failure is fatal.
 
 ## Configuration
 
