@@ -361,12 +361,6 @@ export const DeployOptionsSchema = z.object({
     .describe(
       "Re-upload every dist file instead of diffing unchanged files against the previous deploy",
     ),
-  forceBuild: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Force every prerequisite workspace rebuild even when the content-hash staleness oracle judges them fresh",
-    ),
   smoke: z
     .boolean()
     .default(false)
