@@ -16,7 +16,6 @@ import { formatTimeAgo } from "./cli/render/logs";
 import { renderPs } from "./cli/render/processes";
 import { printStubMigrationGuide } from "./cli/render/sync";
 import { compareSemver } from "./cli/status";
-import { fetchInitParent } from "./commands/init";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "./config";
 import type {
   DevOptions,
@@ -34,6 +33,7 @@ import type {
   StartResult,
   TypecheckWorkspaceResult,
 } from "./contract";
+import { fetchInitParent } from "./handlers/init";
 import { listPublishKeys } from "./near-cli";
 import { getNetworkIdForAccount } from "./network";
 import bosPlugin from "./plugin";

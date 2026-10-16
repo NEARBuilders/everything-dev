@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { Context } from "effect";
+import { Effect } from "effect";
 import {
   loadAppDescriptorConfig,
   localConfigEntryPath,
@@ -12,71 +12,76 @@ import {
 import type { BosConfigResult } from "../contract";
 import { applyRegistrySections } from "../registry-use";
 import { fetchBosConfigFromFastKv } from "../services/registry/fastkv";
-import { walkExtendsChain } from "../services/resolution/session";
+import {
+  type ResolutionSession,
+  ResolutionSessionService,
+  walkExtendsChain,
+} from "../services/resolution/session";
 import type { BosConfig, BosConfigInput } from "../types";
 import { BosConfigSchema } from "../types";
 import { saveBosConfig } from "../utils/save-config";
-import { type BosBuilder, BosDepsTag } from "./shared";
+import type { BosBuilder } from "./shared";
 
 export function registerConfig(builder: BosBuilder) {
   return {
-    config: builder.config.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
+    config: builder.config.effect(function* (_opts, input) {
+      const session = yield* ResolutionSessionService;
       if (input.full) {
-        return buildConfigResult(deps.session?.config ?? null, true);
+        return buildConfigResult(session?.config ?? null, true);
       }
 
-      const localConfig = await readAuthoredConfigInput(deps.session?.root);
+      const localConfig = yield* Effect.promise(() => readAuthoredConfigInput(session?.root));
       return buildConfigResult(localConfig, false);
     }),
 
-    registryUse: builder.registryUse.handler(async ({ input, context }) => {
-      const deps = Context.get(context["effect/context"], BosDepsTag);
-      const root = deps.session?.root ?? process.cwd();
+    registryUse: builder.registryUse.effect(function* (_opts, input) {
+      const session = yield* ResolutionSessionService;
+      const root = session?.root ?? process.cwd();
       const configPath = localConfigEntryPath(root) ?? join(root, "bos.config.json");
       const normalizedFrom = input.from.startsWith("bos://") ? input.from : `bos://${input.from}`;
 
-      try {
-        const remote = await fetchBosConfigFromFastKv<Record<string, unknown>>(normalizedFrom);
-        const localRaw = await readLocalAuthoredConfigInput(root);
-        const local = (localRaw ??
-          (configPath.endsWith(".json")
-            ? (JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>)
-            : ((await loadAppDescriptorConfig(configPath)) as unknown as Record<
-                string,
-                unknown
-              >))) as Record<string, unknown>;
-        const { config: merged, applied } = applyRegistrySections(
-          local as never,
-          remote as never,
-          input.sections,
-        );
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const remote = await fetchBosConfigFromFastKv<Record<string, unknown>>(normalizedFrom);
+          const localRaw = await readLocalAuthoredConfigInput(root);
+          const local = (localRaw ??
+            (configPath.endsWith(".json")
+              ? (JSON.parse(readFileSync(configPath, "utf-8")) as Record<string, unknown>)
+              : ((await loadAppDescriptorConfig(configPath)) as unknown as Record<
+                  string,
+                  unknown
+                >))) as Record<string, unknown>;
+          const { config: merged, applied } = applyRegistrySections(
+            local as never,
+            remote as never,
+            input.sections,
+          );
 
-        if (input.dryRun) {
+          if (input.dryRun) {
+            return {
+              status: "dry-run" as const,
+              from: normalizedFrom,
+              applied,
+              configPath,
+            };
+          }
+
+          await saveBosConfig(root, merged);
+
           return {
-            status: "dry-run" as const,
+            status: "updated" as const,
             from: normalizedFrom,
             applied,
             configPath,
           };
-        }
-
-        await saveBosConfig(root, merged);
-
-        return {
-          status: "updated" as const,
-          from: normalizedFrom,
-          applied,
-          configPath,
-        };
-      } catch (error) {
-        return {
+        },
+        catch: (error) => ({
           status: "error" as const,
           from: normalizedFrom,
           applied: [],
           error: error instanceof Error ? error.message : String(error),
-        };
-      }
+        }),
+      });
     }),
   };
 }
