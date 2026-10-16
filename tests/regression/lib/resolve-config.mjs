@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { openResolution } from "../../../packages/everything-dev/src/resolution/session.ts";
+import { openResolution } from "../../../packages/everything-dev/src/services/resolution/session.ts";
 
 // Writes the resolved config the regression helpers read (the same file the
 // build train's generateCodeArtifacts writes). Checkouts that never ran a
