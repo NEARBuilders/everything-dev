@@ -317,15 +317,20 @@ export const mtimeStalenessOracle: StalenessOracle = {
 
 const HASH_SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".bos", ".turbo", ".next"]);
 
-async function hashWorkspaceTree(dir: string, hash: ReturnType<typeof createHash>): Promise<void> {
+async function hashWorkspaceTree(
+  dir: string,
+  hash: ReturnType<typeof createHash>,
+  prefix = "",
+): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
     if (HASH_SKIP_DIRS.has(entry.name)) continue;
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
-      await hashWorkspaceTree(join(dir, entry.name), hash);
+      await hashWorkspaceTree(join(dir, entry.name), hash, relative);
     } else {
       const content = await readFile(join(dir, entry.name));
-      hash.update(entry.name);
+      hash.update(relative);
       hash.update(content);
     }
   }

@@ -397,12 +397,33 @@ export function installGlobalBundleFetch(options: BundleFetchOptions): BundleFet
  * staged bytes. Never throws — a missing or malformed identity leaves the
  * default fetch in place.
  */
+/**
+ * Boot-time installer for the CLI and the host server: derives the own
+ * namespace from `BOS_BUNDLE_DIR` plus the runtime identity
+ * (`BOS_ACCOUNT`/`BOS_GATEWAY` registry env taking precedence over the
+ * bos.config.json fields), and the stale-if-error cache from an explicit
+ * `BOS_BUNDLE_CACHE_DIR` — never implicit. Tier auto-detection (ADR 0021):
+ * an identity whose namespace is not actually staged under the bundle dir
+ * drops to the registry tier — plain resilient network fetch — instead of
+ * deterministically 404ing own-namespace URLs against a foreign image's
+ * staged bytes. Never throws — a missing or malformed identity leaves the
+ * default fetch in place. A deployment env that accidentally carries an
+ * empty or quoted-empty `BOS_BUNDLE_DIR` (e.g. the literal two characters
+ * `""` from a quoting mistake) normalizes to unset — silently, no warning.
+ */
+const normalizeBundleDir = (raw: string | undefined): string | undefined => {
+  const trimmed = raw?.trim();
+  if (!trimmed) return undefined;
+  const unquoted =
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+      ? trimmed.slice(1, -1).trim()
+      : trimmed;
+  return unquoted.length > 0 ? unquoted : undefined;
+};
+
 export function installBundleFetchFromEnv(input: {
-  configPath?: string | null;
-}): BundleFetchHandle | null {
-  const bundleDir = process.env.BOS_BUNDLE_DIR;
-  const cacheDir = process.env.BOS_BUNDLE_CACHE_DIR;
-  if (!bundleDir && cacheDir === undefined) return null;
 
   let configAccount: string | undefined;
   let configGateway: string | undefined;
