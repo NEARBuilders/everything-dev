@@ -2,13 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthEndpoint, createAuthMiddleware } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
+import { BOS_CLI_CLIENT_ID } from "better-near-auth";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "./db";
 import * as schema from "./db/schema";
 
 export const DEVICE_LINK_CLAIM_TTL_MS = 60_000;
-export const BOS_CLI_CLIENT_ID = "bos-cli";
+export { BOS_CLI_CLIENT_ID };
 
 /**
  * better-auth's device-authorization endpoint — the hook fires after a token

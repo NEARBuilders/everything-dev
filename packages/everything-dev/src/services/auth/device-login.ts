@@ -1,4 +1,5 @@
 import { platform } from "node:os";
+import { BOS_CLI_CLIENT_ID } from "better-near-auth";
 import { Context, Effect, Layer } from "effect";
 import { execa } from "execa";
 import type { CustodyWalletRecord } from "../../auth-session";
@@ -18,13 +19,8 @@ const realSiteClient = {
 } as Pick<SiteClientShape, "authPost" | "rpcPost" | "getJson">;
 
 const DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
-/**
- * The device-flow client id the auth plugin's device-link hook records —
- * must match BOS_CLI_CLIENT_ID in plugins/auth/src/device-link.ts (the two
- * packages share no module; this is the protocol constant, not a value to
- * diverge).
- */
-export const DEVICE_LINK_CLIENT_ID = "bos-cli";
+
+export const DEVICE_LINK_CLIENT_ID = BOS_CLI_CLIENT_ID;
 const DEFAULT_CLIENT_ID = DEVICE_LINK_CLIENT_ID;
 const DEFAULT_POLL_INTERVAL_SECONDS = 5;
 const SLOW_DOWN_PENALTY_SECONDS = 5;
