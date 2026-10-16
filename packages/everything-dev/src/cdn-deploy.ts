@@ -52,6 +52,7 @@ export function resolveCdnDeployInputs(input: {
   env: Record<string, string | undefined>;
   bosConfig: { cdn?: { origin?: string } } | null;
   session: SessionCredentialLike | null;
+  custodyAccount?: string;
   account: string;
   gateway: string;
   uploadsPlanned: boolean;
@@ -141,16 +142,22 @@ export function resolveCdnDeployInputs(input: {
       warning,
       error:
         "CDN deploy requires bundle-upload credentials — run `bos login --key` and add the printed key " +
-        "to GitHub secrets as BOS_STORAGE_API_KEY (or run `bos login` for interactive deploys)",
+        "to GitHub secrets as BOS_STORAGE_API_KEY (the deploy key also serves interactive deploys)",
     };
   }
-  if (input.session?.accountId && input.session.accountId !== input.account) {
+  const uploadIdentities = new Set(
+    [input.session?.accountId, input.custodyAccount].filter((id): id is string => !!id),
+  );
+  if (uploadIdentities.size > 0 && !uploadIdentities.has(input.account)) {
+    const sessionAccount = input.session?.accountId;
     return {
       cdnOrigin,
       storageOrigin,
       apiKey,
       warning,
-      error: `The CLI session was created for ${input.session.accountId}, but the configured account is ${input.account}. Re-run bos login under the matching account.`,
+      error: sessionAccount
+        ? `The CLI session was created for ${sessionAccount}, but the configured account is ${input.account}. Re-run bos login under the matching account.`
+        : `The configured account is ${input.account}, but the custody publish identity is ${input.custodyAccount}. Set the authored config's account to the custody wallet account.`,
     };
   }
   return { cdnOrigin, storageOrigin, apiKey, warning };

@@ -402,6 +402,24 @@ export const relayerKey = pgTable("relayer_key", {
   lastUsedAt: timestamp("last_used_at", { mode: "date", withTimezone: true }),
 });
 
+export const custodyWallet = pgTable(
+  "custody_wallet",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    network: text("network").notNull(),
+    walletId: text("wallet_id").notNull(),
+    nearAccountId: text("near_account_id").notNull(),
+    encryptedApiKey: text("encrypted_api_key").notNull(),
+    handoffUrl: text("handoff_url"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    lastUsedAt: timestamp("last_used_at", { mode: "date", withTimezone: true }),
+  },
+  (table) => [uniqueIndex("custodyWallet_userId_network_uidx").on(table.userId, table.network)],
+);
+
 export const agentAccount = pgTable(
   "agent_account",
   {

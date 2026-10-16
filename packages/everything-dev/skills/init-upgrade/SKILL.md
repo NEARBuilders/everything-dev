@@ -184,9 +184,11 @@ Workspace packages use `catalog:` refs so a single version bump in root catalog 
 
 ## bos import
 
-Imports a workspace subtree (e.g. `plugins/auth`) from an upstream GitHub repo or a local directory — no clone of the full history, just a tarball (or direct local read) of one ref:
+Imports a workspace subtree (e.g. `plugins/auth`) from an upstream GitHub repo or a local directory — no clone of the full history, just a tarball (or direct local read) of one ref. The upstream can also be resolved through the authored config's `extends` chain (a bos:// URL centric source — see below):
 
 ```bash
+bos import plugins/auth                          # resolved through the extends chain
+bos import plugins/auth --from bos://base.near/base
 bos import plugins/auth --from NEARBuilders/everything-dev
 bos import plugins/auth --from NEARBuilders/everything-dev@v2.1.0
 bos import plugins/auth --from NEARBuilders/everything-dev@everything-dev@2.0.0-rc.8
@@ -195,7 +197,17 @@ bos import plugins/auth --from ./local-checkout --dry-run
 bos import plugins/auth --from owner/repo --yes
 ```
 
-**Flags:** `--from <owner/repo[@ref]|url|dir>` (required), `--yes`, `--dry-run`, `--no-install`, `--json`. The ref splits on the **first** `@`, so changesets-style tags keep their own `@`.
+**Flags:** `--from <bos://<account>/<gateway> | owner/repo[@ref] | url | dir>` (optional — resolve through the extends chain when omitted), `--yes`, `--dry-run`, `--no-install`, `--json`. The GitHub ref splits on the **first** `@`, so changesets-style tags keep their own `@`.
+
+### Source resolution
+
+`--from` takes three shapes:
+
+- **`bos://<account>/<gateway>`** — the config published to FastKV by that runtime. The extends chain of that runtime is walked outward to the **nearest ancestor whose own config declares the workspace locally** (`local:<workspace-path>`); the tarball comes from that ancestor's `repository` field (continuing rootward when the declaring runtime itself lacks one).
+- **omitted** — same chain walk, starting from the authored `bos.app.ts` (v2 config only). Errors when the workspace is declared locally in the child (you own it — nothing to import), when no runtime in the chain declares the workspace, or when no ancestor along the chain carries a `repository`.
+- **`<owner/repo>[@ref]`, GitHub URL, or local dir** — explicit source, unchanged.
+
+**Ref pinning:** the ancestor's published config pins each workspace to an immutable version manifest. When the ancestor publishes source archives (`publish.sourcePublish` on its authored config, ADR 0030), the import **byte-sources** from the pinned archive: the manifest itself is SRI-verified against the config slot pin, the archive URL + server SRI come from the manifest's `source` field, the bytes are SRI-verified and extracted (repo-root-relative — a drop-in for the GitHub tarball root), and no GitHub dependency exists (the parent's `repository` may be absent or private). If archive fetch fails or its SRI mismatches, the import falls back to the chain-resolved GitHub coordinate with a `Note:`. When the manifest records no `source`, GitHub remains the source: a recorded `git sha` pins the exact deployed commit; otherwise the import falls back to the **default branch (HEAD)** with a `Note:` line. The report's Source section shows both layers: the `bos:// …` extends ref, the source archive URL when used, and the dereferenced `repository @ ref`.
 
 ### Classification
 
@@ -264,7 +276,7 @@ Unknown keys go after known keys. See `everything-dev#extends-config` for full o
 
 **"Sync reports conflicted files."** Your local edits diverged from the snapshot; upgrade applies the template version and leaves your copy in `.bos/sync-backup/` — diff and merge back, or `bos sync --force` deliberately.
 
-**"Import a workspace from the base platform."** `bos import <workspace> --from <owner/repo>[@ref] --dry-run` first, read `.bos/import-report.md` for the conflict/migration/route picture, then real-run: plain invoke prompts in a TTY, `--yes` applies upstream over conflicts (backed up), and a flagged migration chain stays held until reconciliation.
+**"Import a workspace from the base platform."** `bos import <workspace> --dry-run` (defaults to the extends chain; or `--from <owner/repo>` for an explicit upstream) first, read `.bos/import-report.md` for the conflict/migration/route picture, then real-run: plain invoke prompts in a TTY, `--yes` applies upstream over conflicts (backed up), and a flagged migration chain stays held until reconciliation.
 
 **"Upgrade framework packages."** `bos upgrade --dry-run` first, then `bos upgrade` — it bumps the root catalog, rewrites workspace refs to `catalog:`, syncs the template, and rewrites legacy imports.
 

@@ -1,5 +1,38 @@
 # @everything-dev/auth-plugin
 
+## 2.0.0-rc.4
+
+### Minor Changes
+
+- 420604f: feat(auth): supported deploy-key mint — `bos login --key` now mints a key that passes bundle-upload verification. The CLI login's mint switches to the auth plugin's new server-side `createDeployKey` route (the only layer that may set better-auth `permissions`): the minted key carries `bundles:write` permissions and `account`/`gateway` scope metadata matching the authored config (`--env staging` scopes to `staging.domain ?? domain`), is stored as the session credential, and is printed as `BOS_STORAGE_API_KEY=…` with a non-TTY leak warning. Deploy keys default to 365-day expiry (`--expires-in` overrides; user-keys max raised to 3650 days). The auth plugin's `verifyApiKey` now distinguishes "key lacks required permissions (bundles:write)" (`KEY_MISSING_PERMISSIONS`) from an unknown key (`KEY_NOT_FOUND`) — previously both surfaced as `KEY_NOT_FOUND`/`Invalid API key`, and the upload service maps the richer code to `FORBIDDEN`. Consumer deploy workflows gain a `storage_origin` input (default `https://upload.everything.dev`) so self-hosted `apps/upload` deployments need no template fork, and the staging workflow prefers a dedicated `BOS_STAGING_STORAGE_API_KEY` secret (for consumers whose staging domain differs) before falling back to the shared key. The upload service warns at startup when production runs on the bootstrap key without `BOS_STORAGE_AUTH_ORIGIN` (every API-key upload would fail), and its README gains the deploy checklist.
+
+### Patch Changes
+
+- 3559291: Harden the device verify/approve pages: a failed claim no longer re-claims the same code in a loop and network failures surface a "check your connection" state instead of an unhandled rejection; a rejected deny keeps the request on screen with an error instead of toasting success; an approve rejection resets the pending state and shows the error; the signed-out approve handoff forwards the full pairing search (`pubKey`, `contract`, `account`, `network`, `source`, `custody`) instead of dropping everything but the code; malformed codes are validated client-side before navigating; and both pages follow `app_locale` via the login i18n catalogs.
+- Updated dependencies [420604f]
+- Updated dependencies [3559291]
+- Updated dependencies [3559291]
+- Updated dependencies [3559291]
+- Updated dependencies [3559291]
+  - everything-dev@2.0.0-rc.10
+
+## 2.0.0-rc.3
+
+### Minor Changes
+
+- 53f7d9e: Custody publish: `bos login --custody` registers an OutLayer Agent Custody wallet during the device-flow approval (stored encrypted per user and network, re-fetchable on re-login), and `publish.auth = "custody"` now implements the long-standing stub — the FastKV `__fastdata_kv` write is submitted through OutLayer's coordinator from the wallet's implicit hex account (the deploy's machine identity), with a gas-balance preflight, typed failure mapping, and an idempotency key derived from the config fingerprint. The approval page gains a custody consent branch. When the `outlayer` CLI is installed, `bos login --custody` also links the wallet into it via `outlayer login --wallet-key`, so one login serves both the bos and outlayer toolchains.
+
+### Patch Changes
+
+- Updated dependencies [cd1316a]
+- Updated dependencies [53f7d9e]
+- Updated dependencies [cd1316a]
+- Updated dependencies [0e4c4d7]
+- Updated dependencies [6902c4b]
+- Updated dependencies [0e4c4d7]
+  - everything-dev@2.0.0-rc.9
+  - every-plugin@3.0.0-rc.6
+
 ## 2.0.0-rc.2
 
 ### Minor Changes

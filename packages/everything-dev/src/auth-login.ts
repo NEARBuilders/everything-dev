@@ -1,5 +1,6 @@
 import { platform } from "node:os";
 import { execa } from "execa";
+import type { CustodyWalletRecord } from "./auth-session";
 
 const DEVICE_CODE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 const DEFAULT_CLIENT_ID = "bos-cli";
@@ -14,8 +15,12 @@ export interface DeviceLoginOptions {
   account?: string;
   /** delegate mode — the approval page adds this scoped function-call key to the user's account */
   delegate?: { pubKey: string; contract: string; network: string };
+  /** custody mode — the approval page also registers an OutLayer custody wallet under the user's account */
+  custody?: { network: "mainnet" | "testnet" };
   /** seconds the minted API key stays valid (login mode) */
   expiresIn?: number;
+  /** deploy-key mode — the mint switches to the auth plugin's server-side route and bakes bundle-write permissions plus account/gateway scope into the key */
+  deployKey?: { account: string; gateway: string };
 }
 
 export interface DeviceApproval {
@@ -24,6 +29,8 @@ export interface DeviceApproval {
   accountId: string | null;
   /** the minted CLI credential (login mode) */
   apiKey: { key: string; id: string } | null;
+  /** the custody wallet registered during approval (custody mode) — null when it could not be fetched */
+  custodyWallet: CustodyWalletRecord | null;
 }
 
 export interface DeviceLoginHandle {
@@ -192,6 +199,10 @@ function buildVerificationUrl(
     params.set("contract", opts.delegate.contract);
     params.set("network", opts.delegate.network);
   }
+  if (opts.custody) {
+    params.set("custody", "1");
+    params.set("network", opts.custody.network);
+  }
   return url.toString();
 }
 
@@ -218,9 +229,52 @@ async function completeLogin(
     throw new Error("Session claim returned no session cookie");
   }
 
-  const apiKey = await mintApiKey(siteUrl, cookiePair, opts);
+  const apiKey = await (opts.deployKey
+    ? mintDeployKey(siteUrl, cookiePair, opts)
+    : mintApiKey(siteUrl, cookiePair, opts));
   const accountId = await resolveNearAccount(siteUrl, cookiePair);
-  return { sessionToken, accountId, apiKey };
+  const custodyWallet = opts.custody
+    ? await fetchCustodyCredential(siteUrl, cookiePair, opts.custody.network).catch(() => null)
+    : null;
+  return { sessionToken, accountId, apiKey, custodyWallet };
+}
+
+interface CustodyCredentialResponse {
+  apiKey: string;
+  walletId: string;
+  nearAccountId: string;
+  network: string;
+  handoffUrl: string | null;
+  registeredAt?: string;
+}
+
+async function fetchCustodyCredential(
+  siteUrl: string,
+  cookiePair: string,
+  network: "mainnet" | "testnet",
+): Promise<CustodyWalletRecord> {
+  const { status, json } = await authFetch(siteUrl, "/custody/credential", { network }, cookiePair);
+  if (status !== 200) {
+    const detail = (json as { message?: string }).message;
+    throw new Error(
+      `Custody wallet credential could not be fetched${detail ? `: ${detail}` : ` (${status})`}`,
+    );
+  }
+  const data = json as CustodyCredentialResponse;
+  if (!data.apiKey?.startsWith("wk_")) {
+    throw new Error("Custody wallet credential returned no API key");
+  }
+  if (data.network !== "mainnet" && data.network !== "testnet") {
+    throw new Error(`Custody wallet credential returned unknown network "${data.network}"`);
+  }
+  return {
+    apiKey: data.apiKey,
+    walletId: data.walletId,
+    nearAccountId: data.nearAccountId,
+    network: data.network,
+    handoffUrl: data.handoffUrl ?? null,
+    registeredAt: data.registeredAt ?? new Date().toISOString(),
+  };
 }
 
 async function mintApiKey(
@@ -246,6 +300,48 @@ async function mintApiKey(
   }
   const created = json as ApiKeyCreated;
   if (!created.key) throw new Error("API key creation returned no key");
+  return { key: created.key, id: created.id };
+}
+
+/**
+ * Deploy-key mint: only the auth plugin's server-side route may set
+ * `permissions` (better-auth rejects client-set permissions with
+ * SERVER_ONLY_PROPERTY), so the scoped bundle-write key is minted through the
+ * plugin's oRPC route instead of better-auth's client endpoint.
+ */
+async function mintDeployKey(
+  siteUrl: string,
+  cookiePair: string,
+  opts: DeviceLoginOptions,
+): Promise<DeviceApproval["apiKey"]> {
+  const deployKey = opts.deployKey;
+  if (!deployKey) throw new Error("Deploy-key mint requested without account scope");
+  const origin = new URL(siteUrl).origin;
+  const response = await fetch(`${siteUrl.replace(/\/$/, "")}/api/rpc/auth/createDeployKey`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin, cookie: cookiePair },
+    body: JSON.stringify({
+      json: {
+        account: deployKey.account,
+        gateway: deployKey.gateway,
+        name: `bos deploy — ${opts.device ?? "cli"} — ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
+        ...(opts.expiresIn ? { expiresIn: opts.expiresIn } : {}),
+      },
+    }),
+  });
+  const body = (await response.json().catch(() => ({}))) as {
+    json?: ApiKeyCreated;
+    error?: { message?: string };
+    message?: string;
+  };
+  if (response.status !== 200) {
+    const detail = body.error?.message ?? body.message;
+    throw new Error(
+      `Deploy key could not be created${detail ? `: ${detail}` : ` (${response.status})`}`,
+    );
+  }
+  const created = body.json;
+  if (!created?.key) throw new Error("Deploy key creation returned no key");
   return { key: created.key, id: created.id };
 }
 

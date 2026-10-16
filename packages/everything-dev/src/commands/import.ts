@@ -15,7 +15,7 @@ export function registerImport(builder: BosBuilder) {
         return {
           status: "error",
           workspace: input.workspace,
-          from: input.from,
+          from: input.from ?? "",
           ref: "",
           added: [],
           updated: [],
@@ -25,6 +25,7 @@ export function registerImport(builder: BosBuilder) {
           conflicts: [],
           heldBackMigrations: [],
           migrationCollisions: [],
+          warnings: [],
           error: `${MISSING_CONFIG_MESSAGE} in current directory`,
         };
       }

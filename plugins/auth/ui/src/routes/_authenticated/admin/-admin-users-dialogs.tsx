@@ -88,7 +88,7 @@ export function AdminBanDialog({
           </Field>
           <Field>
             <FieldLabel>Expires</FieldLabel>
-            <Select value={expiresIn} onValueChange={setExpiresIn}>
+            <Select value={expiresIn} onValueChange={(value) => setExpiresIn(value ?? "")}>
               <SelectTrigger data-testid="admin-users.ban-expiry">
                 <SelectValue />
               </SelectTrigger>

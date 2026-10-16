@@ -68,6 +68,54 @@ export const englishLoginMessages = {
   "auth.login.pair.signingIn": "Signing in…",
   "auth.login.pair.waiting": "Waiting for your phone…",
   "auth.login.pair.cancel": "Other ways to sign in",
+  "auth.device.verify.title": "Approve a sign-in",
+  "auth.device.verify.descriptionWithCode": "Check this code matches the one on your other screen.",
+  "auth.device.verify.descriptionNoCode": "Enter the code shown on your other screen.",
+  "auth.device.verify.codeLabel": "Device code",
+  "auth.device.verify.continue": "Continue",
+  "auth.device.verify.claimFailed": "This code is invalid or has expired. Ask for a new one.",
+  "auth.device.verify.connection": "Check your connection and try again.",
+  "auth.device.verify.invalidCode": "That code doesn't look right. Check it and try again.",
+  "auth.device.verify.checking": "Checking the code…",
+  "auth.device.signIn": "Sign in to continue",
+  "auth.device.approve.signInTitle": "Sign in to approve",
+  "auth.device.approve.signInDescription":
+    "Sign in on this device first, then approve the request.",
+  "auth.device.approved.title": "Return to your terminal",
+  "auth.device.approved.description": "The CLI received the credential. You can close this window.",
+  "auth.device.approve.delegateTitle": "Approve publish key",
+  "auth.device.approve.title": "Approve sign-in",
+  "auth.device.approve.delegateDescription":
+    "Adds a publish-only key to your NEAR account so the CLI can publish without gas.",
+  "auth.device.approve.description": "Your other device will be signed in to this account.",
+  "auth.device.approve.checkMatch": "Check it matches your other screen",
+  "auth.device.approve.noCode": "No code provided. Start again from the other device.",
+  "auth.device.approve.publicKey": "Public key",
+  "auth.device.approve.publishKeyTitle": "Publish key",
+  "auth.device.approve.publishKeyBody":
+    "Only allowed to call __fastdata_kv on the registry, with a 1 NEAR gas allowance. The private key stays on your computer.",
+  "auth.device.approve.accountMismatch":
+    "You're signed in as {signedIn}, not {expected}. The key will be added to {signedIn}.",
+  "auth.device.custody.label": "Custody wallet",
+  "auth.device.custody.body":
+    "Creates a new NEAR account whose keys live in OutLayer's TEE enclave. It signs your config publishes and can pay for agent compute. It never touches your own NEAR account — fund it separately when deploys need gas.",
+  "auth.device.custody.description":
+    "Approving also registers a custody wallet on {network} under your account. You can set its spending policy any time at the OutLayer dashboard.",
+  "auth.device.custody.dashboard": "Set policy & fund the wallet",
+  "auth.device.approve.failed":
+    "Could not approve this code. It may have expired or been claimed elsewhere.",
+  "auth.device.custody.failed":
+    "Custody wallet provisioning failed. Nothing was approved — try again.",
+  "auth.device.delegate.failed":
+    "The wallet did not add the delegate key. Nothing was approved — try again.",
+  "auth.device.delegate.toastFailed": "Failed to add delegate key",
+  "auth.device.approved.cli": "Approved — return to your terminal",
+  "auth.device.approved.device": "Approved — your other device is signing in",
+  "auth.device.deny.success": "Sign-in request denied",
+  "auth.device.deny.failed": "Could not deny this request. It may have already been handled.",
+  "auth.device.approve.key": "Approve key",
+  "auth.device.approve.approve": "Approve",
+  "auth.device.approve.deny": "Deny",
 } as const;
 
 export type LoginMessageId = keyof typeof englishLoginMessages;
@@ -129,6 +177,57 @@ const spanishLoginMessages = {
   "auth.login.pair.signingIn": "Iniciando sesión…",
   "auth.login.pair.waiting": "Esperando a tu teléfono…",
   "auth.login.pair.cancel": "Otras formas de iniciar sesión",
+  "auth.device.verify.title": "Aprobar un inicio de sesión",
+  "auth.device.verify.descriptionWithCode":
+    "Comprueba que este código coincide con el de tu otra pantalla.",
+  "auth.device.verify.descriptionNoCode": "Introduce el código que se muestra en tu otra pantalla.",
+  "auth.device.verify.codeLabel": "Código del dispositivo",
+  "auth.device.verify.continue": "Continuar",
+  "auth.device.verify.claimFailed": "Este código no es válido o ha caducado. Solicita uno nuevo.",
+  "auth.device.verify.connection": "Comprueba tu conexión e inténtalo de nuevo.",
+  "auth.device.verify.invalidCode": "Ese código no parece correcto. Revísalo e inténtalo de nuevo.",
+  "auth.device.verify.checking": "Comprobando el código…",
+  "auth.device.signIn": "Inicia sesión para continuar",
+  "auth.device.approve.signInTitle": "Inicia sesión para aprobar",
+  "auth.device.approve.signInDescription":
+    "Primero inicia sesión en este dispositivo y luego aprueba la solicitud.",
+  "auth.device.approved.title": "Vuelve a tu terminal",
+  "auth.device.approved.description":
+    "El terminal recibió la credencial. Puedes cerrar esta ventana.",
+  "auth.device.approve.delegateTitle": "Aprobar clave de publicación",
+  "auth.device.approve.title": "Aprobar inicio de sesión",
+  "auth.device.approve.delegateDescription":
+    "Añade una clave de solo publicación a tu cuenta NEAR para que el terminal pueda publicar sin gas.",
+  "auth.device.approve.description": "Tu otro dispositivo iniciará sesión en esta cuenta.",
+  "auth.device.approve.checkMatch": "Comprueba que coincide con tu otra pantalla",
+  "auth.device.approve.noCode":
+    "No se proporcionó ningún código. Empieza de nuevo desde el otro dispositivo.",
+  "auth.device.approve.publicKey": "Clave pública",
+  "auth.device.approve.publishKeyTitle": "Clave de publicación",
+  "auth.device.approve.publishKeyBody":
+    "Solo puede llamar a __fastdata_kv en el registro, con una asignación de gas de 1 NEAR. La clave privada permanece en tu equipo.",
+  "auth.device.approve.accountMismatch":
+    "Has iniciado sesión como {signedIn}, no como {expected}. La clave se añadirá a {signedIn}.",
+  "auth.device.custody.label": "Billetera de custodia",
+  "auth.device.custody.body":
+    "Crea una nueva cuenta NEAR cuyas claves viven en el enclave TEE de OutLayer. Firma tus publicaciones de configuración y puede pagar por computación de agentes. Nunca toca tu propia cuenta NEAR: finánciala por separado cuando los despliegues necesiten gas.",
+  "auth.device.custody.description":
+    "Al aprobar también se registra una billetera de custodia en {network} bajo tu cuenta. Puedes definir su política de gasto en cualquier momento en el panel de OutLayer.",
+  "auth.device.custody.dashboard": "Definir política y financiar la billetera",
+  "auth.device.approve.failed":
+    "No se pudo aprobar este código. Puede haber caducado o haber sido usado en otro lugar.",
+  "auth.device.custody.failed":
+    "Falló el aprovisionamiento de la billetera de custodia. No se aprobó nada: inténtalo de nuevo.",
+  "auth.device.delegate.failed":
+    "La billetera no añadió la clave de delegado. No se aprobó nada: inténtalo de nuevo.",
+  "auth.device.delegate.toastFailed": "No se pudo añadir la clave de delegado",
+  "auth.device.approved.cli": "Aprobado: vuelve a tu terminal",
+  "auth.device.approved.device": "Aprobado: tu otro dispositivo está iniciando sesión",
+  "auth.device.deny.success": "Solicitud de inicio de sesión rechazada",
+  "auth.device.deny.failed": "No se pudo rechazar esta solicitud. Puede que ya se haya gestionado.",
+  "auth.device.approve.key": "Aprobar clave",
+  "auth.device.approve.approve": "Aprobar",
+  "auth.device.approve.deny": "Rechazar",
 } satisfies Record<LoginMessageId, string>;
 
 const frenchLoginMessages = {
@@ -186,6 +285,57 @@ const frenchLoginMessages = {
   "auth.login.pair.signingIn": "Connexion en cours…",
   "auth.login.pair.waiting": "En attente de votre téléphone…",
   "auth.login.pair.cancel": "Autres méthodes de connexion",
+  "auth.device.verify.title": "Approuver une connexion",
+  "auth.device.verify.descriptionWithCode":
+    "Vérifiez que ce code correspond à celui de votre autre écran.",
+  "auth.device.verify.descriptionNoCode": "Saisissez le code affiché sur votre autre écran.",
+  "auth.device.verify.codeLabel": "Code de l’appareil",
+  "auth.device.verify.continue": "Continuer",
+  "auth.device.verify.claimFailed": "Ce code est invalide ou a expiré. Demandez-en un nouveau.",
+  "auth.device.verify.connection": "Vérifiez votre connexion et réessayez.",
+  "auth.device.verify.invalidCode": "Ce code ne semble pas correct. Vérifiez-le et réessayez.",
+  "auth.device.verify.checking": "Vérification du code…",
+  "auth.device.signIn": "Se connecter pour continuer",
+  "auth.device.approve.signInTitle": "Connectez-vous pour approuver",
+  "auth.device.approve.signInDescription":
+    "Connectez-vous d’abord sur cet appareil, puis approuvez la demande.",
+  "auth.device.approved.title": "Retournez à votre terminal",
+  "auth.device.approved.description":
+    "Le terminal a reçu l’identifiant. Vous pouvez fermer cette fenêtre.",
+  "auth.device.approve.delegateTitle": "Approuver la clé de publication",
+  "auth.device.approve.title": "Approuver la connexion",
+  "auth.device.approve.delegateDescription":
+    "Ajoute une clé de publication seule à votre compte NEAR pour que le terminal puisse publier sans gas.",
+  "auth.device.approve.description": "Votre autre appareil va se connecter à ce compte.",
+  "auth.device.approve.checkMatch": "Vérifiez qu’il correspond à votre autre écran",
+  "auth.device.approve.noCode": "Aucun code fourni. Recommencez depuis l’autre appareil.",
+  "auth.device.approve.publicKey": "Clé publique",
+  "auth.device.approve.publishKeyTitle": "Clé de publication",
+  "auth.device.approve.publishKeyBody":
+    "Autorisée uniquement à appeler __fastdata_kv sur le registre, avec une allocation de gas de 1 NEAR. La clé privée reste sur votre ordinateur.",
+  "auth.device.approve.accountMismatch":
+    "Vous êtes connecté en tant que {signedIn}, pas {expected}. La clé sera ajoutée à {signedIn}.",
+  "auth.device.custody.label": "Portefeuille de dépôt",
+  "auth.device.custody.body":
+    "Crée un nouveau compte NEAR dont les clés vivent dans l’enclave TEE d’OutLayer. Il signe vos publications de configuration et peut payer le calcul des agents. Il ne touche jamais votre propre compte NEAR : financez-le séparément quand les déploiements ont besoin de gas.",
+  "auth.device.custody.description":
+    "L’approbation enregistre également un portefeuille de dépôt sur {network} sous votre compte. Vous pouvez définir sa politique de dépense à tout moment dans le tableau de bord OutLayer.",
+  "auth.device.custody.dashboard": "Définir la politique et financer le portefeuille",
+  "auth.device.approve.failed":
+    "Impossible d’approuver ce code. Il a peut-être expiré ou été réclamé ailleurs.",
+  "auth.device.custody.failed":
+    "Échec du provisionnement du portefeuille de dépôt. Rien n’a été approuvé — réessayez.",
+  "auth.device.delegate.failed":
+    "Le portefeuille n’a pas ajouté la clé de délégué. Rien n’a été approuvé — réessayez.",
+  "auth.device.delegate.toastFailed": "Impossible d’ajouter la clé de délégué",
+  "auth.device.approved.cli": "Approuvé — retournez à votre terminal",
+  "auth.device.approved.device": "Approuvé — votre autre appareil se connecte",
+  "auth.device.deny.success": "Demande de connexion refusée",
+  "auth.device.deny.failed":
+    "Impossible de refuser cette demande. Elle a peut-être déjà été traitée.",
+  "auth.device.approve.key": "Approuver la clé",
+  "auth.device.approve.approve": "Approuver",
+  "auth.device.approve.deny": "Refuser",
 } satisfies Record<LoginMessageId, string>;
 
 const chineseLoginMessages = {
@@ -239,6 +389,50 @@ const chineseLoginMessages = {
   "auth.login.pair.signingIn": "正在登录…",
   "auth.login.pair.waiting": "正在等待你的手机…",
   "auth.login.pair.cancel": "其他登录方式",
+  "auth.device.verify.title": "批准登录",
+  "auth.device.verify.descriptionWithCode": "请核对此代码与另一屏幕上的代码一致。",
+  "auth.device.verify.descriptionNoCode": "请输入另一屏幕上显示的代码。",
+  "auth.device.verify.codeLabel": "设备代码",
+  "auth.device.verify.continue": "继续",
+  "auth.device.verify.claimFailed": "此代码无效或已过期。请申请新代码。",
+  "auth.device.verify.connection": "请检查网络连接后重试。",
+  "auth.device.verify.invalidCode": "该代码看起来不正确。请检查后重试。",
+  "auth.device.verify.checking": "正在核对代码…",
+  "auth.device.signIn": "登录以继续",
+  "auth.device.approve.signInTitle": "登录以批准",
+  "auth.device.approve.signInDescription": "请先在此设备上登录，然后再批准该请求。",
+  "auth.device.approved.title": "回到你的终端",
+  "auth.device.approved.description": "终端已收到凭据。你可以关闭此窗口。",
+  "auth.device.approve.delegateTitle": "批准发布密钥",
+  "auth.device.approve.title": "批准登录",
+  "auth.device.approve.delegateDescription":
+    "向你的 NEAR 账户添加一把仅可发布的密钥，让终端无需 gas 即可发布。",
+  "auth.device.approve.description": "你的另一台设备将登录此账户。",
+  "auth.device.approve.checkMatch": "请核对它与你的另一屏幕一致",
+  "auth.device.approve.noCode": "未提供代码。请从另一台设备重新开始。",
+  "auth.device.approve.publicKey": "公钥",
+  "auth.device.approve.publishKeyTitle": "发布密钥",
+  "auth.device.approve.publishKeyBody":
+    "只允许调用注册表上的 __fastdata_kv，gas 限额为 1 NEAR。私钥保留在你的电脑上。",
+  "auth.device.approve.accountMismatch":
+    "你登录的是 {signedIn}，而不是 {expected}。密钥将添加到 {signedIn}。",
+  "auth.device.custody.label": "托管钱包",
+  "auth.device.custody.body":
+    "创建一个新的 NEAR 账户，其密钥保存在 OutLayer 的 TEE enclave 中。它为你的配置发布签名，并可支付 agent 计算费用。它绝不会触碰你自己的 NEAR 账户——当部署需要 gas 时请单独为其充值。",
+  "auth.device.custody.description":
+    "批准后还会在你的账户下注册一个 {network} 上的托管钱包。你可以随时在 OutLayer 控制台设置其支出策略。",
+  "auth.device.custody.dashboard": "设置策略并为钱包充值",
+  "auth.device.approve.failed": "无法批准此代码。它可能已过期或在别处被使用。",
+  "auth.device.custody.failed": "托管钱包配置失败。未批准任何内容——请重试。",
+  "auth.device.delegate.failed": "钱包未能添加委托密钥。未批准任何内容——请重试。",
+  "auth.device.delegate.toastFailed": "添加委托密钥失败",
+  "auth.device.approved.cli": "已批准——回到你的终端",
+  "auth.device.approved.device": "已批准——你的另一台设备正在登录",
+  "auth.device.deny.success": "已拒绝登录请求",
+  "auth.device.deny.failed": "无法拒绝此请求。它可能已被处理。",
+  "auth.device.approve.key": "批准密钥",
+  "auth.device.approve.approve": "批准",
+  "auth.device.approve.deny": "拒绝",
 } satisfies Record<LoginMessageId, string>;
 
 const translatedLoginMessages: Record<LoginLocale, Partial<Record<LoginMessageId, string>>> = {

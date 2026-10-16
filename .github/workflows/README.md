@@ -87,7 +87,7 @@ This is the canonical [changesets/action](https://github.com/changesets/changese
 - Keeps the bundle compatibility check (`bos mf check`) and the remote smoke test as workflow-level verification
 - Does **not** commit anything back — the runtime fetches the published config from FastKV (`bos start` resolves `BOS_ACCOUNT`/`BOS_GATEWAY`); the authored `bos.app.ts` is the publish *input*, not the deploy output
 
-**Secrets:** `NEAR_PRIVATE_KEY` (FastKV config publish), `BOS_STORAGE_API_KEY` (bundle upload — mint once with `bos login --key`), `RAILWAY_TOKEN` (Railway deploy). GHCR push needs `packages: write` (image job only).
+**Secrets:** `NEAR_PRIVATE_KEY` (FastKV config publish), `BOS_STORAGE_API_KEY` (bundle upload — a scoped deploy key minted once with `bos login --key`; it passes the upload service's `bundles:write` verification and is scope-checked to the authored config's account/gateway), `RAILWAY_TOKEN` (Railway deploy). GHCR push needs `packages: write` (image job only).
 
 **`cancel-in-progress: false`** — interrupting the deploy mid-flight could leave the FastKV config and the live image from different versions. Queued deploys pick up the latest main when they run.
 
@@ -103,7 +103,7 @@ This is the canonical [changesets/action](https://github.com/changesets/changese
 
 **Required GitHub secrets for staging:**
 - `NEAR_TESTNET_PRIVATE_KEY` — signs the staging FastKV config publish
-- `BOS_STORAGE_API_KEY` — staging bundle upload
+- `BOS_STAGING_STORAGE_API_KEY` — staging bundle upload (optional; a deploy key minted with `bos login --key --env staging` when the config's staging domain differs from the production domain — otherwise `BOS_STORAGE_API_KEY` matches both)
 - `RAILWAY_STAGING_TOKEN` — the staging Railway service token
 
 ## Consumer workflows
@@ -114,9 +114,15 @@ The `consumer-*.yml` workflows are `workflow_call`-only — they never run in th
 - `consumer-deploy.yml` — checkout the CI-validated commit, install, `pnpm run bos deploy`
 - `consumer-staging.yml` — checkout the pushed commit, install, `pnpm run bos deploy --env staging`
 
-All three take a `working_directory` input (default `.`): the directory from which the child repo's standard scripts are valid. The workflows never assume `packages/`, `host/`, or any fixed layout — where the app root lives is the child repo's business.
+All three take a `working_directory` input (default `.`): the directory from which the child repo's standard scripts are valid. The workflows never assume `packages/`, `host/`, or any fixed layout — where the app root lives is the child repo's business. The deploy workflows also take a `storage_origin` input (default `https://upload.everything.dev`) — consumers self-hosting `apps/upload` point at their own service by passing the input or setting a `BOS_STORAGE_ORIGIN` repository variable, no template fork needed.
 
 **Prerequisite:** the parent repo's Actions settings must allow these workflows to be accessed from other repositories (Settings → Actions → General → Access).
+
+**Branch protection / required checks:** point the child repo's rule at `Lint and Type Check` — the gate job the `ci.yml` template ships after the reusable call. GitHub names reusable-workflow jobs `<caller> / <callee>` (here `CI / Lint, typecheck, and test`) and the caller cannot override the callee half, so requiring that context couples the merge gate to the upstream callee's display name: an upstream rename breaks every child's merge gate silently, with nothing notifying the children. The gate job is child-owned and slash-free, so it is immune to upstream renames. A reusable job cannot take caller jobs in `needs`, which is why the gate lives in the child's `ci.yml` rather than in `consumer-ci.yml`.
+
+Two related caveats the template already handles:
+- `paths-ignore` is deliberately absent from the `pull_request` trigger — a paths-ignored PR never runs CI, so the required check is never reported and docs-only PRs are permanently blocked once branch protection is on. `push` keeps `paths-ignore` (it gates Deploy via `workflow_run`).
+- The gate uses `if: always()`: a plain `needs`-skip would report the gate as "skipped" instead of failed when the CI call fails, which some branch-protection configurations treat as non-blocking. With `always()`, a failed or skipped `ci` job fails the gate explicitly.
 
 **Pinning:** child wrappers currently reference `@main` — the same trust model `bos sync` already applies to all framework-owned files (children track the parent's `main`, snapshot conflict detection guards local edits). Upgrading to a maintained version tag is recorded as a follow-up in `docs/plans/049-workflow-hardening-and-consumer-reusable-workflows.md`.
 
@@ -126,6 +132,6 @@ All three take a `working_directory` input (default `.`): the directory from whi
 |--------|----------|---------|
 | `NEAR_PRIVATE_KEY` | Deploy | Signs the FastKV config publish |
 | `NEAR_TESTNET_PRIVATE_KEY` | Staging | Signs the staging FastKV config publish |
-| `BOS_STORAGE_API_KEY` | Deploy, Staging | Bundle upload to the R2-backed storage |
+| `BOS_STORAGE_API_KEY` | Deploy, Staging | Bundle upload to the R2-backed storage — a scoped deploy key (`bos login --key`); staging with a distinct staging domain mints its own via `--env staging` and stores it as `BOS_STAGING_STORAGE_API_KEY` |
 | `RAILWAY_TOKEN` | Deploy | Production Railway deploy |
 | `RAILWAY_STAGING_TOKEN` | Staging | Staging Railway deploy |

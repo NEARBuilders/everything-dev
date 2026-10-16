@@ -145,6 +145,69 @@ describe("uploadBundle", () => {
     expect(calls).toBe(3);
   });
 
+  it("retries a Cloudflare 524 and recovers when a later attempt succeeds", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      if (calls < 2) return new Response("<html>524 origin timeout</html>", { status: 524 });
+      return new Response(JSON.stringify({ stored: 1, totalBytes: 0, integrity: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const result = await uploadBundle({
+      origin: "https://everything.dev",
+      account: "v1.citynode.near",
+      gateway: "citynode.app",
+      workspace: "ui",
+      files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
+    });
+    expect(calls).toBe(2);
+    expect(result.stored).toBe(1);
+  });
+
+  it("hints at smaller batches on a persistent Cloudflare 524", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("<html>524 origin timeout</html>", { status: 524 });
+    }) as typeof fetch;
+
+    await expect(
+      uploadBundle({
+        origin: "https://everything.dev",
+        account: "v1.citynode.near",
+        gateway: "citynode.app",
+        workspace: "ui",
+        files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
+      }),
+    ).rejects.toThrow(/524.*BOS_MAX_BUNDLE_UPLOAD_BYTES/s);
+    expect(calls).toBe(3);
+  });
+
+  it("retries a Cloudflare 522 (connection timed out) like other transient failures", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      if (calls < 3) return new Response("connection timed out", { status: 522 });
+      return new Response(JSON.stringify({ stored: 1, totalBytes: 0, integrity: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const result = await uploadBundle({
+      origin: "https://everything.dev",
+      account: "v1.citynode.near",
+      gateway: "citynode.app",
+      workspace: "ui",
+      files: [{ path: "remoteEntry.js", bytes: new Uint8Array(1) }],
+    });
+    expect(calls).toBe(3);
+    expect(result.stored).toBe(1);
+  });
+
   it("hints at the host logs when the server hides the cause behind a bare internal error", async () => {
     globalThis.fetch = (async () =>
       new Response(
@@ -244,5 +307,64 @@ describe("uploadWorkspaceDist", () => {
         maxRequestBytes: 100,
       }),
     ).rejects.toThrow("exceeds");
+  });
+
+  it("caps the file count per request even when the byte budget allows more", async () => {
+    const batchSizes: number[] = [];
+    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(await new Response(init!.body).text());
+      batchSizes.push(body.files.length);
+      return new Response(
+        JSON.stringify({
+          stored: body.files.length,
+          totalBytes: 0,
+          integrity: Object.fromEntries(
+            body.files.map((f: { path: string }) => [f.path, `sha384-${f.path}`]),
+          ),
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const result = await uploadWorkspaceDist({
+      origin: "https://everything.dev",
+      account: "a.near",
+      gateway: "app.dev",
+      workspace: "ui",
+      files: Array.from({ length: 5 }, (_, i) => ({
+        path: `chunk-${i}.js`,
+        bytes: new Uint8Array(10),
+      })),
+      maxRequestBytes: 1024 * 1024,
+      maxFilesPerRequest: 2,
+    });
+
+    expect(batchSizes).toEqual([2, 2, 1]);
+    expect(result.stored).toBe(5);
+  });
+
+  it("defaults to a 100-file cap per request", async () => {
+    const batchSizes: number[] = [];
+    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(await new Response(init!.body).text());
+      batchSizes.push(body.files.length);
+      return new Response(
+        JSON.stringify({ stored: body.files.length, totalBytes: 0, integrity: {} }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    await uploadWorkspaceDist({
+      origin: "https://everything.dev",
+      account: "a.near",
+      gateway: "app.dev",
+      workspace: "ui",
+      files: Array.from({ length: 205 }, (_, i) => ({
+        path: `chunk-${String(i).padStart(3, "0")}.js`,
+        bytes: new Uint8Array(1),
+      })),
+    });
+
+    expect(batchSizes).toEqual([100, 100, 5]);
   });
 });

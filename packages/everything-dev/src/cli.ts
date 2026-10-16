@@ -766,6 +766,16 @@ async function main() {
         if (result.reportPath) console.error(`  Report: ${result.reportPath}`);
         process.exit(1);
       }
+      if (result.sourceRepository) {
+        console.log(
+          `  ${colors.dim("Upstream:")} ${result.sourceRepository} @ ${
+            result.ref || "default branch"
+          }${result.resolvedSha ? colors.dim(` (commit ${result.resolvedSha})`) : ""}`,
+        );
+      }
+      for (const warning of result.warnings ?? []) {
+        console.log(`  ${colors.yellow("Note:")} ${warning}`);
+      }
       if (result.status === "dry-run") {
         console.log(colors.cyan(`${icons.ok} Dry run — no files written`));
       } else if (result.status === "imported") {
@@ -1289,11 +1299,46 @@ async function main() {
       if (result.accountId) console.log(`  ${colors.dim("Account:")} ${result.accountId}`);
       if (result.expiresAt) console.log(`  ${colors.dim("Expires:")} ${result.expiresAt}`);
       if (result.warning) console.log(`  ${colors.yellow("⚠")} ${result.warning}`);
+      if (result.deployKey) {
+        console.log(
+          `  ${colors.dim("Deploy key:")} ${result.deployKey.account}/${result.deployKey.gateway} scope${result.publishKey ? "" : colors.dim(" — upload credentials for deploys")}`,
+        );
+        if (!process.stdout.isTTY) {
+          process.stderr.write(
+            `  ⚠ Non-interactive stdout: this API key will be captured in any log or pipe (GitHub Actions logs persist stdout).\n`,
+          );
+        }
+        process.stdout.write(
+          `  Set this as BOS_STORAGE_API_KEY in GitHub Actions or before calling deploy:\n`,
+        );
+        process.stdout.write(`BOS_STORAGE_API_KEY=${result.deployKey.key}\n`);
+      }
       if (result.publishKey) {
         console.log(
           `  ${colors.dim("Publish key:")} ${result.publishKey.publicKey} ${colors.dim(
             `(${result.publishKey.network}, exported to ${result.publishKey.exportedTo})`,
           )}`,
+        );
+      }
+      if (result.custodyWallet) {
+        console.log(
+          `  ${colors.dim("Custody wallet:")} ${result.custodyWallet.nearAccountId} ${colors.dim(
+            `(${result.custodyWallet.network})`,
+          )}`,
+        );
+        if (result.custodyWallet.handoffUrl) {
+          console.log(`  ${colors.dim("Policy & funding:")} ${result.custodyWallet.handoffUrl}`);
+        }
+      }
+      if (result.outlayerCli?.status === "linked") {
+        console.log(
+          `  ${colors.dim("OutLayer CLI:")} logged in on ${result.outlayerCli.network}${result.outlayerCli.detail ? ` — ${result.outlayerCli.detail.split("\n")[0]}` : ""}`,
+        );
+      } else if (result.outlayerCli?.status === "cli-missing") {
+        console.log(
+          colors.dim(
+            "  OutLayer CLI not installed — cargo install outlayer-cli, then re-run `bos login --custody` to link it.",
+          ),
         );
       }
       console.log();

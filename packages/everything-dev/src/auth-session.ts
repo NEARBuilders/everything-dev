@@ -29,11 +29,21 @@ export interface DelegateKeyRecord {
   mintedAt: string;
 }
 
+export interface CustodyWalletRecord {
+  apiKey: string;
+  walletId: string;
+  nearAccountId: string;
+  network: "mainnet" | "testnet";
+  handoffUrl: string | null;
+  registeredAt: string;
+}
+
 export interface BosSessionFile {
   version: 1;
   credential: SessionCredential | null;
   publishKey: PublishKeyRecord | null;
   delegateKey: DelegateKeyRecord | null;
+  custodyWallet: CustodyWalletRecord | null;
 }
 
 const SESSION_FILE_NAME = "session.json";
@@ -53,6 +63,7 @@ export function readSessionHandle(configDir: string): BosSessionFile | null {
       credential: parsed.credential ?? null,
       publishKey: parsed.publishKey ?? null,
       delegateKey: parsed.delegateKey ?? null,
+      custodyWallet: parsed.custodyWallet ?? null,
     };
   } catch {
     return null;
@@ -76,6 +87,7 @@ export function updateSessionHandle(
     credential: null,
     publishKey: null,
     delegateKey: null,
+    custodyWallet: null,
   };
   const next = update(current);
   writeSessionHandle(configDir, next);

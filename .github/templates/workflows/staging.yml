@@ -14,6 +14,10 @@ on:
         description: 'Show full build output instead of clean summary'
         type: boolean
         default: false
+      storage_origin:
+        description: 'Upload service origin (default: vars.BOS_STORAGE_ORIGIN or the shared service)'
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -26,4 +30,5 @@ jobs:
     with:
       working_directory: .
       verbose: ${{ inputs.verbose == true }}
+      storage_origin: ${{ inputs.storage_origin || vars.BOS_STORAGE_ORIGIN || 'https://upload.everything.dev' }}
     secrets: inherit

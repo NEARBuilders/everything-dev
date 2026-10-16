@@ -717,7 +717,7 @@ function buildRootTypecheckScript(sections: {
   }
   if (sections.plugins) {
     commands.push(
-      'if [ -d plugins ]; then for dir in plugins/*; do if [ -f "$dir/package.json" ]; then pnpm --dir "$dir" run typecheck; fi; done; fi',
+      'if [ -d plugins ]; then for dir in plugins/*; do if [ -f "$dir/package.json" ]; then pnpm --dir "$dir" --if-present run typecheck && pnpm --dir "$dir" --if-present run typecheck:ui; fi; done; fi',
     );
   }
 
@@ -775,21 +775,21 @@ export function buildChildRootScripts(sections: {
     scripts["db:repair"] = "bos db:repair";
     scripts["db:generate"] = "pnpm --dir api exec drizzle-kit generate";
     scripts["db:migrate"] = "pnpm --dir api exec drizzle-kit migrate";
-    scripts["test:api"] = "pnpm --dir api run test --if-present";
-    scripts["test:integration"] = "pnpm --dir api run test tests/integration/ --if-present";
+    scripts["test:api"] = "pnpm --dir api --if-present run test";
+    scripts["test:integration"] = "pnpm --dir api --if-present run test tests/integration/";
   }
 
   if (sections.host) {
-    scripts["test:e2e"] = "pnpm --dir host run test --if-present";
+    scripts["test:e2e"] = "pnpm --dir host --if-present run test";
   }
 
   const testTargets: string[] = [];
-  if (sections.api) testTargets.push("pnpm --dir api run test --if-present");
-  if (sections.host) testTargets.push("pnpm --dir host run test --if-present");
-  if (sections.ui) testTargets.push("pnpm --dir ui run test --if-present");
+  if (sections.api) testTargets.push("pnpm --dir api --if-present run test");
+  if (sections.host) testTargets.push("pnpm --dir host --if-present run test");
+  if (sections.ui) testTargets.push("pnpm --dir ui --if-present run test");
   if (sections.plugins) {
     testTargets.push(
-      'for d in plugins/*; do [ -f "$d/package.json" ] && pnpm --dir "$d" run test --if-present; done',
+      'for d in plugins/*; do [ -f "$d/package.json" ] && pnpm --dir "$d" --if-present run test; done',
     );
   }
   scripts.test =

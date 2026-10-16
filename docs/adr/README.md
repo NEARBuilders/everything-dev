@@ -32,6 +32,7 @@ Format: context → decision → consequences, one file per decision.
 | [0024](./0024-composition-stays-manifest-based.md) | Composition stays manifest-based; route chunks load lazily | Accepted |
 | [0025](./0025-auth-identity-value-classes.md) | Auth identity values derive from the runtime config | Accepted |
 | [0026](./0026-pnpm-workspace-node-runtime-v2.md) | pnpm workspace, node runtime — one toolchain for parent and children (v2) | Accepted |
+| [0030](./0030-published-source-archives.md) | Published source archives — bos:// byte-sourcing for `bos import` | Accepted |
 
 
 Skipped numbers: 0006 exists; there are no gaps otherwise. 0015–0018 were

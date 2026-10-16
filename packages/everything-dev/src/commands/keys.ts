@@ -12,7 +12,11 @@ import {
   writeSessionHandle,
 } from "../auth-session";
 import { MISSING_CONFIG_MESSAGE } from "../config";
-import type { LoginResult } from "../contract";
+import {
+  DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS,
+  DEFAULT_LOGIN_EXPIRES_IN_SECONDS,
+  type LoginResult,
+} from "../contract";
 import { getRegistryNamespaceForAccount } from "../fastkv";
 import {
   addFunctionCallAccessKey,
@@ -22,6 +26,7 @@ import {
   listPublishKeys,
 } from "../near-cli";
 import { getNetworkIdForAccount } from "../network";
+import { loginOutlayerCli } from "../outlayer-login";
 import type { ResolutionSession } from "../resolution/session";
 import { colors } from "../utils/theme";
 import { type BosBuilder, BosDepsTag } from "./shared";
@@ -122,17 +127,38 @@ export function registerKeys(builder: BosBuilder) {
     login: builder.login.handler(async ({ input, context }) => {
       const deps = Context.get(context["effect/context"], BosDepsTag);
       const staging = input.env === "staging";
+      const config = deps.session?.config;
       const account = staging
-        ? (deps.session?.config?.staging?.account ?? deps.session?.config?.account ?? "")
-        : (deps.session?.config?.account ?? "");
+        ? (config?.staging?.account ?? config?.account ?? "")
+        : (config?.account ?? "");
+      const gateway = staging
+        ? (config?.staging?.domain ?? config?.domain ?? "")
+        : (config?.domain ?? "");
+      const expiresIn =
+        input.expiresIn ??
+        (input.key ? DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS : DEFAULT_LOGIN_EXPIRES_IN_SECONDS);
 
       try {
         const siteUrl = resolveLoginSiteUrl(input.site, deps.session, staging);
+        let deployKey: { account: string; gateway: string } | undefined;
+        if (input.key) {
+          if (!account || !gateway) {
+            return {
+              status: "error" as const,
+              siteUrl: siteUrl,
+              error:
+                "Deploy keys scope to the authored config's account and domain — set both in bos.config.json (or drop --key for a plain login)",
+            };
+          }
+          deployKey = { account, gateway };
+        }
         const login = await startDeviceLogin({
           siteUrl,
           device: input.device,
           account: account || undefined,
-          expiresIn: input.expiresIn,
+          custody: input.custody ? { network: getNetworkIdForAccount(account) } : undefined,
+          expiresIn,
+          deployKey,
         });
 
         console.log();
@@ -154,8 +180,10 @@ export function registerKeys(builder: BosBuilder) {
           };
         }
 
-        const expiresAt = new Date(Date.now() + input.expiresIn * 1000).toISOString();
-        writeSessionHandle(deps.session?.root ?? process.cwd(), {
+        const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+        const configDir = deps.session?.root ?? process.cwd();
+        const existingSession = readSessionHandle(configDir);
+        writeSessionHandle(configDir, {
           version: 1,
           credential: {
             kind: "session",
@@ -169,11 +197,18 @@ export function registerKeys(builder: BosBuilder) {
           },
           publishKey: null,
           delegateKey: null,
+          custodyWallet: approval.custodyWallet ?? existingSession?.custodyWallet ?? null,
         });
 
         let warning: string | null = null;
+        if (input.custody && !approval.custodyWallet) {
+          warning =
+            "Custody wallet credential could not be fetched after approval. Re-run `bos login --custody` — the wallet is kept server-side.";
+        }
         if (account && approval.accountId && approval.accountId !== account) {
-          warning = `Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`;
+          warning = warning
+            ? `${warning} Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`
+            : `Logged in as ${approval.accountId}, but the authored config account is ${account}. Publishes will use the configured account.`;
         }
 
         let publishKey: LoginResult["publishKey"] = null;
@@ -187,6 +222,15 @@ export function registerKeys(builder: BosBuilder) {
           }
         }
 
+        let outlayerCli: LoginResult["outlayerCli"] = null;
+        if (input.custody && approval.custodyWallet) {
+          outlayerCli = await loginOutlayerCli(approval.custodyWallet);
+          if (outlayerCli.status === "error") {
+            const failure = `OutLayer CLI login failed: ${outlayerCli.detail}`;
+            warning = warning ? `${warning} ${failure}` : failure;
+          }
+        }
+
         return {
           status: "logged-in" as const,
           siteUrl,
@@ -194,6 +238,23 @@ export function registerKeys(builder: BosBuilder) {
           expiresAt,
           loginUrl: login.verificationUrl,
           publishKey,
+          deployKey:
+            deployKey && approval.apiKey
+              ? {
+                  key: approval.apiKey.key,
+                  account: deployKey.account,
+                  gateway: deployKey.gateway,
+                }
+              : null,
+          custodyWallet: approval.custodyWallet
+            ? {
+                walletId: approval.custodyWallet.walletId,
+                nearAccountId: approval.custodyWallet.nearAccountId,
+                network: approval.custodyWallet.network,
+                handoffUrl: approval.custodyWallet.handoffUrl,
+              }
+            : null,
+          outlayerCli,
           warning,
         };
       } catch (error) {

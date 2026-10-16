@@ -121,17 +121,19 @@ bos upgrade --no-sync       # only upgrade packages, skip template sync
 
 ### `bos import`
 
-Import a workspace subtree (e.g. `plugins/auth`) from an upstream GitHub repo or a local directory, without cloning. Per-file classification is snapshot-baselined; diverging migration chains are reconciled — applied local entries are kept verbatim, colliding upstream migrations are renumbered and appended, journal rebuilt. Unresolvable conflicts (content drift on an applied migration, unreadable journal) hold the chain and gate the run (exit 1) unless `--yes` or an interactive confirmation.
+Import a workspace subtree (e.g. `plugins/auth`) from an upstream — a GitHub repo, a local directory, a `bos://` published runtime, or (default) the authored config's extends chain. Chain-resolved sources walk outward to the nearest ancestor declaring the workspace; when the ancestor publishes source archives (`publish.sourcePublish`, ADR 0030) the import byte-sources from the pinned, SRI-verified archive (no GitHub needed, `repository` optional) and falls back to the chain's `repository` (pinned to the manifest's git sha, HEAD otherwise) only when no archive exists. Per-file classification is snapshot-baselined; diverging migration chains are reconciled — applied local entries are kept verbatim, colliding upstream migrations are renumbered and appended, journal rebuilt. Unresolvable conflicts (content drift on an applied migration, unreadable journal) hold the chain and gate the run (exit 1) unless `--yes` or an interactive confirmation.
 
-**Flags:** `--from <owner/repo[@ref]|url|dir>` `--yes` `--dry-run` `--no-install` `--json`
+**Flags:** `--from <bos://<account>/<gateway> | owner/repo[@ref] | url | dir>` (optional — extends chain when omitted) `--yes` `--dry-run` `--no-install` `--json`
 
 ```bash
+bos import plugins/auth                                    # resolved through the extends chain
+bos import plugins/auth --from bos://base.near/base        # chain of a published runtime
 bos import plugins/auth --from NEARBuilders/everything-dev@v2.1.0
 bos import plugins/auth --from ./local-checkout --dry-run
 bos import plugins/auth --from owner/repo --yes
 ```
 
-→ [`init-upgrade`](.) skill for classification buckets, migration-chain reconciliation, route deltas, and the `.bos/import-report.md` report.
+→ [`init-upgrade`](.) skill for source resolution, classification buckets, migration-chain reconciliation, route deltas, and the `.bos/import-report.md` report.
 
 ### `bos status`
 

@@ -19,6 +19,11 @@ on:
         required: false
         type: boolean
         default: false
+      storage_origin:
+        description: 'Upload service origin (self-hosted apps/upload deployments override the default)'
+        required: false
+        type: string
+        default: https://upload.everything.dev
 
 permissions:
   contents: read
@@ -35,7 +40,7 @@ jobs:
         shell: bash
     env:
       NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
-      BOS_STORAGE_ORIGIN: https://upload.everything.dev
+      BOS_STORAGE_ORIGIN: ${{ inputs.storage_origin }}
       BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:

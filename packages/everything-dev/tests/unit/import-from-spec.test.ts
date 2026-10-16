@@ -52,6 +52,27 @@ describe("bos import — parseFromSpec", () => {
     );
   });
 
+  it("parses a bos:// account/gateway ref", () => {
+    expect(parseFromSpec("bos://base.near/base")).toEqual({
+      kind: "bos",
+      bosUrl: "bos://base.near/base",
+      account: "base.near",
+      gateway: "base",
+    });
+  });
+
+  it("rejects a bos:// ref with a target suffix", () => {
+    expect(() => parseFromSpec("bos://base.near/base#plugins.auth")).toThrow(
+      "Targeted extends refs are not supported",
+    );
+  });
+
+  it("rejects a bos:// ref with path segments", () => {
+    expect(() => parseFromSpec("bos://base.near/base/sub/path")).toThrow(
+      "expected bos://<account>/<gateway>",
+    );
+  });
+
   it("requires a source", () => {
     expect(() => parseFromSpec("   ")).toThrow("--from is required");
   });

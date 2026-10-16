@@ -28,6 +28,7 @@ import {
 } from "better-near-auth";
 import { eq, gt } from "drizzle-orm";
 import type { AuthConfig, AuthPermissionStatements } from "./auth-config";
+import { custody } from "./custody";
 import type { Database as AuthDatabase } from "./db";
 import * as schema from "./db/schema";
 import { BOS_CLI_CLIENT_ID, deviceLink } from "./device-link";
@@ -475,6 +476,7 @@ export function createAuthInstance(
         validateClient: (clientId) => deviceClientIds.has(clientId),
       }),
       deviceLink(db),
+      custody(db, config.secret, network),
       apiKey([
         {
           configId: "user-keys",
@@ -483,6 +485,10 @@ export function createAuthInstance(
           enableSessionForAPIKeys: true,
           enableMetadata: true,
           maximumNameLength: 64,
+          keyExpiration: {
+            minExpiresIn: 1,
+            maxExpiresIn: 3650,
+          },
           rateLimit: {
             enabled: true,
             timeWindow: 60 * 1000,

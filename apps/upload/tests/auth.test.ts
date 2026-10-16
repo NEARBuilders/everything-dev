@@ -240,6 +240,82 @@ describe("upload auth", () => {
     }
   });
 
+  it("maps missing-permission verify failures to FORBIDDEN with the auth message", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            json: {
+              valid: false,
+              error: {
+                code: "KEY_MISSING_PERMISSIONS",
+                message: "API key lacks required permissions (bundles:write)",
+              },
+              key: null,
+            },
+            meta: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+
+    const result = await authorizeUploadRequest({
+      headers: new Headers({ "x-api-key": "api_plain" }),
+      ...target,
+      config: {
+        authOrigin: "https://everything.dev",
+        bootstrapApiKey: null,
+        bootstrapScope: null,
+        requiredPermissions: { bundles: ["write"] },
+      },
+      fetchImpl,
+    });
+
+    expect(result.authorized).toBe(false);
+    if (!result.authorized) {
+      expect(result.status).toBe("FORBIDDEN");
+      expect(result.message).toContain("bundles:write");
+      if (result.status === "FORBIDDEN") {
+        expect(result.data.requiredPermissions).toEqual(["bundles:write"]);
+      }
+    }
+  });
+
+  it("keeps invalid keys UNAUTHORIZED", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            json: {
+              valid: false,
+              error: { code: "KEY_NOT_FOUND", message: "Invalid API key" },
+              key: null,
+            },
+            meta: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+
+    const result = await authorizeUploadRequest({
+      headers: new Headers({ "x-api-key": "api_missing" }),
+      ...target,
+      config: {
+        authOrigin: "https://everything.dev",
+        bootstrapApiKey: null,
+        bootstrapScope: null,
+        requiredPermissions: { bundles: ["write"] },
+      },
+      fetchImpl,
+    });
+
+    expect(result.authorized).toBe(false);
+    if (!result.authorized) {
+      expect(result.status).toBe("UNAUTHORIZED");
+      expect(result.message).toBe("Invalid API key");
+    }
+  });
+
   it("grants bootstrap keys read access within their scope", async () => {
     const result = await authorizeUploadRequest({
       headers: new Headers({ "x-api-key": "bootstrap" }),

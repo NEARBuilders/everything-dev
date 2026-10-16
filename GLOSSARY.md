@@ -123,3 +123,13 @@ _Avoid_: API key (the partner's `naa_` credential — different party), session 
 **Correlation Id**:
 The tracking id of one Owner Intent or execution (`intent_…`/`op_…`); the ledger authorizes submits and status reads against it.
 _Avoid_: operation id generically, request id (that's the API's `meta.request_id`)
+
+## Custody publish
+
+**Custody Wallet**:
+An OutLayer Agent Custody wallet (`wk_…` key, TEE-held keys) registered once per user and network during `bos login --custody`; its implicit hex account is the signing identity for `publish.auth = "custody"` publishes.
+_Avoid_: outlayer credential, agent wallet (say custody)
+
+**Machine identity**:
+The custody wallet's implicit hex account as the deploy target: the authored config's `account` must equal it, so configs publish under `apps/<hex-account>/<gateway>` instead of a named account.
+_Avoid_: bot account (not a named account), executor (OutLayer's own term for something else)

@@ -27,7 +27,8 @@ const FIELD_COMMENTS: Record<string, string> = {
   starter: "Authoring-only: the starter level this child was scaffolded with (simple | advanced).",
   ci: "CI settings: runtime image name, Railway service.",
   cdn: "CDN origin serving this runtime's built bundles.",
-  publish: "Publish settings: signing mode (session | key | custody).",
+  publish:
+    "Publish settings: signing mode (session | key | custody) and sourcePublish (publish workspace source archives with each deploy).",
   host: "Local host workspace override.",
   api: "Local API workspace override.",
   ui: "Local UI workspace override.",

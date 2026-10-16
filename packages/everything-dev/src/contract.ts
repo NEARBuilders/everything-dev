@@ -357,12 +357,14 @@ export const KeyPublishResultSchema = z.object({
 
 export const OverrideSectionSchema = z.enum(["ui", "api", "host", "plugins"]);
 
-const DEFAULT_LOGIN_EXPIRES_IN_SECONDS = 90 * 24 * 60 * 60;
+export const DEFAULT_LOGIN_EXPIRES_IN_SECONDS = 90 * 24 * 60 * 60;
+export const DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS = 365 * 24 * 60 * 60;
 
 export const LoginOptionsSchema = z.object({
   key: z.boolean().default(false),
+  custody: z.boolean().default(false),
   site: z.string().optional(),
-  expiresIn: z.number().int().positive().default(DEFAULT_LOGIN_EXPIRES_IN_SECONDS),
+  expiresIn: z.number().int().positive().optional(),
   device: z.string().optional(),
   env: z.enum(["production", "staging"]).default("production"),
   registry: z.string().optional(),
@@ -380,6 +382,28 @@ export const LoginResultSchema = z.object({
       network: z.enum(["mainnet", "testnet"]),
       contract: z.string(),
       exportedTo: z.string(),
+    })
+    .nullish(),
+  deployKey: z
+    .object({
+      key: z.string(),
+      account: z.string(),
+      gateway: z.string(),
+    })
+    .nullish(),
+  custodyWallet: z
+    .object({
+      walletId: z.string(),
+      nearAccountId: z.string(),
+      network: z.enum(["mainnet", "testnet"]),
+      handoffUrl: z.string().nullish(),
+    })
+    .nullish(),
+  outlayerCli: z
+    .object({
+      status: z.enum(["linked", "cli-missing", "error"]),
+      network: z.enum(["mainnet", "testnet"]),
+      detail: z.string().nullish(),
     })
     .nullish(),
   warning: z.string().nullish(),
@@ -457,7 +481,8 @@ export const SyncResultSchema = z.object({
 
 export const ImportOptionsSchema = z.object({
   workspace: z.string(),
-  from: z.string(),
+  /** omitted → resolve the upstream from the authored config's extends chain */
+  from: z.string().optional(),
   yes: z.boolean().default(false),
   dryRun: z.boolean().default(false),
   noInstall: z.boolean().default(false),
@@ -498,6 +523,10 @@ export const ImportResultSchema = z.object({
   from: z.string(),
   ref: z.string(),
   resolvedSha: z.string().optional(),
+  /** the dereferenced upstream repository when the source was chain-resolved */
+  sourceRepository: z.string().optional(),
+  /** resolution notes (e.g. HEAD fallback when no git sha is pinned) */
+  warnings: z.array(z.string()).default([]),
   added: z.array(z.string()),
   updated: z.array(z.string()),
   unchanged: z.array(z.string()).default([]),

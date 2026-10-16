@@ -5,4 +5,4 @@
  * Prefer upstream changes at https://github.com/nearbuilders/everything-dev
  */
 
-export { RouterError } from "everything-dev/ui/router-error";
+export { RouterError, shouldShowErrorDetails } from "everything-dev/ui/router-error";

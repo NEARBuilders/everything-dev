@@ -36,7 +36,7 @@ export { Logo } from "./logo";
 export { Markdown, type MarkdownVariant } from "./markdown";
 export { RootError } from "./root-error";
 export { RootNotFound } from "./root-not-found";
-export { RouterError } from "./router-error";
+export { RouterError, shouldShowErrorDetails } from "./router-error";
 export {
   type Step,
   StepList,

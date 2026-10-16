@@ -29,6 +29,10 @@ const ContextSchema = z.custom<UploadAppContext>();
 
 const VERSION_MANIFESTS_PER_LISTING = 500;
 const MANIFEST_FETCH_CONCURRENCY = 8;
+/** R2 stat/put fan-out per upload request — high enough that a full-workspace
+ * batch finishes well inside the CDN proxy timeout (~100s), low enough to stay
+ * under R2 rate limits. */
+const STORAGE_PUT_CONCURRENCY = 16;
 
 class MissingStorageConfig extends Data.TaggedError("MissingStorageConfig")<{
   readonly message: string;
@@ -81,6 +85,18 @@ export default createPlugin({
         new MissingStorageConfig({
           message: "BOS_STORAGE_* is required in production for the upload service",
         }),
+      );
+    }
+
+    const uploadAuth = readUploadAuthConfig(process.env);
+    if (
+      process.env.NODE_ENV === "production" &&
+      uploadAuth.bootstrapApiKey &&
+      !uploadAuth.authOrigin
+    ) {
+      console.warn(
+        "[upload] BOS_STORAGE_AUTH_ORIGIN is not set — API-key verification is unavailable and every API-key upload will fail (bootstrap-key access only). " +
+          "Set BOS_STORAGE_AUTH_ORIGIN (the auth service origin) on the service before accepting deploys.",
       );
     }
 
@@ -194,7 +210,7 @@ export default createPlugin({
             stored += 1;
             return [file.objectPath, integrity] as const;
           }),
-        { concurrency: 4 },
+        { concurrency: STORAGE_PUT_CONCURRENCY },
       );
 
       return {
