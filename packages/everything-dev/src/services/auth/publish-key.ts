@@ -24,7 +24,7 @@ export async function mintPublishKey(input: {
   oldKeys: string[];
 }> {
   if (!input.account) {
-    throw new Error("the authored config has no account to mint a publish key for");
+    throw new Error("the authored config has no account to export a publish key for");
   }
 
   await Effect.runPromise(ensureNearCli);

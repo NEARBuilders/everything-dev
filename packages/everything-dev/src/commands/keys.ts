@@ -42,16 +42,19 @@ export function registerKeys(builder: BosBuilder) {
 
       return yield* Effect.tryPromise({
         try: () => keyPublishBody(session, input),
-        catch: (error) => ({
-          status: "error" as const,
-          account: session.config?.account ?? "",
-          network: getNetworkIdForAccount(session.config?.account ?? ""),
-          env: input.env,
-          contract: getRegistryNamespaceForAccount(session.config?.account ?? "", input.registry),
-          allowance: input.allowance,
-          functionNames: PUBLISH_FUNCTION_NAMES,
-          error: error instanceof Error ? error.message : "Unknown error",
-        }),
+        catch: (error) => {
+          const account = keyPublishAccount(session, input.env);
+          return {
+            status: "error" as const,
+            account,
+            network: account ? getNetworkIdForAccount(account) : ("mainnet" as const),
+            env: input.env,
+            contract: getRegistryNamespaceForAccount(account, input.registry),
+            allowance: input.allowance,
+            functionNames: PUBLISH_FUNCTION_NAMES,
+            error: error instanceof Error ? error.message : "Unknown error",
+          };
+        },
       });
     }),
 
@@ -161,8 +164,9 @@ export function registerKeys(builder: BosBuilder) {
         }
 
         let outlayerCli: LoginResult["outlayerCli"] = null;
-        if (input.custody && approval.custodyWallet) {
-          outlayerCli = yield* Effect.tryPromise(() => loginOutlayerCli(approval.custodyWallet!));
+        const custodyWallet = approval.custodyWallet;
+        if (input.custody && custodyWallet) {
+          outlayerCli = yield* Effect.tryPromise(() => loginOutlayerCli(custodyWallet));
           if (outlayerCli.status === "error") {
             const failure = `OutLayer CLI login failed: ${outlayerCli.detail}`;
             warning = warning ? `${warning} ${failure}` : failure;
@@ -216,9 +220,10 @@ export function registerKeys(builder: BosBuilder) {
         let removedPublishKey = false;
         let warning: string | null = null;
 
-        if (session?.credential) {
+        const credential = session?.credential;
+        if (credential) {
           revokedApiKey = yield* Effect.catchIf(
-            Effect.tryPromise(() => revokeApiKey(siteClient, session.credential!)),
+            Effect.tryPromise(() => revokeApiKey(siteClient, credential)),
             () => true,
             () => Effect.succeed(false),
           );
@@ -260,6 +265,17 @@ export function registerKeys(builder: BosBuilder) {
   };
 }
 
+function keyPublishAccount(
+  session: { config: { account?: string; staging?: { account?: string } | undefined } | null },
+  env: "production" | "staging",
+): string {
+  const account =
+    env === "staging"
+      ? (session.config?.staging?.account ?? session.config?.account)
+      : session.config?.account;
+  return account ?? "";
+}
+
 async function keyPublishBody(
   session: { config: { account?: string; staging?: { account?: string } | undefined } | null },
   input: {
@@ -269,10 +285,7 @@ async function keyPublishBody(
     removeOldKeys?: boolean;
   },
 ): Promise<KeyPublishResult> {
-  const account =
-    input.env === "staging"
-      ? (session.config?.staging?.account ?? session.config?.account)
-      : session.config?.account;
+  const account = keyPublishAccount(session, input.env);
   const minted = await mintPublishKey({
     account: account ?? "",
     registry: input.registry,
@@ -385,8 +398,9 @@ async function revokeApiKey(
       { keyId: credential.apiKeyId },
       undefined,
       { "x-api-key": credential.apiKey },
+      AbortSignal.timeout(10_000),
     );
-    return response.status < 400;
+    return response.status >= 200 && response.status < 300;
   } catch {
     return false;
   }

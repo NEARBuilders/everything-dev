@@ -53,6 +53,7 @@ export interface SiteClientShape {
     body: unknown,
     cookiePair?: string,
     extraHeaders?: Record<string, string>,
+    signal?: AbortSignal,
   ) => Promise<SiteResponse>;
   /** POST to an oRPC `/api/rpc/*` route — the input is wrapped in the RPC
    * `json` envelope; errors parse through `parseSiteErrorDetail`. */
@@ -72,8 +73,8 @@ export class SiteClient extends Context.Service<SiteClient, SiteClientShape>()(
   static readonly Live = Layer.succeed(
     this,
     SiteClient.of({
-      authPost: (siteUrl, path, body, cookiePair, extraHeaders) =>
-        authPost(siteUrl, path, body, cookiePair, extraHeaders),
+      authPost: (siteUrl, path, body, cookiePair, extraHeaders, signal) =>
+        authPost(siteUrl, path, body, cookiePair, extraHeaders, signal),
       rpcPost: (siteUrl, path, input, cookiePair) => rpcPost(siteUrl, path, input, cookiePair),
       getJson: (url, cookiePair) => getJson(url, cookiePair),
     }),
@@ -86,6 +87,7 @@ export async function authPost(
   body: unknown,
   cookiePair?: string,
   extraHeaders?: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<SiteResponse> {
   // Better Auth's origin check demands an Origin on cookie-bearing
   // requests — present the site's own origin, exactly as a browser would.
@@ -100,6 +102,7 @@ export async function authPost(
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    signal,
   });
   return {
     status: response.status,
