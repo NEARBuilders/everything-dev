@@ -28,13 +28,8 @@ import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
 import { formatDuration } from "../../utils/timing";
-import {
-  BundleStorage,
-  RegistrySigner,
-  type RegistrySignerShape,
-  RegistryStore,
-  type RegistryStoreShape,
-} from "./deps";
+import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
+import { BundleStorage, RegistryStore, type RegistryStoreShape } from "./deps";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
 import { formatNearError } from "./format";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
@@ -126,7 +121,7 @@ export async function isConfigAlreadyPublished(opts: {
 export interface TrainDeps {
   storage: StorageLegDeps;
   registry: RegistryStoreShape;
-  signer: RegistrySignerShape;
+  signer: SignerServiceShape;
 }
 
 export interface DeployTrainInput {
@@ -587,53 +582,44 @@ export async function runPublishTrain(
     console.log(`  Submitting transaction on ${network}...`);
 
     // Auth handles were validated once in preflight (guards once per run,
-    // ticket #422) — the submit phase consumes the plan's handles.
-    let result: { success: boolean; txHash?: string };
-    if (useCustody) {
-      const custodyWallet = plan.custodyWallet;
-      if (!custodyWallet) {
-        throw new PublishTrainError({
-          kind: "submit",
-          registryUrl,
-          error: "custody publish requires the preflight custody wallet",
+    // ticket #422) — the dispatch consumes the plan's handles.
+    const result = await (async (): Promise<{ success: boolean; txHash?: string }> => {
+      if (useCustody) {
+        if (!plan.custodyWallet) {
+          throw new PublishTrainError({
+            kind: "submit",
+            registryUrl,
+            error: "custody publish requires the preflight custody wallet",
+          });
+        }
+        return deps.signer.submit({
+          mode: "custody",
+          account,
+          contract: registryNamespace,
+          args: registryEntries,
+          custodyWallet: plan.custodyWallet,
+          idempotencyKey: `bos-publish-${fingerprint}`,
         });
       }
-      await deps.signer.ensureCustodyBalance(custodyWallet);
-      console.log(
-        `  Signing via ${colors.cyan(`OutLayer custody wallet ${custodyWallet.nearAccountId}`)}`,
-      );
-      result = await deps.signer.submitRegistryWriteCustody({
-        contract: registryNamespace,
-        args: registryEntries,
-        custodyWallet,
-        idempotencyKey: `bos-publish-${fingerprint}`,
-      });
-    } else if (useWallet) {
-      const credential = plan.credential;
-      if (!credential || credential.accountId !== account) {
-        throw new PublishTrainError({
-          kind: "submit",
-          registryUrl,
-          error: `--wallet requires a CLI session under ${account}. Run bos login first.`,
+      if (useWallet) {
+        const credential = plan.credential;
+        if (!credential || credential.accountId !== account) {
+          throw new PublishTrainError({
+            kind: "submit",
+            registryUrl,
+            error: `--wallet requires a CLI session under ${account}. Run bos login first.`,
+          });
+        }
+        return deps.signer.submit({
+          mode: "wallet",
+          account,
+          contract: registryNamespace,
+          network,
+          args: registryEntries,
+          credential,
+          configDir,
         });
       }
-      const record = await deps.signer.ensureDelegateKey({
-        configDir,
-        account,
-        contract: registryNamespace,
-        network,
-        siteUrl: credential.siteUrl,
-      });
-      result = await deps.signer.submitRegistryWriteDelegated({
-        account,
-        contract: registryNamespace,
-        network,
-        args: registryEntries,
-        delegatePrivateKey: record.privateKey,
-        relayEndpoint: `${credential.siteUrl}/api/auth/near/relay`,
-        apiKey: credential.apiKey,
-      });
-    } else {
       if (!strategy) {
         throw new PublishTrainError({
           kind: "submit",
@@ -641,18 +627,16 @@ export async function runPublishTrain(
           error: "non-wallet publish requires a resolved signing strategy",
         });
       }
-      result = await deps.signer.submitRegistryWrite(
-        {
-          account,
-          contract: registryNamespace,
-          method: "__fastdata_kv",
-          args: registryEntries,
-          network,
-          privateKey: input.privateKey,
-        },
+      return deps.signer.submit({
+        mode: "key",
+        account,
+        contract: registryNamespace,
+        network,
+        args: registryEntries,
+        privateKey: input.privateKey,
         strategy,
-      );
-    }
+      });
+    })();
 
     if (result.txHash) {
       console.log(`  Transaction submitted: ${colors.dim(result.txHash)}`);
@@ -725,6 +709,7 @@ export const realTrainDeps: TrainDeps = {
     submitRegistryWriteCustody,
     ensureDelegateKey,
     ensureCustodyBalance,
+    submit: dispatchSubmit,
   },
 };
 
@@ -746,7 +731,7 @@ export class DeployTrainService extends Context.Service<
     Effect.gen(function* () {
       const storage = yield* BundleStorage;
       const registry = yield* RegistryStore;
-      const signer = yield* RegistrySigner;
+      const signer = yield* SignerService;
       return DeployTrainService.of({
         publish: (input: DeployTrainInput) =>
           Effect.tryPromise({
