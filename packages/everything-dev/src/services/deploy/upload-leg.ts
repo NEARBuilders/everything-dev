@@ -15,6 +15,9 @@ import {
   uploadBundle,
   uploadWorkspaceDist,
 } from "../../storage-upload";
+import { padRight } from "../../utils/string";
+import { colors, icons } from "../../utils/theme";
+import { formatDuration } from "../../utils/timing";
 import { composeWorkspaceVersionManifest, readBuildReport } from "../../version-manifest-deploy";
 import { resolveSlotVersion } from "../../version-manifest-resolve";
 
@@ -81,7 +84,6 @@ async function diffUploadWorkspace(
     files: DistFile[];
     base: string;
     previousPin: PreviousPin | undefined;
-    notes: string[];
   },
 ): Promise<DiffUploadOutcome> {
   const localSri = localSriMap(input.files);
@@ -95,16 +97,20 @@ async function diffUploadWorkspace(
         prevFiles = resolved.files;
         uploadFiles = diff.upload;
         if (diff.skipped > 0) {
-          input.notes.push(`${diff.skipped} unchanged file(s) — skipping (manifest diff)`);
+          console.log(
+            `    ${colors.dim(`${padRight(input.workspace, 28)} ${diff.skipped} unchanged file(s) — skipping (manifest diff)`)}`,
+          );
         }
       }
     } catch {
-      input.notes.push("previous manifest unusable — uploading everything");
+      console.log(
+        `    ${colors.dim(`${padRight(input.workspace, 28)} previous manifest unusable — uploading everything`)}`,
+      );
     }
   }
 
-  input.notes.push(
-    `uploading ${uploadFiles.length} of ${input.files.length} files (${formatBundleMb(uploadFiles)}) → ${input.base}`,
+  console.log(
+    `    ${padRight(input.workspace, 28)} uploading ${uploadFiles.length} of ${input.files.length} files (${formatBundleMb(uploadFiles)}) → ${input.base}`,
   );
   const result =
     uploadFiles.length > 0
@@ -143,7 +149,6 @@ async function pinWorkspaceVersionManifest(
     files?: Record<string, string>;
     source?: SourceRef;
     gitSha?: string;
-    notes: string[];
   },
 ): Promise<VersionManifestPin | undefined> {
   if (!input.report) return undefined;
@@ -173,7 +178,9 @@ async function pinWorkspaceVersionManifest(
   });
   const manifestIntegrity = manifestUpload.integrity[manifestFile];
   if (!manifestIntegrity) return undefined;
-  input.notes.push(`version manifest ${manifestFile} (SRI pinned)`);
+  console.log(
+    `    ${colors.dim(`${padRight("", 28)} version manifest ${manifestFile} (SRI pinned)`)}`,
+  );
   return { file: manifestFile, integrity: manifestIntegrity, storage: manifestUpload.storage };
 }
 
@@ -192,10 +199,8 @@ async function resolveSourceReference(
     previousPin: PreviousPin | undefined;
     repoRoot: string;
     workspaceDir: string;
-    notes: string[];
   },
 ): Promise<{ source: SourceRef } | { memory: true }> {
-  const notes = input.notes;
   const outDir = makeSourceArchiveTempDir();
   try {
     const archive = await deps.buildSourceArchive({
@@ -210,7 +215,9 @@ async function resolveSourceReference(
           pin: input.previousPin,
         });
         if (resolved.source?.integrity === archive.integrity) {
-          notes.push(`source unchanged — reusing ${archive.file}`);
+          console.log(
+            `    ${colors.dim(`${padRight(input.workspace, 28)} source unchanged — reusing ${archive.file}`)}`,
+          );
           return {
             source: { file: resolved.source.file, integrity: resolved.source.integrity },
           };
@@ -234,7 +241,9 @@ async function resolveSourceReference(
         `[publish] source archive upload for ${input.workspace}: missing server SRI for ${archive.file}`,
       );
     }
-    notes.push(`source archive ${archive.file}`);
+    console.log(
+      `    ${colors.dim(`${padRight(input.workspace, 28)} source archive ${archive.file}`)}`,
+    );
     return { source: { file: archive.file, integrity } };
   } finally {
     rmSync(outDir, { recursive: true, force: true });
@@ -270,13 +279,6 @@ export type WorkspaceBundleUpload =
       uploaded: number;
       skipped: number;
       durationMs: number;
-      /** attributed upload detail (#431) — the renderer decides how it shows;
-       * the leg itself stays silent */
-      detail: {
-        base: string;
-        manifestFile: string | undefined;
-        notes: string[];
-      };
     }
   | { kind: "memory" }
   /** the dist predates hashed entry names — the train aborts (atomic-deploys hard break) */
@@ -292,7 +294,6 @@ export async function uploadWorkspaceBundle(
   let phase: "upload" | "source" = "upload";
   try {
     const distFiles = await deps.collectDistFiles(input.distDir);
-    const notes: string[] = [];
     const outcome = await diffUploadWorkspace(deps, {
       origin: input.storageOrigin,
       apiKey: input.storageApiKey,
@@ -302,7 +303,6 @@ export async function uploadWorkspaceBundle(
       files: distFiles,
       base,
       previousPin: input.previousPin,
-      notes,
     });
     const report = deps.readBuildReport(input.distDir);
     const ssrReport = deps.readBuildReport(join(input.distDir, "ssr"));
@@ -313,6 +313,9 @@ export async function uploadWorkspaceBundle(
 
     let sourceRef: SourceRef | undefined;
     if (input.source) {
+      if (outcome.result.storage === "memory") {
+        return { kind: "memory" };
+      }
       phase = "source";
       const sourceOutcome = await resolveSourceReference(deps, {
         origin: input.storageOrigin,
@@ -324,7 +327,6 @@ export async function uploadWorkspaceBundle(
         previousPin: input.previousPin,
         repoRoot: input.source.repoRoot,
         workspaceDir: input.source.workspaceDir,
-        notes,
       });
       if ("memory" in sourceOutcome) return { kind: "memory" };
       sourceRef = sourceOutcome.source;
@@ -343,13 +345,15 @@ export async function uploadWorkspaceBundle(
       files: outcome.fileIntegrity,
       ...(sourceRef ? { source: sourceRef } : {}),
       ...(input.gitSha ? { gitSha: input.gitSha } : {}),
-      notes,
     });
     if (!pin) return { kind: "missing-manifest" };
     if (outcome.result.storage === "memory" || pin.storage === "memory") {
       return { kind: "memory" };
     }
 
+    console.log(
+      `    ${colors.green(icons.ok)} ${padRight(input.workspaceKey, 28)} → ${base} (${outcome.uploaded} uploaded, ${outcome.skipped} skipped, ${formatDuration(Date.now() - startedAt)})`,
+    );
     return {
       kind: "ok",
       pin,
@@ -359,11 +363,6 @@ export async function uploadWorkspaceBundle(
       uploaded: outcome.uploaded,
       skipped: outcome.skipped,
       durationMs: Date.now() - startedAt,
-      detail: {
-        base,
-        manifestFile: pin.file,
-        notes,
-      },
     };
   } catch (error) {
     return {

@@ -99,10 +99,7 @@ export async function runPostPublishLegs(
       env: process.env,
     }),
     imageDigest: input.imageDigestInput,
-    // A prebuilt digest never reaches the docker branch of the plan — probing
-    // docker for it is a wasted `docker` subprocess on every digest deploy.
-    hasDocker:
-      tier === "root" && input.imageDigestInput === undefined ? await deps.hasDocker() : false,
+    hasDocker: tier === "root" ? await deps.hasDocker() : false,
     hasDockerfile,
   });
 

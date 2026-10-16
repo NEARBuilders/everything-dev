@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { Data } from "effect";
 import { parse } from "yaml";
@@ -233,7 +232,6 @@ export async function ensureFreshDeps(
   const fresh = closure.filter((_, index) => !judgements[index]);
 
   const failures: DepsBuildFailureEntry[] = [];
-  const builtOk: WorkspaceMember[] = [];
   // Layered order: a member's dist must exist before its dependents build —
   // dts emit resolves types through dependency dists, so building the whole
   // stale closure in parallel races (everything-dev dts collapsing to `any`
@@ -248,33 +246,27 @@ export async function ensureFreshDeps(
         }),
       ),
     );
-    const layerFailures = results.flatMap((result, index) => {
-      const value = result.status === "fulfilled" ? result.value : undefined;
-      if (value && value.exitCode === 0) {
-        builtOk.push(layer[index]);
-        return [];
-      }
-      const output = value
-        ? `${value.stdout}\n${value.stderr}`
-        : result.status === "rejected"
-          ? String(result.reason)
-          : "";
-      return [
-        {
-          member: layer[index],
-          exitCode: value ? (value.exitCode ?? 1) : 1,
-          output,
-        },
-      ];
-    });
-    failures.push(...layerFailures);
+    failures.push(
+      ...results.flatMap((result, index) => {
+        const value = result.status === "fulfilled" ? result.value : undefined;
+        if (value && value.exitCode === 0) return [];
+        const output = value
+          ? `${value.stdout}\n${value.stderr}`
+          : result.status === "rejected"
+            ? String(result.reason)
+            : "";
+        return [
+          {
+            member: layer[index],
+            exitCode: value ? (value.exitCode ?? 1) : 1,
+            output,
+          },
+        ];
+      }),
+    );
     if (failures.length > 0) break;
   }
   if (failures.length > 0) throw new DepsBuildFailure({ failures });
-
-  for (const member of builtOk) {
-    await oracle.recordBuilt?.(member);
-  }
 
   return { rebuilt, fresh };
 }
@@ -306,123 +298,11 @@ async function isStaleMember(member: WorkspaceMember): Promise<boolean> {
 
 export interface StalenessOracle {
   isStale(member: WorkspaceMember): Promise<boolean>;
-  /** Post-build hook (#430): hash oracles persist the member's input hash so
-   * the next judgement can be fresh. Optional — the mtime oracle ignores it. */
-  recordBuilt?(member: WorkspaceMember): Promise<void>;
 }
 
 export const mtimeStalenessOracle: StalenessOracle = {
   isStale: isStaleMember,
 };
-
-const HASH_SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".bos", ".turbo", ".next"]);
-
-async function hashWorkspaceTree(
-  dir: string,
-  hash: ReturnType<typeof createHash>,
-  prefix = "",
-): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
-    if (HASH_SKIP_DIRS.has(entry.name)) continue;
-    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      await hashWorkspaceTree(join(dir, entry.name), hash, relative);
-    } else {
-      const content = await readFile(join(dir, entry.name));
-      hash.update(relative);
-      hash.update(content);
-    }
-  }
-}
-
-async function memberInputHash(
-  member: WorkspaceMember,
-  byName: Map<string, WorkspaceMember>,
-  memo: Map<string, Promise<string>>,
-  envKey: string,
-): Promise<string> {
-  const cached = memo.get(member.name);
-  if (cached) return cached;
-  const computed = (async () => {
-    const own = createHash("sha256");
-    await hashWorkspaceTree(member.dir, own);
-    const depHashes: string[] = [];
-    for (const dep of member.localDeps) {
-      const depMember = byName.get(dep);
-      if (depMember) {
-        depHashes.push(`${dep}:${await memberInputHash(depMember, byName, memo, envKey)}`);
-      }
-    }
-    own.update(envKey);
-    own.update(depHashes.sort().join("|"));
-    return own.digest("hex");
-  })();
-  memo.set(member.name, computed);
-  return computed;
-}
-
-/**
- * Content-hash staleness oracle (#430) — a Turborepo-style judgement: a
- * member is fresh when its recorded input hash (workspace tree + transitive
- * local-dependency hashes + build-mode env) matches and its dist entry still
- * exists. Anything unknown (no cache entry, unreadable tree, hash mismatch)
- * errs toward building. `recordBuilt` persists post-build so the next run
- * starts from truth; the cache lives at <workspaceRoot>/.bos/build-cache.json.
- */
-export function contentHashStalenessOracle(
-  rootDir: string,
-  members: readonly WorkspaceMember[],
-): StalenessOracle {
-  const cachePath = join(rootDir, ".bos", "build-cache.json");
-  const envKey = `${process.env.NODE_ENV ?? ""}|${process.env.DEPLOY ?? ""}`;
-  const byName = new Map(members.map((member) => [member.name, member]));
-
-  const readCache = (): Record<string, { hash?: string }> => {
-    try {
-      return JSON.parse(readFileSync(cachePath, "utf8")) as Record<string, { hash?: string }>;
-    } catch {
-      return {};
-    }
-  };
-
-  const writeCache = (cache: Record<string, { hash?: string }>) => {
-    try {
-      mkdirSync(join(rootDir, ".bos"), { recursive: true });
-      writeFileSync(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
-    } catch {
-      // An unwritable cache only costs rebuilds — never fail the train.
-    }
-  };
-
-  return {
-    isStale: async (member) => {
-      try {
-        const distEntry = distOracle(member.dir);
-        if (!distEntry) return true;
-        if (!existsSync(join(member.dir, distEntry))) return true;
-        // Fresh memo per judgement: a previous call's hashes must not leak —
-        // the tree may have changed since.
-        const memo = new Map<string, Promise<string>>();
-        const current = await memberInputHash(member, byName, memo, envKey);
-        return readCache()[member.name]?.hash !== current;
-      } catch {
-        return true;
-      }
-    },
-    recordBuilt: async (member) => {
-      try {
-        const memo = new Map<string, Promise<string>>();
-        const current = await memberInputHash(member, byName, memo, envKey);
-        const cache = readCache();
-        cache[member.name] = { hash: current };
-        writeCache(cache);
-      } catch {
-        // A failed recording costs a rebuild next run — never fail the build.
-      }
-    },
-  };
-}
 
 function distOracle(memberDir: string): string | null {
   const manifest = readManifest(join(memberDir, "package.json"));

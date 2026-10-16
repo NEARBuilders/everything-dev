@@ -71,7 +71,7 @@ async function runDeploy(input: { targets?: string[]; deps?: BuildTargetsDeps })
 describe("buildWorkspaceTargets", () => {
   it("runs the deploy build train with non-host targets in parallel and host after", async () => {
     const events: RunEvent[] = [];
-    const run = async (_cmd: string, _args: string[], opts: { cwd?: string } | undefined) => {
+    const run = async (_cmd: string, _args: string[], opts: { cwd?: string }) => {
       const target = opts.cwd?.split("/").pop() ?? "?";
       events.push({ target, event: "start" });
       await Promise.resolve();
@@ -88,83 +88,6 @@ describe("buildWorkspaceTargets", () => {
       "host:start",
       "host:end",
     ]);
-  });
-
-  it("buffers child stderr and attributes warnings to the workspace outcome", async () => {
-    const run = async (
-      _cmd: string,
-      _args: string[],
-      opts: { onChunk?: (stream: "stdout" | "stderr", chunk: Buffer) => void } | undefined,
-    ) => {
-      // Simulate a plugin build via the chunk stream: a banner line, a
-      // WARNING box, ordinary noise.
-      opts?.onChunk?.("stderr", Buffer.from("$ every-plugin build\n"));
-      opts?.onChunk?.("stderr", Buffer.from("WARNING in ./src/index.ts\n"));
-      opts?.onChunk?.("stderr", Buffer.from("  ⚠ something smells (rsbuild)\n\n"));
-      return { stdout: "", stderr: "", exitCode: 0 };
-    };
-
-    const outcomes: WorkspaceBuildOutcome[] = [];
-    const render: WorkspaceBuildRender = { outcome: (o) => outcomes.push(o) };
-    const { built } = await runDeploy({
-      targets: ["ui"],
-      deps: makeDeps({ run, render }),
-    });
-
-    expect(built).toEqual(["ui"]);
-    const warnings = outcomes[0]?.warnings ?? [];
-    expect(warnings.some((w) => w.includes("WARNING in ./src/index.ts"))).toBe(true);
-    expect(warnings.some((w) => w.includes("every-plugin build"))).toBe(false);
-  });
-
-  it("caps parallel deploy builds at the input concurrency", async () => {
-    let running = 0;
-    let maxRunning = 0;
-    let releases: Array<() => void> = [];
-    const run = async (_cmd: string, _args: string[], _opts: { cwd?: string } | undefined) => {
-      running += 1;
-      maxRunning = Math.max(maxRunning, running);
-      await new Promise<void>((resolve) => releases.push(resolve));
-      running -= 1;
-      return { stdout: "", stderr: "", exitCode: 0 };
-    };
-    const deferredRun = new Proxy(run, {
-      // Release each build on its next tick after all four start, so the cap
-      // is what bounds concurrency — not early completions.
-      apply(target, _context, args) {
-        const result = Reflect.apply(target, _context, args);
-        queueMicrotask(() => {
-          const release = releases.shift();
-          release?.();
-        });
-        return result;
-      },
-    });
-
-    const scopedConfig = {
-      ...bosConfig,
-      plugins: {
-        votes: { development: "local:plugins/votes" },
-        registry: { development: "local:plugins/registry" },
-      },
-    } as unknown as BosConfig;
-
-    const { built } = await buildWorkspaceTargets(
-      {
-        configDir,
-        bosConfig: scopedConfig,
-        runtimeConfig: null,
-        targets: ["ui", "api", "votes", "registry", "host"],
-        deploy: true,
-        verbose: false,
-        concurrency: 2,
-      },
-      makeDeps({ run: deferredRun }),
-    );
-
-    expect(built).toContain("ui");
-    expect(maxRunning).toBe(2);
-    releases = [];
   });
 
   it("attributes captured stderr to the workspace outcome", async () => {
@@ -270,45 +193,19 @@ describe("buildWorkspaceTargets", () => {
     expect(rendered).toEqual([]);
   });
 
-  it("consults the content-hash oracle on deploy; forceBuild keeps the blanket force", async () => {
-    const wsRoot = mkdtempSync(join(tmpdir(), "bos-train-root-"));
-    tmpRoots.push(wsRoot);
-    writeFileSync(join(wsRoot, "pnpm-workspace.yaml"), "packages:\n  - ui\n");
-    mkdirSync(join(wsRoot, "ui"), { recursive: true });
-
-    const calls: { force?: boolean; oracle?: boolean }[] = [];
-    const probe = async (
-      _start: unknown,
-      _dirs: unknown,
-      opts: { force?: boolean; oracle?: unknown },
-    ) => {
-      calls.push({ force: opts?.force, oracle: opts?.oracle !== undefined });
-      return { rebuilt: [], fresh: [] };
-    };
-
-    const run = async (targets: string[], deploy: boolean, forceBuild?: boolean) =>
-      buildWorkspaceTargets(
-        {
-          configDir: wsRoot,
-          bosConfig,
-          runtimeConfig: null,
-          targets,
-          deploy,
-          verbose: false,
-          ...(forceBuild ? { forceBuild: true } : {}),
+  it("passes force to the prerequisite train in deploy mode", async () => {
+    const calls: { force?: boolean }[] = [];
+    await runDeploy({
+      targets: ["ui"],
+      deps: makeDeps({
+        freshDeps: async (_start, _dirs, opts) => {
+          calls.push({ force: opts?.force });
+          return { rebuilt: [], fresh: [] };
         },
-        makeDeps({ freshDeps: probe }),
-      );
+      }),
+    });
 
-    await run(["ui"], true);
-    await run(["ui"], true, true);
-    await run(["ui"], false);
-
-    expect(calls).toEqual([
-      { force: false, oracle: true },
-      { force: true, oracle: false },
-      { force: false, oracle: false },
-    ]);
+    expect(calls).toEqual([{ force: true }]);
   });
 
   it("skips targets that resolve to no local workspace", async () => {

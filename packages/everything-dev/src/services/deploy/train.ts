@@ -39,7 +39,6 @@ import { BundleStorage, RegistryStore, type RegistryStoreShape } from "./deps";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
 import { formatNearError } from "./format";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
-import { type DeployTrainRender, DeployTrainRenderService } from "./render";
 import {
   realStorageLegDeps,
   type StorageLegDeps,
@@ -72,11 +71,6 @@ export async function waitForPublishedConfig(opts: {
   timeoutMs?: number;
   intervalMs?: number;
   fetchConfig?: typeof fetchBosConfigFromFastKv;
-  /** The submit's tx hash (#430): once the registry history shows this tx,
-   * the write has landed on-chain — one authoritative read-back decides
-   * instead of repeated deep-equality polling. */
-  txHash?: string;
-  fetchHistory?: typeof fetchConfigHistory;
 }): Promise<void> {
   const fetchConfig = opts.fetchConfig ?? fetchBosConfigFromFastKv;
   const envTimeoutMs = Number(process.env.BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS);
@@ -88,51 +82,13 @@ export async function waitForPublishedConfig(opts: {
   const startedAt = Date.now();
   let lastError: unknown;
 
-  // The tx probe is the cheap poll (#430): while it is informative (returns
-  // entries, tx not yet visible), the config equality read-back waits. After
-  // a bounded run of informative-but-absent probes — or any probe failure —
-  // the wait falls back permanently to plain equality polling, so a registry
-  // whose history never carries the tx still confirms.
-  let txProbeSkips = 0;
-  const TX_PROBE_SKIP_LIMIT = 2;
-
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      let trackByTx = opts.txHash !== undefined && opts.fetchHistory !== undefined;
-      if (trackByTx && txProbeSkips >= TX_PROBE_SKIP_LIMIT) {
-        trackByTx = false;
-      }
-
-      if (trackByTx) {
-        try {
-          const history = await opts.fetchHistory!({
-            accountId: opts.account,
-            gatewayId: opts.gateway,
-            registry: opts.registry,
-            limit: 5,
-          });
-          const txLanded = history.some((entry) => entry.txHash === opts.txHash);
-          if (txLanded) {
-            // The write landed on-chain — the read-back is the authoritative
-            // content check (ADR 0001). A mismatch keeps polling:
-            // replication may lag the tx.
-            txProbeSkips = 0;
-          } else {
-            txProbeSkips += 1;
-            await sleep(intervalMs);
-            continue;
-          }
-        } catch (historyError) {
-          // A history probe failure must not starve the wait — fall back to
-          // the plain equality poll.
-          lastError = historyError;
-        }
-      }
-
       const verifiedConfig = await fetchConfig<BosConfigInput>(
         `bos://${opts.account}/${opts.gateway}`,
         opts.registry,
       );
+
       if (JSON.stringify(verifiedConfig) === JSON.stringify(opts.publishConfig)) {
         return;
       }
@@ -168,22 +124,10 @@ export async function isConfigAlreadyPublished(opts: {
   }
 }
 
-/** Per-workspace upload facts the renderer needs (#431) — the leg reports,
- * the renderer shows. */
-export interface UploadUnitDetail {
-  base: string;
-  uploaded: number;
-  skipped: number;
-  durationMs: number;
-  notes: string[];
-}
-
 export interface TrainDeps {
   storage: StorageLegDeps;
   registry: RegistryStoreShape;
   signer: SignerServiceShape;
-  /** presentation seam (#431) — sections render; the train never prints */
-  render?: DeployTrainRender;
   buildTrain: {
     buildTargets: (
       input: BuildTargetsInput,
@@ -207,9 +151,6 @@ export interface DeployTrainInput {
   registry?: string;
   /** Skip the diff upload and re-upload every dist file (escape hatch). */
   fullUpload?: boolean;
-  /** Force every prerequisite rebuild even when the content-hash oracle judges
-   * them fresh (the pre-#430 behavior; escape hatch for the oracle). */
-  forceBuild?: boolean;
   /** Publish `bosConfig` verbatim — no authored/published merge, no ts-form
    * config-only guard. Rollbacks use this: the payload is the previous
    * snapshot, already assembled. */
@@ -259,7 +200,6 @@ export async function runPublishTrain(
   const storageApiKey = plan.storageApiKey;
 
   const { configDir } = input;
-  const render = deps.render;
   let bosConfig = input.bosConfig;
   const runtimeConfig = input.runtimeConfig;
   let built: string[] | undefined;
@@ -267,255 +207,20 @@ export async function runPublishTrain(
   let deployResults: WorkspaceDeployResult[] | undefined;
   let refreshedRawConfig: BosConfigInput | null = null;
 
-  const urlOrigin = plan.cdnOrigin ?? `https://${gateway}`;
-  const platformEntries: DeployResultEntry[] = [];
-  const fullUpload = input.fullUpload === true || process.env.BOS_FULL_UPLOAD === "1";
-  const sourcePublish = bosConfig.publish?.sourcePublish === true;
-  const gitSha = await resolveGitSha(configDir);
-  const memoryBackendAbort = () =>
-    new PublishTrainError({
-      kind: "memory-backend",
-      registryUrl,
-      built,
-      skipped,
-      deployResults,
-      error:
-        "The receiving instance is serving bundle storage from memory (BOS_STORAGE_* R2 credentials are not configured there) — uploaded bytes would be lost on restart. Aborting before publish.",
-    });
-
-  // Previous per-workspace pins for the diff upload: the local pointer wins
-  // (written after every confirmed publish), the published config is the
-  // fallback. Neither → full upload. Hoisted above the build so pipelined
-  // uploads can read it the moment a build completes.
-  const prevPins: Record<string, PreviousPin> = fullUpload
-    ? {}
-    : {
-        ...pinsFromPublishedConfig(
-          (plan.publishedConfig ?? {}) as BosConfigInput,
-          account,
-          gateway,
-        ),
-        ...pinsFromDeployState(configDir, account, gateway),
-      };
-
-  render?.cdnBanner?.(storageOrigin);
-
-  // One workspace = one upload unit: the workspace bundle, then (for
-  // folder-form plugin workspaces) its <plugin>/ui/dist as its own bundle
-  // key. Workspace paths resolve from the authored config — identical before
-  // and after the post-build config refresh — so pipelined uploads (#430) can
-  // start the moment a build completes.
-  const uploadOneWorkspace = async (
-    key: string,
-  ): Promise<{ entries: DeployResultEntry[]; detail: UploadUnitDetail }> => {
-    const startedAt = Date.now();
-    const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
-    if (!ws)
-      return {
-        entries: [],
-        detail: { base: "", uploaded: 0, skipped: 0, durationMs: 0, notes: [] },
-      };
-
-    const outcome = await uploadWorkspaceBundle({
-      account,
-      gateway,
-      workspaceKey: key,
-      distDir: join(ws.path, "dist"),
-      storageOrigin,
-      storageApiKey,
-      urlOrigin,
-      previousPin: prevPins[key],
-      ...(sourcePublish ? { source: sourceLegDirs(ws.path) } : {}),
-      ...(gitSha ? { gitSha } : {}),
-      deps: deps.storage,
-    });
-    if (outcome.kind === "error") {
-      throw new PublishTrainError({
-        kind: "upload",
-        registryUrl,
-        built,
-        skipped,
-        deployResults,
-        error: outcome.message,
-      });
-    }
-    if (outcome.kind === "memory") throw memoryBackendAbort();
-    if (outcome.kind === "missing-manifest") {
-      throw new PublishTrainError({
-        kind: "missing-manifest",
-        registryUrl,
-        built,
-        skipped,
-        deployResults,
-        error: `bundle upload for ${key}: version manifest missing — the dist predates hashed entry names (rebuild required; atomic-deploys hard break)`,
-      });
-    }
-
-    if (sourcePublish && outcome.storage === "memory") throw memoryBackendAbort();
-
-    const entries = platformUrlDeployEntries({
-      origin: urlOrigin,
-      account,
-      gateway,
-      key,
-      kind: ws.kind,
-      integrity: outcome.entryIntegrity,
-      ssrIntegrity: outcome.ssrEntryIntegrity,
-      pin: outcome.pin,
-    });
-
-    // Folder-form plugin ui: the workspace build also produces <plugin>/ui/dist
-    // (web remoteEntry + ssr container) — upload it as its own bundle key and
-    // pin <slot>.<key>.ui.* so the host can compose the ui surface in production.
-    if (hasFolderFormUi(ws.path)) {
-      const uiDistDir = join(ws.path, "ui", "dist");
-      const uiSlot = ws.kind === "app" ? "app" : "plugins";
-      const rawSlot = (uiSlot === "app" ? rawConfig.app : rawConfig.plugins) as
-        | Record<string, Record<string, unknown> | undefined>
-        | undefined;
-      const rawUi = rawSlot?.[key]?.ui as Record<string, unknown> | undefined;
-      const uiName = resolveUiRuntimeName(rawUi, join(ws.path, "ui"), key);
-      let uiIntegrity: string | undefined;
-      let uiSsrIntegrity: string | undefined;
-      let uiPin: (typeof outcome)["pin"] | undefined;
-      if (existsSync(uiDistDir)) {
-        const uiOutcome = await uploadWorkspaceBundle({
-          account,
-          gateway,
-          workspaceKey: `${key}-ui`,
-          distDir: uiDistDir,
-          storageOrigin,
-          storageApiKey,
-          urlOrigin,
-          previousPin: prevPins[`${key}-ui`],
-          deps: deps.storage,
-        });
-        if (uiOutcome.kind === "error") {
-          throw new PublishTrainError({
-            kind: "upload",
-            registryUrl,
-            built,
-            skipped,
-            deployResults,
-            error: uiOutcome.message,
-          });
-        }
-        if (uiOutcome.kind === "memory") throw memoryBackendAbort();
-        if (uiOutcome.kind === "missing-manifest") {
-          throw new PublishTrainError({
-            kind: "missing-manifest",
-            registryUrl,
-            built,
-            skipped,
-            deployResults,
-            error: `bundle upload for ${key}-ui: version manifest missing — the dist predates hashed entry names (rebuild required; atomic-deploys hard break)`,
-          });
-        }
-        uiIntegrity = uiOutcome.entryIntegrity;
-        uiSsrIntegrity = uiOutcome.ssrEntryIntegrity;
-        uiPin = uiOutcome.pin;
-      } else {
-        console.log(
-          `    ${colors.green(icons.ok)} ${padRight(`${key}-ui`, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/`,
-        );
-      }
-
-      entries.push(
-        ...pluginUiUrlDeployEntries({
-          origin: urlOrigin,
-          account,
-          gateway,
-          key,
-          kind: ws.kind,
-          integrity: uiIntegrity,
-          ssrIntegrity: uiSsrIntegrity,
-          name: uiName,
-          pin: uiPin,
-        }),
-      );
-    }
-
-    return {
-      entries,
-      detail: {
-        base: outcome.detail.base,
-        uploaded: outcome.uploaded,
-        skipped: outcome.skipped,
-        durationMs: Date.now() - startedAt,
-        notes: outcome.detail.notes,
-      },
-    };
-  };
-
-  // Uploads are independent bundle keys (#430): bounded concurrency, and —
-  // when building — each workspace's upload pipelines as its build completes
-  // instead of waiting for the whole train. The merged config assembles in
-  // target order (byte-identical to the serial train); the first failure in
-  // that order is the one thrown.
-  const uploadConcurrency = Math.max(1, Number(process.env.BOS_UPLOAD_CONCURRENCY) || 4);
-  interface UploadUnitResult {
-    entries: DeployResultEntry[];
-    detail: UploadUnitDetail;
-  }
-  const uploaded = new Map<string, Promise<UploadUnitResult>>();
-  // Rejections stay in the map until the drain's allSettled — deleting would
-  // both swallow the failure (the drain substitutes an empty result) and let
-  // the fallback loop silently re-attempt the upload. The immediate no-op
-  // catch keeps the pipelined rejection handled while the build continues.
-  const trackUpload = (key: string, pending: Promise<UploadUnitResult>) => {
-    uploaded.set(key, pending);
-    pending.catch(() => {});
-  };
-  let inFlight = 0;
-  const waiters: Array<() => void> = [];
-  const acquireUploadSlot = () => {
-    if (inFlight < uploadConcurrency) {
-      inFlight++;
-      return Promise.resolve();
-    }
-    return new Promise<void>((resolve) => waiters.push(resolve));
-  };
-  const releaseUploadSlot = () => {
-    inFlight--;
-    waiters.shift()?.();
-  };
-  const startUpload = (key: string) => {
-    if (uploaded.has(key)) return;
-    trackUpload(
-      key,
-      (async () => {
-        await acquireUploadSlot();
-        try {
-          return await uploadOneWorkspace(key);
-        } finally {
-          releaseUploadSlot();
-        }
-      })(),
-    );
-  };
-
   if (input.build) {
     await generateCodeArtifacts(configDir, bosConfig, {
       env: "production",
       runtimeConfig: runtimeConfig ?? undefined,
     });
 
-    const result = await deps.buildTrain.buildTargets(
-      {
-        configDir,
-        bosConfig,
-        runtimeConfig,
-        targets,
-        deploy: true,
-        verbose: input.verbose,
-        ...(input.forceBuild ? { forceBuild: true } : {}),
-      },
-      {
-        onWorkspaceBuilt: (key) => {
-          if (targets.includes(key)) startUpload(key);
-        },
-      },
-    );
+    const result = await deps.buildTrain.buildTargets({
+      configDir,
+      bosConfig,
+      runtimeConfig,
+      targets,
+      deploy: true,
+      verbose: input.verbose,
+    });
     built = result.built;
     skipped = result.skipped;
     deployResults = result.deployResults;
@@ -617,59 +322,162 @@ export async function runPublishTrain(
           mergeAuthoredOverPublished((plan.publishedConfig ?? {}) as BosConfigInput, rawConfig)
         : rawConfig;
 
-  // Everything the pipeline has not already started uploads now — same
-  // bounded pool. With build:false there is nothing to upload (config-only).
-  for (const key of built ?? []) {
-    if (targets.includes(key)) startUpload(key);
-  }
-
+  const urlOrigin = plan.cdnOrigin ?? `https://${gateway}`;
   const deployTargets = (built ?? []).filter((key) => targets.includes(key));
-  const settled = await Promise.allSettled(
-    deployTargets.map(
-      (key) =>
-        uploaded.get(key) ??
-        Promise.resolve({
-          entries: [],
-          detail: { base: "", uploaded: 0, skipped: 0, durationMs: 0, notes: [] },
-        }),
-    ),
-  );
+  const platformEntries: DeployResultEntry[] = [];
+  const fullUpload = input.fullUpload === true || process.env.BOS_FULL_UPLOAD === "1";
+  // Previous per-workspace pins for the diff upload: the local pointer wins
+  // (written after every confirmed publish), the published config is the
+  // fallback. Neither → full upload.
+  const prevPins: Record<string, PreviousPin> = fullUpload
+    ? {}
+    : {
+        ...pinsFromPublishedConfig(
+          (plan.publishedConfig ?? {}) as BosConfigInput,
+          account,
+          gateway,
+        ),
+        ...pinsFromDeployState(configDir, account, gateway),
+      };
 
-  const uploadFailures = settled
-    .map((result, index) =>
-      result.status === "rejected"
-        ? { key: deployTargets[index], error: result.reason as unknown }
-        : null,
-    )
-    .filter((entry): entry is { key: string; error: unknown } => entry !== null);
-
-  for (let index = 0; index < deployTargets.length; index++) {
-    const result = settled[index];
-    const key = deployTargets[index];
-    if (result.status === "fulfilled") {
-      platformEntries.push(...result.value.entries);
-      render?.uploadOutcome?.({
-        key,
-        ok: true,
-        ...(input.verbose ? { detailNotes: result.value.detail.notes } : {}),
-        ...result.value.detail,
-      });
-    } else {
-      render?.uploadOutcome?.({ key, ok: false });
-    }
-  }
-
-  if (uploadFailures.length > 0) {
-    const thrown = uploadFailures[0].error;
-    if (thrown instanceof PublishTrainError) throw thrown;
-    throw new PublishTrainError({
-      kind: "upload",
+  console.log();
+  console.log(`  CDN deploy — uploading workspace dists to ${storageOrigin}...`);
+  const sourcePublish = bosConfig.publish?.sourcePublish === true;
+  const gitSha = await resolveGitSha(configDir);
+  const memoryBackendAbort = () =>
+    new PublishTrainError({
+      kind: "memory-backend",
       registryUrl,
       built,
       skipped,
       deployResults,
-      error: thrown instanceof Error ? thrown.message : String(thrown),
+      error:
+        "The receiving instance is serving bundle storage from memory (BOS_STORAGE_* R2 credentials are not configured there) — uploaded bytes would be lost on restart. Aborting before publish.",
     });
+  for (const key of deployTargets) {
+    const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
+    if (!ws) continue;
+
+    const outcome = await uploadWorkspaceBundle({
+      account,
+      gateway,
+      workspaceKey: key,
+      distDir: join(ws.path, "dist"),
+      storageOrigin,
+      storageApiKey,
+      urlOrigin,
+      previousPin: prevPins[key],
+      ...(sourcePublish ? { source: sourceLegDirs(ws.path) } : {}),
+      ...(gitSha ? { gitSha } : {}),
+      deps: deps.storage,
+    });
+    if (outcome.kind === "error") {
+      throw new PublishTrainError({
+        kind: "upload",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        error: outcome.message,
+      });
+    }
+    if (outcome.kind === "memory") throw memoryBackendAbort();
+    if (outcome.kind === "missing-manifest") {
+      throw new PublishTrainError({
+        kind: "missing-manifest",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        error: `bundle upload for ${key}: version manifest missing — the dist predates hashed entry names (rebuild required; atomic-deploys hard break)`,
+      });
+    }
+
+    if (sourcePublish && outcome.storage === "memory") throw memoryBackendAbort();
+
+    platformEntries.push(
+      ...platformUrlDeployEntries({
+        origin: urlOrigin,
+        account,
+        gateway,
+        key,
+        kind: ws.kind,
+        integrity: outcome.entryIntegrity,
+        ssrIntegrity: outcome.ssrEntryIntegrity,
+        pin: outcome.pin,
+      }),
+    );
+
+    // Folder-form plugin ui: the workspace build also produces <plugin>/ui/dist
+    // (web remoteEntry + ssr container) — upload it as its own bundle key and
+    // pin <slot>.<key>.ui.* so the host can compose the ui surface in production.
+    if (hasFolderFormUi(ws.path)) {
+      const uiDistDir = join(ws.path, "ui", "dist");
+      const uiSlot = ws.kind === "app" ? "app" : "plugins";
+      const rawSlot = (uiSlot === "app" ? rawConfig.app : rawConfig.plugins) as
+        | Record<string, Record<string, unknown> | undefined>
+        | undefined;
+      const rawUi = rawSlot?.[key]?.ui as Record<string, unknown> | undefined;
+      const uiName = resolveUiRuntimeName(rawUi, join(ws.path, "ui"), key);
+      let uiIntegrity: string | undefined;
+      let uiSsrIntegrity: string | undefined;
+      let uiPin: (typeof outcome)["pin"] | undefined;
+      if (existsSync(uiDistDir)) {
+        const uiOutcome = await uploadWorkspaceBundle({
+          account,
+          gateway,
+          workspaceKey: `${key}-ui`,
+          distDir: uiDistDir,
+          storageOrigin,
+          storageApiKey,
+          urlOrigin,
+          previousPin: prevPins[`${key}-ui`],
+          deps: deps.storage,
+        });
+        if (uiOutcome.kind === "error") {
+          throw new PublishTrainError({
+            kind: "upload",
+            registryUrl,
+            built,
+            skipped,
+            deployResults,
+            error: uiOutcome.message,
+          });
+        }
+        if (uiOutcome.kind === "memory") throw memoryBackendAbort();
+        if (uiOutcome.kind === "missing-manifest") {
+          throw new PublishTrainError({
+            kind: "missing-manifest",
+            registryUrl,
+            built,
+            skipped,
+            deployResults,
+            error: `bundle upload for ${key}-ui: version manifest missing — the dist predates hashed entry names (rebuild required; atomic-deploys hard break)`,
+          });
+        }
+        uiIntegrity = uiOutcome.entryIntegrity;
+        uiSsrIntegrity = uiOutcome.ssrEntryIntegrity;
+        uiPin = uiOutcome.pin;
+      } else {
+        console.log(
+          `    ${colors.green(icons.ok)} ${padRight(`${key}-ui`, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/`,
+        );
+      }
+
+      platformEntries.push(
+        ...pluginUiUrlDeployEntries({
+          origin: urlOrigin,
+          account,
+          gateway,
+          key,
+          kind: ws.kind,
+          integrity: uiIntegrity,
+          ssrIntegrity: uiSsrIntegrity,
+          name: uiName,
+          pin: uiPin,
+        }),
+      );
+    }
   }
 
   if (platformEntries.length > 0) {
@@ -733,12 +541,17 @@ export async function runPublishTrain(
     registryUrl,
   });
 
-  render?.publish?.({
-    registryUrl,
-    fingerprint,
-    slotPins: Object.entries(publishSlotPins),
-    auditManifestFile: manifestKey.split("/").pop() ?? manifestKey,
-  });
+  console.log();
+  console.log("  Publishing to:");
+  console.log(`    ${colors.cyan(registryUrl)}`);
+  console.log(`    ${colors.dim("Fingerprint:")} ${fingerprint}`);
+  for (const [slot, pin] of Object.entries(publishSlotPins)) {
+    console.log(`    ${colors.dim(`${slot}:`)}`);
+    console.log(`      ${pin}`);
+  }
+  console.log(
+    `    ${colors.dim(`+ per-deploy manifest ${manifestKey.split("/").pop()} (audit trail)`)}`,
+  );
 
   // Record the live pins for the next deploy's diff upload — only after the
   // config is confirmed published, so the pointer never claims undeployed state.
@@ -758,11 +571,6 @@ export async function runPublishTrain(
   };
 
   try {
-    // NOT deduped with the preflight's published-config read (#430): that
-    // fetch returns the raw stored JSON, while the idempotency comparison is
-    // normalization-sensitive (the registry reader Zod-parses — defaults and
-    // key order differ) — comparing across the two readers misdetects drift
-    // and would republish every run. The equality fetch stays.
     const alreadyPublished = await isConfigAlreadyPublished({
       account,
       gateway,
@@ -854,9 +662,6 @@ export async function runPublishTrain(
         publishConfig: publishPayload,
         registry: input.registry,
         fetchConfig: deps.registry.fetchConfig,
-        ...(result.txHash
-          ? { txHash: result.txHash, fetchHistory: deps.registry.fetchHistory }
-          : {}),
       });
     } catch (error) {
       throw new PublishTrainError({
@@ -946,7 +751,6 @@ export class DeployTrainService extends Context.Service<
       const registry = yield* RegistryStore;
       const signer = yield* SignerService;
       const buildTrainOption = yield* Effect.serviceOption(BuildTrainService);
-      const renderOption = yield* Effect.serviceOption(DeployTrainRenderService);
       return DeployTrainService.of({
         publish: (input: DeployTrainInput) =>
           Effect.tryPromise({
@@ -956,7 +760,6 @@ export class DeployTrainService extends Context.Service<
                 registry,
                 signer,
                 buildTrain: Option.getOrUndefined(buildTrainOption) ?? defaultBuildTrain,
-                render: Option.getOrUndefined(renderOption),
               }),
             catch: (error) =>
               error instanceof PublishTrainError

@@ -11,7 +11,6 @@ import { parseCommandInput } from "./cli/parse";
 import { promptInitBasic, promptInitOverrides } from "./cli/prompts";
 import { printConfigView } from "./cli/render/config";
 import { failedDeployLegs, renderDeployLegs } from "./cli/render/deploy";
-import { renderBuildWarnings } from "./cli/render/deploy-train";
 import { clearSpinnerStopLine, printStartSummary, printTimingSummary } from "./cli/render/dev";
 import { formatTimeAgo } from "./cli/render/logs";
 import { renderPs } from "./cli/render/processes";
@@ -1454,9 +1453,14 @@ async function main() {
           console.log(`  ${colors.dim("Skipped:")} ${deployResult.skipped.join(", ")}`);
         }
         if (deployResult.deployResults) {
-          renderBuildWarnings(
-            deployResult.deployResults as Array<{ key: string; warnings?: string[] }>,
-          );
+          const warnings = deployResult.deployResults.flatMap((r: any) => r.warnings ?? []);
+          if (warnings.length > 0) {
+            console.log();
+            console.log(`  ${colors.yellow("⚠")} Build warnings:`);
+            for (const w of warnings) {
+              console.log(`    ${colors.dim(w)}`);
+            }
+          }
         }
         if (deployResult.image) {
           console.log(`  ${colors.dim("Image:")} ${deployResult.image}`);

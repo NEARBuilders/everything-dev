@@ -1,5 +1,4 @@
 import { access, readFile } from "node:fs/promises";
-import os from "node:os";
 import process from "node:process";
 import { Context, Effect, Layer, Option } from "effect";
 import { resolveLocalDevelopmentPath } from "../../config";
@@ -7,7 +6,7 @@ import type { WorkspaceDeployResult } from "../../contract";
 import { syncResolvedSharedDeps } from "../../shared-deps";
 import type { BosConfig, BosPluginRef, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
-import { contentHashStalenessOracle, ensureFreshDeps, findWorkspaceRoot } from "../../workspace";
+import { ensureFreshDeps, findWorkspaceRoot } from "../../workspace";
 
 const buildCommands: Record<string, { cmd: string; args: string[] }> = {
   host: { cmd: "pnpm", args: ["run", "build"] },
@@ -110,9 +109,6 @@ export type WorkspaceBuildOutcome = {
   error?: string;
   durationMs: number;
   stderr: string;
-  /** Warning segments extracted from the build's own output — attributed to
-   * this workspace and rendered in the Build section, never interleaved raw. */
-  warnings: string[];
 };
 
 /** Render events the build train emits (#424) — the ✓/✗ table, the deploy
@@ -132,12 +128,6 @@ export interface BuildTargetsInput {
   targets: string[];
   deploy: boolean;
   verbose?: boolean;
-  /** Parallel-build cap (#430) — defaults to ~os.cpus(). Unbounded parallelism
-   * oversubscribes 2-4 core CI runners. */
-  concurrency?: number;
-  /** Escape hatch for the content-hash oracle (#430): force every prerequisite
-   * rebuild (the pre-#430 deploy behavior). */
-  forceBuild?: boolean;
 }
 
 export interface BuildTargetsDeps {
@@ -145,36 +135,12 @@ export interface BuildTargetsDeps {
   freshDeps?: typeof ensureFreshDeps;
   fileExists?: typeof fileExists;
   render?: WorkspaceBuildRender;
-  /** Fired as each workspace's build SUCCEEDS (#430) — the deploy train
-   * pipelines that workspace's upload while the rest of the train builds. */
-  onWorkspaceBuilt?: (key: string) => void;
 }
 
 export interface BuildTargetsResult {
   built: string[];
   skipped: string[];
   deployResults?: WorkspaceDeployResult[];
-}
-
-/** Pulls warning segments out of a build's stderr: a WARNING/⚠ line opens a
- * segment that runs to the next blank line; `$ ` command echoes never count. */
-export function extractBuildWarnings(stderr: string): string[] {
-  const warnings: string[] = [];
-  let current: string[] | null = null;
-  for (const line of stderr.split("\n")) {
-    if (current === null) {
-      if (!/^\$\s/.test(line.trim()) && /WARNING|⚠|\bwarning\b/i.test(line)) {
-        current = [line];
-      }
-    } else if (line.trim() === "") {
-      if (current.some((l) => l.trim().length > 0)) warnings.push(current.join("\n"));
-      current = null;
-    } else {
-      current.push(line);
-    }
-  }
-  if (current?.some((l) => l.trim().length > 0)) warnings.push(current.join("\n"));
-  return warnings;
 }
 
 async function buildOneWorkspace(
@@ -186,7 +152,6 @@ async function buildOneWorkspace(
   const buildConfig = buildCommands[ws.key] ?? { cmd: "pnpm", args: ["run", "build"] };
   const verbose = opts.verbose ?? false;
   const startTime = Date.now();
-  const stderrBuffer: string[] = [];
 
   const proc = await (deps.runChild ?? run)(buildConfig.cmd, buildConfig.args, {
     cwd: ws.path,
@@ -194,10 +159,7 @@ async function buildOneWorkspace(
     capture: true,
     onChunk: (stream, chunk) => {
       if (stream === "stderr") {
-        // Raw streaming is verbose-only; by default stderr is buffered and
-        // surfaced attributed — as warnings in the Build section (#431).
-        if (verbose) process.stderr.write(chunk);
-        stderrBuffer.push(chunk.toString());
+        process.stderr.write(chunk);
       } else if (verbose) {
         process.stdout.write(chunk);
       }
@@ -212,7 +174,6 @@ async function buildOneWorkspace(
     kind: ws.kind,
     success: exitCode === 0,
     stderr: proc?.stderr ?? "",
-    warnings: extractBuildWarnings(stderrBuffer.join("")),
     ...(exitCode !== 0 && {
       error: `Build failed (exit code ${exitCode})\n${output.trim().split("\n").slice(-5).join("\n")}`,
     }),
@@ -220,7 +181,6 @@ async function buildOneWorkspace(
   };
 
   if (!verbose) deps.render?.outcome?.(result);
-  if (result.success) deps.onWorkspaceBuilt?.(ws.key);
 
   return result;
 }
@@ -281,22 +241,10 @@ export async function buildWorkspaceTargets(
   if (input.deploy) env.DEPLOY = "true";
   else delete env.DEPLOY;
 
-  const root = findWorkspaceRoot(input.configDir);
-  // Deploy prerequisite freshness (#430): the content-hash oracle replaces the
-  // blanket force-rebuild — unknown hash or missing dist errs toward building.
-  // The force flag (input or BOS_FORCE_BUILD=1) keeps the old behavior as an
-  // escape hatch: a forced build never judges.
-  const force = input.deploy && (input.forceBuild === true || process.env.BOS_FORCE_BUILD === "1");
   const depsReport = await (deps.freshDeps ?? ensureFreshDeps)(
     input.configDir,
     existing.map((entry) => entry.path),
-    {
-      force,
-      env,
-      ...(input.deploy && root && !force
-        ? { oracle: contentHashStalenessOracle(root.dir, root.members) }
-        : {}),
-    },
+    { force: input.deploy, env },
   );
   if (depsReport.rebuilt.length > 0) {
     render?.prerequisites?.(depsReport.rebuilt.map((member) => member.name));
@@ -322,10 +270,8 @@ export async function buildWorkspaceTargets(
     const total = parallelGroup.length + sequentialGroup.length;
     render?.banner?.(total);
 
-    const results = await mapWithConcurrency(
-      parallelGroup,
-      (ws) => buildOneWorkspace(ws, env, input, deps),
-      buildConcurrencyCap(input.concurrency),
+    const results = await Promise.allSettled(
+      parallelGroup.map((ws) => buildOneWorkspace(ws, env, input, deps)),
     );
 
     for (let i = 0; i < parallelGroup.length; i++) {
@@ -342,7 +288,6 @@ export async function buildWorkspaceTargets(
           kind: ws.kind,
           success: false,
           error: result.reason?.message ?? "Unknown error",
-          warnings: [],
         });
       }
     }
@@ -372,36 +317,6 @@ export async function buildWorkspaceTargets(
   }
 
   return { built, skipped, deployResults: input.deploy ? deployResults : undefined };
-}
-
-export function buildConcurrencyCap(requested?: number): number {
-  const cpus = os.cpus().length;
-  const cap = Math.max(1, Math.min(requested ?? cpus, cpus));
-  return cap;
-}
-
-/** Runs `fn` over `items` with at most `limit` in flight; results keep input
- * order. Rejections propagate after all in-flight work settles. */
-export async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  fn: (item: T, index: number) => Promise<R>,
-  limit: number,
-): Promise<PromiseSettledResult<R>[]> {
-  const results: PromiseSettledResult<R>[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
-    while (true) {
-      const index = next++;
-      if (index >= items.length) return;
-      try {
-        results[index] = { status: "fulfilled", value: await fn(items[index], index) };
-      } catch (reason) {
-        results[index] = { status: "rejected", reason };
-      }
-    }
-  });
-  await Promise.all(workers);
-  return results;
 }
 
 /** Presentation seam the composition root wires to `cli/render` (#424). */

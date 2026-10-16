@@ -2,7 +2,6 @@ import process from "node:process";
 import * as p from "@clack/prompts";
 import { Context, Effect, Layer } from "effect";
 import { buildScoped, buildScopedContext } from "every-plugin";
-import { cliDeployTrainRender } from "./cli/render/deploy-train";
 import { cliWorkspaceBuildRender } from "./cli/render/workspace-build";
 import { bosContract } from "./contract";
 import { DatabaseBindings, DrizzleKit, makeDatabaseBindings, makeDrizzleKitLive } from "./db";
@@ -27,7 +26,6 @@ import { SignerService } from "./services/auth/signer";
 import { SiteClient } from "./services/auth/site-client";
 import { DbOpsService } from "./services/db-ops";
 import { BundleStorage, RegistryStore } from "./services/deploy/deps";
-import { DeployTrainRenderService } from "./services/deploy/render";
 import { DeployTrainService } from "./services/deploy/train";
 import { DevFlowService } from "./services/dev-flow";
 import { OpsService } from "./services/ops";
@@ -44,11 +42,6 @@ export { type ProgressEvent, pluginEvents } from "./progress";
 const buildRenderLayer = Layer.succeed(
   WorkspaceBuildRenderService,
   WorkspaceBuildRenderService.of(cliWorkspaceBuildRender),
-);
-
-const deployRenderLayer = Layer.succeed(
-  DeployTrainRenderService,
-  DeployTrainRenderService.of(cliDeployTrainRender),
 );
 
 const buildTrainLayer = BuildTrainService.Live.pipe(Layer.provide(buildRenderLayer));
@@ -115,7 +108,6 @@ export default createPlugin({
         buildRenderLayer,
         buildTrainLayer,
         deployTrainLayer,
-        deployRenderLayer,
         OpsService.Live,
         DbOpsService.Live.pipe(Layer.provide(Layer.mergeAll(dbBindingsLayer, drizzleKitLayer))),
         PluginAdminService.Live.pipe(Layer.provide(deployTrainLayer)),
