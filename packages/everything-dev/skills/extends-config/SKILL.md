@@ -2,7 +2,7 @@
 name: extends-config
 description: How the authored config's extends chains work (bos.app.ts preferred; legacy bos.config.json supported), deep merge semantics, resolved config lifecycle, env-specific extends, and canonical field ordering. Use when debugging extends inheritance, configuring per-environment parents, understanding what dev writes vs publish writes, or reasoning about config merging.
 metadata:
-  sources: "packages/everything-dev/src/merge.ts,packages/everything-dev/src/config.ts,packages/everything-dev/src/shared-deps.ts,packages/everything-dev/src/types.ts"
+  sources: "packages/everything-dev/src/services/resolution/merge.ts,packages/everything-dev/src/config.ts,packages/everything-dev/src/shared-deps.ts,packages/everything-dev/src/types.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
@@ -182,7 +182,7 @@ From `packages/everything-dev/src/config.ts`:
 - `resolveBosConfigPath(configDir)` — returns resolved config path if exists, else the authored config
 - `readBosConfigForBuild(configDir)` — reads resolved config stripping `_resolved`, falls back to the authored config
 
-From `packages/everything-dev/src/merge.ts`:
+From `packages/everything-dev/src/services/resolution/merge.ts`:
 - `mergeBosConfigWithExtends(parent, child)` — deep merge for extends chain
 - `mergeBosConfigWithTemplate(local, template)` — merge for sync (local wins)
 - `resolveExtendsRef(extendsField, env)` — resolve string|object extends for a given env
