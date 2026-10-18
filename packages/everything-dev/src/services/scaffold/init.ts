@@ -1430,6 +1430,8 @@ This document provides operational guidance for AI agents working in this everyt
 
 ## Quick Reference
 
+**Never use bun.** CI fails on any \`bun.lock\` artifact — bun re-migrates the workspace (framework ADR 0026, see https://github.com/NEARBuilders/everything-dev). Run package managers and executables as \`pnpm …\` / \`pnpm exec …\`.
+
 **Start Development:**
 \`\`\`bash
 pnpm install
@@ -1664,6 +1666,8 @@ bos kill        # Kill all tracked processes
 pnpm install    # Ensure dependencies
 pnpm run dev    # Restart
 \`\`\`
+
+**Docker commands hang instead of failing:** the daemon is down (it hangs, not fails — a slow API call masks it). Start Docker Desktop and retry; probe with a short timeout, don't extend the timeout hoping it completes.
 
 **Module Federation errors:**
 - Check \`bos.app.ts\` URLs are accessible
