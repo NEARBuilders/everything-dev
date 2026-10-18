@@ -40,7 +40,14 @@ test.describe("SSR compose", () => {
       authRemote,
       "compose payload must include a remote keyed by a manifest name",
     ).toBeTruthy();
-    expect(manifestNames.size, "payload must embed both core and auth manifests").toBe(2);
+    expect(
+      manifestNames.size,
+      "payload must embed the core, auth and plugin-ui manifests",
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      [...manifestNames].some((name) => name.includes("docs")),
+      "payload must embed the docs plugin-ui manifest",
+    ).toBe(true);
     // Dev stacks serve the fixed dev entry; pinned (start) stacks serve the
     // content-hashed entry derived from the slot's version manifest.
     expect(authRemote?.entry, "auth remote must point at a remoteEntry").toMatch(

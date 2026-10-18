@@ -78,8 +78,11 @@ packages/every-plugin/tests
 !packages/every-plugin/tests/types.d.ts
 packages/everything-dev/tests
 
-# Docs
-docs
+# Docs — README/LLM/CONTRIBUTING are image hygiene only; the repository docs
+# tree must stay in the build context: the docs plugin's velite config roots
+# there (plugins/docs/velite.config.ts) and compiles content into the
+# plugin's server bundle. The prod stage strips sources, so runtime images
+# never carry the tree.
 README.md
 LLM.txt
 CONTRIBUTING.md
