@@ -17,6 +17,10 @@
  *   teardown <ssr|csr>   rm -f the current-stamp container. Wired as the
  *                        browser suite's global teardown so a graceful run
  *                        always ends with the stack down.
+ *   watch <ssr|csr>      hold the caller's webServer process: tail the
+ *                        detached container's logs, exit non-zero when the
+ *                        container dies, remove it on SIGTERM/SIGINT. Chained
+ *                        after ensure by the regression:start:* scripts.
  *
  * The container name and image tag both embed the stamp from
  * regression-stack-core.mjs. Re-runs against unchanged code reuse the
@@ -32,10 +36,13 @@ import process from "node:process";
 import { computeRegressionEnv } from "./regression-env.mjs";
 import { computeStamp, reapPlan, stackName } from "./regression-stack-core.mjs";
 
-const usage = `usage: regression-stack.mjs <ensure|cleanup|teardown> <ssr|csr>`;
+const usage = `usage: regression-stack.mjs <ensure|cleanup|teardown|watch> <ssr|csr>`;
 const mode = process.argv[2];
 const variant = process.argv[3];
-if (!["ensure", "cleanup", "teardown"].includes(mode) || !["ssr", "csr"].includes(variant)) {
+if (
+  !["ensure", "cleanup", "teardown", "watch"].includes(mode) ||
+  !["ssr", "csr"].includes(variant)
+) {
   console.error(usage);
   process.exit(1);
 }
@@ -288,6 +295,33 @@ const teardown = async () => {
   log(`teardown complete (${name})`);
 };
 
+/**
+ * Watch mode: keep the calling harness's webServer process alive. Playwright
+ * treats a webServer command that exits before teardown as a boot failure
+ * even when the stack is already healthy, so the regression:start:*
+ * scripts run `ensure` then hold with this command: tail the detached
+ * container's logs, exit non-zero if the container dies mid-suite, and
+ * remove it on the teardown signals — a graceful end leaves the stack down;
+ * a SIGKILLed caller leaves the healthy detached container behind, which
+ * the next ensure reuses or reaps.
+ */
+const watch = async () => {
+  const stamp = computeStamp(await stampInputs());
+  const name = stackName(variant, stamp);
+  const tail = spawn("docker", ["logs", "-f", "--tail", "100", name], {
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  const teardownOnSignal = () => {
+    spawnSync("docker", ["rm", "-f", name], { stdio: "ignore" });
+    tail.kill("SIGKILL");
+    process.exit(0);
+  };
+  process.on("SIGTERM", teardownOnSignal);
+  process.on("SIGINT", teardownOnSignal);
+  tail.on("exit", () => process.exit(1));
+};
+
 if (mode === "cleanup") await cleanup();
 else if (mode === "ensure") await ensure();
+else if (mode === "watch") await watch();
 else await teardown();
