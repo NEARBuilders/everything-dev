@@ -30,6 +30,9 @@ node_modules
 # Build artifacts
 dist
 **/dist
+# velite content output (compiled fresh inside the container by the docs
+# plugin's rspack hook — a local copy is stale context bytes)
+**/.velite
 .turbo
 **/.turbo
 
