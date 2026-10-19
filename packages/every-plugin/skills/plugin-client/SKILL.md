@@ -60,7 +60,8 @@ import { RPCLink } from "@orpc/client/fetch";
 const HOST = "https://dev.everything.dev";
 
 const link = new RPCLink({
-  url: `${HOST}/api/rpc`,
+  origin: HOST,
+  url: "/api/rpc",
   fetch: globalThis.fetch,
   headers: {
     "x-api-key": process.env.EVERYTHING_DEV_API_KEY!,
@@ -69,6 +70,8 @@ const link = new RPCLink({
 
 const client = createORPCClient(link);
 ```
+
+`RPCLink` takes `origin` plus a relative `url` — its `url` option is typed as `StandardUrl` (`/${string}`), so a concatenated absolute URL like `url: \`${HOST}/api/rpc\`` fails typechecking at the link boundary.
 
 ### URL Structure
 
@@ -114,7 +117,8 @@ Two credential mechanisms:
 
 ```ts
 const link = new RPCLink({
-  url: `${HOST}/api/rpc`,
+  origin: HOST,
+  url: "/api/rpc",
   fetch: globalThis.fetch,
   headers: { "x-api-key": "edk_xxxxxxxxxxxxxxx" },
 });
@@ -124,7 +128,8 @@ const link = new RPCLink({
 
 ```ts
 const link = new RPCLink({
-  url: `${HOST}/api/rpc`,
+  origin: HOST,
+  url: "/api/rpc",
   fetch: (url, options) => fetch(url, { ...options, credentials: "include" }),
 });
 ```
@@ -268,7 +273,8 @@ Pass the key in the `x-api-key` header:
 
 ```ts
 const link = new RPCLink({
-  url: `${HOST}/api/rpc`,
+  origin: HOST,
+  url: "/api/rpc",
   fetch: globalThis.fetch,
   headers: { "x-api-key": "edk_xxxxxxxxxxxxxxx" },
 });
