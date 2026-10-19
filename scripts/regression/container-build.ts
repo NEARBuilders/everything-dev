@@ -316,6 +316,11 @@ const ports = {
   authUi: basePort + 4,
 };
 
+// One plugin→port mapping for the whole staging plan — auth serves on its own
+// slot port, the other local plugins are indexed from basePort+10.
+const pluginPort = (key: string): number =>
+  key === "auth" ? ports.auth : basePort + 10 + localPlugins.findIndex(([k]) => k === key);
+
 const sri384 = (bytes: string | Uint8Array): string =>
   `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
 
@@ -472,17 +477,13 @@ const stage = () => {
       pin: pins.authUi,
     },
     plugins: Object.fromEntries(
-      localPlugins.map(([key]) => {
-        const port =
-          key === "auth" ? ports.auth : basePort + 10 + localPlugins.findIndex(([k]) => k === key);
-        return [
-          key,
-          {
-            production: slotUrl(port, key),
-            pin: pins[key],
-          },
-        ];
-      }),
+      localPlugins.map(([key]) => [
+        key,
+        {
+          production: slotUrl(pluginPort(key), key),
+          pin: pins[key],
+        },
+      ]),
     ),
   };
 
@@ -529,7 +530,7 @@ const stage = () => {
     if (key === "auth") continue;
     servers.push({
       dir: `dist/plugins/${key}`,
-      port: basePort + 10 + localPlugins.findIndex(([k]) => k === key),
+      port: pluginPort(key),
       ...(nsBase ? { basePath: `${nsBase}/${key}` } : {}),
     });
   }

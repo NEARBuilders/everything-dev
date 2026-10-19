@@ -119,7 +119,7 @@ const reapStaleContainers = () => {
 };
 
 const mappedRange = () => {
-  const fallback = [basePort, basePort + 20];
+  const fallback = { range: [basePort, basePort + 20], containerBasePort: basePort };
   const result = spawnSync(
     "docker",
     ["run", "--rm", "--entrypoint", "cat", image, "/app/.bos/regression/image/layout.json"],
@@ -127,7 +127,7 @@ const mappedRange = () => {
   );
   if (result.status !== 0) {
     log(
-      `could not read the staged layout (docker run exited ${result.status}) — mapping the fixed ${fallback[0]}-${fallback[1]} range`,
+      `could not read the staged layout (docker run exited ${result.status}) — mapping the fixed ${fallback.range[0]}-${fallback.range[1]} range`,
     );
     return fallback;
   }
@@ -139,16 +139,16 @@ const mappedRange = () => {
     if (!Number.isInteger(low) || !Number.isInteger(high) || high < low) {
       throw new Error("degenerate layout ports");
     }
-    return [low, high];
+    return { range: [low, high], containerBasePort: layout.basePort };
   } catch (error) {
     log(
-      `unreadable staged layout (${error.message}) — mapping the fixed ${fallback[0]}-${fallback[1]} range`,
+      `unreadable staged layout (${error.message}) — mapping the fixed ${fallback.range[0]}-${fallback.range[1]} range`,
     );
     return fallback;
   }
 };
 
-const dockerRun = (range) =>
+const dockerRun = (range, containerBasePort) =>
   spawn(
     "docker",
     [
@@ -162,12 +162,33 @@ const dockerRun = (range) =>
       // host-port-only map leaves every page load hanging.
       "-p",
       `${range[0]}-${range[1]}:${range[0]}-${range[1]}`,
+      // Container-internal ports are fixed (baked into the image) — when
+      // REGRESSION_BASE_URL's port differs, the 1:1 map leaves /health
+      // probing a port nothing answers; map the runner's port explicitly.
+      ...portOverrides(range, containerBasePort).flatMap(([host, container]) => [
+        "-p",
+        `${host}:${container}`,
+      ]),
       "--add-host=host.docker.internal:host-gateway",
       ...Object.entries(childEnv).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
       image,
     ],
     { stdio: "inherit" },
   );
+
+function portOverrides(range, containerBasePort) {
+  const runnerPort = regressionEnv.basePort;
+  if (runnerPort === containerBasePort) return [];
+  if (runnerPort >= range[0] && runnerPort <= range[1]) {
+    console.error(
+      `[start-container:${variant}] REGRESSION_BASE_URL port ${runnerPort} collides with the ` +
+        `container's fixed port map ${range[0]}-${range[1]} — set REGRESSION_BASE_URL ` +
+        `outside that block (e.g. :${range[1] + 1}) or restore the container base ${containerBasePort}`,
+    );
+    process.exit(1);
+  }
+  return [[runnerPort, containerBasePort]];
+}
 
 const main = async () => {
   await waitForDatabases();
@@ -177,8 +198,8 @@ const main = async () => {
   log(`building the deployment image (docker build --target regression)…`);
   await run("docker", ["build", "--target", "regression", "-t", image, "."]);
 
-  const range = mappedRange();
-  const child = dockerRun(range);
+  const { range, containerBasePort } = mappedRange();
+  const child = dockerRun(range, containerBasePort);
   const teardown = () => {
     dockerRemove([containerName], "teardown: container already gone");
   };
