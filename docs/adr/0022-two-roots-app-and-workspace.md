@@ -59,7 +59,7 @@ use one directory for both. That conflation produced latent bugs:
    the registry, no members) get an empty closure and a no-op.
 
 4. **The module is the seam.** The workspace frame is one module,
-   `packages/everything-dev/src/workspace.ts`: two verbs (`findWorkspaceRoot`,
+   `packages/everything-dev/src/services/workspace/workspace.ts`: two verbs (`findWorkspaceRoot`,
    `ensureFreshDeps`), one pure function (`localDepsOf`, also the test surface), four
    types (`WorkspaceMember`, `WorkspaceRoot`, `DepsReport`, `DepsBuildFailure`). All
    enumeration, oracle derivation, staleness, and execution are implementation.

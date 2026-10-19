@@ -21,16 +21,16 @@ import type {
   ImportResult,
   ImportRouteDelta,
 } from "../../contract";
-import { fetchResponse } from "../../http-client";
-import { computeSriHash } from "../../integrity";
 import type { ExtendsConfig } from "../../types";
+import { fetchResponse } from "../../utils/http-client";
 import { computeSnapshotHash } from "../../utils/snapshot-hash";
 import { listWorkspaceSubtreeFiles } from "../../utils/workspace-subtree";
-import { findWorkspaceRoot } from "../../workspace";
+import { computeSriHash } from "../deploy/integrity";
 import { parseBosUrl } from "../registry/fastkv";
 import { resolveExtendsRef } from "../resolution/merge";
 import type { ResolutionIo } from "../resolution/session";
 import { type WalkLink, walkExtendsChain } from "../resolution/session";
+import { findWorkspaceRoot } from "../workspace/workspace";
 import { downloadTarball, parseGitHubUrl, runPnpmInstall, runTypesGen } from "./init";
 import { readSnapshot, writeSnapshot } from "./snapshot";
 import { mergePackageJson } from "./sync";

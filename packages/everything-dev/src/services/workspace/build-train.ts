@@ -4,10 +4,10 @@ import process from "node:process";
 import { Context, Effect, Layer, Option } from "effect";
 import { resolveLocalDevelopmentPath } from "../../config";
 import type { WorkspaceDeployResult } from "../../contract";
-import { syncResolvedSharedDeps } from "../../shared-deps";
 import type { BosConfig, BosPluginRef, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
-import { contentHashStalenessOracle, ensureFreshDeps, findWorkspaceRoot } from "../../workspace";
+import { syncResolvedSharedDeps } from "./shared-deps";
+import { contentHashStalenessOracle, ensureFreshDeps, findWorkspaceRoot } from "./workspace";
 
 const buildCommands: Record<string, { cmd: string; args: string[] }> = {
   host: { cmd: "pnpm", args: ["run", "build"] },

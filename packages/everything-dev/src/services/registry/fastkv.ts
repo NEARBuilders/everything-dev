@@ -10,7 +10,7 @@ interface FastKvListResponse {
   entries?: Array<FastKvEntry | null>;
 }
 
-import { fetchJsonOrNull, fetchRaw } from "../../http-client";
+import { fetchJsonOrNull, fetchRaw } from "../../utils/http-client";
 
 function getNetworkIdForAccount(accountId: string): NetworkId {
   return accountId.endsWith(".testnet") ? "testnet" : "mainnet";

@@ -1,7 +1,6 @@
 import process from "node:process";
 import { Effect } from "effect";
 import { parseKey } from "near-kit";
-import type { SessionCredential } from "../auth-session";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import {
   DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS,
@@ -10,16 +9,17 @@ import {
   type LoginResult,
   type LogoutResult,
 } from "../contract";
-import { deleteAccessKeys } from "../near-cli";
-import { getNetworkIdForAccount } from "../network";
-import { loginOutlayerCli } from "../outlayer-login";
 import { DeviceLoginService, openInBrowser } from "../services/auth/device-login";
+import { deleteAccessKeys } from "../services/auth/near-cli";
+import { loginOutlayerCli } from "../services/auth/outlayer";
 import { mintPublishKey, PUBLISH_FUNCTION_NAMES } from "../services/auth/publish-key";
+import type { SessionCredential } from "../services/auth/session";
 import { SessionStore } from "../services/auth/session-store";
 import { SiteClient, type SiteClientShape } from "../services/auth/site-client";
 import { getRegistryNamespaceForAccount } from "../services/registry/fastkv";
 import type { ResolutionSession } from "../services/resolution/session";
 import { ResolutionSessionService } from "../services/resolution/session";
+import { getNetworkIdForAccount } from "../utils/network";
 import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";
 

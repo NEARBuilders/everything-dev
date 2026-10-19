@@ -19,8 +19,8 @@ vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
     },
   };
 });
-vi.mock("../../src/http-client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/http-client")>();
+vi.mock("../../src/utils/http-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/utils/http-client")>();
   return {
     ...actual,
     fetchResponse: async () => {

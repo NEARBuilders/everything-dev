@@ -11,7 +11,7 @@ import {
   removePublishedKeyFile,
   updateSessionHandle,
   writeSessionHandle,
-} from "../../src/auth-session";
+} from "../../src/services/auth/session";
 
 describe("auth-session", () => {
   let configDir: string;

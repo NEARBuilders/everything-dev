@@ -3,22 +3,22 @@ import { dirname, join, relative } from "node:path";
 import { execa } from "execa";
 import { glob } from "glob";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { loadAppDescriptorConfig } from "../../config";
+import type { OverrideSection } from "../../contract";
+import { serializeAppDescriptorSource } from "../../descriptor/serialize";
+import type { BosConfigInput, ParentStarterConfig, StarterLevel } from "../../types";
+import { saveBosConfig } from "../../utils/save-config";
+import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
 import {
   buildAuthContractStub,
   buildAuthExportStub,
   buildAuthTypesGenContent,
-} from "../../auth-types-gen";
-import { loadAppDescriptorConfig } from "../../config";
-import type { OverrideSection } from "../../contract";
-import { serializeAppDescriptorSource } from "../../descriptor/serialize";
-import { resolveCatalogChainSource } from "../../init-source";
+} from "../codegen/auth-types";
 import {
   loadManifestNormalizationSpec,
   normalizePackageManifestsInTree,
-} from "../../internal/manifest-normalizer";
-import type { BosConfigInput, ParentStarterConfig, StarterLevel } from "../../types";
-import { saveBosConfig } from "../../utils/save-config";
-import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
+} from "../registry/manifest-normalizer";
+import { resolveCatalogChainSource } from "../resolution/init-source";
 import { writeSnapshot } from "./snapshot";
 
 export {
@@ -30,7 +30,7 @@ export {
   resolveRepositoryViaExtendsChain,
   resolveSourceDir,
   type SourceResult,
-} from "../../init-source";
+} from "../resolution/init-source";
 
 export const PNPM_PACKAGE_MANAGER = "pnpm@12.10.1";
 
@@ -1149,8 +1149,6 @@ export async function runTypesGen(
 
   throw new Error("Unable to locate bos CLI for types generation");
 }
-
-export { runDockerComposeUp } from "../../infra/docker";
 
 async function runWithProgress(
   command: string,

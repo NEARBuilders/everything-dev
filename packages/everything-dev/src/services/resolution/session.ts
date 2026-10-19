@@ -3,7 +3,6 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Context } from "effect";
 import { applyDevOverlay } from "../../descriptor/resolve";
-import { readWorkspaceCatalog, resolveSourceDir } from "../../init-source";
 import type {
   BosConfig,
   BosConfigInput,
@@ -14,6 +13,7 @@ import type {
 import { BosConfigSchema } from "../../types";
 import { parseBosRef } from "../../utils/bos-ref";
 import { fetchBosConfigFromFastKv } from "../registry/fastkv";
+import { readWorkspaceCatalog, resolveSourceDir } from "./init-source";
 import {
   CircularExtendsError,
   ConfigExtendsError,

@@ -6,7 +6,7 @@ import {
   type RawLogLine,
   resolveLogLevel,
   stripAnsi,
-} from "../../src/dev-log-pipeline";
+} from "../../src/services/dev/logs";
 
 // Fixtures modeled on real `bos dev` session output: Effect Logger
 // pretty-printed objects, Better Auth stdout warnings, dev-server banner

@@ -65,12 +65,12 @@
     },
     "./bundle-cache": {
       "development": {
-        "types": "./src/bundle-cache.ts",
-        "import": "./src/bundle-cache.ts"
+        "types": "./src/services/registry/bundle-cache.ts",
+        "import": "./src/services/registry/bundle-cache.ts"
       },
-      "types": "./dist/bundle-cache.d.mts",
-      "import": "./dist/bundle-cache.mjs",
-      "require": "./dist/bundle-cache.cjs"
+      "types": "./dist/services/registry/bundle-cache.d.mts",
+      "import": "./dist/services/registry/bundle-cache.mjs",
+      "require": "./dist/services/registry/bundle-cache.cjs"
     },
     "./fingerprint": {
       "development": {
@@ -83,12 +83,12 @@
     },
     "./version-manifest-resolve": {
       "development": {
-        "types": "./src/version-manifest-resolve.ts",
-        "import": "./src/version-manifest-resolve.ts"
+        "types": "./src/services/deploy/version-manifest.ts",
+        "import": "./src/services/deploy/version-manifest.ts"
       },
-      "types": "./dist/version-manifest-resolve.d.mts",
-      "import": "./dist/version-manifest-resolve.mjs",
-      "require": "./dist/version-manifest-resolve.cjs"
+      "types": "./dist/services/deploy/version-manifest.d.mts",
+      "import": "./dist/services/deploy/version-manifest.mjs",
+      "require": "./dist/services/deploy/version-manifest.cjs"
     },
     "./resolver": {
       "development": {
@@ -119,21 +119,21 @@
     },
     "./federation": {
       "development": {
-        "types": "./src/services/federation.ts",
-        "import": "./src/services/federation.ts"
+        "types": "./src/services/federation/service.ts",
+        "import": "./src/services/federation/service.ts"
       },
-      "types": "./dist/services/federation.d.mts",
-      "import": "./dist/services/federation.mjs",
-      "require": "./dist/services/federation.cjs"
+      "types": "./dist/services/federation/service.d.mts",
+      "import": "./dist/services/federation/service.mjs",
+      "require": "./dist/services/federation/service.cjs"
     },
     "./integrity": {
       "development": {
-        "types": "./src/integrity.ts",
-        "import": "./src/integrity.ts"
+        "types": "./src/services/deploy/integrity.ts",
+        "import": "./src/services/deploy/integrity.ts"
       },
-      "types": "./dist/integrity.d.mts",
-      "import": "./dist/integrity.mjs",
-      "require": "./dist/integrity.cjs"
+      "types": "./dist/services/deploy/integrity.d.mts",
+      "import": "./dist/services/deploy/integrity.mjs",
+      "require": "./dist/services/deploy/integrity.cjs"
     },
     "./plugin": {
       "development": {

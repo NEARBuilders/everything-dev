@@ -2,8 +2,8 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { CustodyWalletRecord } from "../../src/auth-session";
-import { loginOutlayerCli } from "../../src/outlayer-login";
+import { loginOutlayerCli } from "../../src/services/auth/outlayer";
+import type { CustodyWalletRecord } from "../../src/services/auth/session";
 
 const FAKE_CLI = `#!/bin/sh
 printf '%s\\n' "$*" >> "$RECORD_LOG"

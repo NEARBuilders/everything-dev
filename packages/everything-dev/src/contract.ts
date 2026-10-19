@@ -1,8 +1,8 @@
 import "@orpc/openapi/extensions/route";
 import * as z from "zod";
-import type { DevSessionData, StartSummary } from "./dev-session-data";
-import { isValidImageDigest } from "./image-deploy";
 import { oc } from "./sdk";
+import { isValidImageDigest } from "./services/deploy/image";
+import type { DevSessionData, StartSummary } from "./services/dev/session";
 import {
   BosConfigInputSchema,
   BosConfigSchema,

@@ -2,7 +2,7 @@ import { platform } from "node:os";
 import { BOS_CLI_CLIENT_ID } from "better-near-auth";
 import { Context, Effect, Layer } from "effect";
 import { execa } from "execa";
-import type { CustodyWalletRecord } from "../../auth-session";
+import type { CustodyWalletRecord } from "./session";
 import {
   parseSiteErrorDetail,
   authPost as realAuthPost,

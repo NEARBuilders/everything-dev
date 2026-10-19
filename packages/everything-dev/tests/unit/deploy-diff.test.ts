@@ -13,7 +13,7 @@ import {
   readDeployState,
   upsertDeployStatePins,
   workspaceKeyOfBase,
-} from "../../src/deploy-diff";
+} from "../../src/services/deploy/diff";
 import type { BosConfigInput } from "../../src/types";
 
 const bytes = (content: string) => new TextEncoder().encode(content);

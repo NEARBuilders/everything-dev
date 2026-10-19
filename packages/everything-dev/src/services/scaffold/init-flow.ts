@@ -2,16 +2,16 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { Context, Effect, Layer } from "effect";
-import { generateCodeArtifacts } from "../../code-artifacts";
 import type { InitResult, OverrideSection, PhaseTiming } from "../../contract";
 import { makeProjectEnv } from "../../env/project-env";
 import { materializeViaLayer } from "../../infra/materializer";
-import { timePhase } from "../../progress";
-import { syncResolvedSharedDeps } from "../../shared-deps";
 import type { BosConfig, BosConfigInput, StarterLevel } from "../../types";
 import { saveBosConfig } from "../../utils/save-config";
+import { generateCodeArtifacts } from "../codegen/artifacts";
+import { timePhase } from "../dev/progress";
 import { parseBosUrl } from "../registry/fastkv";
 import { openResolution } from "../resolution/session";
+import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import {
   buildInitPatterns,
   buildPluginRouteExclusions,

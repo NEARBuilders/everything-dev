@@ -26,7 +26,7 @@ export function renderBuildWarnings(
 
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
-import { formatDuration } from "../timing";
+import { formatDuration } from "../../utils/timing";
 
 const NAME_COLUMN = 28;
 

@@ -7,10 +7,10 @@ import type {
   RollbackResult,
   WorkspaceDeployResult,
 } from "../contract";
-import { isValidImageDigest } from "../image-deploy";
-import { summarizeSlotPins, verifyRollbackSnapshot } from "../rollback";
 import type { PublishTrainError, PublishTrainOk } from "../services/deploy/errors";
+import { isValidImageDigest } from "../services/deploy/image";
 import { runPostPublishLegs } from "../services/deploy/legs";
+import { summarizeSlotPins, verifyRollbackSnapshot } from "../services/deploy/rollback";
 import {
   fetchLiveConfig,
   fetchRollbackHistory,

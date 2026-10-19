@@ -225,6 +225,7 @@ export default defineConfig({
 - Forgetting `vite-tsconfig-paths` plugin — package subpath imports like `every-plugin/errors` won't resolve
 - Omitting the `registry` object when calling `createPluginRuntime(...)` — the runtime requires explicit plugin entries
 - Testing only happy paths — always test error channels (Effect failures, ORPCError throws)
+- Asserting errors by message from a client call — oRPC v2 does not transport undefined-error messages, so message-based assertions are brittle. Match on `error.code` instead: `await expect(client.getById({ id: "x" })).rejects.toMatchObject({ code: "NOT_FOUND" })`.
 
 ## The tasks you will actually be given
 

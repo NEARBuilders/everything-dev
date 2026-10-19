@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isLocalOrigin, probeStorageOrigin, resolveCdnDeployInputs } from "../../src/cdn-deploy";
+import {
+  isLocalOrigin,
+  probeStorageOrigin,
+  resolveCdnDeployInputs,
+} from "../../src/services/deploy/cdn";
 
 const configWithCdn = (origin?: string) =>
   ({

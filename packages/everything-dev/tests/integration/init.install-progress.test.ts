@@ -10,8 +10,8 @@ import {
   writeChildWorkspaceYaml,
 } from "../../src/cli/init";
 
-vi.mock("../../src/http-client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/http-client")>();
+vi.mock("../../src/utils/http-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/utils/http-client")>();
   return {
     ...actual,
     fetchResponse: async () => {

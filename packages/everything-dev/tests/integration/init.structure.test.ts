@@ -10,7 +10,7 @@ import {
   copyFilteredFiles,
   personalizeConfig,
 } from "../../src/cli/init";
-import { loadManifestNormalizationSpec } from "../../src/internal/manifest-normalizer";
+import { loadManifestNormalizationSpec } from "../../src/services/registry/manifest-normalizer";
 import { writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");

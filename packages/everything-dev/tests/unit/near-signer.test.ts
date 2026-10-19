@@ -28,8 +28,8 @@ vi.mock("near-kit", async (importOriginal) => {
   return { ...actual, Near: NearMock };
 });
 
-vi.mock("../../src/near-cli", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/near-cli")>();
+vi.mock("../../src/services/auth/near-cli", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/auth/near-cli")>();
   return {
     ...actual,
     executeKeychainTransaction: keychainSubmit,
@@ -42,7 +42,7 @@ import {
   resolveSigningKey,
   resolveSigningStrategy,
   submitRegistryWrite,
-} from "../../src/near-signer";
+} from "../../src/services/auth/near-signer";
 
 const VALID_KEY =
   "ed25519:5dGS92auiST5KtcLpBG3hQXnWUX2ny94BGYHbzup4jhzyYcpisz6TeoSGKhVQNTtcdANs9MJp5tqqPe21aCGjtBx";

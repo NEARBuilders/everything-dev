@@ -9,7 +9,7 @@ vi.mock("execa", () => ({
   execa: execaMock,
 }));
 
-import { ensureNearCli, executeKeychainTransaction } from "../../src/near-cli";
+import { ensureNearCli, executeKeychainTransaction } from "../../src/services/auth/near-cli";
 
 const KEYCHAIN_ARGS = {
   account: "v1.citynode.near",

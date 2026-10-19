@@ -5,7 +5,7 @@ import {
   readSessionHandle,
   removePublishedKeyFile,
   writeSessionHandle,
-} from "../../auth-session";
+} from "./session";
 
 /**
  * The `.bos/session.json` handle as a Context.Service tag (ticket #423): the

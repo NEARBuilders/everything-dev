@@ -8,10 +8,10 @@ import {
   rewriteLegacyDistImports,
   upgradeTemplate,
 } from "../../src/cli/upgrade";
-import * as initSourceModule from "../../src/init-source";
+import * as initSourceModule from "../../src/services/resolution/init-source";
 import * as scaffoldInitModule from "../../src/services/scaffold/init";
 import * as syncModule from "../../src/services/scaffold/sync";
-import * as sharedDepsModule from "../../src/shared-deps";
+import * as sharedDepsModule from "../../src/services/workspace/shared-deps";
 
 describe("upgrade bos config migration", () => {
   const tempDirs: string[] = [];
