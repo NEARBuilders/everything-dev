@@ -175,11 +175,13 @@ Procedure-level errors (like `UNAUTHORIZED`, `NOT_FOUND`) are thrown as `ORPCErr
 try {
   await apiClient.authHealth();
 } catch (error) {
-  if (error instanceof ORPCError) {
-    // Handle specific error
+  if (error instanceof ORPCError && error.code === "UNAUTHORIZED") {
+    // Handle specific error by code
   }
 }
 ```
+
+Branch on `error.code`, never on `error.message` — oRPC v2 does not transport undefined-error messages, so copy is not reliable across client and server.
 
 ## Auth Client
 
