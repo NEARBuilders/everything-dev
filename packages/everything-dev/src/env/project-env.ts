@@ -85,9 +85,11 @@ export const syncEnvFile = (
       if (shellOwned) return line;
       seen.add(key);
       const value = line.slice(key.length + 1);
-      if (value === generated[key]) return line;
-      drift.push({ key, from: value, to: generated[key] });
-      return `${key}=${generated[key]}`;
+      const generatedValue = generated[key];
+      if (generatedValue === undefined) return line;
+      if (value === generatedValue) return line;
+      drift.push({ key, from: value, to: generatedValue });
+      return `${key}=${generatedValue}`;
     });
 
     for (const [key, value] of Object.entries(generated)) {

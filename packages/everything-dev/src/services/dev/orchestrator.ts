@@ -213,7 +213,7 @@ export class HostModuleInvalid extends Data.TaggedError("HostModuleInvalid")<Rec
 }
 
 export class LocalPathMissing extends Data.TaggedError("LocalPathMissing")<{ key: string }> {
-  get message() {
+  override get message() {
     return `No localPath for local service: ${this.key}`;
   }
 }
