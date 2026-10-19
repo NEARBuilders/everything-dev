@@ -21,10 +21,11 @@ permissions:
   packages: write
 
 jobs:
-  # Deploy gate: only fresh CI runs of a push to main, and only while the
-  # validated commit is still the tip of main. Manual dispatches must run
-  # against main; stale runs are skipped (the queued run for the new tip
-  # deploys instead).
+  # Deploy gate: only fresh CI runs of a push to main, only while the
+  # validated commit is still the tip of main, and only with no pending
+  # changesets (packages awaiting release — the "chore: version packages"
+  # merge ships the deploy). Manual dispatches must run against main;
+  # stale runs are skipped (the queued run for the new tip deploys instead).
   gate:
     name: Verify deploy is current
     if: >-
@@ -33,7 +34,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      deploy: ${{ steps.tip.outputs.current == 'true' && steps.relevance.outputs.relevant == 'true' }}
+      deploy: ${{ steps.tip.outputs.current == 'true' && steps.relevance.outputs.relevant == 'true' && steps.pending.outputs.pending != 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -83,6 +84,35 @@ jobs:
             echo "relevant=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Skipping deploy — the merged diff touches no runtime-relevant paths:"
             while IFS= read -r f; do echo "  $f"; done <<< "$FILES"
+          fi
+
+      # Pending-changesets gate: while .changeset/*.md files exist on main,
+      # packages are awaiting release — skip the deploy and let the
+      # "chore: version packages" merge (which deletes them) ship it, with the
+      # freshly published versions. Like changesets' own read step, README.md
+      # is not a changeset. Manual dispatches are an explicit human override
+      # and force-deploy past pending changesets. The checkout above already
+      # points at the CI-validated commit (workflow_run head_sha), so this
+      # reads the merged tree.
+      - name: Check for pending changesets
+        id: pending
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          shopt -s nullglob
+          PENDING=()
+          for f in .changeset/*.md; do
+            [ "$(basename "$f")" = "README.md" ] && continue
+            PENDING+=("$f")
+          done
+          if [ ${#PENDING[@]} -gt 0 ]; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping deploy — ${#PENDING[@]} pending changeset(s); deploy runs after 'chore: version packages' merges:"
+            for f in "${PENDING[@]}"; do echo "  $f"; done
+          else
+            echo "pending=false" >> "$GITHUB_OUTPUT"
           fi
 
   # Image leg: build the `runtime` stage and push it to GHCR (sha-<short> +
@@ -248,8 +278,9 @@ jobs:
       # The Railway deploy leg shells out to the `railway` CLI — runners don't
       # ship it, and a missing binary surfaces as a silent instant exit-1
       # (execa spawn failure mapped to exit code 1 by the deploy's run helper).
+      # Pinned to the current major (matches consumer-deploy.yml); bump deliberately.
       - name: Install Railway CLI
-        run: npm i -g @railway/cli
+        run: npm i -g @railway/cli@^5
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin

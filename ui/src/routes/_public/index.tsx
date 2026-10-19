@@ -57,7 +57,7 @@ function LandingPage() {
             nativeButton={false}
             render={<Link to="/about" data-testid="landing-about" />}
           >
-            Learn more
+            About the platform
             <ArrowRightIcon />
           </Button>
           <Button

@@ -273,24 +273,27 @@ async function runLockedTransaction(
   // Pre-scan: identify migrations containing ALTER TYPE ... ADD VALUE so they can
   // be executed outside the transaction (PostgreSQL forbids ALTER TYPE ADD VALUE inside a transaction block).
   // These migrations will be skipped inside the transaction and should be run in a dedicated migration.
-  const addValueHashes = new Set<string>()
+  const addValueHashes = new Set<string>();
   for (const migration of sorted) {
     const hasAddValue = migration.sql.some((stmt) => {
-      const sqlStr = stmt.replace(/"public"/g, "").toUpperCase()
-      return sqlStr.startsWith("ALTER TYPE") && sqlStr.includes("ADD VALUE")
-    })
+      const sqlStr = stmt.replace(/"public"\./g, "").toUpperCase();
+      return sqlStr.startsWith("ALTER TYPE") && sqlStr.includes("ADD VALUE");
+    });
     if (hasAddValue) {
       for (const stmt of migration.sql) {
-        const sqlStr = stmt.replace(/"public"/g, "")
-        if (sqlStr.toUpperCase().startsWith("ALTER TYPE") && sqlStr.toUpperCase().includes("ADD VALUE")) {
-          await db.execute(sql.raw(sqlStr))
+        const sqlStr = stmt.replace(/"public"\./g, "");
+        if (
+          sqlStr.toUpperCase().startsWith("ALTER TYPE") &&
+          sqlStr.toUpperCase().includes("ADD VALUE")
+        ) {
+          await db.execute(sql.raw(sqlStr));
         }
       }
-      addValueHashes.add(migration.hash)
+      addValueHashes.add(migration.hash);
     }
   }
 
-  const filteredSorted = sorted.filter((migration) => !addValueHashes.has(migration.hash))
+  const filteredSorted = sorted.filter((migration) => !addValueHashes.has(migration.hash));
 
   await db.transaction(async (tx) => {
     await tx.execute(
@@ -329,7 +332,7 @@ async function runLockedTransaction(
 
     const appliedHashes = await readAppliedHashesIn(tx, ref);
 
-for (const migration of filteredSorted) {
+    for (const migration of filteredSorted) {
       const isApplied =
         appliedHashes.has(migration.hash) || appliedHashes.has(migration.hash.slice(0, 12));
       if (isApplied) continue;
