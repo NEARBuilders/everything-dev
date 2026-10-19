@@ -1,5 +1,11 @@
 # every-plugin
 
+## 3.0.0-rc.7
+
+### Patch Changes
+
+- 374594e: oRPC v2 test scaffolds and skills: `RPCLink` snippets now teach `origin` plus a relative `url` (`StandardUrl` — a concatenated absolute URL fails typechecking at the link boundary), and client-side error guidance matches on `error.code` rather than message (oRPC v2 does not transport undefined-error messages). The `_template` integration test and the every-plugin request-context test were switched from message assertions to code assertions.
+
 ## 3.0.0-rc.6
 
 ### Minor Changes

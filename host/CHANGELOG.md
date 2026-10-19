@@ -1,5 +1,25 @@
 # host
 
+## 2.0.0-rc.4
+
+### Patch Changes
+
+- 4a7970c: SnapshotWatch adopt resolves the published pointer's extends chain; `walkExtendsChain`/`resolveMergedConfigInput` accept a `seedConfig`
+
+  - A child runtime's published pointer stores only its own overrides — slots inherited from its parent via `extends` (notably `app.host`) are absent. The adopt transaction built a runtime config straight from the raw pointer, so every adopt crashed with `Cannot read properties of undefined (reading 'production')` and the watch retried forever (backing off to 5 minutes). The adopt now derives the pointer through the same extends-walking pipeline the boot path uses, so inherited slots reach the runtime build and hot swaps work for `extends`-based child runtimes.
+  - The walk is seeded with the exact pointer bytes the watch fingerprinted (`seedConfig`) — no refetch of the entry itself, and fixture/historical pointers adopt without being published at their own URL. Parent nodes always load normally.
+  - No fallbacks: a pointer without a `domain` fails the adopt (there is no bos:// ref to resolve — never guess one), and the watch refuses to run against a `everything.dev`-guessed target — a domain-less production boot config disables the watch with a loud error instead of silently polling another runtime's pointer.
+  - An unresolvable extends chain fails the adopt with a surfaced cause and leaves the live snapshot untouched, per the adopt contract.
+
+- 1555405: SnapshotWatch adopt failures surface their real cause and back off; failed oRPC responses log their route
+
+  - The watch's adopt-failure log now walks the full cause chain instead of printing Effect's generic `UnknownError` wrapper message ("An error occurred in Effect.tryPromise") — a deterministically failing adopt is self-diagnosing in production logs.
+  - Consecutive adopt failures back off exponentially from the watch interval (capped at 5 minutes, reset on any clean/swapped tick) instead of retrying — and logging — every 30 seconds forever.
+  - Failed oRPC responses (status ≥ 400 through `/api`, `/api/rpc`, or a plugin's RPC route) log one line with the method and pathname, so an error box in the logs can be tied to the route that produced it.
+
+- Updated dependencies [374594e]
+  - every-plugin@3.0.0-rc.7
+
 ## 2.0.0-rc.3
 
 ### Patch Changes
