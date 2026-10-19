@@ -28,20 +28,29 @@ export class ChunkCompletenessPlugin implements RspackPluginInstance {
         if (!entry) return;
 
         const jsFiles = new Set(names.filter((n) => n.endsWith(".js")));
-        const source = assets[entry].source().toString();
+        const entryAsset = assets[entry];
+        if (!entryAsset) return;
+        const source = entryAsset.source().toString();
 
         const special = new Map<string, string>();
         const u = source.match(/\.u\s*=\s*(\w+)=>([^,;]+)/);
-        if (u) {
-          for (const m of u[2].matchAll(/(\d+)\s*===\s*\w+\s*\?\s*"([^"]+)"/g)) {
-            special.set(m[1], m[2]);
+        const uExpression = u?.[2];
+        if (uExpression) {
+          for (const m of uExpression.matchAll(/(\d+)\s*===\s*\w+\s*\?\s*"([^"]+)"/g)) {
+            const chunkId = m[1];
+            const chunkName = m[2];
+            if (chunkId && chunkName) special.set(chunkId, chunkName);
           }
         }
 
         for (const pa of source.matchAll(/Promise\.all\(\[([^\]]*)\]\)/g)) {
-          for (const m of pa[1].matchAll(/(?:__webpack_require__|\w+)\.e\((\d+)\)/g)) {
+          const eagerList = pa[1];
+          if (!eagerList) continue;
+          for (const m of eagerList.matchAll(/(?:__webpack_require__|\w+)\.e\((\d+)\)/g)) {
             const id = m[1];
-            const file = special.has(id) ? `${special.get(id)}.js` : `${id}.js`;
+            if (!id) continue;
+            const chunkName = special.get(id);
+            const file = chunkName ? `${chunkName}.js` : `${id}.js`;
             if (!jsFiles.has(file)) {
               compilation.errors.push(
                 new Error(
