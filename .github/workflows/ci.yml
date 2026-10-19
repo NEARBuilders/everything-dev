@@ -27,7 +27,7 @@ permissions:
 jobs:
   detect-changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       everything-dev: ${{ steps.changes.outputs.everything-dev }}
       every-plugin: ${{ steps.changes.outputs.every-plugin }}
@@ -141,7 +141,7 @@ jobs:
 
   lint-and-typecheck:
     name: Lint and Type Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -212,7 +212,7 @@ jobs:
 
   workflows-lint:
     name: Workflow lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes]
     if: needs.detect-changes.outputs.workflows == 'true'
     timeout-minutes: 5
@@ -237,7 +237,7 @@ jobs:
     name: Framework tests
     needs: [detect-changes]
     if: needs.detect-changes.outputs.everything-dev == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout repository
@@ -267,7 +267,7 @@ jobs:
     name: Plugin tests
     needs: [detect-changes]
     if: needs.detect-changes.outputs.plugins == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -321,7 +321,7 @@ jobs:
     name: UI and API tests
     needs: [detect-changes]
     if: needs.detect-changes.outputs.ui-api == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -350,7 +350,7 @@ jobs:
     name: Host tests
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.host == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -377,7 +377,7 @@ jobs:
 
   regression-unit:
     name: Regression unit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.regression-unit == 'true'
     timeout-minutes: 5
@@ -412,7 +412,7 @@ jobs:
             timeout: 15
           - command: start
             timeout: 25
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.regression-http == 'true'
     timeout-minutes: ${{ matrix.timeout }}
@@ -484,7 +484,7 @@ jobs:
 
   regression-framework:
     name: Regression framework (process death)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.regression-framework == 'true'
     timeout-minutes: 15
@@ -573,7 +573,7 @@ jobs:
           - mode: dev:csr
             slug: dev-csr
             timeout: 10
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.regression-browser == 'true'
     timeout-minutes: ${{ matrix.timeout }}

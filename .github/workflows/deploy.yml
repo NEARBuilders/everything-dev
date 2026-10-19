@@ -30,13 +30,13 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       deploy: ${{ steps.tip.outputs.current == 'true' && steps.relevance.outputs.relevant == 'true' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 2
@@ -96,14 +96,14 @@ jobs:
     name: Build and push runtime image
     needs: [gate]
     if: needs.gate.outputs.deploy == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
       image: ${{ steps.push.outputs.image }}
       digest: ${{ steps.push.outputs.digest }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
@@ -208,7 +208,7 @@ jobs:
     name: Deploy Production
     needs: [gate, image]
     if: needs.gate.outputs.deploy == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
@@ -225,7 +225,7 @@ jobs:
       BOS_IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
