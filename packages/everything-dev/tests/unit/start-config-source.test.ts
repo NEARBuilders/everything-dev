@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRegistryStart, resolveStartConfigSource } from "../../src/start-config-source";
+import { isRegistryStart, resolveStartConfigSource } from "../../src/services/start/source";
 
 describe("resolveStartConfigSource", () => {
   it("an explicit config outranks the registry identity", () => {

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { generateCodeArtifacts } from "../code-artifacts";
 import { MISSING_CONFIG_MESSAGE } from "../config";
+import { generateCodeArtifacts } from "../services/codegen/artifacts";
 import type { BosEnv } from "../services/resolution/merge";
 import { ResolutionSessionService } from "../services/resolution/session";
 import {

@@ -5,7 +5,7 @@ import {
   type ApiPluginManifest,
   disposeApiContractResolver,
   fetchApiPluginManifest,
-} from "../../src/api-contract";
+} from "../../src/services/codegen/api-contract";
 
 function makeManifest(overrides?: Partial<ApiPluginManifest>): ApiPluginManifest {
   return {

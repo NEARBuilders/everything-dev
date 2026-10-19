@@ -15,8 +15,8 @@ const { fetchApiPluginManifestMock } = vi.hoisted(() => ({
   fetchApiPluginManifestMock: vi.fn().mockRejectedValue(new Error("not mocked")),
 }));
 
-vi.mock("../../src/api-contract", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/api-contract")>();
+vi.mock("../../src/services/codegen/api-contract", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/codegen/api-contract")>();
   return {
     ...actual,
     fetchApiPluginManifest: fetchApiPluginManifestMock,

@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiPluginManifest } from "../../src/api-contract";
+import type { ApiPluginManifest } from "../../src/services/codegen/api-contract";
 import { buildDependencyDAG } from "../../src/services/registry/dag";
 
 // the stacking tests below are about manifest discovery + DAG order, not
 // version-manifest resolution — every remote slot pins a manifest, and
 // resolution is stubbed
-vi.mock("../../src/version-manifest-resolve", () => ({
+vi.mock("../../src/services/deploy/version-manifest", () => ({
   resolveSlotVersion: vi.fn(async () => ({
     entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
     entryIntegrity: "sha384-entry",
@@ -19,8 +19,8 @@ const { fetchApiPluginManifestMock } = vi.hoisted(() => ({
   fetchApiPluginManifestMock: vi.fn(),
 }));
 
-vi.mock("../../src/api-contract", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/api-contract")>();
+vi.mock("../../src/services/codegen/api-contract", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/codegen/api-contract")>();
   return {
     ...actual,
     fetchApiPluginManifest: fetchApiPluginManifestMock,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { uploadBundle } from "../../src/storage-upload";
+import { uploadBundle } from "../../src/services/deploy/storage";
 
 const okResponse = (body: unknown) =>
   new Response(JSON.stringify(body), {

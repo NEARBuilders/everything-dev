@@ -106,7 +106,7 @@ disk cache for namespaces mapped from the runtime config's slot URLs — a
 base-origin outage now degrades to serving last-known-good bytes
 (`x-bundle-cache: stale`) instead of a hard 502. The CLI fetch adapter gains
 the same cache for boot-time outbound fetches
-(`packages/everything-dev/src/bundle-cache.ts`, one cache root, two
+(`packages/everything-dev/src/services/registry/bundle-cache.ts`, one cache root, two
 entrances, `BOS_BUNDLE_CACHE_DIR`, default `.bos/bundle-cache` — deliberately
 separate from `BOS_BUNDLE_DIR`: cached bytes are a resilience artifact, never
 a deployment). Never enabled for plain dev sessions; cached bytes serve only

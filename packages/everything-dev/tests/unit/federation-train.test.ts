@@ -6,7 +6,7 @@ import {
   checkFederationTrain,
   everyPluginStamp,
   resolveAuthWorkspace,
-} from "../../src/federation-train";
+} from "../../src/services/federation/train";
 
 describe("resolveAuthWorkspace", () => {
   it("resolves a local auth app-slot to its workspace directory", () => {

@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { collectDistFiles, uploadBundle, uploadWorkspaceDist } from "../../src/storage-upload";
+import {
+  collectDistFiles,
+  uploadBundle,
+  uploadWorkspaceDist,
+} from "../../src/services/deploy/storage";
 
 describe("collectDistFiles", () => {
   const root = mkdtempSync(join(tmpdir(), "storage-upload-"));

@@ -1,20 +1,20 @@
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { Context, Effect, Layer } from "effect";
-import { probePortBindable } from "../app";
 import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
 import type { InfraExportResult, KillResult, LogsResult, StatusResult } from "../contract";
-import { readDevLatestLog, resolveDevLatestFile } from "../dev-logs";
 import { ownerOfPort } from "../infra/port-ownership";
-import { killProcessGroupEscalating, reapGroup } from "../process-kill";
-import { isPidAlive, readRegistry, unregisterPid } from "../process-registry";
-import { computeDeployedVersionStatus, type DeployedVersionStatus } from "../version-status";
+import { probePortBindable } from "../infra/ports";
+import { readDevLatestLog, resolveDevLatestFile } from "./dev/logs";
 import { buildCiInfraPlan } from "./infra";
+import { killProcessGroupEscalating, reapGroup } from "./processes/kill";
+import { isPidAlive, readRegistry, unregisterPid } from "./processes/registry";
 import { fetchBosConfigFromFastKv } from "./registry/fastkv";
 import { pointerFingerprint } from "./registry/fingerprint";
 import type { ResolutionSession } from "./resolution/session";
 import { openResolution } from "./resolution/session";
 import { getStatus } from "./status";
+import { computeDeployedVersionStatus, type DeployedVersionStatus } from "./version/status";
 
 export class OpsService extends Context.Service<
   OpsService,

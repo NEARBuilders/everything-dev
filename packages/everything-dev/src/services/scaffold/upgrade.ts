@@ -6,15 +6,15 @@ import * as p from "@clack/prompts";
 import { glob } from "glob";
 import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../../contract";
-import { syncResolvedSharedDeps } from "../../shared-deps";
 import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
 import { readJsonFile } from "../../utils/json-file";
 import { saveBosConfig } from "../../utils/save-config";
 import { timePhase } from "../../utils/timing";
-import { findWorkspaceRoot } from "../../workspace";
-import { readWorkspaceCatalog, writeWorkspaceCatalog } from "../../workspace-catalog";
 import { readInstalledFrameworkVersion } from "../framework-version";
 import { openResolution } from "../resolution/session";
+import { readWorkspaceCatalog, writeWorkspaceCatalog } from "../workspace/catalog";
+import { syncResolvedSharedDeps } from "../workspace/shared-deps";
+import { findWorkspaceRoot } from "../workspace/workspace";
 import {
   buildChildRootScripts,
   fetchParentConfig,

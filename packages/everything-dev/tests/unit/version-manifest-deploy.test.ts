@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeWorkspaceVersionManifest } from "../../src/version-manifest-deploy";
+import { composeWorkspaceVersionManifest } from "../../src/services/deploy/version-manifest";
 
 const webReport = {
   entry: "remoteEntry.cf712c39e56dc37f.js",

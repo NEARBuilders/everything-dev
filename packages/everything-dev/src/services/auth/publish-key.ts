@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { addFunctionCallAccessKey, ensureNearCli, listPublishKeys } from "../../near-cli";
-import { getNetworkIdForAccount } from "../../network";
+import { getNetworkIdForAccount } from "../../utils/network";
 import { getRegistryNamespaceForAccount } from "../registry/fastkv";
+import { addFunctionCallAccessKey, ensureNearCli, listPublishKeys } from "./near-cli";
 
 /** The FC methods a publish key is scoped to. */
 export const PUBLISH_FUNCTION_NAMES = ["__fastdata_kv"];

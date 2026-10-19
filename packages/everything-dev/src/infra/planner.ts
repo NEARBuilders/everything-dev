@@ -1,12 +1,11 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { Clock, Effect } from "effect";
-import { PortAllocator, type PortBlockEntry } from "../app";
 import {
   type AuthSlotShape,
   buildDescription,
   isAuthMirrorPluginEntry,
-} from "../service-descriptor";
+} from "../services/dev/service-descriptor";
 import {
   buildConventionalDatabases,
   buildConventionalRedis,
@@ -17,6 +16,7 @@ import {
 import type { RuntimeConfig } from "../types";
 import { shouldPersistPortState } from "./materializer";
 import { ownerOfPort } from "./port-ownership";
+import { PortAllocator, type PortBlockEntry } from "./ports";
 import type {
   ClaimRecord,
   CliPorts,

@@ -15,7 +15,7 @@ import {
   isValidImageDigest,
   resolveDeployImagePlan,
   resolveImageRef,
-} from "../../src/image-deploy";
+} from "../../src/services/deploy/image";
 
 describe("resolveImageRef", () => {
   it("prefers ci.image from bos.config.json", () => {

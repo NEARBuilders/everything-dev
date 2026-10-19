@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveImageLegPlan, resolveRailwayLeg, resolveRuntimeTier } from "../../src/deploy-legs";
+import {
+  resolveImageLegPlan,
+  resolveRailwayLeg,
+  resolveRuntimeTier,
+} from "../../src/services/deploy/legs";
 
 describe("resolveRuntimeTier", () => {
   it("is root when ci.image is configured", () => {

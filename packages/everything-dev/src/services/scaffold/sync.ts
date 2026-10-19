@@ -5,15 +5,15 @@ import { parse as parseYaml } from "yaml";
 import { loadAppDescriptorConfig } from "../../config";
 import type { SyncOptions, SyncResult } from "../../contract";
 import { materializeViaLayer } from "../../infra/materializer";
-import { syncResolvedSharedDeps } from "../../shared-deps";
 import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
-import { findWorkspaceRoot } from "../../workspace";
 import {
   isPlainObject as isPlainObjectFromMerge,
   mergeBosConfigWithTemplate,
   resolveExtendsRef,
 } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
+import { syncResolvedSharedDeps } from "../workspace/shared-deps";
+import { findWorkspaceRoot } from "../workspace/workspace";
 import {
   buildChildAgentsMd,
   buildChildRootScripts,

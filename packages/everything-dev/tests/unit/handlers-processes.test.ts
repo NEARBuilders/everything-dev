@@ -5,8 +5,8 @@ import { Context, Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerProcesses } from "../../src/handlers/processes";
 import type { BosBuilder } from "../../src/handlers/shared";
-import type { PidEntry } from "../../src/process-registry";
-import { ProcessesService } from "../../src/services/processes";
+import type { PidEntry } from "../../src/services/processes/registry";
+import { ProcessesService } from "../../src/services/processes/service";
 
 let registryDir: string | null = null;
 

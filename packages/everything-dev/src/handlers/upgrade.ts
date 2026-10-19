@@ -6,10 +6,10 @@ import { Effect } from "effect";
 import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { syncTemplate } from "../cli/sync";
 import { upgradeTemplate } from "../cli/upgrade";
-import { generateCodeArtifacts } from "../code-artifacts";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
-import { resolvePublishedConfig } from "../dev-program";
-import { checkFederationCompat } from "../services/federation";
+import { generateCodeArtifacts } from "../services/codegen/artifacts";
+import { checkFederationCompat } from "../services/federation/service";
+import { resolvePublishedConfig } from "../services/registry/published";
 import { openResolution } from "../services/resolution/session";
 import { selectWorkspaceTargets } from "../services/workspace/build-train";
 import type { BosConfig } from "../types";
@@ -280,7 +280,6 @@ export function registerUpgrade(builder: BosBuilder) {
 
           await generateCodeArtifacts(projectDir, resolvedConfig, {
             runtimeConfig: runtime,
-            emitPluginUiRouteTree: true,
           });
           type AppTarget = { source?: string; localPath?: string };
           const workspaceEntries: Array<{

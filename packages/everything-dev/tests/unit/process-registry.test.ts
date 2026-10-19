@@ -13,7 +13,7 @@ import {
   registerStandalone,
   unregisterPid,
   writeRegistry,
-} from "../../src/process-registry";
+} from "../../src/services/processes/registry";
 
 const ORIG_REGISTRY_PATH = process.env.BO_PID_REGISTRY_PATH;
 

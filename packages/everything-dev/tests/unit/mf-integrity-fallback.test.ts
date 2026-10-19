@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { computeSriHash, IntegrityRegistry } from "../../src/integrity";
-import { installIntegrityFetchHook } from "../../src/services/federation";
+import { computeSriHash, IntegrityRegistry } from "../../src/services/deploy/integrity";
+import { installIntegrityFetchHook } from "../../src/services/federation/service";
 
 const goodBytes = "console.log('the good entry');";
 const corruptedBytes = "console.log('tampered');";
@@ -48,7 +48,7 @@ describe("installIntegrityFetchHook — integrity-mismatch cache fallback (ticke
   const url = "https://cdn.example.test/bundles/a.near/g.app/ui/remoteEntry.8f3a.js";
 
   async function primeCache(bytes: string) {
-    const { writeBundleCache } = await import("../../src/bundle-cache");
+    const { writeBundleCache } = await import("../../src/services/registry/bundle-cache");
     await writeBundleCache(url, new TextEncoder().encode(bytes), { cacheDir });
   }
 
@@ -83,7 +83,7 @@ describe("installIntegrityFetchHook — integrity-mismatch cache fallback (ticke
     installIntegrityFetchHook(mf, registry, { cacheDir });
 
     await handler(url);
-    const { readBundleCache } = await import("../../src/bundle-cache");
+    const { readBundleCache } = await import("../../src/services/registry/bundle-cache");
     expect(await readBundleCache(url, { cacheDir })).toBeNull();
   });
 
@@ -100,7 +100,7 @@ describe("installIntegrityFetchHook — integrity-mismatch cache fallback (ticke
     const response = await handler(url);
     expect(response!.status).toBe(200);
 
-    const { readBundleCache } = await import("../../src/bundle-cache");
+    const { readBundleCache } = await import("../../src/services/registry/bundle-cache");
     const cached = await readBundleCache(url, { cacheDir });
     expect(cached && new TextDecoder().decode(cached)).toBe(goodBytes);
   });

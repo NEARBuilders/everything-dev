@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   readWorkspaceCatalog,
   writeWorkspaceCatalog,
-} from "../packages/everything-dev/src/workspace-catalog";
+} from "../packages/everything-dev/src/services/workspace/catalog";
 
 const FRAMEWORK_PACKAGES = ["everything-dev", "every-plugin", "better-near-auth"];
 

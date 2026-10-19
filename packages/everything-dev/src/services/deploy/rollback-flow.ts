@@ -1,10 +1,10 @@
-import { buildRollbackPayload, verifyRollbackSnapshot } from "../../rollback";
 import { type BosConfigInput, BosConfigSchema, type RuntimeConfig } from "../../types";
 import {
   type ConfigHistoryEntry,
   fetchBosConfigFromFastKv,
   fetchConfigHistory,
 } from "../registry/fastkv";
+import { buildRollbackPayload, verifyRollbackSnapshot } from "./rollback";
 import { publishToFastKv } from "./train";
 
 /**

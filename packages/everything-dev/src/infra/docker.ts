@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
 import { execa } from "execa";
-import { stripAnsi } from "../dev-log-pipeline";
+import { stripAnsi } from "../services/dev/logs";
 import type { PreflightFailure } from "./preflight";
 
 export interface DockerAutostartGuards {

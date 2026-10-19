@@ -2,7 +2,7 @@
 name: dev-workflow
 description: Development workflow for everything-dev projects using bos dev, bos start, and the Module Federation runtime. Use when starting dev servers, debugging hot reload, or understanding the service-descriptor architecture.
 metadata:
-  sources: "packages/everything-dev/src/service-descriptor.ts,packages/everything-dev/src/orchestrator.ts,packages/everything-dev/src/dev-logs.ts,packages/everything-dev/src/dev-session.ts,packages/everything-dev/src/process-registry.ts,packages/everything-dev/src/app.ts,packages/everything-dev/src/infra/preflight.ts,packages/everything-dev/src/dev-program.ts"
+  sources: "packages/everything-dev/src/services/dev/service-descriptor.ts,packages/everything-dev/src/services/dev/orchestrator.ts,packages/everything-dev/src/services/dev/logs.ts,packages/everything-dev/src/services/dev/session.ts,packages/everything-dev/src/services/processes/registry.ts,packages/everything-dev/src/infra/ports.ts,packages/everything-dev/src/infra/preflight.ts,packages/everything-dev/src/services/dev/boot.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
