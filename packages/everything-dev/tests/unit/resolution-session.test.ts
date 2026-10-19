@@ -5,6 +5,7 @@ import {
   openResolution,
   type ResolutionIo,
   ResolutionSession,
+  resolveMergedConfigInput,
   type WalkLink,
   walkExtendsChain,
 } from "../../src/services/resolution/session";
@@ -459,6 +460,71 @@ describe("walkExtendsChain (catalog mode)", () => {
     ).rejects.toThrow("visit blew up");
 
     expect(catalogMocks.cleanups).toEqual(["bos://parent.near/parent.dev", CHILD_REF]);
+  });
+});
+
+describe("walkExtendsChain × seedConfig", () => {
+  const countingIo = (remote: Record<string, unknown>): { io: ResolutionIo; fetches: string[] } => {
+    const fetches: string[] = [];
+    return {
+      fetches,
+      io: {
+        fetchBosConfig: async (url) => {
+          fetches.push(url);
+          if (!(url in remote)) throw new Error(`No config found for ${url}`);
+          return remote[url];
+        },
+        readFileOrNull: async () => null,
+        importModule: async () => {
+          throw new Error("importModule must not be reached by these fixtures");
+        },
+      },
+    };
+  };
+
+  it("uses the seed for the entry node and fetches the parent chain normally", async () => {
+    const { io, fetches } = countingIo({ [PARENT_REF]: remoteChainParent });
+    const { chain, config } = await walkExtendsChain(CHILD_REF, {
+      env: "production",
+      io,
+      seedConfig: remoteChainChild,
+      visit: async () => {},
+    });
+
+    expect(fetches).toEqual([PARENT_REF]);
+    expect(chain).toEqual([CHILD_REF, PARENT_REF]);
+    expect(config.app).toMatchObject({
+      ui: { production: "https://ui.child.dev" },
+      host: remoteChainParent.app?.host,
+    });
+  });
+
+  it("a seed without extends resolves to the seed itself and fetches nothing", async () => {
+    const { io, fetches } = countingIo({});
+    const { chain, config } = await walkExtendsChain(CHILD_REF, {
+      env: "production",
+      io,
+      seedConfig: remoteChainParent,
+      visit: async () => {},
+    });
+
+    expect(fetches).toEqual([]);
+    expect(chain).toEqual([CHILD_REF]);
+    expect(config).toEqual(remoteChainParent);
+  });
+
+  it("resolveMergedConfigInput forwards the seed and returns the merged config", async () => {
+    const { io } = countingIo({ [PARENT_REF]: remoteChainParent });
+    const merged = await resolveMergedConfigInput(CHILD_REF, {
+      env: "production",
+      io,
+      seedConfig: remoteChainChild,
+    });
+
+    expect(merged.app).toMatchObject({
+      ui: { production: "https://ui.child.dev" },
+      host: remoteChainParent.app?.host,
+    });
   });
 });
 
