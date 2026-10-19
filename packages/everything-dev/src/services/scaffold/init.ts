@@ -1150,8 +1150,6 @@ export async function runTypesGen(
   throw new Error("Unable to locate bos CLI for types generation");
 }
 
-export { runDockerComposeUp } from "../../infra/docker";
-
 async function runWithProgress(
   command: string,
   args: string[],

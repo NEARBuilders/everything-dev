@@ -1,10 +1,10 @@
 import * as p from "@clack/prompts";
 import type { InitOptions, InitResult, OverrideSection } from "../../contract";
 import { fetchInitParent } from "../../handlers/init";
+import { runDockerComposeUp } from "../../infra/docker";
 import { type ProgressEvent, pluginEvents } from "../../services/dev/progress";
 import { colors } from "../../utils/theme";
 import { exitCodeFor } from "../exit-codes";
-import { runDockerComposeUp } from "../init";
 import { promptInitBasic, promptInitOverrides } from "../prompts";
 import { printTimingSummary } from "../render/dev";
 import type { CommandContext } from "./context";
