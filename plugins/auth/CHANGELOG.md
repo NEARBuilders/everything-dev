@@ -1,5 +1,31 @@
 # @everything-dev/auth-plugin
 
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- 1555405: Better Auth resolves the client IP from `x-forwarded-for`
+
+  Behind a reverse proxy (Railway, and most PaaS ingress) the socket address is the proxy's, so Better Auth could not resolve the client IP and rate limiting collapsed into one shared per-path bucket — a single abusive client could throttle everyone. The `advanced.ipAddress.ipAddressHeaders` config now trusts the standard forwarded header; deployments without a proxy are unaffected (the header is absent and the existing fallback applies). Trust precondition: the proxy must **overwrite** `x-forwarded-for`, not append — a host reachable directly by clients lets them forge the header and rotate IPs past per-IP rate limits.
+
+- c6cdfc1: Session resolved once per authed call (#429): the host session middleware now makes a single `getContext` call (which carries the session row and user) instead of parallel `getSession` + `getContext` round-trips, `requireAuth` memoizes `sessionId`/`activeOrganizationId` into the oRPC context instead of discarding them, and the auth services (`requireOrganizer`, `listUserTeams`, `redeemOnboardingCode`, `addMember`, `getInvitation`) take session-derived values as explicit parameters instead of re-hitting better-auth with raw headers. `getContext` output carries the resolved `session` (id, token, userId, expiresAt, activeOrganizationId, activeTeamId, user) so the host and handlers can reuse the one resolution.
+- Updated dependencies [a499320]
+- Updated dependencies [1555405]
+- Updated dependencies [88dbfd9]
+- Updated dependencies [522397c]
+- Updated dependencies [1555405]
+- Updated dependencies [92a39ec]
+- Updated dependencies [a499320]
+- Updated dependencies [374594e]
+- Updated dependencies [a499320]
+- Updated dependencies [422c23c]
+- Updated dependencies [5b07be1]
+- Updated dependencies [5b07be1]
+- Updated dependencies [4a7970c]
+  - better-near-auth@2.0.0-rc.2
+  - everything-dev@2.0.0-rc.11
+  - every-plugin@3.0.0-rc.7
+
 ## 2.0.0-rc.4
 
 ### Minor Changes
