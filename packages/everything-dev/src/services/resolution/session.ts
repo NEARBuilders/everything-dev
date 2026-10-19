@@ -95,6 +95,10 @@ interface WalkOptions {
   registry?: string;
   io: ResolvedIo;
   collectCatalogs: boolean;
+  /** use this config for the entry node itself instead of fetching/reading
+   * it — the caller already holds the bytes (e.g. the adopt path's pointer);
+   * parent nodes always load normally */
+  seedConfig?: BosConfigInput;
   visit?: (link: WalkLink) => Promise<void>;
   registerCleanup?: (fn: () => Promise<void>) => void;
 }
@@ -173,7 +177,9 @@ async function walkExtends(
   let nodeBaseDir = baseDir;
   let sourceDir: string | undefined;
 
-  if (ref.startsWith("bos://") && options.collectCatalogs) {
+  if (options.seedConfig) {
+    config = options.seedConfig;
+  } else if (ref.startsWith("bos://") && options.collectCatalogs) {
     const parsed = parseBosRef(ref);
     if (!parsed) {
       throw new ConfigLoadError({ path: ref, message: `Invalid bos ref: ${ref}` });
@@ -218,13 +224,10 @@ async function walkExtends(
 
   const nextVisited = new Set(visited);
   nextVisited.add(ref);
-  const parent = await walkExtends(
-    parsedParentRef.configPath,
-    parentBaseDir,
-    nextVisited,
-    chain,
-    options,
-  );
+  const parent = await walkExtends(parsedParentRef.configPath, parentBaseDir, nextVisited, chain, {
+    ...options,
+    seedConfig: undefined,
+  });
 
   await options.visit?.({ ref, config, baseDir: nodeBaseDir, sourceDir, isLeaf: false });
   return mergeBosConfigWithExtends(parent, config);
@@ -478,6 +481,7 @@ export async function walkExtendsChain(
     io?: ResolutionIo;
     registry?: string;
     collectCatalogs?: boolean;
+    seedConfig?: BosConfigInput;
     visit: (link: WalkLink) => Promise<void>;
     registerCleanup?: (fn: () => Promise<void>) => void;
   },
@@ -491,6 +495,7 @@ export async function walkExtendsChain(
       registry: options.registry,
       io: resolveIo(options.io),
       collectCatalogs: options.collectCatalogs === true,
+      seedConfig: options.seedConfig,
       visit: options.visit,
       registerCleanup: options.registerCleanup ?? ((fn) => ownedCleanups.push(fn)),
     });
@@ -509,7 +514,13 @@ export async function walkExtendsChain(
  */
 export async function resolveMergedConfigInput(
   entry: string,
-  options?: { baseDir?: string; env?: BosEnv; io?: ResolutionIo; registry?: string },
+  options?: {
+    baseDir?: string;
+    env?: BosEnv;
+    io?: ResolutionIo;
+    registry?: string;
+    seedConfig?: BosConfigInput;
+  },
 ): Promise<BosConfigInput> {
   const baseDir = options?.baseDir ?? process.cwd();
   return walkExtends(entry, baseDir, new Set(), [], {
@@ -517,5 +528,6 @@ export async function resolveMergedConfigInput(
     registry: options?.registry,
     io: resolveIo(options?.io),
     collectCatalogs: false,
+    seedConfig: options?.seedConfig,
   });
 }
