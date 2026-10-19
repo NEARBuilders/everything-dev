@@ -282,7 +282,10 @@ async function runLockedTransaction(
     if (hasAddValue) {
       for (const stmt of migration.sql) {
         const sqlStr = stmt.replace(/"public"\./g, "");
-        if (sqlStr.toUpperCase().startsWith("ALTER TYPE") && sqlStr.toUpperCase().includes("ADD VALUE")) {
+        if (
+          sqlStr.toUpperCase().startsWith("ALTER TYPE") &&
+          sqlStr.toUpperCase().includes("ADD VALUE")
+        ) {
           await db.execute(sql.raw(sqlStr));
         }
       }

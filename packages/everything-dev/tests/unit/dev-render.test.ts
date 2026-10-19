@@ -515,7 +515,7 @@ describe("createDevRenderer (TTY alt-screen)", () => {
 });
 
 const clipLine = (line: string, cols: number): string => {
-  const visible = line.replace(/\x1b\[[0-9;]*m/g, "");
+  const visible = stripAnsi(line);
   if (visible.length <= cols) return line;
   let consumed = 0;
   let cut = line.length;
@@ -545,9 +545,9 @@ describe("clipLine", () => {
   it("truncates a long line and appends ellipsis", () => {
     const longLine = "This is a very long line that should be truncated";
     const clipped = clipLine(longLine, 20);
-    expect(clipped).toHaveLength(23);
-    expect(clipped).toEndWith("…");
-    const visible = clipped.replace(/\x1b\[[0-9;]*m/g, "");
+    expect(clipped).toHaveLength(20);
+    expect(clipped.endsWith("…")).toBe(true);
+    const visible = stripAnsi(clipped);
     expect(visible.length).toBeLessThanOrEqual(20);
   });
 
@@ -563,7 +563,6 @@ describe("clipLine", () => {
 
     const over20 = "123456789012345678901"; // 21 chars
     const clipped = clipLine(over20, 20);
-    expect(clipped).toEndWith("…");
+    expect(clipped.endsWith("…")).toBe(true);
   });
-});
 });
