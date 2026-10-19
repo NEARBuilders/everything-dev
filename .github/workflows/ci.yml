@@ -269,6 +269,11 @@ jobs:
     if: needs.detect-changes.outputs.plugins == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # ubuntu-26.04 runners serve /tmp on a separate filesystem from $HOME —
+    # near-kit's sandbox download renames /tmp → ~/.near-kit and dies with
+    # EXDEV unless TMPDIR lives on the $HOME device.
+    env:
+      TMPDIR: ${{ runner.temp }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
