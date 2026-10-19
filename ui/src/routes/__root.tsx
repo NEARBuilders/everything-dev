@@ -16,7 +16,11 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
-import { getRemoteScripts, getThemeInitScript } from "everything-dev/ui/head";
+import {
+  getRemotePreloadLinks,
+  getRemoteScripts,
+  getThemeInitScript,
+} from "everything-dev/ui/head";
 import { getSocialImageMeta } from "everything-dev/ui/metadata";
 import { MotionConfig } from "framer-motion";
 import { ThemeProvider } from "next-themes";
@@ -106,6 +110,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         }),
       ],
       links: [
+        ...getRemotePreloadLinks(runtimeConfig ?? undefined),
         {
           rel: "stylesheet",
           href: `${assetsUrl ?? ""}/static/css/style.css${runtimeConfig?.ui?.integrity ? `?v=${encodeURIComponent(runtimeConfig.ui.integrity)}` : ""}`,
