@@ -112,7 +112,7 @@ jobs:
 
       - name: Build and push the runtime image
         id: push
-        # Mirrors the CLI image leg (packages/everything-dev/src/image-deploy.ts
+        # Mirrors the CLI image leg (packages/everything-dev/src/services/deploy/image.ts
         # — buildAndPushImage/computeImageTags): image ref via BOS_IMAGE →
         # derived from the repository (ci.image in bos.app.ts is not parsed
         # here); tags sha-<short> always, the exact v<version> tag, and the
