@@ -239,6 +239,34 @@ describe("loadRouterModule cache", () => {
     expect(loadRemoteMock.mock.calls.length).toBe(callsAfterFirstFailure);
     expect(createInstanceMock).toHaveBeenCalledTimes(1);
   });
+
+  it("re-verifies SSR integrity after a failed verification — the cache entry is evicted, not poisoned", async () => {
+    const router = {
+      default: { renderToStream: vi.fn(), getRouteHead: vi.fn(), createRouter: vi.fn() },
+    };
+    loadRemoteMock.mockResolvedValue(router);
+
+    const config = createRuntimeConfig({
+      ssrIntegrity: "sha384-ssr-a",
+      ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+    });
+
+    verifySriForUrlMock.mockRejectedValueOnce(new Error("integrity mismatch"));
+    await expect(Effect.runPromise(loadRouterModule(config))).rejects.toThrow(/integrity mismatch/);
+    expect(loadRemoteMock).not.toHaveBeenCalled();
+
+    verifySriForUrlMock.mockResolvedValue(undefined);
+    const second = await Effect.runPromise(loadRouterModule(config));
+
+    expect(second).toBe(router.default);
+    expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
+    expect(verifySriForUrlMock).toHaveBeenNthCalledWith(
+      2,
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+      "sha384-ssr-a",
+      { resolveEntryUrl: false },
+    );
+  });
 });
 
 describe("ui expose loads (routeConfig / compose)", () => {
@@ -305,5 +333,49 @@ describe("ui expose loads (routeConfig / compose)", () => {
     await expect(Effect.runPromise(loadCoreUiRouteConfig(entry, "development"))).rejects.toThrow(
       /routeConfigLoaders/,
     );
+  });
+});
+
+describe("waitForLocalContainer", () => {
+  it("polls a pending local container until it appears, then succeeds", async () => {
+    const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const nodePath = await import("node:path");
+    const { localUiRemoteEntry, waitForLocalContainer } = await import(
+      "../../src/services/federation.server"
+    );
+
+    const localRoot = await mkdtemp(nodePath.join(tmpdir(), "wait-container-"));
+    try {
+      await mkdir(nodePath.join(localRoot, "dist", "ssr"), { recursive: true });
+      const slot = await localUiRemoteEntry({ name: "ui", localRoot });
+      expect(slot.containerVersion).toBe("pending");
+
+      // the container "compiles" 700ms in — past two poll intervals
+      const timer = setTimeout(() => {
+        void writeFile(
+          nodePath.join(localRoot, "dist", "ssr", "remoteEntry.server.js"),
+          "export {};",
+        );
+      }, 700);
+      timer.unref?.();
+
+      const exit = await Effect.runPromise(waitForLocalContainer(slot, "development"));
+      expect(exit).toBeUndefined();
+    } finally {
+      await rm(localRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails with an actionable error when the slot has no SSR entry URL", async () => {
+    const { waitForLocalContainer } = await import("../../src/services/federation.server");
+    await expect(
+      Effect.runPromise(
+        waitForLocalContainer(
+          { name: "ui", url: "https://cdn.example.com/ui", ssrUrl: "" },
+          "development",
+        ),
+      ),
+    ).rejects.toThrow(/no entry URL/);
   });
 });

@@ -303,6 +303,29 @@ describe("SSR fallback paths", () => {
     });
   });
 
+  describe("SSR timing surface", () => {
+    it("SSR success responses carry the compose/render/total Server-Timing header", async () => {
+      mockCompositionSucceeds();
+      clearComposeFixtureCache();
+
+      const response = await fetch(`${baseUrl}/`);
+      expect(response.status).toBe(200);
+
+      const header = response.headers.get("server-timing");
+      expect(header).toBeTruthy();
+      const metrics = Object.fromEntries(
+        (header ?? "").split(",").map((part) => {
+          const [name, dur] = part.trim().split(";dur=");
+          return [name.trim(), Number(dur)];
+        }),
+      );
+      expect(Number.isFinite(metrics.compose)).toBe(true);
+      expect(Number.isFinite(metrics.render)).toBe(true);
+      expect(Number.isFinite(metrics.total)).toBe(true);
+      expect(metrics.total).toBeGreaterThanOrEqual(metrics.compose + metrics.render - 0.5);
+    });
+  });
+
   describe("SSR URL not configured", () => {
     it("renders client shell without SSR", async () => {
       resolveRequestRuntimeMock.mockResolvedValue({
