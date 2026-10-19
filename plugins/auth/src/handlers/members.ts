@@ -47,7 +47,12 @@ export function createMemberHandlers(
     addMember: builder.addMember.use(requireAuth).effect(function* ({ input, context }) {
       const members = yield* MembersService;
       return yield* mapDomainError(
-        members.addMember(createHeaders(context.reqHeaders), context, input),
+        members.addMember(
+          createHeaders(context.reqHeaders),
+          context,
+          input,
+          context.activeOrganizationId,
+        ),
       );
     }),
 

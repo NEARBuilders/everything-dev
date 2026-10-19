@@ -42,7 +42,12 @@ function permissionsLayer() {
 }
 
 function runRequireOrganizer(
-  caller: { reqHeaders?: Record<string, string>; userId: string; user: { id: string } },
+  caller: {
+    reqHeaders?: Record<string, string>;
+    userId: string;
+    user: { id: string };
+    activeOrganizationId?: string | null;
+  },
   organizationId?: string,
 ) {
   return Effect.runPromise(
@@ -66,6 +71,7 @@ describe("PermissionsService.requireOrganizer", () => {
       reqHeaders: owner.reqHeaders,
       userId: owner.userId,
       user: { id: owner.userId },
+      activeOrganizationId: org.id,
     });
     expect(result.organizationId).toBe(org.id);
   });
@@ -87,6 +93,7 @@ describe("PermissionsService.requireOrganizer", () => {
         reqHeaders: member.reqHeaders,
         userId: member.userId,
         user: { id: member.userId },
+        activeOrganizationId: org.id,
       }),
     ).rejects.toMatchObject({ _tag: "NotOrganizer" });
   });
