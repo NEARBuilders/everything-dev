@@ -265,8 +265,6 @@ export async function runPublishTrain(
   let built: string[] | undefined;
   let skipped: string[] | undefined;
   let deployResults: WorkspaceDeployResult[] | undefined;
-  let refreshedRawConfig: BosConfigInput | null = null;
-
   const urlOrigin = plan.cdnOrigin ?? `https://${gateway}`;
   const platformEntries: DeployResultEntry[] = [];
   const fullUpload = input.fullUpload === true || process.env.BOS_FULL_UPLOAD === "1";
@@ -298,6 +296,27 @@ export async function runPublishTrain(
         ...pinsFromDeployState(configDir, account, gateway),
       };
 
+  const authoredPath = findConfigPath(configDir);
+  const tsForm = authoredPath !== null && isAppDescriptorPath(authoredPath);
+  // Resolved before the build phase: pipelined uploads (#430) start the moment
+  // a workspace build completes and the folder-form plugin-ui leg reads the
+  // authored config — the binding must be live by then, never first
+  // initialized after the train. The post-build refresh reassigns
+  // publishRawConfig for the publish payload.
+  const openedRaw = await openResolution({ cwd: configDir });
+  if (!openedRaw?.rawConfig) {
+    throw new PublishTrainError({
+      kind: "reload",
+      registryUrl,
+      built,
+      skipped,
+      deployResults,
+      error: "Failed to load the authored config for publish",
+    });
+  }
+  const authoredRawConfig = openedRaw.rawConfig;
+  let publishRawConfig: BosConfigInput = authoredRawConfig;
+
   render?.cdnBanner?.(storageOrigin);
 
   // One workspace = one upload unit: the workspace bundle, then (for
@@ -307,6 +326,7 @@ export async function runPublishTrain(
   // start the moment a build completes.
   const uploadOneWorkspace = async (
     key: string,
+    rawConfig: BosConfigInput,
   ): Promise<{ entries: DeployResultEntry[]; detail: UploadUnitDetail }> => {
     const startedAt = Date.now();
     const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
@@ -486,7 +506,7 @@ export async function runPublishTrain(
       (async () => {
         await acquireUploadSlot();
         try {
-          return await uploadOneWorkspace(key);
+          return await uploadOneWorkspace(key, authoredRawConfig);
         } finally {
           releaseUploadSlot();
         }
@@ -564,28 +584,9 @@ export async function runPublishTrain(
     }
 
     bosConfig = refreshed.config;
-    refreshedRawConfig = refreshed.rawConfig;
+    if (refreshed.rawConfig) publishRawConfig = refreshed.rawConfig;
   }
 
-  const authoredPath = findConfigPath(configDir);
-  const tsForm = authoredPath !== null && isAppDescriptorPath(authoredPath);
-  let rawConfig: BosConfigInput;
-  if (refreshedRawConfig) {
-    rawConfig = refreshedRawConfig;
-  } else {
-    const opened = await openResolution({ cwd: configDir });
-    if (!opened?.rawConfig) {
-      throw new PublishTrainError({
-        kind: "reload",
-        registryUrl,
-        built,
-        skipped,
-        deployResults,
-        error: "Failed to load the authored config for publish",
-      });
-    }
-    rawConfig = opened.rawConfig;
-  }
   if (
     tsForm &&
     !input.build &&
@@ -614,8 +615,11 @@ export async function runPublishTrain(
         ? // Config-only publish on a TS-form project: the authored config owns
           // composition (hand-edits win) while live pipeline state (bundle
           // URLs, integrity) carries over from the published config.
-          mergeAuthoredOverPublished((plan.publishedConfig ?? {}) as BosConfigInput, rawConfig)
-        : rawConfig;
+          mergeAuthoredOverPublished(
+            (plan.publishedConfig ?? {}) as BosConfigInput,
+            publishRawConfig,
+          )
+        : publishRawConfig;
 
   // Everything the pipeline has not already started uploads now — same
   // bounded pool. With build:false there is nothing to upload (config-only).
@@ -673,7 +677,7 @@ export async function runPublishTrain(
   }
 
   if (platformEntries.length > 0) {
-    const merged = applyDeployResults(rawConfig as Record<string, unknown>, platformEntries);
+    const merged = applyDeployResults(publishRawConfig as Record<string, unknown>, platformEntries);
     if (!tsForm) {
       // Legacy JSON-form children keep their local write-back; TS-form keeps
       // pipeline state in FastKV only — a write-back would shadow the
