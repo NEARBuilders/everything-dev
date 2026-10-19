@@ -269,11 +269,6 @@ jobs:
     if: needs.detect-changes.outputs.plugins == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # ubuntu-26.04 runners serve /tmp on a separate filesystem from $HOME —
-    # near-kit's sandbox download renames /tmp → ~/.near-kit and dies with
-    # EXDEV unless TMPDIR lives on the $HOME device.
-    env:
-      TMPDIR: ${{ runner.temp }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -297,14 +292,24 @@ jobs:
       # Plugin members wired into CI by plan 051. When adding a plugin under
       # plugins/, add its test step here too — suites that are absent from
       # this list never run anywhere.
+      # TMPDIR at step level: ubuntu-26.04 runners serve /tmp on a separate
+      # filesystem from $HOME — near-kit's sandbox download renames
+      # /tmp → ~/.near-kit and dies with EXDEV unless TMPDIR lives on the
+      # $HOME device (runner context is not available in job-level env).
       - name: Test auth plugin
         run: pnpm --filter @everything-dev/auth-plugin test
+        env:
+          TMPDIR: ${{ runner.temp }}
 
       - name: Test votes plugin
         run: pnpm --filter @everything-dev/votes-plugin test
+        env:
+          TMPDIR: ${{ runner.temp }}
 
       - name: Test registry plugin
         run: pnpm --filter @everything-dev/registry-plugin test
+        env:
+          TMPDIR: ${{ runner.temp }}
 
       # BLOCKED (plan 051): proposals suite is red on main — getProposals
       # masks createdBy for all non-admins (src/index.ts:245) while
