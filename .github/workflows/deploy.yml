@@ -21,10 +21,11 @@ permissions:
   packages: write
 
 jobs:
-  # Deploy gate: only fresh CI runs of a push to main, and only while the
-  # validated commit is still the tip of main. Manual dispatches must run
-  # against main; stale runs are skipped (the queued run for the new tip
-  # deploys instead).
+  # Deploy gate: only fresh CI runs of a push to main, only while the
+  # validated commit is still the tip of main, and only with no pending
+  # changesets (packages awaiting release — the "chore: version packages"
+  # merge ships the deploy). Manual dispatches must run against main;
+  # stale runs are skipped (the queued run for the new tip deploys instead).
   gate:
     name: Verify deploy is current
     if: >-
