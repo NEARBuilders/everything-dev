@@ -1,7 +1,7 @@
-import { Effect } from "effect";
 import type { ComposePayload } from "everything-dev/ui/manifest";
 import { renderClientShell } from "../routes/html";
 import type { RouterModule } from "../types";
+import { mark, runEffect } from "../utils/effect-run";
 import { logger } from "../utils/logger";
 import {
   buildRuntimeClientConfig,
@@ -123,22 +123,31 @@ function textResponse(message: string, status: number, requestId?: string) {
  * endpoint rejects into the route's error boundary and closes the stream
  * instead of suspending it forever.
  */
+const formatDur = (ms: number) => (Math.round(ms * 10) / 10).toFixed(1);
+
 export function createSsrRender(deps: SsrRenderDeps) {
   const fallbackComposeCache = createUiComposeCacheState();
   const fallbackClientConfigCache = createClientConfigCacheState();
   return async (request: Request, ctx: SsrRenderRequestContext): Promise<Response> => {
     const pathname = new URL(request.url).pathname;
     const requestId = crypto.randomUUID().slice(0, 8);
+    const startedAt = Date.now();
 
     const serving = deps.getServingState ? await deps.getServingState() : undefined;
+
     const composeCache = serving?.composeState ?? fallbackComposeCache;
     const clientConfigCache = serving?.clientConfigState ?? fallbackClientConfigCache;
 
     let resolved: Awaited<ReturnType<typeof resolveRequestRuntime>>;
     try {
       const baseConfig = serving?.config ?? deps.config;
+      const resolveStartedAt = Date.now();
       resolved = await resolveRequestRuntime(baseConfig, request, {
         verification: "blocking",
+      });
+      mark("tenant resolution", {
+        requestId,
+        durationMs: Math.round(Date.now() - resolveStartedAt),
       });
     } catch (error) {
       const { message, status } = getTenantRuntimeErrorResponse(error);
@@ -148,13 +157,18 @@ export function createSsrRender(deps: SsrRenderDeps) {
 
     const effectiveConfig = resolved.config;
 
+    let composeMs = 0;
     if (!isSsrAvailable(effectiveConfig)) {
       const activeRuntime = resolveActiveRuntime(effectiveConfig, request);
       let composePayload: ComposePayload | undefined;
       try {
-        composePayload = (
-          await Effect.runPromise(composeClientPayload(effectiveConfig, composeCache))
-        )?.clientPayload;
+        const composeStartedAt = Date.now();
+        composePayload = (await runEffect(composeClientPayload(effectiveConfig, composeCache)))
+          ?.clientPayload;
+        mark("client payload compose", {
+          requestId,
+          durationMs: Math.round(Date.now() - composeStartedAt),
+        });
       } catch (error) {
         logger.warn(
           `[SSR] ${requestId} Client compose payload failed for ${pathname} — serving the core-only shell:`,
@@ -180,7 +194,9 @@ export function createSsrRender(deps: SsrRenderDeps) {
 
     let composed: ComposedUi;
     try {
-      composed = await Effect.runPromise(composeUi(effectiveConfig, composeCache));
+      const composeStartedAt = Date.now();
+      composed = await runEffect(composeUi(effectiveConfig, composeCache));
+      composeMs = Date.now() - composeStartedAt;
     } catch (error) {
       logger.error(`[SSR] ${requestId} Manifest composition failed for ${pathname}:`, error);
       return textResponse("SSR composition failed", 500, requestId);
@@ -204,6 +220,7 @@ export function createSsrRender(deps: SsrRenderDeps) {
         callTimeoutMs: 15_000,
       });
 
+      const renderStartedAt = Date.now();
       const result = await ssrRouterModule.renderToStream(request, {
         session: ctx.session ? { session: ctx.session, user: ctx.user } : null,
         basepath: runtimeConfig.runtime?.runtimeBasePath,
@@ -214,12 +231,24 @@ export function createSsrRender(deps: SsrRenderDeps) {
         pluginNav: composed.nav,
         requestId,
       });
+      const renderMs = Date.now() - renderStartedAt;
 
       const responseHeaders = new Headers(result?.headers);
       if (ctx.cspHeader) {
         responseHeaders.set("Content-Security-Policy", ctx.cspHeader);
       }
       responseHeaders.set("x-request-id", requestId);
+      responseHeaders.set(
+        "server-timing",
+        `compose;dur=${formatDur(composeMs)}, render;dur=${formatDur(renderMs)}, total;dur=${formatDur(Date.now() - startedAt)}`,
+      );
+      mark("ssr render complete", {
+        requestId,
+        digest: composed.digest,
+        composeMs: Math.round(composeMs),
+        renderMs: Math.round(renderMs),
+        totalMs: Math.round(Date.now() - startedAt),
+      });
       const stream =
         ctx.cspNonce && result?.stream
           ? (result.stream as ReadableStream<Uint8Array>).pipeThrough(

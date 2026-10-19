@@ -10,6 +10,7 @@ import {
   Layer,
   ManagedRuntime,
   Option,
+  References,
 } from "effect";
 import { suppressPgQueryQueueDeprecation } from "everything-dev/db";
 import { slotPins } from "everything-dev/fingerprint";
@@ -30,6 +31,7 @@ import { deploymentFingerprint, RuntimeSnapshot } from "./services/runtime-snaps
 import { SnapshotCoordinator } from "./services/snapshot-coordinator";
 import { SnapshotWatch, watchIntervalMs } from "./services/snapshot-watch";
 import { composeUi, isSsrAvailable, type UiComposeCacheState } from "./services/ui-compose";
+import { minimumLogLevel } from "./utils/effect-run";
 import { extractErrorDetails } from "./utils/errors";
 import { logger } from "./utils/logger";
 
@@ -99,7 +101,9 @@ export const createStartServer = (onReady?: () => void) =>
 
     if (ssrEnabled) {
       const bootState = yield* snapshot.get;
+      const bootStartedAt = yield* Clock.currentTimeMillis;
       const boot = yield* Effect.exit(composeUi(config, bootState.composeState));
+      const bootMs = (yield* Clock.currentTimeMillis) - bootStartedAt;
       if (Exit.isFailure(boot)) {
         const cause = Cause.squash(boot.cause);
         compositionHealth.status = "failed";
@@ -112,6 +116,12 @@ export const createStartServer = (onReady?: () => void) =>
       } else {
         compositionHealth.status = "ready";
         compositionHealth.digest = boot.value.digest;
+        yield* Effect.logDebug("boot compose").pipe(
+          Effect.annotateLogs({
+            digest: boot.value.digest,
+            durationMs: bootMs,
+          }),
+        );
         logger.info(`[Server] SSR composition ready (digest ${boot.value.digest})`);
       }
     }
@@ -316,6 +326,7 @@ export const runServer = (input: ServerInput): ServerHandle => {
     Layer.provide(ConfigLive),
   );
   const ServerLive = Layer.mergeAll(
+    Layer.succeed(References.MinimumLogLevel, minimumLogLevel()),
     Layer.provideMerge(SecurityMiddleware.Live, AppLive),
     FederationLifecycle.layer,
     Layer.provideMerge(CoordinatorLive, SnapshotLive),

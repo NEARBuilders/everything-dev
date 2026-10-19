@@ -108,6 +108,15 @@
       "import": "./dist/services/registry/fastkv.mjs",
       "require": "./dist/services/registry/fastkv.cjs"
     },
+    "./dev-log-pipeline": {
+      "development": {
+        "types": "./src/dev-log-pipeline.ts",
+        "import": "./src/dev-log-pipeline.ts"
+      },
+      "types": "./dist/dev-log-pipeline.d.mts",
+      "import": "./dist/dev-log-pipeline.mjs",
+      "require": "./dist/dev-log-pipeline.cjs"
+    },
     "./contract.meta": {
       "development": {
         "types": "./src/contract.meta.ts",

@@ -24,8 +24,8 @@ func TestBootSurface(t *testing.T) {
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {
-			Status  string `json:"status"`
-			Auth    struct {
+			Status string `json:"status"`
+			Auth   struct {
 				Mounted bool `json:"mounted"`
 			} `json:"auth"`
 			Plugins struct {
@@ -53,6 +53,11 @@ func TestBootSurface(t *testing.T) {
 		regtest.MustHeaderContains(t, headers, "Content-Type", "text/html")
 		regtest.MustContain(t, body, "window.__RUNTIME_CONFIG__")
 		regtest.MustContain(t, body, "<title>")
+
+		if ssrMode() {
+			regtest.MustContain(t, body, "data-everything-ssr")
+			regtest.MustContain(t, headers.Get("Server-Timing"), "total;dur=")
+		}
 	})
 
 	t.Run("skill_md", func(t *testing.T) {

@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { createInstance } from "@module-federation/enhanced/runtime";
-import { Context, Effect, Layer, Schedule, Semaphore } from "effect";
+import { Clock, Context, Effect, Layer, Schedule, Semaphore } from "effect";
 import type { BosEnv } from "everything-dev/config";
 import { verifySriForUrl } from "everything-dev/integrity";
 import {
@@ -14,6 +14,7 @@ import {
   UI_REMOTE_SERVER_ENTRY_FILENAME,
 } from "everything-dev/ui/manifest";
 import type { RouterModule } from "../types";
+import { mark, runEffect } from "../utils/effect-run";
 import type { RuntimeConfig } from "./config";
 import { ExposeModuleMissing, FederationError } from "./errors";
 import { type LocalDistServer, startLocalDistServer } from "./local-dist-server";
@@ -218,8 +219,11 @@ export const waitForLocalContainer = Effect.fn("waitForLocalContainer")(function
     });
   }
   let announced = false;
+  let polls = 0;
+  const startedAt = yield* Clock.currentTimeMillis;
   const check = Effect.tryPromise({
     try: async (signal) => {
+      polls++;
       const res = await runFetch(containerUrl, { signal });
       const body = await res.text();
       return res.ok && !/not found|<(!doctype|html)/i.test(body.slice(0, 64));
@@ -252,6 +256,14 @@ export const waitForLocalContainer = Effect.fn("waitForLocalContainer")(function
       detail: `${entry.name} SSR container never became ready at ${containerUrl}`,
     });
   }
+  yield* Effect.logDebug("local container wait").pipe(
+    Effect.annotateLogs({
+      remote: entry.name,
+      url: containerUrl,
+      polls,
+      durationMs: (yield* Clock.currentTimeMillis) - startedAt,
+    }),
+  );
 });
 
 export function resolveLocalRoot(localPath: string): string {
@@ -264,20 +276,26 @@ function shouldCacheRouterModule(config: RuntimeConfig) {
 
 async function verifySsrEntryIntegrity(entryUrl: string, expectedIntegrity: string): Promise<void> {
   const cacheKey = `${entryUrl}::${expectedIntegrity}`;
+  const startedAt = Date.now();
   const now = Date.now();
   pruneExpiredCacheEntries(verifiedSsrEntryCache, now);
 
   const cached = verifiedSsrEntryCache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
+    mark("integrity verify hit", { entryUrl });
     return cached.value;
   }
 
   const verification = verifySriForUrl(entryUrl, expectedIntegrity, {
     resolveEntryUrl: false,
-  }).catch((error) => {
-    verifiedSsrEntryCache.delete(cacheKey);
-    throw error;
-  });
+  })
+    .then(() => {
+      mark("integrity verify", { entryUrl, durationMs: Math.round(Date.now() - startedAt) });
+    })
+    .catch((error) => {
+      verifiedSsrEntryCache.delete(cacheKey);
+      throw error;
+    });
 
   verifiedSsrEntryCache.set(cacheKey, {
     value: verification,
@@ -346,6 +364,7 @@ function loadRemoteExpose<T>(params: RemoteModuleLoad<T>): Promise<T> {
 
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
+    mark("expose load hit", { remote: remoteName, expose });
     return cached.value;
   }
 
@@ -358,11 +377,21 @@ function loadRemoteExpose<T>(params: RemoteModuleLoad<T>): Promise<T> {
   loadedEntryByRemote.set(remoteName, entryUrl);
 
   const loadEffect = Effect.gen(function* () {
+    const startedAt = yield* Clock.currentTimeMillis;
     yield* initializeShareScope(mf);
     const result = yield* Effect.tryPromise({
       try: () => mf.loadRemote<any>(expose, { from: "build" }),
       catch: (cause) => new FederationError({ remoteName, remoteUrl: entryUrl, cause }),
     });
+    yield* Effect.logDebug("expose load").pipe(
+      Effect.annotateLogs({
+        remote: remoteName,
+        expose,
+        bypassModuleCache,
+        entryChanged,
+        durationMs: (yield* Clock.currentTimeMillis) - startedAt,
+      }),
+    );
     if (!result) {
       return yield* new ExposeModuleMissing({ expose, reason: "not-found" });
     }
@@ -372,7 +401,7 @@ function loadRemoteExpose<T>(params: RemoteModuleLoad<T>): Promise<T> {
       : (result as T);
   }).pipe(Effect.retry(retrySchedule));
 
-  const value = Effect.runPromise(loadEffect);
+  const value = runEffect(loadEffect);
 
   cache.set(cacheKey, { value, expiresAt: now + ttlMs });
   enforceCacheLimit(cache, maxSize);

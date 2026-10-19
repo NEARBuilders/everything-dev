@@ -51,6 +51,8 @@
     "test:regression:http:dev": "REGRESSION_MODE=dev:ssr sh -lc 'cd tests/regression/http && go test ./... -count=1 -v -timeout 10m'",
     "test:regression:http:start": "REGRESSION_MODE=start:ssr sh -lc 'cd tests/regression/http && go test ./... -count=1 -v -timeout 10m'",
     "test:regression:http:backcompat": "REGRESSION_MODE=backcompat sh -lc 'cd tests/regression/http && go test ./... -count=1 -v -timeout 10m'",
+    "test:regression:http:bench:dev": "BOS_SSR_BENCH=1 pnpm run test:regression:http:dev",
+    "test:regression:http:bench:start": "BOS_SSR_BENCH=1 pnpm run test:regression:http:start",
     "test:regression:framework": "cd tests/regression/framework && go test ./... -count=1 -v -timeout 15m",
     "regression:dev:ssr": "node tests/regression/lib/start-stack.mjs dev:ssr",
     "regression:dev:csr": "node tests/regression/lib/start-stack.mjs dev:csr",

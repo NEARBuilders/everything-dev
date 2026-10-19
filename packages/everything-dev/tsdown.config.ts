@@ -69,6 +69,7 @@ export default defineConfig({
     "src/version-status.ts",
     "src/services/registry/fastkv.ts",
     "src/contract.meta.ts",
+    "src/dev-log-pipeline.ts",
     "src/db/index.ts",
     "src/services/federation.ts",
     "src/integrity.ts",

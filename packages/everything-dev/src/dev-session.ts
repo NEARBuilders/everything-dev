@@ -1,10 +1,12 @@
 import { Clock, DateTime, Deferred, Effect, Exit, Layer } from "effect";
 import { probePortBindable } from "./app";
+import { createBootMetricsCollector } from "./boot-metrics";
 import {
   createDevRenderer,
   type DevProcessState,
   type DevRendererHandle,
 } from "./components/dev-render";
+import type { PhaseTiming } from "./contract";
 import { createLogPipeline, isDebug, type LogEvent, resolveLogLevel } from "./dev-log-pipeline";
 import { createDevLogger, formatLogLine } from "./dev-logs";
 import { getProcessEnv } from "./env/process-env";
@@ -95,10 +97,16 @@ export interface DevSessionControls {
   rearmForceExitTimer: () => void;
 }
 
+export interface DevSessionBootContext {
+  mode: "dev" | "start";
+  phases: PhaseTiming[];
+}
+
 export const runDevSession = (
   configDir: string,
   orchestrator: AppOrchestrator,
   onShutdownReady?: (controls: DevSessionControls) => void,
+  bootContext: DevSessionBootContext = { mode: "dev", phases: [] },
 ) =>
   Effect.gen(function* () {
     adoptOrphanedChildren(configDir);
@@ -208,8 +216,16 @@ export const runDevSession = (
       if (useInteractive) view?.unmount();
     };
 
+    const bootMetrics = createBootMetricsCollector({
+      configDir,
+      mode: bootContext.mode,
+      services,
+      phases: bootContext.phases,
+    });
+
     const callbacks: ProcessCallbacks = {
       onStatus: (name, status, message) => {
+        bootMetrics.recordStatus(name, status, message);
         // An error-status flip is the failure boundary — the failure message
         // logged just before it is still held in the pipeline's pending
         // multi-line buffer (events complete one line late). Drain it now so
@@ -387,6 +403,8 @@ export const runDevSession = (
       });
     }
 
+    bootMetrics.write();
+
     yield* Deferred.await(shutdown);
   });
 
@@ -397,6 +415,7 @@ const runApp = (
   runtimeConfig: RuntimeConfig,
   envGenerated: Record<string, string>,
   shellEnv: Record<string, string>,
+  bootContext: DevSessionBootContext = { mode: "dev", phases: [] },
 ) => {
   let controls: DevSessionControls | null = null;
   let signalCount = 0;
@@ -439,16 +458,21 @@ const runApp = (
   const handleSignal = requestShutdownEscalating;
 
   const program = Effect.scoped(
-    runDevSession(configDir, orchestrator, (sessionControls) => {
-      controls = sessionControls;
-      sessionControls.requestShutdownEscalating = requestShutdownEscalating;
-      sessionControls.rearmForceExitTimer = () => {
-        if (forceExitTimer) clearTimeout(forceExitTimer);
-        forceExitTimer = setTimeout(forceExit, 5000);
-        forceExitTimer.unref?.();
-      };
-      sessionControls.forceExit = forceExit;
-    }),
+    runDevSession(
+      configDir,
+      orchestrator,
+      (sessionControls) => {
+        controls = sessionControls;
+        sessionControls.requestShutdownEscalating = requestShutdownEscalating;
+        sessionControls.rearmForceExitTimer = () => {
+          if (forceExitTimer) clearTimeout(forceExitTimer);
+          forceExitTimer = setTimeout(forceExit, 5000);
+          forceExitTimer.unref?.();
+        };
+        sessionControls.forceExit = forceExit;
+      },
+      bootContext,
+    ),
   ).pipe(
     Effect.provide(
       Layer.mergeAll(

@@ -30,6 +30,7 @@ import {
   type RouteConfigModule,
 } from "everything-dev/ui/manifest";
 import type { RouterModule } from "../types";
+import { mark } from "../utils/effect-run";
 import { logger } from "../utils/logger";
 import type { RuntimeConfig } from "./config";
 import { UiComposeError } from "./errors";
@@ -172,8 +173,10 @@ const loadRemoteManifestCached = Effect.fn("loadRemoteManifestCached")(function*
   const cached = cache.remoteManifests.get(source.key);
   const now = yield* Clock.currentTimeMillis;
   if (cached && now - cached.fetchedAt < MANIFEST_TTL_MS) {
+    mark("manifest hit", { source: source.key, url: manifestUrl });
     return cached.manifest;
   }
+  const fetchStartedAt = yield* Clock.currentTimeMillis;
   const fresh = yield* Effect.tryPromise({
     try: async () => {
       const response = await runFetch(manifestUrl);
@@ -196,6 +199,13 @@ const loadRemoteManifestCached = Effect.fn("loadRemoteManifestCached")(function*
         return yield* error;
       }),
     ),
+  );
+  yield* Effect.logDebug("manifest fetch").pipe(
+    Effect.annotateLogs({
+      source: source.key,
+      url: manifestUrl,
+      durationMs: (yield* Clock.currentTimeMillis) - fetchStartedAt,
+    }),
   );
   cache.remoteManifests.set(source.key, { manifest: fresh, fetchedAt: now });
   return fresh;
@@ -352,6 +362,7 @@ export const composeUi = Effect.fn("composeUi")(function* (
   config: RuntimeConfig,
   cache: UiComposeCacheState,
 ) {
+  const composeStartedAt = yield* Clock.currentTimeMillis;
   const sources = uiSources(config);
   const composable = yield* resolveComposableSources(sources, cache);
   const corePair = composable.find(({ source }) => source.key === CORE_UI_KEY)!;
@@ -421,6 +432,13 @@ export const composeUi = Effect.fn("composeUi")(function* (
   const now = yield* Clock.currentTimeMillis;
   const cached = cache.variants.get(variantKey);
   if (cached && (isDev ? cached.staleAfter > now : true)) {
+    yield* Effect.logDebug("compose variant hit").pipe(
+      Effect.annotateLogs({
+        digest,
+        sources: healthySources.length,
+        durationMs: (yield* Clock.currentTimeMillis) - composeStartedAt,
+      }),
+    );
     return cached.variant;
   }
 
@@ -464,6 +482,13 @@ export const composeUi = Effect.fn("composeUi")(function* (
     isDev ? now + DEV_VARIANT_TTL_MS : Number.POSITIVE_INFINITY,
   );
   enforceCacheLimit(cache.variants, MAX_COMPOSE_VARIANTS);
+  yield* Effect.logDebug("compose variant constructed").pipe(
+    Effect.annotateLogs({
+      digest,
+      sources: healthySources.length,
+      durationMs: (yield* Clock.currentTimeMillis) - composeStartedAt,
+    }),
+  );
   return variant;
 });
 
@@ -486,9 +511,20 @@ export const composeClientPayload = Effect.fn("composeClientPayload")(function* 
   config: RuntimeConfig,
   cache: UiComposeCacheState,
 ) {
+  const composeStartedAt = yield* Clock.currentTimeMillis;
   const sources = uiSources(config);
-  if (sources.every((source) => source.key === CORE_UI_KEY)) return undefined;
+  if (sources.every((source) => source.key === CORE_UI_KEY)) {
+    yield* Effect.logDebug("client payload skipped", { sources: sources.length });
+    return undefined;
+  }
   const composable = yield* resolveComposableSources(sources, cache);
   const digest = yield* digestOfSources(composable);
+  yield* Effect.logDebug("client payload composed").pipe(
+    Effect.annotateLogs({
+      digest,
+      sources: composable.length,
+      durationMs: (yield* Clock.currentTimeMillis) - composeStartedAt,
+    }),
+  );
   return { digest, clientPayload: clientPayloadOf(composable, digest) };
 });

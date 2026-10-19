@@ -36,9 +36,11 @@ declare global {
 }
 
 const mark = (message: string) => {
+  const timestamp = `${Math.round(performance.now())}ms`;
+  const formatted = `${timestamp} ${message}`;
   const progress = window.__CLIENT_PROGRESS__ ?? [];
-  window.__CLIENT_PROGRESS__ = [...progress, message];
-  if (import.meta.env.DEV) console.log(`[Hydrate] ${message}`);
+  window.__CLIENT_PROGRESS__ = [...progress, formatted];
+  if (import.meta.env.DEV) console.log(`[Hydrate ${timestamp}] ${message}`);
 };
 
 function isAbsoluteHttpUrl(value: string | undefined): value is string {

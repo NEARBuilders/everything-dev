@@ -299,6 +299,10 @@ async function main() {
           session.runtimeConfig,
           session.envGenerated,
           session.shellEnv,
+          {
+            mode: "dev",
+            phases: result.timings?.map((phase) => ({ ...phase })) ?? [],
+          },
         );
       }
       return;
@@ -351,6 +355,7 @@ async function main() {
           session.runtimeConfig,
           session.envGenerated,
           session.shellEnv,
+          { mode: "start", phases: [] },
         );
       }
       return;
