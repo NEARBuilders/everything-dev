@@ -863,6 +863,9 @@ importers:
       '@outlayer/sdk':
         specifier: 'catalog:'
         version: 0.1.0-alpha.4
+      better-near-auth:
+        specifier: workspace:^
+        version: link:../better-near-auth
       chalk:
         specifier: ^5.6.2
         version: 5.6.2
@@ -963,9 +966,6 @@ importers:
       better-auth:
         specifier: 1.7.7
         version: 1.7.7(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@electric-sql/pglite@0.4.6)(@libsql/client@0.17.0(encoding@0.1.13))(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(bun-types@1.4.3)(kysely@0.29.6)(pg@8.23.1))(pg@8.23.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(solid-js@1.9.15)(vitest@4.1.11)
-      better-near-auth:
-        specifier: workspace:^
-        version: link:../better-near-auth
       jsdom:
         specifier: ^30.0.1
         version: 30.1.2(@noble/hashes@2.4.0)

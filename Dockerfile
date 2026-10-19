@@ -73,7 +73,10 @@ RUN rm -rf packages/everything-dev/src packages/everything-dev/skills \
     packages/every-plugin/src packages/every-plugin/skills \
            packages/every-plugin/CHANGELOG.md packages/every-plugin/README.md \
            packages/every-plugin/tsconfig*.json packages/every-plugin/vitest*.ts \
-           packages/every-plugin/bin
+           packages/every-plugin/bin \
+    packages/better-near-auth/src packages/better-near-auth/skills \
+           packages/better-near-auth/CHANGELOG.md packages/better-near-auth/README.md \
+           packages/better-near-auth/tsconfig.json packages/better-near-auth/vitest.config.ts
 
 # Clean broken workspace symlinks (the stripped workspaces leave dead links)
 RUN find node_modules -maxdepth 1 -type l ! -exec test -e {} \; -print -delete 2>/dev/null || true
@@ -138,6 +141,13 @@ COPY --from=prod-builder --chown=appuser:appgroup /app/node_modules ./node_modul
 COPY --from=prod-builder --chown=appuser:appgroup /app/package.json .
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/everything-dev ./packages/everything-dev
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/every-plugin ./packages/every-plugin
+COPY --from=prod-builder --chown=appuser:appgroup /app/packages/better-near-auth ./packages/better-near-auth
+
+# Boot assert: the CLI dist's runtime imports must resolve inside the image —
+# a missing workspace (the better-near-auth dangling-symlink class) fails the
+# image build here instead of the post-publish smoke + config rollback.
+RUN node --input-type=module -e \
+      "await import('/app/packages/everything-dev/dist/services/auth/device-login.mjs')"
 
 # No BOS_BUNDLE_DIR (CDN-only) and no BOS_BUNDLE_CACHE_DIR (a self-activating
 # cache could serve older bundles after a reset or rollback); both remain
