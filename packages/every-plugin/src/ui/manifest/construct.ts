@@ -322,6 +322,9 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
         if (parentId) {
           if (shadowedIds.has(parentId)) {
             shadowedIds.add(record.id);
+            pending.splice(i, 1);
+            i -= 1;
+            progressed = true;
             continue;
           }
           if (!byId.has(parentId) && !mountByLayoutId.has(parentId)) continue;
