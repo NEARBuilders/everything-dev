@@ -120,13 +120,10 @@ export function createSessionMiddleware(plugins: PluginResult) {
       const authClient = authClientFactory({
         reqHeaders: Object.fromEntries(c.get("reqHeaders").entries()),
       }) as AuthClient;
-      const [sessionResult, contextResult] = await Promise.all([
-        authClient.getSession(),
-        authClient.getContext(),
-      ]);
+      const contextResult = await authClient.getContext();
       c.set("authContext", contextResult);
-      c.set("user", sessionResult?.user ?? contextResult.user ?? null);
-      c.set("session", sessionResult?.session ?? null);
+      c.set("user", contextResult.user ?? null);
+      c.set("session", contextResult.session ?? null);
     } catch (error) {
       console.warn(
         `[Auth] Session resolution failed: ${error instanceof Error ? error.message : String(error)}`,

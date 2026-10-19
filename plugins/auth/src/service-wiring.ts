@@ -54,7 +54,6 @@ export function buildAuthServicesLayer(services: PluginServices) {
     Layer.succeed(
       OnboardingService,
       buildOnboardingService({
-        auth: services.auth,
         db: services.db,
         permissions,
         cipher: services.onboardingCodeCipher,

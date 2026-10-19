@@ -15,7 +15,7 @@ import type { z } from "zod";
 
 /** Structural minimum the middlewares read — the generated `AuthPluginContext` satisfies it. */
 export interface AuthContextShape {
-  user?: { role?: string | null } | null;
+  user?: { id?: string; role?: string | null } | null;
   userId?: string | null;
   apiKey?: { permissions?: Record<string, string[]> | null } | null;
   permissions?: Record<string, string[]> | null;

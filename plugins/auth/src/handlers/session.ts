@@ -19,7 +19,9 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
 
     getContext: builder.getContext.effect(function* ({ context }) {
       const session = yield* SessionService;
-      return yield* mapDomainError(session.getContext(createHeaders(context.reqHeaders)));
+      return yield* mapDomainError(
+        session.getContext(createHeaders(context.reqHeaders), context.session),
+      );
     }),
   };
 }

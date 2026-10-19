@@ -42,6 +42,7 @@ export class InvitationsService extends Context.Service<
     getInvitation: (
       headers: Headers,
       id: string,
+      invitedUserId?: string | null,
     ) => Effect.Effect<InferOutput<"getInvitation">, AuthFailure>;
     listInvitations: (
       headers: Headers,
@@ -91,15 +92,19 @@ export const buildInvitationsService = ({ auth, db }: { auth: Auth; db: Db }) =>
         }),
       ).pipe(Effect.map(toInvitation)),
 
-    getInvitation: (headers, id) =>
+    getInvitation: (headers, id, invitedUserId) =>
       attemptAuth(async () => {
         const stored = await db.query.invitation.findFirst({
           where: eq(schema.invitation.id, id),
         });
         if (stored?.nearAccountId) {
-          const session = await auth.api.getSession({ headers });
-          if (!session?.user) return null;
-          const pending = await listPendingNearInvitations(db, session.user.id);
+          let viewerId = invitedUserId ?? null;
+          if (!viewerId) {
+            const session = await auth.api.getSession({ headers });
+            viewerId = session?.user.id ?? null;
+          }
+          if (!viewerId) return null;
+          const pending = await listPendingNearInvitations(db, viewerId);
           const match = pending.find((row) => row.invitation.id === id);
           if (!match) return null;
           const inviter = await db.query.user.findFirst({

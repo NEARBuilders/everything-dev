@@ -20,7 +20,11 @@ export function createInvitationHandlers(
     getInvitation: builder.getInvitation.effect(function* ({ input, context }) {
       const invitations = yield* InvitationsService;
       return yield* mapDomainError(
-        invitations.getInvitation(createHeaders(context.reqHeaders ?? {}), input.id),
+        invitations.getInvitation(
+          createHeaders(context.reqHeaders ?? {}),
+          input.id,
+          context.user?.id ?? null,
+        ),
       );
     }),
 

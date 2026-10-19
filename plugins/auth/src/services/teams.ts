@@ -5,7 +5,7 @@ import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
 import { toDate, toTeam } from "../serializers";
 import type { PermissionRegistry, PluginServices } from "../service-types";
-import { getActiveOrganizationId, serializeTeamAreas, withoutSessionDataCookie } from "../utils";
+import { serializeTeamAreas, withoutSessionDataCookie } from "../utils";
 import {
   type AuthFailure,
   NotOrgMember,
@@ -27,6 +27,7 @@ export class TeamsService extends Context.Service<
     listUserTeams: (
       headers: Headers,
       organizationId: string | undefined,
+      sessionActiveOrganizationId: string | null | undefined,
     ) => Effect.Effect<InferOutput<"listUserTeams">, AuthFailure>;
     createTeam: (
       headers: Headers,
@@ -86,12 +87,9 @@ export const buildTeamsService = ({
     listUserTeams: Effect.fn("TeamsService.listUserTeams")(function* (
       headers: Headers,
       organizationId: string | undefined,
+      sessionActiveOrganizationId: string | null | undefined,
     ) {
-      const resolved =
-        organizationId ??
-        getActiveOrganizationId(
-          (yield* attemptAuth(() => auth.api.getSession({ headers })))?.session,
-        );
+      const resolved = organizationId ?? sessionActiveOrganizationId ?? null;
       const result = yield* attemptAuth(() => auth.api.listUserTeams({ headers }));
       return (result ?? [])
         .filter((team: any) => !resolved || team.organizationId === resolved)
