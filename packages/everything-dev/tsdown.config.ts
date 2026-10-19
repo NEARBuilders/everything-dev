@@ -88,7 +88,6 @@ export default defineConfig({
     "src/ui/version-check.ts",
     "src/api/auth-middleware.ts",
     "src/ui/tenant.ts",
-    "src/start-config-source.ts",
     "src/ui/entry.ts",
     "src/ui/hydrate.tsx",
     "src/ui/router-client.tsx",

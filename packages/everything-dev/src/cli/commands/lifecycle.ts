@@ -5,8 +5,7 @@ import type { KeyPublishOptions } from "../../contract";
 import { listPublishKeys } from "../../services/auth/near-cli";
 import { getRegistryNamespaceForAccount } from "../../services/registry/fastkv";
 import { getNetworkIdForAccount } from "../../utils/network";
-import { colors, frames, gradients, icons } from "../../utils/theme";
-import { exitCodeFor } from "../exit-codes";
+import { colors, icons } from "../../utils/theme";
 import type { CommandContext, ResultRenderer } from "./context";
 
 export const keyPublishPreCall = async (ctx: CommandContext): Promise<void> => {
@@ -51,7 +50,7 @@ export const keyPublishPreCall = async (ctx: CommandContext): Promise<void> => {
 };
 
 export const lifecycleRenderers: Record<string, ResultRenderer> = {
-  login: async (result, ctx) => {
+  login: async (result, _ctx) => {
     console.log();
     console.log(colors.green(`${icons.ok} Logged in to ${result.siteUrl}`));
     if (result.accountId) console.log(`  ${colors.dim("Account:")} ${result.accountId}`);
@@ -103,7 +102,7 @@ export const lifecycleRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  logout: async (result, ctx) => {
+  logout: async (result, _ctx) => {
     console.log();
     console.log(colors.green(`${icons.ok} Logged out`));
     if (result.revokedApiKey) console.log(`  ${colors.dim("Revoked API key")}`);
@@ -113,7 +112,7 @@ export const lifecycleRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  keyPublish: async (result, ctx) => {
+  keyPublish: async (result, _ctx) => {
     process.stdout.write(`Generated publish key for ${result.account}\n`);
     process.stdout.write(`  Network: ${result.network}\n`);
     process.stdout.write(`  Allowance: ${result.allowance}\n`);

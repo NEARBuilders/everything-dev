@@ -1,9 +1,9 @@
-import { colors, frames, gradients, icons } from "../../utils/theme";
+import { colors } from "../../utils/theme";
 import { exitCodeFor } from "../exit-codes";
 import type { ResultRenderer } from "./context";
 
 export const dbRenderers: Record<string, ResultRenderer> = {
-  dbStudio: async (result, ctx) => {
+  dbStudio: async (result, _ctx) => {
     if (exitCodeFor(result) === 1) {
       console.error(`[CLI] ${result.error || "Unknown error"}`);
       process.exit(1);
@@ -12,7 +12,7 @@ export const dbRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  dbDoctor: async (result, ctx) => {
+  dbDoctor: async (result, _ctx) => {
     if (exitCodeFor(result) === 1) {
       console.error(`[CLI] ${result.error || "Diagnosis failed"}`);
       process.exit(1);
@@ -55,7 +55,7 @@ export const dbRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  dbRepair: async (result, ctx) => {
+  dbRepair: async (result, _ctx) => {
     if (result.status === "refused") {
       console.log(
         `\n${colors.yellow("!")}  Repair refused for ${result.diagnosis?.plugin ?? result.message}`,

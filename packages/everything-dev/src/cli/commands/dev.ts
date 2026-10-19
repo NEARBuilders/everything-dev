@@ -5,7 +5,7 @@ import { exitCodeFor } from "../exit-codes";
 import { clearSpinnerStopLine, printStartSummary } from "../render/dev";
 import type { CommandContext } from "./context";
 
-const runWithProgress = async <T>(
+const _runWithProgress = async <T>(
   spinner: ReturnType<typeof p.spinner>,
   phaseLabels: Record<string, string>,
   call: () => Promise<T>,

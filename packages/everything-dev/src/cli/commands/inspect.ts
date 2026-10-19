@@ -19,7 +19,7 @@ import { compareSemver } from "../status";
 import type { ResultRenderer } from "./context";
 
 export const inspectRenderers: Record<string, ResultRenderer> = {
-  config: async (result, ctx) => {
+  config: async (result, _ctx) => {
     if (!result.config) {
       console.error(MISSING_CONFIG_MESSAGE);
       process.exit(1);
@@ -30,7 +30,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  status: async (result, ctx) => {
+  status: async (result, _ctx) => {
     console.log();
     if (exitCodeFor(result) === 1) {
       console.error(`[CLI] ${result.error || "Unknown error"}`);
@@ -89,7 +89,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  ps: async (result, ctx) => {
+  ps: async (result, _ctx) => {
     renderPs(result as PsResult);
     return;
   },
@@ -179,7 +179,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  typesGen: async (result, ctx) => {
+  typesGen: async (result, _ctx) => {
     console.log();
     if (exitCodeFor(result) === 1) {
       console.error(`[CLI] ${result.error || "Unknown error"}`);
@@ -228,7 +228,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  typecheck: async (result, ctx) => {
+  typecheck: async (result, _ctx) => {
     console.log();
     if (exitCodeFor(result) === 1) {
       console.error(`[CLI] ${result.error || "Unknown error"}`);
@@ -261,7 +261,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  mfCheck: async (result, ctx) => {
+  mfCheck: async (result, _ctx) => {
     console.log();
     console.log(
       `  ${colors.dim("Host")}   ${result.hostReachable ? colors.green("OK  ") : colors.error("FAIL")}  ${
@@ -291,7 +291,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  infraExport: async (result, ctx) => {
+  infraExport: async (result, _ctx) => {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;
   },

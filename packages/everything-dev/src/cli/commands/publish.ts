@@ -50,7 +50,7 @@ export const rollbackPreCall = async (ctx: CommandContext): Promise<void> => {
 };
 
 export const publishRenderers: Record<string, ResultRenderer> = {
-  pluginAdd: async (result, ctx) => {
+  pluginAdd: async (result, _ctx) => {
     console.log();
     console.log(colors.green(`${icons.ok} Added plugin ${result.key}`));
     if (result.development) console.log(`  ${colors.dim("Development:")} ${result.development}`);
@@ -59,14 +59,14 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  pluginRemove: async (result, ctx) => {
+  pluginRemove: async (result, _ctx) => {
     console.log();
     console.log(colors.green(`${icons.ok} Removed plugin ${result.key}`));
     console.log();
     return;
   },
 
-  pluginList: async (result, ctx) => {
+  pluginList: async (result, _ctx) => {
     console.log();
     console.log(colors.cyan(frames.top(52)));
     console.log(`  ${icons.config} ${gradients.cyber("PLUGINS")}`);
@@ -87,7 +87,7 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  pluginPublish: async (result, ctx) => {
+  pluginPublish: async (result, _ctx) => {
     console.log();
     console.log(colors.green(`${icons.ok} Published plugin ${result.key}`));
     if (result.path) console.log(`  ${colors.dim("Path:")} ${result.path}`);
@@ -98,7 +98,7 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  registryUse: async (result, ctx) => {
+  registryUse: async (result, _ctx) => {
     console.log();
     if (exitCodeFor(result) === 1) {
       console.error(colors.error(`${icons.err} ${result.error || "Unknown error"}`));
@@ -122,7 +122,7 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  publish: async (result, ctx) => {
+  publish: async (result, _ctx) => {
     if (result.status === "dry-run") {
       console.log();
       console.log(colors.cyan(`${icons.ok} Dry run complete`));
@@ -179,7 +179,7 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     }
   },
 
-  rollback: async (result, ctx) => {
+  rollback: async (result, _ctx) => {
     const rollbackResult = result as any;
     if (rollbackResult.status === "error") {
       console.log();
@@ -217,7 +217,7 @@ export const publishRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  deploy: async (result, ctx) => {
+  deploy: async (result, _ctx) => {
     const deployResult = result as any;
     if (deployResult.status === "list") {
       console.log();

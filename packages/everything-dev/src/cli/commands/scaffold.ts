@@ -1,4 +1,4 @@
-import { colors, frames, gradients, icons } from "../../utils/theme";
+import { colors, icons } from "../../utils/theme";
 import { exitCodeFor } from "../exit-codes";
 import { printStubMigrationGuide } from "../render/sync";
 import type { ResultRenderer } from "./context";
