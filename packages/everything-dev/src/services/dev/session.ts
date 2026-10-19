@@ -1,9 +1,4 @@
 import { Clock, DateTime, Deferred, Effect, Exit, Layer } from "effect";
-import {
-  createDevRenderer,
-  type DevProcessState,
-  type DevRendererHandle,
-} from "../../cli/render/dev-render";
 import { getProcessEnv } from "../../env/process-env";
 import { ShellEnvLive } from "../../env/project-env";
 import { ownerOfPort } from "../../infra/port-ownership";
@@ -32,6 +27,7 @@ import {
   type ProcessCallbacks,
   type ProcessHandle,
 } from "./orchestrator";
+import { type DevProcessState, DevRenderer, type DevRendererHandle } from "./render";
 import {
   type AppOrchestrator,
   DevGeneratedEnvLive,
@@ -110,6 +106,7 @@ export const runDevSession = (
     adoptOrphanedChildren(configDir);
     const services = yield* ServiceDescriptorMap;
     const runtimeConfig = yield* DevRuntimeConfig;
+    const renderer = yield* DevRenderer;
     const orderedPackages = sortByOrder(orchestrator.packages);
     const initialProcesses: DevProcessState[] = getProcessStates(
       orderedPackages,
@@ -199,7 +196,7 @@ export const runDevSession = (
     });
 
     const useInteractive = isInteractiveSupported() && orchestrator.interactive !== false;
-    view = createDevRenderer(
+    view = renderer.create(
       initialProcesses,
       orchestrator.description,
       orchestrator.env,
@@ -403,6 +400,7 @@ const runApp = (
   runtimeConfig: RuntimeConfig,
   envGenerated: Record<string, string>,
   shellEnv: Record<string, string>,
+  rendererLayer: Layer.Layer<DevRenderer>,
 ) => {
   let controls: DevSessionControls | null = null;
   let signalCount = 0;
@@ -462,6 +460,7 @@ const runApp = (
         DevRuntimeConfigLive(runtimeConfig),
         DevGeneratedEnvLive(envGenerated),
         ShellEnvLive(shellEnv),
+        rendererLayer,
       ),
     ),
     Effect.catchDefect((defect) =>

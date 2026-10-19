@@ -1,45 +1,30 @@
 import chalk from "chalk";
+import { Layer } from "effect";
 import { stripAnsi } from "../../services/dev/logs";
+import {
+  type DevLogLine,
+  type DevProcessState,
+  type DevProcessStatus,
+  DevRenderer,
+  type DevRendererHandle,
+  type DevRendererOutput,
+  type DevSessionState,
+} from "../../services/dev/render";
 import { linkify } from "../../utils/linkify";
 import { colors, divider, frames, gradients, icons } from "../../utils/theme";
+
+export type {
+  DevLogLine,
+  DevProcessState,
+  DevProcessStatus,
+  DevRendererHandle,
+  DevRendererOutput,
+  DevSessionState,
+};
 
 const PLUGIN_PREFIX = "plugin:";
 const VIEW_WIDTH = 52;
 const LOG_TAIL = 12;
-
-export type DevProcessStatus = "pending" | "starting" | "ready" | "error";
-
-export interface DevProcessState {
-  name: string;
-  status: DevProcessStatus;
-  port: number;
-  message?: string;
-  source?: string;
-  uiPort?: number;
-}
-
-export interface DevLogLine {
-  source: string;
-  line: string;
-  isError?: boolean;
-}
-
-export interface DevSessionState {
-  description: string;
-  proxyTarget?: string;
-  processes: DevProcessState[];
-  logs: DevLogLine[];
-}
-
-export interface DevRendererHandle {
-  updateProcess: (name: string, status: DevProcessStatus, message?: string) => void;
-  addLog: (source: string, line: string, isError?: boolean) => void;
-  unmount: () => void;
-}
-
-export interface DevRendererOutput {
-  write: (text: string) => void;
-}
 
 interface DevRendererInput {
   setRawMode?: (mode: boolean) => void;
@@ -488,3 +473,7 @@ export function createDevRenderer(
 
   return handle;
 }
+
+export const DevRendererCliLive = Layer.succeed(DevRenderer, {
+  create: createDevRenderer,
+});

@@ -291,7 +291,10 @@ async function main() {
       const session = result.session;
       void outdatedWarning;
       if (session) {
-        const { devApp } = await import("./services/dev/session");
+        const [{ devApp }, { DevRendererCliLive }] = await Promise.all([
+          import("./services/dev/session"),
+          import("./cli/render/dev-render"),
+        ]);
         devApp(
           projectDir ?? process.cwd(),
           session.orchestrator,
@@ -299,6 +302,7 @@ async function main() {
           session.runtimeConfig,
           session.envGenerated,
           session.shellEnv,
+          DevRendererCliLive,
         );
       }
       return;
@@ -343,7 +347,10 @@ async function main() {
         if (summary) {
           printStartSummary(summary);
         }
-        const { startApp } = await import("./services/dev/session");
+        const [{ startApp }, { DevRendererCliLive }] = await Promise.all([
+          import("./services/dev/session"),
+          import("./cli/render/dev-render"),
+        ]);
         startApp(
           projectDir ?? process.cwd(),
           session.orchestrator,
@@ -351,6 +358,7 @@ async function main() {
           session.runtimeConfig,
           session.envGenerated,
           session.shellEnv,
+          DevRendererCliLive,
         );
       }
       return;

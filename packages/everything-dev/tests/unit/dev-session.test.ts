@@ -5,6 +5,7 @@ import { Deferred, Effect, Exit, Layer } from "effect";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellEnvLive } from "../../src/env/project-env";
 import type { ProcessHandle } from "../../src/services/dev/orchestrator";
+import { DevRenderer } from "../../src/services/dev/render";
 import {
   DevGeneratedEnvLive,
   DevRuntimeConfigLive,
@@ -35,10 +36,6 @@ const mocks = vi.hoisted(() => {
   };
   return state;
 });
-
-vi.mock("../../src/cli/render/dev-render", () => ({
-  createDevRenderer: () => mocks.view,
-}));
 
 vi.mock("../../src/services/dev/orchestrator", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/services/dev/orchestrator")>();
@@ -113,6 +110,7 @@ const runSession = () => {
         DevRuntimeConfigLive(fakeRuntimeConfig),
         DevGeneratedEnvLive({}),
         ShellEnvLive({}),
+        Layer.succeed(DevRenderer, DevRenderer.of({ create: () => mocks.view })),
       ),
     ),
   );
