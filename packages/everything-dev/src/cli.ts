@@ -35,14 +35,14 @@ import type {
   TypecheckWorkspaceResult,
 } from "./contract";
 import { fetchInitParent } from "./handlers/init";
-import { listPublishKeys } from "./near-cli";
-import { getNetworkIdForAccount } from "./network";
 import bosPlugin from "./plugin";
-import { type ProgressEvent, pluginEvents } from "./progress";
 import { createPluginRuntime } from "./sdk";
+import { listPublishKeys } from "./services/auth/near-cli";
+import { type ProgressEvent, pluginEvents } from "./services/dev/progress";
 import { getRegistryNamespaceForAccount } from "./services/registry/fastkv";
 import { installBundleFetchFromEnv } from "./services/resolution/resolver";
 import { printBanner } from "./utils/banner";
+import { getNetworkIdForAccount } from "./utils/network";
 import { colors, frames, gradients, icons } from "./utils/theme";
 
 /**
@@ -291,7 +291,7 @@ async function main() {
       const session = result.session;
       void outdatedWarning;
       if (session) {
-        const { devApp } = await import("./dev-session");
+        const { devApp } = await import("./services/dev/session");
         devApp(
           projectDir ?? process.cwd(),
           session.orchestrator,
@@ -343,7 +343,7 @@ async function main() {
         if (summary) {
           printStartSummary(summary);
         }
-        const { startApp } = await import("./dev-session");
+        const { startApp } = await import("./services/dev/session");
         startApp(
           projectDir ?? process.cwd(),
           session.orchestrator,

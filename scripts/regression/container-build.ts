@@ -20,9 +20,9 @@ import { writeResolvedConfig } from "../../packages/everything-dev/src/config";
 import {
   checkFederationTrain,
   resolveAuthWorkspace,
-} from "../../packages/everything-dev/src/federation-train";
+} from "../../packages/everything-dev/src/services/federation/train";
 import { openResolution } from "../../packages/everything-dev/src/services/resolution/session";
-import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/version-manifest-deploy";
+import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/services/deploy/version-manifest";
 
 /**
  * Local production fixture rewriting (ADR 0009): a section named in the plan

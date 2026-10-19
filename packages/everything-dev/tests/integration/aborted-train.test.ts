@@ -18,8 +18,8 @@ vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
   return { ...actual, fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock };
 });
 
-vi.mock("../../src/near-signer", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/near-signer")>();
+vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/auth/near-signer")>();
   return {
     ...actual,
     resolveSigningStrategy: resolveSigningStrategyMock,
@@ -27,7 +27,7 @@ vi.mock("../../src/near-signer", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/code-artifacts", () => ({ generateCodeArtifacts: vi.fn() }));
+vi.mock("../../src/services/codegen/artifacts", () => ({ generateCodeArtifacts: vi.fn() }));
 vi.mock("../../src/services/workspace/build-train", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/services/workspace/build-train")>();
   return {

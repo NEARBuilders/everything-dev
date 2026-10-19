@@ -3,27 +3,18 @@ import { join } from "node:path";
 import process from "node:process";
 import { Context, Effect, Layer, Option } from "effect";
 import { hasFolderFormUi } from "every-plugin/build/ui";
-import { generateCodeArtifacts } from "../../code-artifacts";
 import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "../../config";
 import type { WorkspaceDeployResult } from "../../contract";
-import { ensureCustodyBalance, submitRegistryWriteCustody } from "../../custody-signer";
-import { ensureDelegateKey, submitRegistryWriteDelegated } from "../../delegate-signer";
-import {
-  type PreviousPin,
-  pinsFromDeployState,
-  pinsFromPublishedConfig,
-  upsertDeployStatePins,
-} from "../../deploy-diff";
-import { applyDeployResults, type DeployResultEntry } from "../../integrity";
-import { submitRegistryWrite } from "../../near-signer";
-import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "../../platform-deploy";
-import { verifyRollbackSnapshot } from "../../rollback";
 import { openResolution } from "../../services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
+import { ensureCustodyBalance, submitRegistryWriteCustody } from "../auth/custody-signer";
+import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegate-signer";
+import { submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
+import { generateCodeArtifacts } from "../codegen/artifacts";
 import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { mergeAuthoredOverPublished } from "../resolution/merge";
@@ -36,10 +27,19 @@ import {
   resolveWorkspaceTarget,
 } from "../workspace/build-train";
 import { BundleStorage, RegistryStore, type RegistryStoreShape } from "./deps";
+import {
+  type PreviousPin,
+  pinsFromDeployState,
+  pinsFromPublishedConfig,
+  upsertDeployStatePins,
+} from "./diff";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
 import { formatNearError } from "./format";
+import { applyDeployResults, type DeployResultEntry } from "./integrity";
+import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
 import { type DeployTrainRender, DeployTrainRenderService } from "./render";
+import { verifyRollbackSnapshot } from "./rollback";
 import {
   realStorageLegDeps,
   type StorageLegDeps,

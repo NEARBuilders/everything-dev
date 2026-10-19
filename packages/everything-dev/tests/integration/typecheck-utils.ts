@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Data } from "effect";
 import { expect } from "vitest";
-import { buildAuthContractStub, buildAuthExportStub } from "../../src/auth-types-gen";
+import { buildAuthContractStub, buildAuthExportStub } from "../../src/services/codegen/auth-types";
 
 export interface CommandResult {
   code: number;

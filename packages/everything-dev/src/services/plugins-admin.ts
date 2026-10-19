@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { Context, Effect, Layer } from "effect";
-import { generateCodeArtifacts } from "../code-artifacts";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import type {
   PluginAddResult,
@@ -11,6 +10,7 @@ import type {
 } from "../contract";
 import type { BosConfig } from "../types";
 import { saveBosConfig } from "../utils/save-config";
+import { generateCodeArtifacts } from "./codegen/artifacts";
 import { DeployTrainService } from "./deploy/train";
 import { fetchRemotePluginManifest } from "./registry/fastkv";
 import { openResolution, type ResolutionSession } from "./resolution/session";

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkFederationCompat } from "../../src/services/federation";
+import { checkFederationCompat } from "../../src/services/federation/service";
 import type { BosConfig } from "../../src/types";
 
 const HOST_URL = "https://host.example";

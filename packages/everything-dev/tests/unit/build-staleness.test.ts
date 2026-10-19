@@ -13,7 +13,7 @@ import {
   contentHashStalenessOracle,
   isWorkspaceDistStale,
   type WorkspaceMember,
-} from "../../src/workspace";
+} from "../../src/services/workspace/workspace";
 
 const tmpDirs: string[] = [];
 

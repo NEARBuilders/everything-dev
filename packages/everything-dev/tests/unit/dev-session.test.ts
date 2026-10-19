@@ -3,15 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Deferred, Effect, Exit, Layer } from "effect";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { runDevSession } from "../../src/dev-session";
 import { ShellEnvLive } from "../../src/env/project-env";
-import type { ProcessHandle } from "../../src/orchestrator";
+import type { ProcessHandle } from "../../src/services/dev/orchestrator";
 import {
   DevGeneratedEnvLive,
   DevRuntimeConfigLive,
   type ServiceDescriptor,
   ServiceDescriptorMapLive,
-} from "../../src/service-descriptor";
+} from "../../src/services/dev/service-descriptor";
+import { runDevSession } from "../../src/services/dev/session";
 
 const mocks = vi.hoisted(() => {
   const state = {
@@ -36,12 +36,12 @@ const mocks = vi.hoisted(() => {
   return state;
 });
 
-vi.mock("../../src/components/dev-render", () => ({
+vi.mock("../../src/cli/render/dev-render", () => ({
   createDevRenderer: () => mocks.view,
 }));
 
-vi.mock("../../src/orchestrator", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/orchestrator")>();
+vi.mock("../../src/services/dev/orchestrator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/dev/orchestrator")>();
   return {
     ...actual,
     makeDevProcess: (pkg: string) => {

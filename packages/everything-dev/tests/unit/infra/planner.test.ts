@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PortAllocatorLive } from "../../../src/app";
 import {
   buildEnvGenerated,
   buildLaunchSpec,
@@ -12,6 +11,7 @@ import {
   planInfra,
   workspaceKey,
 } from "../../../src/infra/planner";
+import { PortAllocatorLive } from "../../../src/infra/ports";
 import type { ResolvedPorts } from "../../../src/infra/types";
 import type { RuntimeConfig } from "../../src/types";
 

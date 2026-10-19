@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyDeployResults } from "../../src/integrity";
+import { applyDeployResults } from "../../src/services/deploy/integrity";
 import { mergeAuthoredOverPublished } from "../../src/services/resolution/merge";
 import type { BosConfig } from "../../src/types";
 
@@ -41,7 +41,7 @@ vi.mock("../../src/services/workspace/build-train", async (importOriginal) => {
   return { ...actual, buildWorkspaceTargets: buildWorkspaceTargetsMock };
 });
 
-vi.mock("../../src/code-artifacts", () => ({
+vi.mock("../../src/services/codegen/artifacts", () => ({
   generateCodeArtifacts: generateCodeArtifactsMock,
 }));
 
@@ -54,8 +54,8 @@ vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/near-signer", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/near-signer")>();
+vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/auth/near-signer")>();
   return {
     ...actual,
     resolveSigningStrategy: resolveSigningStrategyMock,
@@ -68,28 +68,29 @@ vi.mock("../../src/services/resolution/session", async (importOriginal) => {
   return { ...actual, openResolution: openResolutionMock };
 });
 
-vi.mock("../../src/storage-upload", () => ({
+vi.mock("../../src/services/deploy/storage", () => ({
   collectDistFiles: collectDistFilesMock,
   uploadWorkspaceDist: uploadWorkspaceDistMock,
   uploadBundle: uploadBundleMock,
 }));
 
-vi.mock("../../src/platform-deploy", () => ({
+vi.mock("../../src/services/deploy/platform", () => ({
   platformUrlDeployEntries: platformUrlDeployEntriesMock,
   pluginUiUrlDeployEntries: pluginUiUrlDeployEntriesMock,
 }));
 
-vi.mock("../../src/version-manifest-deploy", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/version-manifest-deploy")>();
+vi.mock("../../src/services/deploy/version-manifest", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/services/deploy/version-manifest")>();
   return { ...actual, readBuildReport: readBuildReportMock };
 });
 
-vi.mock("../../src/cdn-deploy", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/cdn-deploy")>();
+vi.mock("../../src/services/deploy/cdn", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/deploy/cdn")>();
   return { ...actual, probeStorageOrigin: probeStorageOriginMock };
 });
 
-import { writeSessionHandle } from "../../src/auth-session";
+import { writeSessionHandle } from "../../src/services/auth/session";
 import { publishToFastKv } from "../../src/services/deploy/train";
 
 const bosConfig = {

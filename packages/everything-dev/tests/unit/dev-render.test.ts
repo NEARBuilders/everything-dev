@@ -5,9 +5,9 @@ import {
   createDevRenderer,
   type DevProcessState,
   renderDevState,
-} from "../../src/components/dev-render";
+} from "../../src/cli/render/dev-render";
 
-import { stripAnsi } from "../../src/dev-log-pipeline";
+import { stripAnsi } from "../../src/services/dev/logs";
 
 const proc = (
   name: string,

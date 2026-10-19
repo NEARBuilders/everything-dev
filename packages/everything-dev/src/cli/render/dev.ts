@@ -1,4 +1,4 @@
-import type { StartSummary } from "../../dev-program";
+import type { StartSummary } from "../../services/dev/session";
 import { colors } from "../../utils/theme";
 import { formatDuration, sumPhaseDurations } from "../timing";
 

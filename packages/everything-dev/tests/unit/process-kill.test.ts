@@ -9,8 +9,8 @@ import {
   ownerOfPort,
   resetLsofCacheForTests,
 } from "../../src/infra/port-ownership";
-import { killProcessGroupEscalating, reapGroup } from "../../src/process-kill";
-import { isPidAlive } from "../../src/process-registry";
+import { killProcessGroupEscalating, reapGroup } from "../../src/services/processes/kill";
+import { isPidAlive } from "../../src/services/processes/registry";
 
 let tempDir = mkdtempSync(join(tmpdir(), "process-kill-"));
 const cleanup: number[] = [];

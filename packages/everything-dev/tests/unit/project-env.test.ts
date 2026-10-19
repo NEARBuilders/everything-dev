@@ -5,7 +5,7 @@ import process from "node:process";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { captureShellEnv, makeProjectEnv } from "../../src/env/project-env";
-import { mergeGeneratedOverFileEnv } from "../../src/orchestrator";
+import { mergeGeneratedOverFileEnv } from "../../src/services/dev/orchestrator";
 
 const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 

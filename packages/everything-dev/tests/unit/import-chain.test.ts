@@ -13,7 +13,7 @@ import {
   type VersionManifestFetcher,
 } from "../../src/cli/import";
 import { resetConfigPathCache } from "../../src/config";
-import { computeSriHash } from "../../src/integrity";
+import { computeSriHash } from "../../src/services/deploy/integrity";
 import type { ResolutionIo } from "../../src/services/resolution/session";
 
 const WS = "plugins/auth";

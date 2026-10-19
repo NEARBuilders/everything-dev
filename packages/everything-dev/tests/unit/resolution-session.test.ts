@@ -16,8 +16,8 @@ const catalogMocks = vi.hoisted(() => ({
   sourceDirs: new Map<string, string>(),
 }));
 
-vi.mock("../../src/init-source", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/init-source")>();
+vi.mock("../../src/services/resolution/init-source", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/resolution/init-source")>();
   return {
     ...actual,
     resolveSourceDir: (async (opts: { extendsAccount: string; extendsGateway: string }) => {

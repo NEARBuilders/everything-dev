@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getResolvedConfigPath } from "../../src/config";
 import type { ResolvedConfigMeta } from "../../src/services/resolution/merge";
-import { syncResolvedSharedDeps } from "../../src/shared-deps";
+import { readWorkspaceCatalog } from "../../src/services/workspace/catalog";
+import { syncResolvedSharedDeps } from "../../src/services/workspace/shared-deps";
 import type { BosConfig } from "../../src/types";
-import { readWorkspaceCatalog } from "../../src/workspace-catalog";
 
 const VALID_CONFIG = {
   account: "test.near",

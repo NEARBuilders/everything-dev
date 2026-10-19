@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { localSriMap } from "../../src/deploy-diff";
+import { localSriMap } from "../../src/services/deploy/diff";
+import type { BundleUploadResult, DistFile } from "../../src/services/deploy/storage";
 import { type StorageLegDeps, uploadWorkspaceBundle } from "../../src/services/deploy/upload-leg";
-import type { BundleUploadResult, DistFile } from "../../src/storage-upload";
 
 const archiveDir = mkdtempSync(join(tmpdir(), "upload-leg-"));
 const archivePath = join(archiveDir, "app.tar.gz");

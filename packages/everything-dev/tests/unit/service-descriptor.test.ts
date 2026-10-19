@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildServiceDescriptorMap } from "../../src/service-descriptor";
+import { buildServiceDescriptorMap } from "../../src/services/dev/service-descriptor";
 import type { RuntimeConfig } from "../../src/types";
 
 /**

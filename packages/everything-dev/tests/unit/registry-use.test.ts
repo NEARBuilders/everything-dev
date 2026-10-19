@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyRegistrySections, listComposableSections } from "../../src/registry-use";
+import { applyRegistrySections, listComposableSections } from "../../src/services/registry/use";
 
 const remoteConfig = {
   account: "v1.citynode.near",

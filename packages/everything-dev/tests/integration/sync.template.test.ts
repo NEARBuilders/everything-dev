@@ -26,7 +26,7 @@ import {
 } from "../../src/cli/init";
 import { readSnapshot } from "../../src/cli/snapshot";
 import { syncTemplate } from "../../src/cli/sync";
-import * as initSourceModule from "../../src/init-source";
+import * as initSourceModule from "../../src/services/resolution/init-source";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as scaffoldInitModule from "../../src/services/scaffold/init";
 import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";

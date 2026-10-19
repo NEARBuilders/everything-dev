@@ -10,8 +10,8 @@ import {
   resolveConfigComposableEntries,
 } from "../config";
 import type { BosConfigResult } from "../contract";
-import { applyRegistrySections } from "../registry-use";
 import { fetchBosConfigFromFastKv } from "../services/registry/fastkv";
+import { applyRegistrySections } from "../services/registry/use";
 import { ResolutionSessionService, walkExtendsChain } from "../services/resolution/session";
 import type { BosConfig, BosConfigInput } from "../types";
 import { BosConfigSchema } from "../types";

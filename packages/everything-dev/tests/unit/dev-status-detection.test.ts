@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { detectStatus } from "../../src/orchestrator";
-import type { ServiceDescriptor } from "../../src/service-descriptor";
+import { detectStatus } from "../../src/services/dev/orchestrator";
+import type { ServiceDescriptor } from "../../src/services/dev/service-descriptor";
 
 const pluginDescriptor = {
   command: "pnpm",

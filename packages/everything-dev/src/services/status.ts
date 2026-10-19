@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import type { StatusResult } from "../contract";
-import { fetchJsonOrNull } from "../http-client";
+import { fetchJsonOrNull } from "../utils/http-client";
 import { readInstalledFrameworkVersion, resolveFrameworkPackage } from "./framework-version";
 import { fetchBosConfigFromFastKv } from "./registry/fastkv";
 import { readSnapshot } from "./scaffold/snapshot";

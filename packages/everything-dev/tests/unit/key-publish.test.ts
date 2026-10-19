@@ -11,8 +11,8 @@ const mocks = vi.hoisted(() => ({
   deleteAccessKeys: vi.fn(),
 }));
 
-vi.mock("../../src/near-cli", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/near-cli")>();
+vi.mock("../../src/services/auth/near-cli", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/auth/near-cli")>();
   const { Effect } = await import("effect");
   return {
     ...actual,
