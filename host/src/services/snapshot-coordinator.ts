@@ -41,16 +41,19 @@ const adoptFailure = (message: string, cause: unknown) =>
  * inherits from its parent via `extends` (notably `app.host`) are absent.
  * Derive the adoptable config through the same extends-walking pipeline the
  * boot path uses (tenant-runtime): building a runtime config straight from
- * the raw pointer crashes on the first inherited slot. Failure to resolve
- * the chain fails the adopt — a derived config missing inherited slots must
- * never swap in.
+ * the raw pointer crashes on the first inherited slot. A pointer without a
+ * domain has no bos:// ref to resolve — fail rather than guess one; failure
+ * of any kind leaves the live snapshot untouched.
  */
 const resolvePointerConfig = async (
   publishedConfig: BosConfig,
   baseDir: string,
 ): Promise<BosConfig> => {
+  if (!publishedConfig.domain) {
+    throw new Error(`published pointer for ${publishedConfig.account} has no domain`);
+  }
   const merged = await resolveMergedConfigInput(
-    `bos://${publishedConfig.account}/${publishedConfig.domain ?? "everything.dev"}`,
+    `bos://${publishedConfig.account}/${publishedConfig.domain}`,
     { env: "production", seedConfig: publishedConfig as BosConfigInput },
   );
   return resolveConfigComposableEntries(BosConfigSchema.parse(merged), baseDir, "production");

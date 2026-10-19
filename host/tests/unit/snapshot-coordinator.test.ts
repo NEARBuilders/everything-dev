@@ -109,6 +109,7 @@ afterAll(() => {
 
 describe("adoptPublishedPointer", () => {
   beforeEach(() => {
+    resolveMergedConfigInputMock.mockReset();
     resolveMergedConfigInputMock.mockResolvedValue(mergedPointer);
   });
 
@@ -283,6 +284,29 @@ describe("adoptPublishedPointer", () => {
       "deriving the published pointer failed",
     );
     expect((squashed as SnapshotAdoptError).message).toContain("No config found");
+    expect(result.after).toBe(result.before);
+  });
+
+  it("a pointer without a domain fails the adopt — no fallback to another runtime's ref", async () => {
+    const domainLess = { ...publishedPointer, domain: undefined } as unknown as BosConfig;
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const snapshot = yield* RuntimeSnapshot;
+        const before = yield* snapshot.get;
+        const exit = yield* Effect.exit(
+          adoptPublishedPointer({ snapshot, publishedConfig: domainLess }),
+        );
+        const after = yield* snapshot.get;
+        return { before, exit, after };
+      }).pipe(Effect.provide(snapshotLayer)),
+    );
+    if (!Exit.isFailure(result.exit)) throw new Error("expected adopt failure");
+    const squashed = Cause.squash(result.exit.cause);
+    expect((squashed as SnapshotAdoptError).message).toContain(
+      "deriving the published pointer failed",
+    );
+    expect((squashed as SnapshotAdoptError).message).toContain("has no domain");
+    expect(resolveMergedConfigInputMock).not.toHaveBeenCalled();
     expect(result.after).toBe(result.before);
   });
 });
