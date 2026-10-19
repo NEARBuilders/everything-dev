@@ -113,7 +113,7 @@ export function createAuthMiddleware<
       }
       return next({ context });
     },
-  ) as DecoratedMiddleware<Ctx, Record<string, never>, any, any, any>;
+  ) as DecoratedMiddleware<Ctx, Record<never, never>, any, any, any>;
 
   const requireRole = <TRoles extends readonly string[]>(...roles: TRoles) =>
     builder.middleware(async ({ context, next }: { context: Ctx; next: any }) => {
@@ -257,7 +257,7 @@ export function createAuthMiddleware<
         });
       }
       return next({ context });
-    }) as DecoratedMiddleware<Ctx, Record<string, never>, any, any, any>;
+    }) as DecoratedMiddleware<Ctx, Record<never, never>, any, any, any>;
 
   return {
     requireAuth,
