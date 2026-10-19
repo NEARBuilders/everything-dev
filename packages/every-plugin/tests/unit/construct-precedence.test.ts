@@ -75,6 +75,45 @@ describe("constructTree core-over-plugin precedence (ADR 0010 decision #1)", () 
     );
   });
 
+  it("shadows the shadowed route's whole subtree without failing parentage", async () => {
+    const core = plugin(
+      { key: "ui", mfName: "core-ui" },
+      manifestOf("ui", [mountLayout("_public", "public"), loginRoute("_public/login")]),
+    );
+    const auth = plugin(
+      { key: "auth", mfName: "auth-ui" },
+      manifestOf("auth", [
+        mountLayout("_public", "public"),
+        loginRoute("_public/login"),
+        record({ id: "_public/login/", type: "index", path: "/", parentId: "_public/login" }),
+        record({
+          id: "_public/login/device/approve",
+          path: "/device/approve",
+          parentId: "_public/login/device/",
+        }),
+        record({ id: "_public/login/device/", path: "/device/", parentId: "_public/login" }),
+      ]),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const tree = await constructTree({
+      name: "server",
+      plugins: [core.ref, auth.ref],
+      resolve: async (ref) => (ref.key === "ui" ? core.resolve(ref) : auth.resolve(ref)),
+    });
+
+    // The core's /login shadows the plugin's login subtree — including the
+    // grandchildren listed before their own shadowed parent — and the
+    // composition still succeeds.
+    expect(tree.mountCounts.public).toBe(1);
+    expect(tree.nav.items.map((item) => item.id)).toEqual(["ui:_public/login"]);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'route claim "ui:_public/login" (/login) shadows "auth:_public/login"',
+      ),
+    );
+  });
+
   it("still throws on plugin-vs-plugin path collisions, naming both", async () => {
     const alpha = plugin(
       { key: "alpha", mfName: "alpha-ui" },
