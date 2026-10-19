@@ -46,6 +46,7 @@ vi.mock("../../src/services/resolution/session", async (importOriginal) => {
 
 import { publishToFastKv } from "../../src/services/deploy/train";
 import { openResolution } from "../../src/services/resolution/session";
+import { buildWorkspaceTargets } from "../../src/services/workspace/build-train";
 
 const sriOf = (content: Buffer | string) =>
   `sha384-${createHash("sha384").update(content).digest("base64")}`;
@@ -496,5 +497,144 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
     const uploaded = storage.batches.slice(batchesAfterFirst).flatMap((batch) => batch.paths);
     expect(uploaded).toContain("remoteEntry.js");
     expect(uploaded).toContain("mf-manifest.json");
+  });
+});
+
+describe("a pipelined folder-form plugin ui upload started mid-build", () => {
+  let storage: MockStorage;
+  let configDir: string;
+  let savedEnv: Record<string, string | undefined>;
+  let publishedPayloads: Array<Record<string, unknown>>;
+
+  const pluginConfig = {
+    account: "v1.citynode.near",
+    domain: "citynode.app",
+    cdn: { origin: "https://cdn.example.test" },
+    plugins: {
+      auth: {
+        development: "local:plugins/auth",
+        production: "https://cdn.example.test/auth/",
+      },
+    },
+  } as unknown as BosConfig;
+
+  beforeEach(async () => {
+    storage = new MockStorage();
+    await storage.ready;
+    const originalFetch = globalThis.fetch.bind(globalThis);
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      const inputUrl =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url = new URL(inputUrl);
+      if (url.origin === "https://cdn.example.test") {
+        return originalFetch(new URL(`${url.pathname}${url.search}`, storage.origin), init);
+      }
+      return originalFetch(input, init);
+    });
+    configDir = mkdtempSync(join(tmpdir(), "bos-pipelined-plugin-ui-"));
+    savedEnv = {
+      BOS_BUNDLE_CDN_ORIGIN: process.env.BOS_BUNDLE_CDN_ORIGIN,
+      BOS_STORAGE_ORIGIN: process.env.BOS_STORAGE_ORIGIN,
+      BOS_STORAGE_API_KEY: process.env.BOS_STORAGE_API_KEY,
+      BOS_PUBLISH_CONFIRMATION_INTERVAL_MS: process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS,
+      BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS: process.env.BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS,
+    };
+    process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
+    process.env.BOS_STORAGE_ORIGIN = storage.origin;
+    process.env.BOS_STORAGE_API_KEY = "edk_test";
+    process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS = "10";
+    process.env.BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS = "2000";
+
+    mkdirSync(join(configDir, "plugins", "auth", "ui", "src", "routes"), { recursive: true });
+    writeFileSync(join(configDir, "bos.config.json"), JSON.stringify(pluginConfig, null, 2));
+
+    resolveSigningStrategyMock.mockResolvedValue({
+      strategy: "near-kit",
+      privateKey: "ed25519:test",
+      source: "provided",
+    });
+    vi.mocked(openResolution).mockResolvedValue({
+      config: pluginConfig,
+      rawConfig: pluginConfig,
+    } as never);
+    submitRegistryWriteMock.mockImplementation(async (tx: { args: Record<string, string> }) => {
+      publishedPayloads.push(JSON.parse(Object.values(tx.args)[0]!));
+      return { success: true, txHash: "tx_test" };
+    });
+    fetchBosConfigFromFastKvMock.mockImplementation(async () => {
+      const last = publishedPayloads[publishedPayloads.length - 1];
+      return last ? JSON.parse(JSON.stringify(last)) : Promise.reject(new Error("No config found"));
+    });
+
+    publishedPayloads = [];
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    storage.close();
+    rmSync(configDir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    vi.mocked(buildWorkspaceTargets).mockReset();
+    vi.mocked(buildWorkspaceTargets).mockResolvedValue({
+      built: ["ui"],
+      skipped: [],
+      deployResults: [{ key: "ui", kind: "app", success: true }],
+    });
+  });
+
+  it("uploads the plugin ui leg without reading an uninitialized config binding", async () => {
+    mkdirSync(join(configDir, "plugins", "auth", "dist"), { recursive: true });
+    mkdirSync(join(configDir, "plugins", "auth", "ui", "dist"), { recursive: true });
+    writeDist(join(configDir, "plugins", "auth", "dist"), "v1");
+    writeDist(join(configDir, "plugins", "auth", "ui", "dist"), "v1");
+    // The pipelined-upload window (#430): the upload starts the moment the
+    // workspace build completes — before the train has finished the build
+    // phase. Regression: the plugin-ui leg read a config binding first
+    // initialized after the train (ReferenceError: Cannot access 'rawConfig'
+    // before initialization) and the deploy died after all builds succeeded.
+    vi.mocked(buildWorkspaceTargets).mockImplementation(async (_input, deps) => {
+      deps?.onWorkspaceBuilt?.("auth");
+      return {
+        built: ["auth"],
+        skipped: [],
+        deployResults: [{ key: "auth", kind: "plugin", success: true }],
+      };
+    });
+
+    const result = await publishToFastKv({
+      bosConfig: pluginConfig,
+      runtimeConfig: null,
+      configDir,
+      env: "production",
+      build: true,
+      dryRun: false,
+      verbose: false,
+      packages: "all",
+      network: "mainnet",
+      privateKey: "ed25519:test",
+    });
+
+    expect(result.status).toBe("published");
+    expect(publishedPayloads).toHaveLength(1);
+    const auth = (
+      publishedPayloads[0] as {
+        plugins: Record<
+          string,
+          { ui: Record<string, { pin: { manifest: string; integrity: string } }> }
+        >;
+      }
+    ).plugins.auth;
+    expect(auth.ui.pin.manifest).toMatch(/^versions\/[0-9a-f]{16}\.json$/);
+    const storedManifest = storage.get(
+      "v1.citynode.near",
+      "citynode.app",
+      "auth-ui",
+      auth.ui.pin.manifest,
+    );
+    expect(storedManifest).not.toBeNull();
+    expect(storedManifest!.sri).toBe(auth.ui.pin.integrity);
   });
 });
