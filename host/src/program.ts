@@ -24,14 +24,16 @@ import { createSsrFallbackHandler } from "./routes/ssr";
 import { createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { ConfigService, type RuntimeConfig } from "./services/config";
 import { HostServerError } from "./services/errors";
-import { FederationLifecycle } from "./services/federation.server";
+import { FederationContainers } from "./services/federation/containers";
+import { FederationLifecycle } from "./services/federation/lifecycle";
+import { FederationLoader } from "./services/federation/loader";
 import { closeMcpServer } from "./services/mcp";
 import { PluginsService } from "./services/plugins";
 import { deploymentFingerprint, RuntimeSnapshot } from "./services/runtime-snapshot";
 import { SnapshotCoordinator } from "./services/snapshot-coordinator";
 import { SnapshotWatch, watchIntervalMs } from "./services/snapshot-watch";
 import { composeUi, isSsrAvailable, type UiComposeCacheState } from "./services/ui-compose";
-import { minimumLogLevel } from "./utils/effect-run";
+import { minimumLogLevel, runEffect } from "./utils/effect-run";
 import { extractErrorDetails } from "./utils/errors";
 import { logger } from "./utils/logger";
 
@@ -66,6 +68,8 @@ export const createStartServer = (onReady?: () => void) =>
     const plugins = yield* PluginsService;
     const security = yield* SecurityMiddleware;
     yield* FederationLifecycle;
+    const containers = yield* FederationContainers;
+    const loader = yield* FederationLoader;
     const apiProxyMode = Boolean(config.api?.proxy);
 
     const ssrEnabled = isSsrAvailable(config);
@@ -212,7 +216,17 @@ export const createStartServer = (onReady?: () => void) =>
 
     app.use("/*", sessionMiddleware);
 
-    app.get("*", createSsrFallbackHandler(config, plugins, CSP_STRICT, getServingState));
+    app.get(
+      "*",
+      createSsrFallbackHandler(config, plugins, CSP_STRICT, getServingState, (effect) =>
+        runEffect(
+          effect.pipe(
+            Effect.provideService(FederationContainers, containers),
+            Effect.provideService(FederationLoader, loader),
+          ),
+        ),
+      ),
+    );
 
     const startHttpServer = () => {
       const hostname = process.env.HOST || "0.0.0.0";

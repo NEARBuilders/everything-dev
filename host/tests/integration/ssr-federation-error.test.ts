@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, ManagedRuntime } from "effect";
+import { Cause, Exit, ManagedRuntime } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeConfig } from "../../src/services/config";
 
@@ -16,9 +16,8 @@ vi.mock("everything-dev/integrity", () => ({
   verifySriForUrl: verifySriForUrlMock,
 }));
 
-const { FederationLifecycle, loadRouterModule } = await import(
-  "../../src/services/federation.server"
-);
+const { loadRouterModule } = await import("../../src/services/federation/loader");
+const { FederationLifecycle } = await import("../../src/services/federation/lifecycle");
 
 const { FederationError } = await import("../../src/services/errors");
 
@@ -57,12 +56,15 @@ function createRemoteConfig(options?: {
   } as RuntimeConfig;
 }
 
+const startFederationRuntime = () => ManagedRuntime.make(FederationLifecycle.layer);
+let runtimeStored: ReturnType<typeof startFederationRuntime> | undefined;
 let disposeLifecycle: (() => Promise<void>) | undefined;
 
 describe("loadRouterModule failure paths", () => {
   beforeEach(async () => {
-    const runtime = ManagedRuntime.make(FederationLifecycle.layer);
+    const runtime = startFederationRuntime();
     await runtime.runPromise(FederationLifecycle);
+    runtimeStored = runtime;
     disposeLifecycle = () => runtime.dispose();
     vi.clearAllMocks();
     verifySriForUrlMock.mockResolvedValue(undefined);
@@ -77,7 +79,7 @@ describe("loadRouterModule failure paths", () => {
     it("raises FederationError with Module not found message", async () => {
       loadRemoteMock.mockResolvedValue(null);
 
-      const result = await Effect.runPromiseExit(loadRouterModule(createRemoteConfig()));
+      const result = await runtimeStored!.runPromiseExit(loadRouterModule(createRemoteConfig()));
 
       expect(Exit.isFailure(result)).toBe(true);
       if (Exit.isSuccess(result)) throw new Error("Expected Left");
@@ -94,7 +96,7 @@ describe("loadRouterModule failure paths", () => {
       mfError.name = "FederationError";
       loadRemoteMock.mockRejectedValue(mfError);
 
-      const result = await Effect.runPromiseExit(loadRouterModule(createRemoteConfig()));
+      const result = await runtimeStored!.runPromiseExit(loadRouterModule(createRemoteConfig()));
 
       expect(Exit.isFailure(result)).toBe(true);
       if (Exit.isSuccess(result)) throw new Error("Expected Left");
@@ -111,7 +113,7 @@ describe("loadRouterModule failure paths", () => {
       const integrityError = new Error("SRI hash mismatch: expected sha384-abc, got sha384-xyz");
       verifySriForUrlMock.mockRejectedValue(integrityError);
 
-      const result = await Effect.runPromiseExit(loadRouterModule(createRemoteConfig()));
+      const result = await runtimeStored!.runPromiseExit(loadRouterModule(createRemoteConfig()));
 
       expect(Exit.isFailure(result)).toBe(true);
       if (Exit.isSuccess(result)) throw new Error("Expected Left");
@@ -125,7 +127,7 @@ describe("loadRouterModule failure paths", () => {
     it("raises error when ssrUrl is not configured", async () => {
       const config = createRemoteConfig({ ssrUrl: undefined });
 
-      const result = await Effect.runPromiseExit(loadRouterModule(config));
+      const result = await runtimeStored!.runPromiseExit(loadRouterModule(config));
 
       expect(Exit.isFailure(result)).toBe(true);
     });
@@ -142,7 +144,7 @@ describe("loadRouterModule failure paths", () => {
         .mockRejectedValueOnce(new Error("Timeout"))
         .mockResolvedValue(routerModule);
 
-      const result = await Effect.runPromise(loadRouterModule(createRemoteConfig()));
+      const result = await runtimeStored!.runPromise(loadRouterModule(createRemoteConfig()));
 
       expect(result).toBe(routerModule.default);
       expect(loadRemoteMock).toHaveBeenCalledTimes(3);
@@ -153,7 +155,7 @@ describe("loadRouterModule failure paths", () => {
     it("raises FederationError after all retries fail, reusing one MF instance", async () => {
       loadRemoteMock.mockRejectedValue(new Error("Persistent failure"));
 
-      const result = await Effect.runPromiseExit(loadRouterModule(createRemoteConfig()));
+      const result = await runtimeStored!.runPromiseExit(loadRouterModule(createRemoteConfig()));
 
       expect(Exit.isFailure(result)).toBe(true);
       if (Exit.isSuccess(result)) throw new Error("Expected Left");
@@ -172,14 +174,14 @@ describe("loadRouterModule failure paths", () => {
 
       loadRemoteMock.mockRejectedValue(new Error("Load failed"));
 
-      const result = await Effect.runPromiseExit(loadRouterModule(config));
+      const result = await runtimeStored!.runPromiseExit(loadRouterModule(config));
       expect(Exit.isFailure(result)).toBe(true);
 
       const attemptsAfterFirstFailure = loadRemoteMock.mock.calls.length;
       expect(attemptsAfterFirstFailure).toBeGreaterThan(0);
 
       loadRemoteMock.mockRejectedValue(new Error("Still failing"));
-      const secondResult = await Effect.runPromiseExit(loadRouterModule(config));
+      const secondResult = await runtimeStored!.runPromiseExit(loadRouterModule(config));
       expect(Exit.isFailure(secondResult)).toBe(true);
 
       expect(loadRemoteMock.mock.calls.length).toBe(attemptsAfterFirstFailure);
@@ -193,7 +195,7 @@ describe("loadRouterModule failure paths", () => {
 
         loadRemoteMock.mockRejectedValue(new Error("Load failed"));
 
-        const firstResult = await Effect.runPromiseExit(loadRouterModule(config));
+        const firstResult = await runtimeStored!.runPromiseExit(loadRouterModule(config));
         expect(Exit.isFailure(firstResult)).toBe(true);
 
         vi.setSystemTime(Date.now() + 11_000);
@@ -203,7 +205,7 @@ describe("loadRouterModule failure paths", () => {
         };
         loadRemoteMock.mockResolvedValue(routerModule);
 
-        const secondResult = await Effect.runPromise(loadRouterModule(config));
+        const secondResult = await runtimeStored!.runPromise(loadRouterModule(config));
         expect(secondResult).toBe(routerModule.default);
       } finally {
         vi.useRealTimers();
@@ -215,7 +217,7 @@ describe("loadRouterModule failure paths", () => {
     it("includes remoteName and remoteUrl in the error", async () => {
       loadRemoteMock.mockResolvedValue(null);
 
-      const result = await Effect.runPromiseExit(loadRouterModule(createRemoteConfig()));
+      const result = await runtimeStored!.runPromiseExit(loadRouterModule(createRemoteConfig()));
 
       expect(Exit.isFailure(result)).toBe(true);
       if (Exit.isSuccess(result)) throw new Error("Expected Left");
@@ -233,7 +235,7 @@ describe("loadRouterModule failure paths", () => {
       ].join("\n");
       loadRemoteMock.mockRejectedValue(mfError);
 
-      const result = await Effect.runPromiseExit(loadRouterModule(createRemoteConfig()));
+      const result = await runtimeStored!.runPromiseExit(loadRouterModule(createRemoteConfig()));
 
       expect(Exit.isFailure(result)).toBe(true);
       if (Exit.isSuccess(result)) throw new Error("Expected Left");

@@ -9,9 +9,9 @@ const loadUiRouteConfigMock = vi.fn();
 const loadRouterModuleMock = vi.fn();
 const resolveRequestRuntimeMock = vi.fn();
 
-vi.mock("../../src/services/federation.server", async () => {
-  const actual = await vi.importActual<typeof import("../../src/services/federation.server")>(
-    "../../src/services/federation.server",
+vi.mock("../../src/services/federation/loader", async () => {
+  const actual = await vi.importActual<typeof import("../../src/services/federation/loader")>(
+    "../../src/services/federation/loader",
   );
   return {
     ...actual,

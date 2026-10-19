@@ -4,6 +4,7 @@ import { buildRuntimeConfigEffect, type ConfigVersionManifestError } from "every
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";
+import { FederationLifecycle } from "../../src/services/federation/lifecycle";
 import { deploymentFingerprint, RuntimeSnapshot } from "../../src/services/runtime-snapshot";
 import { adoptPublishedPointer, SnapshotAdoptError } from "../../src/services/snapshot-coordinator";
 
@@ -59,6 +60,7 @@ const derivedConfig = {
 
 const snapshotLayer = RuntimeSnapshot.layer().pipe(
   Layer.provide(Layer.succeed(ConfigService, bootConfig)),
+  Layer.provideMerge(FederationLifecycle.layer),
 );
 
 const buildRuntimeConfigMock = vi.mocked(buildRuntimeConfigEffect);

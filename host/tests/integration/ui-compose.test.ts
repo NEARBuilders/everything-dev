@@ -16,8 +16,8 @@ const federationMocks = vi.hoisted(() => ({
   loadRouterModule: vi.fn(),
 }));
 
-vi.mock("../../src/services/federation.server", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/services/federation.server")>();
+vi.mock("../../src/services/federation/loader", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/federation/loader")>();
   return {
     ...actual,
     loadUiComposeModule: (...args: unknown[]) => federationMocks.loadUiComposeModule(...args),
@@ -30,7 +30,7 @@ vi.mock("../../src/services/federation.server", async (importOriginal) => {
 const { composeUi, composeClientPayload, createUiComposeCacheState, uiSources } = await import(
   "../../src/services/ui-compose"
 );
-const { FederationLifecycle } = await import("../../src/services/federation.server");
+const { FederationLifecycle } = await import("../../src/services/federation/lifecycle");
 
 const CORE_MANIFEST = {
   name: "ui",
@@ -163,18 +163,22 @@ const cdnAwareFetch = async (url: unknown) => {
 
 const fetchMock = vi.fn(cdnAwareFetch);
 let cache = createUiComposeCacheState();
+const startFederationRuntime = () => ManagedRuntime.make(FederationLifecycle.layer);
+let federationRuntime: ReturnType<typeof startFederationRuntime> | undefined;
 let disposeFederation: (() => Promise<void>) | undefined;
 
-const compose = (config: RuntimeConfig) => Effect.runPromise(composeUi(config, cache));
-const composeExit = (config: RuntimeConfig) => Effect.runPromiseExit(composeUi(config, cache));
+const compose = (config: RuntimeConfig) => federationRuntime!.runPromise(composeUi(config, cache));
+const composeExit = (config: RuntimeConfig) =>
+  federationRuntime!.runPromiseExit(composeUi(config, cache));
 const composeClient = (config: RuntimeConfig) =>
-  Effect.runPromise(composeClientPayload(config, cache));
+  federationRuntime!.runPromise(composeClientPayload(config, cache));
 
 beforeEach(async () => {
   vi.clearAllMocks();
   cache = createUiComposeCacheState();
-  const lifecycle = ManagedRuntime.make(FederationLifecycle.layer);
+  const lifecycle = startFederationRuntime();
   await lifecycle.runPromise(FederationLifecycle);
+  federationRuntime = lifecycle;
   disposeFederation = () => lifecycle.dispose();
   fetchMock.mockImplementation(cdnAwareFetch);
   vi.stubGlobal("fetch", fetchMock);
@@ -190,6 +194,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   await disposeFederation?.();
   disposeFederation = undefined;
+  federationRuntime = undefined;
 });
 
 describe("uiSources", () => {

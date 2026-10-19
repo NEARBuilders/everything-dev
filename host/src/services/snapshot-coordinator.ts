@@ -2,6 +2,8 @@ import { Context, Effect, Layer, Schema, Semaphore } from "effect";
 import { buildRuntimeConfigEffect } from "everything-dev/config";
 import { verifySriForUrl } from "everything-dev/integrity";
 import type { BosConfig } from "everything-dev/types";
+import { FederationContainers } from "./federation/containers";
+import { FederationLoader } from "./federation/loader";
 import {
   createRuntimeSnapshotState,
   deploymentFingerprint,
@@ -56,7 +58,8 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
   baseDir?: string;
 }): Effect.fn.Return<
   Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" }>,
-  SnapshotAdoptError
+  SnapshotAdoptError,
+  FederationContainers | FederationLoader
 > {
   const { snapshot, publishedConfig } = input;
 
@@ -119,7 +122,8 @@ export const adoptPublishedPointer = Effect.fn("SnapshotCoordinator.adopt")(func
   baseDir?: string;
 }): Effect.fn.Return<
   Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" }>,
-  SnapshotAdoptError
+  SnapshotAdoptError,
+  FederationContainers | FederationLoader
 > {
   return yield* adoptPermits.withPermits(1)(adoptTransaction(input));
 });
@@ -143,10 +147,15 @@ export class SnapshotCoordinator extends Context.Service<
     SnapshotCoordinator,
     Effect.gen(function* () {
       const snapshot = yield* RuntimeSnapshot;
+      const containers = yield* FederationContainers;
+      const loader = yield* FederationLoader;
       return SnapshotCoordinator.of({
         adopt: (publishedConfig) =>
-          adoptPublishedPointer({ snapshot, publishedConfig, baseDir: process.cwd() }),
+          adoptPublishedPointer({ snapshot, publishedConfig, baseDir: process.cwd() }).pipe(
+            Effect.provideService(FederationContainers, containers),
+            Effect.provideService(FederationLoader, loader),
+          ),
       });
     }),
-  );
+  ).pipe(Layer.provide(FederationLoader.layer), Layer.provide(FederationContainers.layer));
 }

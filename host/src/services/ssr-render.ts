@@ -1,7 +1,8 @@
+import { Effect, Layer, ManagedRuntime, References } from "effect";
 import type { ComposePayload } from "everything-dev/ui/manifest";
 import { renderClientShell } from "../routes/html";
 import type { RouterModule } from "../types";
-import { mark, runEffect } from "../utils/effect-run";
+import { mark, minimumLogLevel, runEffect } from "../utils/effect-run";
 import { logger } from "../utils/logger";
 import {
   buildRuntimeClientConfig,
@@ -9,11 +10,18 @@ import {
   type RuntimeConfig,
   resolveActiveRuntime,
 } from "./config";
+import { FederationContainers } from "./federation/containers";
+import { FederationLifecycle } from "./federation/lifecycle";
+import { FederationLoader } from "./federation/loader";
 import { createNonceNormalizer } from "./nonce-normalizer";
 import { createPluginsClient, type PluginResult } from "./plugins";
-import { type ClientConfigCacheState, createClientConfigCacheState } from "./serving-caches";
+import {
+  type ClientConfigCacheState,
+  createClientConfigCacheState,
+  enforceCacheLimit,
+  pruneExpiredEntries,
+} from "./serving-caches";
 import { getTenantRuntimeErrorResponse, resolveRequestRuntime } from "./tenant-runtime";
-import { enforceCacheLimit, pruneExpiredEntries } from "./ttl-cache";
 import {
   type ComposedUi,
   composeClientPayload,
@@ -47,6 +55,13 @@ export interface SsrRenderDeps {
    * in-flight requests keep the state they captured (shadow-flip, no drain) */
   getServingState?: () => Promise<ServingSnapshot>;
   plugins: PluginResult;
+  /** Runs compose effects with the federation services in context. The server
+   * passes its runtime context so the composition instance and container
+   * servers live for the server's whole life; standalone callers (tests)
+   * get a lifecycle-scoped runtime built once per render instance. */
+  runFederated?: <A, E>(
+    effect: Effect.Effect<A, E, FederationContainers | FederationLoader>,
+  ) => Promise<A>;
 }
 
 /** The serving surface a request composes through — structurally the
@@ -128,6 +143,40 @@ const formatDur = (ms: number) => (Math.round(ms * 10) / 10).toFixed(1);
 export function createSsrRender(deps: SsrRenderDeps) {
   const fallbackComposeCache = createUiComposeCacheState();
   const fallbackClientConfigCache = createClientConfigCacheState();
+  const runFederated =
+    deps.runFederated ??
+    (() => {
+      // Standalone callers (tests): one lifecycle-scoped runtime per render
+      // instance — the composition instance and container servers live as long
+      // as the render fn. runEffect re-wires the CLI log-level service so the
+      // request-path compose marks stay visible under BOS_LOG_LEVEL=debug.
+      const runtime = ManagedRuntime.make(
+        Layer.mergeAll(
+          FederationLifecycle.layer,
+          Layer.succeed(References.MinimumLogLevel, minimumLogLevel()),
+        ),
+      );
+      let services: Promise<{
+        containers: FederationContainers["Service"];
+        loader: FederationLoader["Service"];
+      }> | null = null;
+      const load = () =>
+        (services ??= (async () => ({
+          containers: await runtime.runPromise(FederationContainers),
+          loader: await runtime.runPromise(FederationLoader),
+        }))());
+      return async <A, E>(
+        effect: Effect.Effect<A, E, FederationContainers | FederationLoader>,
+      ): Promise<A> => {
+        const { containers, loader } = await load();
+        return runEffect(
+          effect.pipe(
+            Effect.provideService(FederationContainers, containers),
+            Effect.provideService(FederationLoader, loader),
+          ),
+        );
+      };
+    })();
   return async (request: Request, ctx: SsrRenderRequestContext): Promise<Response> => {
     const pathname = new URL(request.url).pathname;
     const requestId = crypto.randomUUID().slice(0, 8);
@@ -163,7 +212,7 @@ export function createSsrRender(deps: SsrRenderDeps) {
       let composePayload: ComposePayload | undefined;
       try {
         const composeStartedAt = Date.now();
-        composePayload = (await runEffect(composeClientPayload(effectiveConfig, composeCache)))
+        composePayload = (await runFederated(composeClientPayload(effectiveConfig, composeCache)))
           ?.clientPayload;
         mark("client payload compose", {
           requestId,
@@ -195,7 +244,7 @@ export function createSsrRender(deps: SsrRenderDeps) {
     let composed: ComposedUi;
     try {
       const composeStartedAt = Date.now();
-      composed = await runEffect(composeUi(effectiveConfig, composeCache));
+      composed = await runFederated(composeUi(effectiveConfig, composeCache));
       composeMs = Date.now() - composeStartedAt;
     } catch (error) {
       logger.error(`[SSR] ${requestId} Manifest composition failed for ${pathname}:`, error);
