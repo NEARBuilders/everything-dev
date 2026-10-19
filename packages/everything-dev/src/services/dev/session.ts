@@ -408,6 +408,8 @@ const runApp = (
 
   const forceExit = () => {
     controls?.restoreView();
+    // @ts-ignore
+    pipeline.flush();
     console.log("\n[Dev] Force exit");
     controls?.emergencyKill();
     process.exit(0);
