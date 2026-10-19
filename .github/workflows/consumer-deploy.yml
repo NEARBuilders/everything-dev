@@ -71,6 +71,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      # The Railway deploy leg shells out to the `railway` CLI — runners don't
+      # ship it, and a missing binary surfaces as a failed leg after the config
+      # has already published ("Config published but Railway CLI not found").
+      # Pinned to the current major; bump deliberately.
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli@^5
+
       - name: Deploy (preflight → build → upload → publish → image → Railway)
         timeout-minutes: 35
         run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}

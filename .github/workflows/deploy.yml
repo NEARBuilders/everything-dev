@@ -248,8 +248,9 @@ jobs:
       # The Railway deploy leg shells out to the `railway` CLI — runners don't
       # ship it, and a missing binary surfaces as a silent instant exit-1
       # (execa spawn failure mapped to exit code 1 by the deploy's run helper).
+      # Pinned to the current major (matches consumer-deploy.yml); bump deliberately.
       - name: Install Railway CLI
-        run: npm i -g @railway/cli
+        run: npm i -g @railway/cli@^5
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
