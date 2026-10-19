@@ -1,13 +1,11 @@
-import type {
-  AuthRequestContext,
-  AuthSession,
-  AuthSessionData,
-  AuthSessionUser,
-} from "@/lib/auth-types.gen";
+import type { AuthRequestContext, AuthSession, AuthSessionUser } from "@/lib/auth-types.gen";
 
 export type * from "@/lib/auth-types.gen";
 
 export type AuthUser = AuthSessionUser;
+
+/** Session row carried by the once-per-request `getContext` resolution. */
+export type AuthContextSession = NonNullable<AuthRequestContext["session"]>;
 
 export interface AuthClient {
   getSession(): Promise<AuthSession | null>;
@@ -17,7 +15,7 @@ export interface AuthClient {
 export interface AuthVariables {
   authContext: AuthRequestContext | null;
   user: AuthUser | null;
-  session: AuthSessionData | null;
+  session: AuthContextSession | null;
   reqHeaders: Headers;
   getRawBody: () => Promise<string>;
 }

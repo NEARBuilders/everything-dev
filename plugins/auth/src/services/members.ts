@@ -58,6 +58,7 @@ export class MembersService extends Context.Service<
         role: "owner" | "admin" | "member";
         organizationId?: string;
       },
+      activeOrganizationId: string | null | undefined,
     ) => Effect.Effect<InferOutput<"addMember">, AuthFailure>;
     removeMember: (
       headers: Headers,
@@ -191,18 +192,9 @@ export const buildMembersService = ({ auth, db }: { auth: Auth; db: Db }) =>
       headers: Headers,
       context: EmailVisibilityContext & { userId: string },
       input: { userId: string; role: "owner" | "admin" | "member"; organizationId?: string },
+      activeOrganizationId: string | null | undefined,
     ) {
-      const session = input.organizationId
-        ? null
-        : yield* attemptAuth(() => auth.api.getSession({ headers }));
-      const activeSession = session
-        ? yield* attemptDb(() =>
-            db.query.session.findFirst({
-              where: eq(schema.session.id, session.session.id),
-            }),
-          )
-        : null;
-      const organizationId = input.organizationId ?? activeSession?.activeOrganizationId;
+      const organizationId = input.organizationId ?? activeOrganizationId ?? null;
       if (!organizationId) {
         return yield* Effect.fail(new NoActiveOrganization({ message: "No active organization" }));
       }

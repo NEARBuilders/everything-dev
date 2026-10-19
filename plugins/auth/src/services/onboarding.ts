@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Context, Effect } from "effect";
-import { attemptAuth, attemptDb } from "../attempts";
+import { attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
 import { toDate, toOnboardingSummary } from "../serializers";
@@ -10,7 +10,6 @@ import type {
   OnboardingCodeCipherTag,
   PluginServices,
 } from "../service-types";
-import { createHeaders } from "../utils";
 import {
   AuthenticationRequired,
   type AuthFailure,
@@ -28,7 +27,6 @@ import {
 } from "./domain-errors";
 import type { OrganizerCaller, PermissionsService } from "./permissions";
 
-type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
 
 const DEFAULT_MAX_USES = 300;
@@ -91,13 +89,11 @@ export class OnboardingService extends Context.Service<
 >()("auth/OnboardingService") {}
 
 export const buildOnboardingService = ({
-  auth,
   db,
   permissions,
   cipher,
   membershipPolicy,
 }: {
-  auth: Auth;
   db: Db;
   permissions: PermissionsService["Service"];
   cipher: OnboardingCodeCipherTag["Service"];
@@ -330,16 +326,13 @@ export const buildOnboardingService = ({
       context: OrganizerCaller,
       code: string,
     ) {
-      const headers = createHeaders(context.reqHeaders);
-      const session = yield* attemptAuth(() => auth.api.getSession({ headers }));
-      const sessionData = session as { user?: { id?: string }; session?: { id?: string } } | null;
-      const userId = context.userId ?? sessionData?.user?.id ?? null;
-      if (!userId || !sessionData?.session?.id) {
+      const userId = context.userId;
+      const sessionId = context.sessionId ?? null;
+      if (!userId || !sessionId) {
         return yield* Effect.fail(
           new AuthenticationRequired({ message: "Authentication required" }),
         );
       }
-      const sessionId = sessionData.session.id;
 
       const codeRow = yield* attemptDb(() =>
         db.query.onboardingCode.findFirst({
