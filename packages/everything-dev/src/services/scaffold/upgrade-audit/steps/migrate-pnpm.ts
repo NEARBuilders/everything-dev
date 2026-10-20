@@ -3,9 +3,9 @@ import { listFiles, readText, removePath, writeText } from "../fs";
 import type { StepResult } from "./author-config";
 
 const V2_CATALOG: Readonly<Record<string, string>> = {
-  "everything-dev": "^2.0.0-rc.10",
-  "every-plugin": "3.0.0-rc.6",
-  "better-near-auth": "^2.0.0-rc.1",
+  "everything-dev": "^2.0.0-rc.14",
+  "every-plugin": "^3.0.0-rc.9",
+  "better-near-auth": "^2.0.0-rc.2",
   effect: "4.0.0-rc.117",
   zod: "4.6.5",
   "better-auth": "1.7.7",
@@ -20,37 +20,52 @@ const V2_CATALOG: Readonly<Record<string, string>> = {
   "@orpc/tanstack-query": "2.0.0-beta.35",
   "@orpc/publisher": "2.0.0-beta.35",
   "@orpc/experimental-effect": "2.0.0-beta.35",
-  "@tanstack/react-query": "5.102.8",
-  "@tanstack/react-query-devtools": "^5.102.8",
-  "@tanstack/react-router": "1.170.32",
-  "@tanstack/react-router-devtools": "1.167.1",
-  "@tanstack/router-generator": "1.167.33",
-  "@tanstack/router-plugin": "1.168.35",
-  "@tanstack/react-devtools": "^0.10.1",
-  "@tanstack/react-table": "^9.2.4",
+  "@tanstack/react-query": "5.104.5",
+  "@tanstack/react-query-devtools": "^5.104.5",
+  "@tanstack/react-router": "1.170.45",
+  "@tanstack/react-router-devtools": "1.167.2",
+  "@tanstack/router-generator": "1.167.45",
+  "@tanstack/router-plugin": "1.168.47",
+  "@tanstack/react-devtools": "^0.10.13",
+  "@tanstack/react-table": "^9.3.1",
   "near-kit": "^0.20.2",
-  "@module-federation/enhanced": "^2.9.0",
-  "@module-federation/node": "^2.7.50",
-  "@module-federation/rsbuild-plugin": "^2.9.0",
-  "@module-federation/runtime-core": "^2.9.0",
-  "@module-federation/runtime": "^2.9.0",
-  "@module-federation/runtime-tools": "^2.9.0",
-  "@module-federation/sdk": "^2.9.0",
-  "@module-federation/dts-plugin": "^2.9.0",
-  "@rspack/core": "2.2.6",
-  "@rspack/cli": "2.2.6",
-  "@rsbuild/core": "2.2.8",
-  "@rsbuild/plugin-react": "2.1.0",
+  "@module-federation/enhanced": "^2.9.2",
+  "@module-federation/node": "^2.7.52",
+  "@module-federation/rsbuild-plugin": "^2.9.2",
+  "@module-federation/runtime-core": "^2.9.2",
+  "@module-federation/runtime": "^2.9.2",
+  "@module-federation/runtime-tools": "^2.9.2",
+  "@module-federation/sdk": "^2.9.2",
+  "@module-federation/dts-plugin": "^2.9.2",
+  "@rspack/core": "2.2.9",
+  "@rspack/cli": "2.2.9",
+  "@rsbuild/core": "2.2.14",
+  "@rsbuild/plugin-react": "2.1.1",
   typescript: "^7.0.2",
 };
 
 const MINIMUM_RELEASE_AGE_EXCLUDE = [
-  "better-near-auth@2.0.0-rc.0 || 2.0.0-rc.1",
-  "every-plugin@3.0.0-rc.4 || 3.0.0-rc.5 || 3.0.0-rc.6",
-  "everything-dev@2.0.0-rc.7 || 2.0.0-rc.8 || 2.0.0-rc.9 || 2.0.0-rc.10",
+  "better-near-auth@2.0.0-rc.0 || 2.0.0-rc.1 || 2.0.0-rc.2",
+  "every-plugin@3.0.0-rc.4 || 3.0.0-rc.5 || 3.0.0-rc.6 || 3.0.0-rc.7 || 3.0.0-rc.8 || 3.0.0-rc.9",
+  "everything-dev@2.0.0-rc.7 || 2.0.0-rc.8 || 2.0.0-rc.9 || 2.0.0-rc.10 || 2.0.0-rc.11 || 2.0.0-rc.12 || 2.0.0-rc.13 || 2.0.0-rc.14",
 ];
 
 const PNPM_PACKAGE_MANAGER = "pnpm@12.10.1";
+
+/**
+ * Transitive dedupe pins. @tanstack/react-router-devtools drags in a
+ * different @tanstack/router-core than @tanstack/react-router resolves, so
+ * everything-dev's dist (which imports the hoisted core) disagrees with the
+ * app-typed RouterCore — every AppRouterFactory assignment fails with
+ * missing `routeBranchCache`/`resolvePathWithBase`/`getRouteBranch`, and the
+ * stale react-router variant breaks `bos types gen` at import time
+ * (`isPlainArray` no longer exported). Force one core/router pair
+ * everywhere; bump in lockstep with the react-router catalog pin.
+ */
+const TRANSITIVE_OVERRIDES: Readonly<Record<string, string>> = {
+  "@tanstack/router-core": "1.171.38",
+  "@tanstack/react-router": "1.170.45",
+};
 
 const YAML_PLAIN_VALUE_RE = /^[A-Za-z0-9^~][A-Za-z0-9.^~*+\-/]*$/;
 
@@ -80,6 +95,13 @@ const renderWorkspaceYaml = (input: WorkspaceYamlInput): string => {
     "allowBuilds:",
     "  esbuild: true",
     "  sharp: true",
+    "  protobufjs: true",
+    "  '@openapitools/openapi-generator-cli': true",
+    "",
+    "overrides:",
+    ...Object.entries(TRANSITIVE_OVERRIDES).map(
+      ([key, value]) => `  ${yamlMap([[key, value]], "").trimStart()}`,
+    ),
     "",
     "catalog:",
     yamlMap(catalogEntries, "  "),
@@ -117,6 +139,9 @@ const mechanicalScriptRewrite = (value: string): string =>
     .replaceAll("bun run --cwd ", "pnpm --dir ")
     .replace(/bun run --cwd (\S+) (.+)/, "pnpm --dir $1 exec $2")
     .replaceAll("bun run ", "pnpm run ")
+    // node cannot execute the .bin shell shims pnpm installs — under pnpm
+    // run, the bin is already on PATH.
+    .replace(/node node_modules\/\.bin\/bos /, "bos ")
     .replace(
       'for d in plugins/*; do [ -f "$d/package.json" ] && bun run --if-present --cwd "$d" test; done',
       'for d in plugins/*; do if [ -f "$d/package.json" ]; then pnpm --dir "$d" --if-present run test || exit 1; fi; done',

@@ -60,9 +60,11 @@ describe("migratePnpm", () => {
   it("writes pnpm-workspace.yaml with packages, catalog, and RC pins", async () => {
     await run(migratePnpm(projectDir, false));
     const yaml = await readFile(join(projectDir, "pnpm-workspace.yaml"), "utf-8");
-    expect(yaml).toContain("everything-dev: ^2.0.0-rc.10");
-    expect(yaml).toContain("every-plugin: 3.0.0-rc.6");
-    expect(yaml).toContain("better-near-auth: ^2.0.0-rc.1");
+    expect(yaml).toContain("everything-dev: ^2.0.0-rc.14");
+    expect(yaml).toContain("every-plugin: ^3.0.0-rc.9");
+    expect(yaml).toContain("better-near-auth: ^2.0.0-rc.2");
+    expect(yaml).toContain("overrides:");
+    expect(yaml).toContain("@tanstack/router-core");
     expect(yaml).toContain("- api");
     expect(yaml).toContain("- plugins/*");
     expect(yaml).toContain("minimumReleaseAgeExclude:");
