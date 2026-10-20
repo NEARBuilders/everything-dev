@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { PageHeader, SectionHeader } from "@/components";
+import { PageContainer, PageHeader, SectionHeader } from "@/components";
 import { VersionCard } from "@/components/version-card";
 import { pageTitle } from "@/lib/page-title";
 
@@ -13,7 +13,7 @@ export const Route = createFileRoute("/_admin/_dashboard/admin/")({
 
 function AdminIndex() {
   return (
-    <div className="flex flex-col gap-6">
+    <PageContainer>
       <PageHeader
         headerTestId="admin.heading"
         title="Admin"
@@ -29,7 +29,7 @@ function AdminIndex() {
           <SystemLink />
         </div>
       </section>
-    </div>
+    </PageContainer>
   );
 }
 
