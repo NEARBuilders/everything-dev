@@ -248,7 +248,7 @@ bos dev --port 3100 --api-port 3101 --ui-port 3103 --auth-port 3102 --plugin-por
 ```
 
 `docker-compose.yml` is committed and provisions four Postgres 17 services — two for dev, two for tests:
-- `postgres-api` (port 5432, db `api_db`) — shared by the API and all local plugins; each plugin isolates its tables in a `plugin_<pluginId>` schema (set via `search_path` on every connection, see `api/src/db/layer.ts`).
+- `postgres-api` (port 5432, db `api_db`) — shared by the API and all local plugins; the API keeps its tables in `public`, while each plugin isolates its tables in a `plugin_<pluginId>` schema (set via `search_path` on every connection, see `api/src/db/layer.ts`).
 - `postgres-auth` (port 5433, db `auth_db`) — auth database.
 - `postgres-api-test` (port 5434, db `api_test_db`) — test-only API/plugin database.
 - `postgres-auth-test` (port 5435, db `auth_test_db`) — test-only auth database.

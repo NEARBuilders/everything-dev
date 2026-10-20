@@ -12,8 +12,10 @@ export const DatabaseLive = (url: string) =>
     Effect.gen(function* () {
       const pluginId = yield* PluginIdTag;
       const slug = pluginMigrationSlug(pluginId);
-      const schemaName = pluginId === "api" ? undefined : `plugin_${slug}`;
-      const storage = getMigrationStorage(slug);
+      // The api keeps the public-schema topology (what `bos db doctor` checks,
+      // the drizzle-kit config targets, and every v1-upgraded database already
+      // has); plugins scope into plugin_<slug> on the shared database.
+      const schemaName = slug === "api" ? undefined : `plugin_${slug}`;
 
       const driver = yield* Effect.acquireRelease(
         Effect.tryPromise({
@@ -27,6 +29,7 @@ export const DatabaseLive = (url: string) =>
           }).pipe(Effect.ignore),
       );
 
+      const storage = getMigrationStorage(slug);
       const { migrations, source } = yield* loadMigrations;
 
       if (migrations.length === 0) {
@@ -56,7 +59,7 @@ export const DatabaseLive = (url: string) =>
           yield* Effect.logWarning(
             `[Database] Run \`bos db doctor ${storage.slug}\` to diagnose and \`bos db repair ${storage.slug}\` to fix.`,
           );
-          throw new DatabaseError({
+          return yield* new DatabaseError({
             stage: "migration",
             migrationTag: "drift-safe-repair",
             cause: new Error(
@@ -70,7 +73,7 @@ export const DatabaseLive = (url: string) =>
           yield* Effect.logWarning(
             `[Database] ⚠️ Partial migration drift detected: ${drift.missingTables.length}/${drift.expectedTables.length} expected table(s) missing.`,
           );
-          throw new DatabaseError({
+          return yield* new DatabaseError({
             stage: "migration",
             migrationTag: "drift-manual",
             cause: new Error(

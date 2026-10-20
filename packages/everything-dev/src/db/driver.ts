@@ -11,10 +11,11 @@ export interface DatabaseDriver<TSchema extends Record<string, unknown>> {
 /**
  * Resolve a plugin id to its data-schema name on a shared database.
  *
- * Schema names are unconditional `plugin_<slug>` for every workspace on the
- * shared API database. The `pluginId === "api" ? undefined` special case found
- * in older plugin copies is dead code (a plugin is never `api`); api's own
- * tables already live in `plugin_api`.
+ * `plugin_<slug>` namespaces PLUGIN workspaces on the shared API database.
+ * The api shell itself keeps the public-schema topology (what `bos db doctor`
+ * checks, the drizzle-kit configs target, and every v1-upgraded database
+ * already has) — callers resolving a data namespace must pass `undefined` for
+ * it, never this function's `plugin_api`.
  */
 export function pluginSchemaName(pluginId: string): string {
   return `plugin_${pluginMigrationSlug(pluginId)}`;
