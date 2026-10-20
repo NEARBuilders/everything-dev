@@ -112,6 +112,59 @@ export interface CustodyWalletRegistration {
   handoffUrl: string | null;
 }
 
+export interface ReferralDashboard {
+  code: string;
+  stats: { completed: number; joinedToday: number; pending: number; total: number };
+}
+
+export interface ReferralListResult {
+  code: string;
+  total: number;
+  limit: number;
+  offset: number;
+  referrals: Array<{
+    id: string;
+    status: "pending" | "completed";
+    completedAt: Date | string | null;
+    createdAt: Date | string;
+    progress: {
+      requiredSteps: string[];
+      completedSteps: string[];
+      remainingSteps: string[];
+      completed: number;
+      total: number;
+      isCompleted: boolean;
+    };
+    referredUser: { id: string; name: string; email: string; image: string | null };
+  }>;
+}
+
+/**
+ * Typed client surface for the auth plugin's referral endpoints — a local
+ * plugin (like custodyClient) instead of the upstream client plugin, whose
+ * single-module entry drags its server-side nanoid → node:crypto imports
+ * into every browser bundle that includes this file.
+ */
+function referralClient() {
+  return {
+    id: "better-auth-referral" as const,
+    $InferServerPlugin: {},
+    getActions: ($fetch: BetterFetch) => ({
+      referrals: {
+        dashboard: async () => {
+          return await $fetch<ReferralDashboard>("/referrals", { method: "GET" });
+        },
+        list: async (params?: { limit?: number; offset?: number }) => {
+          return await $fetch<ReferralListResult>("/referrals/list-referrals", {
+            method: "GET",
+            query: params,
+          });
+        },
+      },
+    }),
+  };
+}
+
 /**
  * Typed client surface for the auth plugin's custody endpoints — the
  * escape-hatch replacement for raw `auth.$fetch("/custody/register")` on the
@@ -158,6 +211,7 @@ export function createAuthClient(options: CreateAuthClientOptions = {}) {
       apiKeyClient(),
       deviceAuthorizationClient(),
       custodyClient(),
+      referralClient(),
     ],
   });
 }
@@ -293,10 +347,12 @@ export async function createAccountWithPasskey(
   options?: {
     onSuccess?: (result: { passkeyWallet?: PasskeyWalletStatus }) => void;
     onError?: (error: PasskeyCeremonyError) => void;
+    referralCode?: string;
   },
 ): Promise<void> {
   try {
-    const { data, error } = await authClient.passkey.addPasskey();
+    const headers = options?.referralCode ? { "x-referral-code": options.referralCode } : undefined;
+    const { data, error } = await authClient.passkey.addPasskey(undefined, { headers });
     if (error || !data) {
       options?.onError?.(toPasskeyError(error, "Could not create your account"));
       return;

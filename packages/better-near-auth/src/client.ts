@@ -157,7 +157,7 @@ export interface SIWNClientActions {
     getNearClient: (network?: "mainnet" | "testnet") => NearType;
   };
   signIn: {
-    near: (callbacks?: AuthCallbacks) => Promise<void>;
+    near: (callbacks?: AuthCallbacks, fetchOptions?: BetterFetchOption) => Promise<void>;
   };
 }
 
@@ -1118,7 +1118,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
           },
         },
         signIn: {
-          near: async (callbacks?: AuthCallbacks) => {
+          near: async (callbacks?: AuthCallbacks, fetchOptions?: BetterFetchOption) => {
             try {
               const { signedMessage, accountId, nonceHex, callbackUrl } = await signWithWallet();
               const net = activeNetwork.get();
@@ -1139,6 +1139,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
                     accountId,
                     callbackUrl,
                   },
+                  ...fetchOptions,
                 },
               );
 

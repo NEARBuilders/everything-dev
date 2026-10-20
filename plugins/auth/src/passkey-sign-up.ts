@@ -2,7 +2,8 @@ import type { BetterAuthPlugin, GenericEndpointContext } from "better-auth";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { linkPasskeyWalletFromCredential, parseCosePublicKey } from "better-near-auth";
-import type { AuthNetwork } from "./auth-config";
+import type { AuthNetwork, AuthReferralConfig } from "./auth-config";
+import { attributeReferralOnUserCreate } from "./referral-signup";
 
 export const PASSKEY_CHALLENGE_WINDOW_MS = 5 * 60 * 1000;
 const PASSKEY_WALLET_ALGORITHMS = [-8, -7];
@@ -101,7 +102,7 @@ function isRegisteredPasskey(value: unknown): value is RegisteredPasskey {
   );
 }
 
-export function passkeySignUp(options: { network: AuthNetwork }) {
+export function passkeySignUp(options: { network: AuthNetwork; referral?: AuthReferralConfig }) {
   return {
     id: "passkey-sign-up",
     hooks: {
@@ -142,6 +143,7 @@ export function passkeySignUp(options: { network: AuthNetwork }) {
               throw new APIError("INTERNAL_SERVER_ERROR", { message: "Unable to create session" });
             }
             await setSessionCookie(ctx, { session, user });
+            await attributeReferralOnUserCreate(user, options.referral);
             return ctx.json({ ...passkey, passkeyWallet });
           }),
         },
