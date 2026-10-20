@@ -62,6 +62,21 @@ const packageNameOf = (specifier: string): string => {
 
 const isProtocolSpecifier = (specifier: string): boolean => /^[^/]+:/.test(specifier);
 
+const memberPackageNames = (projectDir: string): Effect.Effect<Set<string>, Error> =>
+  Effect.gen(function* () {
+    const pkgPaths = yield* listFiles(
+      projectDir,
+      "{package.json,ui/package.json,api/package.json,plugins/*/package.json}",
+    );
+    const names = new Set<string>();
+    for (const pkgPath of pkgPaths) {
+      if (pkgPath === "package.json") continue;
+      const pkg = JSON.parse(yield* readText(projectDir, pkgPath)) as { name?: string };
+      if (typeof pkg.name === "string") names.add(pkg.name);
+    }
+    return names;
+  });
+
 const declarePluginDeps = (
   projectDir: string,
   dryRun: boolean,
@@ -71,6 +86,7 @@ const declarePluginDeps = (
       workspaces?: { catalog?: Record<string, string> };
     };
     const catalog = rootCatalog.workspaces?.catalog ?? {};
+    const members = yield* memberPackageNames(projectDir);
 
     const pluginPkgs = yield* listFiles(projectDir, "plugins/*/package.json");
     const added: string[] = [];
@@ -104,6 +120,13 @@ const declarePluginDeps = (
       let modified = false;
       for (const name of needed) {
         if (declared.has(name) || name === pluginDir.split("/")[1]) continue;
+        // In-repo packages get workspace:* — the catalog holds external deps.
+        if (members.has(name)) {
+          added.push(`${pluginDir}: ${name} (workspace:*)`);
+          nextDeps[name] = "workspace:*";
+          modified = true;
+          continue;
+        }
         if (!(name in catalog)) {
           unresolved.push(`${pluginDir}: ${name} (not in catalog — declare manually)`);
           continue;
@@ -133,6 +156,16 @@ export const consumerizeRefs = (
       projectDir,
       "{package.json,ui/package.json,api/package.json,plugins/*/package.json}",
     );
+    // Refs to in-repo packages stay `workspace:*` — pnpm resolves member
+    // packages locally, and the catalog only holds external deps. Only
+    // external `workspace:`/`file:` refs (bun-workspace leftovers pointing
+    // outside the tree) are consumerized to `catalog:`.
+    const memberNames = new Set<string>();
+    for (const pkgPath of pkgPaths) {
+      if (pkgPath === "package.json") continue;
+      const pkg = JSON.parse(yield* readText(projectDir, pkgPath)) as { name?: string };
+      if (typeof pkg.name === "string") memberNames.add(pkg.name);
+    }
     const fixed: string[] = [];
     for (const pkgPath of pkgPaths) {
       const pkg = JSON.parse(yield* readText(projectDir, pkgPath)) as Record<string, unknown>;
@@ -144,7 +177,8 @@ export const consumerizeRefs = (
         for (const [name, ref] of Object.entries(record)) {
           if (
             typeof ref === "string" &&
-            (ref.startsWith("workspace:") || ref.startsWith("file:"))
+            (ref.startsWith("workspace:") || ref.startsWith("file:")) &&
+            !memberNames.has(name)
           ) {
             record[name] = "catalog:";
             modified = true;

@@ -1,9 +1,12 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { applyManifest } from "../../../src/services/scaffold/upgrade-audit/steps/apply-manifest";
+import {
+  applyManifest,
+  consumerizeRefs,
+} from "../../../src/services/scaffold/upgrade-audit/steps/apply-manifest";
 import { authorConfig } from "../../../src/services/scaffold/upgrade-audit/steps/author-config";
 import { migratePnpm } from "../../../src/services/scaffold/upgrade-audit/steps/migrate-pnpm";
 
@@ -100,6 +103,39 @@ describe("migratePnpm", () => {
     expect(ui.scripts.build).toBe("pnpm run build:client && pnpm run build:ssr");
     // workspace typecheck keeps its own body — the hardened chain is root-only
     expect(ui.scripts.typecheck).toBe("tsc --noEmit");
+  });
+});
+
+describe("consumerizeRefs", () => {
+  it("externalizes external workspace:/file: refs but preserves in-repo member refs", async () => {
+    // plugins/crosspost is a workspace member named "@crosspost/plugin".
+    await mkdir(join(projectDir, "plugins/crosspost"), { recursive: true });
+    await writeFile(
+      join(projectDir, "plugins/crosspost/package.json"),
+      JSON.stringify({ name: "@crosspost/plugin", version: "1.0.0" }, null, 2),
+    );
+    // ui references the member with workspace:* (must be preserved) and an
+    // external leftover with file: (must be consumerized).
+    await writeFile(
+      join(projectDir, "ui/package.json"),
+      JSON.stringify(
+        {
+          name: "ui",
+          dependencies: {
+            "@crosspost/plugin": "workspace:*",
+            "some-external": "file:../some-external",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const fixed = await run(consumerizeRefs(projectDir, false));
+    expect(fixed).toContain("ui/package.json");
+    const ui = JSON.parse(await readFile(join(projectDir, "ui/package.json"), "utf-8"));
+    expect(ui.dependencies["@crosspost/plugin"]).toBe("workspace:*");
+    expect(ui.dependencies["some-external"]).toBe("catalog:");
   });
 });
 
