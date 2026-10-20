@@ -111,17 +111,43 @@ Use the `extends-config` skill when reasoning about how the tenant config merges
 
 `bos sync` uses the init snapshot plus the ownership inventory (`src/services/scaffold/ownership.ts` — `FRAMEWORK_OWNED_SYNC_FILES`, the per-plugin predicate, `AGENT_SYNC_GLOBS`; ADR 0032) to decide what it may overwrite.
 
-Framework-owned files are updated when the template changes — build configs, shared runtime wiring, db/lib plumbing, agent-skill content. App-owned files are never considered by sync, for example:
+Framework-owned files are updated when the template changes — build configs, shared runtime wiring, `drizzle.config.ts` (journal policy), agent-skill content. App-owned files are never considered by sync, for example:
 - `ui/src/components/**`
 - `ui/src/routes/**`
 - `ui/src/router.tsx`, `ui/src/app.ts`
 - `api/src/contract.ts`
 - `api/src/index.ts`
-- `api/src/db/schema.ts`
+- `api/src/db/**` — the database seam (ADR 0033): the seam file layer, the schema, and the migrations are the app's, free to swap
+- `plugins/*/src/lib/context.ts` — the plugin's request-context schema
 
 Generated files are regenerated separately and are not the source of truth for sync decisions.
 
 **Editing framework-owned files is allowed** (ADR 0032): when the template later changes, the template version is applied and your copy is backed up under `.bos/sync-backup/`. To make a local change permanent, file an issue at https://github.com/NEARBuilders/everything-dev/issues — the framework team implements it upstream and ships it in package versions.
+
+### Porting the vendored db trio (ADR 0033 prompt)
+
+Children scaffolded before ADR 0033 carry the old sync-owned `src/db/{index,layer,migrate}.ts` trio (~180 lines). Sync no longer manages those paths and the old copies keep working — but hand an agent this prompt to port a workspace to the shrunk seam:
+
+```text
+Port <workspace> to the ADR 0033 database seam:
+1. Replace <workspace>/src/db/{index,layer,migrate}.ts with a single ~15-line
+   src/db/layer.ts: declare `DatabaseTag` (Context.Service, id "<pluginId>/Database",
+   shape PgDatabase<PgQueryResultHKT, typeof schema>), the `Database` type alias,
+   a workspace-bound `loadMigrations` (loadMigrations from "everything-dev/db"
+   with fromDir: import.meta.dirname and virtual: () => import("virtual:drizzle-migrations.sql")),
+   and `DatabaseLive(config: { pluginId: string; secrets: { <SLUG>_DATABASE_URL: string } })`
+   calling `databaseLayer(DatabaseTag, config.secrets.<SLUG>_DATABASE_URL,
+   { pluginId: config.pluginId, schema, migrations: loadMigrations, namespace: <true|false> })`.
+   namespace: false only for the api shell (public schema) and auth (dedicated database).
+2. Keep src/db/schema.ts, src/db/migrations/, and drizzle.config.ts untouched.
+3. Re-point `type { Database } from "./db"` imports to "./db/layer"; import
+   DatabaseError/unwrapDatabaseError from "everything-dev/db" directly.
+4. `DatabaseLive(config)` now takes the initialize input (pluginId + secrets) —
+   update the plugin's initialize call site.
+5. In tests, drop any `Layer.succeed(PluginIdTag, ...)` provision for the db layer;
+   provide fakes with `Layer.succeed(DatabaseTag, fakeDb)` instead.
+6. Run the workspace's test suite and `pnpm run typecheck`.
+```
 
 ## bos sync
 

@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ORPCError } from "@orpc/server";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { PluginIdTag } from "every-plugin";
 import type { DatabaseError } from "everything-dev/db";
 import { afterEach, describe, expect, it } from "vitest";
 import { DatabaseLive } from "@/db/layer";
@@ -22,8 +21,12 @@ function freshLayer() {
   const dir = mkdtempSync(join(tmpdir(), "template-things-"));
   activeDir = dir;
   return ThingsService.Live.pipe(
-    Layer.provide(DatabaseLive(`pglite:${dir}`)),
-    Layer.provide(Layer.succeed(PluginIdTag, "template")),
+    Layer.provide(
+      DatabaseLive({
+        pluginId: "template",
+        secrets: { TEMPLATE_DATABASE_URL: `pglite:${dir}` },
+      }),
+    ),
   );
 }
 

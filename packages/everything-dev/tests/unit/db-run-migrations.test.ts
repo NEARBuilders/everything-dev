@@ -3,9 +3,6 @@ import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
-import { migrate as apiMigrate } from "../../../../api/src/db/migrate";
-import { migrate as proposalsMigrate } from "../../../../plugins/proposals/src/db/migrate";
-import { migrate as votesMigrate } from "../../../../plugins/votes/src/db/migrate";
 import {
   type DatabaseError,
   isConcurrentDdlUniqueViolation,
@@ -23,7 +20,13 @@ type Runner = (
   schemaName?: string,
 ) => Effect.Effect<number, DatabaseError>;
 
-const apiMigrationRunner: Runner = apiMigrate;
+/**
+ * The workspace copies of `migrate` were deleted with the db trio (ADR 0033)
+ * — every workspace reaches the same runner through `databaseLayer`. The
+ * characterization suite now exercises the shared runner directly.
+ */
+const apiMigrationRunner: Runner = (db, migrations, storage, schemaName) =>
+  Effect.map(runMigrations(db, migrations, { journal: storage, schemaName }), (r) => r.applied);
 
 function migration(idx: number, tag: string, statements: string[]): Migration {
   return {
@@ -76,27 +79,25 @@ describe("db migration runners (008 characterization)", () => {
     expect(rows.rows.map((r) => r.hash)).toEqual(["hash-mig_one", "hash-mig_two"]);
   });
 
-  it("partial overlap (the 25P2 bug): every runner — including votes/proposals via adapters — survives via savepoints", async () => {
-    const runners: readonly Runner[] = [apiMigrate, votesMigrate, proposalsMigrate];
-    for (const runner of runners) {
-      const db = makeDb();
-      await db.execute(sql.raw('CREATE TABLE "t_legacy" (id int)'));
+  it("partial overlap (the 25P2 bug): journal statement ordering survives via savepoints", async () => {
+    const runner = apiMigrationRunner;
+    const db = makeDb();
+    await db.execute(sql.raw('CREATE TABLE "t_legacy" (id int)'));
 
-      const migrations = [
-        migration(0, "overlap", [
-          'CREATE TABLE "t_legacy" (id int)',
-          'CREATE TABLE "t_new" (id int)',
-        ]),
-      ];
+    const migrations = [
+      migration(0, "overlap", [
+        'CREATE TABLE "t_legacy" (id int)',
+        'CREATE TABLE "t_new" (id int)',
+      ]),
+    ];
 
-      const applied = await runMigration(runner(db, migrations, JOURNAL));
-      expect(applied).toBe(1);
+    const applied = await runMigration(runner(db, migrations, JOURNAL));
+    expect(applied).toBe(1);
 
-      const exists = (await db.execute(
-        sql`SELECT table_name FROM information_schema.tables WHERE table_name = 't_new'`,
-      )) as { rows: unknown[] };
-      expect(exists.rows).toHaveLength(1);
-    }
+    const exists = (await db.execute(
+      sql`SELECT table_name FROM information_schema.tables WHERE table_name = 't_new'`,
+    )) as { rows: unknown[] };
+    expect(exists.rows).toHaveLength(1);
   });
 
   it("preflight: migration whose expected tables all exist is recorded as applied without replaying DDL", async () => {

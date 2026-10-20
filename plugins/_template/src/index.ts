@@ -118,7 +118,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
       return Layer.mergeAll(
         Layer.succeed(TemplateApiClient, service),
-        ThingsService.Live.pipe(Layer.provide(DatabaseLive(config.secrets.TEMPLATE_DATABASE_URL))),
+        ThingsService.Live.pipe(Layer.provide(DatabaseLive(config))),
         Layer.succeed(TemplatePublisher, publisher),
       );
     }),

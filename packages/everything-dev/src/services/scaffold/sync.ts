@@ -527,16 +527,6 @@ export async function syncTemplate(
       destToSource.set(destPath, destPath);
     }
 
-    // Sync api/src/lib/{auth,context}.ts into each plugin's src/lib/
-    for (const pluginKey of childPlugins) {
-      if (!existsSync(join(projectDir, "plugins", pluginKey, "src"))) continue;
-      for (const libFile of ["auth.ts", "context.ts"]) {
-        const sourceFile = `api/src/lib/${libFile}`;
-        if (!existsSync(join(sourceDir, sourceFile))) continue;
-        destToSource.set(`plugins/${pluginKey}/src/lib/${libFile}`, sourceFile);
-      }
-    }
-
     // Sync api/src/global.d.ts into each plugin's src/
     for (const pluginKey of childPlugins) {
       if (!existsSync(join(projectDir, "plugins", pluginKey, "src"))) continue;
@@ -551,16 +541,6 @@ export async function syncTemplate(
       const sourceFile = "plugins/_template/tests/types.d.ts";
       if (!existsSync(join(sourceDir, sourceFile))) continue;
       destToSource.set(`plugins/${pluginKey}/tests/types.d.ts`, sourceFile);
-    }
-
-    // Sync api/src/db/{index,layer,migrate}.ts into each plugin's src/db/
-    for (const pluginKey of childPlugins) {
-      if (!existsSync(join(projectDir, "plugins", pluginKey, "src", "db"))) continue;
-      for (const dbFile of ["index.ts", "layer.ts", "migrate.ts"]) {
-        const sourceFile = `api/src/db/${dbFile}`;
-        if (!existsSync(join(sourceDir, sourceFile))) continue;
-        destToSource.set(`plugins/${pluginKey}/src/db/${dbFile}`, sourceFile);
-      }
     }
 
     // Sync rspack.config.js from the template into each plugin

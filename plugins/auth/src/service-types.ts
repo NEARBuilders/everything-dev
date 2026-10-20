@@ -1,6 +1,6 @@
 import { Context } from "effect";
 import type { Auth as ConfiguredAuth } from "./auth-instance";
-import type { Database } from "./db";
+import type { Database } from "./db/layer";
 import type { OnboardingCodeCipher } from "./onboarding-code-cipher";
 import type { OrganizationMembershipPolicy } from "./organization-membership-policy";
 

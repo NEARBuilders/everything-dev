@@ -5,4 +5,5 @@ export * from "./driver";
 export * from "./drizzle-kit";
 export * from "./errors";
 export * from "./identity";
+export * from "./layer";
 export * from "./run-migrations";

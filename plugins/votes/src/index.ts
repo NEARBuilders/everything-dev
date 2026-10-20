@@ -18,10 +18,7 @@ export default createPlugin({
 
   contract,
 
-  initialize: (config) =>
-    Effect.succeed(
-      VoteServiceLive.pipe(Layer.provide(DatabaseLive(config.secrets.VOTES_DATABASE_URL))),
-    ),
+  initialize: (config) => Effect.succeed(VoteServiceLive.pipe(Layer.provide(DatabaseLive(config)))),
 
   createRouter: (builder) => {
     const requireAuth = builder.middleware(async ({ context, next }) => {

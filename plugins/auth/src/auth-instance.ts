@@ -18,7 +18,7 @@ import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "bet
 import { eq, gt } from "drizzle-orm";
 import type { AuthConfig, AuthPermissionStatements } from "./auth-config";
 import { custody } from "./custody";
-import type { Database as AuthDatabase } from "./db";
+import type { Database as AuthDatabase } from "./db/layer";
 import * as schema from "./db/schema";
 import { BOS_CLI_CLIENT_ID, deviceLink } from "./device-link";
 import {
