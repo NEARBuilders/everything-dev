@@ -68,6 +68,8 @@ describe("migrateRouteMounts", () => {
     const publicMount = await readFile(join(projectDir, "ui/src/routes/_public.tsx"), "utf-8");
     expect(publicMount).toContain('"/_public"');
     expect(publicMount).toContain("component: Outlet");
+    expect(publicMount).toContain("GENERATED mount layout");
+    expect(publicMount).toContain("Upstream canonical shapes");
 
     // Route files moved
     expect(result.deletes).toContain("ui/src/routes/_layout/index.tsx");

@@ -153,6 +153,8 @@ describe("portRouteGuards", () => {
       const source = await readFile(join(projectDir, "ui/src/lib/auth.ts"), "utf-8");
       expect(source).toContain("export function resolveSessionFromCache");
       expect(source).toContain("export function requireSession");
+      expect(source).toContain("everything-dev/ui/auth");
+      expect(source).toContain("Exit path");
       expect(result.writes).toContain("ui/src/lib/auth.ts");
     });
 

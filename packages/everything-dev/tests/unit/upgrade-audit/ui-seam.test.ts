@@ -100,6 +100,11 @@ describe("migrateUiSeam", () => {
     expect(source).toContain("staleTime: 5 * 60 * 1000");
     expect(source).toContain("interface Register");
     expect(await run(readRouterSeam(projectDir))).toBe("authored-seam");
+
+    const shim = await readFile(join(projectDir, "ui/src/router-client.ts"), "utf-8");
+    expect(shim).toContain("LOCAL SHIM");
+    expect(shim).toContain("everything-dev/ui/router-client");
+    expect(shim).toContain("Exit path");
   });
 
   it("drops the old template default components without notes", async () => {

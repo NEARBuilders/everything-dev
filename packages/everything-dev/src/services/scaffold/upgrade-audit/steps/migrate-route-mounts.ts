@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { KNOWN_MOUNTS, MOUNT_ALIASES } from "../domain";
 import { fileExists, listFiles, readText, removePath, writeText } from "../fs";
+import { UPSTREAM_REF } from "../upstream-ref";
 import type { StepResult } from "./author-config";
 
 const ROUTES_GLOB = "ui/src/routes/**/*.{ts,tsx}";
@@ -34,6 +35,17 @@ const renderMountLayout = (mountId: string): string => {
   const canonical = canonicalMount(mountId);
   const needsGate = canonical === "authenticated";
   return [
+    "/**",
+    " * GENERATED mount layout — a minimal Outlet shell (plus the requireSession",
+    " * gate on authed mounts) so rehomed routes sit on a registered mount.",
+    " *",
+    ` * Upstream canonical shapes live in everything-dev's`,
+    ` * upgrade-audit fixtures/upstream/routes/ at UPSTREAM_REF ${UPSTREAM_REF}`,
+    " * — conform to those when adding chrome (headers, session context) to",
+    " * this mount. Chrome from the old layout was NOT carried over; port it",
+    " * manually.",
+    " */",
+    "",
     `import { createFileRoute, Outlet${needsGate ? ", redirect" : ""} } from "@tanstack/react-router";`,
     needsGate ? `import { requireSession } from "@/lib/auth";` : "",
     "",
