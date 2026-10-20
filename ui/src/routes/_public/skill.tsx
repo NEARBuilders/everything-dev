@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { pageTitle } from "@/lib/page-title";
+import { shareOrCopy } from "@/lib/share";
 
 const INTENT_COMMAND = "npx @tanstack/intent@latest load everything-dev";
 
@@ -94,9 +95,14 @@ function SkillPage() {
       return;
     }
     try {
-      await navigator.clipboard.writeText(text);
+      const result = await shareOrCopy(text);
+      if (result === "cancelled") {
+        return;
+      }
       setCopied(kind);
-      toast.success(kind === "prompt" ? "Skill prompt copied" : "Command copied");
+      if (result === "copied") {
+        toast.success(kind === "prompt" ? "Skill prompt copied" : "Command copied");
+      }
       setTimeout(() => setCopied(null), 2000);
     } catch {
       toast.error("Couldn’t copy. Select the text and copy it instead.");

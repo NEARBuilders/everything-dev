@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { getAccount, getActiveRuntime, getAppName, getRepository } from "@/app";
-import { Badge, InfoRow, PageHeader, SectionHeader } from "@/components";
+import { Badge, InfoRow, PageContainer, PageHeader, SectionHeader } from "@/components";
 import { pageTitle } from "@/lib/page-title";
 
 export const Route = createFileRoute("/_admin/_dashboard/admin/system")({
@@ -29,7 +29,7 @@ function AdminSystem() {
   const runtimeBasePath = runtime?.runtimeBasePath;
 
   return (
-    <>
+    <PageContainer>
       <PageHeader
         title="System"
         description="Runtime configuration for this deployment."
@@ -81,6 +81,6 @@ function AdminSystem() {
           <InfoRow label="Assets" value={assetsUrl} mono />
         </div>
       </section>
-    </>
+    </PageContainer>
   );
 }

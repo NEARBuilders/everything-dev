@@ -765,3 +765,20 @@ This repo ships the Matt Pocock workflow skills in `.agents/skills/` (the instal
 - `/everything-dev-app` — orientation glue for child repos; `bos init` scaffolds the whole set (verbatim skills + this glue) into generated projects
 
 See `.agents/skills/ask-matt/SKILL.md` for the full flow map.
+
+### Design & motion skills
+
+This repo also ships Emil Kowalski's design-engineering skills in `.agents/skills/` (same `skills-lock.json`-tracked mechanism as the Matt Pocock set, source `emilkowalski/skills`). They cover animation, mobile-native feel, and UI-library choices — load them before touching motion, touch/gesture behavior, or picking a frontend library. Key skills:
+
+- `/emil-design-eng` — the umbrella skill; animation and design-taste philosophy the others extend
+- `/mobile-native` — the fix-it checklist for making a web app feel installed on a phone (tap highlight, safe areas, `100dvh`, input zoom, overscroll)
+- `/apple-design` — fluid, physical motion: springs, velocity handoff, interruptibility, translucent materials
+- `/animate` — build a new animation from scratch (gate, tool, curve, duration, in that order)
+- `/find-animation-opportunities` — sweep a UI for places that should (and shouldn't) animate, read-only
+- `/improve-animations` — audit a codebase's motion and produce prioritized, self-contained fix plans
+- `/review-animations` — strict review of an existing animation diff
+- `/pick-ui-library` — curated, opinionated library picks (base-ui, motion, Sonner, etc.); only runs when explicitly invoked
+- `/ask-sonner` — setup, styling, and recipes for the `sonner` toast library already used in `ui/`
+- `/animation-performance`, `/animation-vocabulary`, `/break-ui` — frame-rate debugging, prompting vocabulary for motion, and worst-case-data UI stress testing
+
+Note: this repo's own `/prototype` skill (from the Matt Pocock set — build a throwaway prototype to answer a design question) takes precedence over Emil's same-named skill (switch between multiple built UI versions); Emil's `prototype`, `animate-expo`, and `write-swift` were deliberately not installed (React Native/Expo and Swift skills don't apply to this web monorepo; `prototype` collided with the existing skill).
