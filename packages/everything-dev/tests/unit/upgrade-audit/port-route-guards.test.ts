@@ -53,7 +53,7 @@ describe("portRouteGuards", () => {
     await run(false);
     const source = await readRoute("_authenticated.tsx");
     expect(source).toContain("beforeLoad: requireSession,");
-    expect(source).toContain('"everything-dev/ui/auth"');
+    expect(source).toContain('"@/lib/auth"');
     expect(source).not.toContain("sessionQueryOptions");
   });
 
@@ -100,7 +100,7 @@ describe("portRouteGuards", () => {
       "const session = resolveSessionFromCache(queryClient, context.session);",
     );
     expect(after).toContain("if (session !== undefined && queryClient) {");
-    expect(after).toContain('import { resolveSessionFromCache } from "everything-dev/ui/auth";');
+    expect(after).toContain('import { resolveSessionFromCache } from "@/lib/auth";');
     expect(after).not.toContain("const session = context.session;");
   });
 
@@ -129,5 +129,41 @@ describe("portRouteGuards", () => {
   it("records the pinned upstream snapshots in its notes", async () => {
     const result = await run(true);
     expect(result.notes.join("\n")).toContain(UPSTREAM_REF);
+  });
+
+  describe("auth surface injection", () => {
+    beforeEach(async () => {
+      await mkdir(join(projectDir, "ui/src/lib"), { recursive: true });
+      await writeFile(
+        join(projectDir, "ui/src/lib/auth.ts"),
+        [
+          'export const sessionQueryKey = ["session"] as const;',
+          "export type SessionData = { user: { id: string } | null };",
+          "",
+          "export function sessionQueryOptions() {",
+          "  return { queryKey: sessionQueryKey };",
+          "}",
+          "",
+        ].join("\n"),
+      );
+    });
+
+    it("adds resolveSessionFromCache and requireSession to lib/auth.ts", async () => {
+      const result = await run(false);
+      const source = await readFile(join(projectDir, "ui/src/lib/auth.ts"), "utf-8");
+      expect(source).toContain("export function resolveSessionFromCache");
+      expect(source).toContain("export function requireSession");
+      expect(result.writes).toContain("ui/src/lib/auth.ts");
+    });
+
+    it("skips when both exports already exist", async () => {
+      await run(false);
+      const result = await run(false);
+      const authNotes = result.notes.filter((n) => n.includes("auth"));
+      expect(authNotes.join("\n")).toContain(
+        "already exports resolveSessionFromCache and requireSession",
+      );
+      expect(result.writes).not.toContain("ui/src/lib/auth.ts");
+    });
   });
 });

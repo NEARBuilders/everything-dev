@@ -5,6 +5,7 @@ import { GateBlocked } from "./domain";
 import { applyManifest } from "./steps/apply-manifest";
 import { authorConfig, type StepResult } from "./steps/author-config";
 import { migratePnpm } from "./steps/migrate-pnpm";
+import { migrateRouteMounts } from "./steps/migrate-route-mounts";
 import { migrateUiSeam } from "./steps/migrate-ui-seam";
 
 export interface ApplyStepLog {
@@ -17,6 +18,11 @@ export const apply = (
   dryRun: boolean,
 ): Effect.Effect<ApplyStepLog[], GateBlocked | Error> =>
   Effect.gen(function* () {
+    // Route mount restructure clears blocker-class findings (unknown mounts),
+    // so it runs before the audit gate. Re-run the audit after it so the gate
+    // sees the corrected tree.
+    const mountResult = yield* migrateRouteMounts(projectDir, dryRun);
+
     const report = yield* audit(projectDir);
     if (report.manifest.blockerCount > 0) {
       return yield* Effect.fail(
@@ -34,6 +40,7 @@ export const apply = (
     const manifestResult = yield* applyManifest(projectDir, rewrites, dryRun);
 
     return [
+      { name: "migrate-route-mounts", result: mountResult },
       { name: "author-config", result: configResult },
       { name: "migrate-pnpm", result: pnpmResult },
       { name: "migrate-ui-seam", result: seamResult },

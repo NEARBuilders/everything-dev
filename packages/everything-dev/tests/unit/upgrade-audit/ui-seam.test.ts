@@ -91,7 +91,8 @@ describe("checkUiSeam", () => {
 describe("migrateUiSeam", () => {
   it("rewrites the monolithic factory to the authored seam, preserving createQueryClient", async () => {
     const result = await run(migrateUiSeam(projectDir, false));
-    expect(result.writes).toEqual(["ui/src/router.tsx"]);
+    expect(result.writes).toContain("ui/src/router.tsx");
+    expect(result.writes).toContain("ui/src/router-client.ts");
     const source = await readFile(join(projectDir, "ui/src/router.tsx"), "utf-8");
     expect(source).toContain('from "everything-dev/ui/router-client"');
     expect(source).not.toContain("createTanStackRouter");

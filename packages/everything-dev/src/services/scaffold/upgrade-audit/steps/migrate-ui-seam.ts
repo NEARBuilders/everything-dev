@@ -4,6 +4,8 @@ import { fileExists, readText, writeText } from "../fs";
 import type { StepResult } from "./author-config";
 
 const ROUTER_PATH = "ui/src/router.tsx";
+const ROUTER_CLIENT_PATH = "ui/src/router-client.ts";
+const TSCONFIG_PATH = "ui/tsconfig.json";
 
 const CREATE_QUERY_CLIENT_RE =
   /export\s+function\s+createQueryClient\s*\(\s*\)\s*:\s*QueryClient\s*\{/;
@@ -93,6 +95,46 @@ const renderAuthoredRouter = (queryClientFn: string | null): string =>
     "",
   ].join("\n");
 
+const renderRouterClientShim = (): string =>
+  [
+    "/**",
+    " * Local shim for `everything-dev/ui/router-client`. Framework versions",
+    " * older than v2 do not publish this module; the shim wraps TanStack",
+    " * Router's createRouter so the authored seam pattern works regardless.",
+    " *",
+    " * Remove this file and the tsconfig path mapping once the framework",
+    " * provides `ui/router-client` natively.",
+    " */",
+    "",
+    'import { createRouter as createTanStackRouter } from "@tanstack/react-router";',
+    'import type { CreateRouterOptions } from "@tanstack/react-router";',
+    "",
+    "/**",
+    " * createCoreRouter — mirrors the framework's router-client factory.",
+    " * Accepts `defaultRouteTree` and passes it through as `routeTree`.",
+    " */",
+    "export function createCoreRouter<TApiClient, TSession, TRouteTree extends object>( ",
+    '  opts: Omit<CreateRouterOptions<TApiClient, TSession>, "routeTree"> & {',
+    "    defaultRouteTree?: TRouteTree;",
+    "  },",
+    ") {",
+    "  return createTanStackRouter({",
+    "    ...opts,",
+    "    ...(opts.defaultRouteTree ? { routeTree: opts.defaultRouteTree } : {}),",
+    "  });",
+    "}",
+    "",
+  ].join("\n");
+
+const renderTsconfigPathMapping = (existing: string): string => {
+  const parsed = JSON.parse(existing);
+  const paths = parsed.compilerOptions?.paths ?? {};
+  if (paths["everything-dev/ui/router-client"]) return existing;
+  paths["everything-dev/ui/router-client"] = ["./src/router-client"];
+  parsed.compilerOptions.paths = paths;
+  return `${JSON.stringify(parsed, null, 2)}\n`;
+};
+
 export const migrateUiSeam = (
   projectDir: string,
   dryRun: boolean,
@@ -127,8 +169,36 @@ export const migrateUiSeam = (
     if (!dryRun) {
       yield* writeText(projectDir, ROUTER_PATH, next);
     }
+
+    // Generate a local router-client shim so the authored import resolves
+    // even on framework versions that don't publish ui/router-client.
+    const shimExists = yield* fileExists(projectDir, ROUTER_CLIENT_PATH);
+    let shimWritten = false;
+    if (!shimExists) {
+      if (!dryRun) {
+        yield* writeText(projectDir, ROUTER_CLIENT_PATH, renderRouterClientShim());
+      }
+      shimWritten = true;
+    }
+
+    // Add tsconfig path mapping so the shim resolves the framework import.
+    let tsconfigWritten = false;
+    const tsconfigExists = yield* fileExists(projectDir, TSCONFIG_PATH);
+    if (tsconfigExists) {
+      const tsconfigSource = yield* readText(projectDir, TSCONFIG_PATH);
+      const nextTsconfig = renderTsconfigPathMapping(tsconfigSource);
+      if (nextTsconfig !== tsconfigSource && !dryRun) {
+        yield* writeText(projectDir, TSCONFIG_PATH, nextTsconfig);
+        tsconfigWritten = true;
+      }
+    }
+
+    const allWrites = [ROUTER_PATH];
+    if (shimWritten) allWrites.push(ROUTER_CLIENT_PATH);
+    if (tsconfigWritten) allWrites.push(TSCONFIG_PATH);
+
     return {
-      writes: [ROUTER_PATH],
+      writes: allWrites,
       deletes: [],
       notes: [
         "router factory migrated to the createCoreRouter authored seam (ADR 0023) — the composed manifest tree now wins over the bundled core-only tree",

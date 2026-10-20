@@ -34,7 +34,7 @@ const ROOT_PATH = "ui/src/routes/__root.tsx";
 const renderAuthenticated = (): string =>
   [
     'import { createFileRoute, Outlet } from "@tanstack/react-router";',
-    'import { requireSession } from "everything-dev/ui/auth";',
+    'import { requireSession } from "@/lib/auth";',
     "",
     'export const Route = createFileRoute("/_authenticated")({',
     "  beforeLoad: requireSession,",
@@ -51,7 +51,7 @@ const renderAuthenticated = (): string =>
 const renderAdmin = (): string =>
   [
     'import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";',
-    'import { requireSession } from "everything-dev/ui/auth";',
+    'import { requireSession } from "@/lib/auth";',
     "",
     'export const Route = createFileRoute("/_admin")({',
     "  beforeLoad: async (args) => {",
@@ -74,8 +74,83 @@ const renderAdmin = (): string =>
 const hasRawRootSession = (source: string): boolean =>
   /const session = context\.session;/.test(source);
 
-const resolveSessionCacheImport =
-  'import { resolveSessionFromCache } from "everything-dev/ui/auth";\n';
+const resolveSessionCacheImport = 'import { resolveSessionFromCache } from "@/lib/auth";\n';
+
+const AUTH_LIB_PATH = "ui/src/lib/auth.ts";
+
+const RESOLVE_SESSION_SOURCE = `export function resolveSessionFromCache(
+  queryClient: { getQueryData: (key: unknown[]) => unknown },
+  session: SessionData | null | undefined
+): SessionData | null {
+  const cached = queryClient.getQueryData(sessionQueryKey);
+  if (cached !== undefined) return cached as SessionData | null;
+  return session ?? null;
+}
+
+`;
+
+const REQUIRE_SESSION_SOURCE = `export function requireSession(args: {
+  context: { session: SessionData | null | undefined };
+}): { session: SessionData | null } {
+  const session = args.context.session;
+  if (!session?.user) {
+    throw new Error("No active session");
+  }
+  return { session };
+}
+
+`;
+
+/** Ensures ui/src/lib/auth.ts exports resolveSessionFromCache and requireSession. */
+const ensureAuthSurface = (
+  projectDir: string,
+  dryRun: boolean,
+): Effect.Effect<{ writes: string[]; notes: string[] }, Error> =>
+  Effect.gen(function* () {
+    const writes: string[] = [];
+    const notes: string[] = [];
+
+    const exists = yield* fileExists(projectDir, AUTH_LIB_PATH);
+    if (!exists) {
+      notes.push(`${AUTH_LIB_PATH} absent — auth surface not injected`);
+      return { writes, notes };
+    }
+
+    let source = yield* readText(projectDir, AUTH_LIB_PATH);
+
+    const hasResolve = /export\s+function\s+resolveSessionFromCache/.test(source);
+    const hasRequire = /export\s+function\s+requireSession/.test(source);
+
+    if (hasResolve && hasRequire) {
+      notes.push(`${AUTH_LIB_PATH} already exports resolveSessionFromCache and requireSession`);
+      return { writes, notes };
+    }
+
+    // Need SessionData type — check if it's imported/defined
+    const hasSessionData = /SessionData/.test(source);
+
+    if (!hasSessionData) {
+      notes.push(`${AUTH_LIB_PATH}: SessionData type not found — auth surface injection skipped`);
+      return { writes, notes };
+    }
+
+    if (!hasResolve) {
+      source = RESOLVE_SESSION_SOURCE + source;
+      writes.push(AUTH_LIB_PATH);
+      notes.push(`${AUTH_LIB_PATH}: added resolveSessionFromCache export`);
+    }
+    if (!hasRequire) {
+      source = REQUIRE_SESSION_SOURCE + source;
+      writes.push(AUTH_LIB_PATH);
+      notes.push(`${AUTH_LIB_PATH}: added requireSession export`);
+    }
+
+    if (!dryRun) {
+      yield* writeText(projectDir, AUTH_LIB_PATH, source);
+    }
+
+    return { writes, notes };
+  });
 
 export const portRouteGuards = (
   projectDir: string,
@@ -84,6 +159,10 @@ export const portRouteGuards = (
   Effect.gen(function* () {
     const writes: string[] = [];
     const notes: string[] = [];
+
+    const surface = yield* ensureAuthSurface(projectDir, dryRun);
+    writes.push(...surface.writes);
+    notes.push(...surface.notes);
 
     for (const [path, render, guardId] of [
       [MOUNT_PATH, renderAuthenticated, "sessionQueryOptions("],

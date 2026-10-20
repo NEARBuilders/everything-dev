@@ -26,9 +26,15 @@ import type { Manifest, RouterSeam, Finding as RuntimeFinding } from "./domain";
 import { GateBlocked } from "./domain";
 import type { StepResult } from "./steps/author-config";
 import { migrateI18nSeam } from "./steps/migrate-i18n-seam";
+import { migrateRouteMounts } from "./steps/migrate-route-mounts";
 import { patchDbTopology } from "./steps/patch-db-topology";
 import { portRouteGuards } from "./steps/port-route-guards";
-export type UpgradeAuditStep = "port-route-guards" | "db-topology" | "i18n-seam" | "compose-seam";
+export type UpgradeAuditStep =
+  | "port-route-guards"
+  | "db-topology"
+  | "i18n-seam"
+  | "compose-seam"
+  | "route-mounts";
 
 export type PlainFinding = {
   readonly check: string;
@@ -113,6 +119,9 @@ export const maintainV1Tree = async (
   dryRun: boolean,
 ): Promise<StepResult> => {
   switch (step) {
+    case "route-mounts": {
+      return await Effect.runPromise(migrateRouteMounts(projectDir, dryRun));
+    }
     case "port-route-guards":
       return await Effect.runPromise(portRouteGuards(projectDir, dryRun));
     case "db-topology":
