@@ -1,5 +1,6 @@
 import { apiKey } from "@better-auth/api-key";
 import { passkey } from "@better-auth/passkey";
+import { betterAuthReferral } from "@marinedotsh/better-auth-referral";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError } from "better-auth/api";
@@ -36,6 +37,7 @@ import {
   requireUserVerifiedSignIn,
   requireWalletCapablePasskey,
 } from "./passkey-sign-up";
+import { attributeReferralOnUserCreate, referralSignupGuard } from "./referral-signup";
 import { setEmail } from "./set-email";
 
 function buildOrganizationAccess(permissions: AuthPermissionStatements) {
@@ -304,6 +306,11 @@ export function createAuthInstance(
     socialProviders,
     plugins: [
       siwn(siwnOptions),
+      betterAuthReferral({
+        maskReferredUserEmail: config.referral?.maskReferredUserEmail,
+        steps: config.referral?.steps,
+      }),
+      referralSignupGuard(config.referral),
       admin({ defaultRole: "user", adminRoles: ["admin"] }),
       anonymous({ emailDomainName: mainnetRecipient }),
       haveIBeenPwned({ enabled: process.env.NODE_ENV !== "test" }),
@@ -331,7 +338,7 @@ export function createAuthInstance(
           resolveUser: (args) => createPasskeySignUpUser(args, mainnetRecipient),
         },
       }),
-      passkeySignUp({ network }),
+      passkeySignUp({ network, referral: config.referral }),
       setEmail({ requireVerification: Boolean(emailApiKey && emailConfig?.from) }),
       organizationApproval(db),
       organization({
@@ -520,9 +527,9 @@ export function createAuthInstance(
         create: {
           after: async (user) => {
             const userData = user as typeof schema.user.$inferInsert & { isAnonymous?: boolean };
-            if (!userData.isAnonymous) {
-              await createPersonalOrganization(db, user);
-            }
+            if (userData.isAnonymous) return;
+            await createPersonalOrganization(db, user);
+            await attributeReferralOnUserCreate(user, config.referral);
           },
         },
       },

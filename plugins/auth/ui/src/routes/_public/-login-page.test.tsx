@@ -119,6 +119,36 @@ describe("login page", () => {
     expect(harness.refreshSessionCache).toHaveBeenCalledOnce();
   });
 
+  it("surfaces a referral code from ?ref and forwards it on passkey signup", async () => {
+    harness.createAccountWithPasskey.mockImplementation(
+      async (_auth: unknown, options?: { onSuccess?: (result: object) => void }) => {
+        options?.onSuccess?.({});
+      },
+    );
+    renderLogin(`/login?ref=${"ab".toUpperCase()}CD1234`);
+
+    expect(await screen.findByTestId("login.referral-chip").then((el) => el.textContent)).toBe(
+      "Referral code ABCD1234 applied",
+    );
+
+    fireEvent.click(await screen.findByTestId("login.create-account-link"));
+    fireEvent.click(screen.getByTestId("login.create-account-button"));
+
+    await waitFor(() =>
+      expect(harness.createAccountWithPasskey).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ referralCode: "ABCD1234" }),
+      ),
+    );
+  });
+
+  it("ignores a malformed ?ref value instead of showing the chip", async () => {
+    renderLogin("/login?ref=bad-code");
+
+    expect(await screen.findByTestId("login.heading")).toBeTruthy();
+    expect(screen.queryByTestId("login.referral-chip")).toBeNull();
+  });
+
   it("offers a NEAR wallet when the device cannot create a supported passkey", async () => {
     harness.createAccountWithPasskey.mockImplementation(
       async (

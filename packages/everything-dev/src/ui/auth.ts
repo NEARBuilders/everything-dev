@@ -1,5 +1,6 @@
 import { apiKeyClient } from "@better-auth/api-key/client";
 import { passkeyClient } from "@better-auth/passkey/client";
+import { betterAuthReferralClient } from "@marinedotsh/better-auth-referral";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import type { BetterFetch } from "better-auth/client";
@@ -158,6 +159,7 @@ export function createAuthClient(options: CreateAuthClientOptions = {}) {
       apiKeyClient(),
       deviceAuthorizationClient(),
       custodyClient(),
+      betterAuthReferralClient(),
     ],
   });
 }
@@ -293,10 +295,12 @@ export async function createAccountWithPasskey(
   options?: {
     onSuccess?: (result: { passkeyWallet?: PasskeyWalletStatus }) => void;
     onError?: (error: PasskeyCeremonyError) => void;
+    referralCode?: string;
   },
 ): Promise<void> {
   try {
-    const { data, error } = await authClient.passkey.addPasskey();
+    const headers = options?.referralCode ? { "x-referral-code": options.referralCode } : undefined;
+    const { data, error } = await authClient.passkey.addPasskey(undefined, { headers });
     if (error || !data) {
       options?.onError?.(toPasskeyError(error, "Could not create your account"));
       return;

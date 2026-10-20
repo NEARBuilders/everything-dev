@@ -29,11 +29,19 @@ import { PairPanel } from "../-pair-panel";
 type SearchParams = {
   redirect?: string;
   method?: "phone";
+  ref?: string;
 };
 
 type View = "sign-in" | "create" | "phone";
 
 const DEVICE_APPROVAL_PATH = /^\/login\/device(\/approve)?(\?|$)/;
+const REFERRAL_CODE_PATTERN = /^[A-Z0-9]{8}$/;
+
+function sanitizeReferralCode(url: unknown): string | undefined {
+  if (typeof url !== "string") return undefined;
+  const code = url.trim().toUpperCase();
+  return REFERRAL_CODE_PATTERN.test(code) ? code : undefined;
+}
 
 function sanitizeRedirect(url: unknown): string {
   if (
@@ -62,6 +70,7 @@ export const Route = createFileRoute("/_public/login/")({
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     redirect: sanitizeRedirect(search.redirect),
     method: search.method === "phone" ? ("phone" as const) : undefined,
+    ref: sanitizeReferralCode(search.ref),
   }),
   beforeLoad: async ({ context, search }) => {
     const { queryClient, authClient } = context;
@@ -104,6 +113,7 @@ function LoginPageContent() {
   const t = useLoginTranslation();
   const redirectTo = sanitizeRedirect(Route.useSearch().redirect);
   const wantsPhone = Route.useSearch().method === "phone";
+  const referralCode = Route.useSearch().ref;
   const banned = useRouterState({ select: (state) => state.location.hash === "banned" });
   const networkId = useNetworkId();
   const isDesktop = useIsDesktop();
@@ -146,16 +156,19 @@ function LoginPageContent() {
     setPending("near");
     try {
       if (switchWallet) await auth.near.disconnect();
-      await auth.signIn.near({
-        onSuccess: async () => {
-          setPending(null);
-          await handleSuccess(t("auth.login.success.near"));
+      await auth.signIn.near(
+        {
+          onSuccess: async () => {
+            setPending(null);
+            await handleSuccess(t("auth.login.success.near"));
+          },
+          onError: (error: { code?: string; message?: string }) => {
+            setPending(null);
+            handleError(error, t);
+          },
         },
-        onError: (error: { code?: string; message?: string }) => {
-          setPending(null);
-          handleError(error, t);
-        },
-      });
+        referralCode ? { headers: { "x-referral-code": referralCode } } : undefined,
+      );
     } catch {
       setPending(null);
       toast.error(t("auth.login.error.nearConnect"));
@@ -181,6 +194,7 @@ function LoginPageContent() {
     setPending("create");
     setUnsupported(false);
     await createAccountWithPasskey(auth, {
+      referralCode,
       onSuccess: async () => {
         setPending(null);
         markAddEmailPromptPending();
@@ -193,6 +207,12 @@ function LoginPageContent() {
       },
     });
   };
+
+  const referralChip = referralCode ? (
+    <p className="text-center text-sm text-muted-foreground" data-testid="login.referral-chip">
+      {t("auth.login.referral.applied", { code: referralCode })}
+    </p>
+  ) : null;
 
   const nearButton = (
     <div className="flex flex-col items-center gap-1">
@@ -272,6 +292,7 @@ function LoginPageContent() {
           </>
         }
       >
+        {referralChip}
         <div className="flex flex-col gap-4">
           <Button
             type="button"
@@ -327,6 +348,7 @@ function LoginPageContent() {
           {t("auth.login.suspended")}
         </p>
       )}
+      {referralChip}
       <div className="flex flex-col gap-3">
         {passkeyAutofill && (
           <Field>

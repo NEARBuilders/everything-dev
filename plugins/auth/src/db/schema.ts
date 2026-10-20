@@ -3,6 +3,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -419,6 +420,50 @@ export const custodyWallet = pgTable(
   },
   (table) => [uniqueIndex("custodyWallet_userId_network_uidx").on(table.userId, table.network)],
 );
+
+export const referralCode = pgTable("referral_code", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .unique()
+    .references(() => user.id, { onDelete: "cascade" }),
+  code: text("code").notNull().unique(),
+  createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+});
+
+export const referrals = pgTable(
+  "referrals",
+  {
+    id: text("id").primaryKey(),
+    referrerUserId: text("referrer_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    referredUserId: text("referred_user_id")
+      .notNull()
+      .unique()
+      .references(() => user.id, { onDelete: "cascade" }),
+    referralCodeId: text("referral_code_id")
+      .notNull()
+      .references(() => referralCode.id, { onDelete: "cascade" }),
+    status: text("status").$type<"pending" | "completed">().default("pending").notNull(),
+    completedAt: timestamp("completed_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("referrals_referrerUserId_idx").on(table.referrerUserId)],
+);
+
+export const referralStepCompletion = pgTable("referral_step_completion", {
+  id: text("id").primaryKey(),
+  referralId: text("referral_id")
+    .notNull()
+    .references(() => referrals.id, { onDelete: "cascade" }),
+  step: text("step").notNull(),
+  completionKey: text("completion_key").notNull().unique(),
+  metadata: jsonb("metadata"),
+  completedAt: timestamp("completed_at", { mode: "date", withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
 
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
