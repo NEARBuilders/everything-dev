@@ -151,6 +151,93 @@ describe("db migration runners (008 characterization)", () => {
 
 const itPostgres = process.env.TEST_DATABASE === "postgres" ? it : it.skip;
 
+describe("ALTER TYPE ... ADD VALUE migrations (per-migration commit boundaries)", () => {
+  const enumMigrations = [
+    migration(0, "enum_create", [
+      `CREATE TYPE "public"."tenant_status" AS ENUM ('active', 'suspended')`,
+      `ALTER TYPE "public"."tenant_status" ADD VALUE 'pending' BEFORE 'suspended'`,
+      `CREATE TABLE "tenants" (id int, status "public"."tenant_status" DEFAULT 'active')`,
+    ]),
+    migration(1, "enum_add", [
+      `ALTER TYPE "public"."tenant_status" ADD VALUE 'archived' AFTER 'suspended'`,
+    ]),
+    migration(2, "enum_use", [`ALTER TABLE "tenants" ALTER COLUMN status SET DEFAULT 'archived'`]),
+  ];
+
+  it("fresh db: type creation, ADD VALUE, and a later migration using the value all apply", async () => {
+    const db = makeDb();
+
+    const report = await Effect.runPromise(
+      runMigrations(db as unknown as MigrationDatabase, enumMigrations, { journal: JOURNAL }),
+    );
+    expect(report.applied).toBe(3);
+
+    const defaults = (await db.execute(
+      sql`SELECT column_default FROM information_schema.columns WHERE table_name = 'tenants' AND column_name = 'status'`,
+    )) as { rows: { column_default: string }[] };
+    expect(defaults.rows[0]?.column_default).toContain("archived");
+  });
+
+  it("already-migrated db: rerun applies 0 without re-running ADD VALUE (no 42710)", async () => {
+    const db = makeDb();
+    await Effect.runPromise(
+      runMigrations(db as unknown as MigrationDatabase, enumMigrations, { journal: JOURNAL }),
+    );
+
+    const rerun = await Effect.runPromise(
+      runMigrations(db as unknown as MigrationDatabase, enumMigrations, { journal: JOURNAL }),
+    );
+    expect(rerun.applied).toBe(0);
+  });
+
+  it("ADD VALUE migrations are journaled like any other migration", async () => {
+    const db = makeDb();
+    await Effect.runPromise(
+      runMigrations(db as unknown as MigrationDatabase, enumMigrations, { journal: JOURNAL }),
+    );
+
+    const rows = (await db.execute(
+      sql`SELECT hash FROM "drizzle"."__drizzle_migrations" ORDER BY id`,
+    )) as { rows: { hash: string }[] };
+    expect(rows.rows.map((r) => r.hash)).toEqual([
+      "hash-enum_create",
+      "hash-enum_add",
+      "hash-enum_use",
+    ]);
+  });
+
+  it("ADD VALUE works under a plugin schema namespace (statement stripping)", async () => {
+    const db = makeDb();
+    const schemaName = "plugin_enum_ns";
+
+    const report = await Effect.runPromise(
+      runMigrations(db as unknown as MigrationDatabase, enumMigrations, {
+        journal: JOURNAL,
+        schemaName,
+      }),
+    );
+    expect(report.applied).toBe(3);
+
+    // The bare test driver has no namespaced search_path, so unqualified DDL
+    // resolves to public — the assertion is that stripping "public". didn't
+    // break the enum chain, and the data schema was created.
+    const labels = (await db.execute(
+      sql`SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'tenant_status' ORDER BY e.enumsortorder`,
+    )) as { rows: { enumlabel: string }[] };
+    expect(labels.rows.map((r) => r.enumlabel)).toEqual([
+      "active",
+      "pending",
+      "suspended",
+      "archived",
+    ]);
+
+    const schemas = (await db.execute(
+      sql`SELECT count(*) AS count FROM information_schema.schemata WHERE schema_name = 'plugin_enum_ns'`,
+    )) as { rows: { count: string }[] };
+    expect(Number(schemas.rows[0]?.count)).toBe(1);
+  });
+});
+
 describe("advisory-lock serialization (postgres-only)", () => {
   itPostgres(
     "two concurrent runners converge: exactly one journal row per hash, the loser applies 0",
