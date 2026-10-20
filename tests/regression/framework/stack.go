@@ -27,12 +27,22 @@ type Stack struct {
 	repoRoot     string
 	registryPath string
 	basePort     int
+	wrappedPid   int
 
 	Ports     map[string]int
 	ChildPids []int
 
 	exited   chan struct{}
 	exitCode int
+}
+
+// bosPid is the pid of the `bos dev` CLI itself — the direct child for
+// StartStack stacks, the grandchild behind the wrapper for wrapped stacks.
+func (s *Stack) bosPid() int {
+	if s.wrappedPid != 0 {
+		return s.wrappedPid
+	}
+	return s.cmd.Process.Pid
 }
 
 func findRepoRoot(t *testing.T) string {
@@ -67,13 +77,11 @@ func requireTestDatabases(t *testing.T) {
 	}
 }
 
-// buildDevCommand assembles a real `bos dev` CLI invocation from source
-// (node --import tsx cli.ts — the parent's own dev-script form) on an explicit
-// port block, with the test env layered on top:
-// .env.test's DB URLs and secret, port-derived origins, and the ephemeral-run
-// guards. interactive=false passes --no-interactive (signal-driven teardown
-// tests); interactive=true leaves the TUI to mount under the caller's pty.
-func buildDevCommand(t *testing.T, basePort int, registryPath string, interactive bool) (*exec.Cmd, *os.File, string) {
+// devInvocation assembles the real `bos dev` invocation shared by the direct
+// and wrapped launch paths: the tsx cli.ts argv, the layered env
+// (.env.test's DB URLs and secret, port-derived origins, ephemeral-run
+// guards), the repo root, and the run's log file.
+func devInvocation(t *testing.T, basePort int, registryPath string, interactive bool) ([]string, []string, string, *os.File) {
 	t.Helper()
 	repoRoot := findRepoRoot(t)
 
@@ -106,13 +114,6 @@ func buildDevCommand(t *testing.T, basePort int, registryPath string, interactiv
 		"--plugin-port-start", strconv.Itoa(basePort+10),
 	)
 
-	cmd := exec.Command("node", append([]string{
-		"--import", "tsx",
-		"--conditions=development",
-	}, args...)...)
-	cmd.Dir = repoRoot
-	cmd.Env = childEnv(overrides)
-
 	logPath := filepath.Join(repoRoot, ".bos", "logs", fmt.Sprintf("framework-%d.log", basePort))
 	if mkErr := os.MkdirAll(filepath.Dir(logPath), 0o755); mkErr != nil {
 		t.Fatalf("creating log dir: %v", mkErr)
@@ -121,6 +122,27 @@ func buildDevCommand(t *testing.T, basePort int, registryPath string, interactiv
 	if logErr != nil {
 		t.Fatalf("creating log file: %v", logErr)
 	}
+	return args, childEnv(overrides), repoRoot, logFile
+}
+
+// tsxArgs is the shared node/tsx invocation prefix used by every launch path
+// (direct and wrapped).
+func tsxArgs(args []string) []string {
+	return append([]string{"--import", "tsx", "--conditions=development"}, args...)
+}
+
+// buildDevCommand assembles a real `bos dev` CLI invocation from source
+// (node --import tsx cli.ts — the parent's own dev-script form) on an explicit
+// port block, with the test env layered on top. interactive=false passes
+// --no-interactive (signal-driven teardown tests); interactive=true leaves
+// the TUI to mount under the caller's pty.
+func buildDevCommand(t *testing.T, basePort int, registryPath string, interactive bool) (*exec.Cmd, *os.File, string) {
+	t.Helper()
+	args, env, repoRoot, logFile := devInvocation(t, basePort, registryPath, interactive)
+
+	cmd := exec.Command("node", tsxArgs(args)...)
+	cmd.Dir = repoRoot
+	cmd.Env = env
 	return cmd, logFile, repoRoot
 }
 
@@ -196,7 +218,7 @@ func (s *Stack) awaitRegistryEntry() {
 		}
 		if time.Now().After(deadline) {
 			s.t.Fatalf("registry entry with childPids never appeared for pid %d (registry %s): %v",
-				s.cmd.Process.Pid, s.registryPath, err)
+				s.bosPid(), s.registryPath, err)
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
@@ -208,11 +230,11 @@ func (s *Stack) ownEntry() (*registryEntry, error) {
 		return nil, err
 	}
 	for i := range entries {
-		if entries[i].PID == s.cmd.Process.Pid {
+		if entries[i].PID == s.bosPid() {
 			return &entries[i], nil
 		}
 	}
-	return nil, fmt.Errorf("no registry entry for pid %d", s.cmd.Process.Pid)
+	return nil, fmt.Errorf("no registry entry for pid %d", s.bosPid())
 }
 
 // SnapshotPids returns every pid that must be dead after teardown: the
@@ -250,10 +272,15 @@ func (s *Stack) WaitExit(expectedCode int) {
 	}
 }
 
-// Reap is the test's own safety net: hard-kill the CLI and every child group
-// so a failed assertion never leaks processes into the next run.
+// Reap is the test's own safety net: hard-kill the CLI (and, for wrapped
+// stacks, the wrapper) plus every child group so a failed assertion never
+// leaks processes into the next run.
 func (s *Stack) Reap() {
-	pids := append([]int{s.cmd.Process.Pid}, s.ChildPids...)
+	pids := []int{s.cmd.Process.Pid}
+	if s.wrappedPid != 0 {
+		pids = append(pids, s.wrappedPid)
+	}
+	pids = append(pids, s.ChildPids...)
 	for _, pid := range pids {
 		_ = syscall.Kill(-pid, syscall.SIGKILL)
 		_ = syscall.Kill(pid, syscall.SIGKILL)

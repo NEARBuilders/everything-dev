@@ -1,6 +1,7 @@
 import * as p from "@clack/prompts";
 import type { DevOptions, DevResult, StartOptions, StartResult } from "../../contract";
 import { type ProgressEvent, pluginEvents } from "../../services/dev/progress";
+import type { DevSessionData } from "../../services/dev/session";
 import { exitCodeFor } from "../exit-codes";
 import { clearSpinnerStopLine, printStartSummary } from "../render/dev";
 import type { CommandContext } from "./context";
@@ -20,6 +21,17 @@ const _runWithProgress = async <T>(
   } finally {
     pluginEvents.off("progress", onProgress);
   }
+};
+
+const mountSession = async (
+  projectDir: string | undefined,
+  session: DevSessionData,
+): Promise<void> => {
+  const [{ devApp }, { DevRendererCliLive }] = await Promise.all([
+    import("../../services/dev/session"),
+    import("../render/dev-render"),
+  ]);
+  devApp(projectDir ?? process.cwd(), session, DevRendererCliLive);
 };
 
 export const runDev = async (ctx: CommandContext): Promise<void> => {
@@ -68,19 +80,7 @@ export const runDev = async (ctx: CommandContext): Promise<void> => {
   const session = result.session;
   void outdatedWarning;
   if (session) {
-    const [{ devApp }, { DevRendererCliLive }] = await Promise.all([
-      import("../../services/dev/session"),
-      import("../render/dev-render"),
-    ]);
-    devApp(
-      projectDir ?? process.cwd(),
-      session.orchestrator,
-      session.services,
-      session.runtimeConfig,
-      session.envGenerated,
-      session.shellEnv,
-      DevRendererCliLive,
-    );
+    await mountSession(projectDir, session);
   }
   return;
 };
@@ -129,19 +129,7 @@ export const runStart = async (ctx: CommandContext): Promise<void> => {
     if (summary) {
       printStartSummary(summary);
     }
-    const [{ startApp }, { DevRendererCliLive }] = await Promise.all([
-      import("../../services/dev/session"),
-      import("../render/dev-render"),
-    ]);
-    startApp(
-      projectDir ?? process.cwd(),
-      session.orchestrator,
-      session.services,
-      session.runtimeConfig,
-      session.envGenerated,
-      session.shellEnv,
-      DevRendererCliLive,
-    );
+    await mountSession(projectDir, session);
   }
   return;
 };

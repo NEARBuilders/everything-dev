@@ -13,12 +13,19 @@ import {
   ServiceDescriptorMap,
 } from "./service-descriptor";
 
+let forceExitInFlight = false;
+
+export const markForceExitInFlight = () => {
+  forceExitInFlight = true;
+};
+
 process.on("unhandledRejection", (reason) => {
   console.error("[Orchestrator] Unhandled rejection:", reason);
 });
 
 process.on("uncaughtException", (err) => {
   console.error("[Orchestrator] Uncaught exception:", err);
+  if (forceExitInFlight) process.exit(1);
 });
 
 export interface ProcessCallbacks {

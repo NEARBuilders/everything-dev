@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Deferred, Effect, Exit, Layer } from "effect";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShellEnvLive } from "../../src/env/project-env";
-import type { ProcessHandle } from "../../src/services/dev/orchestrator";
+import type { ProcessCallbacks, ProcessHandle } from "../../src/services/dev/orchestrator";
 import { DevRenderer } from "../../src/services/dev/render";
 import {
   DevGeneratedEnvLive,
@@ -12,6 +12,7 @@ import {
   type ServiceDescriptor,
   ServiceDescriptorMapLive,
 } from "../../src/services/dev/service-descriptor";
+import type { DevSessionDeps, DevSessionHandle } from "../../src/services/dev/session";
 import { runDevSession } from "../../src/services/dev/session";
 
 const mocks = vi.hoisted(() => {
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => {
     }>,
     kills: [] as string[],
     sequence: [] as string[],
+    callbacks: {} as Record<string, ProcessCallbacks>,
     view: {
       updateProcess: vi.fn(),
       addLog: vi.fn(),
@@ -41,7 +43,8 @@ vi.mock("../../src/services/dev/orchestrator", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/services/dev/orchestrator")>();
   return {
     ...actual,
-    makeDevProcess: (pkg: string) => {
+    makeDevProcess: (pkg: string, callbacks: ProcessCallbacks) => {
+      mocks.callbacks[pkg] = callbacks;
       const deferred = Deferred.makeUnsafe<void>();
       const handle = {
         name: pkg,
@@ -92,12 +95,17 @@ const orchestrator = {
   interactive: false,
 };
 
-const runSession = () => {
-  let controls: Record<string, () => void> | null = null;
+const runSession = (deps: DevSessionDeps = {}) => {
+  let handle: DevSessionHandle | null = null;
   const program = Effect.scoped(
-    runDevSession(mocks.tmpRoot, orchestrator as never, (c) => {
-      controls = c as never;
-    }),
+    runDevSession(
+      mocks.tmpRoot,
+      orchestrator as never,
+      (h) => {
+        handle = h;
+      },
+      deps,
+    ),
   ).pipe(
     Effect.provide(
       Layer.mergeAll(
@@ -116,7 +124,7 @@ const runSession = () => {
   );
   return {
     program,
-    getControls: () => controls as unknown as Record<string, () => void>,
+    getHandle: () => handle as unknown as DevSessionHandle,
   };
 };
 
@@ -161,6 +169,9 @@ describe("runDevSession quit correctness", () => {
     mocks.fakeHandles = [];
     mocks.kills = [];
     mocks.sequence = [];
+    mocks.callbacks = {};
+    mocks.view.addLog.mockClear();
+    mocks.view.updateProcess.mockClear();
   });
 
   afterEach(() => {
@@ -171,12 +182,12 @@ describe("runDevSession quit correctness", () => {
     }
   });
 
-  it("kills spawned handles and exits cleanly when shutdown fires during startup", async () => {
-    const { program, getControls } = runSession();
+  it("kills spawned handles and exits cleanly when graceful shutdown fires during startup", async () => {
+    const { program, getHandle } = runSession();
     const exitPromise = Effect.runPromiseExit(program);
 
     await waitForSpawns(1);
-    getControls().requestShutdown();
+    getHandle().shutdown("graceful");
 
     const exit = await exitPromise;
     expect(Exit.isSuccess(exit)).toBe(true);
@@ -186,14 +197,14 @@ describe("runDevSession quit correctness", () => {
   });
 
   it("kills all handles and unregisters after a clean running-phase quit", async () => {
-    const { program, getControls } = runSession();
+    const { program, getHandle } = runSession();
     const exitPromise = Effect.runPromiseExit(program);
 
     await makeAllReady(2);
     const entry = registryEntries().find((e) => e.pid === process.pid);
     expect((entry?.childPids as number[])?.length).toBe(2);
 
-    getControls().requestShutdown();
+    getHandle().shutdown("graceful");
 
     const exit = await exitPromise;
     expect(Exit.isSuccess(exit)).toBe(true);
@@ -211,16 +222,67 @@ describe("runDevSession quit correctness", () => {
     });
   });
 
-  it("re-arms the force exit timer when the finalizer starts", async () => {
-    const { program, getControls } = runSession();
+  it("escalates to force — reap, pipeline flush, exit — when a graceful shutdown overruns its timer", async () => {
+    const exitSpy = vi.fn();
+    const reapSpy = vi.fn();
+    const { program, getHandle } = runSession({ exit: exitSpy, reap: reapSpy, forceTimeoutMs: 50 });
     const exitPromise = Effect.runPromiseExit(program);
 
     await makeAllReady(2);
-    const controls = getControls();
-    const suspendSpy = vi.spyOn(controls, "rearmForceExitTimer");
-    controls.requestShutdown();
+    getHandle().shutdown("graceful");
 
     await exitPromise;
-    expect(suspendSpy).toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(reapSpy).toHaveBeenCalled();
+  });
+
+  it("a second graceful shutdown escalates straight to force", async () => {
+    const exitSpy = vi.fn();
+    const reapSpy = vi.fn();
+    const { program, getHandle } = runSession({ exit: exitSpy, reap: reapSpy });
+    const exitPromise = Effect.runPromiseExit(program);
+
+    await makeAllReady(2);
+    getHandle().shutdown("graceful");
+    getHandle().shutdown("graceful");
+
+    await exitPromise;
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(reapSpy).toHaveBeenCalled();
+  });
+
+  it("the orphan watchdog force-exits when the session is reparented", async () => {
+    let ppid = 4242;
+    const exitSpy = vi.fn();
+    const reapSpy = vi.fn();
+    const { program } = runSession({ exit: exitSpy, reap: reapSpy, ppid: () => ppid });
+    const exitPromise = Effect.runPromiseExit(program);
+
+    await makeAllReady(2);
+    ppid = 1;
+
+    await vi.waitFor(() => {
+      expect(exitSpy).toHaveBeenCalledWith(0);
+    });
+    expect(reapSpy).toHaveBeenCalledWith(5100);
+    expect(reapSpy).toHaveBeenCalledWith(5101);
+    await exitPromise;
+  });
+
+  it("force exit drains the pipeline's pending multi-line buffer through the display sink", async () => {
+    const exitSpy = vi.fn();
+    const reapSpy = vi.fn();
+    const { program, getHandle } = runSession({ exit: exitSpy, reap: reapSpy });
+    const exitPromise = Effect.runPromiseExit(program);
+
+    await makeAllReady(2);
+    mocks.callbacks.api?.onLog("api", "Error: pending multi-line tail", true);
+    expect(mocks.view.addLog).not.toHaveBeenCalled();
+
+    getHandle().shutdown("force");
+
+    await exitPromise;
+    expect(mocks.view.addLog).toHaveBeenCalledWith("api", "Error: pending multi-line tail", true);
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });

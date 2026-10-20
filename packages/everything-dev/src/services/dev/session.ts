@@ -24,6 +24,7 @@ import {
 import {
   getProcessStates,
   makeDevProcess,
+  markForceExitInFlight,
   type ProcessCallbacks,
   type ProcessHandle,
 } from "./orchestrator";
@@ -88,19 +89,22 @@ const sortByOrder = (packages: string[]): string[] => {
   });
 };
 
-export interface DevSessionControls {
-  requestShutdown: () => void;
-  emergencyKill: () => void;
-  requestShutdownEscalating: () => void;
-  forceExit: () => void;
-  restoreView: () => void;
-  rearmForceExitTimer: () => void;
+export interface DevSessionHandle {
+  shutdown: (mode: "graceful" | "force") => void;
+}
+
+export interface DevSessionDeps {
+  exit?: (code: number) => void;
+  forceTimeoutMs?: number;
+  reap?: (pid: number) => void;
+  ppid?: () => number;
 }
 
 export const runDevSession = (
   configDir: string,
   orchestrator: AppOrchestrator,
-  onShutdownReady?: (controls: DevSessionControls) => void,
+  onSessionReady?: (handle: DevSessionHandle) => void,
+  deps: DevSessionDeps = {},
 ) =>
   Effect.gen(function* () {
     adoptOrphanedChildren(configDir);
@@ -129,21 +133,14 @@ export const runDevSession = (
       createDevLogger(configDir, orchestrator.description),
     );
 
+    const exit = deps.exit ?? ((code: number) => process.exit(code));
+    const reap = deps.reap ?? reapGroup;
+    const forceTimeoutMs = deps.forceTimeoutMs ?? 5000;
+    const ppidNow = deps.ppid ?? (() => process.ppid);
+
     const shutdown = yield* Deferred.make<void>();
 
     const effectContext = yield* Effect.context();
-    const controls: DevSessionControls = {
-      requestShutdown: () => {
-        void Effect.runPromiseWith(effectContext)(Deferred.succeed(shutdown, undefined));
-      },
-      emergencyKill: () => {},
-      requestShutdownEscalating: () => {},
-      forceExit: () => {},
-      restoreView: () => {},
-      rearmForceExitTimer: () => {},
-    };
-
-    onShutdownReady?.(controls);
 
     const isWorkspaceChild = getProcessEnv("BOS_WORKSPACE_CHILD") === "1";
     let ownedPorts: number[] = [];
@@ -179,6 +176,7 @@ export const runDevSession = (
 
     const logLevel = resolveLogLevel();
     const allLogs: LogEvent[] = [];
+    const spawned: ProcessHandle[] = [];
     const pipeline = createLogPipeline({
       level: logLevel,
       sinks: {
@@ -196,48 +194,82 @@ export const runDevSession = (
     });
 
     const useInteractive = isInteractiveSupported() && orchestrator.interactive !== false;
+    const restoreView = () => {
+      if (useInteractive) view?.unmount();
+    };
+    let handleRef: DevSessionHandle | null = null;
     view = renderer.create(
       initialProcesses,
       orchestrator.description,
       orchestrator.env,
-      () => controls.requestShutdownEscalating(),
+      () => handleRef?.shutdown("graceful"),
       () => {
         shouldExportLogs = true;
-        controls.requestShutdownEscalating();
+        handleRef?.shutdown("graceful");
       },
-      { interactive: useInteractive, onForceExit: () => controls.forceExit() },
+      { interactive: useInteractive, onForceExit: () => handleRef?.shutdown("force") },
     );
-    controls.restoreView = () => {
-      if (useInteractive) view?.unmount();
-    };
 
-    const callbacks: ProcessCallbacks = {
-      onStatus: (name, status, message) => {
-        // An error-status flip is the failure boundary — the failure message
-        // logged just before it is still held in the pipeline's pending
-        // multi-line buffer (events complete one line late). Drain it now so
-        // the cause reaches the display tail and the log file even if the
-        // process is SIGKILLed before the session finalizer can flush.
-        if (status === "error") pipeline.flushSource(name);
-        view?.updateProcess(name, status, message);
-      },
-      onLog: (name, line, isError) => {
-        pipeline.ingest({ source: name, line, isError });
-      },
-    };
-
-    const spawned: ProcessHandle[] = [];
-
-    controls.emergencyKill = () => {
+    const force = () => {
+      markForceExitInFlight();
+      try {
+        restoreView();
+      } catch {}
+      try {
+        pipeline.flush();
+      } catch {}
+      console.log("\n[Dev] Force exit");
       for (const handle of spawned) {
         if (handle.pid === undefined) continue;
-        reapGroup(handle.pid);
+        try {
+          reap(handle.pid);
+        } catch {}
       }
+      if (!isWorkspaceChild) {
+        try {
+          unregisterPid(process.pid);
+        } catch {}
+      }
+      void Effect.runPromiseWith(effectContext)(Deferred.succeed(shutdown, undefined));
+      exit(0);
     };
+
+    let gracefulCount = 0;
+    let forceTimer: ReturnType<typeof setTimeout> | null = null;
+    const armForce = () => {
+      if (forceTimer) clearTimeout(forceTimer);
+      forceTimer = setTimeout(force, forceTimeoutMs);
+      forceTimer.unref?.();
+    };
+    const disarmForce = () => {
+      if (forceTimer) clearTimeout(forceTimer);
+      forceTimer = null;
+    };
+
+    const sessionHandle: DevSessionHandle = {
+      shutdown: (mode) => {
+        if (mode === "force") {
+          force();
+          return;
+        }
+        gracefulCount++;
+        if (gracefulCount > 1) {
+          force();
+          return;
+        }
+        restoreView();
+        console.log("\n[Dev] Shutting down...");
+        armForce();
+        void Effect.runPromiseWith(effectContext)(Deferred.succeed(shutdown, undefined));
+      },
+    };
+    handleRef = sessionHandle;
+
+    yield* Effect.addFinalizer(() => Effect.sync(disarmForce));
 
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* () {
-        controls.rearmForceExitTimer();
+        armForce();
 
         yield* Effect.forEach(spawned, (h) => h.kill.pipe(Effect.ignore), {
           concurrency: "unbounded",
@@ -294,6 +326,35 @@ export const runDevSession = (
         }
       }),
     );
+
+    const callbacks: ProcessCallbacks = {
+      onStatus: (name, status, message) => {
+        // An error-status flip is the failure boundary — the failure message
+        // logged just before it is still held in the pipeline's pending
+        // multi-line buffer (events complete one line late). Drain it now so
+        // the cause reaches the display tail and the log file even if the
+        // process is SIGKILLed before the session finalizer can flush.
+        if (status === "error") pipeline.flushSource(name);
+        view?.updateProcess(name, status, message);
+      },
+      onLog: (name, line, isError) => {
+        pipeline.ingest({ source: name, line, isError });
+      },
+    };
+
+    yield* Effect.forkScoped(
+      Effect.gen(function* () {
+        const initialPpid = ppidNow();
+        while (true) {
+          yield* Effect.sleep("200 millis");
+          if (ppidNow() === initialPpid) continue;
+          console.error("\n[Dev] Parent process died — force exiting (orphaned service tree)");
+          force();
+        }
+      }),
+    );
+
+    onSessionReady?.(sessionHandle);
 
     const startProcess = (pkg: string) => {
       const portOverride = pkg === "host" ? orchestrator.port : undefined;
@@ -395,73 +456,32 @@ export const runDevSession = (
 
 const runApp = (
   configDir: string,
-  orchestrator: AppOrchestrator,
-  services: Map<string, ServiceDescriptor>,
-  runtimeConfig: RuntimeConfig,
-  envGenerated: Record<string, string>,
-  shellEnv: Record<string, string>,
+  data: DevSessionData,
   rendererLayer: Layer.Layer<DevRenderer>,
 ) => {
-  let controls: DevSessionControls | null = null;
-  let signalCount = 0;
-  let forceExitTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const forceExit = () => {
-    controls?.restoreView();
-    // @ts-ignore
-    pipeline.flush();
-    console.log("\n[Dev] Force exit");
-    controls?.emergencyKill();
+  let handle: DevSessionHandle | null = null;
+  const trigger = (mode: "graceful" | "force") => {
+    if (handle) {
+      handle.shutdown(mode);
+      return;
+    }
     process.exit(0);
   };
 
-  // Orphan watch: when the wrapper chain above this process dies (playwright
-  // tree-kills its webServer with SIGKILL — no signal handler runs, detached
-  // group escapes), this orchestrator is reparented. Detect that and reap the
-  // whole service tree — the alternatives are zombie port squatters that
-  // poison the next run. Covers shell aborts (Ctrl+C killing only the
-  // wrapper) the same way.
-  const initialPpid = process.ppid;
-  const orphanWatch = setInterval(() => {
-    if (process.ppid !== initialPpid) {
-      console.error("\n[Dev] Parent process died — force exiting (orphaned service tree)");
-      forceExit();
-    }
-  }, 200);
-  orphanWatch.unref?.();
-
-  const requestShutdownEscalating = () => {
-    signalCount++;
-    if (signalCount > 1) {
-      forceExit();
-      return;
-    }
-    controls?.restoreView();
-    console.log("\n[Dev] Shutting down...");
-    forceExitTimer = setTimeout(forceExit, 5000);
-    forceExitTimer.unref?.();
-    controls?.requestShutdown();
-  };
-  const handleSignal = requestShutdownEscalating;
+  process.on("SIGINT", () => trigger("graceful"));
+  process.on("SIGTERM", () => trigger("graceful"));
 
   const program = Effect.scoped(
-    runDevSession(configDir, orchestrator, (sessionControls) => {
-      controls = sessionControls;
-      sessionControls.requestShutdownEscalating = requestShutdownEscalating;
-      sessionControls.rearmForceExitTimer = () => {
-        if (forceExitTimer) clearTimeout(forceExitTimer);
-        forceExitTimer = setTimeout(forceExit, 5000);
-        forceExitTimer.unref?.();
-      };
-      sessionControls.forceExit = forceExit;
+    runDevSession(configDir, data.orchestrator, (sessionHandle) => {
+      handle = sessionHandle;
     }),
   ).pipe(
     Effect.provide(
       Layer.mergeAll(
-        ServiceDescriptorMapLive(services),
-        DevRuntimeConfigLive(runtimeConfig),
-        DevGeneratedEnvLive(envGenerated),
-        ShellEnvLive(shellEnv),
+        ServiceDescriptorMapLive(data.services),
+        DevRuntimeConfigLive(data.runtimeConfig),
+        DevGeneratedEnvLive(data.envGenerated),
+        ShellEnvLive(data.shellEnv),
         rendererLayer,
       ),
     ),
@@ -472,26 +492,17 @@ const runApp = (
     ),
   );
 
-  process.on("SIGINT", handleSignal);
-  process.on("SIGTERM", handleSignal);
-
   void Effect.runPromiseExit(program)
     .then((exit) => {
-      clearInterval(orphanWatch);
-      if (forceExitTimer) clearTimeout(forceExitTimer);
       process.exit(Exit.isSuccess(exit) ? 0 : 1);
     })
     .catch((error: unknown) => {
-      clearInterval(orphanWatch);
-      if (forceExitTimer) clearTimeout(forceExitTimer);
       console.error("[Dev] Failed to observe application exit:", error);
       process.exit(1);
     });
 };
 
 export const devApp = runApp;
-
-export const startApp = runApp;
 
 export interface DevSessionData {
   orchestrator: AppOrchestrator;
