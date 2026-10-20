@@ -34,7 +34,7 @@ test.describe("Mobile native baseline", () => {
         buttonTouchAction: button ? getComputedStyle(button).touchAction : null,
       };
     });
-    expect(styles.tapHighlight).toBe("transparent");
+    expect(["transparent", "rgba(0, 0, 0, 0)"]).toContain(styles.tapHighlight);
     expect(styles.overscroll).toBe("none");
     expect(styles.buttonTouchAction).toBe("manipulation");
   });
