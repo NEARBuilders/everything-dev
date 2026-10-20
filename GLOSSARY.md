@@ -21,7 +21,7 @@ The ui files an app owns and edits freely — routes, lib, components, plus the 
 _Avoid_: framework files (ambiguous — the generated stubs are framework-owned too), boilerplate
 
 **Framework-owned file**:
-A child-repo file in the `services/scaffold/ownership.ts` inventory — reconciled from the parent template by `bos sync` / `bos upgrade` with three-way hash comparison, template-wins-on-conflict, and backups under `.bos/sync-backup/` (ADR 0032). Local edits are legitimate; a permanent change requires an upstream issue at the framework repo, which ships it in package versions.
+A child-repo file in the `src/services/scaffold/ownership.ts` inventory (everything-dev package) — reconciled from the parent template by `bos sync` / `bos upgrade` with three-way hash comparison, template-wins-on-conflict, and backups under `.bos/sync-backup/` (ADR 0032). Local edits are legitimate; a permanent change requires an upstream issue at the framework repo, which ships it in package versions.
 _Avoid_: sync file (implementation detail), boilerplate (ambiguous), "don't touch" framing (the marker says edits are allowed)
 
 **Upstream-change protocol**:

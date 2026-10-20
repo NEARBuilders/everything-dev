@@ -109,7 +109,7 @@ Use the `extends-config` skill when reasoning about how the tenant config merges
 
 ### Sync Ownership Model
 
-`bos sync` uses the init snapshot plus the ownership inventory (`services/scaffold/ownership.ts` — `FRAMEWORK_OWNED_SYNC_FILES`, the per-plugin predicate, `AGENT_SYNC_GLOBS`; ADR 0032) to decide what it may overwrite.
+`bos sync` uses the init snapshot plus the ownership inventory (`src/services/scaffold/ownership.ts` — `FRAMEWORK_OWNED_SYNC_FILES`, the per-plugin predicate, `AGENT_SYNC_GLOBS`; ADR 0032) to decide what it may overwrite.
 
 Framework-owned files are updated when the template changes — build configs, shared runtime wiring, db/lib plumbing, agent-skill content. App-owned files are never considered by sync, for example:
 - `ui/src/components/**`
