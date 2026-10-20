@@ -84,7 +84,12 @@ describe("framework-owned marker guardrail (ADR 0032)", () => {
   const REPO_ROOT = join(import.meta.dirname, "../../../../");
 
   function trackedFiles(): string[] {
-    return execSync("git ls-files", { cwd: REPO_ROOT, encoding: "utf-8" })
+    // Tracked + untracked-but-not-ignored: a brand-new file must be scanned
+    // locally too, not only after it is committed (the CI trap).
+    return execSync("git ls-files --cached --others --exclude-standard", {
+      cwd: REPO_ROOT,
+      encoding: "utf-8",
+    })
       .split("\n")
       .filter(Boolean);
   }
@@ -112,7 +117,15 @@ describe("framework-owned marker guardrail (ADR 0032)", () => {
   it("no stale warning headers remain in template or source files", () => {
     const staleNeedle = ["BE CAREFUL", "MODIFYING"].join(" ");
     const offenders = trackedFiles().filter((file) => {
-      if (file.endsWith("CHANGELOG.md") || file.startsWith("docs/plans/")) return false;
+      // Dated records — historical ADRs and plans may quote the retired
+      // header verbatim (the same exclusion docs-link-check applies to
+      // ADR bodies), and CHANGELOG.md is historical by convention.
+      if (
+        file.endsWith("CHANGELOG.md") ||
+        file.startsWith("docs/plans/") ||
+        file.startsWith("docs/adr/")
+      )
+        return false;
       try {
         return readFileSync(join(REPO_ROOT, file), "utf-8").includes(staleNeedle);
       } catch {
