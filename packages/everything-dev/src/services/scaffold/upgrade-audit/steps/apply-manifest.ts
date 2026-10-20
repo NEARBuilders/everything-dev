@@ -1,26 +1,8 @@
 import { Effect } from "effect";
 import type { ImportRewrite } from "../domain";
 import { fileExists, listFiles, readText, removePath, writeText } from "../fs";
+import { OBSOLETE_FILES } from "../obsolete-files";
 import type { StepResult } from "./author-config";
-
-const OBSOLETE_FILES = [
-  "api/src/lib/plugins.ts",
-  "ui/src/auth.ts",
-  "ui/src/auth-types.gen.ts",
-  "ui/src/lib/api-client.ts",
-  "ui/src/lib/use-api-client.ts",
-  "ui/src/lib/auth-utils.ts",
-  "ui/src/api-contract.ts",
-  "ui/src/api-contract.gen.ts",
-  "ui/src/lib/auth-client.ts",
-  "ui/src/lib/session.ts",
-  "ui/scripts/generate-metadata.ts",
-  "api/src/db/migrator.ts",
-  "api/src/db/load-migrations.ts",
-  "packages/everything-dev/cli.js",
-  ".templatekeep",
-  ".templatesync-exclude",
-] as const;
 
 const applyRewrites = (
   projectDir: string,

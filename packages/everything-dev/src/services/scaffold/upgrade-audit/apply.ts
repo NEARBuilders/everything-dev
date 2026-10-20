@@ -7,6 +7,8 @@ import { authorConfig, type StepResult } from "./steps/author-config";
 import { migratePnpm } from "./steps/migrate-pnpm";
 import { migrateRouteMounts } from "./steps/migrate-route-mounts";
 import { migrateUiSeam } from "./steps/migrate-ui-seam";
+import { retireV1Shell } from "./steps/retire-v1-shell";
+import { retireZephyr } from "./steps/retire-zephyr";
 
 export interface ApplyStepLog {
   readonly name: string;
@@ -37,6 +39,8 @@ export const apply = (
     const configResult = yield* authorConfig(projectDir, report.manifest.plugins, dryRun);
     const pnpmResult = yield* migratePnpm(projectDir, dryRun);
     const seamResult = yield* migrateUiSeam(projectDir, dryRun);
+    const shellResult = yield* retireV1Shell(projectDir, dryRun);
+    const zephyrResult = yield* retireZephyr(projectDir, dryRun);
     const manifestResult = yield* applyManifest(projectDir, rewrites, dryRun);
 
     return [
@@ -44,6 +48,8 @@ export const apply = (
       { name: "author-config", result: configResult },
       { name: "migrate-pnpm", result: pnpmResult },
       { name: "migrate-ui-seam", result: seamResult },
+      { name: "retire-v1-shell", result: shellResult },
+      { name: "retire-zephyr", result: zephyrResult },
       { name: "apply-manifest", result: manifestResult },
     ];
   });

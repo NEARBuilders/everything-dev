@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { readText, removePath, writeText } from "../fs";
+import { listFiles, readText, removePath, writeText } from "../fs";
 import type { StepResult } from "./author-config";
 
 const V2_CATALOG: Readonly<Record<string, string>> = {
@@ -110,6 +110,22 @@ const hardenedTest = (dirs: readonly string[]): string =>
     `[ -d plugins ] && ${PLUGIN_TEST_LOOP} || true`,
   ].join(" && ");
 
+/** Mechanical bun→pnpm rewrites, safe for any workspace's scripts. */
+const mechanicalScriptRewrite = (value: string): string =>
+  value
+    .replaceAll("bun run --if-present --cwd ", "pnpm --dir ")
+    .replaceAll("bun run --cwd ", "pnpm --dir ")
+    .replace(/bun run --cwd (\S+) (.+)/, "pnpm --dir $1 exec $2")
+    .replaceAll("bun run ", "pnpm run ")
+    .replace(
+      'for d in plugins/*; do [ -f "$d/package.json" ] && bun run --if-present --cwd "$d" test; done',
+      'for d in plugins/*; do if [ -f "$d/package.json" ]; then pnpm --dir "$d" --if-present run test || exit 1; fi; done',
+    )
+    .replace(
+      'for dir in plugins/*; do if [ -f "$dir/package.json" ]; then bun run --cwd "$dir" typecheck; fi; done',
+      'for dir in plugins/*; do if [ -f "$dir/package.json" ]; then pnpm --dir "$dir" run typecheck || exit 1; fi; done',
+    );
+
 const rewriteScripts = (scripts: Record<string, string>): Record<string, string> => {
   const next: Record<string, string> = {};
   for (const [key, value] of Object.entries(scripts)) {
@@ -121,21 +137,43 @@ const rewriteScripts = (scripts: Record<string, string>): Record<string, string>
       next[key] = hardenedTest(["api", "ui"]);
       continue;
     }
-    next[key] = value
-      .replaceAll("bun run --if-present --cwd ", "pnpm --dir ")
-      .replaceAll("bun run --cwd ", "pnpm --dir ")
-      .replace(/bun run --cwd (\S+) (.+)/, "pnpm --dir $1 exec $2")
-      .replace(
-        'for d in plugins/*; do [ -f "$d/package.json" ] && bun run --if-present --cwd "$d" test; done',
-        'for d in plugins/*; do if [ -f "$d/package.json" ]; then pnpm --dir "$d" --if-present run test || exit 1; fi; done',
-      )
-      .replace(
-        'for dir in plugins/*; do if [ -f "$dir/package.json" ]; then bun run --cwd "$dir" typecheck; fi; done',
-        'for dir in plugins/*; do if [ -f "$dir/package.json" ]; then pnpm --dir "$dir" run typecheck || exit 1; fi; done',
-      );
+    next[key] = mechanicalScriptRewrite(value);
   }
   return next;
 };
+
+const WORKSPACE_PKG_GLOB = "{ui/package.json,api/package.json,plugins/*/package.json}";
+
+/**
+ * Workspace package.json scripts still speak bun (`bun run build:client`,
+ * `bun run --cwd api typecheck`). Rewrite every bun invocation to the pnpm
+ * form so the pnpm-only tree (packageManager pin, no bun in CI) works.
+ * Unlike the root pass, workspace typecheck/test scripts keep their own
+ * bodies — only the bun invocations are mechanically rewritten.
+ */
+const rewriteWorkspaceScripts = (
+  projectDir: string,
+  dryRun: boolean,
+): Effect.Effect<string[], Error> =>
+  Effect.gen(function* () {
+    const pkgPaths = yield* listFiles(projectDir, WORKSPACE_PKG_GLOB);
+    const changed: string[] = [];
+    for (const pkgPath of pkgPaths) {
+      const source = yield* readText(projectDir, pkgPath);
+      if (!source.includes("bun ")) continue;
+      const pkg = JSON.parse(source) as { scripts?: Record<string, string> };
+      if (!pkg.scripts) continue;
+      const scripts = Object.fromEntries(
+        Object.entries(pkg.scripts).map(([key, value]) => [key, mechanicalScriptRewrite(value)]),
+      );
+      if (JSON.stringify(scripts) === JSON.stringify(pkg.scripts)) continue;
+      if (!dryRun) {
+        yield* writeText(projectDir, pkgPath, `${JSON.stringify({ ...pkg, scripts }, null, 2)}\n`);
+      }
+      changed.push(pkgPath);
+    }
+    return changed;
+  });
 
 const BUN_ARTIFACTS = ["bun.lock", "bunfig.toml"] as const;
 
@@ -170,12 +208,20 @@ export const migratePnpm = (
       "Dockerfile + railway.toml retired — deploys use ci.image (the upstream runtime image)",
     ];
 
-    if (dryRun) return { writes, deletes, notes };
+    const workspaceScripts = yield* rewriteWorkspaceScripts(projectDir, dryRun);
+
+    if (dryRun) {
+      return {
+        writes: [...writes, ...workspaceScripts],
+        deletes,
+        notes,
+      };
+    }
 
     yield* writeText(projectDir, "pnpm-workspace.yaml", workspaceYaml);
     yield* writeText(projectDir, "package.json", `${JSON.stringify(nextPkg, null, 2)}\n`);
     for (const path of [...BUN_ARTIFACTS, ...RETIRED_FILES]) {
       yield* removePath(projectDir, path);
     }
-    return { writes, deletes, notes };
+    return { writes: [...writes, ...workspaceScripts], deletes, notes };
   });

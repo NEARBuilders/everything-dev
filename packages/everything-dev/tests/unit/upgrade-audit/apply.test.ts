@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -77,6 +77,29 @@ describe("migratePnpm", () => {
     await run(migratePnpm(projectDir, false));
     const yaml = await readFile(join(projectDir, "pnpm-workspace.yaml"), "utf-8");
     expect(yaml).toContain("catalog:");
+  });
+
+  it("mechanically rewrites bun invocations in workspace package.json scripts", async () => {
+    await writeFile(
+      join(projectDir, "ui/package.json"),
+      JSON.stringify(
+        {
+          name: "ui",
+          scripts: {
+            build: "bun run build:client && bun run build:ssr",
+            typecheck: "tsc --noEmit",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    const result = await run(migratePnpm(projectDir, false));
+    expect(result.writes).toContain("ui/package.json");
+    const ui = JSON.parse(await readFile(join(projectDir, "ui/package.json"), "utf-8"));
+    expect(ui.scripts.build).toBe("pnpm run build:client && pnpm run build:ssr");
+    // workspace typecheck keeps its own body — the hardened chain is root-only
+    expect(ui.scripts.typecheck).toBe("tsc --noEmit");
   });
 });
 
