@@ -1,6 +1,6 @@
 import { colors, icons } from "../../utils/theme";
 import { exitCodeFor } from "../exit-codes";
-import { printStubMigrationGuide } from "../render/sync";
+import { printSyncOutcome, UPSTREAM_ISSUE_URL } from "../render/sync";
 import type { ResultRenderer } from "./context";
 
 export const scaffoldRenderers: Record<string, ResultRenderer> = {
@@ -20,46 +20,7 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
     } else {
       console.log(colors.green(`${icons.ok} Synced`));
     }
-    const hasRetirement =
-      (result.retired?.length ?? 0) > 0 || (result.retiredConflicted?.length ?? 0) > 0;
-    if (
-      result.updated.length > 0 ||
-      result.added.length > 0 ||
-      result.conflicted.length > 0 ||
-      hasRetirement
-    ) {
-      console.log(
-        `  ${colors.dim("Sync results:")} ${result.updated.length} updated, ${result.added.length} added, ${result.conflicted.length} conflicted`,
-      );
-      if (result.updated.length > 0) {
-        for (const f of result.updated) console.log(`    ${colors.dim(f)}`);
-      }
-      if (result.added.length > 0) {
-        for (const f of result.added) console.log(`    ${colors.dim(f)}`);
-      }
-      if (result.conflicted.length > 0) {
-        console.log(`  ${colors.yellow("Conflicted")} (template applied, your changes backed up):`);
-        if (result.backupDir) console.log(`    ${colors.dim(result.backupDir)}`);
-        for (const f of result.conflicted) console.log(`    ${colors.dim(f)}`);
-      }
-      if (hasRetirement) {
-        console.log(`  ${colors.yellow("Retired")} (replaced by generated stubs — ADR 0023):`);
-        if (result.retiredBackupDir) console.log(`    ${colors.dim(result.retiredBackupDir)}`);
-        for (const f of result.retiredConflicted ?? []) {
-          console.log(`    ${colors.dim(`${f} (backed up)`)}`);
-        }
-        for (const f of result.retired ?? []) console.log(`    ${colors.dim(f)}`);
-        printStubMigrationGuide(result.retiredConflicted);
-      }
-    }
-    if (
-      result.updated.length === 0 &&
-      result.added.length === 0 &&
-      result.conflicted.length === 0 &&
-      !hasRetirement
-    ) {
-      console.log(`  ${colors.dim("Already up to date")}`);
-    }
+    printSyncOutcome(result);
     console.log();
     return;
   },
@@ -212,38 +173,8 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
       console.log(`  Added plugins: ${result.selectedPlugins.join(", ")}`);
     }
     if (result.sync) {
-      const sync = result.sync;
-      const hasRetirement =
-        (sync.retired?.length ?? 0) > 0 || (sync.retiredConflicted?.length ?? 0) > 0;
       console.log(`  ${colors.dim("Sync results:")}`);
-      if (
-        sync.updated.length > 0 ||
-        sync.added.length > 0 ||
-        sync.conflicted.length > 0 ||
-        hasRetirement
-      ) {
-        console.log(
-          `  ${sync.updated.length} updated, ${sync.added.length} added, ${sync.conflicted.length} conflicted`,
-        );
-        if (sync.conflicted.length > 0) {
-          console.log(
-            `  ${colors.yellow("Conflicted")} (template applied, your changes backed up):`,
-          );
-          if (sync.backupDir) console.log(`    ${colors.dim(sync.backupDir)}`);
-          for (const f of sync.conflicted) console.log(`    ${colors.dim(f)}`);
-        }
-        if (hasRetirement) {
-          console.log(`  ${colors.yellow("Retired")} (replaced by generated stubs — ADR 0023):`);
-          if (sync.retiredBackupDir) console.log(`    ${colors.dim(sync.retiredBackupDir)}`);
-          for (const f of sync.retiredConflicted ?? []) {
-            console.log(`    ${colors.dim(`${f} (backed up)`)}`);
-          }
-          for (const f of sync.retired ?? []) console.log(`    ${colors.dim(f)}`);
-          printStubMigrationGuide(sync.retiredConflicted);
-        }
-      } else {
-        console.log(`  ${colors.dim("Already up to date")}`);
-      }
+      printSyncOutcome(result.sync);
     }
     if (result.migrated && result.migrated.length > 0) {
       console.log(`  Migrated: ${result.migrated.length} file(s)`);
@@ -252,7 +183,6 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
     if (versionDelta || (result.sync && result.sync.conflicted.length > 0)) {
       console.log();
       console.log(colors.dim("  For AI agents:"));
-      const parentRepo = "nearbuilders/everything-dev";
       const somedelta =
         mainPkg?.from && mainPkg.to
           ? `v${mainPkg.from.replace(/^[\^~>=v]+/, "")}...v${mainPkg.to.replace(/^[\^~>=v]+/, "")}`
@@ -268,7 +198,7 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
         );
         console.log(
           colors.dim(
-            `  If local changes should be preserved upstream, open a PR: https://github.com/${parentRepo}${somedelta ? `/compare/${somedelta}` : ""}`,
+            `  If local changes should be preserved upstream, file an issue: ${UPSTREAM_ISSUE_URL} (or open a PR).`,
           ),
         );
       }
@@ -278,6 +208,12 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
         ),
       );
       console.log(colors.dim("  Review AGENTS.md — local updates may need merging."));
+    } else if (!versionDelta) {
+      console.log(
+        colors.dim(
+          "  Framework version unchanged — template files not touched (run `bos sync` to pull upstream drift).",
+        ),
+      );
     }
     console.log();
     return;

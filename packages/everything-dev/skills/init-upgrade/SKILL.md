@@ -109,18 +109,19 @@ Use the `extends-config` skill when reasoning about how the tenant config merges
 
 ### Sync Ownership Model
 
-`bos sync` uses the init snapshot plus `FRAMEWORK_OWNED_SYNC_FILES` to decide what it may overwrite.
+`bos sync` uses the init snapshot plus the ownership inventory (`services/scaffold/ownership.ts` — `FRAMEWORK_OWNED_SYNC_FILES`, the per-plugin predicate, `AGENT_SYNC_GLOBS`; ADR 0032) to decide what it may overwrite.
 
-Framework-owned files are updated when the template changes, for example build configs, generated wiring, and shared runtime scaffolding.
-
-App-owned files are left alone unless the local file still matches the recorded snapshot or you pass `--force`, for example:
+Framework-owned files are updated when the template changes — build configs, shared runtime wiring, db/lib plumbing, agent-skill content. App-owned files are never considered by sync, for example:
 - `ui/src/components/**`
 - `ui/src/routes/**`
+- `ui/src/router.tsx`, `ui/src/app.ts`
 - `api/src/contract.ts`
 - `api/src/index.ts`
 - `api/src/db/schema.ts`
 
 Generated files are regenerated separately and are not the source of truth for sync decisions.
+
+**Editing framework-owned files is allowed** (ADR 0032): when the template later changes, the template version is applied and your copy is backed up under `.bos/sync-backup/`. To make a local change permanent, file an issue at https://github.com/NEARBuilders/everything-dev/issues — the framework team implements it upstream and ships it in package versions.
 
 ## bos sync
 
@@ -128,7 +129,6 @@ Pulls updates from the parent template:
 
 ```bash
 bos sync                 # Sync from extends reference
-bos sync --force         # Overwrite even locally modified files
 bos sync --dry-run       # Preview without writing changes
 ```
 
@@ -140,10 +140,10 @@ Uses `.bos/sync-snapshot.json` to track which files came from the template and t
 |------------|-------------------|--------|
 | No local file | Yes | Add |
 | Matches snapshot | Yes | Update (safe) |
-| Modified since snapshot | Yes | Skip (unless `--force`) |
+| Modified since snapshot | Yes | Template applied; local copy backed up to `.bos/sync-backup/` |
 | Matches template | No | Skip |
 
-Framework-owned files (from `FRAMEWORK_OWNED_SYNC_FILES`) are always updated when changed.
+Framework-owned files (from the ownership inventory) are always updated when changed.
 
 ### What gets synced
 
@@ -274,18 +274,18 @@ Unknown keys go after known keys. See `everything-dev#extends-config` for full o
 
 **"Scaffold a child that extends the base runtime."** `bos init --extends bos://<parent-account>/<gateway> --account <you>.near --domain <your.domain> --no-interactive`, then customize `account` / `domain` / `app.ui` in the authored config; init's tail runs `pnpm install` + `bos types gen` (unless `--no-install`).
 
-**"Sync reports conflicted files."** Your local edits diverged from the snapshot; upgrade applies the template version and leaves your copy in `.bos/sync-backup/` — diff and merge back, or `bos sync --force` deliberately.
+**"Sync reports conflicted files."** Your local edits diverged from the snapshot; upgrade applies the template version and leaves your copy in `.bos/sync-backup/` — diff and merge back. If the change should be permanent, file an issue upstream (ADR 0032).
 
 **"Import a workspace from the base platform."** `bos import <workspace> --dry-run` (defaults to the extends chain; or `--from <owner/repo>` for an explicit upstream) first, read `.bos/import-report.md` for the conflict/migration/route picture, then real-run: plain invoke prompts in a TTY, `--yes` applies upstream over conflicts (backed up), and a flagged migration chain stays held until reconciliation.
 
-**"Upgrade framework packages."** `bos upgrade --dry-run` first, then `bos upgrade` — it bumps the root catalog, rewrites workspace refs to `catalog:`, syncs the template, and rewrites legacy imports.
+**"Upgrade framework packages."** `bos upgrade --dry-run` first, then `bos upgrade` — it bumps the root catalog, rewrites workspace refs to `catalog:`, syncs the template, and rewrites legacy imports. With **no version change** the template sync is skipped (ADR 0032): framework-owned files are only reconciled when the framework version actually changes; run `bos sync` to pull upstream drift explicitly.
 
 ## What comes back when it refuses
 
 | word | do |
 |---|---|
 | file listed as `conflicted` in sync results | local file modified since the snapshot AND the template changed — take the template version (your copy is backed up at `.bos/sync-backup/`) or re-apply your change on top |
-| sync keeps skipping my file | app-owned files that diverged from the snapshot are skipped without `--force`; framework-owned files always update when the template changes |
+| sync keeps skipping my file | app-owned files are never touched by sync; framework-owned files always update when the template changes |
 | import exits 1 listing files | unresolvable conflicts (or a held migration chain) — read `.bos/import-report.md`, then re-run with `--yes` to apply upstream (local copies land in `.bos/import-backup/`), or port local changes manually first |
 | `Circular extends detected while resolving upgrade source` | the upgrade source's extends chain loops — resolve from a non-cyclic parent |
 | init copies fewer files than expected | `buildInitPatterns` filters to the selected plugins + their routes; pass `--overrides ui,api,host` to widen the scaffold |

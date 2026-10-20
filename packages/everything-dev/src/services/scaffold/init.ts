@@ -1548,6 +1548,12 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
 - Component file naming: lowercase kebab-case (\`data-table.tsx\`, \`user-profile.tsx\`)
 - Follow existing patterns in neighboring files`);
 
+  parts.push(`### Framework-owned files and the upstream-change protocol (ADR 0032)
+
+The files carrying the \`FRAMEWORK-OWNED\` header (build configs, db/lib plumbing, workflows) are reconciled from the parent template by \`bos sync\` / \`bos upgrade\`: template wins on the next sync, local copies are backed up under \`.bos/sync-backup/\`, and **same-version upgrades never touch them** (only a framework version change reconciles; \`bos sync\` pulls drift explicitly).
+
+**Editing them is allowed.** When the work needs it, edit a framework-owned file, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next sync will quietly clobber.`);
+
   if (has("api")) {
     parts.push(`### Adding API Endpoints
 1. Define in \`api/src/contract.ts\` — the oRPC route definitions and Zod schemas
