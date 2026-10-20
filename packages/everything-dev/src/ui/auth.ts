@@ -1,6 +1,5 @@
 import { apiKeyClient } from "@better-auth/api-key/client";
 import { passkeyClient } from "@better-auth/passkey/client";
-import { betterAuthReferralClient } from "@marinedotsh/better-auth-referral";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import type { BetterFetch } from "better-auth/client";
@@ -113,6 +112,59 @@ export interface CustodyWalletRegistration {
   handoffUrl: string | null;
 }
 
+export interface ReferralDashboard {
+  code: string;
+  stats: { completed: number; joinedToday: number; pending: number; total: number };
+}
+
+export interface ReferralListResult {
+  code: string;
+  total: number;
+  limit: number;
+  offset: number;
+  referrals: Array<{
+    id: string;
+    status: "pending" | "completed";
+    completedAt: Date | string | null;
+    createdAt: Date | string;
+    progress: {
+      requiredSteps: string[];
+      completedSteps: string[];
+      remainingSteps: string[];
+      completed: number;
+      total: number;
+      isCompleted: boolean;
+    };
+    referredUser: { id: string; name: string; email: string; image: string | null };
+  }>;
+}
+
+/**
+ * Typed client surface for the auth plugin's referral endpoints — a local
+ * plugin (like custodyClient) instead of the upstream client plugin, whose
+ * single-module entry drags its server-side nanoid → node:crypto imports
+ * into every browser bundle that includes this file.
+ */
+function referralClient() {
+  return {
+    id: "better-auth-referral" as const,
+    $InferServerPlugin: {},
+    getActions: ($fetch: BetterFetch) => ({
+      referrals: {
+        dashboard: async () => {
+          return await $fetch<ReferralDashboard>("/referrals", { method: "GET" });
+        },
+        list: async (params?: { limit?: number; offset?: number }) => {
+          return await $fetch<ReferralListResult>("/referrals/list-referrals", {
+            method: "GET",
+            query: params,
+          });
+        },
+      },
+    }),
+  };
+}
+
 /**
  * Typed client surface for the auth plugin's custody endpoints — the
  * escape-hatch replacement for raw `auth.$fetch("/custody/register")` on the
@@ -159,7 +211,7 @@ export function createAuthClient(options: CreateAuthClientOptions = {}) {
       apiKeyClient(),
       deviceAuthorizationClient(),
       custodyClient(),
-      betterAuthReferralClient(),
+      referralClient(),
     ],
   });
 }

@@ -202,7 +202,7 @@ export async function attributeReferralOnUserCreate(
   }
 }
 
-export function referralSignupGuard(options: AuthReferralConfig = {}): BetterAuthPlugin {
+export function referralSignupGuard(): BetterAuthPlugin {
   return {
     id: "referral-signup-guard",
     hooks: {

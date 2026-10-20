@@ -310,7 +310,7 @@ export function createAuthInstance(
         maskReferredUserEmail: config.referral?.maskReferredUserEmail,
         steps: config.referral?.steps,
       }),
-      referralSignupGuard(config.referral),
+      referralSignupGuard(),
       admin({ defaultRole: "user", adminRoles: ["admin"] }),
       anonymous({ emailDomainName: mainnetRecipient }),
       haveIBeenPwned({ enabled: process.env.NODE_ENV !== "test" }),

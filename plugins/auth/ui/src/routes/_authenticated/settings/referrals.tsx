@@ -7,7 +7,12 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { sessionQueryOptions, useAuthClient } from "everything-dev/ui/auth";
+import {
+  type ReferralDashboard,
+  type ReferralListResult,
+  sessionQueryOptions,
+  useAuthClient,
+} from "everything-dev/ui/auth";
 import { useState } from "react";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/empty-state";
@@ -40,25 +45,6 @@ export const Route = createFileRoute("/_authenticated/settings/referrals")({
 
 const REFERRALS_PAGE_SIZE = 20;
 
-type ReferralDashboard = {
-  code: string;
-  stats: { completed: number; joinedToday: number; pending: number; total: number };
-};
-
-type ReferralListResult = {
-  code: string;
-  total: number;
-  limit: number;
-  offset: number;
-  referrals: Array<{
-    id: string;
-    status: "pending" | "completed";
-    completedAt: Date | null;
-    createdAt: Date;
-    referredUser: { id: string; name: string; email: string; image: string | null };
-  }>;
-};
-
 async function copyText(value: string, message: string) {
   try {
     await navigator.clipboard.writeText(value);
@@ -88,20 +74,21 @@ function ReferralsSettings() {
   const dashboardQuery = useQuery({
     queryKey: ["referral-dashboard"],
     queryFn: async (): Promise<ReferralDashboard> => {
-      const { data, error } = await auth.referrals();
+      const { data, error } = await auth.referrals.dashboard();
       if (error) throw new Error(error.message ?? "Could not load your referral code");
-      return data as ReferralDashboard;
+      return data;
     },
   });
 
   const referralsQuery = useQuery({
     queryKey: ["referral-list", offset],
     queryFn: async (): Promise<ReferralListResult> => {
-      const { data, error } = await auth.referrals.listReferrals({
-        query: { limit: REFERRALS_PAGE_SIZE, offset },
+      const { data, error } = await auth.referrals.list({
+        limit: REFERRALS_PAGE_SIZE,
+        offset,
       });
       if (error) throw new Error(error.message ?? "Could not load your referrals");
-      return data as ReferralListResult;
+      return data;
     },
   });
 

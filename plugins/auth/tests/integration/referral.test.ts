@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import * as schema from "../../src/db/schema";
-import { createTestServices, TEST_PERMISSIONS } from "../helpers";
+import { createTestServices } from "../helpers";
 
 const BASE = "http://localhost:3000/api/auth";
 
