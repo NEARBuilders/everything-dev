@@ -169,6 +169,9 @@ bos upgrade              # Check for new versions, update, then sync
 bos upgrade --dry-run    # Preview without making changes
 ```
 
+> **v1 trees:** upgrading a pre-v2 child app onto the v2 train is a separate
+> flow — see the `v1-to-v2-upgrade` skill (`bos upgrade --from v1 --audit`).
+
 ### Flow
 1. Check npm registry for latest versions of `everything-dev` and `every-plugin`
 2. Update root `package.json` workspaces.catalog

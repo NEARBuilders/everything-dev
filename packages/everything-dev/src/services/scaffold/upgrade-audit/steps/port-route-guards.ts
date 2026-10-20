@@ -1,0 +1,167 @@
+import { Effect } from "effect";
+import { fileExists, readText, writeText } from "../fs";
+import { UPSTREAM_REF } from "../upstream-ref";
+import type { StepResult } from "./author-config";
+
+/**
+ * Ports the upstream route-guard patterns onto a v2 child app. Upstream
+ * route files already delegate session resolution to the framework guard
+ * surface — requireSession on authed mounts, resolveSessionFromCache in
+ * the root — which is what keeps every guard on one session semantics and
+ * prevents the /login ↔ guarded-route redirect ping-pong ("Too many
+ * redirects" is the router's redirect-budget tripwire).
+ *
+ * Unlike the v1→v2 apply pipeline (gated by the pre-upgrade audit), this
+ * step is a maintenance port for post-upgrade trees and runs standalone:
+ * `pnpm port-route-guards [--dry-run]`
+ *
+ * Upstream snapshots: fixtures/upstream/routes/<file> at UPSTREAM_REF.
+ *
+ * Scope decisions, deliberate divergences from upstream main/HEAD:
+ * - `_authenticated`/`_admin` are rewritten whole (tiny, pure delegation).
+ * - `__root.tsx` is patched surgically (beforeLoad/loader session wiring
+ *   only) — child roots commonly carry app-owned chrome that upstream
+ *   lacks, and bos sync does not overwrite hand-placed route bodies.
+ * - `_public.tsx` is reference-only (upstream's focused-login /
+ *   signed-in-shell form needs a PublicShell API this repo may not have) —
+ *   noted, not applied.
+ */
+
+const MOUNT_PATH = "ui/src/routes/_authenticated.tsx";
+const ADMIN_PATH = "ui/src/routes/_admin.tsx";
+const ROOT_PATH = "ui/src/routes/__root.tsx";
+
+const renderAuthenticated = (): string =>
+  [
+    'import { createFileRoute, Outlet } from "@tanstack/react-router";',
+    'import { requireSession } from "everything-dev/ui/auth";',
+    "",
+    'export const Route = createFileRoute("/_authenticated")({',
+    "  beforeLoad: requireSession,",
+    "  component: AuthenticatedLayout,",
+    "});",
+    "",
+    "// The shell is rendered once by the root route.",
+    "function AuthenticatedLayout() {",
+    "  return <Outlet />;",
+    "}",
+    "",
+  ].join("\n");
+
+const renderAdmin = (): string =>
+  [
+    'import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";',
+    'import { requireSession } from "everything-dev/ui/auth";',
+    "",
+    'export const Route = createFileRoute("/_admin")({',
+    "  beforeLoad: async (args) => {",
+    "    const result = await requireSession(args);",
+    '    if (result.session.user?.role !== "admin") {',
+    '      throw redirect({ to: "/dashboard", search: { restricted: "admin" } });',
+    "    }",
+    "    return result;",
+    "  },",
+    "  component: AdminGate,",
+    "});",
+    "",
+    "function AdminGate() {",
+    "  return <Outlet />;",
+    "}",
+    "",
+  ].join("\n");
+
+/** Detects the old raw pass-through wiring that must be replaced. */
+const hasRawRootSession = (source: string): boolean =>
+  /const session = context\.session;/.test(source);
+
+const resolveSessionCacheImport =
+  'import { resolveSessionFromCache } from "everything-dev/ui/auth";\n';
+
+export const portRouteGuards = (
+  projectDir: string,
+  dryRun: boolean,
+): Effect.Effect<StepResult, Error> =>
+  Effect.gen(function* () {
+    const writes: string[] = [];
+    const notes: string[] = [];
+
+    for (const [path, render, guardId] of [
+      [MOUNT_PATH, renderAuthenticated, "sessionQueryOptions("],
+      [ADMIN_PATH, renderAdmin, "sessionQueryOptions("],
+    ] as const) {
+      const exists = yield* fileExists(projectDir, path);
+      if (!exists) {
+        notes.push(`${path} absent — nothing to port`);
+        continue;
+      }
+      const source = yield* readText(projectDir, path);
+      if (source.includes("requireSession")) {
+        notes.push(`${path} already delegates to the framework guard`);
+        continue;
+      }
+      if (!source.includes(guardId))
+        notes.push(`${path}: session guard pattern not recognized — replaced anyway`);
+      if (!dryRun) yield* writeText(projectDir, path, render());
+      writes.push(path);
+    }
+
+    const rootExists = yield* fileExists(projectDir, ROOT_PATH);
+    if (!rootExists) {
+      notes.push(`${ROOT_PATH} absent — nothing to patch`);
+    } else {
+      let source = yield* readText(projectDir, ROOT_PATH);
+      if (/resolveSessionFromCache/.test(source)) {
+        notes.push("root session wiring already uses resolveSessionFromCache");
+      } else if (!hasRawRootSession(source)) {
+        notes.push(
+          "root session wiring unrecognized (no `const session = context.session;`) — inspect manually",
+        );
+      } else {
+        // Replace the first raw pass-through (beforeLoad), then the loader's
+        // conditional seeding.
+        source = source.replace(
+          "const session = context.session;",
+          "const session = resolveSessionFromCache(context.queryClient, context.session);",
+        );
+
+        const loaderPattern =
+          /const session = context\.session;\s*if \(session && queryClient\) \{\n\s*queryClient\.setQueryData\(sessionQueryKey, session\);/;
+        const loaderReplacement = [
+          "const session = resolveSessionFromCache(queryClient, context.session);",
+          "",
+          "    if (session !== undefined && queryClient) {",
+          "      queryClient.setQueryData(sessionQueryKey, session);",
+        ].join("\n");
+        if (loaderPattern.test(source)) {
+          source = source.replace(loaderPattern, loaderReplacement);
+          notes.push(
+            "root loader: raw pass-through → resolveSessionFromCache with explicit signed-out seeding",
+          );
+        } else {
+          notes.push(
+            "root loader pattern not matched — only beforeLoad patched; inspect loader wiring manually",
+          );
+        }
+
+        if (
+          !/resolveSessionFromCache/.test(
+            source
+              .split("\n")
+              .filter((l) => l.startsWith("import"))
+              .join("\n"),
+          )
+        ) {
+          source = `${resolveSessionCacheImport}${source}`;
+        }
+        if (!dryRun) yield* writeText(projectDir, ROOT_PATH, source);
+        writes.push(ROOT_PATH);
+      }
+    }
+
+    notes.push(
+      "upstream reference-only: _public.tsx focused-login / signed-in-shell semantics were NOT applied — port separately if the PublicShell API supports it",
+      `snapshots pinned at ${UPSTREAM_REF} under fixtures/upstream/routes/`,
+    );
+
+    return { writes, deletes: [], notes };
+  });

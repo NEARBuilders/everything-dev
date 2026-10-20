@@ -755,12 +755,65 @@ export const UpgradeOptionsSchema = z.object({
 
   noSync: z.boolean().default(false).describe("Only upgrade packages, skip template sync"),
 
+  from: z
+    .enum(["v1"])
+    .optional()
+    .describe("v1 train: audit upgrade readiness and rewrite the pre-v2 tree in place"),
+
+  audit: z
+    .boolean()
+    .default(false)
+    .describe("With --from v1: audit only — emit .bos/v2-upgrade-manifest.json, write nothing"),
+
+  maintain: z
+    .array(z.enum(["port-route-guards", "db-topology", "i18n-seam", "compose-seam"]))
+    .optional()
+    .describe(
+      "With --from v1: re-run post-upgrade maintenance steps (regression guards after sync)",
+    ),
+
   json: z.boolean().default(false),
   migrationsOnly: z.boolean().default(false),
 });
 
+export const UpgradeAuditFindingSchema = z.object({
+  check: z.string(),
+  path: z.string(),
+  severity: z.enum(["blocker", "warn"]),
+  message: z.string(),
+});
+
+export const UpgradeAuditManifestSchema = z.object({
+  tier: z.enum(["A", "B"]),
+  blockerCount: z.number(),
+  warnCount: z.number(),
+  deleteFiles: z.array(z.string()).readonly(),
+  importRewrites: z
+    .array(z.object({ from: z.string(), to: z.string(), files: z.array(z.string()).readonly() }))
+    .readonly(),
+  configKeys: z.array(z.string()).readonly(),
+  routerSeam: z.enum(["monolithic", "authored-seam", "unknown", "absent"]),
+  authoredConfigTarget: z.string(),
+  plugins: z
+    .array(
+      z.object({
+        name: z.string(),
+        hasBackend: z.boolean(),
+        hasWeb: z.boolean(),
+        extendsParent: z.boolean(),
+        variables: z.array(z.string()).readonly(),
+        secrets: z.array(z.string()).readonly(),
+      }),
+    )
+    .readonly(),
+  db: z.object({
+    schemaFile: z.string().nullable(),
+    migrationsDir: z.string().nullable(),
+  }),
+});
+
 export const UpgradeResultSchema = z.object({
-  status: z.enum(["upgraded", "dry-run", "error"]),
+  status: z.enum(["upgraded", "dry-run", "error", "already-upgraded", "gate-blocked", "audit"]),
   packages: z.array(
     z.object({
       name: z.string(),
@@ -772,6 +825,15 @@ export const UpgradeResultSchema = z.object({
   migrated: z.array(z.string()).optional(),
   availablePlugins: z.array(z.string()).optional(),
   selectedPlugins: z.array(z.string()).optional(),
+  audit: z
+    .object({
+      tier: z.enum(["A", "B"]),
+      findings: z.array(UpgradeAuditFindingSchema).readonly(),
+      manifest: UpgradeAuditManifestSchema,
+    })
+    .optional(),
+  blockers: z.array(UpgradeAuditFindingSchema).readonly().optional(),
+  notes: z.array(z.string()).optional(),
   timings: z.array(PhaseTimingSchema).optional(),
   changelogUrl: z.string().optional(),
   error: z.string().optional(),

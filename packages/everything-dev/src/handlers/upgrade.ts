@@ -11,6 +11,12 @@ import { generateCodeArtifacts } from "../services/codegen/artifacts";
 import { checkFederationCompat } from "../services/federation/service";
 import { resolvePublishedConfig } from "../services/registry/published";
 import { openResolution } from "../services/resolution/session";
+import {
+  applyV1Tree,
+  auditV1Tree,
+  isV2Tree,
+  maintainV1Tree,
+} from "../services/scaffold/upgrade-audit";
 import { selectWorkspaceTargets } from "../services/workspace/build-train";
 import type { BosConfig } from "../types";
 import { colors } from "../utils/theme";
@@ -67,6 +73,65 @@ export function registerUpgrade(builder: BosBuilder) {
           }
 
           const projectDir = resolve(dirname(configPath));
+
+          if (input.from === "v1") {
+            if (isV2Tree(projectDir)) {
+              return {
+                status: "already-upgraded" as const,
+                packages: [],
+                notes: [
+                  "bos.app.ts present — this tree is already on the v2 train; nothing to audit or apply",
+                ],
+              };
+            }
+            if (input.maintain && input.maintain.length > 0) {
+              const migrated: string[] = [];
+              const notes: string[] = [];
+              for (const step of input.maintain) {
+                const result = await maintainV1Tree(projectDir, step, input.dryRun);
+                for (const path of result.writes) migrated.push(`${step}: wrote ${path}`);
+                for (const path of result.deletes) migrated.push(`${step}: deleted ${path}`);
+                for (const note of result.notes) notes.push(`${step}: ${note}`);
+              }
+              return {
+                status: input.dryRun ? ("dry-run" as const) : ("upgraded" as const),
+                packages: [],
+                migrated,
+                notes,
+              };
+            }
+            if (input.audit) {
+              const outcome = await auditV1Tree(projectDir);
+              const auditResult = {
+                tier: outcome.tier,
+                findings: outcome.findings,
+                manifest: outcome.manifest,
+              };
+              return outcome.gateBlocked
+                ? {
+                    status: "gate-blocked" as const,
+                    packages: [],
+                    audit: auditResult,
+                    blockers: outcome.findings.filter((f) => f.severity === "blocker"),
+                  }
+                : { status: "audit" as const, packages: [], audit: auditResult };
+            }
+            const outcome = await applyV1Tree(projectDir, input.dryRun);
+            if (!outcome.ok) {
+              return {
+                status: "gate-blocked" as const,
+                packages: [],
+                blockers: outcome.blockers,
+              };
+            }
+            return {
+              status: input.dryRun ? ("dry-run" as const) : ("upgraded" as const),
+              packages: [],
+              migrated: outcome.outcome.migrated,
+              notes: outcome.outcome.notes,
+            };
+          }
+
           return await upgradeTemplate(projectDir, input);
         },
         catch: (error) => ({
