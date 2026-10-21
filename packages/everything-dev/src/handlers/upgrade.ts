@@ -160,7 +160,11 @@ export function registerUpgrade(builder: BosBuilder) {
               }
             }
 
-            const generated = ["ui/src/lib/api-types.gen.ts", "ui/src/lib/auth-types.gen.ts"];
+            const generated = [
+              "ui/src/lib/api-types.gen.ts",
+              "ui/src/lib/auth-types.gen.ts",
+              ".bos/bos.resolved-config.json",
+            ];
             if (hasLocalApiWorkspace) {
               generated.push("api/src/lib/plugins-types.gen.ts", "api/src/lib/auth-types.gen.ts");
             }
@@ -192,7 +196,10 @@ export function registerUpgrade(builder: BosBuilder) {
           }
 
           const artifacts = await generateCodeArtifacts(projectDir, resolvedConfig, {
+            env,
+            extendsChain: [...refreshed.chain],
             runtimeConfig: runtime,
+            forceRouteTree: true,
           });
 
           const hasLocalApiWorkspace = existsSync(join(projectDir, "api", "src"));
@@ -241,7 +248,7 @@ export function registerUpgrade(builder: BosBuilder) {
 
           return {
             status: "success" as const,
-            generated,
+            generated: [...generated, ".bos/bos.resolved-config.json"],
             fetched,
             skipped,
             failed,
@@ -288,6 +295,8 @@ export function registerUpgrade(builder: BosBuilder) {
           const resolvedConfig = refreshed.config;
 
           await generateCodeArtifacts(projectDir, resolvedConfig, {
+            env: process.env.NODE_ENV === "production" ? "production" : "development",
+            extendsChain: [...refreshed.chain],
             runtimeConfig: runtime,
           });
           type AppTarget = { source?: string; localPath?: string };

@@ -294,14 +294,15 @@ bos plugin publish my-plugin
 
 ### `bos types gen`
 
-Generate and fetch type definitions from configured API and plugin contracts. Runs automatically on `pnpm install`, `bos dev`, `bos build`, `bos plugin add`, and `bos plugin remove`.
+Generate and fetch type definitions from configured API and plugin contracts. Runs automatically on `pnpm install`, `bos dev`, `bos build`, `bos plugin add`, and `bos plugin remove`. Also the hermetic local-resolution step: it writes `.bos/bos.resolved-config.json` and regenerates the ui route tree, so a fresh checkout needs exactly one `bos types gen` before `pnpm typecheck` to match CI.
 
-**Flags:** `--env <development|production>` `--dry-run`
+**Flags:** `--env <development|production>` `--dry-run` `--remote-plugins <ids>`
 
 ```bash
 bos types gen                     # development mode (local + remote sources)
 bos types gen --env production    # production mode (remote sources only)
 bos types gen --dry-run           # preview without writing files
+bos types gen --remote-plugins auth,registry   # fetch contract types remotely
 ```
 
 Generated files: `api-types.gen.ts`, `auth-types.gen.ts` (ui, api, host), `plugins-types.gen.ts`. Uses `local:` sources in dev and production URLs in production mode.

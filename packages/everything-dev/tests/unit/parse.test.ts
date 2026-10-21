@@ -109,4 +109,25 @@ describe("parseCommandInput", () => {
     expect(input.configPath).toBe("/app/.bos/regression/image/config-ssr.json");
     expect(input.port).toBe(4100);
   });
+
+  it("parses types gen flags (env, dry-run, remote-plugins)", () => {
+    const typesGenDescriptor = commandCatalog.find((command) => command.key === "typesGen");
+    expect(typesGenDescriptor).toBeDefined();
+
+    const input = parseCommandInput(typesGenDescriptor!, [
+      "--env",
+      "production",
+      "--dry-run",
+      "--remote-plugins",
+      "auth,registry",
+    ]) as {
+      env?: "development" | "production";
+      dryRun: boolean;
+      remotePlugins?: string[];
+    };
+
+    expect(input.env).toBe("production");
+    expect(input.dryRun).toBe(true);
+    expect(input.remotePlugins).toEqual(["auth", "registry"]);
+  });
 });
