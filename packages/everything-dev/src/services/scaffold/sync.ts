@@ -20,6 +20,7 @@ import {
   buildChildRootScripts,
   extractSkillsBlock,
   personalizeConfig,
+  releaseRefCandidates,
   resolveSourceDir,
   runPnpmInstall,
   runTypesGen,
@@ -280,6 +281,23 @@ export function applyReleaseRefs(content: string, releaseTag: string): string {
   );
 }
 
+/**
+ * The workflow pin derives from what the release tarball actually resolved
+ * from: the canonical `v<version>` tag when it resolved, otherwise the
+ * resolved commit sha (a per-package-tag fallback like
+ * `everything-dev@<version>` contains `@` and is not a usable `uses:` ref).
+ * No platform manifest → no release scoping → undefined.
+ */
+export function resolveWorkflowReleasePin(
+  release: string[] | undefined,
+  resolvedRef?: string,
+  resolvedSha?: string,
+): string | undefined {
+  if (!release || release.length === 0) return undefined;
+  if (resolvedRef?.startsWith("v")) return resolvedRef;
+  return resolvedSha ?? release[0];
+}
+
 function buildSyncedFileContent(
   sourceDir: string,
   projectDir: string,
@@ -512,15 +530,17 @@ export async function syncTemplate(
   // ADR 0034 pt 4: release-scoped sync — when a platform manifest resolves,
   // the template pulls the release tag, not the parent repo's main HEAD.
   // Absent manifest (or a resolvable cache) → today's behavior. An explicit
-  // pin the chain cannot satisfy fails loud.
+  // pin the chain cannot satisfy fails loud. Candidate refs cover releases
+  // published before the canonical `v<version>` tag existed.
   const platform = await resolvePlatformManifest({ configDir: projectDir, localConfig });
-  const release = platform ? `v${platform.manifest.frameworkVersion}` : undefined;
+  const release = platform ? releaseRefCandidates(platform.manifest.frameworkVersion) : undefined;
 
   const { sourceDir, cleanup, resolvedRef, resolvedSha } = await resolveSourceDir({
     extendsAccount,
     extendsGateway,
     ref: release,
   });
+  const workflowPin = resolveWorkflowReleasePin(release, resolvedRef, resolvedSha);
 
   try {
     const childPlugins = await getSelectedChildPlugins(projectDir, localConfig);
@@ -615,7 +635,14 @@ export async function syncTemplate(
       }
       const localHash = computeLocalHash(projectDir, destPath);
       const sourceHash = computeHash(
-        buildSyncedFileContent(sourceDir, projectDir, filePath, undefined, childScripts, release),
+        buildSyncedFileContent(
+          sourceDir,
+          projectDir,
+          filePath,
+          undefined,
+          childScripts,
+          workflowPin,
+        ),
       );
 
       if (localHash === null) {
@@ -687,7 +714,7 @@ export async function syncTemplate(
 
       for (const destPath of filesToWrite) {
         const sourcePath = destToSource.get(destPath) ?? destPath;
-        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath, childScripts, release);
+        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath, childScripts, workflowPin);
       }
     }
 
@@ -735,7 +762,7 @@ export async function syncTemplate(
       parentRef: `bos://${extendsAccount}/${extendsGateway}`,
       // Release provenance (ADR 0034 pt 4): which release the snapshot's
       // hashes came from — the resolved sha when GitHub surfaces it.
-      release: platform ? (resolvedSha ?? resolvedRef ?? release) : undefined,
+      release: platform ? (resolvedSha ?? resolvedRef ?? workflowPin) : undefined,
       files: newSnapshotFiles,
     });
 

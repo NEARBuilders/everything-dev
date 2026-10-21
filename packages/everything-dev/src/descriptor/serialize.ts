@@ -23,6 +23,8 @@ const FIELD_COMMENTS: Record<string, string> = {
   description: "Human-readable runtime description.",
   repository: "GitHub repository tarball source used by `bos init`/`bos sync` templates.",
   testnet: "Testnet identity for this runtime.",
+  platform:
+    'The platform release pin (ADR 0034): the exact framework version this app targets ("exact-or-loud").',
   staging: "Staging environment identity.",
   starter: "Authoring-only: the starter level this child was scaffolded with (simple | advanced).",
   ci: "CI settings: runtime image name, Railway service.",

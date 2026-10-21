@@ -6,6 +6,7 @@ import bosPlugin from "../plugin";
 import { createPluginRuntime } from "../sdk";
 import { installBundleFetchFromEnv } from "../services/resolution/resolver";
 import { printBanner } from "../utils/banner";
+import { formatUnknownError } from "../utils/errors";
 import { findCommandDescriptor } from "./catalog";
 import type { CommandContext } from "./commands/context";
 import { dbRenderers } from "./commands/db";
@@ -75,7 +76,7 @@ const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
     try {
       parsedInput = parseCommandInput(descriptor, commandArgs);
     } catch (error) {
-      throw new CliError({ message: error instanceof Error ? error.message : String(error) });
+      throw new CliError({ message: formatUnknownError(error) });
     }
     const bootInput = parsedInput as { configPath?: string };
 
@@ -141,17 +142,16 @@ const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
         descriptor.key !== "publish" &&
         descriptor.key !== "deploy"
       ) {
-        console.error(`[CLI] ${result.error || "Unknown error"}`);
+        console.error(`[CLI] ${formatUnknownError(result.error)}`);
         process.exit(1);
       }
 
       await renderers[descriptor.key]?.(result, ctx);
     } catch (error) {
-      throw new CliError({ message: error instanceof Error ? error.message : String(error) });
+      throw new CliError({ message: formatUnknownError(error) });
     }
   },
-  catch: (error) =>
-    new CliError({ message: error instanceof Error ? error.message : String(error) }),
+  catch: (error) => new CliError({ message: formatUnknownError(error) }),
 });
 
 export const runCli = async (): Promise<void> => {
@@ -159,9 +159,9 @@ export const runCli = async (): Promise<void> => {
   if (Exit.isFailure(exit)) {
     const reasons = exit.cause.reasons ?? [];
     for (const reason of reasons) {
-      if (reason?._tag === "Fail" && reason.error instanceof CliError) {
-        console.error(`[CLI] ${reason.error.message}`);
-      }
+      if (reason?._tag !== "Fail") continue;
+      const failure = (reason as { error?: unknown }).error;
+      console.error(`[CLI] ${formatUnknownError(failure)}`);
     }
     process.exit(1);
   }

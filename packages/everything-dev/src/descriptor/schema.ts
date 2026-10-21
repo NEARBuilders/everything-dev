@@ -91,6 +91,8 @@ export const AppDescriptorSchema = z
     description: z.string().optional(),
     repository: z.string().optional(),
     testnet: z.string().optional(),
+    /** The platform release pin (ADR 0034): the exact framework version this app targets. */
+    platform: z.string().optional(),
     staging: z
       .object({
         domain: z.string(),

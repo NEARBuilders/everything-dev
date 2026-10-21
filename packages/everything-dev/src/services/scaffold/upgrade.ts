@@ -7,6 +7,7 @@ import { glob } from "glob";
 import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../../contract";
 import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
+import { formatUnknownError } from "../../utils/errors";
 import { readJsonFile } from "../../utils/json-file";
 import { saveBosConfig } from "../../utils/save-config";
 import { timePhase } from "../../utils/timing";
@@ -92,6 +93,51 @@ function readRootPackageJson(projectDir: string): Record<string, unknown> {
 
 function readRootCatalogEntry(projectDir: string, packageName: string): string | undefined {
   return readWorkspaceCatalog(workspaceDirOf(projectDir))[packageName];
+}
+
+/**
+ * The re-exec'd migration child runs `--json`, so its stdout is the structured
+ * result — a failed run carries the real failure in its `error` field, which
+ * raw stderr/stdout concatenation hides behind `[CLI] [object Object]`.
+ */
+export function describeMigrationFailure(
+  stdout: string | undefined,
+  stderr: string | undefined,
+): string {
+  if (stdout) {
+    try {
+      const parsed = JSON.parse(stdout) as { error?: unknown };
+      if (parsed && typeof parsed === "object" && parsed.error != null) {
+        return formatUnknownError(parsed.error);
+      }
+    } catch {
+      // not JSON — fall through to the raw streams
+    }
+  }
+  const raw = (stderr || stdout || "").trim();
+  return raw.length > 0 ? raw : "Unknown error";
+}
+
+/**
+ * Chain-catalog vs local-catalog diff for the drift alarm (ADR 0034 pt 6):
+ * entries only count when the local catalog actually pins a different version
+ * (`from !== undefined`) — a purely-additive chain entry the child does not
+ * consume is not drift. Reading the local catalog is `readWorkspaceCatalog`
+ * (pnpm-workspace.yaml first, package.json fallback) — the v1 package.json-only
+ * read made every entry read as new on v2 children, a permanent false positive.
+ */
+export function diffCatalogEntries(
+  sourceRootCatalog: Record<string, string>,
+  currentCatalogEntries: Record<string, string>,
+): Array<{ name: string; from: string | undefined; to: string }> {
+  const updates: Array<{ name: string; from: string | undefined; to: string }> = [];
+  for (const [name, targetVersion] of Object.entries(sourceRootCatalog)) {
+    if (FRAMEWORK_PACKAGES.includes(name)) continue;
+    const currentVersion = currentCatalogEntries[name];
+    if (currentVersion === targetVersion) continue;
+    updates.push({ name, from: currentVersion, to: targetVersion });
+  }
+  return updates;
 }
 
 function readCurrentPackageSpecifier(projectDir: string, packageName: string): string | undefined {
@@ -1287,10 +1333,7 @@ export async function upgradeTemplate(
   const parentSource = await readExtendedRootSource(projectDir);
   const sourceRootCatalog = parentSource.catalog;
   const inheritedCatalogPackageNames = Object.keys(sourceRootCatalog);
-  const currentRootCatalog = readRootPackageJson(projectDir) as {
-    workspaces?: { catalog?: Record<string, string> };
-  };
-  const currentCatalogEntries = currentRootCatalog.workspaces?.catalog ?? {};
+  const currentCatalogEntries = readWorkspaceCatalog(workspaceDirOf(projectDir));
   const workspacePkgPaths = await findWorkspacePackageJsons(projectDir);
   const hasCatalogRefRewrites =
     inheritedCatalogPackageNames.length > 0 &&
@@ -1317,25 +1360,17 @@ export async function upgradeTemplate(
         nextPackages.push({ name, from: current, to: target });
       }
 
-      const nextCatalogVersionUpdates: Array<{
-        name: string;
-        from: string | undefined;
-        to: string;
-      }> = [];
-      for (const [name, targetVersion] of Object.entries(sourceRootCatalog)) {
-        if (FRAMEWORK_PACKAGES.includes(name)) continue;
-
-        const currentVersion = currentCatalogEntries[name];
-        if (currentVersion === targetVersion) continue;
-        nextCatalogVersionUpdates.push({ name, from: currentVersion, to: targetVersion });
-      }
+      const nextCatalogVersionUpdates = diffCatalogEntries(
+        sourceRootCatalog,
+        currentCatalogEntries,
+      );
 
       return { packages: nextPackages, catalogVersionUpdates: nextCatalogVersionUpdates };
     },
   );
 
   const hasFrameworkUpdates = packages.some((p) => p.from !== p.to && p.from !== undefined);
-  const hasCatalogUpdates = catalogVersionUpdates.length > 0;
+  const hasCatalogUpdates = catalogVersionUpdates.some((u) => u.from !== undefined);
   const hasUpdates =
     hasFrameworkUpdates || hasCatalogUpdates || hasCatalogRefRewrites || hasAuthCoreRefRewrites;
 
@@ -1425,7 +1460,7 @@ export async function upgradeTemplate(
           ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
         ],
         timings,
-        error: `Migration phase failed: ${childResult.stderr || childResult.stdout || "Unknown error"}`,
+        error: `Migration phase failed: ${describeMigrationFailure(childResult.stdout, childResult.stderr)}`,
       };
     }
 
