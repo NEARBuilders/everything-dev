@@ -239,4 +239,70 @@ describe("constructTree core-over-plugin precedence (ADR 0010 decision #1)", () 
     expect(second.nav).toEqual(first.nav);
     expect(second.mountCounts).toEqual(first.mountCounts);
   });
+
+  it("skips a manifest route with no routeConfig loader (and its subtree) instead of crashing", async () => {
+    const core = plugin(
+      { key: "ui", mfName: "core-ui" },
+      manifestOf("ui", [
+        mountLayout("_public", "public"),
+        mountLayout("_authenticated", "authenticated"),
+        loginRoute("_public/login"),
+      ]),
+    );
+    const auth = plugin(
+      { key: "auth", mfName: "auth-ui" },
+      manifestOf("auth", [
+        record({ id: "_public/login", path: "/login" }),
+        record({ id: "_authenticated/settings", path: "/settings", parentId: "_authenticated" }),
+        record({
+          id: "_authenticated/settings/referrals",
+          path: "/referrals",
+          parentId: "_authenticated/settings",
+        }),
+        record({
+          id: "_authenticated/settings/security",
+          path: "/security",
+          parentId: "_authenticated/settings",
+        }),
+      ]),
+    );
+    // auth's routeConfig intentionally omits the referrals loader; security keeps its loader.
+    const authConfig: RouteConfigModule = {
+      routeConfigLoaders: {
+        "_public/login": async () => options({ staticData: { nav: { label: "Login" } } }),
+        "_authenticated/settings": async () => options({
+          staticData: { nav: { label: "Settings" } },
+        }),
+        "_authenticated/settings/security": async () => options({
+          staticData: { nav: { label: "Security" } },
+        }),
+      },
+      rootMeta: {},
+    };
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const tree = await constructTree({
+      name: "server",
+      plugins: [core.ref, auth.ref],
+      resolve: async (ref) => {
+        if (ref.key === "ui") return core.resolve(ref);
+        return { key: "auth", manifest: auth.ref.manifest, routeConfig: authConfig };
+      },
+    });
+
+    // the whole tree still composes; the referrals route (and nothing else) is absent
+    expect(tree.mountCounts.public).toBe(1);
+    expect(tree.mountCounts.authenticated).toBe(2); // settings + security
+    expect(tree.nav.items.map((item) => item.id).sort()).toEqual([
+      "auth:_authenticated/settings",
+      "auth:_authenticated/settings/security",
+      "auth:_public/login",
+      "ui:_public/login",
+    ]);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'skipping route "_authenticated/settings/referrals" in "auth" — no routeConfig loader',
+      ),
+    );
+  });
 });

@@ -56,18 +56,24 @@ ADR: `docs/adr/0034-platform-release-manifest.md`.
         `.bos/platform-manifest.json` cache, all I/O injectable); `upgradeTemplate` switches the
         catalog source to `manifest.catalog` when a manifest resolves, surfaces
         `platform` + `updatesAvailable` on the result
-- [x] T4 (partial) — `ci.image` derivation: the seam is landed and tested
-        (`deriveImageRefFromPlatformManifest` → `ref@v<version>`); the deploy-preflight consumer
-        wiring is follow-up (plan 042-adjacent self-deploy flow) — do not blind-wire the legs
+- [x] T4 (closed as a recorded decision) — `ci.image` derivation: the seam is landed and tested
+        (`deriveImageRefFromPlatformManifest` → `ref@v<version>`); wiring it into deploy preflight
+        has **no real caller today** — the child tier skips the image leg by design (ADR 0021) and
+        root/pre-pushed deploys pin via `BOS_IMAGE_DIGEST` — so the consumer lands with the
+        self-deploy flow that actually hand-pins an image (plan 042-adjacent). One adapter means a
+        hypothetical seam; the seam ships when the second adapter arrives.
 - [x] T5 — release-scoped, delta-driven `syncTemplate`: release tag threaded through
         `resolveSourceDir` → `downloadTarball` (already accepted `ref`); `applyReleaseRefs`
         rewrites the framework's own reusable-workflow `@main` refs → `@v<version>` at
         content-build time (hash-compare and written bytes stay consistent; third-party
         `@main` actions are never repointed); sync snapshot gains `release` provenance;
         manifest-absent → today's flow (existing sync tests pass unchanged)
-- [ ] T5 (follow-up) — consume `templateInventory` hashes at sync time to skip the tarball
+- [ ] T5 (open seam) — consume `templateInventory` hashes at sync time to skip the tarball
         download when nothing changed (today the release tarball is downloaded and the existing
-        three-way hash compare does the touching-only-changed work — same outcome, one download)
+        three-way hash compare does the touching-only-changed work — same outcome, one download).
+        The cheap correct delta test is snapshot provenance: `snapshot.release ===
+        manifest.frameworkVersion` → nothing to pull; wiring it means restructuring syncTemplate's
+        single download-and-compare block — schedule with the next sync-touching change.
 
 ## Verification checklist (T6–T7)
 

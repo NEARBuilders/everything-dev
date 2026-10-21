@@ -276,6 +276,16 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
         }`,
       );
     }
+    if (result.platform) {
+      for (const v of result.platform.violations) {
+        console.log(`  ${colors.dim("platform".padEnd(10))} ${colors.error("FAIL")} ${v.message}`);
+      }
+      if (result.platform.ok) {
+        console.log(
+          `  ${colors.dim("platform".padEnd(10))} ${colors.green("OK  ")} release contract satisfied`,
+        );
+      }
+    }
     console.log();
     if (result.status !== "ok") {
       console.log(

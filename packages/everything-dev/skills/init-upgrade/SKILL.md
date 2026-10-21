@@ -171,6 +171,29 @@ Uses `.bos/sync-snapshot.json` to track which files came from the template and t
 
 Framework-owned files (from the ownership inventory) are always updated when changed.
 
+### Release-scoped sync (ADR 0034)
+
+When a platform release manifest resolves (see `bos upgrade` below), sync pulls the **release tag** from the parent repo — not `main` HEAD — and the framework's own reusable-workflow refs in `.github/workflows/*.yml` pin `@v<version>` instead of `@main` (third-party actions are never repointed). The snapshot records `release` (the resolved sha/ref) beside `parentRef` for provenance. No manifest resolving (or no `platform` pin anywhere in the chain) → sync behaves exactly as before: parent-repo tarball at `main`/`master` HEAD.
+
+## the `platform` pin (ADR 0034)
+
+A child records **one** field in `bos.app.ts`:
+
+```ts
+export default App({
+  // …
+  platform: "2.0.0-rc.14",
+});
+```
+
+Everything else derives from the resolved **platform release manifest** (published to FastKV at `apps/<root-account>/<root-gateway>/platform.json` beside the config, and staged in-image): the release catalog (what `bos upgrade` bumps from), the image ref + version tag (`ci.image` derives as `ref@v<version>` — never hand-pinned), the release-scoped sync source, and the compat contract (strict singletons must match the release's `sharedDeps`; the child's framework version must sit inside the release's compat window).
+
+Rules:
+- The pin is **exact** — no ranges. Resolution picks one manifest.
+- Field absent → latest manifest found via the `extends` chain (nearest wins). Offline, the cached `.bos/platform-manifest.json` (gitignored) resolves; no manifest anywhere → today's tarball-walk behavior.
+- An explicit pin the chain cannot satisfy **fails loud** — publish the release or clear the pin.
+- Inspect what resolves: `bos platform manifest` (the booted host self-describes from the in-image copy). `--check` runs the compat gate against the local workspace and exits 1 on violations.
+
 ### What gets synced
 
 From parent template → local:
@@ -193,14 +216,15 @@ Bumps `everything-dev` and `every-plugin` across all workspaces:
 ```bash
 bos upgrade              # Check for new versions, update, then sync
 bos upgrade --dry-run    # Preview without making changes
+bos upgrade --check      # CI drift alarm (ADR 0034): dry-run + exit 1 when updates are available
 ```
 
 ### Flow
-1. Check npm registry for latest versions of `everything-dev` and `every-plugin`
+1. Resolve the platform release manifest through the extends chain (ADR 0034) — when one resolves, its catalog is the version source (one registry read); otherwise the parent-repo catalog walk (below)
 2. Update root `package.json` workspaces.catalog
 3. Update all workspace `package.json` to use `catalog:` references
 4. `pnpm install` + `bos types gen`
-5. Run `bos sync` to pull template updates matching new version
+5. Run `bos sync` to pull template updates matching new version (release-scoped when a manifest resolves)
 6. Rewrite legacy UI imports (e.g., `from "@/auth"` → `from "@/app"`)
 7. Remove obsolete files
 

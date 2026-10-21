@@ -12,6 +12,7 @@ import { checkFederationCompat } from "../services/federation/service";
 import { readInstalledFrameworkVersion } from "../services/framework-version";
 import {
   checkPlatformCompat,
+  type PlatformCompatViolation,
   readInImagePlatformManifest,
   resolvePlatformManifest,
 } from "../services/platform/manifest";
@@ -485,12 +486,47 @@ export function registerUpgrade(builder: BosBuilder) {
         const report = await checkFederationCompat(authored, {
           timeoutMs: input.timeoutMs,
         });
+
+        // ADR 0034 pt 5 — the platform compat gate, additive to the federation
+        // check (a sibling, never a relaxation). Absent when no manifest
+        // resolves (in-image hosts self-describe; the smoke gate covers them).
+        let platform: { ok: boolean; violations: PlatformCompatViolation[] } | undefined;
+        try {
+          const configPath = findConfigPath();
+          if (configPath) {
+            const projectDir = resolve(dirname(configPath));
+            const resolved = await resolvePlatformManifest({
+              configDir: projectDir,
+              localConfig: authored as Record<string, unknown>,
+            });
+            if (resolved) {
+              const root = findWorkspaceRoot(projectDir)?.dir ?? projectDir;
+              const violations = checkPlatformCompat(resolved.manifest, {
+                platformVersion: readInstalledFrameworkVersion(projectDir, "everything-dev"),
+                catalog: readWorkspaceCatalog(root),
+              });
+              platform = { ok: violations.length === 0, violations };
+            }
+          }
+        } catch (e) {
+          platform = {
+            ok: false,
+            violations: [
+              {
+                kind: "minChild",
+                message: `platform manifest resolution failed: ${e instanceof Error ? e.message : String(e)}`,
+              },
+            ],
+          };
+        }
+
         return {
-          status: report.ok ? ("ok" as const) : ("fail" as const),
+          status: report.ok && (platform?.ok ?? true) ? ("ok" as const) : ("fail" as const),
           hostVersion: report.hostVersion,
           hostReachable: report.hostReachable,
           hostReason: report.hostReason,
           remotes: report.remotes,
+          ...(platform ? { platform } : {}),
         };
       });
     }),

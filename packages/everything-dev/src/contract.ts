@@ -1020,6 +1020,12 @@ export const MfCheckOptionsSchema = z.object({
   timeoutMs: z.number().default(15_000),
 });
 
+export const PlatformCompatViolationSchema = z.object({
+  kind: z.enum(["minChild", "shared-dep"]),
+  name: z.string().optional(),
+  message: z.string(),
+});
+
 export const MfCheckRemoteResultSchema = z.object({
   role: z.string(),
   url: z.string(),
@@ -1035,6 +1041,13 @@ export const MfCheckResultSchema = z.object({
   hostReachable: z.boolean(),
   hostReason: z.string().optional(),
   remotes: z.array(MfCheckRemoteResultSchema),
+  /** The platform compat gate (ADR 0034 pt 5) — present when a release manifest resolves. */
+  platform: z
+    .object({
+      ok: z.boolean(),
+      violations: z.array(PlatformCompatViolationSchema),
+    })
+    .optional(),
 });
 
 export const PlatformManifestOptionsSchema = z.object({
@@ -1042,12 +1055,6 @@ export const PlatformManifestOptionsSchema = z.object({
     .boolean()
     .default(false)
     .describe("Also run the platform compat check against the local workspace"),
-});
-
-export const PlatformCompatViolationSchema = z.object({
-  kind: z.enum(["minChild", "shared-dep"]),
-  name: z.string().optional(),
-  message: z.string(),
 });
 
 export const PlatformManifestResultSchema = z.object({
