@@ -26,6 +26,7 @@ export {
   downloadTarball,
   fetchParentConfig,
   parseGitHubUrl,
+  releaseRefCandidates,
   resolveCatalogChainSource,
   resolveRepositoryViaExtendsChain,
   resolveSourceDir,

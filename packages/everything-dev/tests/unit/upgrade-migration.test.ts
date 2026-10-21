@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -695,5 +703,28 @@ describe("upgrade bos config migration", () => {
     expect(contents).toContain("from 'everything-dev/bar'");
     expect(contents).toContain('from "everything-dev/baz"');
     expect(contents).not.toContain("everything-dev/dist");
+  });
+
+  it("skips symlinked directories and nested node_modules instead of EISDIR (#518)", async () => {
+    const projectDir = makeProjectDir();
+    const sourceFile = join(projectDir, "src/example.ts");
+    mkdirSync(join(projectDir, "src"), { recursive: true });
+    writeFileSync(sourceFile, 'import { x } from "everything-dev/dist/foo";');
+
+    // pnpm's store layout: a symlink whose name matches the glob but whose
+    // target is a directory — `nodir` alone does not catch it.
+    const symlinkedDir = join(projectDir, "ui/node_modules/tippy.js");
+    mkdirSync(join(projectDir, "ui/node_modules/store/tippy"), { recursive: true });
+    symlinkSync(join(projectDir, "ui/node_modules/store/tippy"), symlinkedDir, "dir");
+    const plainDir = join(projectDir, "weird-dir.js");
+    mkdirSync(plainDir, { recursive: true });
+    const nestedModulesFile = join(projectDir, "ui/node_modules/dep/index.js");
+    mkdirSync(join(projectDir, "ui/node_modules/dep"), { recursive: true });
+    writeFileSync(nestedModulesFile, 'import { x } from "everything-dev/dist/foo";');
+
+    const migrated = await rewriteLegacyDistImports(projectDir);
+
+    expect(migrated).toEqual(["src/example.ts"]);
+    expect(readFileSync(sourceFile, "utf-8")).toBe('import { x } from "everything-dev/foo";');
   });
 });

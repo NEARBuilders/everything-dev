@@ -77,8 +77,11 @@ export async function resolveSourceDir(opts: {
   extendsAccount: string;
   extendsGateway: string;
   source?: string;
-  /** A release tag pins the tarball — absent, main/master HEAD (ADR 0034). */
-  ref?: string;
+  /** Release ref(s) pin the tarball — absent, main/master HEAD (ADR 0034).
+   * Multiple candidates are tried in order: the canonical `v<version>` tag,
+   * then the changesets per-package tag (`everything-dev@<version>`) that
+   * exists for releases published before the `v` tag became the contract. */
+  ref?: string | string[];
 }): Promise<SourceResult> {
   if (opts.source) {
     const sourceDir = resolve(opts.source);
@@ -170,9 +173,19 @@ export async function resolveRepositoryViaExtendsChain(
   }
 }
 
+/**
+ * Release tarball ref candidates (ADR 0034 pt 4): the canonical `v<version>`
+ * tag first, then the changesets-created per-package tag. Sync's workflow
+ * pins and the release script both target the `v` tag; the per-package tag
+ * keeps upgrades resolving against releases published before it existed.
+ */
+export function releaseRefCandidates(frameworkVersion: string): string[] {
+  return [`v${frameworkVersion}`, `everything-dev@${frameworkVersion}`];
+}
+
 export async function downloadTarball(
   repoUrl: string,
-  ref?: string,
+  ref?: string | string[],
 ): Promise<{
   dir: string;
   cleanup: () => Promise<void>;
@@ -188,7 +201,7 @@ export async function downloadTarball(
   let response: Response | null = null;
   let resolvedRef: string | undefined;
 
-  const candidates = ref ? [ref] : ["main", "master"];
+  const candidates = ref ? (Array.isArray(ref) ? [...ref] : [ref]) : ["main", "master"];
   for (const candidateRef of candidates) {
     const candidate = await fetchResponse(
       `https://api.github.com/repos/${owner}/${repo}/tarball/${encodeURIComponent(candidateRef)}`,
@@ -213,7 +226,7 @@ export async function downloadTarball(
   if (!response) {
     throw new Error(
       ref
-        ? `GitHub tarball download failed for ${repoUrl}: ref not found (${ref})`
+        ? `GitHub tarball download failed for ${repoUrl}: ref not found (tried ${candidates.join(", ")})`
         : `GitHub tarball download failed for ${repoUrl}: tried main and master`,
     );
   }

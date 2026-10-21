@@ -13,6 +13,7 @@ import {
   resolveExtendsRef,
 } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
+import { readWorkspaceCatalog } from "../workspace/catalog";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import { findWorkspaceRoot } from "../workspace/workspace";
 import {
@@ -20,6 +21,7 @@ import {
   buildChildRootScripts,
   extractSkillsBlock,
   personalizeConfig,
+  releaseRefCandidates,
   resolveSourceDir,
   runPnpmInstall,
   runTypesGen,
@@ -249,6 +251,44 @@ export function mergePackageJson(
   return merged;
 }
 
+/**
+ * Child-shape normalization for every manifest sync writes (#521): the parent
+ * repo's own root manifest uses `workspace:^` specifiers, which only resolve
+ * where the framework packages are vendored workspace members. A child has no
+ * such members — any `workspace:` specifier that lands in a child manifest
+ * breaks the next `pnpm install --frozen-lockfile`. Runs on the merged (or
+ * raw-template) object before the bytes are written, so both the `updated`
+ * and `conflicted` outcomes land in child shape. A `workspace:` specifier
+ * without a catalog entry is left alone — there is no version to pin.
+ */
+export function normalizeChildManifest(pkg: PackageJson, catalog: Record<string, string>): boolean {
+  let modified = false;
+
+  for (const fieldName of ["dependencies", "devDependencies", "peerDependencies"] as const) {
+    const field = pkg[fieldName] as Record<string, string> | undefined;
+    if (!field) continue;
+    for (const [name, specifier] of Object.entries(field)) {
+      if (specifier.startsWith("workspace:") && catalog[name]) {
+        field[name] = "catalog:";
+        modified = true;
+      }
+    }
+  }
+
+  const dependencies = pkg.dependencies as Record<string, string> | undefined;
+  const devDependencies = pkg.devDependencies as Record<string, string> | undefined;
+  if (dependencies && devDependencies) {
+    for (const name of Object.keys(devDependencies)) {
+      if (name in dependencies) {
+        delete devDependencies[name];
+        modified = true;
+      }
+    }
+  }
+
+  return modified;
+}
+
 function toSourcePath(sourceDir: string, destPath: string): string | null {
   if (destPath.startsWith(".github/")) {
     const templatePath = destPath.replace(/^\.github\//, ".github/templates/");
@@ -278,6 +318,23 @@ export function applyReleaseRefs(content: string, releaseTag: string): string {
     /(uses:\s*\S*everything-dev\/\.github\/workflows\/[^\s@]+@)main\b/g,
     `$1${releaseTag}`,
   );
+}
+
+/**
+ * The workflow pin derives from what the release tarball actually resolved
+ * from: the canonical `v<version>` tag when it resolved, otherwise the
+ * resolved commit sha (a per-package-tag fallback like
+ * `everything-dev@<version>` contains `@` and is not a usable `uses:` ref).
+ * No platform manifest → no release scoping → undefined.
+ */
+export function resolveWorkflowReleasePin(
+  release: string[] | undefined,
+  resolvedRef?: string,
+  resolvedSha?: string,
+): string | undefined {
+  if (!release || release.length === 0) return undefined;
+  if (resolvedRef?.startsWith("v")) return resolvedRef;
+  return resolvedSha ?? release[0];
 }
 
 function buildSyncedFileContent(
@@ -311,13 +368,19 @@ function buildSyncedFileContent(
   if (filePath.endsWith("package.json")) {
     const localContent = existsSync(dest) ? readFileSync(dest, "utf-8") : null;
     const templateContent = readFileSync(src, "utf-8");
+    const catalog = readWorkspaceCatalog(findWorkspaceRoot(projectDir)?.dir ?? projectDir);
 
     if (localContent) {
       const local = JSON.parse(localContent) as Record<string, unknown>;
       const template = JSON.parse(templateContent) as Record<string, unknown>;
       const merged = mergePackageJson(destPath, local, template, childScripts);
+      normalizeChildManifest(merged, catalog);
       return `${JSON.stringify(merged, null, 2)}\n`;
     }
+
+    const template = JSON.parse(templateContent) as Record<string, unknown>;
+    normalizeChildManifest(template, catalog);
+    return `${JSON.stringify(template, null, 2)}\n`;
   }
 
   const raw = readFileSync(src);
@@ -512,15 +575,17 @@ export async function syncTemplate(
   // ADR 0034 pt 4: release-scoped sync — when a platform manifest resolves,
   // the template pulls the release tag, not the parent repo's main HEAD.
   // Absent manifest (or a resolvable cache) → today's behavior. An explicit
-  // pin the chain cannot satisfy fails loud.
+  // pin the chain cannot satisfy fails loud. Candidate refs cover releases
+  // published before the canonical `v<version>` tag existed.
   const platform = await resolvePlatformManifest({ configDir: projectDir, localConfig });
-  const release = platform ? `v${platform.manifest.frameworkVersion}` : undefined;
+  const release = platform ? releaseRefCandidates(platform.manifest.frameworkVersion) : undefined;
 
   const { sourceDir, cleanup, resolvedRef, resolvedSha } = await resolveSourceDir({
     extendsAccount,
     extendsGateway,
     ref: release,
   });
+  const workflowPin = resolveWorkflowReleasePin(release, resolvedRef, resolvedSha);
 
   try {
     const childPlugins = await getSelectedChildPlugins(projectDir, localConfig);
@@ -615,7 +680,14 @@ export async function syncTemplate(
       }
       const localHash = computeLocalHash(projectDir, destPath);
       const sourceHash = computeHash(
-        buildSyncedFileContent(sourceDir, projectDir, filePath, undefined, childScripts, release),
+        buildSyncedFileContent(
+          sourceDir,
+          projectDir,
+          filePath,
+          undefined,
+          childScripts,
+          workflowPin,
+        ),
       );
 
       if (localHash === null) {
@@ -687,7 +759,7 @@ export async function syncTemplate(
 
       for (const destPath of filesToWrite) {
         const sourcePath = destToSource.get(destPath) ?? destPath;
-        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath, childScripts, release);
+        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath, childScripts, workflowPin);
       }
     }
 
@@ -735,7 +807,7 @@ export async function syncTemplate(
       parentRef: `bos://${extendsAccount}/${extendsGateway}`,
       // Release provenance (ADR 0034 pt 4): which release the snapshot's
       // hashes came from — the resolved sha when GitHub surfaces it.
-      release: platform ? (resolvedSha ?? resolvedRef ?? release) : undefined,
+      release: platform ? (resolvedSha ?? resolvedRef ?? workflowPin) : undefined,
       files: newSnapshotFiles,
     });
 
