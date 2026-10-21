@@ -3,20 +3,20 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate, useRouterState } from "@tanstack/react-router";
 import { isPasskeyWalletAvailable } from "better-near-auth/client";
 import {
+  cancelPasskeyCeremony,
   createAccountWithPasskey,
-  isPasskeyAutofillAvailable,
+  isPasskeyCeremonyAborted,
   isUnsupportedAuthenticatorError,
   refreshSessionCache,
   sessionQueryOptions,
   signInWithPasskey,
   useAuthClient,
 } from "everything-dev/ui/auth";
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AuthPanel } from "@/components/auth-panel";
 import { Button } from "@/components/ui/button";
-import { Field, FieldLabel, FieldSeparator } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { FieldSeparator } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import type { LoginTranslator } from "@/i18n/catalogs";
 import { LoginLanguageSelector } from "@/i18n/language-selector";
@@ -122,7 +122,6 @@ function LoginPageContent() {
   const [pending, setPending] = useState<"passkey" | "near" | "create" | null>(null);
   const [detectedAccount, setDetectedAccount] = useState<string | null>(null);
   const [passkeyMissing, setPasskeyMissing] = useState(false);
-  const [passkeyAutofill, setPasskeyAutofill] = useState(false);
   const [unsupported, setUnsupported] = useState(false);
 
   useEffect(() => {
@@ -136,23 +135,9 @@ function LoginPageContent() {
     await refreshSessionCache(auth, queryClient);
     await navigate({ href: redirectTo, replace: true });
   };
-  const onAutofillSignIn = useEffectEvent(
-    () => void handleSuccess(t("auth.login.success.passkey")),
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    void isPasskeyAutofillAvailable().then((available) => {
-      if (!available || cancelled) return;
-      setPasskeyAutofill(true);
-      void signInWithPasskey(auth, { autoFill: true, onSuccess: onAutofillSignIn });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [auth]);
 
   const handleNear = async (switchWallet = false) => {
+    cancelPasskeyCeremony();
     setPending("near");
     try {
       if (switchWallet) await auth.near.disconnect();
@@ -176,6 +161,7 @@ function LoginPageContent() {
   };
 
   const handlePasskey = async () => {
+    cancelPasskeyCeremony();
     setPending("passkey");
     setPasskeyMissing(false);
     await signInWithPasskey(auth, {
@@ -183,14 +169,15 @@ function LoginPageContent() {
         setPending(null);
         await handleSuccess(t("auth.login.success.passkey"));
       },
-      onError: () => {
+      onError: (error) => {
         setPending(null);
-        setPasskeyMissing(true);
+        if (!isPasskeyCeremonyAborted(error)) setPasskeyMissing(true);
       },
     });
   };
 
   const handleCreate = async () => {
+    cancelPasskeyCeremony();
     setPending("create");
     setUnsupported(false);
     await createAccountWithPasskey(auth, {
@@ -203,7 +190,7 @@ function LoginPageContent() {
       onError: (error) => {
         setPending(null);
         if (isUnsupportedAuthenticatorError(error)) setUnsupported(true);
-        else toast.error(error.message);
+        else if (!isPasskeyCeremonyAborted(error)) toast.error(error.message);
       },
     });
   };
@@ -350,21 +337,6 @@ function LoginPageContent() {
       )}
       {referralChip}
       <div className="flex flex-col gap-3">
-        {passkeyAutofill && (
-          <Field>
-            <FieldLabel htmlFor="login-passkey-autofill" className="sr-only">
-              {t("auth.login.passkey.savedLabel")}
-            </FieldLabel>
-            <Input
-              id="login-passkey-autofill"
-              type="text"
-              name="username"
-              autoComplete="username webauthn"
-              placeholder={t("auth.login.passkey.savedPlaceholder")}
-              data-testid="login.passkey-autofill"
-            />
-          </Field>
-        )}
         <Button
           type="button"
           size="lg"

@@ -39,6 +39,7 @@ catalog:
   "@rspack/cli": 2.2.6
   "@rspack/core": 2.2.8
   "@scure/base": ^2.2.0
+  "@simplewebauthn/browser": ^13.3.0
   "@tanstack/ai": 0.61.0
   "@tanstack/ai-openai": 0.24.1
   "@tanstack/ai-react": 0.29.1
