@@ -9,7 +9,7 @@ metadata:
 
 # CLI Command Reference
 
-20 `bos` commands organised by workflow category.
+21 `bos` commands organised by workflow category.
 
 ## Development
 
@@ -103,19 +103,24 @@ bos sync
 bos sync --dry-run    # preview without writing
 ```
 
+When a platform release manifest resolves (ADR 0034 — the `platform` pin in the authored config, or latest via the extends chain), sync pulls the **release tag** from the parent repo — not `main` HEAD — and rewrites the framework's own reusable-workflow refs to `@v<version>`. No manifest resolving → the pre-0034 tarball walk at `main`/`master` HEAD.
+
 → [`init-upgrade`](.) skill for snapshot-based conflict detection and framework-owned sections.
 
 ### `bos upgrade`
 
 Upgrade framework packages then sync template files. Interactive; prompts for package selection.
 
-**Flags:** `--dry-run` `--no-install` `--no-sync`
+**Flags:** `--dry-run` `--check` `--no-install` `--no-sync`
 
 ```bash
 bos upgrade
 bos upgrade --dry-run       # preview version bumps
+bos upgrade --check         # CI drift alarm (ADR 0034): exit 1 when updates are available
 bos upgrade --no-sync       # only upgrade packages, skip template sync
 ```
+
+When a platform release manifest resolves, its catalog is the version source (one registry read); `--check` diffs the recorded `platform` pin against the latest published manifest and exits nonzero on drift.
 
 → [`init-upgrade`](.) skill for catalog strategy, legacy import rewrites, and upgrade+publish flow.
 
@@ -144,6 +149,19 @@ bos status
 ```
 
 Output includes installed vs latest versions for each workspace package, whether the parent extends reference is reachable, whether `.env` exists, and when the last sync ran. No flags.
+
+### `bos platform manifest`
+
+Show the resolved platform release manifest (ADR 0034) — the contract of the framework release this runtime is pinned to.
+
+**Flags:** `--check`
+
+```bash
+bos platform manifest          # print the resolved manifest + its source
+bos platform manifest --check  # also run the compat gate; exit 1 on violations
+```
+
+Resolution order: the in-image manifest first (the booted host self-describes from the release bytes it runs on), registry resolution through the extends chain otherwise (`.bos/platform-manifest.json` is the offline cache). `--check` verifies the workspace's strict-singleton pins against the manifest's `sharedDeps` and the framework version against the release's compat floor — the same check the deploy smoke gate runs. Status is `absent` (no manifest resolves — pre-0034 behavior applies) or `fail` (unresolvable/error) with diagnostics.
 
 ## Publishing
 
@@ -189,7 +207,7 @@ bos deploy --no-build                   # publish only, skip workspace build
 bos deploy --service my-railway         # override Railway service name
 ```
 
-**Deploy legs** (image / smoke / railway) report per-leg outcomes (✓ ok / – skipped / ✗ failed) and are tier-aware (ADR 0020/0021): a runtime that owns its image (`ci.image` configured or a Dockerfile at the config root) is "root" and must pin a digest before Railway; a runtime inheriting the universal image is "child" — image and smoke soft-skip, and the Railway redeploy runs without a digest (`railway redeploy --from-source` is a reload trigger). The deploy exits 0 whenever the config publishes and no leg failed; `RAILWAY_TOKEN` is optional.
+**Deploy legs** (image / smoke / railway) report per-leg outcomes (✓ ok / – skipped / ✗ failed) and are tier-aware (ADR 0020/0021): a runtime that owns its image (`ci.image` configured or a Dockerfile at the config root) is "root" and must pin a digest before Railway; a runtime inheriting the universal image is "child" — image and smoke soft-skip, and the Railway redeploy runs without a digest (`railway redeploy --from-source` is a reload trigger). The deploy exits 0 whenever the config publishes and no leg failed; `RAILWAY_TOKEN` is optional. The platform release manifest (ADR 0034) rides the FastKV publish as a third `registryEntries` key — full trains only (a root's production build with upload; config-only publishes and staging skip it), and a registry failure reading the previous release skips the manifest rather than publishing a wrong compat window.
 
 → [`publish-sync`](.) skill and [`super-app`](.) for tenant-aware deploy considerations.
 
@@ -307,5 +325,7 @@ Requires the `DATABASE_URL` secret to be set on the target plugin. Uses the plug
 **"Regenerate the types."** `bos types gen` — or just `pnpm run typecheck`, which regenerates first and then checks. Never hand-edit `*.gen.ts` files.
 
 **"Which command deploys?"** `pnpm run deploy` (the full train: preflight → build → upload → publish → image). Config-only is `bos publish`; one plugin is `bos plugin publish <key>`.
+
+**"What release am I on?"** `bos platform manifest` — the resolved platform release manifest and its source; `--check` adds the compat gate. `bos upgrade --check` is the CI drift alarm against the latest release.
 
 **"What is running right now?"** `bos ps` for tracked dev processes, `bos status` for health and versions, `ls .bos/logs/` for per-service logs.

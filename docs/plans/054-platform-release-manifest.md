@@ -94,10 +94,10 @@ ADR: `docs/adr/0034-platform-release-manifest.md`.
 - [x] ADR 0034 + `docs/adr/README.md` index row
 - [x] `docs/plans/README.md` queue row
 - [x] GLOSSARY.md: Platform release manifest, Derived pin (with `_Avoid_:` lines)
-- [ ] `init-upgrade` + `everything-dev-app` skills: the pin field, `--check`, release-scoped sync
+- [x] `init-upgrade` + `everything-dev-app` skills: the pin field, `--check`, release-scoped sync — plus the follow-on docs pass: AGENTS.md (sync/publish quick reference + release flow), `cli-reference` (`bos platform manifest` section, `upgrade --check`), `publish-sync` (manifest leg, release-scoped sync, `--check`), `registry` (`platform.json` + audit manifest key layout), `extends-config` (`platform` pin section, full `BOS_CONFIG_ORDER`), `docs/self-deploy.md` (child-tier Railway redeploy semantics, platform pin)
 - [x] Guardrail tests extending `sync.structure.test.ts`: marker ↔ inventory ↔ manifest
         `templateInventory` agreement
-- [ ] Changesets per implementation PR (`"everything-dev": minor`, ADR 0034 cited; docs PRs carry none)
+- [x] Changesets per implementation PR (`"everything-dev": minor`, ADR 0034 cited; docs PRs carry none)
 
 ## Verification gates
 

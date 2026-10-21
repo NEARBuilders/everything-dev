@@ -2,7 +2,7 @@
 name: publish-sync
 description: Publish the authored config (bos.app.ts) to the FastKV registry, sync from upstream, and upgrade workspace packages. Use when deploying, syncing, or managing runtime configuration across projects.
 metadata:
-  sources: "packages/everything-dev/src/plugin.ts,packages/everything-dev/src/services/scaffold/sync.ts,packages/everything-dev/src/services/scaffold/upgrade.ts,packages/everything-dev/src/services/registry/fastkv.ts,packages/everything-dev/src/services/deploy/integrity.ts,packages/everything-dev/src/config.ts"
+  sources: "packages/everything-dev/src/plugin.ts,packages/everything-dev/src/services/scaffold/sync.ts,packages/everything-dev/src/services/scaffold/upgrade.ts,packages/everything-dev/src/services/registry/fastkv.ts,packages/everything-dev/src/services/deploy/integrity.ts,packages/everything-dev/src/services/deploy/train.ts,packages/everything-dev/src/services/deploy/platform-manifest.ts,packages/everything-dev/src/services/platform/manifest.ts,packages/everything-dev/src/config.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
@@ -38,6 +38,7 @@ After `bos publish --deploy`:
 1. Each workspace builds; the publish writes deterministic bundle URLs (`https://<domain>/bundles/<account>/<gateway>/<workspace>/`)
 2. Pipeline state (production URLs, integrity) goes to FastKV. For legacy JSON-form projects, `bos.config.json` is also updated locally; for the authored `bos.app.ts` form, nothing is written back — the authoring surface never holds pipeline state
 3. Config is published to the FastKV registry at `{account}/bos/gateways/{gateway}/bos.config.json`
+4. On a full deploy train (production build with upload — config-only publishes and staging skip this), the **platform release manifest** (ADR 0034) rides the same atomic write as a third `registryEntries` key at `apps/<account>/<gateway>/platform.json`, with its own SRI recorded in the per-deploy audit manifest. A registry failure reading the previous release skips the manifest for that deploy — a silently-wrong compat window is never published; the next deploy lands it.
 
 The `--network` flag controls the NEAR network (mainnet by default). With `--network testnet`, publishes go to the NEAR testnet chain under the testnet account specified in config.
 
@@ -91,6 +92,8 @@ bos sync --force
 bos sync --dry-run
 ```
 
+Sync is **release-scoped** (ADR 0034): when a platform release manifest resolves — the authored config's `platform` pin, or latest via the extends chain — sync pulls the parent template at the **release tag** (not `main` HEAD), compares local file hashes against the manifest's `templateInventory`, and touches only changed files. The framework's own reusable-workflow refs (`.github/workflows/*.yml`) rewrite to `@v<version>`; third-party actions are never repointed. The sync snapshot records `release` provenance beside `parentRef`. No manifest resolving → the pre-0034 flow: parent-repo tarball at `main`/`master` HEAD.
+
 What gets synced from the parent template:
 - `app.*.production` — bundle URLs
 - `app.*.ssr` — SSR URLs
@@ -112,7 +115,10 @@ Bump `every-plugin` and `everything-dev` across all workspaces:
 ```bash
 bos upgrade              # Check for new versions, update, then sync
 bos upgrade --dry-run    # Preview without making changes
+bos upgrade --check      # CI drift alarm (ADR 0034): dry-run + exit 1 when updates are available
 ```
+
+When a platform release manifest resolves, its catalog is the version source (one registry read — no parent-repo tarball walk). `--check` diffs the recorded `platform` pin against the latest published manifest and exits 1 when updates are available; child CI runs it as the `platform-drift` job.
 
 `bos upgrade` updates **all workspace `package.json`s**, not just root. Also updates `peerDependencies` and `workspaces.catalog`. Correctly skips `workspace:*` and `catalog:` references.
 
@@ -148,6 +154,7 @@ All runtime config lives in the authored config. Key sections:
 - `account` — NEAR mainnet account
 - `testnet` — NEAR testnet account
 - `staging.domain` — Staging domain
+- `platform` — the framework release pin (ADR 0034, e.g. `"2.0.0-rc.14"`); absent = latest via extends
 - `app.host`, `app.ui`, `app.api`, `app.auth` — Module configs with development/production URLs
 - `plugins.{key}` — Plugin configs with variables, secrets, routes
 - `app.api.shared`, `app.auth.shared`, `plugins.{key}.shared` — Module Federation shared dependency versions

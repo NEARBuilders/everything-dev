@@ -31,6 +31,21 @@ The `extends` field in the authored config (`bos.app.ts`, or legacy `bos.config.
 
 Fallback chain: requested env → `production` → first defined value.
 
+## platform pin (ADR 0034)
+
+The root-level `platform` field pins the framework release this runtime tracks:
+
+```json
+{ "platform": "2.0.0-rc.14" }
+```
+
+- **Exact string in v1 — no ranges.** Resolution picks exactly one platform release manifest (the root's published `platform.json`); a pin that no published manifest satisfies fails loud.
+- **Absent → latest via the extends chain** (nearest ancestor publishing a manifest wins). Sync/upgrade resolve it explicitly — they read the authored config, not just the merged result.
+- It is a scalar for merge purposes: child overrides parent, parent inherited when child omits.
+- The field is on sync's managed-key list, so it survives template personalization.
+- Everything else derives from the resolved manifest: the upgrade catalog, the image ref (`ref@v<version>`), the release-scoped sync source, and the compat contract. Offline dev caches the resolved manifest at `.bos/platform-manifest.json` (gitignored memo).
+- Inspect with `bos platform manifest` (`--check` adds the compat gate); `bos upgrade --check` is the CI drift alarm against the latest release.
+
 ## Deep Merge Semantics
 
 Uses `defu` (with `createDefu` for custom merge rules):
@@ -168,9 +183,12 @@ Detection occurs in `resolveExtendsRef()` → `mergeBosConfigWithExtends()`. The
 6. `testnet`
 7. `staging`
 8. `repository`
-9. `ci`
-10. `app`
-11. `plugins`
+9. `publish`
+10. `platform`
+11. `ci`
+12. `app`
+13. `plugins`
+14. `rolledBackFrom`
 
 Unknown keys go after known keys. `rebuildOrderedConfig()` is applied before every write.
 
