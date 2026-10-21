@@ -1,5 +1,13 @@
 # ui
 
+## 2.0.0-rc.3
+
+### Patch Changes
+
+- 6d834dd: Compile the app message catalogs (compileMessageOrThrow at load) so production builds ship Lingui compiled messages — ICU interpolation and plurals work and the "Uncompiled message detected" console warning is gone.
+- Updated dependencies [6d834dd]
+  - better-near-auth@2.0.0-rc.4
+
 ## 2.0.0-rc.2
 
 ### Patch Changes
