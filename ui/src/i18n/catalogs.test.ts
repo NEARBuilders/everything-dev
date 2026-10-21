@@ -11,10 +11,10 @@ describe("app message catalogs", () => {
     }
   });
 
-  it("loads translated landing headings", () => {
-    expect(getAppMessages("es")["landing.title"]).toBe("Tu ciudad, en la red.");
-    expect(getAppMessages("fr")["landing.title"]).toBe("Votre ville, sur le réseau.");
-    expect(getAppMessages("zh")["landing.title"]).toBe("让你的城市加入网络。");
+  it("loads translated landing headings as compiled catalogs", () => {
+    expect(getAppMessages("es")["landing.title"]).toEqual(["Tu ciudad, en la red."]);
+    expect(getAppMessages("fr")["landing.title"]).toEqual(["Votre ville, sur le réseau."]);
+    expect(getAppMessages("zh")["landing.title"]).toEqual(["让你的城市加入网络。"]);
   });
 
   it("provides a native label for every language option", () => {
@@ -27,9 +27,9 @@ describe("app message catalogs", () => {
     });
   });
 
-  it("interpolates translated public-flow values", () => {
-    expect(getAppMessages("es")["apply.slug.available"]).toContain("{hostname}");
-    expect(getAppMessages("fr")["explore.results.many"]).toContain("{count}");
-    expect(getAppMessages("zh")["apply.progress"]).toContain("{step}");
+  it("interpolates translated public-flow values as compiled argument tokens", () => {
+    expect(getAppMessages("es")["apply.slug.available"]).toContainEqual(["hostname"]);
+    expect(getAppMessages("fr")["explore.results.many"]).toContainEqual(["count"]);
+    expect(getAppMessages("zh")["apply.progress"]).toContainEqual(["step"]);
   });
 });
