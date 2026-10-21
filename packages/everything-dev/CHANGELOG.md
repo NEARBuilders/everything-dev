@@ -1,5 +1,16 @@
 # everything-dev
 
+## 2.0.0-rc.16
+
+### Patch Changes
+
+- 0b54b8d: CLI failures now render the real error instead of `[CLI] [object Object]`: structured (non-`Error`) failures stringify through a shared formatter, the exit-path prints non-`CliError` failures too, and the upgrade migration phase prefers the re-exec'd child's parsed `error` field over raw stderr/stdout concatenation (#522).
+- 0b54b8d: Children can now author the ADR 0034 `platform: "<framework-version>"` pin in `bos.app.ts`: `AppDescriptorSchema` accepts it and the authored↔resolved round-trip (`toConfigInput` / `configInputToDescriptor` / the `bos.app.ts` serializer) carries it, so sync no longer strips the pin and exact-pin ("exact-or-loud") semantics are reachable (#520).
+- 0b54b8d: Release-scoped sync no longer hard-fails on `ref not found (v<version>)`: release tarballs try the canonical `v<version>` tag and then the changesets per-package tag (`everything-dev@<version>`), and child workflow wrappers pin the resolved `v` tag or, failing that, the resolved commit sha. The release train now also publishes the canonical `v<frameworkVersion>` tag (#519).
+- 0b54b8d: Fix the SSR authed-route 307 wall (#527): the root route's session resolver no longer seeds a null host-side session into the query cache — a null context session means "the host did not resolve one", not a verified sign-out. The freshly-seeded null was fresh for the guard's staleTime window, so `requireSession` trusted it and redirected to /login without ever running the session fetch, even with a valid cookie. The explicit signed-out entry (written by `clearAuthenticatedQueries`) still wins.
+- 0b54b8d: Sync and upgrade no longer break child installs with the parent's `workspace:^` specifiers (#521): every manifest the sync write path produces is normalized into child shape — `workspace:` specifiers for cataloged packages become `catalog:` and cross-field dep duplication is deduped (`dependencies` wins) — covering both the updated and conflicted outcomes. Also fixes the upgrade migration phase crashing with `EISDIR` on pnpm's symlinked `node_modules` entries (glob now ignores nested `node_modules`, unreadable entries are skipped) and makes the scaffolded `bos.app.ts` biome-clean (unquoted keys) so children pass the format check verbatim (#518).
+- 0b54b8d: Fix `bos upgrade --check` permanently exiting 1 on v2-layout children: the current catalog now reads from `pnpm-workspace.yaml` (via `readWorkspaceCatalog`, package.json fallback for v1) instead of package.json-only, and purely-additive chain-catalog entries no longer trip the drift alarm — only a pinned version that actually differs counts as drift (#524).
+
 ## 2.0.0-rc.15
 
 ### Minor Changes
