@@ -1410,6 +1410,82 @@ describe("siwnClient getActions", () => {
     }
   });
 
+  describe("session-gated session restore", () => {
+    const linkedAccount = {
+      id: "acc-1",
+      userId: "user-1",
+      accountId: "alice.near",
+      network: "mainnet",
+      publicKey: "ed25519:alice",
+      isPrimary: true,
+      createdAt: new Date(),
+      providerId: "siwn",
+      isActive: true,
+      isAvailable: false,
+    };
+    const listAccountsResponse = {
+      data: { accounts: [linkedAccount], activeAccount: null },
+      error: null,
+    };
+
+    async function withWindow(run: () => Promise<void>) {
+      const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+      Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+      try {
+        await run();
+      } finally {
+        if (previousWindow) {
+          Object.defineProperty(globalThis, "window", previousWindow);
+        } else {
+          Reflect.deleteProperty(globalThis, "window");
+        }
+      }
+    }
+
+    it("does not call the session-gated /near/list-accounts endpoint for an anonymous visitor", async () => {
+      await withWindow(async () => {
+        const { NearConnector } = await import("@hot-labs/near-connect");
+        const connectorMock = NearConnector as any;
+        const callStart = connectorMock.mock.calls.length;
+        const { $fetch } = setupClient(null);
+        await vi.waitFor(() => {
+          expect(connectorMock.mock.calls.length).toBe(callStart + 1);
+        });
+        expect($fetch).not.toHaveBeenCalledWith("/near/list-accounts", expect.anything());
+        expect($fetch).not.toHaveBeenCalled();
+      });
+    });
+
+    it("restores the linked NEAR account when a session appears after init", async () => {
+      await withWindow(async () => {
+        const { $fetch, sessionAtom, plugin } = setupClient(null, () =>
+          Promise.resolve(listAccountsResponse),
+        );
+        sessionAtom.set({ data: { user: { id: "user-1" } } });
+        await vi.waitFor(() => {
+          expect(plugin.getAtoms(undefined as never).nearState.get()).toMatchObject({
+            accountId: "alice.near",
+          });
+        });
+        expect($fetch).toHaveBeenCalledWith("/near/list-accounts", expect.anything());
+      });
+    });
+
+    it("restores immediately at init when a session already exists", async () => {
+      await withWindow(async () => {
+        const { $fetch, plugin } = setupClient({ data: { user: { id: "user-1" } } }, () =>
+          Promise.resolve(listAccountsResponse),
+        );
+        await vi.waitFor(() => {
+          expect(plugin.getAtoms(undefined as never).nearState.get()).toMatchObject({
+            accountId: "alice.near",
+          });
+        });
+        expect($fetch).toHaveBeenCalledWith("/near/list-accounts", expect.anything());
+      });
+    });
+  });
+
   describe("getAccountId session fallback", () => {
     it("returns null when there is no session and no NearConnect state", () => {
       const { actions } = setupClient(null);

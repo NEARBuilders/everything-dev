@@ -94,10 +94,17 @@ export function getRemoteScripts(options: RemoteScriptsOptions): HeadScript[] {
  * document → remoteEntry → manifest → remoteEntry. Attributes must match
  * how the MF runtime loads these resources (plain no-cors `<script>` for
  * entries, cors `fetch()` for manifests) or the browser refetches.
+ *
+ * Server-only: the client render (hydration re-render of head content, or
+ * the client-shell fallback) runs after the hydrate compose has already
+ * fetched the manifests and entries — re-injecting the hints then produces
+ * preloads nothing will ever consume ("preloaded but not used" console
+ * warnings on every load).
  */
 export function getRemotePreloadLinks(
   runtimeConfig: Partial<ClientRuntimeConfig> | undefined,
 ): HeadLink[] {
+  if (typeof window !== "undefined") return [];
   const remotes = runtimeConfig?.ui?.compose?.remotes ?? [];
   const seen = new Set<string>();
   const links: HeadLink[] = [];

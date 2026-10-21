@@ -16,6 +16,7 @@
 
 import { readFileSync, statSync } from "node:fs";
 import { Clock, Data, Effect, Schema } from "effect";
+import { computeSriHash } from "everything-dev/integrity";
 import {
   CORE_UI_PLUGIN_KEY as CORE_UI_KEY,
   type ComposePayload,
@@ -68,6 +69,10 @@ interface UiSource {
   remote?: EntrySlot;
   localRoot?: string;
   manifestUrl?: string;
+  /** SRI the pinned version manifest records for the compose manifest —
+   * verified on every fetch so mutable-latest bytes that drifted from the
+   * resolved pin fail the compose loud instead of rendering a mixed tree */
+  manifestIntegrity?: string;
   /** the MF browser manifest URL (mf-manifest.json — hashed when the slot
    * pins a version manifest); rides the compose payload for hydrate-time
    * remote registration */
@@ -107,6 +112,7 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
         config.ui.source === "local"
           ? undefined
           : `${config.ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`,
+      manifestIntegrity: config.ui.manifestIntegrity,
       browserManifestUrl: coreUrls.browserManifest,
       webEntry: coreUrls.web,
     },
@@ -133,6 +139,7 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
       },
       localRoot: ui.localPath ? resolveLocalRoot(ui.localPath) : undefined,
       manifestUrl: `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`,
+      manifestIntegrity: ui.manifestIntegrity,
       browserManifestUrl: urls.browserManifest,
       webEntry: urls.web,
     });
@@ -180,11 +187,29 @@ const loadRemoteManifestCached = Effect.fn("loadRemoteManifestCached")(function*
       if (!response.ok) {
         throw new Error(`manifest fetch ${response.status} for ${manifestUrl}`);
       }
-      return parsePluginManifest(await response.json()) satisfies PluginManifest;
+      const text = await response.text();
+      if (source.manifestIntegrity && computeSriHash(text) !== source.manifestIntegrity) {
+        throw new Error(
+          `manifest bytes at ${manifestUrl} do not match the resolved pin's SRI — ` +
+            `the resolved config is older than the deployed bundles (stale host or rolled-back publish); ` +
+            `redeploy or restart the host to re-resolve`,
+        );
+      }
+      return text;
     },
     catch: (cause) =>
       new UiComposeError({ operation: `Failed to load UI manifest from ${manifestUrl}`, cause }),
   }).pipe(
+    Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Schema.Json))),
+    Effect.mapError((cause) =>
+      cause instanceof UiComposeError
+        ? cause
+        : new UiComposeError({
+            operation: `Failed to load UI manifest from ${manifestUrl}`,
+            cause,
+          }),
+    ),
+    Effect.map((manifestJson) => parsePluginManifest(manifestJson) satisfies PluginManifest),
     Effect.catch((error) =>
       Effect.gen(function* () {
         if (cached?.manifest) {

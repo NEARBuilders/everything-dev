@@ -138,6 +138,11 @@ const PluginRuntimeUiSchema = z.object({
   /** pin-derived hashed browser manifest (mf-manifest) — absent for local
    * slots; registration reads this instead of the overloaded `entry` */
   browserManifestUrl: z.string().optional(),
+  /** SRI of the pinned compose manifest (manifest.gen.json, from the pin's
+   * per-file digest map) — the compose verifies the mutable fixed-name
+   * manifest against it so a host resolving an older pin never silently
+   * mixes newer manifest bytes into its composed tree */
+  manifestIntegrity: z.string().optional(),
   dependsOn: z.array(z.string()).optional(),
 });
 export type PluginRuntimeUi = z.infer<typeof PluginRuntimeUiSchema>;
@@ -428,6 +433,9 @@ export const RuntimeConfigSchema = z.object({
     ssrEntryUrl: z.string().optional(),
     /** pin-derived hashed browser manifest (mf-manifest) */
     browserManifestUrl: z.string().optional(),
+    /** SRI of the pinned compose manifest (manifest.gen.json) — verified by
+     * the host compose on every fetch (see PluginRuntimeUiSchema) */
+    manifestIntegrity: z.string().optional(),
     dependsOn: z.array(z.string()).optional(),
   }),
   api: FederationEntrySchema.extend({

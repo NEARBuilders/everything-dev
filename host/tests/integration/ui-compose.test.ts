@@ -48,6 +48,15 @@ const CORE_MANIFEST = {
   ],
 };
 
+/** Manifest fetch mock response exposing both accessors — the compose reads
+ * the body as text (pin SRI verification) before parsing the JSON. */
+const manifestResponse = (manifest: unknown) => ({
+  ok: true,
+  status: 200,
+  json: async () => manifest,
+  text: async () => JSON.stringify(manifest),
+});
+
 // The manifest's name IS the composition identity — the plugins/<key> layout
 // key, which the authored config key must agree with (ADR 0008 §2, enforced
 // at compose time). The MF container name is separate deployment detail.
@@ -150,15 +159,15 @@ const realFetch = globalThis.fetch.bind(globalThis);
 const cdnAwareFetch = async (url: unknown) => {
   const target = String(url);
   if (target.startsWith("https://cdn.example.com/base-ui/")) {
-    return { ok: true, status: 200, json: async () => CORE_MANIFEST };
+    return manifestResponse(CORE_MANIFEST);
   }
   if (target.startsWith("https://cdn.example.com/auth-ui/")) {
-    return { ok: true, status: 200, json: async () => AUTH_MANIFEST };
+    return manifestResponse(AUTH_MANIFEST);
   }
   if (target.startsWith("http://127.0.0.1:") || target.startsWith("http://localhost:")) {
     return realFetch(url as Parameters<typeof realFetch>[0]);
   }
-  return { ok: false, status: 404, json: async () => ({}) };
+  return { ok: false, status: 404, json: async () => ({}), text: async () => "{}" };
 };
 
 const fetchMock = vi.fn(cdnAwareFetch);
@@ -263,9 +272,9 @@ describe("composeUi", () => {
     fetchMock.mockImplementation(async (url: unknown) => {
       const target = String(url);
       if (target.startsWith("https://cdn.example.com/auth-ui/")) {
-        return { ok: true, status: 200, json: async () => changed };
+        return manifestResponse(changed);
       }
-      return { ok: true, status: 200, json: async () => CORE_MANIFEST };
+      return manifestResponse(CORE_MANIFEST);
     });
 
     cache.remoteManifests.clear();
@@ -320,9 +329,9 @@ describe("composeUi", () => {
     fetchMock.mockImplementation(async (url: unknown) => {
       const target = String(url);
       if (target === "http://localhost:4111/manifest.gen.json") {
-        return { ok: true, status: 200, json: async () => AUTH_MANIFEST };
+        return manifestResponse(AUTH_MANIFEST);
       }
-      return { ok: true, status: 200, json: async () => CORE_MANIFEST };
+      return manifestResponse(CORE_MANIFEST);
     });
     cache.remoteManifests.clear();
 
@@ -342,7 +351,7 @@ describe("composeUi", () => {
     fetchMock.mockImplementation(async (url: unknown) => {
       const target = String(url);
       if (target.startsWith("https://cdn.example.com/auth-ui/")) {
-        return { ok: false, status: 500, json: async () => ({}) };
+        return { ok: false, status: 500, json: async () => ({}), text: async () => "{}" };
       }
       return cdnAwareFetch(url);
     });
@@ -368,6 +377,7 @@ describe("composeUi", () => {
           ok: true,
           status: 200,
           json: async () => ({ ...AUTH_MANIFEST, name: "not-auth" }),
+          text: async () => JSON.stringify({ ...AUTH_MANIFEST, name: "not-auth" }),
         };
       }
       return cdnAwareFetch(url);
@@ -437,9 +447,26 @@ describe("composeUi", () => {
   });
 
   it("fails loudly when the core manifest cannot be fetched (plugin sources drop, core does not)", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+      text: async () => "{}",
+    });
     const result = await composeExit(configWithPlugin());
     expect(Exit.isFailure(result)).toBe(true);
+    expect(construct).not.toHaveBeenCalled();
+  });
+
+  it("fails the compose loud when the fetched manifest does not match the resolved pin's SRI", async () => {
+    const config = configWithPlugin();
+    config.ui.manifestIntegrity = "sha384-not-the-deployed-manifest";
+    const result = await composeExit(config);
+    expect(Exit.isFailure(result)).toBe(true);
+    const rendered = JSON.stringify(result, (_key, value) =>
+      value instanceof Error ? { message: value.message } : value,
+    );
+    expect(rendered).toContain("do not match the resolved pin's SRI");
     expect(construct).not.toHaveBeenCalled();
   });
 
@@ -492,7 +519,12 @@ describe("composeClientPayload", () => {
   });
 
   it("fails when the core manifest cannot be fetched — the payload path never fails silent either", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+      text: async () => "{}",
+    });
     cache.remoteManifests.clear();
     const result = await Effect.runPromiseExit(composeClientPayload(configWithPlugin(), cache));
     expect(Exit.isFailure(result)).toBe(true);

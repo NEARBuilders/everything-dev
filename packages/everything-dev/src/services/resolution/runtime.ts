@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { Effect } from "effect";
-import { sanitizeContainerName } from "every-plugin/ui/manifest/contract";
+import { MANIFEST_FILENAME, sanitizeContainerName } from "every-plugin/ui/manifest/contract";
 import { getProcessEnv } from "../../env/process-env";
 import type {
   BosConfig,
@@ -403,6 +403,7 @@ async function deriveVersionManifestFields(
     ui.integrity = r.entryIntegrity;
     ui.ssrEntryUrl = r.ssrEntryUrl;
     ui.ssrIntegrity = r.ssrIntegrity ?? ui.ssrIntegrity;
+    ui.manifestIntegrity = r.files?.[MANIFEST_FILENAME] ?? ui.manifestIntegrity;
   };
 
   await derive("app.host", config.app.host, result.host, (r) => {
