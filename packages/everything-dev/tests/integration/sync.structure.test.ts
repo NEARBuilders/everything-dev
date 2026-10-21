@@ -367,9 +367,9 @@ describe("child-owned block protocol (#538)", () => {
     // The template ci.yml references ./.github/workflows/ci-child.yml; at the
     // framework home (this repo) that path must exist for the root actionlint
     // pass, so a reference copy is kept in sync with the template by hand.
-    expect(
-      readFileSync(join(REPO_ROOT, ".github/workflows/ci-child.yml"), "utf-8"),
-    ).toBe(readFileSync(join(REPO_ROOT, ".github/templates/workflows/ci-child.yml"), "utf-8"));
+    expect(readFileSync(join(REPO_ROOT, ".github/workflows/ci-child.yml"), "utf-8")).toBe(
+      readFileSync(join(REPO_ROOT, ".github/templates/workflows/ci-child.yml"), "utf-8"),
+    );
   });
 
   it("the template ci.yml is thin: reusable call + child-owned call + merge gate, no drift job", () => {
