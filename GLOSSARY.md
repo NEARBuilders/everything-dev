@@ -40,6 +40,14 @@ _Avoid_: stage (dev/build/upload/publish are train stages, not legs), step
 Whether the deploy train owns its runtime image — `root` (`ci.image` configured or a Dockerfile at the config root; the train can produce a digest and must pin Railway to it) or `child` (inherits the platform's universal image per ADR 0020/0021; no image bytes to build, pin, or boot). One function resolves it; the image, smoke, and Railway gates all consume it.
 _Avoid_: root vs consumer (the account naming, not the image-ownership question), tenant tier
 
+**Platform release manifest**:
+The machine-readable contract of one framework release (ADR 0034): framework + every-plugin versions, the release catalog, exact shared-dep versions with their flags, the hashed template inventory, and the compat floor — composed once by the deploy train and published to two homes with byte-identical content (the FastKV pointer slot `apps/<root-account>/<root-gateway>/platform.json` beside the config, and the in-image copy generated inside the docker build). Carries image `ref` + tags, never the digest.
+_Avoid_: version manifest (that's the per-workspace deploy pin), plugin manifest (the per-plugin bundle metadata), release notes
+
+**Derived pin**:
+The child's single authored `platform: "<framework-version>"` field in `bos.app.ts` — everything else (catalog entries, `ci.image` as `ref@digest`, the release-scoped sync source, compat verification) derives from the resolved manifest, so no hand-correlated pin pairs remain. Exact in v1: no ranges; absent means latest via extends.
+_Avoid_: platform version (ambiguous with the manifest's own `frameworkVersion`), image pin (the digest is derived, not authored), version bump
+
 ## Organization access
 
 **Team**:

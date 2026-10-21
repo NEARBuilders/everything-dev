@@ -36,6 +36,7 @@ Format: context → decision → consequences, one file per decision.
 | [0031](./0031-package-shape.md) | Package shape — contract → handlers → services, CLI as presentation | Accepted |
 | [0032](./0032-framework-owned-files.md) | Framework-owned files — inventory, marker, and the upstream-change protocol | Accepted |
 | [0033](./0033-database-seam.md) | The database seam — `databaseLayer`, and the db/context ownership exit | Accepted |
+| [0034](./0034-platform-release-manifest.md) | The platform release manifest — one pin, everything derived | Proposed |
 
 
 Skipped numbers: 0006 exists; there are no gaps otherwise. 0015–0018 were
@@ -47,7 +48,7 @@ split) was added on a side branch that never merged to main — do not reuse it.
 ## Number assignment discipline
 
 - Take the next free number (`ls docs/adr/ | sort -n | tail -1`, then +1 —
-  next free is **0034**). Never reuse a number, even for a rejected ADR.
+  next free is **0035**). Never reuse a number, even for a rejected ADR.
 - When citing an ADR in code, plans, changesets, or AGENTS.md, cite the
   number **with the filename** if the context could be ambiguous.
 - Superseded ADRs stay in place with a `Superseded by` status link to the
