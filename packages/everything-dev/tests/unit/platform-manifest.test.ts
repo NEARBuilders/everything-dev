@@ -43,9 +43,7 @@ describe("composePlatformReleaseManifest", () => {
     const withSha = composePlatformReleaseManifest({ ...baseInputs, gitSha: "a".repeat(40) });
     expect(withSha.gitSha).toBe("a".repeat(40));
     expect(
-      PlatformReleaseManifestSchema.parse(
-        JSON.parse(serializePlatformReleaseManifest(withSha)),
-      ),
+      PlatformReleaseManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(withSha))),
     ).toEqual(withSha);
     const withoutSha = composePlatformReleaseManifest(baseInputs);
     expect("gitSha" in withoutSha).toBe(false);

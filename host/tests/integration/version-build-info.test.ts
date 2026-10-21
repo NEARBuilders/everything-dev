@@ -28,7 +28,9 @@ function upstream(): Promise<{ server: ReturnType<typeof createServer>; baseUrl:
 }
 
 function close(server: ReturnType<typeof createServer>): Promise<void> {
-  return new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  return new Promise((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
 }
 
 describe("GET /.well-known/version build identity (#537)", () => {
@@ -66,7 +68,12 @@ describe("GET /.well-known/version build identity (#537)", () => {
       domain: "version.build.test",
       networkId: "testnet",
       host: { name: "host", url: origin, entry: `${origin}/mf-manifest.json`, source: "local" },
-      ui: { name: "ui", url: upstreamUrl, entry: `${upstreamUrl}/mf-manifest.json`, source: "remote" },
+      ui: {
+        name: "ui",
+        url: upstreamUrl,
+        entry: `${upstreamUrl}/mf-manifest.json`,
+        source: "remote",
+      },
       api: {
         name: "api",
         url: upstreamUrl,

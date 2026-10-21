@@ -39,7 +39,9 @@ function uiManifestTargets(
     targets.push({
       workspaceRoot: ui.localPath,
       pluginName: CORE_UI_PLUGIN_KEY,
-      emitRouteTree: forceRouteTree ? true : !existsSync(join(ui.localPath, "src/routeTree.gen.ts")),
+      emitRouteTree: forceRouteTree
+        ? true
+        : !existsSync(join(ui.localPath, "src/routeTree.gen.ts")),
     });
   }
   for (const [key, plugin] of Object.entries(runtimeConfig.plugins ?? {})) {
