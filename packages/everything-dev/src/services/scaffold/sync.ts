@@ -267,12 +267,17 @@ function toSourcePath(sourceDir: string, destPath: string): string | null {
 
 /**
  * Release-scoped workflow refs (ADR 0034 pt 4): when a platform manifest
- * resolves, child reusable-workflow wrappers pin the framework's version tag
- * instead of `@main`. Applied at content-build time so the three-way hash
- * comparison and the written bytes stay consistent.
+ * resolves, the child's *framework-owned* reusable-workflow wrappers pin the
+ * framework's version tag instead of `@main`. Only refs into the framework
+ * repo's own `.github/workflows/` repoint — third-party actions tracking
+ * `@main` are nobody's release contract. Applied at content-build time so the
+ * three-way hash comparison and the written bytes stay consistent.
  */
 export function applyReleaseRefs(content: string, releaseTag: string): string {
-  return content.replace(/(uses:\s*\S+@)main\b/g, `$1${releaseTag}`);
+  return content.replace(
+    /(uses:\s*\S*everything-dev\/\.github\/workflows\/[^\s@]+@)main\b/g,
+    `$1${releaseTag}`,
+  );
 }
 
 function buildSyncedFileContent(

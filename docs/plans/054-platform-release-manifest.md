@@ -61,9 +61,13 @@ ADR: `docs/adr/0034-platform-release-manifest.md`.
         wiring is follow-up (plan 042-adjacent self-deploy flow) — do not blind-wire the legs
 - [x] T5 — release-scoped, delta-driven `syncTemplate`: release tag threaded through
         `resolveSourceDir` → `downloadTarball` (already accepted `ref`); `applyReleaseRefs`
-        rewrites reusable-workflow `@main` → `@v<version>` at content-build time (hash-compare and
-        written bytes stay consistent); sync snapshot gains `release` provenance; manifest-absent
-        → today's flow (existing sync tests pass unchanged)
+        rewrites the framework's own reusable-workflow `@main` refs → `@v<version>` at
+        content-build time (hash-compare and written bytes stay consistent; third-party
+        `@main` actions are never repointed); sync snapshot gains `release` provenance;
+        manifest-absent → today's flow (existing sync tests pass unchanged)
+- [ ] T5 (follow-up) — consume `templateInventory` hashes at sync time to skip the tarball
+        download when nothing changed (today the release tarball is downloaded and the existing
+        three-way hash compare does the touching-only-changed work — same outcome, one download)
 
 ## Verification checklist (T6–T7)
 
@@ -71,9 +75,10 @@ ADR: `docs/adr/0034-platform-release-manifest.md`.
         mf-check pattern): in-image read first, registry resolution otherwise, `--check` runs the
         compat gate and exits 1 on violations; the smoke gate reads + parses the in-image manifest
         and fails the boot gate when the release contract is missing (summary reports `platform:`)
-- [ ] T6 (follow-up) — wire `checkPlatformCompat` into `mf check`'s report as an additive
-        `platform` section (schema change to `MfCheckResultSchema` + handler; the one
-        implementation is already shared)
+- [ ] T6 (follow-up) — run the full `checkPlatformCompat` at the smoke gate (the in-image step
+        today verifies presence + shape; the compat data isn't in the container's workspace), and
+        wire the additive `platform` section into `mf check`'s report (`MfCheckResultSchema` +
+        handler). The one implementation is already shared; both are call-site wiring.
 - [x] T7 — `bos upgrade --check` (dry-run semantics + `process.exit(1)` when
         `updatesAvailable`; schema flag + renderer) + `.github/templates/workflows/ci.yml`
         platform-drift job (`pnpm exec bos upgrade --check`)

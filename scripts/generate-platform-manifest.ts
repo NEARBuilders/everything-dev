@@ -40,10 +40,12 @@ const manifest = composePlatformReleaseManifest({
 
 const distDir = join(configDir, "packages", "everything-dev", "dist");
 mkdirSync(distDir, { recursive: true });
-writeFileSync(
-  join(distDir, "platform-manifest.json"),
-  `${serializePlatformReleaseManifest(manifest)}\n`,
-);
+// Exact serialized bytes — no trailing newline — so the in-image copy and the
+// FastKV value are byte-identical when their inputs agree. The one deliberate
+// input divergence is the compat floor: the publisher-side window
+// (previous release → current) is unknowable inside the image build, so the
+// in-image copy stamps its own version — a floor that only ever fails closed.
+writeFileSync(join(distDir, "platform-manifest.json"), serializePlatformReleaseManifest(manifest));
 console.log(
   `platform release manifest generated: ${manifest.frameworkVersion} (${manifest.templateInventory.length} inventory files)`,
 );

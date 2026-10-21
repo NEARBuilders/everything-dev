@@ -21,14 +21,18 @@ import { computeSriHash } from "./integrity";
 /** The universal image (ADR 0020/0021) — the release manifest's image ref. */
 export const PLATFORM_IMAGE_REF = "ghcr.io/nearbuilders/everything-dev";
 
-export function readEveryPluginVersion(configDir: string): string | undefined {
+function readWorkspacePackageVersion(configDir: string, name: string): string | undefined {
   try {
-    const raw = readFileSync(join(configDir, "packages", "every-plugin", "package.json"), "utf-8");
+    const raw = readFileSync(join(configDir, "packages", name, "package.json"), "utf-8");
     const pkg = JSON.parse(raw) as { version?: unknown };
     return typeof pkg.version === "string" ? pkg.version : undefined;
   } catch {
     return undefined;
   }
+}
+
+export function readEveryPluginVersion(configDir: string): string | undefined {
+  return readWorkspacePackageVersion(configDir, "every-plugin");
 }
 
 export interface PlatformManifestPublishEntry {

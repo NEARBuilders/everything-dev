@@ -29,10 +29,13 @@ describe("applyReleaseRefs", () => {
     );
   });
 
-  it("leaves non-main refs and non-uses text alone", () => {
-    expect(applyReleaseRefs("uses: actions/checkout@v4\n# @main comment", "v2")).toBe(
-      "uses: actions/checkout@v4\n# @main comment",
-    );
+  it("leaves non-main refs, third-party @main refs, and non-uses text alone", () => {
+    expect(
+      applyReleaseRefs(
+        "uses: actions/checkout@main\nuses: some-org/some-action@main\n# @main comment",
+        "v2",
+      ),
+    ).toBe("uses: actions/checkout@main\nuses: some-org/some-action@main\n# @main comment");
   });
 });
 

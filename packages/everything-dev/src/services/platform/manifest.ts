@@ -1,9 +1,11 @@
 /**
  * The platform release manifest (ADR 0034) — one module, the whole release
- * contract: schema, composer, inventory, registry slot, and the compat check.
- * One composer feeds both publish homes (FastKV pointer slot + in-image
- * staging) so their bytes are identical by construction; the image digest is
- * deliberately absent — it derives from the tags at deploy preflight.
+ * contract: schema, composer, inventory, registry slot, resolution, and the
+ * compat check. One composer feeds both publish homes (FastKV pointer slot +
+ * in-image staging); the image digest is deliberately absent — it derives from
+ * the tags at deploy preflight. The homes' one known divergence is the compat
+ * floor: publisher-side (previous release) in FastKV, own version — failing
+ * closed — in the image, which cannot read the registry inside the build.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -135,9 +137,11 @@ export function composePlatformReleaseManifest(
   // an image build cannot see; derivation (`ref@v<version>` → digest) keys off
   // the version tag so both publish homes stay byte-identical without any
   // build-context plumbing.
-  const semver = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(inputs.frameworkVersion.trim());
+  const semver = parseSemver(inputs.frameworkVersion.trim());
   const tags = semver
-    ? [`v${semver[1]}.${semver[2]}.${semver[3]}${semver[4] ? `-${semver[4]}` : ""}`]
+    ? [
+        `v${semver.major}.${semver.minor}.${semver.patch}${semver.prerelease ? `-${semver.prerelease}` : ""}`,
+      ]
     : [];
   return PlatformReleaseManifestSchema.parse({
     schemaVersion: 1,
@@ -160,32 +164,38 @@ export function serializePlatformReleaseManifest(manifest: PlatformReleaseManife
 /**
  * The in-image copy (ADR 0034 pt 1): generated inside the docker build at
  * `packages/everything-dev/dist/platform-manifest.json`. Resolved relative to
- * this module — three levels up from `{src,dist}/services/platform/` is the
- * package root in both source and compiled layouts.
+ * this module — the compiled layout is `<pkg>/dist/services/platform/manifest.mjs`
+ * (two directory levels up = `<pkg>/dist/`), the source layout is
+ * `<pkg>/src/services/platform/manifest.ts` (four levels up = the pnpm parent
+ * dir, then `<pkg>/dist/`). Both candidates are tried; absent or unparsable →
+ * null.
  */
 export function readInImagePlatformManifest(): PlatformReleaseManifest | null {
-  const path = join(
-    fileURLToPath(import.meta.url),
-    "..",
-    "..",
-    "..",
-    "dist",
-    "platform-manifest.json",
-  );
-  try {
-    return PlatformReleaseManifestSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
-  } catch {
-    return null;
+  const moduleFile = fileURLToPath(import.meta.url);
+  const candidates = [
+    join(moduleFile, "..", "..", "platform-manifest.json"),
+    join(moduleFile, "..", "..", "..", "..", "dist", "platform-manifest.json"),
+  ];
+  for (const path of candidates) {
+    try {
+      return PlatformReleaseManifestSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
+    } catch {
+      // try the next layout candidate
+    }
   }
+  return null;
 }
 
-function parseSemver(version: string): { major: number; minor: number; patch: number } | null {
+function parseSemver(
+  version: string,
+): { major: number; minor: number; patch: number; prerelease?: string } | null {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(version.trim());
   if (!match) return null;
   return {
     major: Number(match[1]),
     minor: Number(match[2]),
     patch: Number(match[3]),
+    ...(match[4] ? { prerelease: match[4] } : {}),
   };
 }
 
