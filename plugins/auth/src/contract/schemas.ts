@@ -263,6 +263,22 @@ export const onboardingCodeSummarySchema = z.object({
   createdAt: z.date(),
 });
 
+export const onboardingStatsSchema = z.object({
+  month: z.string(),
+  totals: z.object({
+    redeemed: z.number().int(),
+    newMembers: z.number().int(),
+  }),
+  organizations: z.array(
+    z.object({
+      organizationId: z.string(),
+      organizationName: z.string().nullable(),
+      redeemed: z.number().int(),
+      newMembers: z.number().int(),
+    }),
+  ),
+});
+
 export const daoOutputSchema = z.object({
   daoAccountId: z.string().nullable(),
   daoNetwork: z.enum(["mainnet", "testnet"]).nullable(),

@@ -22,7 +22,25 @@ export function createOnboardingHandlers(
       context,
     }) {
       const onboarding = yield* OnboardingService;
-      return yield* mapDomainError(onboarding.listOnboardingCodes(context, input?.organizationId));
+      return yield* mapDomainError(
+        onboarding.listOnboardingCodes(context, {
+          organizationId: input?.organizationId,
+          eventId: input?.eventId,
+        }),
+      );
+    }),
+
+    getOnboardingStats: builder.getOnboardingStats.use(requireAuth).effect(function* ({
+      input,
+      context,
+    }) {
+      const onboarding = yield* OnboardingService;
+      return yield* mapDomainError(
+        onboarding.getOnboardingStats(context, {
+          month: input?.month,
+          organizationId: input?.organizationId,
+        }),
+      );
     }),
 
     revokeOnboardingCode: builder.revokeOnboardingCode.use(requireAuth).effect(function* ({

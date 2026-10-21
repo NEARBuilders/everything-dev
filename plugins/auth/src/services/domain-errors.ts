@@ -85,6 +85,11 @@ export class NotOrganizer extends Schema.TaggedError<NotOrganizer>()("NotOrganiz
   message: Schema.String,
 }) {}
 
+export class PlatformAdminRequired extends Schema.TaggedError<PlatformAdminRequired>()(
+  "PlatformAdminRequired",
+  { message: Schema.String },
+) {}
+
 export class EventEnded extends Schema.TaggedError<EventEnded>()("EventEnded", {
   message: Schema.String,
 }) {}
@@ -183,6 +188,7 @@ const FAILURE_TAGS = new Set([
   "TeamUpdateFailed",
   "NotOrgMember",
   "NotOrganizer",
+  "PlatformAdminRequired",
   "EventEnded",
   "CodeCreateFailed",
   "CodeNotFound",
@@ -225,6 +231,7 @@ export type AuthFailure =
   | TeamUpdateFailed
   | NotOrgMember
   | NotOrganizer
+  | PlatformAdminRequired
   | EventEnded
   | CodeCreateFailed
   | CodeNotFound
@@ -303,6 +310,11 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
       return new ORPCError("FORBIDDEN", {
         message: error.message,
         data: { action: "manage-onboarding" },
+      });
+    case "PlatformAdminRequired":
+      return new ORPCError("FORBIDDEN", {
+        message: error.message,
+        data: { action: "view-onboarding-stats" },
       });
     case "EventEnded":
       return new ORPCError("BAD_REQUEST", { message: error.message, data: {} });
