@@ -281,4 +281,3 @@ function renderEnvTestFile(groups: SecretGroup[]): string {
 }
 
 export { renderEnvTestFile };
-

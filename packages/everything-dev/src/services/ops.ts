@@ -1,5 +1,4 @@
 import { dirname, resolve } from "node:path";
-import process from "node:process";
 import { Context, Effect, Layer } from "effect";
 import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
 import type { KillResult, LogsResult, StatusResult } from "../contract";
@@ -11,7 +10,6 @@ import { isPidAlive, readRegistry, unregisterPid } from "./processes/registry";
 import { fetchBosConfigFromFastKv } from "./registry/fastkv";
 import { pointerFingerprint } from "./registry/fingerprint";
 import type { ResolutionSession } from "./resolution/session";
-import { openResolution } from "./resolution/session";
 import { getStatus } from "./status";
 import { computeDeployedVersionStatus, type DeployedVersionStatus } from "./version/status";
 

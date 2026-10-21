@@ -454,57 +454,6 @@ export const SmokeResultSchema = z.object({
   error: z.string().optional(),
 });
 
-function parseNearAmount(value: string): number {
-  const cleaned = value.replace(/[\s_,]/g, "");
-  const match = cleaned.match(/^(\d+(?:\.\d+)?)near$/i);
-  if (!match) return NaN;
-  return Number.parseFloat(match[1]!);
-}
-
-const MIN_PUBLISH_ALLOWANCE_NEAR = 0.3;
-
-export const KeyPublishOptionsSchema = z.object({
-  allowance: z
-    .string()
-    .default("1NEAR")
-    .refine(
-      (val) => {
-        const amount = parseNearAmount(val);
-        return !Number.isNaN(amount) && amount >= MIN_PUBLISH_ALLOWANCE_NEAR;
-      },
-      {
-        message: `Allowance must be at least ${MIN_PUBLISH_ALLOWANCE_NEAR} NEAR to cover the transaction cost`,
-      },
-    )
-    .describe("NEAR allowance for the key (default: 1NEAR, min: 0.3NEAR)"),
-
-  env: z
-    .enum(["production", "staging"])
-    .default("production")
-    .describe("Environment: production (default) or staging"),
-
-  registry: z.string().optional(),
-  removeOldKeys: z
-    .boolean()
-    .optional()
-    .describe(
-      "Remove existing publish key(s) without prompting (default: ask on a TTY, defaulting to keep; keep when non-interactive — pass --remove-old-keys to remove)",
-    ),
-});
-
-export const KeyPublishResultSchema = z.object({
-  status: z.enum(["published", "error"]),
-  account: z.string(),
-  network: z.enum(["mainnet", "testnet"]),
-  env: z.enum(["production", "staging"]),
-  contract: z.string(),
-  allowance: z.string(),
-  functionNames: z.array(z.string()),
-  publicKey: z.string().optional(),
-  privateKey: z.string().optional(),
-  error: z.string().optional(),
-});
-
 export const OverrideSectionSchema = z.enum(["ui", "api", "host", "plugins"]);
 
 export const DEFAULT_LOGIN_EXPIRES_IN_SECONDS = 90 * 24 * 60 * 60;
@@ -1043,7 +992,6 @@ export const commandOptionSchemas = {
   rollback: RollbackOptionsSchema,
   deploy: DeployOptionsSchema,
   smoke: SmokeOptionsSchema,
-  keyPublish: KeyPublishOptionsSchema,
   login: LoginOptionsSchema,
   logout: LogoutOptionsSchema,
   init: InitOptionsSchema,
@@ -1107,10 +1055,6 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/smoke" })
     .input(SmokeOptionsSchema)
     .output(SmokeResultSchema),
-  keyPublish: oc
-    .route({ method: "POST", path: "/key/publish" })
-    .input(KeyPublishOptionsSchema)
-    .output(KeyPublishResultSchema),
   login: oc
     .route({ method: "POST", path: "/login" })
     .input(LoginOptionsSchema)
@@ -1191,8 +1135,6 @@ export type RollbackResult = z.infer<typeof RollbackResultSchema>;
 export type DeployOptions = z.infer<typeof DeployOptionsSchema>;
 export type DeployResult = z.infer<typeof DeployResultSchema>;
 export type DeployLegOutcome = z.infer<typeof DeployLegOutcomeSchema>;
-export type KeyPublishOptions = z.infer<typeof KeyPublishOptionsSchema>;
-export type KeyPublishResult = z.infer<typeof KeyPublishResultSchema>;
 export type LoginOptions = z.infer<typeof LoginOptionsSchema>;
 export type LoginResult = z.infer<typeof LoginResultSchema>;
 export type LogoutOptions = z.infer<typeof LogoutOptionsSchema>;
@@ -1334,11 +1276,6 @@ export const cliCommandMeta = {
     commandPath: ["logout"],
     summary: "Revoke the stored CLI session and delete the exported publish key",
     interactive: false,
-  },
-  keyPublish: {
-    commandPath: ["key", "generate"],
-    summary: "Generate a publish access key",
-    interactive: true,
   },
   init: {
     commandPath: ["init"],

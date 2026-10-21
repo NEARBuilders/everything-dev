@@ -79,7 +79,7 @@ export async function resolveSigningStrategy(opts: {
       `Set NEAR_PRIVATE_KEY (or BOS_NEAR_PRIVATE_KEY), store credentials at ` +
       `~/.near-credentials/${opts.network}/${opts.account}.json, or sign with the ` +
       `near-cli-rs keychain (install it, then retry from an interactive terminal). ` +
-      `Generate a publish key with: bos key generate`,
+      `Generate a publish key with: bos login --key`,
   );
 }
 
