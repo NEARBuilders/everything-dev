@@ -186,6 +186,10 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
   const optionsByPlugin = new Map<string, Map<string, RouteOptionsBundle>>();
   const skippedByPlugin = new Map<string, Set<string>>();
   for (const plugin of resolved) {
+    // A plugin with no manifest at all contributes no routes — skip it rather
+    // than crashing SSR composition (same contract as the missing-loader skip
+    // below).
+    if (!plugin.manifest?.routes) continue;
     const optionsById = new Map<string, RouteOptionsBundle>();
     const skipped = new Set<string>();
     await Promise.all(
@@ -220,6 +224,7 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
   const declarations = new Map<MountId, MountDeclaration>();
   const mountByLayoutId = new Map<string, MountId>();
   for (const plugin of ordered) {
+    if (!plugin.manifest?.routes) continue;
     for (const record of plugin.manifest.routes) {
       if (!record.mount) continue;
       const mountId = record.mount as MountId;
@@ -291,6 +296,7 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
   };
 
   for (const plugin of ordered) {
+    if (!plugin.manifest?.routes) continue;
     const optionsById = optionsByPlugin.get(plugin.key)!;
     const fullPathById = new Map<string, string>();
     const mountById = new Map<string, MountId>();
