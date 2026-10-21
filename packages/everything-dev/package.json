@@ -404,6 +404,7 @@
     "glob": "^13.0.6",
     "near-kit": "catalog:",
     "@outlayer/sdk": "catalog:",
+    "@simplewebauthn/browser": "catalog:",
     "pg": "catalog:",
     "tar": "^7.4.3",
     "yaml": "catalog:",

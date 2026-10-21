@@ -254,6 +254,9 @@ catalogs:
     '@scure/base':
       specifier: ^2.2.0
       version: 2.4.0
+    '@simplewebauthn/browser':
+      specifier: ^13.3.0
+      version: 13.3.0
     '@tanstack/ai':
       specifier: 0.61.0
       version: 0.61.0
@@ -863,6 +866,9 @@ importers:
       '@outlayer/sdk':
         specifier: 'catalog:'
         version: 0.1.0-alpha.4
+      '@simplewebauthn/browser':
+        specifier: 'catalog:'
+        version: 13.3.0
       better-near-auth:
         specifier: workspace:^
         version: link:../better-near-auth

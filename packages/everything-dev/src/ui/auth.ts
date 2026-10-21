@@ -1,5 +1,6 @@
 import { apiKeyClient } from "@better-auth/api-key/client";
 import { passkeyClient } from "@better-auth/passkey/client";
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import type { BetterFetch } from "better-auth/client";
@@ -340,6 +341,20 @@ export async function isPasskeyAutofillAvailable(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Aborts any pending passkey ceremony (modal or conditional-mediation).
+ * Targets the same `WebAuthnAbortService` singleton instance
+ * `@better-auth/passkey` resolves, so the abort reaches the request the
+ * browser is holding.
+ */
+export function cancelPasskeyCeremony(): void {
+  WebAuthnAbortService.cancelCeremony();
+}
+
+export function isPasskeyCeremonyAborted(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ERROR_CEREMONY_ABORTED";
 }
 
 export async function createAccountWithPasskey(

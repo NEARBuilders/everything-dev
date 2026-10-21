@@ -20,8 +20,6 @@ export const englishLoginMessages = {
   "auth.login.subtitle": "Welcome back. Pick how you want to sign in.",
   "auth.login.subtitle.stake": "Sign in to stake with a community.",
   "auth.login.language": "Language",
-  "auth.login.passkey.savedLabel": "Saved passkey",
-  "auth.login.passkey.savedPlaceholder": "Choose a saved passkey",
   "auth.login.passkey.pending": "Waiting for passkey…",
   "auth.login.passkey.action": "Sign in with passkey",
   "auth.login.passkey.missingDesktop":
@@ -128,8 +126,6 @@ const spanishLoginMessages = {
   "auth.login.subtitle": "Te damos la bienvenida. Elige cómo quieres iniciar sesión.",
   "auth.login.subtitle.stake": "Inicia sesión para delegar con una comunidad.",
   "auth.login.language": "Idioma",
-  "auth.login.passkey.savedLabel": "Clave de acceso guardada",
-  "auth.login.passkey.savedPlaceholder": "Elige una clave de acceso guardada",
   "auth.login.passkey.pending": "Esperando la clave de acceso…",
   "auth.login.passkey.action": "Iniciar sesión con una clave de acceso",
   "auth.login.passkey.missingDesktop":
@@ -237,8 +233,6 @@ const frenchLoginMessages = {
   "auth.login.subtitle": "Ravi de vous revoir. Choisissez comment vous connecter.",
   "auth.login.subtitle.stake": "Connectez-vous pour déléguer auprès d’une communauté.",
   "auth.login.language": "Langue",
-  "auth.login.passkey.savedLabel": "Clé d’accès enregistrée",
-  "auth.login.passkey.savedPlaceholder": "Choisissez une clé d’accès enregistrée",
   "auth.login.passkey.pending": "En attente de la clé d’accès…",
   "auth.login.passkey.action": "Se connecter avec une clé d’accès",
   "auth.login.passkey.missingDesktop":
@@ -346,8 +340,6 @@ const chineseLoginMessages = {
   "auth.login.subtitle": "欢迎回来。请选择登录方式。",
   "auth.login.subtitle.stake": "登录后即可为社区质押。",
   "auth.login.language": "语言",
-  "auth.login.passkey.savedLabel": "已保存的通行密钥",
-  "auth.login.passkey.savedPlaceholder": "选择已保存的通行密钥",
   "auth.login.passkey.pending": "正在等待通行密钥…",
   "auth.login.passkey.action": "使用通行密钥登录",
   "auth.login.passkey.missingDesktop": "此设备上没有通行密钥？请使用手机或 NEAR 钱包。",

@@ -18,6 +18,7 @@ const harness = vi.hoisted(() => ({
   refreshSessionCache: vi.fn(),
   deviceCode: vi.fn(),
   deviceToken: vi.fn(),
+  cancelPasskeyCeremony: vi.fn(),
 }));
 
 vi.mock("everything-dev/ui/auth", () => ({
@@ -25,7 +26,8 @@ vi.mock("everything-dev/ui/auth", () => ({
   refreshSessionCache: harness.refreshSessionCache,
   createAccountWithPasskey: harness.createAccountWithPasskey,
   signInWithPasskey: harness.signInWithPasskey,
-  isPasskeyAutofillAvailable: async () => false,
+  cancelPasskeyCeremony: harness.cancelPasskeyCeremony,
+  isPasskeyCeremonyAborted: (error: { code?: string }) => error.code === "ERROR_CEREMONY_ABORTED",
   isUnsupportedAuthenticatorError: (error: { code?: string }) =>
     error.code === "PASSKEY_UNSUPPORTED_AUTHENTICATOR",
   getDeviceLinkClientId: () => "test-client",
@@ -92,6 +94,34 @@ describe("login page", () => {
     expect(await screen.findByTestId("login.no-passkey-hint")).toBeTruthy();
     expect(screen.getByTestId("near.signin-button")).toBeTruthy();
     expect(screen.getByTestId("login.device-button")).toBeTruthy();
+  });
+
+  it("does not arm a passkey ceremony or render an autofill field on load", async () => {
+    renderLogin();
+
+    await screen.findByTestId("login.heading");
+    expect(harness.signInWithPasskey).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("login.passkey-autofill")).toBeNull();
+  });
+
+  it("aborts a pending passkey ceremony when choosing the NEAR wallet instead", async () => {
+    harness.signInWithPasskey.mockImplementation(
+      async (
+        _auth: unknown,
+        options?: { onError?: (error: Error & { code?: string }) => void },
+      ) => {
+        options?.onError?.(Object.assign(new Error("aborted"), { code: "ERROR_CEREMONY_ABORTED" }));
+      },
+    );
+    renderLogin();
+
+    await screen.findByTestId("login.heading");
+    fireEvent.click(screen.getByTestId("login.passkey-button"));
+    expect(harness.cancelPasskeyCeremony).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("near.signin-button"));
+    expect(harness.cancelPasskeyCeremony).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("login.no-passkey-hint")).toBeNull();
   });
 
   it("tells visitors coming from staking that signing in lets them stake", async () => {
