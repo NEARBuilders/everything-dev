@@ -10,7 +10,7 @@
 # mirror copies upstream manifests verbatim, so the pinned digests are the
 # upstream ones.
 
-FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS builder
+FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS builder
 WORKDIR /app
 
 # pnpm comes from Corepack — the root package.json `packageManager` field is
@@ -89,7 +89,7 @@ RUN find node_modules -maxdepth 1 -type l ! -exec test -e {} \; -print -delete 2
 # ── Shared runtime base (ADR 0021): hardened user + env both final stages
 # inherit. The probe uses node's built-in fetch — no curl in the runtime
 # layers.
-FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime-base
+FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS runtime-base
 WORKDIR /app
 
 RUN addgroup -g 1001 -S appgroup && adduser -S appuser -u 1001
