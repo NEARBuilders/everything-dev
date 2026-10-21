@@ -315,6 +315,13 @@ export async function buildAndPushImage(input: {
       `Failed to resolve the current git SHA in ${input.configDir} (exit code ${shaResult?.exitCode ?? "unknown"}${detail ? `: ${detail}` : ""})`,
     );
   }
+  // The full HEAD rides a build arg into the in-image platform manifest
+  // (#537) — docker contexts carry no .git for the composer to read.
+  const fullShaResult = await run("git", ["rev-parse", "HEAD"], {
+    cwd: input.configDir,
+    capture: true,
+  });
+  const fullSha = fullShaResult?.exitCode === 0 ? fullShaResult.stdout.trim() : undefined;
 
   const version = readFrameworkVersion(input.configDir);
   const { tags, pushLatest, latestHoldReason, pushRc } = computeImageTags({
@@ -332,7 +339,14 @@ export async function buildAndPushImage(input: {
   );
   await run(
     "docker",
-    ["build", "--target", "runtime", ...buildRefs.flatMap((ref) => ["-t", ref]), "."],
+    [
+      "build",
+      "--target",
+      "runtime",
+      ...(fullSha ? ["--build-arg", `BOS_GIT_SHA=${fullSha}`] : []),
+      ...buildRefs.flatMap((ref) => ["-t", ref]),
+      ".",
+    ],
     { cwd: input.configDir },
   );
 

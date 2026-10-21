@@ -157,7 +157,7 @@ jobs:
           if [ "$PUSH_RC" = "1" ]; then
             REFS+=("$IMAGE:rc")
           fi
-          BUILD_ARGS=()
+          BUILD_ARGS=(--build-arg "BOS_GIT_SHA=$(git rev-parse HEAD)")
           for ref in "${REFS[@]}"; do
             BUILD_ARGS+=(-t "$ref")
           done

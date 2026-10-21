@@ -13,6 +13,13 @@
 FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS builder
 WORKDIR /app
 
+# The git SHA the build's bytes bake into the platform release manifest
+# (#537): docker contexts carry no .git, so the workflow / local deploy
+# train pass it as a build arg; omitted (regression builds) → the field
+# drops from the manifest instead of inventing a value. ARG stays a
+# Dockerfile-stub until this ENV brings it into the script's environment.
+ARG BOS_GIT_SHA
+
 # pnpm comes from Corepack — the root package.json `packageManager` field is
 # the single version source (ADR 0026 §5: the universal image is node-based
 # with corepack pnpm). The download prompt is off because image builds have
@@ -42,7 +49,8 @@ RUN pnpm --filter everything-dev build
 # The platform release manifest is generated in-build (ADR 0034): one
 # composer, two homes — the deploy train publishes the same bytes to the
 # FastKV pointer slot, the image stages them for self-description
-# (`bos platform manifest`).
+# (`bos platform manifest` reads it from the known path).
+ENV BOS_GIT_SHA=$BOS_GIT_SHA
 RUN node --import tsx scripts/generate-platform-manifest.ts
 RUN node --import tsx scripts/resolve-workspace-refs.ts
 

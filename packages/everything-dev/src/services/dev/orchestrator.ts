@@ -5,6 +5,7 @@ import { ShellEnv } from "../../env/project-env";
 import type { RuntimeConfig } from "../../types";
 import { fetchRaw } from "../../utils/http-client";
 import { loadRemoteModule, registerRemote } from "../federation/service";
+import { readInImagePlatformManifest } from "../platform/manifest";
 import { stripAnsi } from "./logs";
 import {
   DevGeneratedEnv,
@@ -149,6 +150,14 @@ interface ServerInput {
   config: RuntimeConfig;
   port?: number;
   env?: Record<string, string>;
+  /** The serving build's identity (#537) — the host remote answers
+   * /.well-known/version with it. */
+  platform?: {
+    frameworkVersion: string;
+    everyPluginVersion?: string;
+    gitSha?: string;
+    image?: { ref: string; tags: string[] };
+  };
 }
 
 const patchConsole = (name: string, callbacks: ProcessCallbacks): (() => void) => {
@@ -328,10 +337,23 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     const hostEnv: Record<string, string> | undefined = hostPort
       ? { PORT: String(hostPort) }
       : undefined;
+    // The serving build's identity (#537): the host remote cannot read the
+    // in-image platform manifest itself (its import.meta.url is a CDN URL),
+    // so the booting process resolves it once and injects it.
+    const manifest = readInImagePlatformManifest();
+    const platform = manifest
+      ? {
+          frameworkVersion: manifest.frameworkVersion,
+          everyPluginVersion: manifest.everyPluginVersion,
+          gitSha: manifest.gitSha,
+          image: manifest.image,
+        }
+      : undefined;
     const serverHandle = hostModule.runServer({
       config: runtimeConfig,
       port: hostPort,
       env: hostEnv,
+      platform,
     });
     yield* Effect.tryPromise({
       try: () => serverHandle.ready,

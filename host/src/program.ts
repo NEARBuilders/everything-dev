@@ -53,7 +53,21 @@ interface CompositionHealth {
  * registers, so "composing" never reaches a response — and if it somehow
  * could, the honest answer is degraded, not ready.
  */
-export const createStartServer = (onReady?: () => void) =>
+/**
+ * The serving build's identity (#537) — the subset of the platform release
+ * manifest a consumer needs to answer "which build is this stack composing
+ * against?" with one request. Injected at boot by the process that loads
+ * this module (the host bundle itself is a federation remote whose
+ * `import.meta.url` is a CDN URL, so it cannot read the in-image file).
+ */
+export interface PlatformBuildInfo {
+  frameworkVersion: string;
+  everyPluginVersion?: string;
+  gitSha?: string;
+  image?: { ref: string; tags: string[] };
+}
+
+export const createStartServer = (onReady?: () => void, platform?: PlatformBuildInfo | null) =>
   Effect.gen(function* () {
     const port = yield* Config.Number("PORT").pipe(Config.withDefault(3000));
     const nodeEnv = yield* Config.String("NODE_ENV").pipe(Config.withDefault("development"));
@@ -137,23 +151,31 @@ export const createStartServer = (onReady?: () => void) =>
       );
     });
 
-    app.get("/.well-known/version", (c: Context<HonoEnv>) =>
-      c.json(
-        Effect.runPromiseWith(effectContext)(
-          Effect.gen(function* () {
-            const state = yield* snapshot.get;
-            const watch = yield* Effect.serviceOption(SnapshotWatch);
-            const lastOutcome = Option.isSome(watch) ? watch.value.lastOutcome : undefined;
-            return {
-              fingerprint: state.config.deploymentFingerprint ?? state.fingerprint,
-              slots: state.pointer ? slotPins(state.pointer as never) : {},
-              ...(lastOutcome !== undefined ? { watch: { lastOutcome } } : {}),
-            };
-          }),
-        ),
-        { headers: { "cache-control": "public, max-age=30" } },
-      ),
-    );
+    app.get("/.well-known/version", async (c: Context<HonoEnv>) => {
+      const payload = await Effect.runPromiseWith(effectContext)(
+        Effect.gen(function* () {
+          const state = yield* snapshot.get;
+          const watch = yield* Effect.serviceOption(SnapshotWatch);
+          const lastOutcome = Option.isSome(watch) ? watch.value.lastOutcome : undefined;
+          return {
+            fingerprint: state.config.deploymentFingerprint ?? state.fingerprint,
+            slots: state.pointer ? slotPins(state.pointer as never) : {},
+            ...(platform
+              ? {
+                  build: {
+                    frameworkVersion: platform.frameworkVersion,
+                    everyPluginVersion: platform.everyPluginVersion,
+                    gitSha: platform.gitSha,
+                    image: platform.image,
+                  },
+                }
+              : {}),
+            ...(lastOutcome !== undefined ? { watch: { lastOutcome } } : {}),
+          };
+        }),
+      );
+      return c.json(payload, { headers: { "cache-control": "public, max-age=30" } });
+    });
 
     app.get("/.well-known/mcp.json", (c: Context<HonoEnv>) => {
       const url = new URL(c.req.url);
@@ -287,6 +309,8 @@ export interface ServerInput {
   env?: Record<string, string>;
   /** Explicit server-scoped cache, primarily for integration fixtures. */
   composeCache?: UiComposeCacheState;
+  /** The serving build's identity (#537) — surfaced on /.well-known/version. */
+  platform?: PlatformBuildInfo;
 }
 
 export interface ServerHandle {
@@ -326,7 +350,7 @@ export const runServer = (input: ServerInput): ServerHandle => {
   let programFiber: Fiber.Fiber<void, Config.ConfigError | HostServerError> | null = null;
 
   const ready = new Promise<void>((resolveReady, rejectReady) => {
-    const serverEffect = createStartServer(() => resolveReady()).pipe(
+    const serverEffect = createStartServer(() => resolveReady(), input.platform).pipe(
       Effect.mapError((cause) => new HostServerError({ cause })),
     );
 

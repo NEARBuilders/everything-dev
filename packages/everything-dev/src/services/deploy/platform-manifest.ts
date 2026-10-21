@@ -48,6 +48,8 @@ export function composePlatformManifestPublishEntry(opts: {
   gateway: string;
   /** The previous release's framework version — the compat floor it implies. */
   previousFrameworkVersion?: string;
+  /** The deploy's repo HEAD — the serving build's identity on the wire. */
+  gitSha?: string;
   imageRef?: string;
 }): PlatformManifestPublishEntry | null {
   const frameworkVersion = readFrameworkVersion(opts.configDir);
@@ -57,6 +59,7 @@ export function composePlatformManifestPublishEntry(opts: {
   const manifest = composePlatformReleaseManifest({
     frameworkVersion,
     everyPluginVersion,
+    ...(opts.gitSha ? { gitSha: opts.gitSha } : {}),
     imageRef: opts.imageRef ?? PLATFORM_IMAGE_REF,
     catalog: readWorkspaceCatalog(opts.configDir),
     templateInventory: computeTemplateInventory(opts.configDir),
