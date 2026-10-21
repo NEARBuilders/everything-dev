@@ -1,5 +1,14 @@
+import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isFrameworkOwnedSyncFile, mergePackageJson, RETIRED_SYNC_FILES } from "../../src/cli/sync";
+import {
+  FRAMEWORK_OWNED_HEADER,
+  frameworkOwnedHeaderComment,
+  isFrameworkOwnedSyncFile,
+  mergePackageJson,
+  RETIRED_SYNC_FILES,
+} from "../../src/cli/sync";
 
 describe("bos sync — framework-owned files", () => {
   it("marks scaffold runtime files as framework-owned", () => {
@@ -68,6 +77,74 @@ describe("bos sync — framework-owned files", () => {
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/auth-types.gen.ts")).toBe(false);
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/service.ts")).toBe(false);
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/other.ts")).toBe(false);
+  });
+});
+
+describe("framework-owned marker guardrail (ADR 0032)", () => {
+  const REPO_ROOT = join(import.meta.dirname, "../../../../");
+
+  function trackedFiles(): string[] {
+    // Tracked + untracked-but-not-ignored: a brand-new file must be scanned
+    // locally too, not only after it is committed (the CI trap).
+    return execSync("git ls-files --cached --others --exclude-standard", {
+      cwd: REPO_ROOT,
+      encoding: "utf-8",
+    })
+      .split("\n")
+      .filter(Boolean);
+  }
+
+  function fileStartsWithMarker(file: string): boolean {
+    try {
+      const content = readFileSync(join(REPO_ROOT, file), "utf-8");
+      return (
+        content.startsWith("/**\n * FRAMEWORK-OWNED") ||
+        content.startsWith("# FRAMEWORK-OWNED") ||
+        content.startsWith("<!--\nFRAMEWORK-OWNED")
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  it("every file carrying the marker is in the ownership inventory", () => {
+    const offenders = trackedFiles().filter(
+      (file) => fileStartsWithMarker(file) && !isFrameworkOwnedSyncFile(file),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("no stale warning headers remain in template or source files", () => {
+    const staleNeedle = ["BE CAREFUL", "MODIFYING"].join(" ");
+    const offenders = trackedFiles().filter((file) => {
+      // Dated records — historical ADRs and plans may quote the retired
+      // header verbatim (the same exclusion docs-link-check applies to
+      // ADR bodies), and CHANGELOG.md is historical by convention.
+      if (
+        file.endsWith("CHANGELOG.md") ||
+        file.startsWith("docs/plans/") ||
+        file.startsWith("docs/adr/")
+      )
+        return false;
+      try {
+        return readFileSync(join(REPO_ROOT, file), "utf-8").includes(staleNeedle);
+      } catch {
+        return false;
+      }
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("the canonical header text is defined once in ownership.ts", () => {
+    const ownership = readFileSync(
+      join(REPO_ROOT, "packages/everything-dev/src/services/scaffold/ownership.ts"),
+      "utf-8",
+    );
+    for (const line of FRAMEWORK_OWNED_HEADER.split("\n")) {
+      expect(ownership).toContain(line);
+      expect(frameworkOwnedHeaderComment("block")).toContain(line);
+      expect(frameworkOwnedHeaderComment("hash")).toContain(line);
+    }
   });
 });
 

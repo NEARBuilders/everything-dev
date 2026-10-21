@@ -1,3 +1,9 @@
+/**
+ * FRAMEWORK-OWNED — reconciled from the parent template by `bos sync` / `bos upgrade`.
+ * Local edits are allowed: on the next sync the template version wins and your copy
+ * is backed up under `.bos/sync-backup/`. To make a change permanent, file an issue:
+ * https://github.com/NEARBuilders/everything-dev/issues
+ */
 import { Context, Effect, Layer } from "effect";
 import { PluginIdTag } from "every-plugin";
 import { getMigrationStorage, pluginMigrationSlug } from "everything-dev/db";

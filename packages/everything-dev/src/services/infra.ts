@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RuntimeConfig } from "../types";
+import { frameworkOwnedHeaderComment } from "./scaffold/ownership";
 
 const POSTGRES_USER = "everythingdev";
 const POSTGRES_PASSWORD = "everythingdev";
@@ -249,11 +250,19 @@ function renderEnvFile(
   const redisMap = new Map(
     buildConventionalRedis(allSecrets).map((entry) => [entry.secret, entry]),
   );
-  const lines: string[] = [
-    "# Generated from configured bos secrets",
-    "# Update values as needed for your local environment",
-    "",
-  ];
+  const lines: string[] = options.forExample
+    ? [
+        ...frameworkOwnedHeaderComment("hash").trimEnd().split("\n"),
+        "",
+        "# Generated from configured bos secrets",
+        "# Update values as needed for your local environment",
+        "",
+      ]
+    : [
+        "# Generated from configured bos secrets",
+        "# Update values as needed for your local environment",
+        "",
+      ];
 
   for (const group of rendered) {
     lines.push(`# ${group.section}`);

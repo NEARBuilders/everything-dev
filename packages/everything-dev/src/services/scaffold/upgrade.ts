@@ -1162,6 +1162,7 @@ async function runMigrationPhase(
   projectDir: string,
   options: UpgradeOptions,
   parentSource: ExtendedRootSource,
+  phaseOptions: { templateSync: boolean },
 ): Promise<UpgradeResult> {
   const timings: PhaseTiming[] = [];
 
@@ -1174,7 +1175,10 @@ async function runMigrationPhase(
 
   let syncResult: UpgradeResult["sync"];
   let addedPlugins: string[] = [];
-  if (!options.noSync && parentSource.extendsChain.length > 0) {
+  // Same-version upgrades never touch framework-owned files (ADR 0032) — the
+  // caller decides via templateSync: false. `--no-sync` still opts out of a
+  // version-change sync.
+  if (phaseOptions.templateSync && !options.noSync && parentSource.extendsChain.length > 0) {
     addedPlugins = await timePhase(timings, "discover parent plugins", async () => {
       if (options.dryRun) return [];
       return addSelectedParentPlugins(projectDir);
@@ -1184,7 +1188,6 @@ async function runMigrationPhase(
       syncTemplate(projectDir, {
         dryRun: false,
         noInstall: true,
-        json: false,
       }),
     );
   }
@@ -1350,7 +1353,7 @@ export async function upgradeTemplate(
   }
 
   if (options.migrationsOnly) {
-    return await runMigrationPhase(projectDir, options, parentSource);
+    return await runMigrationPhase(projectDir, options, parentSource, { templateSync: true });
   }
 
   // Phase 1: apply package updates, install, then re-exec migrations from the new package
@@ -1436,8 +1439,12 @@ export async function upgradeTemplate(
 
   // No framework version change: run migrations inline (same-package, no re-exec needed)
   // runMigrationPhase handles types gen internally — no separate runTypesGen call needed here.
+  // ADR 0032: template sync rides the framework version delta — with no delta the
+  // framework-owned files are never reconciled (`bos sync` pulls drift explicitly).
 
-  const migrationResult = await runMigrationPhase(projectDir, options, parentSource);
+  const migrationResult = await runMigrationPhase(projectDir, options, parentSource, {
+    templateSync: hasFrameworkUpdates,
+  });
   const mainPkg = packages.find((p) => p.name === "everything-dev");
   const changelogUrl =
     mainPkg?.from && mainPkg.from !== mainPkg.to

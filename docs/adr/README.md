@@ -34,17 +34,19 @@ Format: context → decision → consequences, one file per decision.
 | [0026](./0026-pnpm-workspace-node-runtime-v2.md) | pnpm workspace, node runtime — one toolchain for parent and children (v2) | Accepted |
 | [0030](./0030-published-source-archives.md) | Published source archives — bos:// byte-sourcing for `bos import` | Accepted |
 | [0031](./0031-package-shape.md) | Package shape — contract → handlers → services, CLI as presentation | Accepted |
+| [0032](./0032-framework-owned-files.md) | Framework-owned files — inventory, marker, and the upstream-change protocol | Accepted |
 
 
 Skipped numbers: 0006 exists; there are no gaps otherwise. 0015–0018 were
 renumbered from duplicate 0007/0011/0012/0013 numbers on 2026-09-26 — the
 original numbers were accidentally reused by dev-session efforts; the
-low-reference file in each pair moved (see git history).
+low-reference file in each pair moved (see git history). 0029 (agent surface
+split) was added on a side branch that never merged to main — do not reuse it.
 
 ## Number assignment discipline
 
 - Take the next free number (`ls docs/adr/ | sort -n | tail -1`, then +1 —
-  next free is **0026**). Never reuse a number, even for a rejected ADR.
+  next free is **0033**). Never reuse a number, even for a rejected ADR.
 - When citing an ADR in code, plans, changesets, or AGENTS.md, cite the
   number **with the filename** if the context could be ambiguous.
 - Superseded ADRs stay in place with a `Superseded by` status link to the
