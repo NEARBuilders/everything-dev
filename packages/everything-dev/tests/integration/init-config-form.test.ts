@@ -47,8 +47,13 @@ describe("commented bos.app.ts scaffold", () => {
     expect(source).toContain("// Local UI workspace override.");
     expect(source).toContain("// Attached plugins, keyed by registry key.");
     expect(source).toContain("// Authoring-only: the starter level");
-    expect(source).toContain(`"extends": "bos://base.near/base"`);
-    expect(source).toContain(`"starter": "simple"`);
+    expect(source).toContain(`extends: "bos://base.near/base"`);
+    expect(source).toContain(`starter: "simple"`);
+  });
+
+  it("emits biome-clean unquoted keys so children pass the format check verbatim (#518)", () => {
+    const source = serializeAppDescriptorSource(SAMPLE_INPUT);
+    expect(source).not.toMatch(/^\s*"/m);
   });
 
   it("round-trips through loadAppDescriptorConfig", async () => {

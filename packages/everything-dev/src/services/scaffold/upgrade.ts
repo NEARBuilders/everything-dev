@@ -1191,14 +1191,23 @@ export async function rewriteLegacyDistImports(projectDir: string): Promise<stri
     nodir: true,
     dot: false,
     absolute: false,
-    ignore: ["node_modules/**", "dist/**"],
+    ignore: ["**/node_modules/**", "**/dist/**"],
   });
 
   const migrated: string[] = [];
 
   for (const file of files) {
     const filePath = join(projectDir, file);
-    const original = readFileSync(filePath, "utf-8");
+    // `nodir` does not catch a symlink that points at a directory (pnpm's
+    // store layout produces them, e.g. ui/node_modules/tippy.js) — stat
+    // through the link and skip anything that is not a readable file (#518).
+    let original: string;
+    try {
+      if (!statSync(filePath).isFile()) continue;
+      original = readFileSync(filePath, "utf-8");
+    } catch {
+      continue;
+    }
     let next = original;
 
     for (const [from, to] of LEGACY_DIST_IMPORT_REWRITES) {

@@ -13,6 +13,7 @@ import {
   resolveExtendsRef,
 } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
+import { readWorkspaceCatalog } from "../workspace/catalog";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import { findWorkspaceRoot } from "../workspace/workspace";
 import {
@@ -250,6 +251,44 @@ export function mergePackageJson(
   return merged;
 }
 
+/**
+ * Child-shape normalization for every manifest sync writes (#521): the parent
+ * repo's own root manifest uses `workspace:^` specifiers, which only resolve
+ * where the framework packages are vendored workspace members. A child has no
+ * such members — any `workspace:` specifier that lands in a child manifest
+ * breaks the next `pnpm install --frozen-lockfile`. Runs on the merged (or
+ * raw-template) object before the bytes are written, so both the `updated`
+ * and `conflicted` outcomes land in child shape. A `workspace:` specifier
+ * without a catalog entry is left alone — there is no version to pin.
+ */
+export function normalizeChildManifest(pkg: PackageJson, catalog: Record<string, string>): boolean {
+  let modified = false;
+
+  for (const fieldName of ["dependencies", "devDependencies", "peerDependencies"] as const) {
+    const field = pkg[fieldName] as Record<string, string> | undefined;
+    if (!field) continue;
+    for (const [name, specifier] of Object.entries(field)) {
+      if (specifier.startsWith("workspace:") && catalog[name]) {
+        field[name] = "catalog:";
+        modified = true;
+      }
+    }
+  }
+
+  const dependencies = pkg.dependencies as Record<string, string> | undefined;
+  const devDependencies = pkg.devDependencies as Record<string, string> | undefined;
+  if (dependencies && devDependencies) {
+    for (const name of Object.keys(devDependencies)) {
+      if (name in dependencies) {
+        delete devDependencies[name];
+        modified = true;
+      }
+    }
+  }
+
+  return modified;
+}
+
 function toSourcePath(sourceDir: string, destPath: string): string | null {
   if (destPath.startsWith(".github/")) {
     const templatePath = destPath.replace(/^\.github\//, ".github/templates/");
@@ -329,13 +368,19 @@ function buildSyncedFileContent(
   if (filePath.endsWith("package.json")) {
     const localContent = existsSync(dest) ? readFileSync(dest, "utf-8") : null;
     const templateContent = readFileSync(src, "utf-8");
+    const catalog = readWorkspaceCatalog(findWorkspaceRoot(projectDir)?.dir ?? projectDir);
 
     if (localContent) {
       const local = JSON.parse(localContent) as Record<string, unknown>;
       const template = JSON.parse(templateContent) as Record<string, unknown>;
       const merged = mergePackageJson(destPath, local, template, childScripts);
+      normalizeChildManifest(merged, catalog);
       return `${JSON.stringify(merged, null, 2)}\n`;
     }
+
+    const template = JSON.parse(templateContent) as Record<string, unknown>;
+    normalizeChildManifest(template, catalog);
+    return `${JSON.stringify(template, null, 2)}\n`;
   }
 
   const raw = readFileSync(src);

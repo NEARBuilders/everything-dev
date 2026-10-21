@@ -13,7 +13,15 @@ vi.mock("../../src/infra/materializer", async () => {
 });
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -344,5 +352,82 @@ describe("syncTemplate", () => {
     const finalPackageJson = readFileSync(packageJsonPath, "utf-8");
 
     expect(snapshot?.files["package.json"]).toBe(fileHash(finalPackageJson));
+  });
+
+  it("normalizes the parent's workspace:^ manifest into child shape on write (#521)", async () => {
+    const projectDir = await scaffoldProject(["ui", "api"], []);
+    tempDirs.push(projectDir);
+
+    const parentFixture = mkdtempSync(join(tmpdir(), "bos-sync-parent-fixture-"));
+    tempDirs.push(parentFixture);
+    writeFileSync(
+      join(parentFixture, "bos.config.json"),
+      `${JSON.stringify({ account: "dev.everything.near", domain: "everything.dev" }, null, 2)}\n`,
+    );
+    writeFileSync(
+      join(parentFixture, "pnpm-workspace.yaml"),
+      [
+        "packages:",
+        "  - packages/*",
+        "catalog:",
+        "  everything-dev: 2.0.0-rc.15",
+        "  every-plugin: 3.0.0-rc.10",
+        '  "@electric-sql/pglite": 0.10.0',
+        "",
+      ].join("\n"),
+    );
+    // The parent repo's own root manifest: workspace:^ framework deps (only
+    // resolvable where the packages are vendored members) and a runtime dep
+    // the child historically held in devDependencies.
+    const parentManifest = {
+      name: "monorepo",
+      private: true,
+      dependencies: {
+        "everything-dev": "workspace:^",
+        "every-plugin": "workspace:^",
+        "@electric-sql/pglite": "catalog:",
+        "extra-parent-dep": "1.0.0",
+      },
+      devDependencies: { "@electric-sql/pglite": "0.9.0" },
+    };
+    writeFileSync(
+      join(parentFixture, "package.json"),
+      `${JSON.stringify(parentManifest, null, 2)}\n`,
+    );
+    // The parent's workspace-member manifests are where workspace:^ actually
+    // reaches children — the root manifest is re-personalized post-sync, but
+    // api/ui manifests are written through the sync merge verbatim.
+    for (const [member, deps] of [
+      ["api", { "every-plugin": "workspace:^", "everything-dev": "workspace:^" }],
+      ["ui", { "everything-dev": "workspace:^", "every-plugin": "workspace:^" }],
+    ] as const) {
+      mkdirSync(join(parentFixture, member), { recursive: true });
+      writeFileSync(
+        join(parentFixture, member, "package.json"),
+        `${JSON.stringify({ name: member, dependencies: deps }, null, 2)}\n`,
+      );
+    }
+
+    initSourceModule.resolveSourceDir.mockResolvedValue({
+      sourceDir: parentFixture,
+      parentConfig: { account: "dev.everything.near", domain: "everything.dev" } as never,
+      cleanup: async () => {},
+    });
+
+    const result = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+
+    expect(result.status).toBe("synced");
+
+    const manifests = ["package.json", "api/package.json", "ui/package.json"];
+    for (const manifest of manifests) {
+      const content = readFileSync(join(projectDir, manifest), "utf-8");
+      expect(content, manifest).not.toContain("workspace:");
+    }
+
+    const root = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf-8")) as {
+      dependencies?: Record<string, string>;
+    };
+    expect(root.dependencies?.["everything-dev"]).toBe("catalog:");
+    expect(root.dependencies?.["every-plugin"]).toBe("catalog:");
   });
 });
