@@ -1,11 +1,4 @@
-import {
-  cpSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -23,7 +16,12 @@ const CONFIG = {
   account: "test.near",
   domain: "test.dev",
   app: {
-    host: { name: "host", url: "http://localhost:3000", entry: "./src/program.ts", source: "local" },
+    host: {
+      name: "host",
+      url: "http://localhost:3000",
+      entry: "./src/program.ts",
+      source: "local",
+    },
     ui: { name: "ui", url: "http://localhost:3003", entry: "./src/entry.tsx", source: "local" },
     api: { name: "api", url: "http://localhost:3001", entry: "./src/index.ts", source: "local" },
   },
@@ -34,7 +32,12 @@ function buildRuntimeConfig(uiLocalPath: string): RuntimeConfig {
     env: "development",
     account: "test.near",
     networkId: "testnet",
-    host: { name: "host", url: "http://localhost:3000", entry: "./src/program.ts", source: "local" },
+    host: {
+      name: "host",
+      url: "http://localhost:3000",
+      entry: "./src/program.ts",
+      source: "local",
+    },
     ui: {
       name: "ui",
       url: "http://localhost:3003",
@@ -107,5 +110,37 @@ describe("generateCodeArtifacts (types-gen hermetic resolution — #536)", () =>
       forceRouteTree: true,
     });
     expect(routeTree()).toContain("_public/extra");
+  });
+
+  it("a cold tree and a warm tree generate byte-identical artifacts (hermetic resolution)", async () => {
+    const resolvedConfigPath = getResolvedConfigPath(projectDir);
+    rmSync(resolvedConfigPath, { force: true });
+    rmSync(join(uiDir, "src/routeTree.gen.ts"), { force: true });
+
+    await generateCodeArtifacts(projectDir, CONFIG, {
+      env: "development",
+      extendsChain: ["bos://parent.near/app"],
+      runtimeConfig: buildRuntimeConfig(uiDir),
+    });
+    const coldResolved = JSON.parse(readFileSync(resolvedConfigPath, "utf-8")) as {
+      _resolved: Record<string, unknown>;
+    };
+    const coldRouteTree = routeTree();
+
+    await generateCodeArtifacts(projectDir, CONFIG, {
+      env: "development",
+      extendsChain: ["bos://parent.near/app"],
+      runtimeConfig: buildRuntimeConfig(uiDir),
+    });
+    const warmResolved = JSON.parse(readFileSync(resolvedConfigPath, "utf-8")) as {
+      _resolved: Record<string, unknown>;
+    };
+    // resolvedAt is run-scoped metadata; everything else is byte-stable
+    expect({ ...warmResolved._resolved, resolvedAt: undefined }).toEqual({
+      ...coldResolved._resolved,
+      resolvedAt: undefined,
+    });
+    expect(warmResolved).toEqual({ ...coldResolved, _resolved: warmResolved._resolved });
+    expect(routeTree()).toBe(coldRouteTree);
   });
 });

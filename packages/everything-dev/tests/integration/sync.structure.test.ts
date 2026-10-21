@@ -16,9 +16,9 @@ import {
   FRAMEWORK_OWNED_SYNC_FILES,
   frameworkOwnedHeaderComment,
   isFrameworkOwnedSyncFile,
-  mergePackageJson,
   spliceChildOwnedBlock,
-} from "../../src/services/scaffold/sync";
+} from "../../src/services/scaffold/ownership";
+import { mergePackageJson } from "../../src/services/scaffold/sync";
 
 describe("bos sync — framework-owned files", () => {
   it("marks scaffold runtime files as framework-owned", () => {
@@ -409,6 +409,16 @@ describe("child-owned block protocol (#538)", () => {
     expect(spliced).toContain('variables: { domain: "citynode.app" },');
     expect(spliced).toContain("/* template */");
     expect(spliced).not.toContain("variables: {}");
+  });
+
+  it("spliceChildOwnedBlock returns the template verbatim when it carries no markers", () => {
+    const template = "export default { config: { variables: {} } };";
+    expect(spliceChildOwnedBlock(template, 'variables: { domain: "x" },')).toBe(template);
+  });
+
+  it("an empty marked span extracts to null (nothing child-authored)", () => {
+    const local = ["// child-owned-start", "// child-owned-end", ""].join("\n");
+    expect(extractChildOwnedBlock(local)).toBeNull();
   });
 
   it("extract→splice round-trips to the same span (byte-stable across syncs)", () => {
