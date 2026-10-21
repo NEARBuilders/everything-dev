@@ -348,7 +348,6 @@ export const RailwayCiSchema = z.object({
 export type RailwayCi = z.infer<typeof RailwayCiSchema>;
 
 export const CiConfigSchema = z.object({
-  image: z.string().optional(),
   railway: RailwayCiSchema.optional(),
 });
 export type CiConfig = z.infer<typeof CiConfigSchema>;

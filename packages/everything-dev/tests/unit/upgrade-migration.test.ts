@@ -9,12 +9,23 @@ import {
   upgradeTemplate,
 } from "../../src/cli/upgrade";
 import * as initSourceModule from "../../src/services/resolution/init-source";
+import * as sessionModule from "../../src/services/resolution/session";
 import * as scaffoldInitModule from "../../src/services/scaffold/init";
 import * as syncModule from "../../src/services/scaffold/sync";
 import * as sharedDepsModule from "../../src/services/workspace/shared-deps";
 
 describe("upgrade bos config migration", () => {
   const tempDirs: string[] = [];
+
+  beforeEach(() => {
+    // upgradeTemplate's shared-deps phase opens a resolution session for the
+    // project's own config; the extends walk must not reach for the real
+    // registry — the syncResolvedSharedDeps consumer is mocked and only
+    // needs `.config`.
+    vi.spyOn(sessionModule, "openResolution").mockResolvedValue({
+      config: { account: "test.near", domain: "test.dev" },
+    } as never);
+  });
 
   afterEach(() => {
     vi.restoreAllMocks();

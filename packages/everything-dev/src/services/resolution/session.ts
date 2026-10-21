@@ -34,6 +34,7 @@ import {
 import type { BosEnv } from "./merge";
 import { mergeBosConfigWithExtends, resolveExtendsRef } from "./merge";
 import { buildRuntimeConfig, buildRuntimePluginsForConfig } from "./runtime";
+import { collectUnknownKeys } from "./unknown-keys";
 
 export interface ResolutionRequest {
   cwd?: string;
@@ -110,6 +111,9 @@ interface SessionParts {
   path: string | null;
   chain: string[];
   rawConfig: BosConfigInput | null;
+  /** Authored-leaf keys the schema strips silently (retired or mistyped) —
+   * `bos deploy` fails on these (the lossless parse seam). */
+  unknownAuthoredKeys?: string[];
   catalog: Record<string, string> | null;
   repository: string | undefined;
   env: BosEnv;
@@ -299,6 +303,7 @@ export class ResolutionSession {
   readonly path: string | null;
   readonly chain: readonly string[];
   readonly rawConfig: BosConfigInput | null;
+  readonly unknownAuthoredKeys: readonly string[];
   readonly catalog: Record<string, string> | null;
   readonly repository: string | undefined;
 
@@ -312,6 +317,7 @@ export class ResolutionSession {
     this.path = parts.path;
     this.chain = parts.chain;
     this.rawConfig = parts.rawConfig;
+    this.unknownAuthoredKeys = parts.unknownAuthoredKeys ?? [];
     this.catalog = parts.catalog;
     this.repository = parts.repository;
     this.#env = parts.env;
@@ -332,6 +338,7 @@ export class ResolutionSession {
       path: parts.source?.path ?? null,
       chain: parts.source?.extended ?? [],
       rawConfig: null,
+      unknownAuthoredKeys: [],
       catalog: null,
       repository: undefined,
       env: defaultConfigEnv(),
@@ -415,17 +422,22 @@ export async function openResolution(
         });
 
         let overlayMerged = mergedRaw;
+        let devOverlay: Record<string, unknown> | undefined;
         if (env === "development" && !dispatch.remote) {
           const overlayPath = join(dirname(dispatch.entry), DEV_OVERLAY_FILENAME);
           if ((await resolvedIo.readFileOrNull(overlayPath)) !== null) {
-            const overlay = parseDevOverlayModule(
+            devOverlay = parseDevOverlayModule(
               await resolvedIo.importModule(overlayPath),
               overlayPath,
             );
-            overlayMerged = applyDevOverlay(mergedRaw, overlay);
+            overlayMerged = applyDevOverlay(mergedRaw, devOverlay);
           }
         }
 
+        const unknownAuthoredKeys = [
+          ...collectUnknownKeys(rawConfig ?? null, BosConfigSchema),
+          ...(devOverlay ? collectUnknownKeys(devOverlay, BosConfigSchema) : []),
+        ];
         const config = await resolveConfigComposableEntries(
           BosConfigSchema.parse(overlayMerged),
           dispatch.baseDir,
@@ -449,6 +461,7 @@ export async function openResolution(
           path: dispatch.path,
           chain,
           rawConfig: rawConfig ?? null,
+          unknownAuthoredKeys,
           catalog: collectCatalogs ? Object.assign({}, ...[...catalogs].reverse()) : null,
           repository,
         } satisfies Omit<SessionParts, "env" | "warnings">;

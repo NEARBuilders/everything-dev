@@ -216,6 +216,12 @@ describe("an aborted deploy train is a no-op (ticket 05)", () => {
       const inputUrl =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const url = new URL(inputUrl);
+      if (url.hostname.endsWith("fastnear.com")) {
+        // Registry reads degrade by design: a missing config reads as "first
+        // publish", a failed manifest read skips the manifest leg, and empty
+        // history means no rollback base.
+        return Promise.resolve(new Response(null, { status: 404 }));
+      }
       if (url.origin === "https://cdn.example.test") {
         return originalFetch(new URL(`${url.pathname}${url.search}`, storage.origin), init);
       }
@@ -526,6 +532,12 @@ describe("a pipelined folder-form plugin ui upload started mid-build", () => {
       const inputUrl =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const url = new URL(inputUrl);
+      if (url.hostname.endsWith("fastnear.com")) {
+        // Registry reads degrade by design: a missing config reads as "first
+        // publish", a failed manifest read skips the manifest leg, and empty
+        // history means no rollback base.
+        return Promise.resolve(new Response(null, { status: 404 }));
+      }
       if (url.origin === "https://cdn.example.test") {
         return originalFetch(new URL(`${url.pathname}${url.search}`, storage.origin), init);
       }

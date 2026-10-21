@@ -37,7 +37,7 @@ One of the post-publish stages of `bos deploy` — `image` (build/push or pin th
 _Avoid_: stage (dev/build/upload/publish are train stages, not legs), step
 
 **Runtime tier**:
-Whether the deploy train owns its runtime image — `root` (`ci.image` configured or a Dockerfile at the config root; the train can produce a digest and must pin Railway to it) or `child` (inherits the platform's universal image per ADR 0020/0021; no image bytes to build, pin, or boot). One function resolves it; the image, smoke, and Railway gates all consume it.
+Whether the deploy train owns its runtime image — `root` (a Dockerfile at the config root or `BOS_IMAGE`; the train can produce a digest and must pin Railway to it) or `child` (inherits the platform's universal image per ADR 0020/0021; its image ref derives from the platform release manifest — no image bytes to build, pin, or boot). One function resolves it; the image, smoke, and Railway gates all consume it.
 _Avoid_: root vs consumer (the account naming, not the image-ownership question), tenant tier
 
 **Platform release manifest**:
@@ -45,7 +45,7 @@ The machine-readable contract of one framework release (ADR 0034): framework + e
 _Avoid_: version manifest (that's the per-workspace deploy pin), plugin manifest (the per-plugin bundle metadata), release notes
 
 **Derived pin**:
-The child's single authored `platform: "<framework-version>"` field in `bos.app.ts` — everything else (catalog entries, `ci.image` as `ref@digest`, the release-scoped sync source, compat verification) derives from the resolved manifest, so no hand-correlated pin pairs remain. Exact in v1: no ranges; absent means latest via extends.
+The child's single authored `platform: "<framework-version>"` field in `bos.app.ts` — everything else (catalog entries, the deploy-time image ref `ref@v<version>` with its registry digest, the release-scoped sync source, compat verification) derives from the resolved manifest, so no hand-correlated pin pairs remain. Exact in v1: no ranges; absent means latest via extends. The old `ci.image` hand-pin is removed — a deploy fails fast on it.
 _Avoid_: platform version (ambiguous with the manifest's own `frameworkVersion`), image pin (the digest is derived, not authored), version bump
 
 ## Organization access

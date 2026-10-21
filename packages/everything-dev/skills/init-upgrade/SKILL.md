@@ -186,7 +186,7 @@ export default App({
 });
 ```
 
-Everything else derives from the resolved **platform release manifest** (published to FastKV at `apps/<root-account>/<root-gateway>/platform.json` beside the config, and staged in-image): the release catalog (what `bos upgrade` bumps from), the image ref + version tag (`ci.image` derives as `ref@v<version>` — never hand-pinned), the release-scoped sync source, and the compat contract (strict singletons must match the release's `sharedDeps`; the child's framework version must sit inside the release's compat window).
+Everything else derives from the resolved **platform release manifest** (published to FastKV at `apps/<root-account>/<root-gateway>/platform.json` beside the config, and staged in-image): the release catalog (what `bos upgrade` bumps from), the image ref + version tag (`ref@v<version>` — the retired `ci.image` fails the deploy with a migration pointer), the release-scoped sync source, and the compat contract (strict singletons must match the release's `sharedDeps`; the child's framework version must sit inside the release's compat window).
 
 Rules:
 - The pin is **exact** — no ranges. Resolution picks one manifest.

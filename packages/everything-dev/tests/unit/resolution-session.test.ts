@@ -121,6 +121,42 @@ describe("openResolution", () => {
     expect(session?.chain).toEqual([path]);
     expect(session?.rawConfig).toEqual(leafConfig);
     expect(session?.runtime?.env).toBe("development");
+    expect(session?.unknownAuthoredKeys).toEqual([]);
+  });
+
+  it("surfaces the authored leaf's schema-stripped keys as unknownAuthoredKeys", async () => {
+    const path = "/project/bos.config.json";
+    const session = await openResolution(
+      { path },
+      memoryIo(
+        {
+          [path]: JSON.stringify({
+            ...leafConfig,
+            ci: { image: "ghcr.io/acme/app:sha-abc", railway: { service: "app" } },
+            acount: "typo.near",
+          }),
+        },
+        {},
+      ),
+    );
+
+    expect(session?.unknownAuthoredKeys).toEqual(["ci.image", "acount"]);
+    expect(session?.config.ci?.railway?.service).toBe("app");
+  });
+
+  it("flags unknown keys on the authored leaf only — a parent's stripped keys are not the child's", async () => {
+    const session = await openResolution(
+      { bosUrl: CHILD_REF },
+      memoryIo(
+        {},
+        {
+          [CHILD_REF]: remoteChainChild,
+          [PARENT_REF]: { ...remoteChainParent, acount: "typo.near" },
+        },
+      ),
+    );
+
+    expect(session?.unknownAuthoredKeys).toEqual([]);
   });
 
   it("resolves a bos:// chain of two: chain entry-first, merged child-wins, rawConfig is the opened leaf", async () => {

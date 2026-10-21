@@ -4,11 +4,13 @@ name: Consumer Deploy
 # repo. The caller owns triggers, permissions policy, and secrets (pass
 # `secrets: inherit` or map them explicitly). Runs the child's deploy command
 # (`pnpm run bos deploy`) from `working_directory`. Legs are tier-aware: a
-# child runtime (no `ci.image`, no Dockerfile) inherits the root's universal
-# image, so the image and smoke legs soft-skip; the Railway leg redeploys
-# without a digest when `RAILWAY_TOKEN` + `ci.railway.service` are set, and
-# soft-skips otherwise. The deploy exits 0 whenever the config publishes and
-# no leg failed — `RAILWAY_TOKEN` is optional.
+# child runtime (no Dockerfile) inherits the root's universal image — its
+# image ref derives from the platform release manifest (`platform` pin,
+# ADR 0034), the Railway leg repoints the service source to that pin and
+# redeploys, and the smoke gate boots the pinned digest when `smoke: true`.
+# A root runtime (Dockerfile or BOS_IMAGE) builds/pushes and pins the digest.
+# The deploy exits 0 whenever the config publishes and no leg failed —
+# `RAILWAY_TOKEN` is optional.
 
 on:
   workflow_call:
@@ -20,6 +22,11 @@ on:
         default: .
       verbose:
         description: Show full build output instead of clean summary
+        required: false
+        type: boolean
+        default: false
+      smoke:
+        description: Boot-gate the pinned image against the published config before Railway
         required: false
         type: boolean
         default: false
@@ -78,6 +85,6 @@ jobs:
       - name: Install Railway CLI
         run: npm i -g @railway/cli@^5
 
-      - name: Deploy (preflight → build → upload → publish → image → Railway)
+      - name: Deploy (preflight → build → upload → publish → image → smoke → Railway)
         timeout-minutes: 35
-        run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}
+        run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}${{ inputs.smoke == true && ' --smoke' || '' }}
