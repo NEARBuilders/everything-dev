@@ -15,9 +15,10 @@ import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegat
 import { submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
-import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
+import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKeyOrNull } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { mergeAuthoredOverPublished } from "../resolution/merge";
+import { composePlatformManifestPublishEntry, type PlatformManifestPublishEntry } from "./platform-manifest";
 import {
   type BuildTargetsDeps,
   type BuildTargetsInput,
@@ -729,13 +730,41 @@ export async function runPublishTrain(
     [registryKey]: JSON.stringify(publishPayload),
   };
   const manifestKey = `apps/${account}/${gateway}/manifests/${publishedAt.replace(/[:.]/g, "-")}.json`;
+  // ADR 0034: the platform release manifest rides the same atomic write —
+  // framework-rooted production build trains only (children and config-only
+  // publishes publish nothing; the compat floor is the previous release).
+  let platformManifest: PlatformManifestPublishEntry | null = null;
+  if (!isStaging && input.build) {
+    const previous = await fetchRegistryKeyOrNull<{ frameworkVersion?: string }>(
+      account,
+      gateway,
+      "platform.json",
+    );
+    platformManifest = composePlatformManifestPublishEntry({
+      configDir,
+      account,
+      gateway,
+      previousFrameworkVersion: previous?.frameworkVersion,
+    });
+  }
   registryEntries[manifestKey] = JSON.stringify({
     account,
     gateway,
     network,
     publishedAt,
     registryUrl,
+    ...(platformManifest
+      ? {
+          platformManifest: {
+            file: platformManifest.key,
+            integrity: platformManifest.integrity,
+          },
+        }
+      : {}),
   });
+  if (platformManifest) {
+    registryEntries[platformManifest.key] = platformManifest.value;
+  }
 
   render?.publish?.({
     registryUrl,

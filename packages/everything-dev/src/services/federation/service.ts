@@ -197,7 +197,7 @@ function parseSemver(v: unknown): { major: number; minor: number; patch: number 
   return m ? { major: +m[1]!, minor: +m[2]!, patch: +m[3]! } : null;
 }
 
-function satisfiesConstraint(version: string, constraint: string): boolean {
+export function satisfiesConstraint(version: string, constraint: string): boolean {
   const trimmed = constraint.trim();
   if (!trimmed) return true;
   if (!["^", "~", ">", "<", "=", "x"].some((c) => trimmed.startsWith(c))) {
