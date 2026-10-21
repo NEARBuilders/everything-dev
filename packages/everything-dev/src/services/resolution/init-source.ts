@@ -30,13 +30,21 @@ export interface CatalogChainSource {
 }
 
 export async function resolveCatalogChainSource(opts: {
-  extendsAccount: string;
-  extendsGateway: string;
-  sourceDir?: string;
+  /** Local source root (e.g. a downloaded release tarball) — the walk is
+   * always local now: the platform manifest is the chain's catalog authority
+   * (ADR 0034), so no network-side catalog walk exists. */
+  sourceDir: string;
+  /** The bos:// ref the caller resolved this chain from — recorded as the
+   * chain head for provenance (writeResolvedConfig's extendsChain) instead of
+   * the entry's own file path. */
+  originRef?: string;
+  /** Legacy head-ref spelling: synthesized into originRef when originRef is
+   * absent. */
+  extendsAccount?: string;
+  extendsGateway?: string;
 }): Promise<CatalogChainSource> {
-  const entry = opts.sourceDir
-    ? (findConfigPath(resolve(opts.sourceDir)) ?? join(resolve(opts.sourceDir), "bos.config.json"))
-    : `bos://${opts.extendsAccount}/${opts.extendsGateway}`;
+  const entry =
+    findConfigPath(resolve(opts.sourceDir)) ?? join(resolve(opts.sourceDir), "bos.config.json");
   const catalogs: Record<string, string>[] = [];
   const cleanups: Array<() => Promise<void>> = [];
   const resolvedRefs: string[] = [];
@@ -64,12 +72,16 @@ export async function resolveCatalogChainSource(opts: {
     }
   }
 
+  const originRef =
+    opts.originRef ??
+    (opts.extendsAccount !== undefined && opts.extendsGateway !== undefined
+      ? `bos://${opts.extendsAccount}/${opts.extendsGateway}`
+      : undefined);
+
   return {
     catalog: Object.assign({}, ...catalogs),
     repository,
-    extendsChain: opts.sourceDir
-      ? [`bos://${opts.extendsAccount}/${opts.extendsGateway}`, ...resolvedRefs.slice(1)]
-      : resolvedRefs,
+    extendsChain: originRef ? [originRef, ...resolvedRefs.slice(1)] : resolvedRefs,
   };
 }
 
@@ -77,11 +89,10 @@ export async function resolveSourceDir(opts: {
   extendsAccount: string;
   extendsGateway: string;
   source?: string;
-  /** Release ref(s) pin the tarball — absent, main/master HEAD (ADR 0034).
-   * Multiple candidates are tried in order: the canonical `v<version>` tag,
-   * then the changesets per-package tag (`everything-dev@<version>`) that
-   * exists for releases published before the `v` tag became the contract. */
-  ref?: string | string[];
+  /** Release ref pinning the tarball (ADR 0034): the canonical `v<version>`
+   * tag. Absent → fail loud — the scaffold surface never pulls a moving
+   * branch head, only released bytes. */
+  ref?: string;
 }): Promise<SourceResult> {
   if (opts.source) {
     const sourceDir = resolve(opts.source);
@@ -99,7 +110,12 @@ export async function resolveSourceDir(opts: {
 
   const parentConfig = await fetchParentConfig(opts.extendsAccount, opts.extendsGateway);
 
-  if (parentConfig.repository) {
+  if (opts.ref) {
+    if (!parentConfig.repository) {
+      throw new Error(
+        `Release ${opts.ref} requested but the config at bos://${opts.extendsAccount}/${opts.extendsGateway} names no repository`,
+      );
+    }
     const {
       dir: sourceDir,
       cleanup,
@@ -174,8 +190,8 @@ export async function resolveRepositoryViaExtendsChain(
 }
 
 /**
- * Release tarball ref (ADR 0034 pt 4): the canonical `v<version>` tag.
- * Sync's workflow pins and the release script both target it. One ref, one
+ * The release tarball ref (ADR 0034 pt 4): the canonical `v<version>` tag —
+ * sync's workflow pins and the release script both target it. One ref, one
  * resolution: a version names exactly one release.
  */
 export function releaseRefCandidates(frameworkVersion: string): string {

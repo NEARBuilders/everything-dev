@@ -1652,9 +1652,7 @@ export async function importWorkspace(
 
       if (syncSnapshot) {
         await writeSnapshot(projectDir, {
-          parentRef: syncSnapshot.parentRef,
           files: { ...syncSnapshot.files, ...recorded },
-          starter: syncSnapshot.starter,
         });
       }
 

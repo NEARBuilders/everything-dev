@@ -4,27 +4,6 @@ import { printSyncOutcome, UPSTREAM_ISSUE_URL } from "../render/sync";
 import type { ResultRenderer } from "./context";
 
 export const scaffoldRenderers: Record<string, ResultRenderer> = {
-  sync: async (result, ctx) => {
-    const input = ctx.input;
-    if ((input as any).json) {
-      console.log(JSON.stringify(result, null, 2));
-      return;
-    }
-    console.log();
-    if (exitCodeFor(result) === 1) {
-      console.error(`[CLI] ${result.error || "Unknown error"}`);
-      process.exit(1);
-    }
-    if (result.status === "dry-run") {
-      console.log(colors.cyan(`${icons.ok} Dry run — no files written`));
-    } else {
-      console.log(colors.green(`${icons.ok} Synced`));
-    }
-    printSyncOutcome(result);
-    console.log();
-    return;
-  },
-
   import: async (result, ctx) => {
     const input = ctx.input;
     if ((input as any).json) {
@@ -176,9 +155,6 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
     if (result.changelogUrl) {
       console.log(`  Changelog: ${result.changelogUrl}`);
     }
-    if (result.selectedPlugins && result.selectedPlugins.length > 0) {
-      console.log(`  Added plugins: ${result.selectedPlugins.join(", ")}`);
-    }
     if (result.sync) {
       console.log(`  ${colors.dim("Sync results:")}`);
       printSyncOutcome(result.sync);
@@ -200,7 +176,7 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
       if (result.sync && result.sync.conflicted.length > 0) {
         console.log(
           colors.dim(
-            `  ${result.sync.conflicted.length} file(s) had local conflicts — template version applied, backups at ${result.sync.backupDir || ".bos/sync-backup/"}.`,
+            `  ${result.sync.conflicted.length} file(s) were applied over local conflicts — backups at ${result.sync.backupDir || ".bos/sync-backup/"}.`,
           ),
         );
         console.log(
@@ -218,7 +194,7 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
     } else if (!versionDelta) {
       console.log(
         colors.dim(
-          "  Framework version unchanged — template files not touched (run `bos sync` to pull upstream drift).",
+          "  Framework version unchanged — template files untouched; changes land on the next release.",
         ),
       );
     }

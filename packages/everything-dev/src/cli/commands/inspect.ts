@@ -341,9 +341,4 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     console.log();
     return;
   },
-
-  infraExport: async (result, _ctx) => {
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    return;
-  },
 };

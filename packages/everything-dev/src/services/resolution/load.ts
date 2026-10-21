@@ -136,6 +136,34 @@ export async function loadAppDescriptorConfig(resolvedPath: string): Promise<Bos
 }
 
 /**
+ * Evaluate an authored descriptor's source text in-process: descriptor-constructor
+ * imports (`App`/`API`/`UI`/`Plugin` from `everything-dev/descriptor`) are
+ * stubbed with pure-identity shims and the remaining module body is imported
+ * from a data URL. Byte-deterministic — no bundler resolution of the
+ * descriptor package and no module-cache interference (a tempdir child has no
+ * node_modules, so a real dynamic import is both fragile and here served
+ * stale, mangled transforms under vitest).
+ */
+export async function loadInProcessDescriptor(
+  source: string,
+  label: string,
+): Promise<BosConfigInput> {
+  const body = source
+    .split("\n")
+    .filter((line) => !/^\s*import\b/.test(line))
+    .join("\n");
+  const shims = [
+    "const App = (input) => input;",
+    "const API = (input) => input;",
+    "const UI = (input) => input;",
+    "const Plugin = (name) => ({ path: (dir, extra = {}) => ({ ...extra, name, path: dir }), extends: (ref, extra = {}) => ({ ...extra, name, extends: ref }) });",
+  ].join("\n");
+  const encoded = Buffer.from(`${shims}\n${body}`, "utf-8").toString("base64");
+  const mod = (await import(`data:text/javascript;base64,${encoded}`)) as Record<string, unknown>;
+  return parseAppDescriptorModule(mod, label);
+}
+
+/**
  * @internal — parses an already-imported app descriptor module into the
  * authoring-shape `BosConfigInput`. Plumbing for the resolution session's
  * injectable module loader; not part of the public config surface.

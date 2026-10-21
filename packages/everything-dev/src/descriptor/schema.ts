@@ -106,7 +106,6 @@ export const AppDescriptorSchema = z
     starter: z.enum(["simple", "advanced"]).optional(),
     ci: z
       .object({
-        image: z.string().optional(),
         railway: z
           .object({
             service: z.string(),

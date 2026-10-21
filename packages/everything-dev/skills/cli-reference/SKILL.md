@@ -92,37 +92,23 @@ bos init --source ./my-app --no-interactive    # from local source, skip prompts
 
 → [`init-upgrade`](.) skill for template download, file selection, snapshots, and conflict wiring.
 
-### `bos sync`
-
-Sync template files from the parent project. Compares snapshot-versioned files to detect conflicts.
-
-**Flags:** `--dry-run` `--no-install`
-
-```bash
-bos sync
-bos sync --dry-run    # preview without writing
-```
-
-When a platform release manifest resolves (ADR 0034 — the `platform` pin in the authored config, or latest via the extends chain), sync pulls the **release tag** from the parent repo — not `main` HEAD — and rewrites the framework's own reusable-workflow refs to `@v<version>`. No manifest resolving → the pre-0034 tarball walk at `main`/`master` HEAD.
-
-→ [`init-upgrade`](.) skill for snapshot-based conflict detection and framework-owned sections.
-
 ### `bos upgrade`
 
-Upgrade framework packages then sync template files. Interactive; prompts for package selection.
+Upgrade a child behind a pinned parent to the parent's latest platform release, moving the `platform` pin (ADR 0034). Fails out on unresolvable local conflicts — the template wins; conflicting copies are backed up to `.bos/sync-backup/` only with `--force`.
 
-**Flags:** `--dry-run` `--check` `--no-install` `--no-sync`
+**Flags:** `--dry-run` `--check` `--no-install` `--no-sync` `--force` (`--from <version>` is passed internally by the scheduled re-exec, not user-facing)
 
 ```bash
 bos upgrade
 bos upgrade --dry-run       # preview version bumps
 bos upgrade --check         # CI drift alarm (ADR 0034): exit 1 when updates are available
-bos upgrade --no-sync       # only upgrade packages, skip template sync
+bos upgrade --no-sync       # only upgrade packages, skip the template sync
+bos upgrade --force         # accept the template, back up conflicting local edits, continue
 ```
 
-When a platform release manifest resolves, its catalog is the version source (one registry read); `--check` diffs the recorded `platform` pin against the latest published manifest and exits nonzero on drift.
+When a platform release manifest resolves, its catalog is the version source (one registry read); `--check` diffs the recorded `platform` pin against the latest published manifest and exits nonzero on drift. The pre-flight runs the staged `dryRun` `dry-run` sync first: any file the child hand-edited past its init snapshot aborts the whole run with the conflicted list and the upstream-issue URL — re-run with `--force` to back up the forks and take the template. Framework-owned files are reconciled only when the framework version actually changes (ADR 0032).
 
-→ [`init-upgrade`](.) skill for catalog strategy, legacy import rewrites, and upgrade+publish flow.
+→ [`init-upgrade`](.) skill for catalog strategy, snapshot conflict gates, and upgrade+publish flow.
 
 ### `bos import`
 

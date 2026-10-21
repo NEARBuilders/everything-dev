@@ -587,6 +587,12 @@ export function buildChildRootScripts(sections: {
   return scripts;
 }
 
+function missingCatalogSource(): never {
+  throw new Error(
+    "No catalog source — pass `catalog` (the platform release manifest's) or `workspaceOpts.sourceDir` (a local release tree)",
+  );
+}
+
 export async function personalizeConfig(
   destination: string,
   opts: {
@@ -606,6 +612,11 @@ export async function personalizeConfig(
     testnet?: string;
     staging?: unknown;
     starter?: StarterLevel;
+    /** The platform release's catalog (ADR 0034) — skips the local chain walk. */
+    catalog?: Record<string, string>;
+    /** The framework version to pin (ADR 0034) — stamped onto the authored
+     * config; absent in sync mode, the child's existing pin is preserved. */
+    platform?: string;
   },
 ): Promise<void> {
   const has = (section: OverrideSection) => opts.overrides.includes(section);
@@ -619,6 +630,13 @@ export async function personalizeConfig(
       config.starter = opts.starter;
     } else if (opts.mode !== "sync") {
       delete config.starter;
+    }
+  };
+  const applyPlatformField = (config: Record<string, unknown>): void => {
+    if (opts.platform !== undefined) {
+      config.platform = opts.platform;
+    } else if (opts.mode !== "sync") {
+      delete config.platform;
     }
   };
 
@@ -636,6 +654,8 @@ export async function personalizeConfig(
             "workspaceOpts",
             "mode",
             "existingConfig",
+            "catalog",
+            "platform",
           ].includes(key),
       )
       .map(([key]) => key),
@@ -670,6 +690,7 @@ export async function personalizeConfig(
     }
 
     applyStarter(config);
+    applyPlatformField(config);
 
     if (config.app && typeof config.app === "object") {
       const app = config.app as Record<string, unknown>;
@@ -739,7 +760,6 @@ export async function personalizeConfig(
     }
 
     writeFileSync(appConfigPath, serializeAppDescriptorSource(config as BosConfigInput));
-    return;
   }
 
   const configPath = join(destination, "bos.config.json");
@@ -768,6 +788,7 @@ export async function personalizeConfig(
     }
 
     applyStarter(config);
+    applyPlatformField(config);
 
     if (config.app && typeof config.app === "object") {
       const app = config.app as Record<string, unknown>;
@@ -966,13 +987,16 @@ export async function personalizeConfig(
         catalog["every-plugin"] = rootCatalogEveryPlugin;
       }
     }
-    const frameworkCatalog = (
-      await resolveCatalogChainSource({
-        extendsAccount: opts.extendsAccount,
-        extendsGateway: opts.extendsGateway,
-        sourceDir: opts.workspaceOpts?.sourceDir,
-      })
-    ).catalog;
+    const frameworkCatalog = opts.catalog
+      ? opts.catalog
+      : opts.workspaceOpts?.sourceDir
+        ? (
+            await resolveCatalogChainSource({
+              sourceDir: opts.workspaceOpts.sourceDir,
+              originRef: `bos://${opts.extendsAccount}/${opts.extendsGateway}`,
+            })
+          ).catalog
+        : missingCatalogSource();
     for (const [name, version] of Object.entries(frameworkCatalog)) {
       catalog[name] = version;
     }
@@ -1207,6 +1231,10 @@ export async function scaffoldMinimalProject(
     starter?: StarterLevel;
     /** local parent source dir — resolves the catalog offline (tests, --source) */
     catalogSourceDir?: string;
+    /** the platform release's catalog (ADR 0034) — preferred over the walk */
+    catalog?: Record<string, string>;
+    /** the framework version to pin (ADR 0034) */
+    platform?: string;
   },
 ): Promise<number> {
   mkdirSync(destination, { recursive: true });
@@ -1221,6 +1249,7 @@ export async function scaffoldMinimalProject(
     ...(opts.title ? { title: opts.title } : {}),
     ...(opts.description ? { description: opts.description } : {}),
     ...(opts.starter ? { starter: opts.starter } : {}),
+    ...(opts.platform ? { platform: opts.platform } : {}),
   };
 
   if (parentConfig.app && typeof parentConfig.app === "object") {
@@ -1276,13 +1305,16 @@ export async function scaffoldMinimalProject(
     workspacePackages.push("plugins/*");
   }
 
-  const catalog = (
-    await resolveCatalogChainSource({
-      extendsAccount: opts.extendsAccount,
-      extendsGateway: opts.extendsGateway,
-      sourceDir: opts.catalogSourceDir,
-    })
-  ).catalog;
+  const catalog = opts.catalog
+    ? { ...opts.catalog }
+    : opts.catalogSourceDir
+      ? (
+          await resolveCatalogChainSource({
+            sourceDir: opts.catalogSourceDir,
+            originRef: `bos://${opts.extendsAccount}/${opts.extendsGateway}`,
+          })
+        ).catalog
+      : missingCatalogSource();
 
   const pkg: Record<string, unknown> = {
     name: "monorepo",
@@ -1367,16 +1399,19 @@ export async function writeInitSnapshot(
     if (!stat.isFile()) continue;
     const destPath = sourcePathToDestinationPath(filePath);
     // Only snapshot what the scaffold actually delivered — files pruned
-    // after copy (e.g. unused ui sources) must not come back via bos sync.
+    // after copy (e.g. unused ui sources) must not come back via bos upgrade.
     if (!existsSync(join(destination, destPath))) continue;
-    const content = readFileSync(src);
+    // The snapshot records what the scaffold delivered — the destination's
+    // on-disk bytes, not the template source: personalized files (package.json,
+    // AGENTS.md, pnpm-workspace.yaml) already diverge from the parent at init,
+    // and those delivered hashes are the baseline the next upgrade compares
+    // hand edits against (ADR 0034).
+    const content = readFileSync(join(destination, destPath));
     fileHashes[destPath] = computeHash(content);
   }
 
   await writeSnapshot(destination, {
-    parentRef: `bos://${extendsAccount}/${extendsGateway}`,
     files: fileHashes,
-    starter: options.starter,
   });
 }
 
@@ -1560,9 +1595,9 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
 
   parts.push(`### Framework-owned files and the upstream-change protocol (ADR 0032)
 
-The files carrying the \`FRAMEWORK-OWNED\` header (build configs, db/lib plumbing, workflows) are reconciled from the parent template by \`bos sync\` / \`bos upgrade\`: template wins on the next sync, local copies are backed up under \`.bos/sync-backup/\`, and **same-version upgrades never touch them** (only a framework version change reconciles; \`bos sync\` pulls drift explicitly).
+The files carrying the \`FRAMEWORK-OWNED\` header (build configs, db/lib plumbing, workflows) are reconciled from the parent template by \`bos upgrade\`: template wins on the next upgrade, local copies are backed up under \`.bos/sync-backup/\`, and **same-version upgrades never touch them** (only the framework version change reconciles them).
 
-**Editing them is allowed.** When the work needs it, edit a framework-owned file, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next sync will quietly clobber.`);
+**Editing them is allowed.** When the work needs it, edit a framework-owned file, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next upgrade will quietly clobber.`);
 
   if (has("api")) {
     parts.push(`### Adding API Endpoints

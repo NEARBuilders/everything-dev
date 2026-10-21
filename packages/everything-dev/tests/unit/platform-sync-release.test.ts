@@ -62,17 +62,14 @@ describe("resolveWorkflowReleasePin (ADR 0034)", () => {
   });
 });
 
-describe("sync snapshot release provenance (ADR 0034)", () => {
-  it("round-trips the release field beside parentRef", async () => {
-    tmpRoot = join(tmpdir(), "snapshot-release-");
+describe("sync snapshot (files-only shape)", () => {
+  it("round-trips file hashes without provenance metadata", async () => {
+    tmpRoot = join(tmpdir(), "snapshot-files-only-");
     mkdirSync(tmpRoot, { recursive: true });
-    await writeSnapshot(tmpRoot, {
-      parentRef: "bos://root.near/root",
-      release: "32723626aaaa",
-      files: { "package.json": "abc123" },
-    });
+    await writeSnapshot(tmpRoot, { files: { "package.json": "abc123" } });
     const snapshot = await readSnapshot(tmpRoot);
-    expect(snapshot?.release).toBe("32723626aaaa");
-    expect(snapshot?.parentRef).toBe("bos://root.near/root");
+    expect(snapshot?.files).toEqual({ "package.json": "abc123" });
+    expect(typeof snapshot?.timestamp).toBe("string");
+    expect(snapshot && !("parentRef" in snapshot) && !("release" in snapshot)).toBe(true);
   });
 });

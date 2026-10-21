@@ -60,6 +60,7 @@ describe("descriptor constructors", () => {
   it("reject unknown keys (typo guard)", () => {
     expect(() => App({ name: "x", domian: "nope" } as never)).toThrow();
     expect(() => App({ name: "x", ui: { pat: "ui" } as never })).toThrow();
+    expect(() => App({ name: "x", ci: { image: "ghcr.io/acme/app:sha-abc" } as never })).toThrow();
   });
 
   it("Plugin.extends produces a bos:// ref attachment", () => {

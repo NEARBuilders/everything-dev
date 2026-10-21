@@ -2,8 +2,9 @@ name: Staging
 
 # Thin wrapper — the shared implementation lives in the base runtime repo
 # (NEARBuilders/everything-dev). This repo owns triggers, secret policy, and
-# working directory. The @main ref matches the sync trust model: bos sync
-# already tracks the parent's main for all framework-owned files.
+# working directory. The @main ref is the reusable-wrapper pointer only: the
+# child's framework surface is pinned via `platform` (ADR 0034) and moves
+# exclusively through `bos upgrade`.
 on:
   push:
     branches:

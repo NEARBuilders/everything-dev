@@ -2,11 +2,10 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { Context, Effect, Layer } from "effect";
 import { findConfigPath, MISSING_CONFIG_MESSAGE } from "../config";
-import type { InfraExportResult, KillResult, LogsResult, StatusResult } from "../contract";
+import type { KillResult, LogsResult, StatusResult } from "../contract";
 import { ownerOfPort } from "../infra/port-ownership";
 import { probePortBindable } from "../infra/ports";
 import { readDevLatestLog, resolveDevLatestFile } from "./dev/logs";
-import { buildCiInfraPlan } from "./infra";
 import { killProcessGroupEscalating, reapGroup } from "./processes/kill";
 import { isPidAlive, readRegistry, unregisterPid } from "./processes/registry";
 import { fetchBosConfigFromFastKv } from "./registry/fastkv";
@@ -29,10 +28,6 @@ export class OpsService extends Context.Service<
       configDir?: string | undefined;
       signal?: "SIGTERM" | "SIGKILL" | undefined;
     }) => Effect.Effect<KillResult, unknown>;
-    infraExport: (
-      session: ResolutionSession | null,
-      configDir?: string | undefined,
-    ) => Effect.Effect<InfraExportResult, Error>;
   }
 >()("bos/OpsService") {
   static Live = Layer.succeed(
@@ -175,25 +170,6 @@ export class OpsService extends Context.Service<
             skipped: [],
             error: error instanceof Error ? error.message : "Unknown error",
           }),
-        }),
-
-      infraExport: (session, configDir) =>
-        Effect.promise(async () => {
-          const root = configDir ?? session?.root ?? process.cwd();
-          const ci = session?.runtime ? buildCiInfraPlan(session.runtime) : null;
-          if (!ci) {
-            const refreshed = await openResolution({ cwd: root });
-            if (!refreshed?.runtime) {
-              throw new Error("No resolved runtime config available for infra export");
-            }
-            return buildCiInfraPlan(refreshed.runtime);
-          }
-          return {
-            ...ci,
-            account: session?.config?.account ?? ci.account,
-            gateway:
-              ci.gateway ?? session?.config?.domain ?? session?.config?.account ?? ci.account,
-          };
         }),
     }),
   );

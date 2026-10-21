@@ -646,26 +646,12 @@ export const InitResultSchema = z.object({
   error: z.string().optional(),
 });
 
-export const SyncOptionsSchema = z.object({
-  dryRun: z.boolean().default(false).describe("Preview changes without writing files"),
-
-  noInstall: z.boolean().default(false).describe("Skip pnpm install"),
-
-  json: z.boolean().default(false),
-});
-
 export const SyncResultSchema = z.object({
-  status: z.enum(["synced", "dry-run", "error"]),
+  status: z.enum(["synced", "dry-run", "conflicted", "error"]),
   updated: z.array(z.string()),
   skipped: z.array(z.string()),
   added: z.array(z.string()),
   conflicted: z.array(z.string()).default([]),
-  /** retired stub files deleted silently (unmodified) — ADR 0023 migration */
-  retired: z.array(z.string()).optional(),
-  /** retired stub files that were hand-modified — backed up, then deleted */
-  retiredConflicted: z.array(z.string()).optional(),
-  /** where the retired hand-modified copies were backed up */
-  retiredBackupDir: z.string().optional(),
   backupDir: z.string().optional(),
   error: z.string().optional(),
 });
@@ -753,12 +739,18 @@ export const UpgradeOptionsSchema = z.object({
 
   check: z.boolean().default(false).describe("CI check — exit 1 when updates are available"),
 
+  /** Overwrite conflicted template files (with a backup) instead of refusing. */
+  force: z.boolean().default(false),
+
   noInstall: z.boolean().default(false).describe("Skip pnpm install"),
 
   noSync: z.boolean().default(false).describe("Only upgrade packages, skip template sync"),
 
   json: z.boolean().default(false),
   migrationsOnly: z.boolean().default(false),
+  /** Internal: the pre-upgrade framework version, passed by the re-exec so
+   * the version-delta gate spans both processes. */
+  from: z.string().optional(),
 });
 
 export const UpgradeResultSchema = z.object({
@@ -773,7 +765,6 @@ export const UpgradeResultSchema = z.object({
   sync: SyncResultSchema.optional(),
   migrated: z.array(z.string()).optional(),
   availablePlugins: z.array(z.string()).optional(),
-  selectedPlugins: z.array(z.string()).optional(),
   /** The resolved platform release manifest when one publishes (ADR 0034). */
   platform: z
     .object({
@@ -984,38 +975,6 @@ export const TypecheckResultSchema = z.object({
   error: z.string().optional(),
 });
 
-export const InfraExportServiceSchema = z.object({
-  key: z.string(),
-  image: z.string(),
-  env: z.record(z.string(), z.string()).default({}),
-  ports: z.array(z.string()),
-  healthcheck: z
-    .object({
-      test: z.array(z.string()),
-      interval: z.string(),
-      timeout: z.string(),
-      retries: z.number(),
-    })
-    .optional(),
-  volumes: z.array(z.string()).default([]),
-});
-
-export const InfraExportOptionsSchema = z.object({
-  target: z.enum(["ci", "local"]).default("ci").describe("Export target: ci (default) or local"),
-
-  network: z.enum(["mainnet", "testnet"]).optional(),
-  configDir: z.string().optional().describe("Override config directory"),
-});
-
-export const InfraExportResultSchema = z.object({
-  env: z.record(z.string(), z.string()),
-  services: z.array(InfraExportServiceSchema),
-  generatedAt: z.string(),
-  project: z.string(),
-  account: z.string(),
-  gateway: z.string(),
-});
-
 export const MfCheckOptionsSchema = z.object({
   timeoutMs: z.number().default(15_000),
 });
@@ -1088,14 +1047,12 @@ export const commandOptionSchemas = {
   login: LoginOptionsSchema,
   logout: LogoutOptionsSchema,
   init: InitOptionsSchema,
-  sync: SyncOptionsSchema,
   import: ImportOptionsSchema,
   upgrade: UpgradeOptionsSchema,
   typecheck: TypecheckOptionsSchema,
   typesGen: TypesGenOptionsSchema,
   mfCheck: MfCheckOptionsSchema,
   platformManifest: PlatformManifestOptionsSchema,
-  infraExport: InfraExportOptionsSchema,
   dbStudio: DbStudioOptionsSchema,
   dbDoctor: DbDoctorOptionsSchema,
   dbRepair: DbRepairOptionsSchema,
@@ -1166,10 +1123,6 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/init" })
     .input(InitOptionsSchema)
     .output(InitResultSchema),
-  sync: oc
-    .route({ method: "POST", path: "/sync" })
-    .input(SyncOptionsSchema)
-    .output(SyncResultSchema),
   import: oc
     .route({ method: "POST", path: "/import" })
     .input(ImportOptionsSchema)
@@ -1216,10 +1169,6 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/platform/manifest" })
     .input(PlatformManifestOptionsSchema)
     .output(PlatformManifestResultSchema),
-  infraExport: oc
-    .route({ method: "POST", path: "/infra/export" })
-    .input(InfraExportOptionsSchema)
-    .output(InfraExportResultSchema),
 });
 
 export type DevOptions = z.infer<typeof DevOptionsSchema>;
@@ -1252,7 +1201,6 @@ export type InitOptions = z.infer<typeof InitOptionsSchema>;
 export type InitResult = z.infer<typeof InitResultSchema>;
 export type OverrideSection = z.infer<typeof OverrideSectionSchema>;
 export type PhaseTiming = z.infer<typeof PhaseTimingSchema>;
-export type SyncOptions = z.infer<typeof SyncOptionsSchema>;
 export type SyncResult = z.infer<typeof SyncResultSchema>;
 export type ImportOptions = z.infer<typeof ImportOptionsSchema>;
 export type ImportResult = z.infer<typeof ImportResultSchema>;
@@ -1282,11 +1230,8 @@ export type KillResult = z.infer<typeof KillResultSchema>;
 export type TypecheckOptions = z.infer<typeof TypecheckOptionsSchema>;
 export type TypecheckResult = z.infer<typeof TypecheckResultSchema>;
 export type TypecheckWorkspaceResult = z.infer<typeof TypecheckWorkspaceResultSchema>;
-export type InfraExportOptions = z.infer<typeof InfraExportOptionsSchema>;
 export type MfCheckOptions = z.infer<typeof MfCheckOptionsSchema>;
 export type MfCheckResult = z.infer<typeof MfCheckResultSchema>;
-export type InfraExportResult = z.infer<typeof InfraExportResultSchema>;
-export type InfraExportService = z.infer<typeof InfraExportServiceSchema>;
 
 export type CliCommandMeta = {
   commandPath?: string[];
@@ -1403,11 +1348,6 @@ export const cliCommandMeta = {
       domain: { positional: true },
     },
   },
-  sync: {
-    commandPath: ["sync"],
-    summary: "Sync template files from parent project",
-    interactive: false,
-  },
   import: {
     commandPath: ["import"],
     summary: "Import a workspace subtree from an upstream repo without cloning",
@@ -1485,11 +1425,6 @@ export const cliCommandMeta = {
   kill: {
     commandPath: ["kill"],
     summary: "Stop tracked development processes",
-    interactive: false,
-  },
-  infraExport: {
-    commandPath: ["infra", "export"],
-    summary: "Emit the resolved CI infra plan (env + services) for the current runtime",
     interactive: false,
   },
 } as const satisfies Record<string, CliCommandMeta>;

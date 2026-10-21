@@ -26,12 +26,6 @@ const DEV_AUTH_DB_PORT = 5433;
 const TEST_API_DB_PORT = 5434;
 const TEST_AUTH_DB_PORT = 5435;
 
-// The org's GHCR mirror of the upstream library images (refreshed by
-// .github/workflows/mirror-images.yml) — Docker Hub and ECR Public both
-// rate-limit shared CI egress IPs.
-const CI_POSTGRES_IMAGE = "ghcr.io/nearbuilders/mirror-postgres:17-alpine";
-const CI_REDIS_IMAGE = "ghcr.io/nearbuilders/mirror-redis:7-alpine";
-
 export interface DatabaseConvention {
   secret: string;
   slug: string;
@@ -180,23 +174,6 @@ export function getSecretGroups(runtimeConfig: RuntimeConfig): SecretGroup[] {
   return groups;
 }
 
-function extractPortFromUrl(url: string): string | null {
-  const match = url.match(/:(\d{4,5})(?:\/|$)/);
-  return match?.[1] ?? null;
-}
-
-function resolveDevHostPort(runtimeConfig: RuntimeConfig): number {
-  if (typeof runtimeConfig.host?.port === "number") return runtimeConfig.host.port;
-  const fromUrl = runtimeConfig.host?.url ? extractPortFromUrl(runtimeConfig.host.url) : null;
-  if (fromUrl) {
-    const parsed = Number.parseInt(fromUrl, 10);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  return 3000;
-}
-
-export { resolveDevHostPort };
-
 function defaultSecretValue(
   secret: string,
   databases: Map<string, DatabaseConvention>,
@@ -305,110 +282,3 @@ function renderEnvTestFile(groups: SecretGroup[]): string {
 
 export { renderEnvTestFile };
 
-export interface CiServiceSpec {
-  key: string;
-  slug: string;
-  image: string;
-  env: Record<string, string>;
-  ports: string[];
-  healthcheck?: { test: string[]; interval: string; timeout: string; retries: number };
-  volumes: string[];
-  database?: { user: string; password: string; name: string };
-}
-
-export interface CiInfraPlan {
-  account: string;
-  gateway: string;
-  project: string;
-  env: Record<string, string>;
-  services: CiServiceSpec[];
-  generatedAt: string;
-}
-
-export function buildCiInfraPlan(
-  runtimeConfig: RuntimeConfig,
-  options: { hostPortOverride?: number } = {},
-): CiInfraPlan {
-  const allSecrets = collectAllSecrets(runtimeConfig);
-  const databases = buildConventionalDatabases(allSecrets);
-  const redisConfigs = buildConventionalRedis(allSecrets);
-
-  const hostPort =
-    options.hostPortOverride ??
-    (Number.isFinite(Number(process.env.BOS_CI_HOST_PORT))
-      ? Number(process.env.BOS_CI_HOST_PORT)
-      : undefined) ??
-    resolveDevHostPort(runtimeConfig);
-  const env: Record<string, string> = {};
-  for (const db of databases) env[db.secret] = db.url;
-  for (const r of redisConfigs) env[r.secret] = r.url;
-
-  env.CORS_ORIGIN = `http://127.0.0.1:${hostPort}`;
-  if (!env.BETTER_AUTH_SECRET) env.BETTER_AUTH_SECRET = "";
-
-  const services: CiServiceSpec[] = [];
-  const seenPorts = new Set<number>();
-
-  for (const db of databases) {
-    if (seenPorts.has(db.port)) continue;
-    seenPorts.add(db.port);
-    services.push({
-      key: db.slug,
-      slug: db.slug,
-      image: CI_POSTGRES_IMAGE,
-      env: {
-        POSTGRES_USER: POSTGRES_USER,
-        POSTGRES_PASSWORD: POSTGRES_PASSWORD,
-        POSTGRES_DB: db.databaseName,
-      },
-      ports: [`${db.port}:5432`],
-      healthcheck: {
-        test: ["CMD-SHELL", `pg_isready -U ${POSTGRES_USER} -d ${db.databaseName}`],
-        interval: "3s",
-        timeout: "3s",
-        retries: 10,
-      },
-      volumes: [`${db.slug}_data:/var/lib/postgresql/data`],
-      database: { user: POSTGRES_USER, password: POSTGRES_PASSWORD, name: db.databaseName },
-    });
-  }
-
-  for (const r of redisConfigs) {
-    services.push({
-      key: r.slug,
-      slug: r.slug,
-      image: CI_REDIS_IMAGE,
-      env: {},
-      ports: [`${r.port}:6379`],
-      healthcheck: {
-        test: ["CMD", "redis-cli", "ping"],
-        interval: "3s",
-        timeout: "3s",
-        retries: 10,
-      },
-      volumes: [`${r.slug}_data:/data`],
-    });
-  }
-
-  return {
-    account: runtimeConfig.account,
-    gateway: runtimeConfig.domain ?? runtimeConfig.account,
-    project: runtimeConfig.account,
-    env,
-    services,
-    generatedAt: new Date().toISOString(),
-  };
-}
-
-function collectAllSecrets(runtimeConfig: RuntimeConfig): string[] {
-  const all: string[] = [];
-  all.push(...(runtimeConfig.host.secrets ?? []));
-  all.push(...(runtimeConfig.api.secrets ?? []));
-  if (runtimeConfig.auth) all.push(...(runtimeConfig.auth.secrets ?? []));
-  if (runtimeConfig.plugins) {
-    for (const plugin of Object.values(runtimeConfig.plugins)) {
-      if (plugin.secrets) all.push(...plugin.secrets);
-    }
-  }
-  return all.filter((s) => !VESTIGIAL_SECRETS.has(s));
-}
