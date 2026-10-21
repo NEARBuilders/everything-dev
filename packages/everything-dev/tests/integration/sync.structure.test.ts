@@ -3,19 +3,22 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  FRAMEWORK_OWNED_HEADER,
-  FRAMEWORK_OWNED_SYNC_FILES,
-  frameworkOwnedHeaderComment,
-  isFrameworkOwnedSyncFile,
-  mergePackageJson,
-  RETIRED_SYNC_FILES,
-} from "../../src/cli/sync";
-import {
   composePlatformReleaseManifest,
   computeTemplateInventory,
   PlatformReleaseManifestSchema,
   serializePlatformReleaseManifest,
 } from "../../src/services/platform/manifest";
+import {
+  CHILD_OWNED_BLOCK_END,
+  CHILD_OWNED_BLOCK_START,
+  extractChildOwnedBlock,
+  FRAMEWORK_OWNED_HEADER,
+  FRAMEWORK_OWNED_SYNC_FILES,
+  frameworkOwnedHeaderComment,
+  isFrameworkOwnedSyncFile,
+  mergePackageJson,
+  spliceChildOwnedBlock,
+} from "../../src/services/scaffold/sync";
 
 describe("bos sync — framework-owned files", () => {
   it("marks scaffold runtime files as framework-owned", () => {
@@ -45,16 +48,6 @@ describe("bos sync — framework-owned files", () => {
     expect(isFrameworkOwnedSyncFile("ui/src/router.server.gen.tsx")).toBe(false);
     expect(isFrameworkOwnedSyncFile("ui/src/compose.gen.ts")).toBe(false);
     expect(isFrameworkOwnedSyncFile("ui/src/globals.gen.ts")).toBe(false);
-  });
-
-  it("retires exactly the stub files the generated set replaced", () => {
-    expect([...RETIRED_SYNC_FILES].sort()).toEqual([
-      "ui/src/compose.ts",
-      "ui/src/entry.ts",
-      "ui/src/globals.d.ts",
-      "ui/src/hydrate.tsx",
-      "ui/src/router.server.tsx",
-    ]);
   });
 
   it("no longer owns the db files or the request-context schema (ADR 0033)", () => {
@@ -356,5 +349,99 @@ describe("platform release manifest guardrail (ADR 0034)", () => {
       JSON.parse(serializePlatformReleaseManifest(manifest)),
     );
     expect(parsed.templateInventory.length).toBeGreaterThan(0);
+  });
+});
+
+describe("child-owned block protocol (#538)", () => {
+  const REPO_ROOT = join(import.meta.dirname, "../../../..");
+
+  it("ci-child.yml is the blessed child-owned CI workflow — never in the inventory", () => {
+    expect(existsSync(join(REPO_ROOT, ".github/templates/workflows/ci-child.yml"))).toBe(true);
+    expect(isFrameworkOwnedSyncFile(".github/workflows/ci-child.yml")).toBe(false);
+    expect(
+      readFileSync(join(REPO_ROOT, ".github/templates/workflows/ci-child.yml"), "utf-8"),
+    ).toContain("CHILD-OWNED");
+  });
+
+  it("the template ci.yml is thin: reusable call + child-owned call + merge gate, no drift job", () => {
+    const ci = readFileSync(join(REPO_ROOT, ".github/templates/workflows/ci.yml"), "utf-8");
+    expect(ci).toContain("consumer-ci.yml@main");
+    expect(ci).toContain("./.github/workflows/ci-child.yml");
+    expect(ci).toContain("needs: [ci, child-ci]");
+    // the drift alarm belongs to the reusable workflow — children inherit it
+    // without edit-fighting a pinned copy in their caller
+    expect(ci).not.toContain("platform-drift");
+    const consumer = readFileSync(join(REPO_ROOT, ".github/workflows/consumer-ci.yml"), "utf-8");
+    expect(consumer).toContain("platform-drift");
+    expect(consumer).toContain("bos upgrade --check");
+  });
+
+  it("the template api/plugin.dev.ts carries the child-owned markers around variables", () => {
+    for (const copy of ["api/plugin.dev.ts", ".github/templates/api/plugin.dev.ts"]) {
+      const content = readFileSync(join(REPO_ROOT, copy), "utf-8");
+      const start = content.indexOf(CHILD_OWNED_BLOCK_START);
+      const end = content.indexOf(CHILD_OWNED_BLOCK_END);
+      expect(start, `${copy} missing ${CHILD_OWNED_BLOCK_START}`).toBeGreaterThan(-1);
+      expect(end, `${copy} missing ${CHILD_OWNED_BLOCK_END}`).toBeGreaterThan(start);
+      expect(content.slice(start, end)).toContain("variables:");
+    }
+  });
+
+  it("extracts the marked span verbatim and splices it back over the template's", () => {
+    const local = [
+      'import "dotenv/config";',
+      "export const x = {",
+      "  // child-owned-start",
+      '  variables: { domain: "citynode.app" },',
+      "  // child-owned-end",
+      "};",
+    ].join("\n");
+    expect(extractChildOwnedBlock(local)).toBe('variables: { domain: "citynode.app" },');
+
+    const template = [
+      "/* template */",
+      "  // child-owned-start",
+      "  variables: {},",
+      "  // child-owned-end",
+      "/* end */",
+    ].join("\n");
+    const spliced = spliceChildOwnedBlock(template, 'variables: { domain: "citynode.app" },');
+    expect(spliced).toContain('variables: { domain: "citynode.app" },');
+    expect(spliced).toContain("/* template */");
+    expect(spliced).not.toContain("variables: {}");
+  });
+
+  it("extract→splice round-trips to the same span (byte-stable across syncs)", () => {
+    const template = [
+      "/* template */",
+      "  // child-owned-start",
+      "  variables: {},",
+      "  // child-owned-end",
+      "/* end */",
+    ].join("\n");
+    const childBlock = 'variables: { domain: "citynode.app" },';
+    const spliced = spliceChildOwnedBlock(template, childBlock);
+    expect(spliced).toBe(
+      '/* template */\n  // child-owned-start\n  variables: { domain: "citynode.app" },\n  // child-owned-end\n/* end */',
+    );
+    // the spliced file is the fixed point: extracting from it reproduces the span
+    expect(extractChildOwnedBlock(spliced)).toBe(childBlock);
+  });
+
+  it("a marker-less (pre-#538) local copy migrates its variables literal onto the protocol", () => {
+    const local = [
+      "/* FRAMEWORK-OWNED */",
+      "export default {",
+      "  config: {",
+      "    variables: {",
+      '      domain: "citynode.app",',
+      "      nested: { a: 1 },",
+      "    },",
+      '    secrets: { K: "v" },',
+      "  },",
+      "};",
+    ].join("\n");
+    const block = extractChildOwnedBlock(local);
+    expect(block).toBe('variables: {\n  domain: "citynode.app",\n  nested: { a: 1 },\n},');
   });
 });

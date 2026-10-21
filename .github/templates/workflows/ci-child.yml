@@ -1,0 +1,24 @@
+name: Child CI Jobs
+
+# CHILD-OWNED — bos sync never rewrites this file (#538). Replace the
+# placeholder with the extra CI jobs this repo needs: change-detection
+# filters, regression suites that need service containers or browsers, deploy
+# previews, etc. `ci.yml` (framework-owned) calls this workflow in parallel
+# with the pinned reusable `ci` call and includes its result in the merge
+# gate — so a rule for a job you define here protects itself once it is named
+# in branch protection.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    name: Child CI placeholder
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Replace me
+        run: echo "child-owned workflow — replace this placeholder with real CI work"
