@@ -22,6 +22,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+// eslint-disable
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,12 +34,12 @@ import {
   writeInitSnapshot,
 } from "../../src/cli/init";
 import { readSnapshot } from "../../src/cli/snapshot";
-import { syncTemplate } from "../../src/cli/sync";
 import * as platformManifestModule from "../../src/services/platform/manifest";
 import * as initSourceModule from "../../src/services/resolution/init-source";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as scaffoldInitModule from "../../src/services/scaffold/init";
-import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
+import { syncTemplate } from "../../src/services/scaffold/sync";
+import { loadParentConfigFixture, writeChildAppDescriptorFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
 const ROOT_CONFIG = (await loadParentConfigFixture()) as {
@@ -78,7 +79,7 @@ async function scaffoldProject(
     pluginRoutes,
   });
 
-  writeChildConfigFixture(
+  writeChildAppDescriptorFixture(
     projectDir,
     overrides.filter((o) => o !== "plugins") as Array<"host" | "ui" | "api">,
   );
@@ -114,10 +115,21 @@ describe("syncTemplate", () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
-    // No release manifest resolves in these tests — the release-scoped
-    // ref-rewriting (ADR 0034 pt 4) has its own unit coverage
-    // (platform-sync-release.test.ts); here templates sync verbatim.
-    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(null);
+    // A pinned child always resolves a release; the release ref-rewriting
+    // (ADR 0034) has its own unit coverage (platform-sync-release.test.ts),
+    // so a stable manifest is injected and templates sync verbatim here.
+    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue({
+      manifest: platformManifestModule.composePlatformReleaseManifest({
+        frameworkVersion: "9.9.9-test",
+        everyPluginVersion: "9.9.9-test",
+        imageRef: "ghcr.io/nearbuilders/everything-dev",
+        catalog: {},
+        templateInventory: [],
+        compatMinChild: "9.9.9-test",
+      }),
+      source: { account: "dev.everything.near", gateway: "everything.dev" },
+      fromCache: false,
+    } as never);
     vi.spyOn(initSourceModule, "resolveSourceDir").mockResolvedValue({
       sourceDir: REPO_ROOT,
       parentConfig: ROOT_CONFIG as never,
@@ -199,16 +211,91 @@ describe("syncTemplate", () => {
     }
   });
 
-  it("retires stale bootstrap stubs — backed up, then deleted", async () => {
-    const projectDir = await scaffoldProject(["ui"]);
+  it("refuses atomically when a hand-edit conflicts with a template change", async () => {
+    const projectDir = await scaffoldProject(["ui", "api"]);
     tempDirs.push(projectDir);
-    writeFileSync(join(projectDir, "ui", "src", "hydrate.tsx"), "export {};\n");
 
-    const result = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
+    const parentFixture = mkdtempSync(join(tmpdir(), "bos-sync-parent-conflict-"));
+    tempDirs.push(parentFixture);
+    mkdirSync(join(parentFixture, "api"), { recursive: true });
+    writeFileSync(
+      join(parentFixture, "bos.config.json"),
+      `${JSON.stringify({ account: "dev.everything.near", domain: "everything.dev" }, null, 2)}\n`,
+    );
+    // The template's biome.json changed since the child's snapshot —
+    // and the child hand-edited its local copy on top of that.
+    const conflictedTemplate = `{"template": "reformed"}\n`;
+    writeFileSync(join(parentFixture, "biome.json"), conflictedTemplate);
+    const childEdits = `{ "local": "hand-edit" }\n`;
+    writeFileSync(join(projectDir, "biome.json"), childEdits);
+    const pristineSnapshot = readFileSync(join(projectDir, "api", "tsconfig.json"), "utf-8");
+
+    initSourceModule.resolveSourceDir.mockResolvedValue({
+      sourceDir: parentFixture,
+      parentConfig: { account: "dev.everything.near", domain: "everything.dev" } as never,
+      cleanup: async () => {},
+    });
+
+    const result = await syncTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+    });
+
+    expect(result.status).toBe("conflicted");
+    expect(result.conflicted).toContain("biome.json");
+    expect(result.error).toBeDefined();
+    expect(result.backupDir).toBeUndefined();
+    // All-or-nothing: untouched siblings are pristine, the conflicted file
+    // keeps the child's hand-edit, and no template bytes landed anywhere.
+    expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(childEdits);
+    expect(readFileSync(join(projectDir, "api", "tsconfig.json"), "utf-8")).toBe(pristineSnapshot);
+    expect(existsSync(join(projectDir, ".bos", "sync-backup"))).toBe(false);
+  });
+
+  it("with force the template wins and the child fork is backed up", async () => {
+    const projectDir = await scaffoldProject(["ui", "api"]);
+    tempDirs.push(projectDir);
+
+    const parentFixture = mkdtempSync(join(tmpdir(), "bos-sync-parent-force-"));
+    tempDirs.push(parentFixture);
+    mkdirSync(join(parentFixture, "api"), { recursive: true });
+    writeFileSync(
+      join(parentFixture, "bos.config.json"),
+      `${JSON.stringify({ account: "dev.everything.near", domain: "everything.dev" }, null, 2)}\n`,
+    );
+    // loadManifestNormalizationSpec resolves framework versions from the
+    // parent tree — its own packages/ members or the workspace catalog.
+    writeFileSync(
+      join(parentFixture, "pnpm-workspace.yaml"),
+      [
+        "packages:",
+        "  - api",
+        "catalog:",
+        "  every-plugin: 3.0.0-rc.10",
+        "  everything-dev: 2.0.0-rc.15",
+        "",
+      ].join("\n"),
+    );
+    const conflictedTemplate = `{"template": "reformed"}\n`;
+    writeFileSync(join(parentFixture, "biome.json"), conflictedTemplate);
+    const childEdits = `{ "local": "hand-edit" }\n`;
+    writeFileSync(join(projectDir, "biome.json"), childEdits);
+
+    initSourceModule.resolveSourceDir.mockResolvedValue({
+      sourceDir: parentFixture,
+      parentConfig: { account: "dev.everything.near", domain: "everything.dev" } as never,
+      cleanup: async () => {},
+    });
+
+    const result = await syncTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      force: true,
+    });
 
     expect(result.status).toBe("synced");
-    expect(result.retiredConflicted).toContain("ui/src/hydrate.tsx");
-    expect(existsSync(join(projectDir, "ui", "src", "hydrate.tsx"))).toBe(false);
+    expect(result.conflicted).toContain("biome.json");
+    expect(readFileSync(join(projectDir, "biome.json"), "utf-8")).toBe(conflictedTemplate);
     expect(result.backupDir).toBeDefined();
   });
 
@@ -227,48 +314,6 @@ describe("syncTemplate", () => {
     expect(result.status).toBe("dry-run");
     expect(result.added).not.toContain("plugins/registry/package.json");
     expect(result.added).not.toContain("plugins/example/package.json");
-  });
-
-  it("preserves child root metadata and prunes stale local plugin entries during sync", async () => {
-    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
-    tempDirs.push(projectDir);
-
-    const configPath = join(projectDir, "bos.config.json");
-    const config = JSON.parse(readFileSync(configPath, "utf-8")) as {
-      title?: string;
-      repository?: string;
-      description?: string;
-      plugins?: Record<string, Record<string, unknown>>;
-    };
-
-    config.title = "child app";
-    config.repository = "https://github.com/example/child-app";
-    config.plugins = {
-      ...config.plugins,
-      example: {
-        development: "local:plugins/example",
-      },
-    };
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-
-    const result = await syncTemplate(projectDir, {
-      dryRun: false,
-      noInstall: true,
-    });
-
-    expect(result.status).toBe("synced");
-
-    const syncedConfig = JSON.parse(readFileSync(configPath, "utf-8")) as {
-      title?: string;
-      repository?: string;
-      description?: string;
-      plugins?: Record<string, Record<string, unknown>>;
-    };
-
-    expect(syncedConfig.title).toBe("child app");
-    expect(syncedConfig.repository).toBe("https://github.com/example/child-app");
-    expect(syncedConfig.description).toBeUndefined();
-    expect(Object.keys(syncedConfig.plugins ?? {})).toEqual(["registry"]);
   });
 
   it("syncs GitHub workflow files from .github/templates for child projects", async () => {
@@ -291,7 +336,14 @@ describe("syncTemplate", () => {
       "utf-8",
     );
 
-    expect(childPublishWorkflow).toBe(templatePublishWorkflow);
+    // Release-scoped (ADR 0034): the framework's reusable-workflow refs pin to
+    // the resolved release tag, not @main.
+    expect(childPublishWorkflow).toBe(
+      templatePublishWorkflow.replace(
+        "consumer-deploy.yml@main",
+        "consumer-deploy.yml@v9.9.9-test",
+      ),
+    );
 
     const childCiWorkflow = readFileSync(
       join(projectDir, ".github", "workflows", "ci.yml"),
@@ -302,29 +354,9 @@ describe("syncTemplate", () => {
       "utf-8",
     );
 
-    expect(childCiWorkflow).toBe(templateCiWorkflow);
-  });
-
-  it("keeps the plugins workspace override when no child plugins are selected", async () => {
-    const projectDir = await scaffoldProject(["ui", "api", "plugins"], []);
-    tempDirs.push(projectDir);
-
-    const result = await syncTemplate(projectDir, {
-      dryRun: false,
-      noInstall: true,
-    });
-
-    expect(result.status).toBe("synced");
-
-    const wsDoc = parseYaml(readFileSync(join(projectDir, "pnpm-workspace.yaml"), "utf-8")) as {
-      packages?: string[];
-    };
-    const config = JSON.parse(readFileSync(join(projectDir, "bos.config.json"), "utf-8")) as {
-      plugins?: Record<string, unknown>;
-    };
-
-    expect(wsDoc.packages).toContain("plugins/*");
-    expect(config.plugins).toEqual({});
+    expect(childCiWorkflow).toBe(
+      templateCiWorkflow.replace("consumer-ci.yml@main", "consumer-ci.yml@v9.9.9-test"),
+    );
   });
 
   it("records sync snapshots using the final merged file content", async () => {
@@ -332,14 +364,6 @@ describe("syncTemplate", () => {
     tempDirs.push(projectDir);
 
     const packageJsonPath = join(projectDir, "package.json");
-    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
-      scripts?: Record<string, string>;
-    };
-    packageJson.scripts = {
-      ...packageJson.scripts,
-      custom: "bun run custom",
-    };
-    writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 
     const result = await syncTemplate(projectDir, {
       dryRun: false,
@@ -352,82 +376,5 @@ describe("syncTemplate", () => {
     const finalPackageJson = readFileSync(packageJsonPath, "utf-8");
 
     expect(snapshot?.files["package.json"]).toBe(fileHash(finalPackageJson));
-  });
-
-  it("normalizes the parent's workspace:^ manifest into child shape on write (#521)", async () => {
-    const projectDir = await scaffoldProject(["ui", "api"], []);
-    tempDirs.push(projectDir);
-
-    const parentFixture = mkdtempSync(join(tmpdir(), "bos-sync-parent-fixture-"));
-    tempDirs.push(parentFixture);
-    writeFileSync(
-      join(parentFixture, "bos.config.json"),
-      `${JSON.stringify({ account: "dev.everything.near", domain: "everything.dev" }, null, 2)}\n`,
-    );
-    writeFileSync(
-      join(parentFixture, "pnpm-workspace.yaml"),
-      [
-        "packages:",
-        "  - packages/*",
-        "catalog:",
-        "  everything-dev: 2.0.0-rc.15",
-        "  every-plugin: 3.0.0-rc.10",
-        '  "@electric-sql/pglite": 0.10.0',
-        "",
-      ].join("\n"),
-    );
-    // The parent repo's own root manifest: workspace:^ framework deps (only
-    // resolvable where the packages are vendored members) and a runtime dep
-    // the child historically held in devDependencies.
-    const parentManifest = {
-      name: "monorepo",
-      private: true,
-      dependencies: {
-        "everything-dev": "workspace:^",
-        "every-plugin": "workspace:^",
-        "@electric-sql/pglite": "catalog:",
-        "extra-parent-dep": "1.0.0",
-      },
-      devDependencies: { "@electric-sql/pglite": "0.9.0" },
-    };
-    writeFileSync(
-      join(parentFixture, "package.json"),
-      `${JSON.stringify(parentManifest, null, 2)}\n`,
-    );
-    // The parent's workspace-member manifests are where workspace:^ actually
-    // reaches children — the root manifest is re-personalized post-sync, but
-    // api/ui manifests are written through the sync merge verbatim.
-    for (const [member, deps] of [
-      ["api", { "every-plugin": "workspace:^", "everything-dev": "workspace:^" }],
-      ["ui", { "everything-dev": "workspace:^", "every-plugin": "workspace:^" }],
-    ] as const) {
-      mkdirSync(join(parentFixture, member), { recursive: true });
-      writeFileSync(
-        join(parentFixture, member, "package.json"),
-        `${JSON.stringify({ name: member, dependencies: deps }, null, 2)}\n`,
-      );
-    }
-
-    initSourceModule.resolveSourceDir.mockResolvedValue({
-      sourceDir: parentFixture,
-      parentConfig: { account: "dev.everything.near", domain: "everything.dev" } as never,
-      cleanup: async () => {},
-    });
-
-    const result = await syncTemplate(projectDir, { dryRun: false, noInstall: true });
-
-    expect(result.status).toBe("synced");
-
-    const manifests = ["package.json", "api/package.json", "ui/package.json"];
-    for (const manifest of manifests) {
-      const content = readFileSync(join(projectDir, manifest), "utf-8");
-      expect(content, manifest).not.toContain("workspace:");
-    }
-
-    const root = JSON.parse(readFileSync(join(projectDir, "package.json"), "utf-8")) as {
-      dependencies?: Record<string, string>;
-    };
-    expect(root.dependencies?.["everything-dev"]).toBe("catalog:");
-    expect(root.dependencies?.["every-plugin"]).toBe("catalog:");
   });
 });

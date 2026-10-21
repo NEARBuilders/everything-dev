@@ -174,13 +174,12 @@ export async function resolveRepositoryViaExtendsChain(
 }
 
 /**
- * Release tarball ref candidates (ADR 0034 pt 4): the canonical `v<version>`
- * tag first, then the changesets-created per-package tag. Sync's workflow
- * pins and the release script both target the `v` tag; the per-package tag
- * keeps upgrades resolving against releases published before it existed.
+ * Release tarball ref (ADR 0034 pt 4): the canonical `v<version>` tag.
+ * Sync's workflow pins and the release script both target it. One ref, one
+ * resolution: a version names exactly one release.
  */
-export function releaseRefCandidates(frameworkVersion: string): string[] {
-  return [`v${frameworkVersion}`, `everything-dev@${frameworkVersion}`];
+export function releaseRefCandidates(frameworkVersion: string): string {
+  return `v${frameworkVersion}`;
 }
 
 export async function downloadTarball(
