@@ -12,6 +12,7 @@ import {
   resolveExtendsRef,
 } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
+import { type ResolvedPlatformManifest, resolvePlatformManifest } from "../platform/manifest";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import { findWorkspaceRoot } from "../workspace/workspace";
 import {
@@ -264,12 +265,23 @@ function toSourcePath(sourceDir: string, destPath: string): string | null {
   return null;
 }
 
+/**
+ * Release-scoped workflow refs (ADR 0034 pt 4): when a platform manifest
+ * resolves, child reusable-workflow wrappers pin the framework's version tag
+ * instead of `@main`. Applied at content-build time so the three-way hash
+ * comparison and the written bytes stay consistent.
+ */
+export function applyReleaseRefs(content: string, releaseTag: string): string {
+  return content.replace(/(uses:\s*\S+@)main\b/g, `$1${releaseTag}`);
+}
+
 function buildSyncedFileContent(
   sourceDir: string,
   projectDir: string,
   filePath: string,
   explicitDestPath?: string,
   childScripts?: Record<string, string>,
+  release?: string,
 ): string | Uint8Array {
   const src = join(sourceDir, filePath);
   const destPath =
@@ -303,7 +315,11 @@ function buildSyncedFileContent(
     }
   }
 
-  return readFileSync(src);
+  const raw = readFileSync(src);
+  if (release && filePath.startsWith(".github/templates/workflows/")) {
+    return applyReleaseRefs(raw.toString("utf-8"), release);
+  }
+  return raw;
 }
 
 function writeSyncedFile(
@@ -312,6 +328,7 @@ function writeSyncedFile(
   filePath: string,
   explicitDestPath?: string,
   childScripts?: Record<string, string>,
+  release?: string,
 ): void {
   const destPath =
     explicitDestPath ??
@@ -322,7 +339,7 @@ function writeSyncedFile(
   mkdirSync(dirname(dest), { recursive: true });
   writeFileSync(
     dest,
-    buildSyncedFileContent(sourceDir, projectDir, filePath, destPath, childScripts),
+    buildSyncedFileContent(sourceDir, projectDir, filePath, destPath, childScripts, release),
   );
 }
 
@@ -487,9 +504,17 @@ export async function syncTemplate(
   const extendsAccount = extendsMatch[1];
   const extendsGateway = extendsMatch[2];
 
-  const { sourceDir, cleanup } = await resolveSourceDir({
+  // ADR 0034 pt 4: release-scoped sync — when a platform manifest resolves,
+  // the template pulls the release tag, not the parent repo's main HEAD.
+  // Absent manifest (or a resolvable cache) → today's behavior. An explicit
+  // pin the chain cannot satisfy fails loud.
+  const platform = await resolvePlatformManifest({ configDir: projectDir, localConfig });
+  const release = platform ? `v${platform.manifest.frameworkVersion}` : undefined;
+
+  const { sourceDir, cleanup, resolvedRef, resolvedSha } = await resolveSourceDir({
     extendsAccount,
     extendsGateway,
+    ref: release,
   });
 
   try {
@@ -585,7 +610,7 @@ export async function syncTemplate(
       }
       const localHash = computeLocalHash(projectDir, destPath);
       const sourceHash = computeHash(
-        buildSyncedFileContent(sourceDir, projectDir, filePath, undefined, childScripts),
+        buildSyncedFileContent(sourceDir, projectDir, filePath, undefined, childScripts, release),
       );
 
       if (localHash === null) {
@@ -657,7 +682,7 @@ export async function syncTemplate(
 
       for (const destPath of filesToWrite) {
         const sourcePath = destToSource.get(destPath) ?? destPath;
-        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath, childScripts);
+        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath, childScripts, release);
       }
     }
 
@@ -703,6 +728,9 @@ export async function syncTemplate(
 
     await writeSnapshot(projectDir, {
       parentRef: `bos://${extendsAccount}/${extendsGateway}`,
+      // Release provenance (ADR 0034 pt 4): which release the snapshot's
+      // hashes came from — the resolved sha when GitHub surfaces it.
+      release: platform ? (resolvedSha ?? resolvedRef ?? release) : undefined,
       files: newSnapshotFiles,
     });
 

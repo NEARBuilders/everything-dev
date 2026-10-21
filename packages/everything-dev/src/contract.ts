@@ -751,6 +751,8 @@ export const ImportResultSchema = z.object({
 export const UpgradeOptionsSchema = z.object({
   dryRun: z.boolean().default(false).describe("Preview changes without writing"),
 
+  check: z.boolean().default(false).describe("CI check — exit 1 when updates are available"),
+
   noInstall: z.boolean().default(false).describe("Skip pnpm install"),
 
   noSync: z.boolean().default(false).describe("Only upgrade packages, skip template sync"),
@@ -772,6 +774,16 @@ export const UpgradeResultSchema = z.object({
   migrated: z.array(z.string()).optional(),
   availablePlugins: z.array(z.string()).optional(),
   selectedPlugins: z.array(z.string()).optional(),
+  /** The resolved platform release manifest when one publishes (ADR 0034). */
+  platform: z
+    .object({
+      resolved: z.string(),
+      source: z.string(),
+      fromCache: z.boolean(),
+    })
+    .optional(),
+  /** Dry-run/check only: whether any update is available. */
+  updatesAvailable: z.boolean().optional(),
   timings: z.array(PhaseTimingSchema).optional(),
   changelogUrl: z.string().optional(),
   error: z.string().optional(),

@@ -6,7 +6,7 @@
  * deliberately absent — it derives from the tags at deploy preflight.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { glob } from "glob";
 import { z } from "zod";
@@ -15,8 +15,11 @@ import {
   SHARED_DEP_SPECS,
   shareConfigFor,
 } from "every-plugin/shared-deps-spec";
-import { AGENT_SYNC_GLOBS, FRAMEWORK_OWNED_SYNC_FILES } from "../scaffold/ownership";
 import { satisfiesConstraint } from "../federation/service";
+import { AGENT_SYNC_GLOBS, FRAMEWORK_OWNED_SYNC_FILES } from "../scaffold/ownership";
+import { fetchParentConfig } from "../resolution/init-source";
+import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
+import { fetchRegistryKeyOrNull } from "../registry/fastkv";
 
 export const PlatformReleaseManifestSchema = z.object({
   schemaVersion: z.literal(1),
@@ -245,4 +248,139 @@ export function checkPlatformCompat(
   }
 
   return violations;
+}
+
+/**
+ * Resolution (ADR 0034 pt 3): one authored `platform` pin in, one resolved
+ * manifest out. Absent pin = latest via extends (nearest chain manifest);
+ * explicit pins match exactly or fail loud. The `.bos/platform-manifest.json`
+ * cache carries offline dev; network failure with no usable cache → null
+ * (today's behavior). All I/O is injectable — the test seam.
+ */
+export interface ResolvedPlatformManifest {
+  manifest: PlatformReleaseManifest;
+  source: { account: string; gateway: string };
+  fromCache: boolean;
+}
+
+export interface PlatformManifestCache {
+  schemaVersion: 1;
+  kind: "everything-dev/platform-manifest-cache";
+  resolvedAt: string;
+  source: { account: string; gateway: string };
+  manifest: PlatformReleaseManifest;
+}
+
+export interface ResolvePlatformManifestOptions {
+  configDir: string;
+  localConfig: Record<string, unknown>;
+  fetchManifest?: (account: string, gateway: string) => Promise<PlatformReleaseManifest | null>;
+  fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
+  cacheRead?: () => PlatformManifestCache | null;
+  cacheWrite?: (cached: PlatformManifestCache) => void;
+}
+
+const CACHE_DIR = ".bos";
+const CACHE_FILE = "platform-manifest.json";
+
+function defaultCachePath(configDir: string): string {
+  return join(configDir, CACHE_DIR, CACHE_FILE);
+}
+
+function defaultCacheRead(configDir: string): PlatformManifestCache | null {
+  try {
+    const raw = JSON.parse(readFileSync(defaultCachePath(configDir), "utf-8")) as PlatformManifestCache;
+    return raw?.kind === "everything-dev/platform-manifest-cache" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function defaultCacheWrite(configDir: string, cached: PlatformManifestCache): void {
+  try {
+    mkdirSync(join(configDir, CACHE_DIR), { recursive: true });
+    writeFileSync(defaultCachePath(configDir), `${JSON.stringify(cached, null, 2)}\n`);
+  } catch {
+    // cache writes never fail the resolution
+  }
+}
+
+function defaultFetchManifest(account: string, gateway: string): Promise<PlatformReleaseManifest | null> {
+  return (async () => {
+    const raw = await fetchRegistryKeyOrNull<unknown>(account, gateway, "platform.json");
+    if (!raw) return null;
+    return PlatformReleaseManifestSchema.parse(raw);
+  })();
+}
+
+function defaultFetchParent(account: string, gateway: string): Promise<Record<string, unknown> | null> {
+  return fetchParentConfig(account, gateway)
+    .then((config) => config as Record<string, unknown>)
+    .catch(() => null);
+}
+
+export async function resolvePlatformManifest(
+  opts: ResolvePlatformManifestOptions,
+): Promise<ResolvedPlatformManifest | null> {
+  const fetchManifest =
+    opts.fetchManifest ?? ((a: string, g: string) => defaultFetchManifest(a, g));
+  const fetchParent = opts.fetchParent ?? defaultFetchParent;
+  const cacheRead =
+    opts.cacheRead ?? (() => defaultCacheRead(opts.configDir));
+  const cacheWrite =
+    opts.cacheWrite ?? ((cached) => defaultCacheWrite(opts.configDir, cached));
+
+  // Walk the extends chain child → root, mirroring upgrade's chain walk.
+  const chain: Array<{ account: string; gateway: string }> = [];
+  const visited = new Set<string>();
+  let cursor: { account: string; gateway: string } | null = null;
+  const extendsRef = getExtendsRef(opts.localConfig);
+  if (typeof extendsRef === "string" && extendsRef.startsWith("bos://")) {
+    const parsed = parseBosRef(extendsRef);
+    if (parsed) cursor = { account: parsed.account, gateway: parsed.gateway };
+  }
+  while (cursor && !visited.has(`bos://${cursor.account}/${cursor.gateway}`)) {
+    visited.add(`bos://${cursor.account}/${cursor.gateway}`);
+    chain.push(cursor);
+    const parentConfig = await fetchParent(cursor.account, cursor.gateway);
+    if (!parentConfig) break;
+    const nextRef = getExtendsRef(parentConfig);
+    if (typeof nextRef !== "string" || !nextRef.startsWith("bos://")) break;
+    const parsed = parseBosRef(nextRef);
+    if (!parsed) break;
+    cursor = { account: parsed.account, gateway: parsed.gateway };
+  }
+
+  const writeCache = (manifest: PlatformReleaseManifest, source: { account: string; gateway: string }) => {
+    const cached: PlatformManifestCache = {
+      schemaVersion: 1,
+      kind: "everything-dev/platform-manifest-cache",
+      resolvedAt: new Date().toISOString(),
+      source,
+      manifest,
+    };
+    cacheWrite(cached);
+    return { manifest, source, fromCache: false };
+  };
+
+  const pin = typeof opts.localConfig.platform === "string" ? opts.localConfig.platform : undefined;
+
+  for (const node of chain) {
+    const manifest = await fetchManifest(node.account, node.gateway);
+    if (!manifest) continue;
+    if (!pin) return writeCache(manifest, node);
+    if (manifest.frameworkVersion === pin) return writeCache(manifest, node);
+  }
+
+  const cached = cacheRead();
+  if (cached && (!pin || cached.manifest.frameworkVersion === pin)) {
+    return { manifest: cached.manifest, source: cached.source, fromCache: true };
+  }
+
+  if (pin) {
+    throw new Error(
+      `platform pin ${pin} not found in the extends chain${chain.length > 0 ? ` (${chain.map((n) => `bos://${n.account}/${n.gateway}`).join(" → ")})` : ""} — publish the release or clear the pin`,
+    );
+  }
+  return null;
 }

@@ -6,6 +6,8 @@ export interface SyncSnapshot {
   timestamp: string;
   files: Record<string, string>;
   starter?: string;
+  /** The platform release the hashes came from (ADR 0034) — sha or ref. */
+  release?: string;
 }
 
 const SNAPSHOT_DIR = ".bos";
@@ -30,7 +32,7 @@ export async function readSnapshot(projectDir: string): Promise<SyncSnapshot | n
 
 export async function writeSnapshot(
   projectDir: string,
-  data: { parentRef: string; files: Record<string, string>; starter?: string },
+  data: { parentRef: string; files: Record<string, string>; starter?: string; release?: string },
 ): Promise<void> {
   const dir = join(projectDir, SNAPSHOT_DIR);
   if (!existsSync(dir)) {
@@ -42,6 +44,7 @@ export async function writeSnapshot(
     timestamp: new Date().toISOString(),
     files: data.files,
     ...(data.starter ? { starter: data.starter } : {}),
+    ...(data.release ? { release: data.release } : {}),
   };
 
   writeFileSync(snapshotPath(projectDir), `${JSON.stringify(snapshot, null, 2)}\n`);
