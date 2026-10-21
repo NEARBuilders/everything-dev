@@ -283,6 +283,11 @@ export async function refreshSessionCache(
  * authoritative by the single sessionQueryOptions read path), and a populated
  * router-context session — the host's SSR resolution — seeds an empty cache so
  * the dehydrated state carries it to the client.
+ *
+ * A null context session is "the host did not resolve one", not a verified
+ * sign-out: seeding it handed requireSession a freshly-cached null and the
+ * guard 307'd to /login without ever running the fetch (#527). The explicit
+ * signed-out entry still wins — clearAuthenticatedQueries writes it itself.
  */
 export function resolveSessionFromCache<T>(
   queryClient: QueryClient | undefined,
@@ -293,7 +298,7 @@ export function resolveSessionFromCache<T>(
   const cachedSession = queryClient.getQueryData<T | null>(sessionQueryKey);
   if (cachedSession !== undefined) return cachedSession;
 
-  if (contextSession !== undefined) {
+  if (contextSession !== null && contextSession !== undefined) {
     queryClient.setQueryData(sessionQueryKey, contextSession);
   }
   return contextSession;
