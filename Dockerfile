@@ -39,6 +39,11 @@ RUN test -e node_modules/.bin/every-plugin \
 RUN pnpm --filter every-plugin build
 RUN pnpm --filter better-near-auth build
 RUN pnpm --filter everything-dev build
+# The platform release manifest is generated in-build (ADR 0034): one
+# composer, two homes — the deploy train publishes the same bytes to the
+# FastKV pointer slot, the image stages them for self-description
+# (`bos platform manifest`).
+RUN node --import tsx scripts/generate-platform-manifest.ts
 RUN node --import tsx scripts/resolve-workspace-refs.ts
 
 # ── Dist build (ADR 0009): all workspaces the start stack serves ──

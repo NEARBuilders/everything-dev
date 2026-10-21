@@ -300,12 +300,30 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
       60_000,
     );
 
+    // ADR 0034: the boot gate also self-describes — the in-image platform
+    // release manifest must exist and parse (the release contract ships in
+    // the same bytes the host boots from).
+    console.log(`  … platform manifest (in-image)`);
+    const platformResult = docker([
+      "exec",
+      container,
+      "node",
+      "-e",
+      `const m = JSON.parse(require('fs').readFileSync('./packages/everything-dev/dist/platform-manifest.json','utf8')); if (m.kind !== 'everything-dev/platform-manifest' || !m.frameworkVersion) process.exit(1); console.log(m.frameworkVersion)`,
+    ]);
+    if (platformResult.status !== 0) {
+      throw new Error(
+        `in-image platform manifest missing or invalid — the image was not built with the release contract (ADR 0034)\n${platformResult.stdout}${platformResult.stderr}`,
+      );
+    }
+    const platformVersion = platformResult.stdout.trim();
+
     const sizeResult = docker(["image", "inspect", "-f", "{{.Size}}", image]);
     if (sizeResult.status !== 0) throw new Error(`image inspect failed: ${sizeResult.stderr}`);
     const mb = (Number(sizeResult.stdout.trim()) / (1024 * 1024)).toFixed(1);
     console.log(`  ℹ image size: ${mb} MB (${image})`);
 
-    const summary = `health: ${health}; ssr: ${ssr}; api: ${api}; mf compat: ${mf}`;
+    const summary = `health: ${health}; ssr: ${ssr}; api: ${api}; mf compat: ${mf}; platform: ${platformVersion}`;
     console.log("smoke: PASS");
     return { ok: true, image, summary };
   } catch (error) {

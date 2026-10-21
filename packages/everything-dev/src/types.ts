@@ -276,6 +276,7 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
         auth: z.enum(["session", "key", "custody"]).optional(),
       })
       .optional(),
+    platform: z.string().optional(),
     ci: CiConfigSchema.optional(),
     cdn: CdnConfigSchema.optional(),
   }),
@@ -333,6 +334,8 @@ export interface BosConfigInput {
   app?: Record<string, BosConfigInputAppEntry>;
   plugins?: Record<string, string | BosConfigInput>;
   publish?: PublishConfig;
+  /** The child's exact platform pin — one field, everything derived (ADR 0034). */
+  platform?: string;
   ci?: CiConfig;
   cdn?: CdnConfig;
   rolledBackFrom?: string;
@@ -383,6 +386,7 @@ export const BosConfigSchema = z.object({
   staging: BosStagingSchema.optional(),
   repository: z.string().optional(),
   publish: PublishConfigSchema.optional(),
+  platform: z.string().optional(),
   ci: CiConfigSchema.optional(),
   cdn: CdnConfigSchema.optional(),
   rolledBackFrom: z.string().optional(),

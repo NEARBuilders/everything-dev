@@ -184,23 +184,47 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
   ];
 
   const optionsByPlugin = new Map<string, Map<string, RouteOptionsBundle>>();
+  const skippedByPlugin = new Map<string, Set<string>>();
   for (const plugin of resolved) {
+    // A plugin with no manifest at all contributes no routes — skip it rather
+    // than crashing SSR composition (same contract as the missing-loader skip
+    // below).
+    if (!plugin.manifest?.routes) continue;
     const optionsById = new Map<string, RouteOptionsBundle>();
+    const skipped = new Set<string>();
     await Promise.all(
       plugin.manifest.routes.map(async (record) => {
         const loader = plugin.routeConfig.routeConfigLoaders[record.id];
         if (!loader) {
-          throw new Error(`routeConfig for "${plugin.key}" has no loader for route "${record.id}"`);
+          console.log(
+            `[Compose] skipping route "${record.id}" in "${plugin.key}" — no routeConfig loader`,
+          );
+          skipped.add(record.id);
+          return;
         }
         optionsById.set(record.id, await loader());
       }),
     );
+    // cascade: any route whose parent is skipped is also skipped
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const record of plugin.manifest.routes) {
+        if (skipped.has(record.id)) continue;
+        if (record.parentId && skipped.has(record.parentId)) {
+          skipped.add(record.id);
+          changed = true;
+        }
+      }
+    }
     optionsByPlugin.set(plugin.key, optionsById);
+    skippedByPlugin.set(plugin.key, skipped);
   }
 
   const declarations = new Map<MountId, MountDeclaration>();
   const mountByLayoutId = new Map<string, MountId>();
   for (const plugin of ordered) {
+    if (!plugin.manifest?.routes) continue;
     for (const record of plugin.manifest.routes) {
       if (!record.mount) continue;
       const mountId = record.mount as MountId;
@@ -223,6 +247,7 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
           `mount "${mountId}" declared by multiple sources: "${existing.key}" (${existing.record.file}) and "${plugin.key}" (${record.file})`,
         );
       }
+      if (skippedByPlugin.get(plugin.key)!.has(record.id)) continue;
       declarations.set(mountId, {
         key: plugin.key,
         record,
@@ -271,6 +296,7 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
   };
 
   for (const plugin of ordered) {
+    if (!plugin.manifest?.routes) continue;
     const optionsById = optionsByPlugin.get(plugin.key)!;
     const fullPathById = new Map<string, string>();
     const mountById = new Map<string, MountId>();
@@ -311,7 +337,9 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
       throw new Error(`route "${record.id}" in "${plugin.key}" must live under a mount`);
     };
 
-    const pending = plugin.manifest.routes.filter((record) => !record.mount);
+    const pending = plugin.manifest.routes.filter(
+      (record) => !record.mount && !skippedByPlugin.get(plugin.key)!.has(record.id),
+    );
     const shadowedIds = new Set<string>();
     let progressed = true;
     while (pending.length > 0 && progressed) {

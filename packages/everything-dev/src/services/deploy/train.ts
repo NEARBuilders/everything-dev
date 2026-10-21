@@ -15,7 +15,7 @@ import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegat
 import { submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
-import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
+import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKey } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { mergeAuthoredOverPublished } from "../resolution/merge";
 import {
@@ -37,6 +37,10 @@ import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk 
 import { formatNearError } from "./format";
 import { applyDeployResults, type DeployResultEntry } from "./integrity";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
+import {
+  composePlatformManifestPublishEntry,
+  type PlatformManifestPublishEntry,
+} from "./platform-manifest";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
 import { type DeployTrainRender, DeployTrainRenderService } from "./render";
 import { verifyRollbackSnapshot } from "./rollback";
@@ -729,13 +733,50 @@ export async function runPublishTrain(
     [registryKey]: JSON.stringify(publishPayload),
   };
   const manifestKey = `apps/${account}/${gateway}/manifests/${publishedAt.replace(/[:.]/g, "-")}.json`;
+  // ADR 0034: the platform release manifest rides the same atomic write —
+  // framework-rooted production build trains only (children and config-only
+  // publishes publish nothing). The compat floor is the previous release; a
+  // registry *failure* (vs an absent slot) skips this deploy's manifest —
+  // a silently-widened or silently-tightened floor would publish a wrong
+  // compat window — and the next deploy lands it.
+  let platformManifest: PlatformManifestPublishEntry | null = null;
+  if (!isStaging && input.build) {
+    try {
+      const previous = await fetchRegistryKey<{ frameworkVersion?: string }>(
+        account,
+        gateway,
+        "platform.json",
+      );
+      platformManifest = composePlatformManifestPublishEntry({
+        configDir,
+        account,
+        gateway,
+        previousFrameworkVersion: previous?.frameworkVersion,
+      });
+    } catch (error) {
+      console.warn(
+        `  platform manifest skipped this deploy — the previous release could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   registryEntries[manifestKey] = JSON.stringify({
     account,
     gateway,
     network,
     publishedAt,
     registryUrl,
+    ...(platformManifest
+      ? {
+          platformManifest: {
+            file: platformManifest.key,
+            integrity: platformManifest.integrity,
+          },
+        }
+      : {}),
   });
+  if (platformManifest) {
+    registryEntries[platformManifest.key] = platformManifest.value;
+  }
 
   render?.publish?.({
     registryUrl,

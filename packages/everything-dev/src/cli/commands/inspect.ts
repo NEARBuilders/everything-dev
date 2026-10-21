@@ -276,6 +276,16 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
         }`,
       );
     }
+    if (result.platform) {
+      for (const v of result.platform.violations) {
+        console.log(`  ${colors.dim("platform".padEnd(10))} ${colors.error("FAIL")} ${v.message}`);
+      }
+      if (result.platform.ok) {
+        console.log(
+          `  ${colors.dim("platform".padEnd(10))} ${colors.green("OK  ")} release contract satisfied`,
+        );
+      }
+    }
     console.log();
     if (result.status !== "ok") {
       console.log(
@@ -287,6 +297,47 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
       process.exit(1);
     }
     console.log(colors.green("  mf-compat: ✓ all federation manifests compatible"));
+    console.log();
+    return;
+  },
+
+  platformManifest: async (result, _ctx) => {
+    console.log();
+    if (result.status === "fail") {
+      console.error(`[CLI] ${result.error || "platform manifest resolution failed"}`);
+      process.exit(1);
+    }
+    if (result.status === "absent") {
+      console.log(
+        colors.yellow(
+          `  ${icons.err} No platform release manifest resolves${result.error ? ` — ${result.error}` : ""}.`,
+        ),
+      );
+      console.log(
+        colors.dim("  Children fall back to the parent-repo tarball walk (ADR 0034 pt 7)."),
+      );
+      console.log();
+      return;
+    }
+    console.log(
+      `  ${colors.dim("Platform")}  ${colors.green(result.version ?? "?")}  ${colors.dim(`(${result.source}${result.fromCache ? ", cached" : ""})`)}`,
+    );
+    if (result.compat) {
+      for (const v of result.compat.violations) {
+        console.log(`  ${colors.error("FAIL")}  ${v.message}`);
+      }
+      console.log();
+      if (!result.compat.ok) {
+        console.log(
+          colors.error(
+            "  platform-compat: ✗ the workspace does not satisfy this release's compat contract — bump the framework or clear the pin",
+          ),
+        );
+        console.log();
+        process.exit(1);
+      }
+      console.log(colors.green("  platform-compat: ✓ workspace satisfies the release contract"));
+    }
     console.log();
     return;
   },

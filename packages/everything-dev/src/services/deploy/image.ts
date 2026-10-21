@@ -61,8 +61,10 @@ const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
  * The runtime framework version baked into the image is the workspace source's
  * `everything-dev` package version — the image builds from `configDir`, so that
  * file is the truth. Missing (child repos without the workspace) → undefined.
+ * Exported for the platform release manifest composer (ADR 0034) — one version
+ * source for the image, the manifest, and the npm gate.
  */
-function readFrameworkVersion(configDir: string): string | undefined {
+export function readFrameworkVersion(configDir: string): string | undefined {
   try {
     const raw = readFileSync(
       join(configDir, "packages", "everything-dev", "package.json"),

@@ -1,14 +1,21 @@
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   FRAMEWORK_OWNED_HEADER,
+  FRAMEWORK_OWNED_SYNC_FILES,
   frameworkOwnedHeaderComment,
   isFrameworkOwnedSyncFile,
   mergePackageJson,
   RETIRED_SYNC_FILES,
 } from "../../src/cli/sync";
+import {
+  composePlatformReleaseManifest,
+  computeTemplateInventory,
+  PlatformReleaseManifestSchema,
+  serializePlatformReleaseManifest,
+} from "../../src/services/platform/manifest";
 
 describe("bos sync — framework-owned files", () => {
   it("marks scaffold runtime files as framework-owned", () => {
@@ -309,5 +316,45 @@ describe("bos sync — package.json merge", () => {
     expect(merged.devDependencies.custom).toBe("1.0.0");
     expect(merged.devDependencies["everything-dev"]).toBe("catalog:");
     expect(merged.devDependencies.vitest).toBe("catalog:");
+  });
+});
+
+describe("platform release manifest guardrail (ADR 0034)", () => {
+  const REPO_ROOT = join(import.meta.dirname, "../../../..");
+
+  it("every existing inventory path appears in the release templateInventory — and vice versa", () => {
+    const inventory = computeTemplateInventory(REPO_ROOT);
+    const paths = new Set(inventory.map((entry) => entry.path));
+    for (const owned of FRAMEWORK_OWNED_SYNC_FILES) {
+      if (existsSync(join(REPO_ROOT, owned))) {
+        expect(paths.has(owned), `inventory missing framework-owned path: ${owned}`).toBe(true);
+      }
+    }
+    const templateScaffold = new Set([
+      "plugins/_template/rspack.config.js",
+      "plugins/_template/tsconfig.json",
+      "plugins/_template/tests/types.d.ts",
+    ]);
+    for (const entry of inventory) {
+      expect(
+        isFrameworkOwnedSyncFile(entry.path) || templateScaffold.has(entry.path),
+        `inventory carries a non-framework-owned path: ${entry.path}`,
+      ).toBe(true);
+    }
+  });
+
+  it("a composed manifest parses back through the published schema with that inventory", () => {
+    const manifest = composePlatformReleaseManifest({
+      frameworkVersion: "0.0.0-test",
+      everyPluginVersion: "0.0.0-test",
+      imageRef: "ghcr.io/nearbuilders/everything-dev",
+      catalog: {},
+      templateInventory: computeTemplateInventory(REPO_ROOT),
+      compatMinChild: "0.0.0-test",
+    });
+    const parsed = PlatformReleaseManifestSchema.parse(
+      JSON.parse(serializePlatformReleaseManifest(manifest)),
+    );
+    expect(parsed.templateInventory.length).toBeGreaterThan(0);
   });
 });

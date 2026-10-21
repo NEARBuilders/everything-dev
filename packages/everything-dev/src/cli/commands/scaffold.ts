@@ -145,8 +145,15 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
     }
     if (result.status === "dry-run") {
       console.log(colors.cyan(`${icons.ok} Dry run — no changes applied`));
+      // CI drift alarm (ADR 0034): --check exits 1 when updates are available
+      if ((input as any).check) process.exit(result.updatesAvailable ? 1 : 0);
     } else {
       console.log(colors.green(`${icons.ok} Upgrade complete`));
+    }
+    if (result.platform) {
+      console.log(
+        `  ${colors.dim(`Platform ${result.platform.resolved}${result.platform.fromCache ? " (cached)" : ""} — ${result.platform.source}`)}`,
+      );
     }
     const mainPkg = result.packages.find(
       (p: { name: string; from?: string; to: string }) => p.name === "everything-dev",

@@ -18,6 +18,9 @@ export interface SourceResult {
   sourceDir: string;
   parentConfig: BosConfig;
   cleanup: () => Promise<void>;
+  /** The ref the tarball actually resolved from — release provenance (ADR 0034). */
+  resolvedRef?: string;
+  resolvedSha?: string;
 }
 
 export interface CatalogChainSource {
@@ -74,6 +77,8 @@ export async function resolveSourceDir(opts: {
   extendsAccount: string;
   extendsGateway: string;
   source?: string;
+  /** A release tag pins the tarball — absent, main/master HEAD (ADR 0034). */
+  ref?: string;
 }): Promise<SourceResult> {
   if (opts.source) {
     const sourceDir = resolve(opts.source);
@@ -92,8 +97,13 @@ export async function resolveSourceDir(opts: {
   const parentConfig = await fetchParentConfig(opts.extendsAccount, opts.extendsGateway);
 
   if (parentConfig.repository) {
-    const { dir: sourceDir, cleanup } = await downloadTarball(parentConfig.repository);
-    return { sourceDir, parentConfig, cleanup };
+    const {
+      dir: sourceDir,
+      cleanup,
+      resolvedRef,
+      resolvedSha,
+    } = await downloadTarball(parentConfig.repository, opts.ref);
+    return { sourceDir, parentConfig, cleanup, resolvedRef, resolvedSha };
   }
 
   const chainResult = await resolveRepositoryViaExtendsChain(
@@ -101,8 +111,13 @@ export async function resolveSourceDir(opts: {
     opts.extendsGateway,
   );
   if (chainResult?.repository) {
-    const { dir: sourceDir, cleanup } = await downloadTarball(chainResult.repository);
-    return { sourceDir, parentConfig: chainResult.config, cleanup };
+    const {
+      dir: sourceDir,
+      cleanup,
+      resolvedRef,
+      resolvedSha,
+    } = await downloadTarball(chainResult.repository, opts.ref);
+    return { sourceDir, parentConfig: chainResult.config, cleanup, resolvedRef, resolvedSha };
   }
 
   return {

@@ -751,6 +751,8 @@ export const ImportResultSchema = z.object({
 export const UpgradeOptionsSchema = z.object({
   dryRun: z.boolean().default(false).describe("Preview changes without writing"),
 
+  check: z.boolean().default(false).describe("CI check — exit 1 when updates are available"),
+
   noInstall: z.boolean().default(false).describe("Skip pnpm install"),
 
   noSync: z.boolean().default(false).describe("Only upgrade packages, skip template sync"),
@@ -772,6 +774,16 @@ export const UpgradeResultSchema = z.object({
   migrated: z.array(z.string()).optional(),
   availablePlugins: z.array(z.string()).optional(),
   selectedPlugins: z.array(z.string()).optional(),
+  /** The resolved platform release manifest when one publishes (ADR 0034). */
+  platform: z
+    .object({
+      resolved: z.string(),
+      source: z.string(),
+      fromCache: z.boolean(),
+    })
+    .optional(),
+  /** Dry-run/check only: whether any update is available. */
+  updatesAvailable: z.boolean().optional(),
   timings: z.array(PhaseTimingSchema).optional(),
   changelogUrl: z.string().optional(),
   error: z.string().optional(),
@@ -1008,6 +1020,12 @@ export const MfCheckOptionsSchema = z.object({
   timeoutMs: z.number().default(15_000),
 });
 
+export const PlatformCompatViolationSchema = z.object({
+  kind: z.enum(["minChild", "shared-dep"]),
+  name: z.string().optional(),
+  message: z.string(),
+});
+
 export const MfCheckRemoteResultSchema = z.object({
   role: z.string(),
   url: z.string(),
@@ -1023,6 +1041,34 @@ export const MfCheckResultSchema = z.object({
   hostReachable: z.boolean(),
   hostReason: z.string().optional(),
   remotes: z.array(MfCheckRemoteResultSchema),
+  /** The platform compat gate (ADR 0034 pt 5) — present when a release manifest resolves. */
+  platform: z
+    .object({
+      ok: z.boolean(),
+      violations: z.array(PlatformCompatViolationSchema),
+    })
+    .optional(),
+});
+
+export const PlatformManifestOptionsSchema = z.object({
+  check: z
+    .boolean()
+    .default(false)
+    .describe("Also run the platform compat check against the local workspace"),
+});
+
+export const PlatformManifestResultSchema = z.object({
+  status: z.enum(["ok", "absent", "fail"]),
+  version: z.string().nullable(),
+  source: z.string().optional(),
+  fromCache: z.boolean().optional(),
+  error: z.string().optional(),
+  compat: z
+    .object({
+      ok: z.boolean(),
+      violations: z.array(PlatformCompatViolationSchema),
+    })
+    .optional(),
 });
 
 export const commandOptionSchemas = {
@@ -1047,6 +1093,7 @@ export const commandOptionSchemas = {
   upgrade: UpgradeOptionsSchema,
   typecheck: TypecheckOptionsSchema,
   mfCheck: MfCheckOptionsSchema,
+  platformManifest: PlatformManifestOptionsSchema,
   infraExport: InfraExportOptionsSchema,
   dbStudio: DbStudioOptionsSchema,
   dbDoctor: DbDoctorOptionsSchema,
@@ -1164,6 +1211,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/mf/check" })
     .input(MfCheckOptionsSchema)
     .output(MfCheckResultSchema),
+  platformManifest: oc
+    .route({ method: "POST", path: "/platform/manifest" })
+    .input(PlatformManifestOptionsSchema)
+    .output(PlatformManifestResultSchema),
   infraExport: oc
     .route({ method: "POST", path: "/infra/export" })
     .input(InfraExportOptionsSchema)
@@ -1386,6 +1437,12 @@ export const cliCommandMeta = {
     commandPath: ["mf", "check"],
     summary:
       "Verify Module Federation runtime compatibility across published host + plugin bundles",
+    interactive: false,
+  },
+  platformManifest: {
+    commandPath: ["platform", "manifest"],
+    summary:
+      "Show the platform release manifest — the booted host or the resolved release self-describes (ADR 0034)",
     interactive: false,
   },
   dbStudio: {

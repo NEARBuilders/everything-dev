@@ -11,6 +11,7 @@ import { readJsonFile } from "../../utils/json-file";
 import { saveBosConfig } from "../../utils/save-config";
 import { timePhase } from "../../utils/timing";
 import { readInstalledFrameworkVersion } from "../framework-version";
+import { type ResolvedPlatformManifest, resolvePlatformManifest } from "../platform/manifest";
 import { openResolution } from "../resolution/session";
 import { readWorkspaceCatalog, writeWorkspaceCatalog } from "../workspace/catalog";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
@@ -71,6 +72,8 @@ interface ExtendedRootSource {
   catalog: Record<string, string>;
   repository?: string;
   extendsChain: string[];
+  /** The resolved platform release manifest when one publishes (ADR 0034). */
+  platform?: ResolvedPlatformManifest;
 }
 
 function extractSemver(value: string | undefined): string | null {
@@ -336,10 +339,17 @@ async function readExtendedRootSource(projectDir: string): Promise<ExtendedRootS
     extendsGateway: parsed.gateway,
   });
 
+  // ADR 0034: the release manifest is the catalog's authority when it
+  // resolves — one registry read replaces the parent-repo tarball walk.
+  // Absent manifest → today's behavior (the walked catalog). An explicit
+  // pin the chain cannot satisfy fails loud.
+  const platform = await resolvePlatformManifest({ configDir: projectDir, localConfig });
+
   return {
-    catalog: source.catalog,
+    catalog: platform ? platform.manifest.catalog : source.catalog,
     repository: source.repository ?? repository,
     extendsChain: source.extendsChain.length > 0 ? source.extendsChain : extendsChain,
+    platform: platform ?? undefined,
   };
 }
 
@@ -1261,6 +1271,9 @@ export async function upgradeTemplate(
   options: UpgradeOptions,
 ): Promise<UpgradeResult> {
   const timings: PhaseTiming[] = [];
+  // `--check` is CI's drift alarm (ADR 0034 pt 6): dry-run semantics plus a
+  // nonzero exit when updates are available (renderer-side).
+  if (options.check) options.dryRun = true;
   const pkgPath = join(workspaceDirOf(projectDir), "package.json");
   if (!existsSync(pkgPath)) {
     return {
@@ -1347,6 +1360,14 @@ export async function upgradeTemplate(
         ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
       ],
       availablePlugins: pluginOptions?.newPluginKeys,
+      platform: parentSource.platform
+        ? {
+            resolved: parentSource.platform.manifest.frameworkVersion,
+            source: `bos://${parentSource.platform.source.account}/${parentSource.platform.source.gateway}`,
+            fromCache: parentSource.platform.fromCache,
+          }
+        : undefined,
+      updatesAvailable: hasUpdates,
       timings,
       changelogUrl,
     };
