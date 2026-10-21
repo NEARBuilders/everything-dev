@@ -1,5 +1,15 @@
 # every-plugin
 
+## 3.0.0-rc.10
+
+### Minor Changes
+
+- 609f31a: The database seam (ADR 0033): `everything-dev/db` gains `databaseLayer(tag, url, { pluginId, schema, migrations?, namespace? })` — the plugin author's whole database surface (driver acquireRelease, migrate-on-boot with the journal-scoped advisory lock, drift detection) providing the typed drizzle db on the plugin-owned tag, which is the swap seam: a different drizzle setup or a totally different storage situation is any other Layer for your own tag. `PluginInitializeInput` gains `pluginId: string` (the host's own id — no more `PluginIdTag` reads in plugin code; the tag stays provided for children's vendored layers). All workspaces' `src/db/` shrinks to a ~15-line plugin-owned `db/layer.ts` with namespaced tag ids (`"votes/Database"` etc.) — `src/db/index.ts` and `src/db/migrate.ts` are folded in and deleted, and `lib/context.ts` joins the db paths in leaving the sync-owned inventory (the drizzle-kit config stays owned — identity-driven wiring carrying journal policy). No codemod: existing children's trio copies keep working; port via the prompt in `everything-dev#init-upgrade`.
+
+### Patch Changes
+
+- 5e22370: UI manifest construction no longer crashes SSR composition when a single plugin route lacks a `routeConfig` loader. A missing loader now logs a `[Compose] skipping route ... — no routeConfig loader` warning and drops just that route (and its subtree) from the composed tree, so one plugin's stale or partial `routeConfig.gen.ts` can no longer take down the whole site. The digest is computed over manifests, not routeConfig, so the parity check still passes for the surviving set.
+
 ## 3.0.0-rc.9
 
 ### Patch Changes
