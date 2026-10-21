@@ -60,7 +60,7 @@ jobs:
       - name: Get pnpm store dir
         id: pnpm-cache
         shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
@@ -106,7 +106,7 @@ jobs:
       - name: Set job result
         id: set-result
         if: always()
-        run: echo "result=${{ job.status }}" >> $GITHUB_OUTPUT
+        run: echo "result=${{ job.status }}" >> "$GITHUB_OUTPUT"
 
   typecheck:
     name: Typecheck
@@ -140,7 +140,7 @@ jobs:
       - name: Get pnpm store dir
         id: pnpm-cache
         shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
         uses: actions/cache@v4
@@ -180,7 +180,7 @@ jobs:
       - name: Set job result
         id: set-result
         if: always()
-        run: echo "result=${{ job.status }}" >> $GITHUB_OUTPUT
+        run: echo "result=${{ job.status }}" >> "$GITHUB_OUTPUT"
 
   test:
     name: Test
@@ -214,7 +214,7 @@ jobs:
       - name: Get pnpm store dir
         id: pnpm-cache
         shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
 
       - name: Cache pnpm store
         uses: actions/cache@v4
@@ -234,4 +234,4 @@ jobs:
       - name: Set job result
         id: set-result
         if: always()
-        run: echo "result=${{ job.status }}" >> $GITHUB_OUTPUT
+        run: echo "result=${{ job.status }}" >> "$GITHUB_OUTPUT"
