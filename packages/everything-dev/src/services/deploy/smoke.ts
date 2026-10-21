@@ -255,6 +255,14 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
         if (!contentType.includes("text/html")) throw new Error(`/ content-type ${contentType}`);
         const body = await response.text();
         if (!/<html/i.test(body)) throw new Error("/ did not return an HTML document");
+        // The host falls back to the client shell — status 200, valid HTML —
+        // when the server render throws. Only the SSR-attempted-and-failed
+        // path renders this marker (no-SSR deployments serve the shell
+        // without it), so its presence is a red smoke on any deployment
+        // that promises SSR.
+        if (body.includes("SSR unavailable")) {
+          throw new Error("/ served the client-shell fallback — the server render failed");
+        }
         return `${body.length} bytes`;
       }),
       pollUntil("api spec", async () => {

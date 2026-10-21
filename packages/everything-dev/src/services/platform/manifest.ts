@@ -302,6 +302,17 @@ export interface PlatformManifestCache {
   manifest: PlatformReleaseManifest;
 }
 
+/**
+ * How long a cached resolution may stand in for a live fetch. The cache
+ * exists for offline dev; without a freshness bound a registry outage (or a
+ * stale cache written before the parent's latest publish) silently serves a
+ * months-old release manifest — pins derive from it and the mismatch can
+ * take an hour to diagnose. Past the TTL the cache is refused: pin-less
+ * resolution degrades to "no manifest", pinned resolution fails loud with
+ * the pin-not-found error.
+ */
+export const PLATFORM_MANIFEST_CACHE_TTL_MS = 24 * 60 * 60_000;
+
 export interface ResolvePlatformManifestOptions {
   configDir: string;
   localConfig: Record<string, unknown>;
@@ -309,10 +320,27 @@ export interface ResolvePlatformManifestOptions {
   fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
   cacheRead?: () => PlatformManifestCache | null;
   cacheWrite?: (cached: PlatformManifestCache) => void;
+  /** injectable clock for the cache-freshness check (test seam) */
+  now?: () => number;
+  /** injectable freshness bound (test seam); defaults to {@link PLATFORM_MANIFEST_CACHE_TTL_MS} */
+  cacheTtlMs?: number;
 }
 
 const CACHE_DIR = ".bos";
 const CACHE_FILE = "platform-manifest.json";
+
+/**
+ * A cached resolution stands in for a live fetch only while it is fresh:
+ * `resolvedAt` inside the TTL, and parseable (a cache with an unparseable
+ * timestamp is treated as stale — never trusted).
+ */
+function isFresh(cached: PlatformManifestCache, opts: ResolvePlatformManifestOptions): boolean {
+  const now = (opts.now ?? Date.now)();
+  const ttl = opts.cacheTtlMs ?? PLATFORM_MANIFEST_CACHE_TTL_MS;
+  const resolvedAt = Date.parse(cached.resolvedAt);
+  if (Number.isNaN(resolvedAt)) return false;
+  return now - resolvedAt <= ttl;
+}
 
 function defaultCachePath(configDir: string): string {
   return join(configDir, CACHE_DIR, CACHE_FILE);
@@ -413,7 +441,7 @@ export async function resolvePlatformManifest(
   }
 
   const cached = cacheRead();
-  if (cached && (!pin || cached.manifest.frameworkVersion === pin)) {
+  if (cached && (!pin || cached.manifest.frameworkVersion === pin) && isFresh(cached, opts)) {
     return { manifest: cached.manifest, source: cached.source, fromCache: true };
   }
 

@@ -32,8 +32,14 @@ function harness(opts: {
     manifest?: PlatformReleaseManifest;
     config?: Record<string, unknown>;
   }>;
-  cached?: { manifest: PlatformReleaseManifest; source: { account: string; gateway: string } };
+  cached?: {
+    manifest: PlatformReleaseManifest;
+    source: { account: string; gateway: string };
+    resolvedAt?: string;
+  };
   useDefaultCache?: boolean;
+  /** injectable clock for the cache-freshness check */
+  now?: () => number;
 }) {
   const writes: Array<unknown> = [];
   const fetchManifest = async (account: string, gateway: string) =>
@@ -49,10 +55,17 @@ function harness(opts: {
         localConfig,
         fetchManifest,
         fetchParent,
+        ...(opts.now ? { now: opts.now } : {}),
         ...(opts.useDefaultCache
           ? {}
           : {
-              cacheRead: () => (opts.cached ? { ...opts.cached, resolvedAt: "2026-01-01" } : null),
+              cacheRead: () =>
+                opts.cached
+                  ? {
+                      ...opts.cached,
+                      resolvedAt: opts.cached.resolvedAt ?? new Date().toISOString(),
+                    }
+                  : null,
               cacheWrite: (cached: unknown) => writes.push(cached),
             }),
       });
@@ -114,6 +127,59 @@ describe("resolvePlatformManifest", () => {
     const resolved = await h.run({ ...childConfig, platform: "2.0.0-rc.14" });
     expect(resolved?.fromCache).toBe(true);
     expect(resolved?.manifest.frameworkVersion).toBe("2.0.0-rc.14");
+  });
+
+  it("a cache older than the TTL is refused — pin-less resolution degrades to null", async () => {
+    const h = harness({
+      chain: [],
+      cached: {
+        manifest: makeManifest("2.0.0-rc.14"),
+        source: { account: "root.near", gateway: "root" },
+        resolvedAt: new Date(Date.now() - 25 * 60 * 60_000).toISOString(),
+      },
+    });
+    expect(await h.run(childConfig)).toBeNull();
+  });
+
+  it("a cache older than the TTL is refused — a pinned resolution fails loud", async () => {
+    const h = harness({
+      chain: [],
+      cached: {
+        manifest: makeManifest("2.0.0-rc.14"),
+        source: { account: "root.near", gateway: "root" },
+        resolvedAt: new Date(Date.now() - 25 * 60 * 60_000).toISOString(),
+      },
+    });
+    await expect(h.run({ ...childConfig, platform: "2.0.0-rc.14" })).rejects.toThrow(
+      /2\.0\.0-rc\.14/,
+    );
+  });
+
+  it("a cache with an unparseable resolvedAt is never trusted", async () => {
+    const h = harness({
+      chain: [],
+      cached: {
+        manifest: makeManifest("2.0.0-rc.14"),
+        source: { account: "root.near", gateway: "root" },
+        resolvedAt: "not-a-date",
+      },
+    });
+    expect(await h.run(childConfig)).toBeNull();
+  });
+
+  it("a fresh cache inside the injected clock serves offline resolution", async () => {
+    const t0 = 1_900_000_000_000;
+    const h = harness({
+      chain: [],
+      cached: {
+        manifest: makeManifest("2.0.0-rc.14"),
+        source: { account: "root.near", gateway: "root" },
+        resolvedAt: new Date(t0).toISOString(),
+      },
+      now: () => t0 + 60_000,
+    });
+    const resolved = await h.run(childConfig);
+    expect(resolved?.fromCache).toBe(true);
   });
 
   it("writes and reads the .bos cache file by default", async () => {
