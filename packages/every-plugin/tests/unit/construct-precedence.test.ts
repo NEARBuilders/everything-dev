@@ -249,23 +249,21 @@ describe("constructTree core-over-plugin precedence (ADR 0010 decision #1)", () 
         loginRoute("_public/login"),
       ]),
     );
-    const auth = plugin(
-      { key: "auth", mfName: "auth-ui" },
-      manifestOf("auth", [
-        record({ id: "_public/login", path: "/login" }),
-        record({ id: "_authenticated/settings", path: "/settings", parentId: "_authenticated" }),
-        record({
-          id: "_authenticated/settings/referrals",
-          path: "/referrals",
-          parentId: "_authenticated/settings",
-        }),
-        record({
-          id: "_authenticated/settings/security",
-          path: "/security",
-          parentId: "_authenticated/settings",
-        }),
-      ]),
-    );
+    const authManifest = manifestOf("auth", [
+      record({ id: "_public/login", path: "/login" }),
+      record({ id: "_authenticated/settings", path: "/settings", parentId: "_authenticated" }),
+      record({
+        id: "_authenticated/settings/referrals",
+        path: "/referrals",
+        parentId: "_authenticated/settings",
+      }),
+      record({
+        id: "_authenticated/settings/security",
+        path: "/security",
+        parentId: "_authenticated/settings",
+      }),
+    ]);
+    const auth = plugin({ key: "auth", mfName: "auth-ui" }, authManifest);
     // auth's routeConfig intentionally omits the referrals loader; security keeps its loader.
     const authConfig: RouteConfigModule = {
       routeConfigLoaders: {
@@ -288,7 +286,7 @@ describe("constructTree core-over-plugin precedence (ADR 0010 decision #1)", () 
       plugins: [core.ref, auth.ref],
       resolve: async (ref) => {
         if (ref.key === "ui") return core.resolve(ref);
-        return { key: "auth", manifest: auth.ref.manifest, routeConfig: authConfig };
+        return { key: "auth", manifest: authManifest, routeConfig: authConfig };
       },
     });
 
@@ -298,7 +296,6 @@ describe("constructTree core-over-plugin precedence (ADR 0010 decision #1)", () 
     expect(tree.nav.items.map((item) => item.id).sort()).toEqual([
       "auth:_authenticated/settings",
       "auth:_authenticated/settings/security",
-      "auth:_public/login",
       "ui:_public/login",
     ]);
     expect(log).toHaveBeenCalledWith(

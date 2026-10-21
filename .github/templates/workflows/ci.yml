@@ -57,4 +57,4 @@ jobs:
     if: always() # a plain needs-skip reports "skipped", not failure
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.ci.outputs.lint-result }}" = "success" && test "${{ needs.ci.outputs.typecheck-result }}" = "success"
+      - run: test "${{ needs.ci.result }}" = "success"
