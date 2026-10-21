@@ -5,14 +5,15 @@ import type { DeployLegOutcome } from "../../contract";
 import { colors, icons } from "../../utils/theme";
 import {
   buildAndPushImage,
-  type DeployImagePlan,
   deployImageToRailway,
   hasDocker,
   imageRefWithDigest,
   type ResolvedImageRef,
-  resolveDeployImagePlan,
+  repointServiceSource,
   resolveImageRef,
+  resolveRegistryDigest,
 } from "./image";
+import { deriveImageRefFromPlatformManifest } from "./platform-manifest";
 import { rollbackToPreviousSnapshot } from "./rollback-flow";
 import { runSmoke } from "./smoke";
 
@@ -27,108 +28,213 @@ export interface DeployLegs {
 
 /**
  * Runtime tier (ADR 0020/0021): a "root" train owns its runtime image —
- * `ci.image` is configured, `BOS_IMAGE` names one, or a Dockerfile exists at
+ * `BOS_IMAGE` names one (with a pre-pushed digest) or a Dockerfile exists at
  * the config root, so the train can produce a digest and pin Railway to
  * exactly the bytes it validated. A "child" runtime inherits the platform's
  * universal image (identity-driven boot); it has no image bytes to build,
- * pin, or boot.
+ * pin, or boot — its image ref derives from the platform release manifest
+ * (ADR 0034).
  */
 export type RuntimeTier = "root" | "child";
 
 export function resolveRuntimeTier(input: {
-  ciImage?: string;
   imageEnv?: string;
   hasDockerfile: boolean;
 }): RuntimeTier {
-  return input.ciImage || input.imageEnv || input.hasDockerfile ? "root" : "child";
+  return input.imageEnv || input.hasDockerfile ? "root" : "child";
+}
+
+/** The child image pin (ADR 0034): `ref:v<version>` from the resolved
+ * platform release manifest, with the tag's digest resolved from the
+ * registry. The Railway service source repoints to the ref and the smoke
+ * gate boots the digest. */
+export interface ChildImagePin {
+  image: string;
+  tag: string;
+  digest: string;
 }
 
 /**
- * The image leg's plan, tier-aware. `resolveDeployImagePlan` stays the single
- * producer of every variant; a child runtime can never build (no Dockerfile —
- * that is what makes it a child), so its skips are replaced with the
- * inheritance reason instead of pointing at `ci.image` configuration the
- * child deliberately does not have.
+ * The child image pin: the platform release manifest resolves through the
+ * extends chain (authored `platform` pin, else nearest-wins) to `ref:tag`,
+ * and the registry resolves the tag's digest. Undefined when no manifest
+ * resolves — the additive fallback (ADR 0034) is today's float redeploy.
  */
-export function resolveImageLegPlan(input: {
+export async function resolveChildImagePin(input: {
+  configDir: string;
+  localConfig: Record<string, unknown>;
+  fetchManifest?: Parameters<typeof deriveImageRefFromPlatformManifest>[0]["fetchManifest"];
+  fetchDigest?: typeof resolveRegistryDigest;
+}): Promise<ChildImagePin | undefined> {
+  const derived = await deriveImageRefFromPlatformManifest({
+    configDir: input.configDir,
+    localConfig: input.localConfig,
+    fetchManifest: input.fetchManifest,
+  });
+  if (!derived) return undefined;
+  const digest = await (input.fetchDigest ?? resolveRegistryDigest)({
+    ref: `${derived.image}:${derived.tag}`,
+  });
+  return { image: derived.image, tag: derived.tag, digest };
+}
+
+/**
+ * The post-publish decision table (ADR 0020/0021/0034) — pure data, one
+ * place. Precedence for the image leg: an explicit digest handover
+ * (`BOS_IMAGE_DIGEST`, any tier) wins; a child pins the platform manifest's
+ * ref or skips with the inheritance reason; a root runs the
+ * build/prebuilt/skip chain. Smoke boots only pinned/known-digest refs.
+ * Every step is executable without further decisions; the railway step is
+ * decided separately (`resolveRailwayStep`) because it legitimately depends
+ * on the image leg's execution outcome (the captured digest).
+ */
+
+export type ImageStep =
+  | { action: "pinned"; image: string; tag: string; digest: string }
+  | { action: "prebuilt"; image: string; digest: string }
+  | { action: "build"; image: string }
+  | { action: "skip"; reason: string };
+
+export type SmokeStep =
+  /** `ref` is precomputed when the digest is known at plan time; a build
+   * boots `image` and the interpreter appends the captured digest. */
+  { action: "boot"; image: string; ref?: string } | { action: "skip"; reason: string };
+
+export interface DeployPlan {
   tier: RuntimeTier;
-  imageRef: ResolvedImageRef | undefined;
-  imageDigest?: string;
+  image: ImageStep;
+  /** Absent when `--smoke` was not requested. */
+  smoke?: SmokeStep;
+}
+
+export function resolveDeployPlan(input: {
+  tier: RuntimeTier;
+  childPin?: ChildImagePin;
+  imageRef?: ResolvedImageRef;
+  digestHandover?: string;
   hasDocker: boolean;
   hasDockerfile: boolean;
-}): DeployImagePlan {
-  const plan = resolveDeployImagePlan(input);
-  if (plan.kind === "skip" && input.tier === "child") {
-    return {
-      kind: "skip",
-      reason:
-        "child runtime inherits the root's universal image (ADR 0020) — no image leg in this train",
+  smokeRequested: boolean;
+}): DeployPlan {
+  let image: ImageStep;
+  if (input.digestHandover && input.imageRef) {
+    image = {
+      action: "prebuilt",
+      image: input.imageRef.image,
+      digest: input.digestHandover,
     };
+  } else if (input.tier === "child") {
+    image = input.childPin
+      ? {
+          action: "pinned",
+          image: input.childPin.image,
+          tag: input.childPin.tag,
+          digest: input.childPin.digest,
+        }
+      : {
+          action: "skip",
+          reason:
+            "child runtime inherits the root's universal image (ADR 0020) — no image leg in this train",
+        };
+  } else if (!input.imageRef) {
+    image = {
+      action: "skip",
+      reason:
+        "set BOS_IMAGE (or repository in bos.config.json) to build and push the runtime image",
+    };
+  } else if (!input.hasDocker) {
+    image = { action: "skip", reason: "docker is not available" };
+  } else if (!input.hasDockerfile) {
+    image = { action: "skip", reason: "no Dockerfile at the config root" };
+  } else {
+    image = { action: "build", image: input.imageRef.image };
   }
-  return plan;
+
+  let smoke: SmokeStep | undefined;
+  if (input.smokeRequested) {
+    if (image.action === "pinned" || image.action === "prebuilt") {
+      smoke = {
+        action: "boot",
+        image: image.image,
+        ref: imageRefWithDigest(image.image, image.digest),
+      };
+    } else if (image.action === "build") {
+      smoke = { action: "boot", image: image.image };
+    } else {
+      smoke = {
+        action: "skip",
+        reason:
+          input.tier === "child"
+            ? "child runtime inherits the root's universal image — no image digest to boot in this train"
+            : "no runtime image digest — pass BOS_IMAGE_DIGEST for a pre-pushed image",
+      };
+    }
+  }
+
+  return { tier: input.tier, image, ...(smoke ? { smoke } : {}) };
 }
 
-export type RailwayLegDecision =
-  | { action: "skip"; outcome: DeployLegOutcome }
-  | { action: "redeploy"; outcome?: undefined };
+export type RailwayStep =
+  | { action: "repoint-and-redeploy"; service: string; image: string }
+  | { action: "redeploy"; service: string }
+  | { action: "fail"; detail: string }
+  | { action: "skip"; detail: string };
 
 /**
- * The Railway leg's decision, tier-aware. A child runtime never needs a
- * digest: its Railway service source is the root's universal image (connected
- * once in the dashboard), so `redeploy --from-source` is just a reload
- * trigger for the freshly published config — the token is project-scoped and
- * cannot touch another project's service. A root runtime must have pinned
- * bytes: without a digest the "pulled bytes are what this train validated"
- * guarantee (ADR 0021) is unmeetable, and that is a failure, not a skip.
+ * The railway step, decided after the image leg ran: a root runtime must
+ * have pinned bytes (`pinnedDigest` — handover, pin, or build capture);
+ * without them the "pulled bytes are what this train validated" guarantee
+ * (ADR 0021) is unmeetable, and that is a failure, not a skip. A child
+ * runtime never needs a digest: with a pin the service source repoints to
+ * the pinned ref before the redeploy pulls it; without one, `redeploy
+ * --from-source` is just a reload trigger for the freshly published config.
+ * The token is project-scoped and cannot touch another project's service.
  */
-export function resolveRailwayLeg(input: {
+export function resolveRailwayStep(input: {
   tier: RuntimeTier;
-  railwayToken?: string;
+  token?: string;
   service?: string;
-  digest?: string;
-}): RailwayLegDecision {
-  if (!input.railwayToken) {
-    return {
-      action: "skip",
-      outcome: { status: "skipped", detail: "RAILWAY_TOKEN not set" },
-    };
+  pinnedDigest?: string;
+  childPin?: ChildImagePin;
+}): RailwayStep {
+  if (!input.token) {
+    return { action: "skip", detail: "RAILWAY_TOKEN not set" };
   }
   if (!input.service) {
     return input.tier === "root"
       ? {
-          action: "skip",
-          outcome: {
-            status: "failed",
-            detail: "ci.railway.service is not configured in bos.config.json",
-          },
+          action: "fail",
+          detail: "ci.railway.service is not configured in bos.config.json",
         }
       : {
           action: "skip",
-          outcome: {
-            status: "skipped",
-            detail: "set ci.railway.service in bos.config.json to trigger a Railway redeploy",
-          },
+          detail: "set ci.railway.service in bos.config.json to trigger a Railway redeploy",
         };
   }
-  if (!input.digest && input.tier === "root") {
+  if (input.tier === "root" && !input.pinnedDigest) {
     return {
-      action: "skip",
-      outcome: {
-        status: "failed",
-        detail:
-          "Railway deploy requires a runtime image (set ci.image, or pass BOS_IMAGE_DIGEST for a pre-pushed image)",
-      },
+      action: "fail",
+      detail:
+        "Railway deploy requires a runtime image (pass BOS_IMAGE_DIGEST for a pre-pushed image)",
     };
   }
-  return { action: "redeploy" };
+  if (input.childPin) {
+    return {
+      action: "repoint-and-redeploy",
+      service: input.service,
+      image: `${input.childPin.image}:${input.childPin.tag}`,
+    };
+  }
+  return { action: "redeploy", service: input.service };
 }
 
 /**
  * The post-publish legs (ticket #422): image → smoke boot gate → Railway,
- * behind the runtime-tier policy from the leg-semantics ticket (#420). The
- * deploy handler hands over the published-config context; leg outcomes derive
- * from leg results — a red boot gate rolls the config back here, and the
- * handler maps the returned outcome onto the wire result mechanically.
+ * executing the pure decision table (`resolveDeployPlan` +
+ * `resolveRailwayStep`). The deploy handler hands over the published-config
+ * context; leg outcomes derive from leg results — a red boot gate rolls the
+ * config back here, and the handler maps the returned outcome onto the wire
+ * result mechanically.
  */
 
 export interface PostPublishLegsInput {
@@ -146,7 +252,9 @@ export interface PostPublishLegsInput {
   account?: string;
   domain?: string;
   runtimeConfig: Parameters<typeof rollbackToPreviousSnapshot>[0]["runtimeConfig"];
-  ciImage?: string;
+  /** The authored leaf config — the platform pin + extends chain a child's
+   * image pin resolves from (ADR 0034). */
+  localConfig?: Record<string, unknown>;
   repository?: string;
 }
 
@@ -165,6 +273,8 @@ export interface PostPublishLegsDeps {
   hasDocker: typeof hasDocker;
   runSmoke: typeof runSmoke;
   deployImageToRailway: typeof deployImageToRailway;
+  repointServiceSource: typeof repointServiceSource;
+  resolveChildImagePin: typeof resolveChildImagePin;
   rollbackToPreviousSnapshot: typeof rollbackToPreviousSnapshot;
 }
 
@@ -173,6 +283,8 @@ export const realPostPublishLegsDeps: PostPublishLegsDeps = {
   hasDocker,
   runSmoke,
   deployImageToRailway,
+  repointServiceSource,
+  resolveChildImagePin,
   rollbackToPreviousSnapshot,
 };
 
@@ -187,172 +299,227 @@ export async function runPostPublishLegs(
 
   const hasDockerfile = existsSync(join(input.sessionRoot, "Dockerfile"));
   const tier = resolveRuntimeTier({
-    ciImage: input.ciImage,
     imageEnv: process.env.BOS_IMAGE,
     hasDockerfile,
   });
 
-  const imagePlan = resolveImageLegPlan({
+  let childPin: ChildImagePin | undefined;
+  if (tier === "child") {
+    try {
+      childPin = await deps.resolveChildImagePin({
+        configDir: input.sessionRoot,
+        localConfig: input.localConfig ?? {},
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const detail = `Image pin failed: ${message}`;
+      legs.image = { status: "failed", detail };
+      console.log(colors.yellow(`  ${detail}`));
+      return { legs, failure: `Config published but ${detail}` };
+    }
+  }
+
+  const plan = resolveDeployPlan({
     tier,
-    // A prebuilt digest pairs with the pushed ref (BOS_IMAGE from the CI
-    // image job, or repository derivation) — ci.image is a build-time
-    // choice, not a pin-time one; letting it win here could pin a digest
-    // from a different image.
+    childPin,
     imageRef: resolveImageRef({
-      ciImage: input.imageDigestInput ? undefined : input.ciImage,
       repository: input.repository,
       env: process.env,
     }),
-    imageDigest: input.imageDigestInput,
+    digestHandover: input.imageDigestInput,
     hasDocker: tier === "root" ? await deps.hasDocker() : false,
     hasDockerfile,
+    smokeRequested: input.smoke,
   });
 
-  if (imagePlan.kind === "skip") {
-    legs.image = { status: "skipped", detail: imagePlan.reason };
-    console.log();
-    console.log(colors.yellow(`  Image skipped: ${imagePlan.reason}`));
-  } else if (imagePlan.kind === "prebuilt") {
-    image = imagePlan.image;
-    imageDigest = imagePlan.digest;
-    legs.image = {
-      status: "ok",
-      detail: `pre-pushed ${imagePlan.image}@${imagePlan.digest.slice(0, 19)}…`,
-    };
-    console.log();
-    console.log(
-      colors.green(
-        `  ${icons.ok} Using pre-pushed image ${imagePlan.image}@${imagePlan.digest.slice(0, 19)}…`,
-      ),
-    );
-  } else {
-    console.log();
-    try {
-      const imageResult = await deps.buildAndPushImage({
-        image: imagePlan.image,
-        configDir: input.sessionRoot,
-        verbose: input.verbose,
-      });
-      image = imageResult.image;
-      imageDigest = imageResult.digest;
+  switch (plan.image.action) {
+    case "skip": {
+      legs.image = { status: "skipped", detail: plan.image.reason };
+      console.log();
+      console.log(colors.yellow(`  Image skipped: ${plan.image.reason}`));
+      break;
+    }
+    case "pinned": {
+      image = plan.image.image;
+      imageDigest = plan.image.digest;
       legs.image = {
         status: "ok",
-        detail: `built and pushed ${imageResult.image}:${imageResult.tag}`,
+        detail: `pinned ${plan.image.image}:${plan.image.tag} @ ${plan.image.digest.slice(0, 19)}…`,
       };
+      console.log();
       console.log(
         colors.green(
-          `  ${icons.ok} Image pushed ${imageResult.image}:${imageResult.tag}${imageResult.digest ? ` (${imageResult.digest.slice(0, 19)}…)` : ""}`,
+          `  ${icons.ok} Pinned ${plan.image.image}:${plan.image.tag} @ ${plan.image.digest.slice(0, 19)}… (platform manifest)`,
         ),
       );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const imageError =
-        message.includes("not found") || message.includes("ENOENT")
-          ? "Docker not found — install Docker to build the runtime image"
-          : `Image build/push failed: ${message}`;
-      legs.image = { status: "failed", detail: imageError };
-      console.log(colors.yellow(`  ${imageError}`));
-      return {
-        legs,
-        failure: `Config published but ${imageError}`,
+      break;
+    }
+    case "prebuilt": {
+      image = plan.image.image;
+      imageDigest = plan.image.digest;
+      legs.image = {
+        status: "ok",
+        detail: `pre-pushed ${plan.image.image}@${plan.image.digest.slice(0, 19)}…`,
       };
+      console.log();
+      console.log(
+        colors.green(
+          `  ${icons.ok} Using pre-pushed image ${plan.image.image}@${plan.image.digest.slice(0, 19)}…`,
+        ),
+      );
+      break;
+    }
+    case "build": {
+      console.log();
+      try {
+        const imageResult = await deps.buildAndPushImage({
+          image: plan.image.image,
+          configDir: input.sessionRoot,
+          verbose: input.verbose,
+        });
+        image = imageResult.image;
+        imageDigest = imageResult.digest;
+        legs.image = {
+          status: "ok",
+          detail: `built and pushed ${imageResult.image}:${imageResult.tag}`,
+        };
+        console.log(
+          colors.green(
+            `  ${icons.ok} Image pushed ${imageResult.image}:${imageResult.tag}${imageResult.digest ? ` (${imageResult.digest.slice(0, 19)}…)` : ""}`,
+          ),
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const imageError =
+          message.includes("not found") || message.includes("ENOENT")
+            ? "Docker not found — install Docker to build the runtime image"
+            : `Image build/push failed: ${message}`;
+        legs.image = { status: "failed", detail: imageError };
+        console.log(colors.yellow(`  ${imageError}`));
+        return {
+          legs,
+          failure: `Config published but ${imageError}`,
+        };
+      }
+      break;
     }
   }
 
   // Post-publish boot gate (publish → smoke → Railway, ADR 0021): the
-  // just-published config is only promoted to Railway if the runtime
-  // image — the one this train pinned — boots against it. A red smoke
-  // rolls the config back to the previous snapshot, so the new-config/
-  // old-image window never survives the deploy run.
-  if (input.smoke) {
-    if (!image || !imageDigest) {
-      const smokeSkip =
-        tier === "child"
-          ? "child runtime inherits the root's universal image — no image digest to boot in this train"
-          : "no runtime image digest — set ci.image (or pass BOS_IMAGE_DIGEST)";
-      legs.smoke = { status: "skipped", detail: smokeSkip };
+  // just-published config is only promoted to Railway if the runtime image —
+  // the one this train pinned — boots against it. A red smoke rolls the
+  // config back to the previous snapshot, so the new-config/old-image window
+  // never survives the deploy run.
+  if (plan.smoke) {
+    if (plan.smoke.action === "skip") {
+      legs.smoke = { status: "skipped", detail: plan.smoke.reason };
       console.log();
-      console.log(colors.yellow(`  Post-publish smoke skipped: ${smokeSkip}`));
+      console.log(colors.yellow(`  Post-publish smoke skipped: ${plan.smoke.reason}`));
     } else {
-      console.log();
-      console.log(colors.cyan("  ▶ Post-publish smoke (boot gate)"));
-      const smokeResult = await deps.runSmoke({
-        image: imageRefWithDigest(image, imageDigest),
-        account: input.account,
-        gateway: input.domain,
-      });
-      if (!smokeResult.ok) {
-        const cause = smokeResult.error ?? "unknown failure";
+      const ref =
+        plan.smoke.ref ??
+        (imageDigest ? imageRefWithDigest(plan.smoke.image, imageDigest) : undefined);
+      if (!ref || !imageDigest) {
+        const smokeSkip = "no runtime image digest — pass BOS_IMAGE_DIGEST for a pre-pushed image";
+        legs.smoke = { status: "skipped", detail: smokeSkip };
         console.log();
-        console.log(colors.error(`  ${icons.err} Post-publish smoke failed: ${cause}`));
-        if (smokeResult.diagnosis) {
-          console.log(colors.yellow(`  ${smokeResult.diagnosis}`));
-        }
-        legs.smoke = { status: "failed", detail: cause };
-        if (!input.account || !input.domain) {
-          console.log(colors.yellow("  Rollback skipped: no registry identity in the session"));
+        console.log(colors.yellow(`  Post-publish smoke skipped: ${smokeSkip}`));
+      } else {
+        console.log();
+        console.log(colors.cyan("  ▶ Post-publish smoke (boot gate)"));
+        const smokeResult = await deps.runSmoke({
+          image: ref,
+          account: input.account,
+          gateway: input.domain,
+        });
+        if (!smokeResult.ok) {
+          const cause = smokeResult.error ?? "unknown failure";
+          console.log();
+          console.log(colors.error(`  ${icons.err} Post-publish smoke failed: ${cause}`));
+          if (smokeResult.diagnosis) {
+            console.log(colors.yellow(`  ${smokeResult.diagnosis}`));
+          }
+          legs.smoke = { status: "failed", detail: cause };
+          if (!input.account || !input.domain) {
+            console.log(colors.yellow("  Rollback skipped: no registry identity in the session"));
+            return {
+              legs,
+              failure: `Post-publish smoke failed (${cause}) — config NOT rolled back: no registry identity`,
+            };
+          }
+          console.log(colors.yellow("  Rolling the published config back…"));
+          const rollback = await deps.rollbackToPreviousSnapshot({
+            account: input.account,
+            domain: input.domain,
+            env: input.env,
+            runtimeConfig: input.runtimeConfig,
+            configDir: input.sessionRoot,
+            registry: input.registry,
+            network: input.network,
+            privateKey: input.privateKey,
+            verbose: input.verbose,
+          });
+          const rollbackNote = rollback.ok
+            ? `config rolled back to block ${rollback.blockHeight}`
+            : `config NOT rolled back: ${rollback.error ?? "unknown"}`;
+          console.log(colors.yellow(`  ${rollbackNote}`));
           return {
             legs,
-            failure: `Post-publish smoke failed (${cause}) — config NOT rolled back: no registry identity`,
+            failure: `Post-publish smoke failed (${cause}) — ${rollbackNote}`,
           };
         }
-        console.log(colors.yellow("  Rolling the published config back…"));
-        const rollback = await deps.rollbackToPreviousSnapshot({
-          account: input.account,
-          domain: input.domain,
-          env: input.env,
-          runtimeConfig: input.runtimeConfig,
-          configDir: input.sessionRoot,
-          registry: input.registry,
-          network: input.network,
-          privateKey: input.privateKey,
-          verbose: input.verbose,
-        });
-        const rollbackNote = rollback.ok
-          ? `config rolled back to block ${rollback.blockHeight}`
-          : `config NOT rolled back: ${rollback.error ?? "unknown"}`;
-        console.log(colors.yellow(`  ${rollbackNote}`));
-        return {
-          legs,
-          failure: `Post-publish smoke failed (${cause}) — ${rollbackNote}`,
-        };
+        legs.smoke = { status: "ok", detail: smokeResult.summary };
+        console.log(
+          colors.green(`  ${icons.ok} Post-publish smoke passed: ${smokeResult.summary ?? ""}`),
+        );
       }
-      legs.smoke = { status: "ok", detail: smokeResult.summary };
-      console.log(
-        colors.green(`  ${icons.ok} Post-publish smoke passed: ${smokeResult.summary ?? ""}`),
-      );
     }
   }
 
-  const railwayDecision = resolveRailwayLeg({
+  const railwayStep = resolveRailwayStep({
     tier,
-    railwayToken: process.env.RAILWAY_TOKEN,
+    token: process.env.RAILWAY_TOKEN,
     service: input.railwayService,
-    digest: imageDigest,
+    pinnedDigest: imageDigest,
+    childPin,
   });
 
-  if (railwayDecision.action === "skip") {
-    legs.railway = railwayDecision.outcome;
+  if (railwayStep.action === "skip") {
+    legs.railway = { status: "skipped", detail: railwayStep.detail };
     console.log();
-    console.log(
-      railwayDecision.outcome.status === "failed"
-        ? colors.yellow(`  Railway deploy failed: ${railwayDecision.outcome.detail}`)
-        : colors.yellow(`  Railway deploy skipped: ${railwayDecision.outcome.detail}`),
-    );
-    if (railwayDecision.outcome.status === "failed") {
-      return {
-        legs,
-        failure: `Config published but ${railwayDecision.outcome.detail}`,
-      };
-    }
+    console.log(colors.yellow(`  Railway deploy skipped: ${railwayStep.detail}`));
+  } else if (railwayStep.action === "fail") {
+    legs.railway = { status: "failed", detail: railwayStep.detail };
+    console.log();
+    console.log(colors.yellow(`  Railway deploy failed: ${railwayStep.detail}`));
+    return {
+      legs,
+      failure: `Config published but ${railwayStep.detail}`,
+    };
   } else {
-    service = input.railwayService;
+    service = railwayStep.service;
     try {
+      // A pinned child's service source follows the platform manifest pin
+      // before the redeploy pulls from it (ADR 0034): the pulled bytes are
+      // the pin, not whatever the dashboard's floating ref moved to.
+      if (railwayStep.action === "repoint-and-redeploy") {
+        await deps.repointServiceSource({
+          service: railwayStep.service,
+          image: railwayStep.image,
+          configDir: input.sessionRoot,
+        });
+      }
       await deps.deployImageToRailway({
-        service: input.railwayService!,
+        service: railwayStep.service,
         configDir: input.sessionRoot,
       });
-      legs.railway = { status: "ok", detail: `redeployed ${service}` };
+      legs.railway = {
+        status: "ok",
+        detail:
+          railwayStep.action === "repoint-and-redeploy"
+            ? `pinned ${railwayStep.image}, redeployed ${service}`
+            : `redeployed ${service}`,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const railError =

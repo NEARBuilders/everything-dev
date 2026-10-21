@@ -26,6 +26,7 @@ import {
 } from "../../src/cli/init";
 import { readSnapshot } from "../../src/cli/snapshot";
 import { syncTemplate } from "../../src/cli/sync";
+import * as platformManifestModule from "../../src/services/platform/manifest";
 import * as initSourceModule from "../../src/services/resolution/init-source";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as scaffoldInitModule from "../../src/services/scaffold/init";
@@ -105,6 +106,10 @@ describe("syncTemplate", () => {
   const tempDirs: string[] = [];
 
   beforeEach(() => {
+    // No release manifest resolves in these tests — the release-scoped
+    // ref-rewriting (ADR 0034 pt 4) has its own unit coverage
+    // (platform-sync-release.test.ts); here templates sync verbatim.
+    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(null);
     vi.spyOn(initSourceModule, "resolveSourceDir").mockResolvedValue({
       sourceDir: REPO_ROOT,
       parentConfig: ROOT_CONFIG as never,

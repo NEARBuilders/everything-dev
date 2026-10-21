@@ -62,6 +62,11 @@ ADR: `docs/adr/0034-platform-release-manifest.md`.
         root/pre-pushed deploys pin via `BOS_IMAGE_DIGEST` — so the consumer lands with the
         self-deploy flow that actually hand-pins an image (plan 042-adjacent). One adapter means a
         hypothetical seam; the seam ships when the second adapter arrives.
+- [x] T4 (consumer landed, 2026-10-21) — the second adapter arrived: #493. `ci.image` is removed
+        entirely (deploy fails fast on it via the session's `unknownAuthoredKeys`); the child pin
+        resolves manifest → `ref@v<version>` → registry digest, the Railway leg repoints the
+        service source (`service source connect --image <ref:tag>`) before `redeploy
+        --from-source`, and `--smoke` boots the pinned digest. ADR 0021 amendment (2026-10-21).
 - [x] T5 — release-scoped, delta-driven `syncTemplate`: release tag threaded through
         `resolveSourceDir` → `downloadTarball` (already accepted `ref`); `applyReleaseRefs`
         rewrites the framework's own reusable-workflow `@main` refs → `@v<version>` at

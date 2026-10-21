@@ -1,0 +1,5 @@
+---
+"everything-dev": minor
+---
+
+Child deploys pin their runtime image via the platform release manifest (#493). `ci.image` is retired: the deploy fails fast with a migration pointer when an authored config sets it — children record `platform: "<version>"` and everything derives from the resolved manifest (the image ref `ref@v<version>`, the digest resolved from the registry at deploy time, the Railway service source repointed to the pin before `redeploy --from-source` pulls it, and the `--smoke` boot gate running against `image@digest`); the root runtime derives its build ref from `repository`. Internally, the post-publish legs are now a pure decision table (`resolveDeployPlan` + `resolveRailwayStep`) executed by a thin interpreter — tier precedence (digest handover > child pin > child inherit > root build) is data, not code order — and the resolution session surfaces schema-stripped authored keys (`unknownAuthoredKeys`) so retired or mistyped config keys fail the deploy instead of vanishing.

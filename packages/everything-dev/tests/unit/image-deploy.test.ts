@@ -13,22 +13,15 @@ import {
   deployImageToRailway,
   imageRefWithDigest,
   isValidImageDigest,
+  parseRegistryRef,
+  repointServiceSource,
   resolveDeployImagePlan,
   resolveImageRef,
+  resolveRegistryDigest,
 } from "../../src/services/deploy/image";
 
 describe("resolveImageRef", () => {
-  it("prefers ci.image from bos.config.json", () => {
-    expect(
-      resolveImageRef({
-        ciImage: "ghcr.io/acme/tenant",
-        repository: "https://github.com/acme/other",
-        env: { BOS_IMAGE: "ghcr.io/from/env" },
-      }),
-    ).toEqual({ image: "ghcr.io/acme/tenant", source: "ci" });
-  });
-
-  it("falls back to BOS_IMAGE", () => {
+  it("prefers BOS_IMAGE over the repository derivation", () => {
     expect(
       resolveImageRef({
         repository: "https://github.com/acme/other",
@@ -87,7 +80,7 @@ describe("resolveDeployImagePlan", () => {
       hasDockerfile: true,
     });
     expect(plan.kind).toBe("skip");
-    expect(plan.kind === "skip" && plan.reason).toContain("ci.image");
+    expect(plan.kind === "skip" && plan.reason).toContain("BOS_IMAGE");
   });
 
   it("builds locally when docker and the Dockerfile are present", () => {
@@ -392,5 +385,199 @@ describe("deployImageToRailway", () => {
         configDir,
       }),
     ).rejects.toThrow(/service not found/);
+  });
+});
+
+describe("repointServiceSource", () => {
+  let configDir: string;
+
+  beforeEach(() => {
+    configDir = mkdtempSync(join(tmpdir(), "bos-railway-pin-"));
+  });
+
+  afterEach(() => {
+    rmSync(configDir, { recursive: true, force: true });
+    vi.clearAllMocks();
+  });
+
+  function ok(stdout = "") {
+    return { stdout, stderr: "", exitCode: 0 };
+  }
+
+  it("connects the service source to the pinned image ref by tag", async () => {
+    runMock.mockResolvedValue(ok("connected"));
+
+    await repointServiceSource({
+      service: "app",
+      image: "ghcr.io/nearbuilders/everything-dev:v2.0.0-rc.14",
+      configDir,
+    });
+
+    const calls = runMock.mock.calls.filter((c) => c[0] === "railway");
+    expect(calls.map((c) => c[1])).toEqual([
+      ["--version"],
+      [
+        "service",
+        "source",
+        "connect",
+        "--image",
+        "ghcr.io/nearbuilders/everything-dev:v2.0.0-rc.14",
+        "--service",
+        "app",
+        "--json",
+      ],
+    ]);
+  });
+
+  it("fails loudly when the railway CLI is missing", async () => {
+    runMock.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "railway" && args[0] === "--version") throw new Error("spawn railway ENOENT");
+      return ok();
+    });
+
+    await expect(
+      repointServiceSource({ service: "app", image: "ghcr.io/acme/app:v2.0.0", configDir }),
+    ).rejects.toThrow("Railway CLI not found");
+  });
+
+  it("throws with captured stream detail when the connect fails", async () => {
+    runMock.mockImplementation(
+      async (
+        cmd: string,
+        args: string[],
+        options?: { onChunk?: (s: string, c: Buffer) => void },
+      ) => {
+        if (cmd === "railway" && args[0] === "--version") return ok("railway 5.71.0");
+        options?.onChunk?.("stderr", Buffer.from("permission denied\n"));
+        return { stdout: "", stderr: "permission denied", exitCode: 1 };
+      },
+    );
+
+    await expect(
+      repointServiceSource({ service: "app", image: "ghcr.io/acme/app:v2.0.0", configDir }),
+    ).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe("parseRegistryRef", () => {
+  it("splits registry, repository, and tag", () => {
+    expect(parseRegistryRef("ghcr.io/nearbuilders/everything-dev:v2.0.0-rc.14")).toEqual({
+      registry: "ghcr.io",
+      repository: "nearbuilders/everything-dev",
+      tag: "v2.0.0-rc.14",
+      digest: undefined,
+    });
+  });
+
+  it("splits digest refs and drops the tag", () => {
+    const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    expect(parseRegistryRef(`ghcr.io/acme/app:latest@${digest}`)).toEqual({
+      registry: "ghcr.io",
+      repository: "acme/app",
+      tag: undefined,
+      digest,
+    });
+  });
+
+  it("keeps ported registries and the default tag", () => {
+    expect(parseRegistryRef("localhost:5000/acme/app")).toEqual({
+      registry: "localhost:5000",
+      repository: "acme/app",
+      tag: undefined,
+      digest: undefined,
+    });
+  });
+
+  it("rejects refs without an explicit registry host", () => {
+    expect(parseRegistryRef("acme/app:v1")).toBeUndefined();
+    expect(parseRegistryRef("app")).toBeUndefined();
+  });
+});
+
+describe("resolveRegistryDigest", () => {
+  const digest64 = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+  interface StubResponse {
+    ok: boolean;
+    status: number;
+    headers: { get: (name: string) => string | null };
+    json: () => Promise<unknown>;
+  }
+
+  const res = (init: {
+    status: number;
+    headers?: Record<string, string>;
+    body?: unknown;
+  }): StubResponse => ({
+    ok: init.status < 400,
+    status: init.status,
+    headers: { get: (name) => init.headers?.[name] ?? null },
+    json: () => Promise.resolve(init.body),
+  });
+
+  it("heads the manifest and returns the docker-content-digest", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetch = async (url: string, init?: RequestInit): Promise<Response> => {
+      calls.push({ url, init });
+      return res({
+        status: 200,
+        headers: { "docker-content-digest": digest64 },
+      }) as unknown as Response;
+    };
+
+    await expect(
+      resolveRegistryDigest({ ref: "ghcr.io/acme/app:v2.0.0-rc.14", fetch }),
+    ).resolves.toBe(digest64);
+    expect(calls[0].url).toBe("https://ghcr.io/v2/acme/app/manifests/v2.0.0-rc.14");
+    expect((calls[0].init?.headers as Record<string, string>).Accept).toContain(
+      "application/vnd.oci.image.index.v1+json",
+    );
+  });
+
+  it("follows the WWW-Authenticate token challenge on 401", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fetch = async (url: string, init?: RequestInit): Promise<Response> => {
+      calls.push({ url, init });
+      if (calls.length === 1) {
+        return res({
+          status: 401,
+          headers: {
+            "www-authenticate": `Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:acme/app:pull"`,
+          },
+        }) as unknown as Response;
+      }
+      if (calls.length === 2) {
+        return res({ status: 200, body: { token: "tok" } }) as unknown as Response;
+      }
+      return res({
+        status: 200,
+        headers: { "docker-content-digest": digest64 },
+      }) as unknown as Response;
+    };
+
+    await expect(
+      resolveRegistryDigest({ ref: "ghcr.io/acme/app:v2.0.0-rc.14", fetch }),
+    ).resolves.toBe(digest64);
+    expect(calls[1].url).toBe(
+      "https://ghcr.io/token?service=ghcr.io&scope=repository%3Aacme%2Fapp%3Apull",
+    );
+    expect((calls[2].init?.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+
+  it("throws when the registry has no manifest for the tag", async () => {
+    const fetch = async (): Promise<Response> => res({ status: 404 }) as unknown as Response;
+
+    await expect(resolveRegistryDigest({ ref: "ghcr.io/acme/app:v9.9.9", fetch })).rejects.toThrow(
+      /no manifest.*v9\.9\.9/,
+    );
+  });
+
+  it("throws on an unparsable ref", async () => {
+    await expect(
+      resolveRegistryDigest({
+        ref: "acme/app:v1",
+        fetch: async () => res({ status: 200 }) as unknown as Response,
+      }),
+    ).rejects.toThrow(/unparsable/i);
   });
 });

@@ -1,24 +1,24 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fetchResponse } from "../../utils/http-client";
 import { run } from "../../utils/run";
 import { colors, icons } from "../../utils/theme";
 
 export interface ResolvedImageRef {
   image: string;
-  source: "ci" | "env" | "repository";
+  source: "env" | "repository";
 }
 
 /**
- * Image reference resolution precedence (ADR 0021): `ci.image` in
- * bos.config.json → `BOS_IMAGE` env → derived from `repository`.
+ * Image reference resolution precedence (ADR 0021): `BOS_IMAGE` env → derived
+ * from `repository`. Only the root runtime builds — children never own image
+ * bytes; their ref derives from the platform release manifest (ADR 0034).
  */
 export function resolveImageRef(input: {
-  ciImage?: string;
   repository?: string;
   env?: Record<string, string | undefined>;
 }): ResolvedImageRef | undefined {
   const envImage = input.env?.BOS_IMAGE;
-  if (input.ciImage) return { image: input.ciImage, source: "ci" };
   if (envImage) return { image: envImage, source: "env" };
 
   const repo = input.repository
@@ -144,6 +144,124 @@ export function isValidImageDigest(digest: string): boolean {
   return DIGEST_PATTERN.test(digest);
 }
 
+export interface RegistryRef {
+  registry: string;
+  repository: string;
+  tag?: string;
+  digest?: string;
+}
+
+/**
+ * Split a container image ref into registry/repository/tag/digest. The
+ * registry must be explicit (a dotted host, optionally ported, or
+ * `localhost`) — the platform's refs are always `ghcr.io/<owner>/<name>`
+ * (ADR 0034 manifest ref, or the `repository` derivation).
+ */
+export function parseRegistryRef(ref: string): RegistryRef | undefined {
+  const slash = ref.indexOf("/");
+  if (slash <= 0) return undefined;
+  const registry = ref.slice(0, slash);
+  if (
+    !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?$/.test(registry) &&
+    !/^localhost(?::\d+)?$/.test(registry)
+  ) {
+    return undefined;
+  }
+  const rest = ref.slice(slash + 1);
+  if (!rest.includes("/")) return undefined;
+  let name = rest;
+  let tag: string | undefined;
+  let digest: string | undefined;
+  const at = rest.indexOf("@");
+  if (at >= 0) {
+    digest = rest.slice(at + 1);
+    const addressed = rest.slice(0, at);
+    // A digest wins over a tag (docker ref semantics) — the tag is dropped.
+    const colon = addressed.lastIndexOf(":");
+    name = colon > addressed.lastIndexOf("/") ? addressed.slice(0, colon) : addressed;
+  } else {
+    const colon = rest.lastIndexOf(":");
+    if (colon > rest.lastIndexOf("/")) {
+      tag = rest.slice(colon + 1);
+      name = rest.slice(0, colon);
+    }
+  }
+  if (!name) return undefined;
+  return { registry, repository: name, tag, digest };
+}
+
+/** Manifest media types a registry may serve — both OCI and Docker, index
+ * and manifest, so the HEAD is answered for any image layout. */
+const MANIFEST_ACCEPT = [
+  "application/vnd.oci.image.index.v1+json",
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+  "application/vnd.docker.distribution.manifest.v2+json",
+].join(", ");
+
+/**
+ * Resolve a tag's digest from the OCI distribution API (ADR 0034: the digest
+ * derives, never embeds). Follows the spec's token flow — an anonymous probe
+ * reads the `WWW-Authenticate` challenge, mints a pull token at the realm,
+ * and retries; public images (ghcr.io) never need credentials. A missing
+ * manifest throws — the child pin cannot be verified, and that is a failure.
+ */
+export async function resolveRegistryDigest(input: {
+  ref: string;
+  fetch?: typeof fetchResponse;
+}): Promise<string> {
+  const parsed = parseRegistryRef(input.ref);
+  if (!parsed) {
+    throw new Error(`Cannot resolve a digest — unparsable image ref "${input.ref}"`);
+  }
+  const doFetch = input.fetch ?? fetchResponse;
+  const manifestUrl = `https://${parsed.registry}/v2/${parsed.repository}/manifests/${parsed.digest ?? parsed.tag ?? "latest"}`;
+
+  const head = async (headers: Record<string, string>): Promise<Response> => {
+    try {
+      return await doFetch(manifestUrl, {
+        method: "HEAD",
+        headers: { Accept: MANIFEST_ACCEPT, ...headers },
+      });
+    } catch (cause) {
+      throw new Error(
+        `Registry ${parsed.registry} unreachable while resolving ${input.ref}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
+  };
+
+  let res = await head({});
+  if (res.status === 401) {
+    const challenge = res.headers.get("www-authenticate") ?? "";
+    const realm = /realm="([^"]+)"/.exec(challenge)?.[1];
+    if (realm) {
+      const tokenUrl = new URL(realm);
+      const service = /service="([^"]+)"/.exec(challenge)?.[1];
+      const scope = /scope="([^"]+)"/.exec(challenge)?.[1];
+      if (service) tokenUrl.searchParams.set("service", service);
+      if (scope) tokenUrl.searchParams.set("scope", scope);
+      const tokenRes = await doFetch(tokenUrl.href, { headers: { Accept: "application/json" } });
+      if (!tokenRes.ok) {
+        throw new Error(
+          `Registry ${parsed.registry} token realm returned HTTP ${tokenRes.status} while resolving ${input.ref}`,
+        );
+      }
+      const body = (await tokenRes.json()) as { token?: string };
+      if (body.token) {
+        res = await head({ Authorization: `Bearer ${body.token}` });
+      }
+    }
+  }
+
+  const digest = res.headers.get("docker-content-digest");
+  if (!res.ok || !digest) {
+    throw new Error(
+      `The registry has no manifest for ${input.ref} (HTTP ${res.status}) — the pin cannot be verified`,
+    );
+  }
+  return digest;
+}
+
 /**
  * Decide the image leg's source: a digest handed over from a pre-pushed image
  * (the CI image job) wins; otherwise the local docker build runs when the
@@ -158,7 +276,8 @@ export function resolveDeployImagePlan(input: {
   if (!input.imageRef) {
     return {
       kind: "skip",
-      reason: "set ci.image in bos.config.json (or BOS_IMAGE) to build and push the runtime image",
+      reason:
+        "set BOS_IMAGE (or repository in bos.config.json) to build and push the runtime image",
     };
   }
   if (input.imageDigest) {
@@ -263,31 +382,13 @@ export async function buildAndPushImage(input: {
   return { image: input.image, tag: tags[0]!, tags, latestPushed, rcPushed, digest };
 }
 
-/**
- * Railway leg (ADR 0021, amended): image-backed deploy. The service's source
- * is a Docker image ref (connected once in the dashboard — `:rc` during the
- * prerelease train), and `redeploy --from-source` pulls and deploys whatever
- * that ref points at. The image leg pushes `:rc` (and the `sha-<short>` /
- * version tags) immediately before this step, so the pulled bytes are exactly
- * what this train validated. Railway skips the build entirely for
- * Docker-image sources — nothing is uploaded, nothing is built on Railway,
- * and the digest-pin Dockerfile mechanism this replaces is gone (the CLI v5
- * dropped RAILWAY_DOCKERFILE_PATH, its snapshot respects .gitignore so
- * generated Dockerfiles never shipped, and its Metal builder rejected the
- * repo Dockerfile's cache-mount ids).
- */
-export async function deployImageToRailway(input: {
-  service: string;
-  configDir: string;
-}): Promise<void> {
-  console.log(`  Deploying to Railway service ${colors.cyan(input.service)} (image-backed)...`);
+async function requireRailwayCli(configDir: string): Promise<string> {
   // The probe is authoritative: runners don't ship the CLI, and a spawn
   // failure resolves (reject:false) as exitCode 1 with empty output — the
   // 2026-10-13 deploy surfaced exactly that as a silent instant failure.
   let version: string | undefined;
   try {
-    version = (await run("railway", ["--version"], { cwd: input.configDir, capture: true }))
-      ?.stdout;
+    version = (await run("railway", ["--version"], { cwd: configDir, capture: true }))?.stdout;
   } catch {
     version = undefined;
   }
@@ -295,24 +396,26 @@ export async function deployImageToRailway(input: {
     throw new Error("Railway CLI not found. Install it: npm i -g @railway/cli");
   }
   console.log(`  ${colors.dim(`railway ${version.trim()}`)}`);
+  return version.trim();
+}
 
+async function runRailwayStreaming(
+  args: readonly string[],
+  input: { configDir: string },
+): Promise<void> {
   // Stream the CLI's output live — a silent exit (empty stdout+stderr, seen
   // on the 2026-10-13 deploy) must still be diagnosable from the workflow log.
   const collected = { stdout: "", stderr: "" };
-  const result = await run(
-    "railway",
-    ["redeploy", "--service", input.service, "--from-source", "--yes"],
-    {
-      cwd: input.configDir,
-      capture: true,
-      onChunk: (stream, chunk) => {
-        collected[stream] += chunk.toString("utf-8");
-        for (const line of chunk.toString("utf-8").split("\n")) {
-          if (line.trim()) console.log(`  ${colors.dim(line.trim())}`);
-        }
-      },
+  const result = await run("railway", [...args], {
+    cwd: input.configDir,
+    capture: true,
+    onChunk: (stream, chunk) => {
+      collected[stream] += chunk.toString("utf-8");
+      for (const line of chunk.toString("utf-8").split("\n")) {
+        if (line.trim()) console.log(`  ${colors.dim(line.trim())}`);
+      }
     },
-  );
+  });
   if (!result || result.exitCode !== 0) {
     const exitCode = result?.exitCode ?? "unknown";
     const tail = (stream: string, text: string) =>
@@ -320,10 +423,62 @@ export async function deployImageToRailway(input: {
         ? `\nrailway ${stream} (tail):\n${text.trim().split("\n").slice(-20).join("\n")}`
         : "";
     throw new Error(
-      `railway redeploy failed with exit code ${exitCode}` +
+      `railway ${args[0]} failed with exit code ${exitCode}` +
         tail("stdout", collected.stdout) +
         tail("stderr", collected.stderr),
     );
   }
+}
+
+/**
+ * Pin the service's source to an exact image ref (Railway `ServiceConnect`):
+ * a child deploy repoints the dashboard-connected source at the platform
+ * manifest's `ref:tag` (ADR 0034), so the following `redeploy --from-source`
+ * pulls the pinned bytes instead of whatever a floating ref moved to. The
+ * project-scoped RAILWAY_TOKEN already authorizes the redeploy — connect
+ * runs in the same context. The ref pins by tag: the train's version/sha
+ * tags are append-only, and Railway's deployment history pins the exact
+ * digest each deployment pulled (ADR 0021).
+ */
+export async function repointServiceSource(input: {
+  service: string;
+  image: string;
+  configDir: string;
+}): Promise<void> {
+  console.log(
+    `  Pinning Railway service ${colors.cyan(input.service)} source to ${colors.cyan(input.image)}...`,
+  );
+  await requireRailwayCli(input.configDir);
+  await runRailwayStreaming(
+    ["service", "source", "connect", "--image", input.image, "--service", input.service, "--json"],
+    input,
+  );
+  console.log(colors.green(`  ${icons.ok} Railway service source pinned`));
+}
+
+/**
+ * Railway leg (ADR 0021, amended): image-backed deploy. The service's source
+ * is a Docker image ref (connected once in the dashboard — `:rc` during the
+ * prerelease train — or repointed to the child's platform-manifest pin by
+ * `repointServiceSource`), and `redeploy --from-source` pulls and deploys
+ * whatever that ref points at. The image leg pushes `:rc` (and the
+ * `sha-<short>` / version tags) immediately before this step, so the pulled
+ * bytes are exactly what this train validated. Railway skips the build
+ * entirely for Docker-image sources — nothing is uploaded, nothing is built
+ * on Railway, and the digest-pin Dockerfile mechanism this replaces is gone
+ * (the CLI v5 dropped RAILWAY_DOCKERFILE_PATH, its snapshot respects
+ * .gitignore so generated Dockerfiles never shipped, and its Metal builder
+ * rejected the repo Dockerfile's cache-mount ids).
+ */
+export async function deployImageToRailway(input: {
+  service: string;
+  configDir: string;
+}): Promise<void> {
+  console.log(`  Deploying to Railway service ${colors.cyan(input.service)} (image-backed)...`);
+  await requireRailwayCli(input.configDir);
+  await runRailwayStreaming(
+    ["redeploy", "--service", input.service, "--from-source", "--yes"],
+    input,
+  );
   console.log(colors.green(`  ${icons.ok} Railway deploy complete`));
 }

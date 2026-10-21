@@ -3,11 +3,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { upgradeTemplate } from "../../src/cli/upgrade";
+import * as platformManifestModule from "../../src/services/platform/manifest";
 import * as initSourceModule from "../../src/services/resolution/init-source";
+import * as sessionModule from "../../src/services/resolution/session";
 import * as syncModule from "../../src/services/scaffold/sync";
 import * as sharedDepsModule from "../../src/services/workspace/shared-deps";
 
 const tempDirs: string[] = [];
+
+beforeEach(() => {
+  // The gating under test derives from the mocked catalog source, not from a
+  // release manifest — resolvePlatformManifest must not reach for the network
+  // or it would silently become the catalog authority (ADR 0034).
+  vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(null);
+  // The shared-deps phase opens a resolution session for the project's own
+  // config; the chain walk would fetch the published parent — mock it (the
+  // syncResolvedSharedDeps consumer is mocked and only needs `.config`).
+  vi.spyOn(sessionModule, "openResolution").mockResolvedValue({
+    config: { account: "test.near", domain: "test.dev" },
+  } as never);
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
