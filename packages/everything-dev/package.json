@@ -414,7 +414,6 @@
     "@module-federation/enhanced": "catalog:",
     "@module-federation/node": "catalog:",
     "@module-federation/runtime-core": "catalog:",
-    "alchemy": "2.0.0-beta.79",
     "better-near-auth": "workspace:^",
     "chalk": "^5.6.2",
     "defu": "^6.1.7",
@@ -441,6 +440,7 @@
     "@orpc/tanstack-query": "catalog:",
     "@tanstack/react-query": ">=5.0.0",
     "@tanstack/react-router": ">=1.0.0",
+    "alchemy": ">=2.0.0-beta.79 <3.0.0",
     "better-auth": "catalog:",
     "better-near-auth": "workspace:^",
     "effect": "catalog:",
@@ -477,6 +477,9 @@
     "@tanstack/react-router": {
       "optional": true
     },
+    "alchemy": {
+      "optional": true
+    },
     "sonner": {
       "optional": true
     },
@@ -507,6 +510,7 @@
     "@tanstack/router-plugin": "catalog:",
     "@types/node": "catalog:",
     "@types/tar": "^7.0.0",
+    "alchemy": "2.0.0-beta.79",
     "better-auth": "catalog:",
     "jsdom": "^30.0.1",
     "react": "catalog:",
