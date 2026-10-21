@@ -15,10 +15,13 @@ import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegat
 import { submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
-import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKeyOrNull } from "../registry/fastkv";
+import {
+  fetchBosConfigFromFastKv,
+  fetchConfigHistory,
+  fetchRegistryKeyOrNull,
+} from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { mergeAuthoredOverPublished } from "../resolution/merge";
-import { composePlatformManifestPublishEntry, type PlatformManifestPublishEntry } from "./platform-manifest";
 import {
   type BuildTargetsDeps,
   type BuildTargetsInput,
@@ -38,6 +41,10 @@ import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk 
 import { formatNearError } from "./format";
 import { applyDeployResults, type DeployResultEntry } from "./integrity";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
+import {
+  composePlatformManifestPublishEntry,
+  type PlatformManifestPublishEntry,
+} from "./platform-manifest";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
 import { type DeployTrainRender, DeployTrainRenderService } from "./render";
 import { verifyRollbackSnapshot } from "./rollback";

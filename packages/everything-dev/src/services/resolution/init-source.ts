@@ -97,10 +97,12 @@ export async function resolveSourceDir(opts: {
   const parentConfig = await fetchParentConfig(opts.extendsAccount, opts.extendsGateway);
 
   if (parentConfig.repository) {
-    const { dir: sourceDir, cleanup, resolvedRef, resolvedSha } = await downloadTarball(
-      parentConfig.repository,
-      opts.ref,
-    );
+    const {
+      dir: sourceDir,
+      cleanup,
+      resolvedRef,
+      resolvedSha,
+    } = await downloadTarball(parentConfig.repository, opts.ref);
     return { sourceDir, parentConfig, cleanup, resolvedRef, resolvedSha };
   }
 
@@ -109,10 +111,12 @@ export async function resolveSourceDir(opts: {
     opts.extendsGateway,
   );
   if (chainResult?.repository) {
-    const { dir: sourceDir, cleanup, resolvedRef, resolvedSha } = await downloadTarball(
-      chainResult.repository,
-      opts.ref,
-    );
+    const {
+      dir: sourceDir,
+      cleanup,
+      resolvedRef,
+      resolvedSha,
+    } = await downloadTarball(chainResult.repository, opts.ref);
     return { sourceDir, parentConfig: chainResult.config, cleanup, resolvedRef, resolvedSha };
   }
 

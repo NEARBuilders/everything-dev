@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   composePlatformManifestPublishEntry,
+  deriveImageRefFromPlatformManifest,
   PLATFORM_IMAGE_REF,
 } from "../../src/services/deploy/platform-manifest";
 import { PlatformReleaseManifestSchema } from "../../src/services/platform/manifest";
@@ -27,7 +28,15 @@ function scaffoldFrameworkRoot(): string {
   );
   writeFileSync(
     join(tmpRoot, "pnpm-workspace.yaml"),
-    ["packages:", "  - packages/*", "", "catalog:", '  react: "19.2.4"', '  effect: "4.0.0-rc.112"', ""].join("\n"),
+    [
+      "packages:",
+      "  - packages/*",
+      "",
+      "catalog:",
+      '  react: "19.2.4"',
+      '  effect: "4.0.0-rc.112"',
+      "",
+    ].join("\n"),
   );
   writeFileSync(join(tmpRoot, "package.json"), "{}\n");
   return tmpRoot;
@@ -79,5 +88,35 @@ describe("composePlatformManifestPublishEntry", () => {
       gateway: "citynode",
     });
     expect(entry).toBeNull();
+  });
+});
+
+describe("deriveImageRefFromPlatformManifest", () => {
+  it("derives ref@version-tag from the resolved manifest — no hand-pinned image", async () => {
+    const configDir = scaffoldFrameworkRoot();
+    const manifest = composePlatformManifestPublishEntry({
+      configDir,
+      account: "root.near",
+      gateway: "root",
+    })!.manifest;
+    const derived = await deriveImageRefFromPlatformManifest({
+      configDir,
+      localConfig: { extends: "bos://root.near/root" },
+      fetchManifest: async () => manifest,
+    });
+    expect(derived).toEqual({
+      image: "ghcr.io/nearbuilders/everything-dev",
+      tag: "v2.0.0-rc.14",
+      digest: undefined,
+    });
+  });
+
+  it("returns null when no manifest resolves — today's resolution rules apply", async () => {
+    const derived = await deriveImageRefFromPlatformManifest({
+      configDir: tmpRoot,
+      localConfig: {},
+      fetchManifest: async () => null,
+    });
+    expect(derived).toBeNull();
   });
 });

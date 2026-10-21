@@ -303,7 +303,9 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
           `  ${icons.err} No platform release manifest resolves${result.error ? ` — ${result.error}` : ""}.`,
         ),
       );
-      console.log(colors.dim("  Children fall back to the parent-repo tarball walk (ADR 0034 pt 7)."));
+      console.log(
+        colors.dim("  Children fall back to the parent-repo tarball walk (ADR 0034 pt 7)."),
+      );
       console.log();
       return;
     }

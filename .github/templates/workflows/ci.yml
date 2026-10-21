@@ -28,6 +28,21 @@ jobs:
       working_directory: .
     secrets: inherit
 
+  # Drift alarm (ADR 0034): the child's recorded `platform` pin (or the
+  # inherited default) compared against the latest published release
+  # manifest. Exits 1 — i.e. fails this job — when updates are available.
+  platform-drift:
+    name: Platform Drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm exec bos upgrade --check
+
   # Merge gate for branch protection. Require this check name ("Lint and Type
   # Check") in Settings → Branches — it is child-owned and slash-free, unlike
   # the reusable call, which GitHub renders as "CI / Lint, typecheck, and test"

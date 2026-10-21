@@ -33,51 +33,58 @@ ADR: `docs/adr/0034-platform-release-manifest.md`.
 
 ## Foundation checklist (T1–T3)
 
-- [ ] T1 — `services/platform/manifest.ts` (new): `PlatformReleaseManifest` Zod schema +
-        composer from release inputs — `readFrameworkVersion` (`deploy/image.ts`), release catalog
-        (pnpm-workspace.yaml), sharedDeps (the `.bos/generated/shared-deps.json` shape /
-        `shared-deps-spec` lists + flags), image ref + tags from `computeImageTags` (no digest),
-        compat floor
-- [ ] T2 — publish legs, one producer two homes: third `registryEntries` key in
-        `deploy/train.ts` (rides the atomic write + read-back); Dockerfile `RUN` generation step
-        after the workspace builds (mirror the existing build-time `RUN` precedent) emitting
-        `packages/everything-dev/dist/platform-manifest.json`; manifest SRI computed like bundle SRI
-- [ ] T3 — `services/scaffold/ownership.ts` inventory gains per-file sha256 (builds on ADR 0032);
-        composer consumes it for `templateInventory`; both a local-inventory and a
-        manifest-supplied adapter satisfy one read interface
+- [x] T1 — `services/platform/manifest.ts` (new): `PlatformReleaseManifest` Zod schema +
+        composer from release inputs — framework version (`deploy/image.ts` `readFrameworkVersion`),
+        release catalog (pnpm-workspace.yaml), sharedDeps (the shared-deps-spec lists +
+        `shareConfigFor`), image ref + *derivable* tags only (sha-tags are git facts an image
+        build cannot see — the manifest carries `v<version>` alone)
+- [x] T2 — publish legs, one producer two homes: third `registryEntries` key in
+        `deploy/train.ts` (rides the atomic write + read-back; the per-deploy audit manifest
+        gains `platformManifest: { file, integrity }`); Dockerfile `RUN` generation step
+        (`scripts/generate-platform-manifest.ts`) emitting
+        `packages/everything-dev/dist/platform-manifest.json` in the builder stage; SRI over the
+        serialized bytes (`deploy/platform-manifest.ts`)
+- [x] T3 — `computeTemplateInventory(sourceDir)` in the platform module: ownership inventory +
+        agent globs + `plugins/_template` scaffolding, full sha256 per file, sorted; the composer
+        consumes it; the guardrail test pins marker ↔ inventory ↔ manifest agreement
 
 ## Child-side win checklist (T4–T5)
 
-- [ ] T4 — *(tracer bullet)* `upgradeTemplate` consumes the manifest
-        (`services/scaffold/upgrade.ts`, `services/resolution/init-source.ts`): catalog source
-        switch; `ci.image` → `ref@digest` derivation at deploy preflight (`handlers/deploy.ts`
-        error messages updated); `platform` pin record/read — `BosConfigInputSchema` +
-        `BosConfigSchema` + `BOS_CONFIG_ORDER` + `managedRootKeys` (or `personalizeConfig` strips
-        it); `.bos/platform-manifest.json` cache; manifest-absent fallback to today's tarball walk;
-        idempotent across the upgrade re-exec
-- [ ] T5 — release-scoped, delta-driven `syncTemplate` (`services/scaffold/sync.ts`): thread the
-        release tag through `downloadTarball` (already accepts `ref`) at every call site
-        (`resolveSourceDir`, extends-chain walk); compare against `templateInventory` hashes;
-        sync-snapshot gains release provenance beside `parentRef`; `.github/templates/workflows/*.yml`
-        `@main` refs → `@v<version>`
+- [x] T4 — *(tracer bullet)* `platform` pin end-to-end: `BosConfigInputSchema` +
+        `BosConfigSchema` + `BOS_CONFIG_ORDER` + `managedRootKeys` (survives `personalizeConfig`);
+        `resolvePlatformManifest` (nearest-chain-wins without a pin, exact-match-or-loud with one,
+        `.bos/platform-manifest.json` cache, all I/O injectable); `upgradeTemplate` switches the
+        catalog source to `manifest.catalog` when a manifest resolves, surfaces
+        `platform` + `updatesAvailable` on the result
+- [x] T4 (partial) — `ci.image` derivation: the seam is landed and tested
+        (`deriveImageRefFromPlatformManifest` → `ref@v<version>`); the deploy-preflight consumer
+        wiring is follow-up (plan 042-adjacent self-deploy flow) — do not blind-wire the legs
+- [x] T5 — release-scoped, delta-driven `syncTemplate`: release tag threaded through
+        `resolveSourceDir` → `downloadTarball` (already accepted `ref`); `applyReleaseRefs`
+        rewrites reusable-workflow `@main` → `@v<version>` at content-build time (hash-compare and
+        written bytes stay consistent); sync snapshot gains `release` provenance; manifest-absent
+        → today's flow (existing sync tests pass unchanged)
 
 ## Verification checklist (T6–T7)
 
-- [ ] T6 — boot verification: `bos platform manifest` (in-image read; CLI catalog + contract route +
-        renderer); the platform compat check as one implementation with three call sites — command,
-        smoke gate (new `docker exec` step beside the `mf check` poll, `deploy/smoke.ts`),
-        `mf check` (`services/federation/service.ts` reuses its range checker) — fails the deploy on
-        violation
-- [ ] T7 — `bos upgrade --check` (dry-run comparison + nonzero exit on drift, mf-check renderer
-        pattern) + child CI drift job in `.github/templates/workflows/ci.yml`
+- [x] T6 — `bos platform manifest` (contract route `/platform/manifest` + handler + renderer,
+        mf-check pattern): in-image read first, registry resolution otherwise, `--check` runs the
+        compat gate and exits 1 on violations; the smoke gate reads + parses the in-image manifest
+        and fails the boot gate when the release contract is missing (summary reports `platform:`)
+- [ ] T6 (follow-up) — wire `checkPlatformCompat` into `mf check`'s report as an additive
+        `platform` section (schema change to `MfCheckResultSchema` + handler; the one
+        implementation is already shared)
+- [x] T7 — `bos upgrade --check` (dry-run semantics + `process.exit(1)` when
+        `updatesAvailable`; schema flag + renderer) + `.github/templates/workflows/ci.yml`
+        platform-drift job (`pnpm exec bos upgrade --check`)
 
 ## Docs checklist (T8)
 
-- [ ] ADR 0034 + `docs/adr/README.md` index row
-- [ ] `docs/plans/README.md` queue row
-- [ ] GLOSSARY.md: Platform release manifest, Derived pin (with `_Avoid_:` lines)
+- [x] ADR 0034 + `docs/adr/README.md` index row
+- [x] `docs/plans/README.md` queue row
+- [x] GLOSSARY.md: Platform release manifest, Derived pin (with `_Avoid_:` lines)
 - [ ] `init-upgrade` + `everything-dev-app` skills: the pin field, `--check`, release-scoped sync
-- [ ] Guardrail tests extending `sync.structure.test.ts`: marker ↔ inventory ↔ manifest
+- [x] Guardrail tests extending `sync.structure.test.ts`: marker ↔ inventory ↔ manifest
         `templateInventory` agreement
 - [ ] Changesets per implementation PR (`"everything-dev": minor`, ADR 0034 cited; docs PRs carry none)
 

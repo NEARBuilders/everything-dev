@@ -6,13 +6,13 @@ import { loadAppDescriptorConfig } from "../../config";
 import type { SyncResult } from "../../contract";
 import { materializeViaLayer } from "../../infra/materializer";
 import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
+import { resolvePlatformManifest } from "../platform/manifest";
 import {
   isPlainObject as isPlainObjectFromMerge,
   mergeBosConfigWithTemplate,
   resolveExtendsRef,
 } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
-import { type ResolvedPlatformManifest, resolvePlatformManifest } from "../platform/manifest";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import { findWorkspaceRoot } from "../workspace/workspace";
 import {

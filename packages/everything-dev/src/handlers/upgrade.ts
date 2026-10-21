@@ -9,17 +9,17 @@ import { upgradeTemplate } from "../cli/upgrade";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import { generateCodeArtifacts } from "../services/codegen/artifacts";
 import { checkFederationCompat } from "../services/federation/service";
+import { readInstalledFrameworkVersion } from "../services/framework-version";
 import {
   checkPlatformCompat,
   readInImagePlatformManifest,
   resolvePlatformManifest,
 } from "../services/platform/manifest";
-import { readInstalledFrameworkVersion } from "../services/framework-version";
-import { readWorkspaceCatalog } from "../services/workspace/catalog";
-import { findWorkspaceRoot } from "../services/workspace/workspace";
 import { resolvePublishedConfig } from "../services/registry/published";
 import { openResolution } from "../services/resolution/session";
 import { selectWorkspaceTargets } from "../services/workspace/build-train";
+import { readWorkspaceCatalog } from "../services/workspace/catalog";
+import { findWorkspaceRoot } from "../services/workspace/workspace";
 import type { BosConfig } from "../types";
 import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";

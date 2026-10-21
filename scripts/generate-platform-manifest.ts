@@ -8,13 +8,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
+import { readFrameworkVersion } from "../packages/everything-dev/src/services/deploy/image";
+import { readEveryPluginVersion } from "../packages/everything-dev/src/services/deploy/platform-manifest";
 import {
   composePlatformReleaseManifest,
   computeTemplateInventory,
   serializePlatformReleaseManifest,
 } from "../packages/everything-dev/src/services/platform/manifest";
-import { readEveryPluginVersion } from "../packages/everything-dev/src/services/deploy/platform-manifest";
-import { readFrameworkVersion } from "../packages/everything-dev/src/services/deploy/image";
 
 const configDir = process.cwd();
 const frameworkVersion = readFrameworkVersion(configDir);
@@ -40,5 +40,10 @@ const manifest = composePlatformReleaseManifest({
 
 const distDir = join(configDir, "packages", "everything-dev", "dist");
 mkdirSync(distDir, { recursive: true });
-writeFileSync(join(distDir, "platform-manifest.json"), `${serializePlatformReleaseManifest(manifest)}\n`);
-console.log(`platform release manifest generated: ${manifest.frameworkVersion} (${manifest.templateInventory.length} inventory files)`);
+writeFileSync(
+  join(distDir, "platform-manifest.json"),
+  `${serializePlatformReleaseManifest(manifest)}\n`,
+);
+console.log(
+  `platform release manifest generated: ${manifest.frameworkVersion} (${manifest.templateInventory.length} inventory files)`,
+);

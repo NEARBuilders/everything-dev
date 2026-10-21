@@ -838,7 +838,14 @@ export async function personalizeConfig(
     if (opts.mode === "sync" && opts.existingConfig) {
       // "platform" is managed (ADR 0034): the child's pin survives
       // personalization instead of being stripped as an unknown root key.
-      const managedRootKeys = new Set(["extends", "account", "domain", "platform", "app", "plugins"]);
+      const managedRootKeys = new Set([
+        "extends",
+        "account",
+        "domain",
+        "platform",
+        "app",
+        "plugins",
+      ]);
       const preservedRootKeys = new Set([
         ...managedRootKeys,
         ...Object.keys(opts.existingConfig),

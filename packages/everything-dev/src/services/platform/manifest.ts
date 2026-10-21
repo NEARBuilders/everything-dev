@@ -9,18 +9,18 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { glob } from "glob";
-import { z } from "zod";
 import {
-  type SharedDependencyConfig,
   SHARED_DEP_SPECS,
+  type SharedDependencyConfig,
   shareConfigFor,
 } from "every-plugin/shared-deps-spec";
-import { satisfiesConstraint } from "../federation/service";
-import { AGENT_SYNC_GLOBS, FRAMEWORK_OWNED_SYNC_FILES } from "../scaffold/ownership";
-import { fetchParentConfig } from "../resolution/init-source";
+import { glob } from "glob";
+import { z } from "zod";
 import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
+import { satisfiesConstraint } from "../federation/service";
 import { fetchRegistryKeyOrNull } from "../registry/fastkv";
+import { fetchParentConfig } from "../resolution/init-source";
+import { AGENT_SYNC_GLOBS, FRAMEWORK_OWNED_SYNC_FILES } from "../scaffold/ownership";
 
 export const PlatformReleaseManifestSchema = z.object({
   schemaVersion: z.literal(1),
@@ -135,10 +135,10 @@ export function composePlatformReleaseManifest(
   // an image build cannot see; derivation (`ref@v<version>` → digest) keys off
   // the version tag so both publish homes stay byte-identical without any
   // build-context plumbing.
-  const semver = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(
-    inputs.frameworkVersion.trim(),
-  );
-  const tags = semver ? [`v${semver[1]}.${semver[2]}.${semver[3]}${semver[4] ? `-${semver[4]}` : ""}`] : [];
+  const semver = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(inputs.frameworkVersion.trim());
+  const tags = semver
+    ? [`v${semver[1]}.${semver[2]}.${semver[3]}${semver[4] ? `-${semver[4]}` : ""}`]
+    : [];
   return PlatformReleaseManifestSchema.parse({
     schemaVersion: 1,
     kind: "everything-dev/platform-manifest",
@@ -179,9 +179,7 @@ export function readInImagePlatformManifest(): PlatformReleaseManifest | null {
   }
 }
 
-function parseSemver(
-  version: string,
-): { major: number; minor: number; patch: number } | null {
+function parseSemver(version: string): { major: number; minor: number; patch: number } | null {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(version.trim());
   if (!match) return null;
   return {
@@ -312,7 +310,9 @@ function defaultCachePath(configDir: string): string {
 
 function defaultCacheRead(configDir: string): PlatformManifestCache | null {
   try {
-    const raw = JSON.parse(readFileSync(defaultCachePath(configDir), "utf-8")) as PlatformManifestCache;
+    const raw = JSON.parse(
+      readFileSync(defaultCachePath(configDir), "utf-8"),
+    ) as PlatformManifestCache;
     return raw?.kind === "everything-dev/platform-manifest-cache" ? raw : null;
   } catch {
     return null;
@@ -328,7 +328,10 @@ function defaultCacheWrite(configDir: string, cached: PlatformManifestCache): vo
   }
 }
 
-function defaultFetchManifest(account: string, gateway: string): Promise<PlatformReleaseManifest | null> {
+function defaultFetchManifest(
+  account: string,
+  gateway: string,
+): Promise<PlatformReleaseManifest | null> {
   return (async () => {
     const raw = await fetchRegistryKeyOrNull<unknown>(account, gateway, "platform.json");
     if (!raw) return null;
@@ -336,7 +339,10 @@ function defaultFetchManifest(account: string, gateway: string): Promise<Platfor
   })();
 }
 
-function defaultFetchParent(account: string, gateway: string): Promise<Record<string, unknown> | null> {
+function defaultFetchParent(
+  account: string,
+  gateway: string,
+): Promise<Record<string, unknown> | null> {
   return fetchParentConfig(account, gateway)
     .then((config) => config as Record<string, unknown>)
     .catch(() => null);
@@ -348,10 +354,8 @@ export async function resolvePlatformManifest(
   const fetchManifest =
     opts.fetchManifest ?? ((a: string, g: string) => defaultFetchManifest(a, g));
   const fetchParent = opts.fetchParent ?? defaultFetchParent;
-  const cacheRead =
-    opts.cacheRead ?? (() => defaultCacheRead(opts.configDir));
-  const cacheWrite =
-    opts.cacheWrite ?? ((cached) => defaultCacheWrite(opts.configDir, cached));
+  const cacheRead = opts.cacheRead ?? (() => defaultCacheRead(opts.configDir));
+  const cacheWrite = opts.cacheWrite ?? ((cached) => defaultCacheWrite(opts.configDir, cached));
 
   // Walk the extends chain child → root, mirroring upgrade's chain walk.
   const chain: Array<{ account: string; gateway: string }> = [];
@@ -374,7 +378,10 @@ export async function resolvePlatformManifest(
     cursor = { account: parsed.account, gateway: parsed.gateway };
   }
 
-  const writeCache = (manifest: PlatformReleaseManifest, source: { account: string; gateway: string }) => {
+  const writeCache = (
+    manifest: PlatformReleaseManifest,
+    source: { account: string; gateway: string },
+  ) => {
     const cached: PlatformManifestCache = {
       schemaVersion: 1,
       kind: "everything-dev/platform-manifest-cache",

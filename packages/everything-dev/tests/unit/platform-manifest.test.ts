@@ -70,7 +70,9 @@ describe("composePlatformReleaseManifest", () => {
 
   it("parses back through the published schema", () => {
     const manifest = composePlatformReleaseManifest(baseInputs);
-    expect(PlatformReleaseManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(manifest)))).toEqual(manifest);
+    expect(
+      PlatformReleaseManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(manifest))),
+    ).toEqual(manifest);
   });
 });
 

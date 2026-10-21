@@ -26,7 +26,12 @@ function makeManifest(frameworkVersion: string): PlatformReleaseManifest {
 }
 
 function harness(opts: {
-  chain: Array<{ account: string; gateway: string; manifest?: PlatformReleaseManifest; config?: Record<string, unknown> }>;
+  chain: Array<{
+    account: string;
+    gateway: string;
+    manifest?: PlatformReleaseManifest;
+    config?: Record<string, unknown>;
+  }>;
   cached?: { manifest: PlatformReleaseManifest; source: { account: string; gateway: string } };
   useDefaultCache?: boolean;
 }) {
@@ -37,9 +42,10 @@ function harness(opts: {
     opts.chain.find((n) => n.account === account && n.gateway === gateway)?.config ?? null;
   return {
     writes,
-    run: (localConfig: Record<string, unknown>) =>
-      resolvePlatformManifest({
-        configDir: (tmpRoot = mkdtempSync(join(tmpdir(), "platform-resolve-"))),
+    run: (localConfig: Record<string, unknown>) => {
+      tmpRoot = mkdtempSync(join(tmpdir(), "platform-resolve-"));
+      return resolvePlatformManifest({
+        configDir: tmpRoot,
         localConfig,
         fetchManifest,
         fetchParent,
@@ -49,7 +55,8 @@ function harness(opts: {
               cacheRead: () => (opts.cached ? { ...opts.cached, resolvedAt: "2026-01-01" } : null),
               cacheWrite: (cached: unknown) => writes.push(cached),
             }),
-      }),
+      });
+    },
   };
 }
 
@@ -58,9 +65,7 @@ const childConfig = { extends: "bos://root.near/root" };
 describe("resolvePlatformManifest", () => {
   it("with no pin, the nearest manifest in the extends chain wins", async () => {
     const h = harness({
-      chain: [
-        { account: "root.near", gateway: "root", manifest: makeManifest("2.0.0-rc.14") },
-      ],
+      chain: [{ account: "root.near", gateway: "root", manifest: makeManifest("2.0.0-rc.14") }],
     });
     const resolved = await h.run(childConfig);
     expect(resolved?.manifest.frameworkVersion).toBe("2.0.0-rc.14");

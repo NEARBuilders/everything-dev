@@ -11,10 +11,7 @@ import { readJsonFile } from "../../utils/json-file";
 import { saveBosConfig } from "../../utils/save-config";
 import { timePhase } from "../../utils/timing";
 import { readInstalledFrameworkVersion } from "../framework-version";
-import {
-  type ResolvedPlatformManifest,
-  resolvePlatformManifest,
-} from "../platform/manifest";
+import { type ResolvedPlatformManifest, resolvePlatformManifest } from "../platform/manifest";
 import { openResolution } from "../resolution/session";
 import { readWorkspaceCatalog, writeWorkspaceCatalog } from "../workspace/catalog";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";

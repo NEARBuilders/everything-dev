@@ -1,9 +1,9 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { applyReleaseRefs } from "../../src/services/scaffold/sync";
 import { readSnapshot, writeSnapshot } from "../../src/services/scaffold/snapshot";
+import { applyReleaseRefs } from "../../src/services/scaffold/sync";
 
 let tmpRoot: string;
 
