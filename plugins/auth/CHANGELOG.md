@@ -1,5 +1,27 @@
 # @everything-dev/auth-plugin
 
+## 2.0.0-rc.6
+
+### Minor Changes
+
+- 2266306: Add user referrals via @marinedotsh/better-auth-referral. Every user gets a referral code; signup links (/login?ref=CODE) attribute wallet, passkey, and email signups to the referrer. New "Referrals" settings tab shows the code, invite link, stats, and referred users. Configurable through the auth variables referral block (maskReferredUserEmail, steps); better-near-auth's signIn.near now forwards fetchOptions (used for the referral header).
+
+### Patch Changes
+
+- 994e186: Remove the passkey autofill input from the login page — passkey sign-in is now the explicit button only. The fake `autocomplete="username webauthn"` field (and the conditional-mediation request armed on page load) did nothing for visitors without a saved passkey and kept the browser's passkey sheet armed across view switches and navigation. Adds `cancelPasskeyCeremony()` and `isPasskeyCeremonyAborted()` to `everything-dev/ui/auth` so pending ceremonies are aborted when choosing another sign-in method, and ceremony aborts no longer surface as errors.
+- Updated dependencies [5e22370]
+- Updated dependencies [db75ca0]
+- Updated dependencies [609f31a]
+- Updated dependencies [eb19b65]
+- Updated dependencies [c66d5db]
+- Updated dependencies [5e22370]
+- Updated dependencies [994e186]
+- Updated dependencies [2266306]
+- Updated dependencies [5e22370]
+  - every-plugin@3.0.0-rc.10
+  - everything-dev@2.0.0-rc.15
+  - better-near-auth@2.0.0-rc.3
+
 ## 2.0.0-rc.5
 
 ### Patch Changes
