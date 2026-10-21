@@ -39,8 +39,6 @@ describe("init api shell", () => {
       "api/src/index.ts",
       "api/src/db/schema.ts",
       "api/src/db/layer.ts",
-      "api/src/db/migrate.ts",
-      "api/src/db/index.ts",
       "api/src/lib/context.ts",
       "api/src/lib/errors.ts",
       "api/src/global.d.ts",
@@ -96,19 +94,18 @@ describe("init api shell", () => {
     expect(existsSync(join(projectDir, "api"))).toBe(false);
   });
 
-  it("shell plumbing stays framework-owned so sync can refresh it", async () => {
-    const frameworkOwned = [
-      "api/src/db/index.ts",
-      "api/src/db/layer.ts",
-      "api/src/db/migrate.ts",
-      "api/src/lib/context.ts",
-      "api/src/global.d.ts",
-      "api/drizzle.config.ts",
-    ];
+  it("shell plumbing stays framework-owned so sync can refresh it (ADR 0033: db seam is app-owned)", async () => {
+    const frameworkOwned = ["api/src/global.d.ts", "api/drizzle.config.ts"];
     for (const relative of frameworkOwned) {
       expect(isFrameworkOwnedSyncFile(relative)).toBe(true);
     }
-    for (const relative of ["api/src/contract.ts", "api/src/index.ts", "api/src/db/schema.ts"]) {
+    for (const relative of [
+      "api/src/contract.ts",
+      "api/src/index.ts",
+      "api/src/db/schema.ts",
+      "api/src/db/layer.ts",
+      "api/src/lib/context.ts",
+    ]) {
       expect(isFrameworkOwnedSyncFile(relative)).toBe(false);
     }
   });

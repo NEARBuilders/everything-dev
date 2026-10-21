@@ -46,7 +46,7 @@ export default createPlugin({
 
   initialize: (config) =>
     Effect.gen(function* () {
-      const Database = DatabaseLive(config.secrets.PROPOSALS_DATABASE_URL);
+      const Database = DatabaseLive(config);
       const publisher = new MemoryPublisher<ProposalEvents>({
         resume: { enabled: true, seconds: 120 },
       });

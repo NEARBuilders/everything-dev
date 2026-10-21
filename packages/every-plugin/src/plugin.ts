@@ -21,6 +21,12 @@ export type PluginConfigFor<
 };
 
 export type PluginInitializeInput<V extends AnySchema, S extends AnySchema> = {
+  /**
+   * The framework-assigned plugin id — the same key the host uses for secret
+   * injection and per-plugin database namespacing. Arrives as a value so
+   * plugin code never needs the ambient `PluginIdTag`.
+   */
+  pluginId: string;
   variables: InferSchemaOutput<V>;
   secrets: InferSchemaOutput<S>;
 };

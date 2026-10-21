@@ -47,7 +47,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
 
   initialize: (config) =>
     Effect.gen(function* () {
-      const db = yield* buildScoped(DatabaseTag, DatabaseLive(config.secrets.AUTH_DATABASE_URL));
+      const db = yield* buildScoped(DatabaseTag, DatabaseLive(config));
 
       const { authConfig, apiKeyHeaders } = normalizeAuthConfig(config.variables, config.secrets);
 

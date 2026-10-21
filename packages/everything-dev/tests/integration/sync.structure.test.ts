@@ -50,9 +50,22 @@ describe("bos sync — framework-owned files", () => {
     ]);
   });
 
-  it("marks per-plugin lib files as framework-owned", () => {
-    expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/context.ts")).toBe(true);
-    expect(isFrameworkOwnedSyncFile("plugins/_template/src/lib/context.ts")).toBe(true);
+  it("no longer owns the db files or the request-context schema (ADR 0033)", () => {
+    expect(isFrameworkOwnedSyncFile("api/src/db/layer.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("api/src/db/index.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("api/src/db/migrate.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/src/db/layer.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/src/db/migrate.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/context.ts")).toBe(false);
+    // the drizzle-kit config stays owned: identity-driven wiring carrying
+    // journal policy, zero app decisions
+    expect(isFrameworkOwnedSyncFile("api/drizzle.config.ts")).toBe(true);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/drizzle.config.ts")).toBe(true);
+  });
+
+  it("marks per-plugin plumbing files as framework-owned", () => {
+    expect(isFrameworkOwnedSyncFile("plugins/apps/src/global.d.ts")).toBe(true);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/tests/types.d.ts")).toBe(true);
   });
 
   it("marks agent workflow skills and docs as framework-owned", () => {

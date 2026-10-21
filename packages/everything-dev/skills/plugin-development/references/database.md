@@ -1,54 +1,51 @@
-# Database Layer Pattern
+# Database Layer Pattern (ADR 0033)
 
-`DatabaseLive` is a `Layer.scoped` that creates the driver, runs migrations, and returns the `db`. The `acquireRelease` ensures `driver.close()` runs when the scope is released. Migrations run **inside** the scoped layer so the pool stays open for the migration queries:
+`DatabaseLive` is a Layer built by `databaseLayer` (`everything-dev/db`): it creates the driver with `acquireRelease`, runs migrations on boot (journal-scoped advisory lock), detects drift, and returns the typed `db` on the **plugin-owned tag** — the swap seam. The driver closes when the layer's scope closes. Migrations run **inside** the scoped layer so the pool stays open for the migration queries.
+
+The plugin's whole surface is a ~15-line `src/db/layer.ts`:
 
 ```ts
-// src/db/layer.ts
-import { PluginIdTag } from "every-plugin";
-import { Context, Effect, Layer } from "effect";
-import { getMigrationStorage, pluginMigrationSlug } from "everything-dev/db";
-import { createDatabaseDriver, type Database, DatabaseError } from "./index";
-import { detectDrift, loadMigrations, migrate } from "./migrate";
+// src/db/layer.ts — scaffolded once, owned by the plugin, free to swap
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { Context } from "effect";
+import type { Effect } from "effect";
+import {
+  databaseLayer,
+  type DatabaseError,
+  type LoadedMigrations,
+  loadMigrations as loadSharedMigrations,
+} from "everything-dev/db";
+import * as schema from "./schema";
 
-export class DatabaseTag extends Context.Tag("Database")<Database, Database>() {}
+export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
-export const DatabaseLive = (url: string) =>
-  Layer.scoped(
-    DatabaseTag,
-    Effect.gen(function* () {
-      const pluginId = yield* PluginIdTag;
-      const slug = pluginMigrationSlug(pluginId);
-      const schemaName = `plugin_${slug}`;
+export class DatabaseTag extends Context.Service<DatabaseTag, Database>()("your-plugin/Database") {}
 
-      const driver = yield* Effect.acquireRelease(
-        Effect.tryPromise({
-          try: () => createDatabaseDriver(url, schemaName),
-          catch: (cause) => new DatabaseError({ stage: "driver", cause }),
-        }),
-        (driver) =>
-          Effect.tryPromise({
-            try: () => driver.close(),
-            catch: (cause) => new DatabaseError({ stage: "close", cause }),
-          }).pipe(Effect.ignore),
-      );
+const loadMigrations: Effect.Effect<LoadedMigrations, DatabaseError> = loadSharedMigrations({
+  fromDir: import.meta.dirname,
+  virtual: () => import("virtual:drizzle-migrations.sql"),
+});
 
-      const storage = getMigrationStorage(slug);
-      const { migrations, source } = yield* loadMigrations();
+export const DatabaseLive = (config: { pluginId: string; secrets: { YOURPLUGIN_DATABASE_URL: string } }) =>
+  databaseLayer(DatabaseTag, config.secrets.YOURPLUGIN_DATABASE_URL, {
+    pluginId: config.pluginId,
+    schema,
+    migrations: loadMigrations,
+  });
+```
 
-      if (migrations.length > 0) {
-        const applied = yield* migrate(driver.db, migrations, storage, schemaName);
-        yield* Effect.logInfo(
-          `[Database] Applied ${applied}/${migrations.length} migration(s) (source: ${source})`,
-        );
-        const drift = yield* detectDrift(driver.db, migrations, storage, schemaName);
-        if (drift.status === "healthy" || drift.status === "untracked-existing-schema") {
-          yield* Effect.logInfo(`[Database] Ready`);
-        }
-      }
+`namespace: true` (the default) scopes the plugin into `plugin_<slug>` on the shared database; `namespace: false` keeps the public schema (the api shell) or a dedicated database (auth). `pluginId` arrives on the initialize input — the same id the host uses for secret injection and namespacing.
 
-      return driver.db;
-    }),
-  );
+## Swapping the storage situation
+
+The tag is the seam — the test adapter proves it:
+
+```ts
+// unit test: fake db through the same interface
+MyServiceLive.pipe(Layer.provide(Layer.succeed(DatabaseTag, fakeDb)))
+
+// different engine/setup: any other Layer for the tag
+const MyDatabaseLive = Layer.effect(DatabaseTag, myOwnBackend())
 ```
 
 ## Migration Generation
@@ -56,9 +53,7 @@ export const DatabaseLive = (url: string) =>
 1. Create `drizzle.config.ts` in your plugin directory
 2. Run `drizzle-kit generate` to produce SQL migration files
 3. Store migrations in `src/db/migrations/`
-4. Pass an explicit `storage` resolved from the workspace so the journal slug is reliable
-   under rspack/Module Federation bundling (the no-arg fallback reads
-   `npm_package_name`, which is unreliable in bundled remotes).
+4. The workspace-bound `loadMigrations` (above) passes an explicit `storage`/`fromDir` so the journal slug is reliable under rspack/Module Federation bundling (the no-arg fallback reads `npm_package_name`, which is unreliable in bundled remotes).
 
 Migrations run inside `DatabaseLive`'s scoped layer. The critical rule is to **build the DB-backed service via `buildScoped`** so the scope (and the pool) lives for the plugin's lifetime. Do NOT call `DatabaseLive` directly in `initialize` and extract the driver — that creates a transient scope that releases the pool immediately:
 
@@ -66,7 +61,7 @@ Migrations run inside `DatabaseLive`'s scoped layer. The critical rule is to **b
 // CORRECT — buildScoped binds the scope to the plugin lifecycle
 initialize: (config, _plugins) =>
   Effect.gen(function* () {
-    const database = DatabaseLive(config.secrets.DATABASE_URL);
+    const database = DatabaseLive(config);
     const serviceLayer = MyServiceLive.pipe(Layer.provide(database));
     const myService = yield* buildScoped(MyServiceTag, serviceLayer);
 
@@ -76,7 +71,7 @@ initialize: (config, _plugins) =>
 // WRONG — transient scope: pool.end() fires immediately, migrations fail
 initialize: (config) =>
   Effect.gen(function* () {
-    const driver = yield* DatabaseLive(config.secrets.DATABASE_URL);
+    const driver = yield* DatabaseLive(config);
     return { db: driver.db };
   }),
 ```

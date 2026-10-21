@@ -2,7 +2,7 @@
 name: plugin-development
 description: Build, register, and deploy plugins within everything.dev. Covers the _template scaffold, contract/service/index pattern, database setup with Drizzle, authored-config registration, plugin UI/sidebar, and CLI workflow. Use when creating new plugins, adding database-backed routes, or deploying plugins to production.
 metadata:
-  sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,packages/every-plugin/src/build/rspack,plugins/_template/plugin.dev.ts,plugins/_template/src/db/schema.ts,plugins/_template/src/db/layer.ts,api/src/db/index.ts,api/src/db/migrate.ts,packages/every-plugin/src/plugin.ts,packages/everything-dev/src/cli.ts"
+  sources: "plugins/_template/src/index.ts,plugins/_template/src/contract.ts,plugins/_template/src/service.ts,packages/every-plugin/src/build/rspack,plugins/_template/plugin.dev.ts,plugins/_template/src/db/schema.ts,plugins/_template/src/db/layer.ts,api/src/db/layer.ts,packages/everything-dev/src/db/layer.ts,packages/everything-dev/src/db/run-migrations.ts,packages/everything-dev/src/db/driver.ts,packages/every-plugin/src/plugin.ts,packages/everything-dev/src/cli.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
@@ -337,21 +337,22 @@ export const items = pgTable("items", {
 }));
 ```
 
-### Driver (`src/db/index.ts` or use `api/src/db/index.ts`)
+### The database seam (`src/db/layer.ts`)
+
+One ~15-line file, scaffolded once and owned by the plugin (ADR 0033): the plugin-owned `DatabaseTag` (id `"<pluginId>/Database"`), the typed `Database` alias, and `DatabaseLive` calling `databaseLayer` from `everything-dev/db`:
 
 ```ts
-export async function createDatabaseDriver(url: string) {
-  // Supports:
-  //   "pglite:.bos/your-plugin/:memory:" — in-memory PGlite (dev)
-  //   "pglite:.bos/your-plugin/data"      — persistent PGlite (dev)
-  //   "<postgres connection string>"      — real PostgreSQL (prod)
-  // Returns { db: drizzle client, close(): Promise<void> }
-}
+// everything-dev/db's databaseLayer supports:
+//   "pglite:.bos/your-plugin/:memory:" — in-memory PGlite (dev)
+//   "pglite:.bos/your-plugin/data"      — persistent PGlite (dev)
+//   "<postgres connection string>"      — real PostgreSQL (prod)
+// namespace: true (default) scopes into plugin_<slug>; false keeps the
+// public schema (api shell) or the dedicated database (auth)
 ```
 
 ### Layer Pattern
 
-`DatabaseLive` is a `Layer.scoped` that creates the driver, runs migrations (inside the scoped layer, so the pool stays open for migration queries), and returns the `db`. `acquireRelease` closes the driver on scope release. See [database](references/database.md) for the full implementation.
+`DatabaseLive(config)` is a Layer built by `databaseLayer`: it creates the driver with `acquireRelease`, runs migrations on boot (journal-scoped advisory lock — the pool stays open for migration queries), detects drift, and returns the typed `db` on the tag. The driver closes when the layer's scope closes.
 
 ### Migration Generation
 
@@ -359,7 +360,7 @@ export async function createDatabaseDriver(url: string) {
 2. Run `drizzle-kit generate` to produce SQL migration files
 3. Store migrations in `src/db/migrations/` with an explicit `storage` resolved from the workspace (the no-arg fallback reads `npm_package_name`, unreliable under rspack/Module Federation bundling)
 
-Migrations run inside `DatabaseLive`'s scoped layer. The critical rule is to **build the DB-backed service via `buildScoped`** so the scope (and the pool) lives for the plugin's lifetime. Do NOT call `DatabaseLive` directly in `initialize` and extract the driver — that creates a transient scope that releases the pool immediately. See [database](references/database.md) for correct/wrong examples.
+Migrations run inside `DatabaseLive`'s scoped layer. The critical rule is to **build the DB-backed service via `buildScoped`** so the scope (and the pool) lives for the plugin's lifetime. Do NOT call `DatabaseLive` directly in `initialize` and extract the driver — that creates a transient scope that releases the pool immediately. See [database](references/database.md) for correct/wrong examples. To swap the storage situation, provide any other `Layer` for `DatabaseTag` — the tag is the seam.
 
 ### Per-Plugin Isolation
 

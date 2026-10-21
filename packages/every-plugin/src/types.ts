@@ -229,6 +229,7 @@ export interface InitializedPlugin<T extends AnyPlugin = AnyPlugin> {
   readonly plugin: T;
   readonly metadata: PluginMetadata;
   readonly config: {
+    pluginId: string;
     variables: InferSchemaOutput<T["configSchema"]["variables"]>;
     secrets: InferSchemaOutput<T["configSchema"]["secrets"]>;
   };

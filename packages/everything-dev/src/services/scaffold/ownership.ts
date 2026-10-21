@@ -25,11 +25,7 @@ export const FRAMEWORK_OWNED_SYNC_FILES = new Set([
   "api/plugin.dev.ts",
   "api/rspack.config.js",
   "api/tsconfig.json",
-  "api/src/lib/context.ts",
   "api/drizzle.config.ts",
-  "api/src/db/index.ts",
-  "api/src/db/layer.ts",
-  "api/src/db/migrate.ts",
   "api/src/global.d.ts",
   "api/tests/types.d.ts",
 ]);
@@ -67,8 +63,9 @@ export function isFrameworkOwnedSyncFile(filePath: string): boolean {
     return true;
   // lib/auth.ts is NOT sync-owned since #207: the middleware factory lives in
   // everything-dev/api (framework home); projects import it, they don't own a copy.
-  if (/^plugins\/[^/]+\/src\/lib\/context\.ts$/.test(filePath)) return true;
-  if (/^plugins\/[^/]+\/src\/db\/(index|layer|migrate)\.ts$/.test(filePath)) return true;
+  // db/* and lib/context.ts left ownership in ADR 0033 — the db seam (layer.ts,
+  // schema.ts, migrations/) and the request-context schema are app surface,
+  // scaffolded once by `bos init` and free to swap.
   if (/^plugins\/[^/]+\/rspack\.config\.js$/.test(filePath)) return true;
   if (/^plugins\/[^/]+\/drizzle\.config\.ts$/.test(filePath)) return true;
   if (/^plugins\/[^/]+\/src\/global\.d\.ts$/.test(filePath)) return true;
