@@ -42,8 +42,11 @@ export function loadRegressionConfig(repoRoot) {
 
   // `bos types gen` is the hermetic local-resolution step: fresh checkouts
   // get .bos/bos.resolved-config.json materialized by the same CLI resolution
-  // the dev/build train uses — no hand-rolled reader needed.
-  const result = spawnSync("pnpm", ["exec", "bos", "types", "gen"], {
+  // the dev/build train uses — no hand-rolled reader needed. Spawned through
+  // the root script (tsx + source conditions), not the bin: CI jobs never
+  // build the CLI dist, and `pnpm exec` only finds `bos` where a global
+  // install happens to sit on PATH.
+  const result = spawnSync("pnpm", ["run", "bos", "types", "gen"], {
     cwd: repoRoot,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
