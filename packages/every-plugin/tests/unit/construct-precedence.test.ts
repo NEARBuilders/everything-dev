@@ -270,12 +270,14 @@ describe("constructTree core-over-plugin precedence (ADR 0010 decision #1)", () 
     const authConfig: RouteConfigModule = {
       routeConfigLoaders: {
         "_public/login": async () => options({ staticData: { nav: { label: "Login" } } }),
-        "_authenticated/settings": async () => options({
-          staticData: { nav: { label: "Settings" } },
-        }),
-        "_authenticated/settings/security": async () => options({
-          staticData: { nav: { label: "Security" } },
-        }),
+        "_authenticated/settings": async () =>
+          options({
+            staticData: { nav: { label: "Settings" } },
+          }),
+        "_authenticated/settings/security": async () =>
+          options({
+            staticData: { nav: { label: "Security" } },
+          }),
       },
       rootMeta: {},
     };
