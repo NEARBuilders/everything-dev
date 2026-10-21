@@ -137,7 +137,7 @@ export function extractChildOwnedBlock(localContent: string): string | null {
     // The anchor line starts at its authored indent while inner lines sit one
     // step deeper — strip the anchor indent so the span joins the marker
     // protocol at the templated depth (splice re-indents).
-    const anchorIndent = match[1].length;
+    const anchorIndent = match[1]?.length ?? 0;
     lines = cut
       .split("\n")
       .map((line, index) =>
@@ -149,7 +149,7 @@ export function extractChildOwnedBlock(localContent: string): string | null {
       );
   }
 
-  while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+  while (lines.length > 0 && lines[lines.length - 1]?.trim() === "") lines.pop();
   if (lines.length === 0) return null;
   const indents = lines
     .filter((line) => line.trim() !== "")
