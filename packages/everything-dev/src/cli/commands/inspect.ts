@@ -291,6 +291,45 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
+  platformManifest: async (result, _ctx) => {
+    console.log();
+    if (result.status === "fail") {
+      console.error(`[CLI] ${result.error || "platform manifest resolution failed"}`);
+      process.exit(1);
+    }
+    if (result.status === "absent") {
+      console.log(
+        colors.yellow(
+          `  ${icons.err} No platform release manifest resolves${result.error ? ` — ${result.error}` : ""}.`,
+        ),
+      );
+      console.log(colors.dim("  Children fall back to the parent-repo tarball walk (ADR 0034 pt 7)."));
+      console.log();
+      return;
+    }
+    console.log(
+      `  ${colors.dim("Platform")}  ${colors.green(result.version ?? "?")}  ${colors.dim(`(${result.source}${result.fromCache ? ", cached" : ""})`)}`,
+    );
+    if (result.compat) {
+      for (const v of result.compat.violations) {
+        console.log(`  ${colors.error("FAIL")}  ${v.message}`);
+      }
+      console.log();
+      if (!result.compat.ok) {
+        console.log(
+          colors.error(
+            "  platform-compat: ✗ the workspace does not satisfy this release's compat contract — bump the framework or clear the pin",
+          ),
+        );
+        console.log();
+        process.exit(1);
+      }
+      console.log(colors.green("  platform-compat: ✓ workspace satisfies the release contract"));
+    }
+    console.log();
+    return;
+  },
+
   infraExport: async (result, _ctx) => {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;

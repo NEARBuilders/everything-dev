@@ -8,6 +8,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { glob } from "glob";
 import { z } from "zod";
 import {
@@ -154,6 +155,28 @@ export function composePlatformReleaseManifest(
 /** The one serializer for both publish homes — byte-identical by construction. */
 export function serializePlatformReleaseManifest(manifest: PlatformReleaseManifest): string {
   return JSON.stringify(manifest);
+}
+
+/**
+ * The in-image copy (ADR 0034 pt 1): generated inside the docker build at
+ * `packages/everything-dev/dist/platform-manifest.json`. Resolved relative to
+ * this module — three levels up from `{src,dist}/services/platform/` is the
+ * package root in both source and compiled layouts.
+ */
+export function readInImagePlatformManifest(): PlatformReleaseManifest | null {
+  const path = join(
+    fileURLToPath(import.meta.url),
+    "..",
+    "..",
+    "..",
+    "dist",
+    "platform-manifest.json",
+  );
+  try {
+    return PlatformReleaseManifestSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
+  } catch {
+    return null;
+  }
 }
 
 function parseSemver(

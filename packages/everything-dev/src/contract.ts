@@ -1037,6 +1037,33 @@ export const MfCheckResultSchema = z.object({
   remotes: z.array(MfCheckRemoteResultSchema),
 });
 
+export const PlatformManifestOptionsSchema = z.object({
+  check: z
+    .boolean()
+    .default(false)
+    .describe("Also run the platform compat check against the local workspace"),
+});
+
+export const PlatformCompatViolationSchema = z.object({
+  kind: z.enum(["minChild", "shared-dep"]),
+  name: z.string().optional(),
+  message: z.string(),
+});
+
+export const PlatformManifestResultSchema = z.object({
+  status: z.enum(["ok", "absent", "fail"]),
+  version: z.string().nullable(),
+  source: z.string().optional(),
+  fromCache: z.boolean().optional(),
+  error: z.string().optional(),
+  compat: z
+    .object({
+      ok: z.boolean(),
+      violations: z.array(PlatformCompatViolationSchema),
+    })
+    .optional(),
+});
+
 export const commandOptionSchemas = {
   dev: DevOptionsSchema,
   start: StartOptionsSchema,
@@ -1059,6 +1086,7 @@ export const commandOptionSchemas = {
   upgrade: UpgradeOptionsSchema,
   typecheck: TypecheckOptionsSchema,
   mfCheck: MfCheckOptionsSchema,
+  platformManifest: PlatformManifestOptionsSchema,
   infraExport: InfraExportOptionsSchema,
   dbStudio: DbStudioOptionsSchema,
   dbDoctor: DbDoctorOptionsSchema,
@@ -1176,6 +1204,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/mf/check" })
     .input(MfCheckOptionsSchema)
     .output(MfCheckResultSchema),
+  platformManifest: oc
+    .route({ method: "POST", path: "/platform/manifest" })
+    .input(PlatformManifestOptionsSchema)
+    .output(PlatformManifestResultSchema),
   infraExport: oc
     .route({ method: "POST", path: "/infra/export" })
     .input(InfraExportOptionsSchema)
@@ -1398,6 +1430,12 @@ export const cliCommandMeta = {
     commandPath: ["mf", "check"],
     summary:
       "Verify Module Federation runtime compatibility across published host + plugin bundles",
+    interactive: false,
+  },
+  platformManifest: {
+    commandPath: ["platform", "manifest"],
+    summary:
+      "Show the platform release manifest — the booted host or the resolved release self-describes (ADR 0034)",
     interactive: false,
   },
   dbStudio: {

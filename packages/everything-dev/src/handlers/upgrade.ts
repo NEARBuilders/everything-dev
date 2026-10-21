@@ -9,6 +9,14 @@ import { upgradeTemplate } from "../cli/upgrade";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import { generateCodeArtifacts } from "../services/codegen/artifacts";
 import { checkFederationCompat } from "../services/federation/service";
+import {
+  checkPlatformCompat,
+  readInImagePlatformManifest,
+  resolvePlatformManifest,
+} from "../services/platform/manifest";
+import { readInstalledFrameworkVersion } from "../services/framework-version";
+import { readWorkspaceCatalog } from "../services/workspace/catalog";
+import { findWorkspaceRoot } from "../services/workspace/workspace";
 import { resolvePublishedConfig } from "../services/registry/published";
 import { openResolution } from "../services/resolution/session";
 import { selectWorkspaceTargets } from "../services/workspace/build-train";
@@ -484,6 +492,64 @@ export function registerUpgrade(builder: BosBuilder) {
           hostReason: report.hostReason,
           remotes: report.remotes,
         };
+      });
+    }),
+
+    platformManifest: builder.platformManifest.effect(function* (_opts, input) {
+      return yield* Effect.promise(async () => {
+        // In-image: the booted host self-describes (ADR 0034 pt 1) — the
+        // staged manifest is the release's own bytes; a compat check of the
+        // image against itself is trivially consistent.
+        const inImage = readInImagePlatformManifest();
+        if (inImage) {
+          return {
+            status: "ok" as const,
+            version: inImage.frameworkVersion,
+            source: "in-image",
+            ...(input.check ? { compat: { ok: true, violations: [] } } : {}),
+          };
+        }
+
+        const configPath = findConfigPath();
+        if (!configPath) {
+          return {
+            status: "absent" as const,
+            version: null,
+            error: `${MISSING_CONFIG_MESSAGE} — and the in-image platform manifest is absent (non-framework image)`,
+          };
+        }
+        const projectDir = resolve(dirname(configPath));
+        try {
+          const resolved = await resolvePlatformManifest({
+            configDir: projectDir,
+            localConfig:
+              ((await readAuthoredConfigInput()) as Record<string, unknown> | null) ?? {},
+          });
+          if (!resolved) {
+            return { status: "absent" as const, version: null };
+          }
+          const base = {
+            status: "ok" as const,
+            version: resolved.manifest.frameworkVersion,
+            source: `bos://${resolved.source.account}/${resolved.source.gateway}`,
+            fromCache: resolved.fromCache,
+          };
+          if (!input.check) {
+            return base;
+          }
+          const root = findWorkspaceRoot(projectDir)?.dir ?? projectDir;
+          const violations = checkPlatformCompat(resolved.manifest, {
+            platformVersion: readInstalledFrameworkVersion(projectDir, "everything-dev"),
+            catalog: readWorkspaceCatalog(root),
+          });
+          return { ...base, compat: { ok: violations.length === 0, violations } };
+        } catch (e) {
+          return {
+            status: "fail" as const,
+            version: null,
+            error: e instanceof Error ? e.message : String(e),
+          };
+        }
       });
     }),
   };
