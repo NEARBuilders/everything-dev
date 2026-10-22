@@ -149,11 +149,13 @@ function allocateServices(
         );
         pluginSlot += 1;
       }
-      if (
-        pluginCfg?.source === "local" &&
-        pluginCfg?.localPath &&
-        pluginCfg?.ui?.source === "local"
-      ) {
+      // A local ui surface is real regardless of where the backend lives: a
+      // remote auth server can still own a local auth-ui override whose dist
+      // the host's SSR compose serves through a local container. Allocate a
+      // port for it whenever the ui slot itself is local (folder-form ui
+      // sources are served by the plugin's own dev process via BOS_UI_PORT,
+      // standalone ones get their own plugin-ui:<id> unit).
+      if (pluginCfg?.ui?.source === "local" && pluginCfg?.ui?.localPath) {
         addEntry(
           `plugin-ui:${pluginId}`,
           cliPorts.plugins?.[pluginId]?.ui,
@@ -371,7 +373,7 @@ export function buildServiceDescriptors(
           localPath: undefined,
         });
       }
-      if (pluginIsLocal && p?.ui && pluginCfg.ui?.source === "local") {
+      if (p?.ui && pluginCfg.ui?.source === "local") {
         descriptors.push({
           key: `plugin-ui:${pluginId}`,
           source: "local",
