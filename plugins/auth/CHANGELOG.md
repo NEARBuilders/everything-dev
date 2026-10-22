@@ -1,5 +1,25 @@
 # @everything-dev/auth-plugin
 
+## 2.0.0-rc.7
+
+### Minor Changes
+
+- 94597b9: Generic onboarding stats in the published auth plugin (absorbs the last citynode-specific contract surface, letting children delete their local plugins/auth copies):
+
+  - New route `GET /v1/auth/onboarding/stats` (`getOnboardingStats`), input `{ month?: "YYYY-MM", organizationId?: string }`, output `{ month, totals: { redeemed, newMembers }, organizations: [{ organizationId, organizationName, redeemed, newMembers }] }` over a single-DB SQL aggregation of onboarding redemptions. Month defaults to the current UTC month and windows are UTC first-of-month boundaries. With `organizationId` the caller must be an organizer of that organization and stats scope to it; without it the caller must be a platform admin and stats cover all organizations. `newMembers` counts distinct users whose membership in the organization was created within the same month window — users who joined by invitation or redeemed in an earlier month count as redeemed but not new.
+  - `listOnboardingCodes` gains an optional `eventId` filter alongside `organizationId`.
+
+### Patch Changes
+
+- Updated dependencies [23d8bc1]
+- Updated dependencies [3b0bbd2]
+- Updated dependencies [127afdf]
+- Updated dependencies [23d8bc1]
+- Updated dependencies [8d87150]
+- Updated dependencies [8d87150]
+- Updated dependencies [8d87150]
+  - everything-dev@2.0.0-rc.18
+
 ## 2.0.0-rc.6
 
 ### Minor Changes

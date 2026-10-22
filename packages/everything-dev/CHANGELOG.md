@@ -1,5 +1,53 @@
 # everything-dev
 
+## 2.0.0-rc.18
+
+### Major Changes
+
+- 23d8bc1: Release-scoped child lifecycle (ADR 0034): children become pinned snapshots that move only through `bos upgrade`.
+
+  **Removed**
+
+  - `bos sync` is gone. The template-sync engine (`syncTemplate`) is now reachable only through `bos upgrade`, which gates it on the platform release manifest and the framework version delta. `bos sync` invocations in scripts/agents must be replaced with `bos upgrade`.
+
+  **Changed**
+
+  - `bos init` / `bos upgrade` stamp a `platform` pin (the framework release version) into the authored config; everyday resolution (sync, runtime boot) freezes to it, and the upgrade pathway is what moves it.
+  - Template sync is release-scoped: it resolves the platform release manifest (failing loud when none publishes) and pulls the release tag, not `main` HEAD. Workflow reusable-action pins are rewritten to `@v<version>`.
+  - The legacy `bos.config.json` scaffold path is retired from the template surface: `syncTemplate` reconciles TS-form children only (`bos.app.ts`).children scaffolded as JSON configs upgrade to the authored descriptor form.
+  - Upgrade preflight refuses to apply new framework packages while framework-owned files conflict with the upstream release; `--force` bypasses and backs up conflicting copies under `.bos/sync-backup/`.
+  - Init snapshots record the delivered (personalized) bytes of framework-owned files, so upgrade hand-edit detection compares against what the scaffold actually wrote.
+  - TS-form children now get their personalized workspace manifest and catalog in `personalizeConfig` (previously skipped by the JSON-config branch), so `catalog:` refs normalize on sync.
+  - The child-owned block protocol (`// child-owned-start|end` markers) lets hand-authored spans inside framework-owned files (e.g. `api/plugin.dev.ts` `variables`) survive reconciles without conflict.
+
+  **Fixed**
+
+  - TS-form children keep their authored identity fields (account/domain) across template sync instead of drifting back to the extends-derived defaults.
+
+### Minor Changes
+
+- 3b0bbd2: Adds the `HostingAdapter` seam and its Docker dev-substrate implementation (`everything-dev/hosting`, `everything-dev/hosting/docker`): the platform's single substrate-independent surface for operating runtime instances — deploy a digest-pinned image with `BOS_ACCOUNT`/`BOS_GATEWAY` identity env, health-gate on `/health`, observe, restart, stop. Alchemy is the control plane (in-process `Deploy.deploy`, local state ledger); no substrate resource types, ports, or networks cross the seam. First slice of the ADR 0035 deploy console.
+
+  `alchemy` ships as an **optional peer dependency** (satisfied by `devDependencies` in the framework repo): the packed tarball stays lean — consumers who never import `everything-dev/hosting/docker` (i.e. every child) install nothing new, and no naked install hits pnpm's un-approved-builds gate via alchemy's transitive `workerd`. Importers of the Docker adapter declare `alchemy` themselves.
+
+- 23d8bc1: RC path consolidation: remove two dead/duplicate CLI doors and the retired `ci.image` schema key.
+
+  - `bos infra export` is deleted — it had no consumers (the deploy workflow stopped calling it; the only other reference was its own test).
+  - `bos key generate` is deleted — `bos login --key` is the single publish-key minting path. The removed command printed the private key to stdout (a log-capture leak the code itself warned about); `bos login --key` exports to the near-cli-rs keystore instead. User-facing messages that pointed at `bos key generate` now point at `bos login --key`.
+  - The authored descriptor schema no longer accepts `ci.image` — a `bos.app.ts` that sets it now fails schema validation (it was already rejected at deploy time).
+
+- 8d87150: Sync preserves child-authored content in framework-owned files and children gain a blessed CI surface (#538):
+
+  - **Child-owned block protocol** — a framework-owned file may embed the span between `// child-owned-start` / `// child-owned-end` comments (shown around `variables` in `api/plugin.dev.ts`); sync lifts the span out of the local copy, splices it into the freshly built template content, and never reports it as a conflict. Marker-less local copies migrate once: the `variables: { … },` literal is lifted onto the protocol at the next sync.
+  - **Blessed child CI workflow** — `.github/workflows/ci-child.yml` ships as a child-owned placeholder (never in the framework-owned inventory); the template `ci.yml` shrinks to triggers + the pinned `consumer-ci` reusable call + the local `child-ci` call, with lint/typecheck/test and the platform-drift alarm moving into the reusable call itself. The merge gate asserts both calls (`needs: [ci, child-ci]`).
+
+- 8d87150: #536 — `bos types gen` is the complete hermetic local-resolution step: it now writes `.bos/bos.resolved-config.json` (same shape `bos dev`/`bos build` write) and as a regenerable step emits the core ui route tree, so a fresh checkout matches CI after one command. `bos typecheck` materializes the resolved config the same way. Also registers the `--env` / `--dry-run` / `--remote-plugins` flag schemas so the CLI parses them and `bos types gen --help` no longer crashes.
+- 8d87150: #537 — `/.well-known/version` now answers a `build` object with the serving build's identity: `frameworkVersion`, `everyPluginVersion`, `gitSha`, and `image.ref`/`tags`. The git sha rides the platform release manifest (optional `gitSha` field) composed identically in both publish homes — the FastKV publish train (deploy HEAD) and the in-image staging (`ARG BOS_GIT_SHA` build arg; CI and the local deploy train pass it, regression builds omit it and the field drops). The host remote can't read the in-image manifest file (its import URL is a CDN bundle), so the CLI orchestrator resolves it once at boot and injects it into the host server. Also fixes the latent `/.well-known/version` bug where the Effect promise was handed to `c.json()` un-awaited, serializing an empty object.
+
+### Patch Changes
+
+- 127afdf: Bump the digest-pinned Node base images to the October 21, 2026 security release (Node 24.22.1), fixing the Brotli decoder out-of-bounds write RCE (CVE-2026-111497), two TLS certificate hostname bypasses (CVE-2026-105483, CVE-2026-106069), DNS NUL truncation (CVE-2026-105482), and related advisories. Also bump react/react-dom from 19.2.4 to 19.2.9 to cover the React Flight RCE advisory (GHSA-xqc2-xf4c-x3h3) as defense-in-depth.
+
 ## 2.0.0-rc.17
 
 ### Patch Changes
