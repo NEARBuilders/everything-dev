@@ -139,3 +139,25 @@ _Avoid_: outlayer credential, agent wallet (say custody)
 **Machine identity**:
 The custody wallet's implicit hex account as the deploy target: the authored config's `account` must equal it, so configs publish under `apps/<hex-account>/<gateway>` instead of a named account.
 _Avoid_: bot account (not a named account), executor (OutLayer's own term for something else)
+
+## Deploy console
+
+**Hosting adapter**:
+The platform's only seam for operating runtime instances — deploy an image with identity env, report what is running, restart, stop. Substrate implementations (Docker, Railway, Fly) hide behind it; swapping substrate is a wiring change.
+_Avoid_: provider (Alchemy's own term for its resource kits — say which), deploy leg (a train stage, not the seam)
+
+**Deploy console**:
+The root app surface that lists deploys from on-chain audit manifests and drives rollback and log investigation for the root and every child.
+_Avoid_: dashboard, admin panel, hosting UI
+
+**Rollback unit**:
+The whole of a console rollback, FastKV-first: re-publish the previous verified snapshot (config + manifest pins, SRI-checked, refused outright on failure), then restart the instance against the rolled-back pin. Shared-host tenants get the config half only — per-request resolution makes it instant.
+_Avoid_: redeploy (the instance half alone), image rollback (implies the image is the unit)
+
+**Reconciler**:
+The platform-side watcher that converges platform-hosted instances to each namespace's latest published fingerprint — making publish the deploy action. Idempotent; failures surface as drift.
+_Avoid_: relay, agent, deploy trigger
+
+**Fleet**:
+The set of runtime instances the platform hosts on its own managed substrate — the root pair, own-instance children, and sandbox leases.
+_Avoid_: cluster (carries Kubernetes connotations we rejected), infra (too broad)

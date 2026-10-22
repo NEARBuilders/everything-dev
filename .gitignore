@@ -310,6 +310,9 @@ fabric.properties
 !.bos/infra-state.json
 .bos/session.json
 
+# alchemy state ledger (runtime artifact of hosting-adapter stacks)
+.alchemy/
+
 # AI tool config (local only, not committed)
 .opencode/
 .agent/

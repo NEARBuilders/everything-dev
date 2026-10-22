@@ -79,6 +79,8 @@ linkWorkspacePackages: true
 ignoreScripts: true
 overrides:
   "@better-fetch/fetch": 1.3.2
+  "@effect/platform-node": 4.0.0-rc.117
+  "@effect/platform-node-shared": 4.0.0-rc.117
   "@rspack/core": 2.2.8
   better-auth: 1.7.7
   react: 19.2.9
