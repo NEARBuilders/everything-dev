@@ -389,6 +389,64 @@ describe("composeUi", () => {
     expect(variant.clientPayload.manifests).toEqual([CORE_MANIFEST]);
   });
 
+  it("fails loudly when a local plugin ui source has no usable manifest", async () => {
+    const localRoot = await mkdtemp(path.join(tmpdir(), "ui-compose-local-missing-manifest-"));
+    await mkdir(path.join(localRoot, "src"), { recursive: true });
+
+    const config = {
+      ...configWithPlugin(),
+      env: "development",
+    } as RuntimeConfig;
+    config.plugins!.auth!.ui = {
+      name: "auth-ui",
+      source: "local",
+      localPath: localRoot,
+    } as never;
+
+    const result = await composeExit(config);
+    expect(Exit.isFailure(result)).toBe(true);
+    expect(construct).not.toHaveBeenCalled();
+
+    await rm(localRoot, { recursive: true, force: true });
+  });
+
+  it("fails loudly when a local plugin ui manifest names itself something else", async () => {
+    const localRoot = await mkdtemp(path.join(tmpdir(), "ui-compose-local-mismatch-"));
+    await mkdir(path.join(localRoot, "src"), { recursive: true });
+    await writeFile(
+      path.join(localRoot, "src", "manifest.gen.json"),
+      JSON.stringify({ ...AUTH_MANIFEST, name: "not-auth" }),
+    );
+
+    const config = {
+      ...configWithPlugin(),
+      env: "development",
+    } as RuntimeConfig;
+    config.plugins!.auth!.ui = {
+      name: "auth-ui",
+      source: "local",
+      localPath: localRoot,
+    } as never;
+
+    const result = await composeExit(config);
+    expect(Exit.isFailure(result)).toBe(true);
+    if (result._tag !== "Failure") throw new Error("unreachable");
+    const reasons = result.cause.reasons;
+    expect(reasons).toHaveLength(1);
+    const reason = reasons[0]!;
+    expect(reason._tag).toBe("Fail");
+    if (reason._tag === "Fail") {
+      expect(reason.error).toMatchObject({
+        operation: expect.stringMatching(/Failed to load UI manifest for local ui source "auth"/),
+        cause: expect.objectContaining({
+          operation: expect.stringMatching(/manifest names itself "not-auth" — expected "auth"/),
+        }),
+      });
+    }
+
+    await rm(localRoot, { recursive: true, force: true });
+  });
+
   it("local dev composes through the same MF loaders via the local dist container", async () => {
     const localRoot = await mkdtemp(path.join(tmpdir(), "ui-compose-local-"));
     const fixture = async (name: string, manifestName: string) => {

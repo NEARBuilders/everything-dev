@@ -138,7 +138,9 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
         localPath: ui.localPath,
       },
       localRoot: ui.localPath ? resolveLocalRoot(ui.localPath) : undefined,
-      manifestUrl: `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`,
+      // Remote sources publish their manifest at a known URL; local slots are
+      // read straight from the workspace (src/manifest.gen.json) — no URL.
+      manifestUrl: ui.url ? `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}` : undefined,
       manifestIntegrity: ui.manifestIntegrity,
       browserManifestUrl: urls.browserManifest,
       webEntry: urls.web,
@@ -287,14 +289,28 @@ const resolveComposableSources = Effect.fn("resolveComposableSources")(function*
             cause: new Error("identity mismatch (ADR 0008 §2)"),
           });
         }
+        // A local ui source is authored into this runtime — a manifest that
+        // names another plugin is a configuration bug, not a transient remote
+        // failure: fail loud instead of silently dropping the slot.
+        if (source.localRoot) {
+          return yield* new UiComposeError({
+            operation: `[Compose] local ui source "${source.key}" manifest names itself "${manifest.name}" — expected "${source.key}"`,
+            cause: new Error("identity mismatch (ADR 0008 §2)"),
+          });
+        }
         yield* Effect.logWarning(
           `[Compose] dropping ui source "${source.key}" — its manifest names itself "${manifest.name}" (identity mismatch, ADR 0008 §2)`,
         );
         return null;
       }).pipe(
         Effect.catch((error) =>
-          source.key === CORE_UI_KEY
-            ? Effect.fail(error)
+          source.localRoot || source.key === CORE_UI_KEY
+            ? Effect.fail(
+                new UiComposeError({
+                  operation: `Failed to load UI manifest for ${source.localRoot ? "local" : "core"} ui source "${source.key}"`,
+                  cause: error,
+                }),
+              )
             : Effect.logWarning(
                 `[Compose] dropping ui source "${source.key}" — no usable manifest (${error.message})`,
               ).pipe(Effect.as(null)),
@@ -422,9 +438,11 @@ export const composeUi = Effect.fn("composeUi")(function* (
         : loadUiRouteConfig(entry.source.remote!, config.env)
     ).pipe(
       Effect.catch((error) =>
-        Effect.logWarning(
-          `[Compose] dropping ui source "${entry.source.key}" — route config unavailable (${error.message})`,
-        ).pipe(Effect.as(null)),
+        entry.source.localRoot
+          ? Effect.fail(error)
+          : Effect.logWarning(
+              `[Compose] dropping ui source "${entry.source.key}" — route config unavailable (${error.message})`,
+            ).pipe(Effect.as(null)),
       ),
     );
     if (loaded) {
