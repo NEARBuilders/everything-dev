@@ -73,6 +73,19 @@ The complaint that motivated the cutthroat pass — "maintaining too much of all
 
 Sequenced nuke: the **CLI Railway leg** (full surface mapped in the review) dies after the reconciler (console ticket 08) + Railway adapter (ticket 05) cover root and children — never before. Welded later: dev/start boot-stack unification, signing-mode dispatch — real consolidation, too hot to touch mid-RC.
 
+## Reconciler v1 (ticket 08, built 2026-10-22)
+
+Lives in the api shell (`api/src/lib/reconciler.ts`) — the one place that already holds all three services in-process:
+
+- **Delivery credential = in-process access.** The reconciler is platform-internal code; `SecretsStore.resolve` is consumed directly as a service, no route, no new credential surface. An auth-gated plaintext HTTP door (any credentialed user reads any runtime's secrets) was the rejected alternative.
+- **Watch list** comes from the api plugin's `variables.hosting.reconciler` (`watch: [{ account, gateway, instance?, image? }]`, `pollIntervalMs` clamped to ≥1s, default 15s). Empty watch list (the default) → the reconciler service reports `enabled: false` and the docker adapter is never imported — no alchemy requirement for children.
+- **Decision function** (`decideReconcile`): first observation of a running instance records the baseline without deploying (booting the reconciler must not restart the fleet); a stopped instance at boot converges immediately; afterwards, fingerprint change → converge, unchanged → no-op — with one self-healing exception: a mid-life *stopped* instance is restarted on its existing pin (cheap inspect per tick).
+- **Convergence** resolves the image from the platform-manifest pin in force at the deploy (joined by block height — the same join the history rows use), falls back to the watch entry's explicit `image`; no pin resolvable → drift, loudly, no deploy. `identityEnv` = identity keys + provisioned DB URLs + vault secrets via `withSecrets` (platform keys always win).
+- **Per-runtime databases** (the ticket-09 design note): decided **database-per-runtime** (ADR 0035 already fixes durable Postgres on Neon, "instances are cattle"); the minimal call is implemented — when the platform's own `API_DATABASE_URL` is postgres, converge provisions `runtime_<slug>_api` + `runtime_<slug>_auth` (deterministic sanitized slug + digest) and rides both URLs into `identityEnv`; pglite platform → no provisioning (in-image pglite, the zero-config default). Lifecycle on runtime deletion: recorded for the console's instance-delete surface, not built (no delete surface exists). The two URL names joined the reserved secret names so vault values can never shadow them.
+- **Drift state**: in-memory per namespace (`drift.reason`/`at`, cleared on the next successful tick), surfaced via `POST /hosting/reconciler/status` — the durable drift marker (ticket 06's UI) consumes this route.
+- **Loop**: `Layer.effectDiscard(loop.pipe(Effect.forkScoped))` — the fiber lives with the plugin's lifecycle scope.
+- **Demo recorded**: `api/tests/reconciler-docker.test.ts` — fake FastKV history (injected fetch seam) + real Docker adapter + real pglite-backed vault; publish v2 (new fingerprint + new platform pin + new vault secret) → next tick recreates the container on the new pin with the secret delivered, no manual action. Manual replay needs only `bos.dev.ts` overriding the api variables' watch list.
+
 ## Tickets
 
 | # | Ticket | Blocked by |
