@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Layer, ManagedRuntime } from "effect";
 import { HostingAdapter } from "everything-dev/hosting";
 import { dockerHostingAdapterLayer } from "everything-dev/hosting/docker";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
