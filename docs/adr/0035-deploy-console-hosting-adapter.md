@@ -3,7 +3,7 @@
 Date: 2026-10-21
 Status: Proposed
 
-Depends on: ADR 0001 (FastKV registry — public reads, action-indexed writes), ADR 0020/0021 (universal runtime image, identity-driven boot), ADR 0034 (platform release manifest). Shares lineage with plan 032's locked decision ("the platform image on alchemy-managed machines; children never ship Dockerfiles") and resolves its open machine-provider question.
+Depends on: ADR 0001 (FastKV registry — public reads, action-indexed writes), ADR 0020/0021 (universal runtime image, identity-driven boot), ADR 0034 (platform release manifest), ADR 0036 (three pin planes — the console's integrity surfaces operate on the image and bundle planes and must not weaken the config plane's verification). Shares lineage with plan 032's locked decision ("the platform image on alchemy-managed machines; children never ship Dockerfiles") and resolves its open machine-provider question.
 
 Implements the design session for [issue #526](https://github.com/NEARBuilders/everything-dev/issues/526).
 
