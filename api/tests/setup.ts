@@ -98,7 +98,8 @@ export function getTestEffectContext(): unknown {
   return lastEffectContext;
 }
 
-export function authedContext(userId = "user-1", userRole?: string): Record<string, unknown> {  const user: Record<string, unknown> = {
+export function authedContext(userId = "user-1", userRole?: string): Record<string, unknown> {
+  const user: Record<string, unknown> = {
     id: userId,
     email: `${userId}@example.com`,
     name: "Test User",
