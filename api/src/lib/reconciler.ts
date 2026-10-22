@@ -15,6 +15,9 @@ export { ReconcilerStatusSchema };
 export const DEFAULT_POLL_INTERVAL_MS = 15000;
 const MIN_POLL_INTERVAL_MS = 1000;
 
+const clampPollInterval = (pollIntervalMs: number): number =>
+  Math.max(MIN_POLL_INTERVAL_MS, pollIntervalMs);
+
 export interface ReconcilerWatchEntry {
   readonly account: string;
   readonly gateway: string;
@@ -116,7 +119,7 @@ export function buildReconciler(
   status: () => Effect.Effect<ReconcilerStatusSnapshot>;
   tick: () => Effect.Effect<ReconcilerStatusSnapshot>;
 } {
-  const pollIntervalMs = Math.max(MIN_POLL_INTERVAL_MS, config.pollIntervalMs);
+  const pollIntervalMs = clampPollInterval(config.pollIntervalMs);
   const now = (): string => new Date().toISOString();
 
   const states = new Map<string, NamespaceReconcileState>();
@@ -158,8 +161,7 @@ export function buildReconciler(
 
   const reconcileNamespace = (entry: ReconcilerWatchEntry) =>
     Effect.gen(function* () {
-      const key = namespaceKey(entry);
-      const state = states.get(key);
+      const state = states.get(namespaceKey(entry));
       if (!state) return;
 
       const row = yield* latestDeploy(entry);
@@ -231,6 +233,9 @@ export function buildReconciler(
         state.instanceUrl = deployed.url;
         state.lastConvergedAt = now();
         state.drift = undefined;
+        yield* Effect.logInfo(
+          `[Reconciler] ${entry.account}/${entry.gateway} converged on ${fingerprint.slice(0, 8)} (${image})`,
+        );
         return;
       }
 
@@ -242,7 +247,17 @@ export function buildReconciler(
       const healed = yield* deps.adapter.restart(state.instance);
       state.instanceUrl = healed.url;
       state.drift = undefined;
-    }).pipe(Effect.catch((error) => Effect.sync(() => markDrift(entry, describeError(error)))));
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.gen(function* () {
+          const reason = describeError(error);
+          markDrift(entry, reason);
+          yield* Effect.logWarning(
+            `[Reconciler] ${entry.account}/${entry.gateway} drifted: ${reason}`,
+          );
+        }),
+      ),
+    );
 
   const tick = Effect.gen(function* () {
     for (const entry of config.watch) {
@@ -312,9 +327,7 @@ export const ReconcilerLive = (config: ReconcilerConfig, platformDatabaseUrl?: s
       return Layer.mergeAll(
         Layer.succeed(ReconcilerService, ReconcilerService.of(reconciler)),
         Layer.effectDiscard(
-          loopEffect(reconciler, Math.max(MIN_POLL_INTERVAL_MS, config.pollIntervalMs)).pipe(
-            Effect.forkScoped,
-          ),
+          loopEffect(reconciler, clampPollInterval(config.pollIntervalMs)).pipe(Effect.forkScoped),
         ),
       );
     }),

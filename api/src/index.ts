@@ -7,7 +7,12 @@ import { DatabaseLive } from "./db/layer";
 import { ContextSchema } from "./lib/context";
 import { DeployHistoryService } from "./lib/deploy-history";
 import type { PluginsClient } from "./lib/plugins-types.gen";
-import { ReconcilerDisabled, ReconcilerLive, ReconcilerService } from "./lib/reconciler";
+import {
+  DEFAULT_POLL_INTERVAL_MS,
+  ReconcilerDisabled,
+  ReconcilerLive,
+  ReconcilerService,
+} from "./lib/reconciler";
 import {
   isValidSecretName,
   SecretsStore,
@@ -88,16 +93,15 @@ export default createPlugin.withPlugins<PluginsClient>()({
       if (watch.length === 0) {
         return Layer.mergeAll(base, ReconcilerDisabled);
       }
-      const docker = yield* Effect.promise(() => import("everything-dev/hosting/docker")).pipe(
-        Effect.mapError(
-          () =>
-            new Error(
-              "The reconciler watch list is configured but the docker hosting adapter's optional peer is missing — install alchemy in the api workspace",
-            ),
-        ),
-      );
+      const docker = yield* Effect.tryPromise({
+        try: () => import("everything-dev/hosting/docker"),
+        catch: () =>
+          new Error(
+            "The reconciler watch list is configured but the docker hosting adapter's optional peer is missing — install alchemy in the api workspace",
+          ),
+      });
       return ReconcilerLive(
-        { watch, pollIntervalMs: reconciler?.pollIntervalMs ?? 15000 },
+        { watch, pollIntervalMs: reconciler?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS },
         config.secrets.API_DATABASE_URL,
       ).pipe(
         Layer.provideMerge(docker.dockerHostingAdapterLayer({ adopt: true })),
