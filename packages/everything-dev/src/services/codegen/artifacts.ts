@@ -44,6 +44,24 @@ function uiManifestTargets(
         : !existsSync(join(ui.localPath, "src/routeTree.gen.ts")),
     });
   }
+  // A local auth attachment's ui (`auth.ui`) is its own manifest target:
+  // the plugins bucket only covers `plugins.<id>` entries, so an
+  // `auth.ui` override against a published auth server would otherwise
+  // never get a manifest (it is composed under the "auth" key).
+  const authUi = runtimeConfig.auth?.ui;
+  if (
+    authUi?.source === "local" &&
+    authUi.localPath &&
+    !targets.some((t) => t.workspaceRoot === authUi.localPath)
+  ) {
+    targets.push({
+      workspaceRoot: authUi.localPath,
+      pluginName: "auth",
+      emitRouteTree: forceRouteTree
+        ? true
+        : !existsSync(join(authUi.localPath, "src/routeTree.gen.ts")),
+    });
+  }
   for (const [key, plugin] of Object.entries(runtimeConfig.plugins ?? {})) {
     const uiPath = plugin.ui?.localPath;
     if (plugin.ui?.source === "local" && uiPath && existsSync(join(uiPath, "rsbuild.config.ts"))) {
