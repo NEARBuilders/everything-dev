@@ -8,6 +8,7 @@ import { registerDev } from "../../src/handlers/dev";
 import { registerImport } from "../../src/handlers/import";
 import { registerInit } from "../../src/handlers/init";
 import { registerKeys } from "../../src/handlers/keys";
+import { registerSecrets } from "../../src/handlers/secrets";
 import { registerOps } from "../../src/handlers/ops";
 import { registerPlugins } from "../../src/handlers/plugins";
 import { registerProcesses } from "../../src/handlers/processes";
@@ -24,6 +25,7 @@ const registerFns = [
   registerDeploy,
   registerSmoke,
   registerKeys,
+  registerSecrets,
   registerProcesses,
   registerInit,
   registerImport,

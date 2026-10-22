@@ -979,6 +979,56 @@ export const PlatformManifestResultSchema = z.object({
     .optional(),
 });
 
+export const SecretsSetOptionsSchema = z.object({
+  name: z.string().describe("Secret name (UPPER_SNAKE_CASE; BOS_* and PORT are reserved)"),
+  value: z.string().optional().describe("Secret value — omitted: hidden prompt (TTY)"),
+  site: z
+    .string()
+    .optional()
+    .describe("Override the vault site (default: the session credential's site)"),
+});
+
+export const SecretsSetResultSchema = z.object({
+  status: z.enum(["set", "error"]),
+  name: z.string().optional(),
+  siteUrl: z.string().optional(),
+  warning: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const SecretsListOptionsSchema = z.object({
+  account: z.string().optional().describe("Target runtime account (default: the declared config)"),
+  gateway: z.string().optional().describe("Target runtime gateway (default: the declared domain)"),
+  site: z.string().optional(),
+});
+
+export const SecretsListResultSchema = z.object({
+  status: z.enum(["listed", "error"]),
+  secrets: z
+    .array(
+      z.object({
+        name: z.string(),
+        state: z.enum(["set", "missing", "undeclared"]),
+      }),
+    )
+    .optional(),
+  missing: z.array(z.string()).optional(),
+  siteUrl: z.string().optional(),
+  warning: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const SecretsRemoveOptionsSchema = z.object({
+  name: z.string().describe("Secret name to remove"),
+  yes: z.boolean().default(false).describe("Skip the confirmation prompt"),
+});
+
+export const SecretsRemoveResultSchema = z.object({
+  status: z.enum(["removed", "not-found", "error"]),
+  name: z.string().optional(),
+  error: z.string().optional(),
+});
+
 export const commandOptionSchemas = {
   dev: DevOptionsSchema,
   start: StartOptionsSchema,
@@ -1001,6 +1051,9 @@ export const commandOptionSchemas = {
   typesGen: TypesGenOptionsSchema,
   mfCheck: MfCheckOptionsSchema,
   platformManifest: PlatformManifestOptionsSchema,
+  secretsSet: SecretsSetOptionsSchema,
+  secretsList: SecretsListOptionsSchema,
+  secretsRemove: SecretsRemoveOptionsSchema,
   dbStudio: DbStudioOptionsSchema,
   dbDoctor: DbDoctorOptionsSchema,
   dbRepair: DbRepairOptionsSchema,
@@ -1113,6 +1166,18 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/platform/manifest" })
     .input(PlatformManifestOptionsSchema)
     .output(PlatformManifestResultSchema),
+  secretsSet: oc
+    .route({ method: "POST", path: "/secrets/set" })
+    .input(SecretsSetOptionsSchema)
+    .output(SecretsSetResultSchema),
+  secretsList: oc
+    .route({ method: "POST", path: "/secrets/list" })
+    .input(SecretsListOptionsSchema)
+    .output(SecretsListResultSchema),
+  secretsRemove: oc
+    .route({ method: "POST", path: "/secrets/remove" })
+    .input(SecretsRemoveOptionsSchema)
+    .output(SecretsRemoveResultSchema),
 });
 
 export type DevOptions = z.infer<typeof DevOptionsSchema>;
@@ -1174,6 +1239,12 @@ export type TypecheckResult = z.infer<typeof TypecheckResultSchema>;
 export type TypecheckWorkspaceResult = z.infer<typeof TypecheckWorkspaceResultSchema>;
 export type MfCheckOptions = z.infer<typeof MfCheckOptionsSchema>;
 export type MfCheckResult = z.infer<typeof MfCheckResultSchema>;
+export type SecretsSetOptions = z.infer<typeof SecretsSetOptionsSchema>;
+export type SecretsSetResult = z.infer<typeof SecretsSetResultSchema>;
+export type SecretsListOptions = z.infer<typeof SecretsListOptionsSchema>;
+export type SecretsListResult = z.infer<typeof SecretsListResultSchema>;
+export type SecretsRemoveOptions = z.infer<typeof SecretsRemoveOptionsSchema>;
+export type SecretsRemoveResult = z.infer<typeof SecretsRemoveResultSchema>;
 
 export type CliCommandMeta = {
   commandPath?: string[];
@@ -1322,6 +1393,29 @@ export const cliCommandMeta = {
     summary:
       "Show the platform release manifest — the booted host or the resolved release self-describes (ADR 0034)",
     interactive: false,
+  },
+  secretsSet: {
+    commandPath: ["secrets", "set"],
+    summary:
+      "Store a runtime secret in the deploy console's vault — sealed at rest, never echoed back",
+    interactive: true,
+    fields: {
+      name: { positional: true },
+    },
+  },
+  secretsList: {
+    commandPath: ["secrets", "list"],
+    summary:
+      "List the runtime's secrets as names + set/missing status against the declared config (never values)",
+    interactive: false,
+  },
+  secretsRemove: {
+    commandPath: ["secrets", "remove"],
+    summary: "Remove a runtime secret from the vault",
+    interactive: true,
+    fields: {
+      name: { positional: true },
+    },
   },
   dbStudio: {
     commandPath: ["db", "studio"],

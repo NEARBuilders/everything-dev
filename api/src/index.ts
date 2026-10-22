@@ -7,6 +7,12 @@ import { DatabaseLive } from "./db/layer";
 import { ContextSchema } from "./lib/context";
 import { DeployHistoryService } from "./lib/deploy-history";
 import type { PluginsClient } from "./lib/plugins-types.gen";
+import {
+  isValidSecretName,
+  SecretsStore,
+  type SecretsStoreError,
+  SecretsStoreLive,
+} from "./lib/secrets-store";
 
 export default createPlugin.withPlugins<PluginsClient>()({
   variables: z.object({}),
@@ -16,6 +22,11 @@ export default createPlugin.withPlugins<PluginsClient>()({
       .string()
       .default("pglite:.bos/api/:memory:")
       .describe("Database connection string. Use pglite: for local, postgres:// for production."),
+    BETTER_AUTH_SECRET: z
+      .string()
+      .describe(
+        "Platform root secret — the secrets vault derives each runtime's KEK from it (HKDF, runtime-scoped salt).",
+      ),
   }),
 
   context: ContextSchema,
@@ -25,7 +36,12 @@ export default createPlugin.withPlugins<PluginsClient>()({
   initialize: (config) =>
     Effect.gen(function* () {
       yield* Effect.logInfo("[API] Initialized");
-      return Layer.mergeAll(DatabaseLive(config), DeployHistoryService.layer);
+      return Layer.mergeAll(
+        DeployHistoryService.layer,
+        SecretsStoreLive(config.secrets.BETTER_AUTH_SECRET).pipe(
+          Layer.provideMerge(DatabaseLive(config)),
+        ),
+      );
     }),
 
   createRouter: (builder, plugins) => {
@@ -83,6 +99,73 @@ export default createPlugin.withPlugins<PluginsClient>()({
             ),
           );
           return { deploys };
+        }),
+      },
+
+      secrets: {
+        set: builder.secrets.set.use(requireAuthOrApiKey).effect(function* ({
+          input,
+          errors,
+          context,
+        }) {
+          if (!isValidSecretName(input.name)) {
+            return yield* Effect.fail(
+              errors.BAD_REQUEST({
+                message:
+                  "Secret name must be UPPER_SNAKE_CASE; BOS_* and PORT are reserved (the platform composes them)",
+                data: {},
+              }),
+            );
+          }
+          const store = yield* SecretsStore;
+          const result = yield* store
+            .set({
+              account: input.account,
+              gateway: input.gateway,
+              name: input.name,
+              value: input.value,
+              setBy: context.user?.id ?? context.apiKey?.id ?? undefined,
+            })
+            .pipe(
+              Effect.mapError((error: SecretsStoreError) =>
+                errors.CONNECTION_ERROR({
+                  message: error.message,
+                  data: { errorCode: "secrets_store_failed" },
+                }),
+              ),
+            );
+          return result;
+        }),
+
+        list: builder.secrets.list.use(requireAuthOrApiKey).effect(function* ({ input, errors }) {
+          const store = yield* SecretsStore;
+          return yield* store
+            .list({ account: input.account, gateway: input.gateway, declared: input.declared })
+            .pipe(
+              Effect.mapError((error: SecretsStoreError) =>
+                errors.CONNECTION_ERROR({
+                  message: error.message,
+                  data: { errorCode: "secrets_store_failed" },
+                }),
+              ),
+            );
+        }),
+
+        remove: builder.secrets.remove.use(requireAuthOrApiKey).effect(function* ({
+          input,
+          errors,
+        }) {
+          const store = yield* SecretsStore;
+          return yield* store
+            .remove({ account: input.account, gateway: input.gateway, name: input.name })
+            .pipe(
+              Effect.mapError((error: SecretsStoreError) =>
+                errors.CONNECTION_ERROR({
+                  message: error.message,
+                  data: { errorCode: "secrets_store_failed" },
+                }),
+              ),
+            );
         }),
       },
     };

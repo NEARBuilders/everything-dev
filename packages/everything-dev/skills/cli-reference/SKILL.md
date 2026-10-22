@@ -211,20 +211,20 @@ bos logout         # revoke the API key (best-effort) + delete the handle and ex
 
 Sessions/keys expire (90 days by default); re-login is non-destructive. → [`talk-to-the-app`](.) skill for the authentication model and MCP access.
 
-### `bos key generate`
+### `bos secrets set` / `list` / `remove`
 
-Generate a publish access key (NEAR function-call key) scoped to the FastKV registry contract.
-If existing publish keys are found on the account, you will be prompted — the prompt defaults to **keeping** them.
+The deploy console's secrets vault — sealed runtime secrets keyed by `(account, gateway, name)`, sealed at rest with the proven sealed-box cipher under a per-runtime KEK (HKDF of the platform root secret, runtime-scoped salt). Values are never echoed back — `list` shows names + set/missing status against the declared config only.
 
-**Flags:** `--allowance <amount>` (default: `1NEAR`) `--[no-]remove-old-keys` (default: ask on a TTY, keep when non-interactive)
+**Flags:** `<name>` (positional) `--value <val>` (omit: hidden TTY prompt) `--site <url>` (override vault site) · remove: `--yes` (skip confirmation)
 
 ```bash
-bos key generate                        # generate key with default allowance
-bos key generate --allowance 2NEAR      # custom allowance
-bos key generate --remove-old-keys      # also remove existing publish key(s) without prompting
+bos secrets set AI_API_KEY      # hidden prompt → sealed into the vault
+bos secrets set AI_API_KEY --value sk-...   # non-interactive
+bos secrets list                # names + set/missing/undeclared, never values
+bos secrets remove AI_API_KEY   # confirmation prompt (skip with --yes)
 ```
 
-Outputs the public key, private key, and registry contract address. The generated key can only call the set and get methods on the BOS registry contract — it cannot transfer funds or call other contracts.
+The vault is per-deployment: rows go to whichever deployment answers at the credential's site, keyed by the authored config's runtime identity. Reserved names: `BOS_*` and `PORT` (the platform composes them into instance env). → plan 055 for the delivery model (reconciler assembles resolved values into `identityEnv`; ticket 13 swaps the KEK source).
 
 ## Plugins
 

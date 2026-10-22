@@ -81,6 +81,15 @@
       "import": "./dist/services/hosting/docker.mjs",
       "require": "./dist/services/hosting/docker.cjs"
     },
+    "./hosting/secrets": {
+      "development": {
+        "types": "./src/services/hosting/secrets.ts",
+        "import": "./src/services/hosting/secrets.ts"
+      },
+      "types": "./dist/services/hosting/secrets.d.mts",
+      "import": "./dist/services/hosting/secrets.mjs",
+      "require": "./dist/services/hosting/secrets.cjs"
+    },
     "./bundle-cache": {
       "development": {
         "types": "./src/services/registry/bundle-cache.ts",
