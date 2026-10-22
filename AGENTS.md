@@ -239,8 +239,10 @@ This document provides operational guidance for AI agents working in the parent 
 pnpm install
 pnpm run dev
 
-# bos dev creates .env from .env.example on first run (with a generated BETTER_AUTH_SECRET)
-# and auto-starts docker compose when the DB preflight finds local Postgres down.
+# Zero-config: no .env needed — plugins boot on ephemeral pglite, compose stays down,
+# and BETTER_AUTH_SECRET is generated per-run (dev-only, not persisted).
+# Opt into persistent compose Postgres by setting the *_DATABASE_URL URLs in .env
+# (copy .env.example); the DB preflight then probes them and auto-starts compose.
 # Or combined: pnpm run dev:postgres  ==  docker compose up -d --wait && pnpm run dev
 
 # Pin individual service ports (explicitly-passed flags are pinned; unset services derive from the base; only explicit choices persist in .bos/infra-state.json — see ADR 0012)

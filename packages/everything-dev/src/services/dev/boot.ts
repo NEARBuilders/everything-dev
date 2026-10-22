@@ -1,9 +1,9 @@
+import { randomBytes } from "node:crypto";
 import { Data, Effect } from "effect";
 import type { DevOptions, PhaseTiming } from "../../contract";
-import { getProcessEnv, processEnvRecord, setProcessEnv } from "../../env/process-env";
+import { getProcessEnv, operatorEnvRecord, setProcessEnv } from "../../env/process-env";
 import {
   captureShellEnv,
-  type EnvEnsureError,
   type EnvLoadError,
   ProjectEnv,
   type ProjectEnvService,
@@ -80,13 +80,6 @@ const step = <A>(timings: PhaseTiming[], name: string, fn: () => Promise<A>) =>
     }),
   );
 
-const ensureEnvStep = (projectEnv: ProjectEnvService, configDir: string) =>
-  projectEnv
-    .ensureFile(configDir)
-    .pipe(
-      Effect.mapError((cause: EnvEnsureError) => new DevStepError({ phase: "ensure env", cause })),
-    );
-
 export const loadEnvStep = (projectEnv: ProjectEnvService, configDir: string) =>
   projectEnv
     .load(configDir)
@@ -102,8 +95,9 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
     }
     let session: ResolutionSession = deps.session;
 
-    yield* ensureEnvStep(projectEnv, session.root);
     yield* loadEnvStep(projectEnv, session.root);
+
+    const operatorEnv = operatorEnvRecord();
 
     const localPackages = detectLocalPackages(
       session.config ?? undefined,
@@ -220,6 +214,7 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
       planInfra({
         configDir: session.root,
         bosConfig: developmentRuntime,
+        operatorEnv,
         cli: {
           port: input.port,
           apiPort: input.apiPort,
@@ -241,7 +236,6 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
       try: () => materializeViaLayer(session.root, plan.runtimeConfig),
       catch: (cause) => new DevStepError({ phase: "materialize infra", cause }),
     });
-    yield* ensureEnvStep(projectEnv, session.root);
     yield* loadEnvStep(projectEnv, session.root);
 
     yield* projectEnv
@@ -254,13 +248,19 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
         ),
       );
 
-    const mergedEnv = yield* Effect.sync(() =>
-      mergeGeneratedOverFileEnv(
-        plan.envGenerated,
-        processEnvRecord() as Record<string, string>,
-        shell,
-      ),
-    );
+    const needsEphemeralSecret =
+      !("BETTER_AUTH_SECRET" in operatorEnv) || operatorEnv.BETTER_AUTH_SECRET === "";
+    const mergedEnv = yield* Effect.sync(() => {
+      if (needsEphemeralSecret) {
+        plan.envGenerated.BETTER_AUTH_SECRET = randomBytes(32).toString("base64url");
+      }
+      return mergeGeneratedOverFileEnv(plan.envGenerated, operatorEnvRecord(), shell);
+    });
+    if (needsEphemeralSecret) {
+      yield* Effect.logInfo(
+        "[env] BETTER_AUTH_SECRET generated per-run (dev-only, not persisted — create a .env to keep it stable)",
+      );
+    }
     yield* Effect.sync(() => {
       for (const [key, value] of Object.entries(mergedEnv)) {
         if (key === "BASE_URL" || key === "CORS_ORIGIN") setProcessEnv(key, value);

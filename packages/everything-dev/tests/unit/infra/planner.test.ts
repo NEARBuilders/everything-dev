@@ -393,3 +393,86 @@ describe("planInfra", () => {
     }
   });
 });
+
+describe("planInfra zero-config substrate (plan 055 ticket 11)", () => {
+  let tempDir: string;
+
+  const substrateConfig = () =>
+    stubRuntimeConfig({
+      api: {
+        name: "api",
+        url: "",
+        entry: "",
+        source: "local",
+        localPath: "/tmp/api",
+        secrets: ["API_DATABASE_URL"],
+      },
+      auth: {
+        name: "auth",
+        url: "",
+        entry: "",
+        source: "local",
+        localPath: "/tmp/auth",
+        secrets: ["AUTH_DATABASE_URL", "BETTER_AUTH_SECRET"],
+      },
+    } as Partial<RuntimeConfig>);
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "plan-zero-"));
+    process.env.BO_PID_REGISTRY_PATH = join(tempDir, "pids.json");
+    process.env.BOS_NO_PERSIST_PORTS = "1";
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("no operator substrate URLs: nothing conventional is generated — consumers fall back to pglite", async () => {
+    const plan = await Effect.runPromise(
+      planInfra({
+        configDir: tempDir,
+        bosConfig: substrateConfig(),
+        operatorEnv: {},
+        cli: { port: 25400 },
+      }).pipe(Effect.provide(Layer.mergeAll(PortAllocatorLive))),
+    );
+
+    expect(Object.keys(plan.envGenerated)).not.toContain("API_DATABASE_URL");
+    expect(Object.keys(plan.envGenerated)).not.toContain("AUTH_DATABASE_URL");
+    expect(plan.envGenerated.CORS_ORIGIN).toBeDefined();
+  });
+
+  it("operator-supplied substrate URLs are consumed as-is, not regenerated", async () => {
+    const plan = await Effect.runPromise(
+      planInfra({
+        configDir: tempDir,
+        bosConfig: substrateConfig(),
+        operatorEnv: {
+          API_DATABASE_URL: "postgres://operator@localhost:6543/operator_api",
+          AUTH_DATABASE_URL: "postgres://operator@localhost:6544/operator_auth",
+        },
+        cli: { port: 25400 },
+      }).pipe(Effect.provide(Layer.mergeAll(PortAllocatorLive))),
+    );
+
+    expect(Object.keys(plan.envGenerated)).not.toContain("API_DATABASE_URL");
+    expect(Object.keys(plan.envGenerated)).not.toContain("AUTH_DATABASE_URL");
+    expect(plan.envGenerated.CORS_ORIGIN).toBeDefined();
+  });
+
+  it("partial operator supply generates only the missing conventional URL", async () => {
+    const plan = await Effect.runPromise(
+      planInfra({
+        configDir: tempDir,
+        bosConfig: substrateConfig(),
+        operatorEnv: {
+          API_DATABASE_URL: "postgres://operator@localhost:6543/operator_api",
+        },
+        cli: { port: 25400 },
+      }).pipe(Effect.provide(Layer.mergeAll(PortAllocatorLive))),
+    );
+
+    expect(plan.envGenerated.API_DATABASE_URL).toBeUndefined();
+    expect(plan.envGenerated.AUTH_DATABASE_URL).toContain("5433/auth_db");
+  });
+});
