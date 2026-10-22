@@ -98,8 +98,10 @@ describe("bos init - relative directory", () => {
 
     // Auth env materializes when the auth workspace is present in the child
     // (composed inits); the ui/api-only scaffold carries the api + host vars.
+    // Substrate URLs render empty with an opt-in hint (plan 055 ticket 11).
+    expect(envExample).toContain("API_DATABASE_URL=");
     expect(envExample).toContain(
-      "API_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5432/api_db",
+      "# Leave empty to run dev on ephemeral pglite; set a postgres:// URL to opt into compose Postgres.",
     );
     expect(envExample).toContain("CORS_ORIGIN=http://localhost:3000");
     expect(envExample).not.toContain("PROJECTS_DATABASE_URL=");
