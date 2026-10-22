@@ -1,15 +1,25 @@
 import { Context, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { DatabaseTag } from "@/db/layer";
-import { SecretsStoreError, buildSecretsStore, isReservedSecretName, isValidSecretName } from "@/lib/secrets-store";
-import { authedContext, getPluginClient, getTestEffectContext } from "./setup";
+import {
+  buildSecretsStore,
+  isReservedSecretName,
+  isValidSecretName,
+  SecretsStoreError,
+} from "@/lib/secrets-store";
 import { devAuthSecret } from "../plugin.dev";
+import { authedContext, getPluginClient, getTestEffectContext } from "./setup";
 
 describe("secrets routes", () => {
   it("refuses unauthenticated calls", async () => {
     const client = await getPluginClient();
     await expect(
-      client.secrets.set({ account: "anon.near", gateway: "anon.dev", name: "AI_API_KEY", value: "v" }),
+      client.secrets.set({
+        account: "anon.near",
+        gateway: "anon.dev",
+        name: "AI_API_KEY",
+        value: "v",
+      }),
     ).rejects.toThrow();
   });
 
@@ -61,9 +71,9 @@ describe("secrets routes", () => {
     const client = await getPluginClient(authedContext());
     const base = { account: "app3.near", gateway: "app3.dev" };
 
-    await expect(
-      client.secrets.set({ ...base, name: "BOS_ACCOUNT", value: "x" }),
-    ).rejects.toThrow(/reserved/i);
+    await expect(client.secrets.set({ ...base, name: "BOS_ACCOUNT", value: "x" })).rejects.toThrow(
+      /reserved/i,
+    );
     await expect(client.secrets.set({ ...base, name: "PORT", value: "x" })).rejects.toThrow(
       /reserved/i,
     );

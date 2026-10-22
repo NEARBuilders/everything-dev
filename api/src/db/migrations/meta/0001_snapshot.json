@@ -93,11 +93,7 @@
         "runtime_secrets_runtime_name_key": {
           "name": "runtime_secrets_runtime_name_key",
           "nullsNotDistinct": false,
-          "columns": [
-            "account",
-            "gateway",
-            "name"
-          ]
+          "columns": ["account", "gateway", "name"]
         }
       },
       "policies": {},
