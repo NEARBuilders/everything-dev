@@ -159,7 +159,12 @@ export async function loadInProcessDescriptor(
     "const Plugin = (name) => ({ path: (dir, extra = {}) => ({ ...extra, name, path: dir }), extends: (ref, extra = {}) => ({ ...extra, name, extends: ref }) });",
   ].join("\n");
   const encoded = Buffer.from(`${shims}\n${body}`, "utf-8").toString("base64");
-  const mod = (await import(`data:text/javascript;base64,${encoded}`)) as Record<string, unknown>;
+  // webpackIgnore: the data URL is runtime-resolved (Node imports it natively)
+  // — bundlers must not try to statically analyze the specifier (rspack
+  // otherwise fails the dist build with "Can't resolve 'data:text'").
+  const mod = (await import(
+    /* webpackIgnore: true */ `data:text/javascript;base64,${encoded}`
+  )) as Record<string, unknown>;
   return parseAppDescriptorModule(mod, label);
 }
 
