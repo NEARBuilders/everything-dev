@@ -39,6 +39,7 @@ import { applyDeployResults, type DeployResultEntry } from "./integrity";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
   composePlatformManifestPublishEntry,
+  platformTruthViolations,
   type PlatformManifestPublishEntry,
 } from "./platform-manifest";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
@@ -331,13 +332,14 @@ export async function runPublishTrain(
   const uploadOneWorkspace = async (
     key: string,
     rawConfig: BosConfigInput,
-  ): Promise<{ entries: DeployResultEntry[]; detail: UploadUnitDetail }> => {
+  ): Promise<{ entries: DeployResultEntry[]; detail: UploadUnitDetail; shared: Record<string, Record<string, string>> }> => {
     const startedAt = Date.now();
     const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
     if (!ws)
       return {
         entries: [],
         detail: { base: "", uploaded: 0, skipped: 0, durationMs: 0, notes: [] },
+        shared: {},
       };
 
     const outcome = await uploadWorkspaceBundle({
@@ -402,6 +404,7 @@ export async function runPublishTrain(
       let uiIntegrity: string | undefined;
       let uiSsrIntegrity: string | undefined;
       let uiPin: (typeof outcome)["pin"] | undefined;
+      let uiOutcomeShared: Record<string, string> | undefined;
       if (existsSync(uiDistDir)) {
         const uiOutcome = await uploadWorkspaceBundle({
           account,
@@ -438,6 +441,7 @@ export async function runPublishTrain(
         uiIntegrity = uiOutcome.entryIntegrity;
         uiSsrIntegrity = uiOutcome.ssrEntryIntegrity;
         uiPin = uiOutcome.pin;
+        uiOutcomeShared = uiOutcome.shared;
       } else {
         console.log(
           `    ${colors.green(icons.ok)} ${padRight(`${key}-ui`, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/`,
@@ -468,6 +472,10 @@ export async function runPublishTrain(
         durationMs: Date.now() - startedAt,
         notes: outcome.detail.notes,
       },
+      shared: {
+        ...(outcome.shared ? { [key]: outcome.shared } : {}),
+        ...(uiOutcomeShared ? { [`${key}-ui`]: uiOutcomeShared } : {}),
+      },
     };
   };
 
@@ -480,6 +488,9 @@ export async function runPublishTrain(
   interface UploadUnitResult {
     entries: DeployResultEntry[];
     detail: UploadUnitDetail;
+    /** Shared-singleton versions per uploaded bundle key (#546) — the truth
+     * gate cross-checks these against the platform release manifest. */
+    shared: Record<string, Record<string, string>>;
   }
   const uploaded = new Map<string, Promise<UploadUnitResult>>();
   // Rejections stay in the map until the drain's allSettled — deleting would
@@ -639,9 +650,13 @@ export async function runPublishTrain(
         Promise.resolve({
           entries: [],
           detail: { base: "", uploaded: 0, skipped: 0, durationMs: 0, notes: [] },
+          shared: {},
         }),
     ),
   );
+  // Shared-singleton versions per uploaded bundle key (#546) — the truth gate
+  // consumes this before the platform manifest rides the atomic publish.
+  const sharedByWorkspace = new Map<string, Record<string, string>>();
 
   const uploadFailures = settled
     .map((result, index) =>
@@ -656,6 +671,9 @@ export async function runPublishTrain(
     const key = deployTargets[index];
     if (result.status === "fulfilled") {
       platformEntries.push(...result.value.entries);
+      for (const [bundleKey, shared] of Object.entries(result.value.shared)) {
+        sharedByWorkspace.set(bundleKey, shared);
+      }
       render?.uploadOutcome?.({
         key,
         ok: true,
@@ -758,6 +776,26 @@ export async function runPublishTrain(
       console.warn(
         `  platform manifest skipped this deploy — the previous release could not be read: ${error instanceof Error ? error.message : String(error)}`,
       );
+    }
+    // The truth gate (#546): the manifest is composed from the release
+    // catalog; a workspace whose installed shared versions drifted from the
+    // catalog (stale install, misaligned bump) would publish a manifest that
+    // lies about the uploaded bytes — the exact republish that breaks
+    // pinned children. Refuses loudly instead.
+    if (platformManifest) {
+      const violations = platformTruthViolations(platformManifest.manifest, sharedByWorkspace);
+      if (violations.length > 0) {
+        throw new PublishTrainError({
+          kind: "platform-truth",
+          registryUrl,
+          built,
+          skipped,
+          deployResults,
+          error:
+            `platform manifest does not match the uploaded bundles:\n` +
+            violations.map((line) => `    ${line}`).join("\n"),
+        });
+      }
     }
   }
   registryEntries[manifestKey] = JSON.stringify({

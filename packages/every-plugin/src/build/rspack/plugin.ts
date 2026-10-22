@@ -10,6 +10,7 @@ import {
   uiEntryFilename,
 } from "../artifact-names";
 import { CONTRACT_TYPES_FILE, generateContractTypes } from "../contract-types";
+import { sharedVersionRecord } from "../../shared-deps-spec";
 import { BuildReportPlugin } from "./build-report-plugin";
 import { ChunkCompletenessPlugin } from "./chunk-completeness-plugin";
 import { buildSharedDependencies } from "./module-federation";
@@ -128,6 +129,7 @@ export class EveryPluginBuild implements RspackPluginInstance {
 
     this.configureDefaults(compiler, pluginInfo);
 
+    const sharedDependencies = buildSharedDependencies(pluginInfo);
     new ModuleFederationPlugin({
       name: pluginInfo.normalizedName,
       filename: uiEntryFilename({ isBuild: isBuildInvocation() }),
@@ -138,11 +140,13 @@ export class EveryPluginBuild implements RspackPluginInstance {
       exposes: {
         "./plugin": "./src/index.ts",
       },
-      shared: buildSharedDependencies(pluginInfo),
+      shared: sharedDependencies,
       shareStrategy: "version-first",
     }).apply(compiler);
 
-    new BuildReportPlugin().apply(compiler);
+    new BuildReportPlugin("remoteEntry", {
+      shared: sharedVersionRecord(sharedDependencies),
+    }).apply(compiler);
     new ChunkCompletenessPlugin().apply(compiler);
 
     if (this.options.dts === false) {

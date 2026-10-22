@@ -95,6 +95,31 @@ describe("uploadWorkspaceBundle", () => {
     expect(uploads).toEqual(["app-ui"]);
   });
 
+  it("surfaces the version manifest's shared record for the publish train's truth gate (#546)", async () => {
+    const outcome = await uploadWorkspaceBundle(baseInput());
+    expect(outcome.kind).toBe("ok");
+    if (outcome.kind === "ok") {
+      expect(outcome.shared).toBeUndefined();
+    }
+    const withShared = await uploadWorkspaceBundle(
+      baseInput({
+        deps: fakeDeps({
+          readBuildReport: () => ({ entry: "entry.abc.js", shared: { react: "19.2.4" } }),
+          composeWorkspaceVersionManifest: (input) => ({
+            version: "v1",
+            entry: input.report.entry,
+            entryIntegrity: input.integrityMap[input.report.entry] ?? "sha384-entry",
+            ...(input.report.shared ? { shared: input.report.shared } : {}),
+          }),
+        }),
+      }),
+    );
+    expect(withShared.kind).toBe("ok");
+    if (withShared.kind === "ok") {
+      expect(withShared.shared).toEqual({ react: "19.2.4" });
+    }
+  });
+
   it("stays silent — detail lines are returned, never printed (sectioned renderer)", async () => {
     const printed: string[] = [];
     const log = console.log;

@@ -7,7 +7,7 @@ import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { upgradeTemplate } from "../cli/upgrade";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import { generateCodeArtifacts } from "../services/codegen/artifacts";
-import { checkFederationCompat } from "../services/federation/service";
+import { checkFederationCompat, checkUiCompositionCompat } from "../services/federation/service";
 import { readInstalledFrameworkVersion } from "../services/framework-version";
 import {
   checkPlatformCompat,
@@ -459,6 +459,11 @@ export function registerUpgrade(builder: BosBuilder) {
           timeoutMs: input.timeoutMs,
         });
 
+        // #546: the UI composition compat gate — sibling UI manifests must
+        // agree on named shared singletons (the mf-check mirror of the
+        // host's boot guard). Absent when no UI slots exist.
+        const ui = await checkUiCompositionCompat(authored, { timeoutMs: input.timeoutMs });
+
         // ADR 0034 pt 5 — the platform compat gate, additive to the federation
         // check (a sibling, never a relaxation). Absent when no manifest
         // resolves (in-image hosts self-describe; the smoke gate covers them).
@@ -498,6 +503,7 @@ export function registerUpgrade(builder: BosBuilder) {
           hostReachable: report.hostReachable,
           hostReason: report.hostReason,
           remotes: report.remotes,
+          ...(ui.slots.length > 0 ? { ui: { ok: ui.ok, slots: ui.slots } } : {}),
           ...(platform ? { platform } : {}),
         };
       });
@@ -528,13 +534,43 @@ export function registerUpgrade(builder: BosBuilder) {
         }
         const projectDir = resolve(dirname(configPath));
         try {
-          const resolved = await resolvePlatformManifest({
-            configDir: projectDir,
-            localConfig:
-              ((await readAuthoredConfigInput()) as Record<string, unknown> | null) ?? {},
-          });
+          const authoredConfig =
+            ((await readAuthoredConfigInput()) as Record<string, unknown> | null) ?? {};
+          let resolved: Awaited<ReturnType<typeof resolvePlatformManifest>>;
+          let drift: { pinned: string; published: string } | undefined;
+          try {
+            resolved = await resolvePlatformManifest({
+              configDir: projectDir,
+              localConfig: authoredConfig,
+            });
+          } catch (pinError) {
+            // The pin names a release the chain no longer serves — the root
+            // republished past it (issue #546). Resolve the latest published
+            // manifest so the report names the drift instead of the cryptic
+            // pin-not-found error.
+            const latest = await resolvePlatformManifest({
+              configDir: projectDir,
+              localConfig: { ...authoredConfig, platform: undefined },
+            });
+            if (!latest) throw pinError;
+            resolved = latest;
+            const pinned =
+              typeof authoredConfig.platform === "string" ? authoredConfig.platform : undefined;
+            drift = pinned
+              ? { pinned, published: latest.manifest.frameworkVersion }
+              : undefined;
+          }
           if (!resolved) {
             return { status: "absent" as const, version: null };
+          }
+          if (drift) {
+            return {
+              status: "fail" as const,
+              version: drift.published,
+              source: `bos://${resolved.source.account}/${resolved.source.gateway}`,
+              drift,
+              error: `parent platform is ${drift.published} (published at bos://${resolved.source.account}/${resolved.source.gateway}), you pinned ${drift.pinned} — run \`bos upgrade\` to realign`,
+            };
           }
           const base = {
             status: "ok" as const,

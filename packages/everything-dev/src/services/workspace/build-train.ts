@@ -6,6 +6,7 @@ import { resolveLocalDevelopmentPath } from "../../config";
 import type { WorkspaceDeployResult } from "../../contract";
 import type { BosConfig, BosPluginRef, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
+import { readInstalledFrameworkVersion } from "../framework-version";
 import { syncResolvedSharedDeps } from "./shared-deps";
 import { contentHashStalenessOracle, ensureFreshDeps, findWorkspaceRoot } from "./workspace";
 
@@ -280,6 +281,16 @@ export async function buildWorkspaceTargets(
   // DEPLOY value from the operator's shell, and a dev build must never see one.
   if (input.deploy) env.DEPLOY = "true";
   else delete env.DEPLOY;
+  // MF_BUILD_VERSION (#546): the toolchain's buildInfo.buildVersion otherwise
+  // stamps the building workspace's own package.json version — an unrelated
+  // number that made deployed bundles advertise a stale platform identity.
+  // Deploy builds stamp the installed everything-dev version instead, so a
+  // bundle's manifest names the platform release it was built against.
+  if (input.deploy) {
+    const frameworkVersion = readInstalledFrameworkVersion(input.configDir, "everything-dev");
+    if (frameworkVersion) env.MF_BUILD_VERSION = frameworkVersion;
+    else delete env.MF_BUILD_VERSION;
+  }
 
   const root = findWorkspaceRoot(input.configDir);
   // Deploy prerequisite freshness (#430): the content-hash oracle replaces the

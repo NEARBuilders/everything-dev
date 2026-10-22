@@ -62,9 +62,11 @@ export function composeWorkspaceVersionManifest(input: {
           },
         }
       : {}),
-    ...(report.css && integrityMap[report.css]
-      ? { assets: { css: integrityMap[report.css]! } }
-      : {}),
+    ...(report.css && integrityMap[report.css] ? { assets: { css: integrityMap[report.css]! } } : {}),
+    // Shared-singleton semantics (#546): the web report's record is primary —
+    // the node env resolves the same workspace's node_modules, so the two
+    // agree; an ssr-only report still carries the record.
+    ...(report.shared ?? ssrReport?.shared ? { shared: (report.shared ?? ssrReport?.shared)! } : {}),
     ...(files ? { files } : {}),
     ...(source ? { source } : {}),
     ...(gitSha ? { gitSha } : {}),
@@ -90,6 +92,10 @@ export interface ResolvedSlotVersion {
   /** Absolute URL of the content-hashed SSR entry, when present. */
   ssrEntryUrl?: string;
   ssrIntegrity?: string;
+  /** Shared-singleton `name → version` the pinned build embedded (#546) —
+   * stamped onto UI slots so the host's composition guard can detect a
+   * platform skew before loading. */
+  sharedVersions?: Record<string, string>;
   /** Full per-file digest map of the dist (object path → SRI), when the
    * pinned manifest carries one — the diff base for skip-unchanged uploads. */
   files?: Record<string, string>;
@@ -127,6 +133,7 @@ function slotVersionFromManifest(
           ssrIntegrity: manifest.ssr.integrity,
         }
       : {}),
+    ...(manifest.shared ? { sharedVersions: manifest.shared } : {}),
     ...(manifest.files ? { files: manifest.files } : {}),
     ...(manifest.source ? { source: manifest.source } : {}),
   };

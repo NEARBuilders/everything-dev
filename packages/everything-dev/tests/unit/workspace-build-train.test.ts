@@ -317,6 +317,63 @@ describe("buildWorkspaceTargets", () => {
     expect(built).toEqual(["ui"]);
     expect(skipped).toEqual(["remote-plugin"]);
   });
+
+  it("stamps deploy build children with MF_BUILD_VERSION from the installed framework version (#546)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mf-build-version-"));
+    tmpRoots.push(root);
+    writeFileSync(join(root, "package.json"), "{}\n");
+    mkdirSync(join(root, "node_modules", "everything-dev"), { recursive: true });
+    writeFileSync(
+      join(root, "node_modules", "everything-dev", "package.json"),
+      `${JSON.stringify({ name: "everything-dev", version: "2.0.0-rc.18" })}\n`,
+    );
+    mkdirSync(join(root, "ui"), { recursive: true });
+    writeFileSync(join(root, "ui", "package.json"), "{}\n");
+
+    const envs: Array<Record<string, string>> = [];
+    await buildWorkspaceTargets(
+      {
+        configDir: root,
+        bosConfig,
+        runtimeConfig: null,
+        targets: ["ui"],
+        deploy: true,
+        verbose: false,
+      },
+      makeDeps({
+        run: async (_cmd, _args, opts) => {
+          envs.push(opts.env as Record<string, string>);
+          return { stdout: "", stderr: "", exitCode: 0 };
+        },
+      }),
+    );
+
+    expect(envs.length).toBeGreaterThan(0);
+    expect(envs.every((env) => env.MF_BUILD_VERSION === "2.0.0-rc.18")).toBe(true);
+  });
+
+  it("dev builds carry no MF_BUILD_VERSION — the toolchain keeps its workspace fallback", async () => {
+    const envs: Array<Record<string, string>> = [];
+    await buildWorkspaceTargets(
+      {
+        configDir,
+        bosConfig,
+        runtimeConfig: null,
+        targets: ["ui"],
+        deploy: false,
+        verbose: false,
+      },
+      makeDeps({
+        run: async (_cmd, _args, opts) => {
+          envs.push(opts.env as Record<string, string>);
+          return { stdout: "", stderr: "", exitCode: 0 };
+        },
+      }),
+    );
+
+    expect(envs.length).toBeGreaterThan(0);
+    expect(envs.every((env) => env.MF_BUILD_VERSION === undefined)).toBe(true);
+  });
 });
 
 function makeRealTargetRoot(): string {

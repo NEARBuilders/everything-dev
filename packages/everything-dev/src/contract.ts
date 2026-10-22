@@ -943,12 +943,27 @@ export const MfCheckRemoteResultSchema = z.object({
   reason: z.string().optional(),
 });
 
+export const MfCheckUiSlotSchema = z.object({
+  slot: z.string(),
+  url: z.string(),
+  reachable: z.boolean(),
+  ok: z.boolean(),
+  reason: z.string().optional(),
+});
+
 export const MfCheckResultSchema = z.object({
   status: z.enum(["ok", "fail"]),
   hostVersion: z.string().nullable(),
   hostReachable: z.boolean(),
   hostReason: z.string().optional(),
   remotes: z.array(MfCheckRemoteResultSchema),
+  /** The UI composition compat gate (#546) — present when UI slots exist. */
+  ui: z
+    .object({
+      ok: z.boolean(),
+      slots: z.array(MfCheckUiSlotSchema),
+    })
+    .optional(),
   /** The platform compat gate (ADR 0034 pt 5) — present when a release manifest resolves. */
   platform: z
     .object({
@@ -971,6 +986,14 @@ export const PlatformManifestResultSchema = z.object({
   source: z.string().optional(),
   fromCache: z.boolean().optional(),
   error: z.string().optional(),
+  /** Set when the authored `platform` pin no longer matches anything in the
+   * extends chain — the root republished past it (issue #546). */
+  drift: z
+    .object({
+      pinned: z.string(),
+      published: z.string(),
+    })
+    .optional(),
   compat: z
     .object({
       ok: z.boolean(),
