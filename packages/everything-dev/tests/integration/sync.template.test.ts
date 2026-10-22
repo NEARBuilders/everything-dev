@@ -36,6 +36,7 @@ import {
 import { readSnapshot } from "../../src/cli/snapshot";
 import * as platformManifestModule from "../../src/services/platform/manifest";
 import * as initSourceModule from "../../src/services/resolution/init-source";
+import { loadInProcessDescriptor } from "../../src/services/resolution/load";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as scaffoldInitModule from "../../src/services/scaffold/init";
 import { syncTemplate } from "../../src/services/scaffold/sync";
@@ -316,6 +317,33 @@ describe("syncTemplate", () => {
     expect(result.added).not.toContain("plugins/example/package.json");
   });
 
+  it("preserves the child's authored fields across sync (ADR 0032/0033)", async () => {
+    const projectDir = await scaffoldProject(["ui", "api", "plugins"], ["registry"]);
+    tempDirs.push(projectDir);
+
+    const result = await syncTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+    });
+
+    expect(result.status).toBe("synced");
+
+    const synced = (await loadInProcessDescriptor(
+      readFileSync(join(projectDir, "bos.app.ts"), "utf-8"),
+      "bos.app.ts",
+    )) as {
+      extends?: string;
+      account?: string;
+      domain?: string;
+      plugins?: Record<string, Record<string, unknown>>;
+    };
+    expect(synced.extends).toBe("bos://dev.everything.near/everything.dev");
+    expect(synced.account).toBe("test.near");
+    expect(synced.domain).toBe("test.dev");
+    expect(Object.keys(synced.plugins ?? {})).toEqual(["registry"]);
+    expect(synced.plugins?.registry?.development).toBe("local:plugins/registry");
+  });
+
   it("syncs GitHub workflow files from .github/templates for child projects", async () => {
     const projectDir = await scaffoldProject(["ui", "api"], []);
     tempDirs.push(projectDir);
@@ -357,6 +385,33 @@ describe("syncTemplate", () => {
     expect(childCiWorkflow).toBe(
       templateCiWorkflow.replace("consumer-ci.yml@main", "consumer-ci.yml@v9.9.9-test"),
     );
+  });
+
+  it("keeps the plugins workspace override when no child plugins are selected", async () => {
+    const projectDir = await scaffoldProject(["ui", "api", "plugins"], []);
+    tempDirs.push(projectDir);
+
+    const result = await syncTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+    });
+
+    expect(result.status).toBe("synced");
+
+    const wsDoc = parseYaml(readFileSync(join(projectDir, "pnpm-workspace.yaml"), "utf-8")) as {
+      packages?: string[];
+    };
+    const descriptor = (await loadInProcessDescriptor(
+      readFileSync(join(projectDir, "bos.app.ts"), "utf-8"),
+      "bos.app.ts",
+    )) as {
+      plugins?: Record<string, unknown>;
+    };
+
+    expect(wsDoc.packages).toContain("plugins/*");
+    // No child plugins selected — the authored descriptor carries no plugin
+    // entries (an emptied record serializes as absent).
+    expect(descriptor.plugins ?? {}).toEqual({});
   });
 
   it("records sync snapshots using the final merged file content", async () => {

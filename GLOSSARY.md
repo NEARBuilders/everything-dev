@@ -48,6 +48,10 @@ _Avoid_: version manifest (that's the per-workspace deploy pin), plugin manifest
 The child's single authored `platform: "<framework-version>"` field in `bos.app.ts` — everything else (catalog entries, the deploy-time image ref `ref@v<version>` with its registry digest, the release-scoped sync source, compat verification) derives from the resolved manifest, so no hand-correlated pin pairs remain. Exact in v1: no ranges; absent means latest via extends. The old `ci.image` hand-pin is removed — a deploy fails fast on it.
 _Avoid_: platform version (ambiguous with the manifest's own `frameworkVersion`), image pin (the digest is derived, not authored), version bump
 
+**Pin plane**:
+One of the three independently-pinned byte sources a booting runtime consumes — **image** (the digest-pinned universal image), **config** (on-chain FastKV, account-key signed, atomic), **bundles** (CDN bytes whose sha384 SRI is recorded inside the on-chain config). The security model (ADR 0036): each plane's bytes verify against pins recorded in a *different* plane, so compromising any single plane is insufficient. Speed asymmetry is part of the model — config moves fast (atomic publish, minutes), image moves slow (rare smoke-gated rebuilds).
+_Avoid_: trust layer, security layer (nothing is layered — the planes are peers), integrity plane (integrity is one pin among three)
+
 ## Organization access
 
 **Team**:

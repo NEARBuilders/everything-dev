@@ -7,8 +7,8 @@ import { addFunctionCallAccessKey, ensureNearCli, listPublishKeys } from "./near
 export const PUBLISH_FUNCTION_NAMES = ["__fastdata_kv"];
 
 /**
- * The publish-key mint shared by `bos key generate` and `login --key`'s
- * export (ticket #423): ensure the near CLI, resolve the network + registry
+ * The publish-key mint behind `bos login --key`'s export (ticket #423):
+ * ensure the near CLI, resolve the network + registry
  * namespace, list any existing publish keys, and add a scoped function-call
  * key. Callers decide what to do with the listing and the key material.
  */

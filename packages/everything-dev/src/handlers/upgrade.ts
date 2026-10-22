@@ -4,7 +4,6 @@ import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { Effect } from "effect";
 import { generateUiManifest } from "every-plugin/ui/manifest-generator";
-import { syncTemplate } from "../cli/sync";
 import { upgradeTemplate } from "../cli/upgrade";
 import { findConfigPath, MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../config";
 import { generateCodeArtifacts } from "../services/codegen/artifacts";
@@ -27,42 +26,6 @@ import type { BosBuilder } from "./shared";
 
 export function registerUpgrade(builder: BosBuilder) {
   return {
-    sync: builder.sync.effect(function* (_opts, input) {
-      return yield* Effect.tryPromise({
-        try: async () => {
-          const configPath = findConfigPath();
-          if (!configPath) {
-            return {
-              status: "error" as const,
-              updated: [],
-              skipped: [],
-              added: [],
-              error: `${MISSING_CONFIG_MESSAGE} in current directory`,
-            };
-          }
-
-          const projectDir = resolve(dirname(configPath));
-          const result = await syncTemplate(projectDir, input);
-
-          if (result.status === "synced" || result.status === "dry-run") {
-            const syncedConfig = await openResolution({ cwd: projectDir });
-            if (syncedConfig?.config) {
-              await generateCodeArtifacts(projectDir, syncedConfig.config);
-            }
-          }
-
-          return result;
-        },
-        catch: (error) => ({
-          status: "error" as const,
-          updated: [],
-          skipped: [],
-          added: [],
-          error: error instanceof Error ? error.message : "Unknown error",
-        }),
-      });
-    }),
-
     upgrade: builder.upgrade.effect(function* (_opts, input) {
       return yield* Effect.tryPromise({
         try: async () => {

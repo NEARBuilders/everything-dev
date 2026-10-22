@@ -20,7 +20,7 @@ function localPluginKeys(): string[] {
  * The scaffold biome-clean by construction: a freshly scaffolded child tree
  * passes `biome check .` with the sync-owned `biome.json` — the same check the
  * child's CI runs. Sync-owned files receive fixes at the source (the framework
- * home), so consumers never inherit lint noise a `bos sync` would re-introduce.
+ * home), so consumers never inherit lint noise `bos upgrade` would re-introduce.
  */
 describe("scaffolded project biome-clean", () => {
   const biomeBin = join(REPO_ROOT, "node_modules", ".bin", "biome");

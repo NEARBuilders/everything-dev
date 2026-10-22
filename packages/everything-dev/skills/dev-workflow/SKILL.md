@@ -118,7 +118,7 @@ This means a new deployment requires a host restart to pick up new URLs.
 
 `bos dev` and `bos build` write the fully-merged config to `.bos/bos.resolved-config.json` (gitignored). This file includes `_resolved` metadata with env, timestamp, and extends chain.
 
-**The authored config is NOT modified during dev.** Only `bos publish --deploy`, `bos plugin publish/add/remove`, and `bos sync` write to it (`bos.app.ts` for TS-form projects; legacy JSON children keep their `bos.config.json`).
+**The authored config is NOT modified during dev.** Only `bos publish --deploy`, `bos plugin publish/add/remove`, and `bos upgrade` write to it (`bos.app.ts` for TS-form projects; legacy JSON children keep their `bos.config.json`).
 
 Build configs (rsbuild/rspack) read from `.bos/bos.resolved-config.json` first, falling back to the authored config. This allows slim child configs with `extends` to work correctly — the merged parent+child config is what the build sees.
 

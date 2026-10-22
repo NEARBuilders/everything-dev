@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildInitPatterns, copyFilteredFiles } from "../../src/cli/init";
-import { isFrameworkOwnedSyncFile } from "../../src/cli/sync";
+import { isFrameworkOwnedSyncFile } from "../../src/services/scaffold/ownership";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
 

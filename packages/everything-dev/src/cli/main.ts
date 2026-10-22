@@ -13,7 +13,7 @@ import { dbRenderers } from "./commands/db";
 import { runDev, runStart } from "./commands/dev";
 import { runInit } from "./commands/init";
 import { inspectRenderers } from "./commands/inspect";
-import { keyPublishPreCall, lifecycleRenderers } from "./commands/lifecycle";
+import { lifecycleRenderers } from "./commands/lifecycle";
 import { publishRenderers, rollbackPreCall } from "./commands/publish";
 import { scaffoldRenderers } from "./commands/scaffold";
 import { resolveFrameworkPackage } from "./framework-version";
@@ -31,7 +31,6 @@ const customRunners: Record<string, (ctx: CommandContext) => Promise<void>> = {
 
 const preCalls: Record<string, (ctx: CommandContext) => Promise<void>> = {
   rollback: rollbackPreCall,
-  keyPublish: keyPublishPreCall,
 };
 
 const renderers = {

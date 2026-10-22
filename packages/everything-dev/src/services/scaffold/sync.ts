@@ -2,11 +2,11 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { dirname, join, relative } from "node:path";
 import { glob } from "glob";
 import { parse as parseYaml } from "yaml";
-import { loadAppDescriptorConfig } from "../../config";
 import type { SyncResult } from "../../contract";
 import { materializeViaLayer } from "../../infra/materializer";
 import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
 import { resolvePlatformManifest } from "../platform/manifest";
+import { loadInProcessDescriptor } from "../resolution/load";
 import { isPlainObject as isPlainObjectFromMerge, resolveExtendsRef } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
 import { readWorkspaceCatalog } from "../workspace/catalog";
@@ -509,7 +509,10 @@ export async function syncTemplate(
       error: "No bos.app.ts found — template sync only applies to TS-form children",
     };
   }
-  const localConfig = (await loadAppDescriptorConfig(configPath)) as Record<string, unknown>;
+  const localConfig = (await loadInProcessDescriptor(
+    readFileSync(configPath, "utf-8"),
+    configPath,
+  )) as Record<string, unknown>;
 
   let extendsRef: string | undefined;
   if (typeof localConfig.extends === "string") {

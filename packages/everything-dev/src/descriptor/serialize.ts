@@ -21,7 +21,7 @@ const FIELD_COMMENTS: Record<string, string> = {
   domain: "The gateway: FastKV lookup key and public ingress for this runtime.",
   title: "Human-readable runtime title (surfaced by the UI).",
   description: "Human-readable runtime description.",
-  repository: "GitHub repository tarball source used by `bos init`/`bos sync` templates.",
+  repository: "GitHub repository tarball source used by `bos init` templates.",
   testnet: "Testnet identity for this runtime.",
   platform:
     'The platform release pin (ADR 0034): the exact framework version this app targets ("exact-or-loud").',

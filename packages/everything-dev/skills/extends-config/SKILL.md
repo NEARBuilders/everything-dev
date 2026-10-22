@@ -155,7 +155,7 @@ The `_resolved` metadata is stripped before use.
 | `bos publish --deploy` | Yes | Snapshot moment — pins production URLs + versions |
 | `bos plugin publish` | Yes | Records production URL + integrity |
 | `bos plugin add/remove` | Yes | Changes project's own plugin list |
-| `bos sync` | Yes | Merges template updates into local config |
+| `bos upgrade` | Yes | Stamps/moves the `platform` pin (ADR 0034) |
 
 ### Remote host mode (bos->catalog)
 
