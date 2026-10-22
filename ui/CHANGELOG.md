@@ -1,5 +1,11 @@
 # ui
 
+## 2.0.0-rc.4
+
+### Minor Changes
+
+- 3b0bbd2: Deploy console history surface (ADR 0035): a `hosting.listDeploys` api route resolves any namespace's per-deploy audit manifests from the FastKV registry (public reads, session/api-key gated) into deploy summaries — fingerprint, image pin in force, platform pin, `rolledBackFrom` marker — and a `/deploys` authenticated page renders the history list with namespace switching.
+
 ## 2.0.0-rc.3
 
 ### Patch Changes
