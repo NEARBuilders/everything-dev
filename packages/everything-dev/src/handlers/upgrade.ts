@@ -556,9 +556,7 @@ export function registerUpgrade(builder: BosBuilder) {
             resolved = latest;
             const pinned =
               typeof authoredConfig.platform === "string" ? authoredConfig.platform : undefined;
-            drift = pinned
-              ? { pinned, published: latest.manifest.frameworkVersion }
-              : undefined;
+            drift = pinned ? { pinned, published: latest.manifest.frameworkVersion } : undefined;
           }
           if (!resolved) {
             return { status: "absent" as const, version: null };

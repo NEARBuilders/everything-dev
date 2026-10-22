@@ -332,7 +332,13 @@ export async function checkUiCompositionCompat(
 
   const slots: UiCompositionSlot[] = resolved.map((entry) => {
     if (!entry.reachable) {
-      return { slot: entry.slot, url: uiSlots.find((s) => s.slot === entry.slot)!.url, reachable: false, ok: false, reason: entry.reason };
+      return {
+        slot: entry.slot,
+        url: uiSlots.find((s) => s.slot === entry.slot)!.url,
+        reachable: false,
+        ok: false,
+        reason: entry.reason,
+      };
     }
     const skewed = [...byName.entries()].flatMap(([name, uses]) => {
       const first = uses[0]!;
@@ -340,20 +346,24 @@ export async function checkUiCompositionCompat(
       return diverged ? [name] : [];
     });
     if (skewed.length === 0) {
-      return { slot: entry.slot, url: uiSlots.find((s) => s.slot === entry.slot)!.url, reachable: true, ok: true };
+      return {
+        slot: entry.slot,
+        url: uiSlots.find((s) => s.slot === entry.slot)!.url,
+        reachable: true,
+        ok: true,
+      };
     }
     return {
       slot: entry.slot,
       url: uiSlots.find((s) => s.slot === entry.slot)!.url,
       reachable: true,
       ok: false,
-      reason:
-        `shared singleton skew across UI slots: ${skewed
-          .map((name) => {
-            const uses = byName.get(name)!;
-            return `${name} is ${uses.map((use) => `${use.slot}=${use.version}`).join(", ")}`;
-          })
-          .join("; ")}`,
+      reason: `shared singleton skew across UI slots: ${skewed
+        .map((name) => {
+          const uses = byName.get(name)!;
+          return `${name} is ${uses.map((use) => `${use.slot}=${use.version}`).join(", ")}`;
+        })
+        .join("; ")}`,
     };
   });
 

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ModuleFederationPlugin } from "@module-federation/enhanced/rspack";
 import type { Compiler, RspackPluginInstance } from "@rspack/core";
+import { sharedVersionRecord } from "../../shared-deps-spec";
 import {
   DEV_ENTRY_FILENAME,
   findHashedEntry,
@@ -10,7 +11,6 @@ import {
   uiEntryFilename,
 } from "../artifact-names";
 import { CONTRACT_TYPES_FILE, generateContractTypes } from "../contract-types";
-import { sharedVersionRecord } from "../../shared-deps-spec";
 import { BuildReportPlugin } from "./build-report-plugin";
 import { ChunkCompletenessPlugin } from "./chunk-completeness-plugin";
 import { buildSharedDependencies } from "./module-federation";

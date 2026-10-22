@@ -39,8 +39,8 @@ import { applyDeployResults, type DeployResultEntry } from "./integrity";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
   composePlatformManifestPublishEntry,
-  platformTruthViolations,
   type PlatformManifestPublishEntry,
+  platformTruthViolations,
 } from "./platform-manifest";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
 import { type DeployTrainRender, DeployTrainRenderService } from "./render";
@@ -332,7 +332,11 @@ export async function runPublishTrain(
   const uploadOneWorkspace = async (
     key: string,
     rawConfig: BosConfigInput,
-  ): Promise<{ entries: DeployResultEntry[]; detail: UploadUnitDetail; shared: Record<string, Record<string, string>> }> => {
+  ): Promise<{
+    entries: DeployResultEntry[];
+    detail: UploadUnitDetail;
+    shared: Record<string, Record<string, string>>;
+  }> => {
     const startedAt = Date.now();
     const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
     if (!ws)
@@ -404,7 +408,7 @@ export async function runPublishTrain(
       let uiIntegrity: string | undefined;
       let uiSsrIntegrity: string | undefined;
       let uiPin: (typeof outcome)["pin"] | undefined;
-      let uiOutcomeShared: Record<string, string> | undefined;
+      let _uiOutcomeShared: Record<string, string> | undefined;
       if (existsSync(uiDistDir)) {
         const uiOutcome = await uploadWorkspaceBundle({
           account,
@@ -441,7 +445,7 @@ export async function runPublishTrain(
         uiIntegrity = uiOutcome.entryIntegrity;
         uiSsrIntegrity = uiOutcome.ssrEntryIntegrity;
         uiPin = uiOutcome.pin;
-        uiOutcomeShared = uiOutcome.shared;
+        _uiOutcomeShared = uiOutcome.shared;
       } else {
         console.log(
           `    ${colors.green(icons.ok)} ${padRight(`${key}-ui`, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/`,

@@ -62,11 +62,15 @@ export function composeWorkspaceVersionManifest(input: {
           },
         }
       : {}),
-    ...(report.css && integrityMap[report.css] ? { assets: { css: integrityMap[report.css]! } } : {}),
+    ...(report.css && integrityMap[report.css]
+      ? { assets: { css: integrityMap[report.css]! } }
+      : {}),
     // Shared-singleton semantics (#546): the web report's record is primary —
     // the node env resolves the same workspace's node_modules, so the two
     // agree; an ssr-only report still carries the record.
-    ...(report.shared ?? ssrReport?.shared ? { shared: (report.shared ?? ssrReport?.shared)! } : {}),
+    ...((report.shared ?? ssrReport?.shared)
+      ? { shared: (report.shared ?? ssrReport?.shared)! }
+      : {}),
     ...(files ? { files } : {}),
     ...(source ? { source } : {}),
     ...(gitSha ? { gitSha } : {}),

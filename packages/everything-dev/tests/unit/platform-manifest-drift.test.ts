@@ -89,7 +89,9 @@ describe("platformManifest handler — pin drift (issue #546)", () => {
             ),
           );
         }
-        return Promise.resolve(resolved({ account: "dev.everything.near", gateway: "everything.dev" }));
+        return Promise.resolve(
+          resolved({ account: "dev.everything.near", gateway: "everything.dev" }),
+        );
       },
     );
 

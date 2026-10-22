@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
 import type { PluginManifest } from "everything-dev/ui/manifest";
+import { describe, expect, it } from "vitest";
 import type { UiSource } from "../../src/services/ui-compose";
-import { sharedSingletonSkew, SharedSingletonSkewError } from "../../src/services/ui-compose";
+import { SharedSingletonSkewError, sharedSingletonSkew } from "../../src/services/ui-compose";
 
 function source(key: string, shared?: Record<string, string>): UiSource {
   return {

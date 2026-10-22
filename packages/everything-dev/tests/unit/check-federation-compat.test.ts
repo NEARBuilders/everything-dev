@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkFederationCompat, checkUiCompositionCompat } from "../../src/services/federation/service";
+import {
+  checkFederationCompat,
+  checkUiCompositionCompat,
+} from "../../src/services/federation/service";
 import type { BosConfig } from "../../src/types";
 
 const HOST_URL = "https://host.example";
@@ -347,7 +350,9 @@ describe("checkUiCompositionCompat", () => {
         /votes\.example/,
         {
           metaData: { pluginVersion: "2.8.2" },
-          shared: [{ name: "react", version: "19.2.9", requiredVersion: "19.2.9", singleton: true }],
+          shared: [
+            { name: "react", version: "19.2.9", requiredVersion: "19.2.9", singleton: true },
+          ],
         },
       ],
     ]);
