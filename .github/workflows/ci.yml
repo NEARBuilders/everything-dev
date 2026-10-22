@@ -1042,10 +1042,9 @@ jobs:
 
       - name: Build and push the regression fixture image
         id: image
-        env:
-          IMAGE: ghcr.io/$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
         run: |
           set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           REF="${IMAGE}:regression-ci"
           CACHE="${IMAGE}:buildcache"
           docker buildx create --use --name bos-regression-builder
