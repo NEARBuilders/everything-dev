@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEV_ENTRY_FILENAME,
   DEV_SERVER_ENTRY_FILENAME,
@@ -8,6 +9,12 @@ import {
   uiEntryFilename,
 } from "../../src/build/artifact-names";
 import { createUiRsbuildConfig } from "../../src/build/ui/rsbuild-config";
+
+vi.mock("@tanstack/router-plugin/rspack", () => ({
+  TanStackRouterRspack: vi.fn((options?: unknown) => ({ name: "tanstack-router", options })),
+}));
+
+import { TanStackRouterRspack } from "@tanstack/router-plugin/rspack";
 
 const options = {
   workspaceRoot: process.cwd(),
@@ -99,5 +106,48 @@ describe("createUiRsbuildConfig artifact aliasing", () => {
     const names = pluginNames(createUiRsbuildConfig(options));
     expect(names.web.some((name) => name.includes("hash-artifacts"))).toBe(true);
     expect(names.node.some((name) => name.includes("hash-artifacts"))).toBe(true);
+  });
+});
+
+describe("TanStackRouterRspack route-tree output (#548)", () => {
+  const baseOptions = {
+    workspaceRoot: process.cwd(),
+    pkg: { name: "@test/plugin-ui", version: "0.0.0" },
+    role: "consumer",
+    manifestName: "test-plugin-ui",
+    devPort: 0,
+    webEntry: "./src/index.ts",
+    webExposes: {},
+    nodeEntry: "./src/ssr.ts",
+    nodeExposes: {},
+  } as const;
+
+  beforeEach(() => vi.mocked(TanStackRouterRspack).mockClear());
+
+  function routerPluginCalls(env: unknown): unknown[] {
+    const cfg = { plugins: [] as unknown[] };
+    env?.tools?.rspack?.(cfg as Record<string, unknown>);
+    return vi.mocked(TanStackRouterRspack).mock.calls.map((call) => call[0]);
+  }
+
+  it("web env pins generatedRouteTree inside the ui workspace root — plugin-local builds run rspack from the plugin root", () => {
+    const config = createUiRsbuildConfig({
+      ...baseOptions,
+      workspaceRoot: "/workspace/plugins/auth-ui",
+    });
+    const calls = routerPluginCalls(config.environments?.web);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.generatedRouteTree).toBe(
+      join("/workspace/plugins/auth-ui", "src/routeTree.gen.ts"),
+    );
+  });
+
+  it("node env keeps writing the route tree to the scratch path", () => {
+    const config = createUiRsbuildConfig(baseOptions);
+    const calls = routerPluginCalls(config.environments?.node);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.generatedRouteTree).toBe(
+      "./node_modules/.cache/manifest-compose/routeTree.node.gen.ts",
+    );
   });
 });
