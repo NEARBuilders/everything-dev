@@ -27,6 +27,7 @@ export const runtime = createPluginRuntime({
 let server: ReturnType<typeof createServer> | null = null;
 let baseUrl = "";
 let port = 0;
+let lastEffectContext: unknown = null;
 
 export async function getPluginClient(
   context?: Record<string, unknown>,
@@ -36,6 +37,7 @@ export async function getPluginClient(
     const { router, initialized } = await runtime.usePlugin(TEST_PLUGIN_ID, TEST_CONFIG, plugins);
     const rpcHandler = new RPCHandler(router);
     const effectContext = initialized.effectContext;
+    lastEffectContext = effectContext;
 
     server = createServer(async (req, res) => {
       const url = new URL(req.url!, baseUrl);
@@ -91,8 +93,12 @@ export async function getPluginClient(
   return client;
 }
 
-export function authedContext(userId = "user-1", userRole?: string): Record<string, unknown> {
-  const user: Record<string, unknown> = {
+/** The plugin's Effect context (DatabaseTag & co.), captured when the test server boots. */
+export function getTestEffectContext(): unknown {
+  return lastEffectContext;
+}
+
+export function authedContext(userId = "user-1", userRole?: string): Record<string, unknown> {  const user: Record<string, unknown> = {
     id: userId,
     email: `${userId}@example.com`,
     name: "Test User",

@@ -16,6 +16,7 @@ import { inspectRenderers } from "./commands/inspect";
 import { lifecycleRenderers } from "./commands/lifecycle";
 import { publishRenderers, rollbackPreCall } from "./commands/publish";
 import { scaffoldRenderers } from "./commands/scaffold";
+import { secretsRenderers } from "../handlers/secrets";
 import { resolveFrameworkPackage } from "./framework-version";
 import { printCommandHelp, printHelp } from "./help";
 import { parseCommandInput } from "./parse";
@@ -39,6 +40,7 @@ const renderers = {
   ...lifecycleRenderers,
   ...publishRenderers,
   ...scaffoldRenderers,
+  ...secretsRenderers,
 };
 
 const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({

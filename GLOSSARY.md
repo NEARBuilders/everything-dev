@@ -165,3 +165,11 @@ _Avoid_: relay, agent, deploy trigger
 **Fleet**:
 The set of runtime instances the platform hosts on its own managed substrate — the root pair, own-instance children, and sandbox leases.
 _Avoid_: cluster (carries Kubernetes connotations we rejected), infra (too broad)
+
+**Secrets vault**:
+The per-deployment store of sealed runtime secrets in the api shell — keyed `(account, gateway, name)`, sealed with the proven sealed-box cipher under a per-runtime KEK. Values are never echoed back; each deployment keeps its own vault (a single global one would be a trust disaster).
+_Avoid_: KMS (implies an external service), .env (the vault's whole point is not needing one), secret manager
+
+**KEK** (key-encryption key):
+The per-runtime AES key that seals a runtime's secrets — HKDF'd from the platform root secret (`BETTER_AUTH_SECRET`) with a runtime-scoped salt. Its source is a swappable sub-seam: the custody-TEE swap (ticket 13) changes where the KEK comes from without touching the schema, CLI, or config declarations.
+_Avoid_: root key (that's the platform secret the KEK derives from), master key
