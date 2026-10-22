@@ -162,12 +162,26 @@ jobs:
             BUILD_ARGS+=(-t "$ref")
           done
           echo "Building runtime image ${REFS[*]}..."
+          # Registry build cache: the CI regression-image job exports the
+          # shared builder-stage layers for this same SHA minutes earlier —
+          # the install + framework-build layers hit, leaving only the
+          # manifest-gen/prod-builder/runtime stages to build fresh.
+          # --push uploads all tags in one shot; digests are captured
+          # registry-side via imagetools inspect below (no local image store
+          # with the docker-container driver, so `docker push` is not used).
+          docker buildx create --use --name bos-deploy-builder
+          CACHE_REF="$IMAGE:buildcache"
+          BUILD_ARGS+=(
+            --cache-from "type=registry,ref=$CACHE_REF"
+            --cache-to "type=registry,ref=$CACHE_REF,mode=max"
+            --push
+          )
           # Retry the build — base-image metadata comes from public.ecr.aws
           # (the Docker Hub mirror), whose anonymous per-IP data limit
           # intermittently 429s the shared runner pool.
           BUILD_OK=0
           for attempt in 1 2 3; do
-            if docker build --target runtime "${BUILD_ARGS[@]}" .; then
+            if docker buildx build --target runtime "${BUILD_ARGS[@]}" .; then
               BUILD_OK=1
               break
             fi
@@ -181,18 +195,11 @@ jobs:
             exit 1
           fi
 
-          # All tags are built from one image, so every ref must resolve to the
-          # same digest — the Railway pin depends on it. Prefer the registry's
-          # manifest digest (docker buildx imagetools inspect), falling back to
-          # the push output.
+          # All tags are built from one image, so every ref must resolve to
+          # the same digest — the Railway pin depends on it.
           DIGEST=""
           for ref in "${REFS[@]}"; do
-            echo "Pushing $ref..."
-            OUT="$(docker push "$ref" 2>&1)" || { printf '%s\n' "$OUT"; exit 1; }
             REF_DIGEST="$(docker buildx imagetools inspect "$ref" 2>/dev/null | grep -oE 'sha256:[a-f0-9]{64}' | head -1 || true)"
-            if [ -z "$REF_DIGEST" ]; then
-              REF_DIGEST="$(printf '%s\n' "$OUT" | grep -oE 'sha256:[a-f0-9]{64}' | tail -1 || true)"
-            fi
             if [ -z "$REF_DIGEST" ]; then
               echo "::error::Could not capture the image digest for $ref"
               exit 1
@@ -246,6 +253,19 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
