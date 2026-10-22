@@ -7,6 +7,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import process from "node:process";
 import { parse } from "yaml";
 import { readFrameworkVersion } from "../packages/everything-dev/src/services/deploy/image";
 import { readEveryPluginVersion } from "../packages/everything-dev/src/services/deploy/platform-manifest";
@@ -32,6 +33,7 @@ const workspaceYaml = parse(readFileSync(join(configDir, "pnpm-workspace.yaml"),
 const manifest = composePlatformReleaseManifest({
   frameworkVersion,
   everyPluginVersion,
+  gitSha: process.env.BOS_GIT_SHA || undefined,
   imageRef: "ghcr.io/nearbuilders/everything-dev",
   catalog: workspaceYaml.catalog ?? {},
   templateInventory: computeTemplateInventory(configDir),

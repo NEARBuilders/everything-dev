@@ -39,6 +39,16 @@ describe("composePlatformReleaseManifest", () => {
     expect(manifest.compat).toEqual({ minChild: "1.53.0" });
   });
 
+  it("carries the serving build's git sha when the compose context has one (#537) and drops the field when it does not", () => {
+    const withSha = composePlatformReleaseManifest({ ...baseInputs, gitSha: "a".repeat(40) });
+    expect(withSha.gitSha).toBe("a".repeat(40));
+    expect(
+      PlatformReleaseManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(withSha))),
+    ).toEqual(withSha);
+    const withoutSha = composePlatformReleaseManifest(baseInputs);
+    expect("gitSha" in withoutSha).toBe(false);
+  });
+
   it("serializes deterministically — same inputs, byte-identical manifest", () => {
     const a = serializePlatformReleaseManifest(composePlatformReleaseManifest(baseInputs));
     const b = serializePlatformReleaseManifest(composePlatformReleaseManifest({ ...baseInputs }));

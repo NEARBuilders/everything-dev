@@ -26,7 +26,10 @@ interface UiManifestTarget {
   emitRouteTree: boolean;
 }
 
-function uiManifestTargets(runtimeConfig: RuntimeConfig): UiManifestTarget[] {
+function uiManifestTargets(
+  runtimeConfig: RuntimeConfig,
+  forceRouteTree?: boolean,
+): UiManifestTarget[] {
   const targets: UiManifestTarget[] = [];
   const ui = runtimeConfig.ui;
   // The core ui is always a manifest target when local — with no authored
@@ -36,7 +39,9 @@ function uiManifestTargets(runtimeConfig: RuntimeConfig): UiManifestTarget[] {
     targets.push({
       workspaceRoot: ui.localPath,
       pluginName: CORE_UI_PLUGIN_KEY,
-      emitRouteTree: !existsSync(join(ui.localPath, "src/routeTree.gen.ts")),
+      emitRouteTree: forceRouteTree
+        ? true
+        : !existsSync(join(ui.localPath, "src/routeTree.gen.ts")),
     });
   }
   for (const [key, plugin] of Object.entries(runtimeConfig.plugins ?? {})) {
@@ -55,6 +60,7 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
     env?: BosEnv;
     extendsChain?: string[];
     runtimeConfig?: RuntimeConfig;
+    forceRouteTree?: boolean;
   },
 ): Effect.fn.Return<
   (GeneratedArtifacts & { contractStatus: ContractBridgeStatus[] }) | null,
@@ -86,7 +92,7 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
     catch: (cause) => new ArtifactGenError({ phase: "sync api contract bridge", cause }),
   });
 
-  for (const target of uiManifestTargets(runtimeConfig)) {
+  for (const target of uiManifestTargets(runtimeConfig, opts?.forceRouteTree)) {
     if (target.pluginName === CORE_UI_PLUGIN_KEY) {
       yield* Effect.try({
         try: () => emitCoreUiStubs(target.workspaceRoot),
@@ -115,6 +121,7 @@ export async function generateCodeArtifacts(
     env?: BosEnv;
     extendsChain?: string[];
     runtimeConfig?: RuntimeConfig;
+    forceRouteTree?: boolean;
   },
 ): Promise<(GeneratedArtifacts & { contractStatus: ContractBridgeStatus[] }) | null> {
   return Effect.runPromise(generateCodeArtifactsEffect(configDir, config, opts));

@@ -752,6 +752,7 @@ export async function runPublishTrain(
         account,
         gateway,
         previousFrameworkVersion: previous?.frameworkVersion,
+        gitSha,
       });
     } catch (error) {
       console.warn(

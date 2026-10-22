@@ -29,6 +29,9 @@ export const PlatformReleaseManifestSchema = z.object({
   kind: z.literal("everything-dev/platform-manifest"),
   frameworkVersion: z.string().min(1),
   everyPluginVersion: z.string().min(1),
+  /** The serving build's repo HEAD (full sha) — omitted when the compose
+   * context has no git (regression image builds, build-arg-less builds). */
+  gitSha: z.string().min(7).optional(),
   image: z.object({
     ref: z.string().min(1),
     tags: z.array(z.string().min(1)),
@@ -123,6 +126,7 @@ export function composeSharedDepsFromCatalog(
 export interface ComposePlatformReleaseManifestInputs {
   frameworkVersion: string;
   everyPluginVersion: string;
+  gitSha?: string;
   imageRef: string;
   catalog: Record<string, string>;
   templateInventory: TemplateInventoryEntry[];
@@ -148,6 +152,7 @@ export function composePlatformReleaseManifest(
     kind: "everything-dev/platform-manifest",
     frameworkVersion: inputs.frameworkVersion,
     everyPluginVersion: inputs.everyPluginVersion,
+    ...(inputs.gitSha ? { gitSha: inputs.gitSha } : {}),
     image: { ref: inputs.imageRef, tags },
     catalog: inputs.catalog,
     sharedDeps: composeSharedDepsFromCatalog(inputs.catalog),

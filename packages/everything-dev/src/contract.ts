@@ -1092,6 +1092,7 @@ export const commandOptionSchemas = {
   import: ImportOptionsSchema,
   upgrade: UpgradeOptionsSchema,
   typecheck: TypecheckOptionsSchema,
+  typesGen: TypesGenOptionsSchema,
   mfCheck: MfCheckOptionsSchema,
   platformManifest: PlatformManifestOptionsSchema,
   infraExport: InfraExportOptionsSchema,
