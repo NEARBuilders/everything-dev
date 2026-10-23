@@ -120,11 +120,13 @@ export async function deriveImageRefFromPlatformManifest(opts: {
   configDir: string;
   localConfig: Record<string, unknown>;
   fetchManifest?: (account: string, gateway: string) => Promise<PlatformReleaseManifest | null>;
+  fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
 }): Promise<DerivedImageRef | null> {
   const resolved = await resolvePlatformManifest({
     configDir: opts.configDir,
     localConfig: opts.localConfig,
     fetchManifest: opts.fetchManifest,
+    ...(opts.fetchParent ? { fetchParent: opts.fetchParent } : {}),
   });
   if (!resolved) return null;
   const tag = resolved.manifest.image.tags[0];
