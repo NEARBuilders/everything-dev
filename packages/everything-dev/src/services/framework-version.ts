@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { findWorkspaceRoot } from "../workspace";
+import { findWorkspaceRoot } from "./workspace/workspace";
 
 export interface FrameworkPackageResolution {
   specifier?: string;

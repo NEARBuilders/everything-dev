@@ -253,14 +253,21 @@ interface LockedRunArgs {
 }
 
 /**
- * The whole migration run inside ONE transaction that opens with a
- * journal-scoped `pg_advisory_xact_lock`. Drizzle's `db.transaction` pins a
- * single pooled client for the callback, so the lock, the journal read, the
- * DDL, and the journal inserts all share one session; the lock releases at
+ * Apply migrations one transaction per migration, each opening with a
+ * journal-scoped `pg_advisory_xact_lock` and re-reading the journal under the
+ * lock, so concurrent migrators converge: a blocked runner re-reads the
+ * winner's committed journal rows and applies nothing. The lock releases at
  * COMMIT/ROLLBACK or on connection death — a crashed migrator can never
- * orphan it. A concurrent migrator blocks (bounded by the driver's
- * `lock_timeout`), then reads the winner's committed journal rows and applies
- * nothing.
+ * orphan it.
+ *
+ * One transaction per migration (rather than one for the whole run) keeps
+ * `ALTER TYPE ... ADD VALUE` correct: PostgreSQL 12+ allows the statement
+ * inside a transaction, but the new value cannot be *used* in the same
+ * transaction (SQLSTATE 55P04) — a later migration that consumes the value
+ * must run after the migration adding it has committed, which the
+ * per-migration commit boundary guarantees. Applied migrations commit
+ * individually, so a failed attempt leaves a clean prefix and the retry
+ * resumes from the journal.
  */
 async function runLockedTransaction(
   db: MigrationDatabase,
@@ -270,47 +277,61 @@ async function runLockedTransaction(
   const appliedTags: string[] = [];
   const logs: string[] = [];
 
-  await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${journal.schema}.${journal.table}`}, 0))`,
-    );
+  // Fast path: skip migrations the journal already records without opening a
+  // transaction for each. Heuristic only — the per-migration transaction
+  // re-checks under the lock, so a stale read can never double-apply.
+  let journaledHashes = new Set<string>();
+  try {
+    journaledHashes = await readAppliedHashesIn(db, ref);
+  } catch {
+    journaledHashes = new Set<string>();
+  }
 
-    await applyWithSavepoint(
-      tx,
-      sql`CREATE SCHEMA IF NOT EXISTS ${sql.raw(`"${journal.schema}"`)}`,
-      "init-schema",
-      "sp_init_schema",
-      duplicateSqlStates,
-    );
-    await applyWithSavepoint(
-      tx,
-      sql`
-        CREATE TABLE IF NOT EXISTS ${ref} (
-          id SERIAL PRIMARY KEY,
-          hash text NOT NULL,
-          created_at bigint
-        )
-      `,
-      "init-table",
-      "sp_init_table",
-      duplicateSqlStates,
-    );
-    if (schemaName) {
-      await applyWithSavepoint(
-        tx,
-        sql`CREATE SCHEMA IF NOT EXISTS ${sql.raw(`"${schemaName}"`)}`,
-        "init-data-schema",
-        "sp_init_data_schema",
-        duplicateSqlStates,
-      );
+  for (const migration of sorted) {
+    if (journaledHashes.has(migration.hash) || journaledHashes.has(migration.hash.slice(0, 12))) {
+      continue;
     }
 
-    const appliedHashes = await readAppliedHashesIn(tx, ref);
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${journal.schema}.${journal.table}`}, 0))`,
+      );
 
-    for (const migration of sorted) {
+      await applyWithSavepoint(
+        tx,
+        sql`CREATE SCHEMA IF NOT EXISTS ${sql.raw(`"${journal.schema}"`)}`,
+        "init-schema",
+        "sp_init_schema",
+        duplicateSqlStates,
+      );
+      await applyWithSavepoint(
+        tx,
+        sql`
+          CREATE TABLE IF NOT EXISTS ${ref} (
+            id SERIAL PRIMARY KEY,
+            hash text NOT NULL,
+            created_at bigint
+          )
+        `,
+        "init-table",
+        "sp_init_table",
+        duplicateSqlStates,
+      );
+      if (schemaName) {
+        await applyWithSavepoint(
+          tx,
+          sql`CREATE SCHEMA IF NOT EXISTS ${sql.raw(`"${schemaName}"`)}`,
+          "init-data-schema",
+          "sp_init_data_schema",
+          duplicateSqlStates,
+        );
+      }
+
+      const appliedHashes = await readAppliedHashesIn(tx, ref);
+
       const isApplied =
         appliedHashes.has(migration.hash) || appliedHashes.has(migration.hash.slice(0, 12));
-      if (isApplied) continue;
+      if (isApplied) return;
 
       // Preflight: if this migration's expected tables already exist, record it
       // as applied rather than crashing on a duplicate DDL error.
@@ -328,7 +349,7 @@ async function runLockedTransaction(
           );
           appliedHashes.add(migration.hash);
           appliedTags.push(migration.tag);
-          continue;
+          return;
         }
         if (missingTables.length < expectedTables.length) {
           logs.push(
@@ -349,8 +370,8 @@ async function runLockedTransaction(
         sql`INSERT INTO ${ref} (hash, created_at) VALUES (${migration.hash}, ${migration.when})`,
       );
       appliedTags.push(migration.tag);
-    }
-  });
+    });
+  }
 
   return { appliedTags, logs };
 }
@@ -363,15 +384,18 @@ async function runLockedTransaction(
  * Undefined `schemaName` means public-schema (api) or dedicated-DB (auth) topology.
  *
  * Concurrency: the run serializes on a journal-scoped Postgres advisory
- * transaction lock, so the dev double-boot (plugin dev-server + the host's
- * in-process load), parallel test files, and overlapping production replicas
- * converge instead of colliding in pg_catalog. SAVEPOINT-based duplicate-DDL
- * tolerance stays as defense-in-depth for non-participants (drizzle-kit).
+ * transaction lock held per migration, so the dev double-boot (plugin
+ * dev-server + the host's in-process load), parallel test files, and
+ * overlapping production replicas converge instead of colliding in
+ * pg_catalog. SAVEPOINT-based duplicate-DDL tolerance stays as
+ * defense-in-depth for non-participants (drizzle-kit).
  *
  * Reliability floor: hash-tracked idempotence with a preflight that records
- * fully-overlapped migrations as applied, everything in one locked
- * transaction, retried on deadlock/serialization/lock-timeout/connection
- * states — a failed attempt rolls back cleanly and re-runs.
+ * fully-overlapped migrations as applied, one committed transaction per
+ * migration (each under the advisory lock — also the `ALTER TYPE ... ADD
+ * VALUE` commit boundary, see `runLockedTransaction`), retried on
+ * deadlock/serialization/lock-timeout/connection states — a failed attempt
+ * leaves earlier migrations applied and the retry resumes from the journal.
  */
 export function runMigrations(
   db: MigrationDatabase,

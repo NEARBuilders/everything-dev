@@ -138,6 +138,11 @@ const PluginRuntimeUiSchema = z.object({
   /** pin-derived hashed browser manifest (mf-manifest) — absent for local
    * slots; registration reads this instead of the overloaded `entry` */
   browserManifestUrl: z.string().optional(),
+  /** SRI of the pinned compose manifest (manifest.gen.json, from the pin's
+   * per-file digest map) — the compose verifies the mutable fixed-name
+   * manifest against it so a host resolving an older pin never silently
+   * mixes newer manifest bytes into its composed tree */
+  manifestIntegrity: z.string().optional(),
   dependsOn: z.array(z.string()).optional(),
 });
 export type PluginRuntimeUi = z.infer<typeof PluginRuntimeUiSchema>;
@@ -276,6 +281,7 @@ export const BosConfigInputSchema: z.ZodType<BosConfigInput> = z.lazy(() =>
         auth: z.enum(["session", "key", "custody"]).optional(),
       })
       .optional(),
+    platform: z.string().optional(),
     ci: CiConfigSchema.optional(),
     cdn: CdnConfigSchema.optional(),
   }),
@@ -333,6 +339,8 @@ export interface BosConfigInput {
   app?: Record<string, BosConfigInputAppEntry>;
   plugins?: Record<string, string | BosConfigInput>;
   publish?: PublishConfig;
+  /** The child's exact platform pin — one field, everything derived (ADR 0034). */
+  platform?: string;
   ci?: CiConfig;
   cdn?: CdnConfig;
   rolledBackFrom?: string;
@@ -345,7 +353,6 @@ export const RailwayCiSchema = z.object({
 export type RailwayCi = z.infer<typeof RailwayCiSchema>;
 
 export const CiConfigSchema = z.object({
-  image: z.string().optional(),
   railway: RailwayCiSchema.optional(),
 });
 export type CiConfig = z.infer<typeof CiConfigSchema>;
@@ -383,6 +390,7 @@ export const BosConfigSchema = z.object({
   staging: BosStagingSchema.optional(),
   repository: z.string().optional(),
   publish: PublishConfigSchema.optional(),
+  platform: z.string().optional(),
   ci: CiConfigSchema.optional(),
   cdn: CdnConfigSchema.optional(),
   rolledBackFrom: z.string().optional(),
@@ -425,6 +433,9 @@ export const RuntimeConfigSchema = z.object({
     ssrEntryUrl: z.string().optional(),
     /** pin-derived hashed browser manifest (mf-manifest) */
     browserManifestUrl: z.string().optional(),
+    /** SRI of the pinned compose manifest (manifest.gen.json) — verified by
+     * the host compose on every fetch (see PluginRuntimeUiSchema) */
+    manifestIntegrity: z.string().optional(),
     dependsOn: z.array(z.string()).optional(),
   }),
   api: FederationEntrySchema.extend({

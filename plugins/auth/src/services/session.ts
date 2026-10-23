@@ -17,6 +17,8 @@ import type { AuthFailure } from "./domain-errors";
 type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
 
+type PreResolvedSession = NonNullable<InferOutput<"getContext">["session"]>;
+
 async function listMemberTeams(
   db: Db,
   userId: string,
@@ -49,7 +51,10 @@ export class SessionService extends Context.Service<
   {
     health: () => Effect.Effect<{ status: "ok"; timestamp: string }, never>;
     getSession: (headers: Headers) => Effect.Effect<InferOutput<"getSession">, AuthFailure>;
-    getContext: (headers: Headers) => Effect.Effect<InferOutput<"getContext">, AuthFailure>;
+    getContext: (
+      headers: Headers,
+      resolved?: PreResolvedSession | null,
+    ) => Effect.Effect<InferOutput<"getContext">, AuthFailure>;
   }
 >()("auth/SessionService") {}
 
@@ -101,7 +106,10 @@ export const buildSessionService = ({
         }),
       ),
 
-    getContext: Effect.fn("SessionService.getContext")(function* (headers: Headers) {
+    getContext: Effect.fn("SessionService.getContext")(function* (
+      headers: Headers,
+      resolved?: PreResolvedSession | null,
+    ) {
       let apiKeyValue: string | null = null;
       for (const headerName of apiKeyHeaders) {
         const value = headers.get(headerName.toLowerCase())?.trim();
@@ -143,6 +151,7 @@ export const buildSessionService = ({
           userId: string;
           expiresAt: Date;
           activeOrganizationId: string | null;
+          activeTeamId?: string | null;
         } | null;
         user: unknown;
       } | null = null;
@@ -202,28 +211,52 @@ export const buildSessionService = ({
       }
 
       if (!apiKeyValue && !principal) {
-        const rawSession = yield* attemptAuth(() => auth.api.getSession({ headers }));
-        const rawUser = rawSession?.user ?? null;
-        session = rawSession
-          ? {
-              session: rawSession.session
-                ? {
-                    ...rawSession.session,
-                    activeOrganizationId: getActiveOrganizationId(rawSession.session),
-                  }
-                : null,
-              user: rawSession.user,
-            }
-          : null;
-
-        if (rawUser) {
-          user = rawUser as typeof schema.user.$inferSelect;
+        if (resolved) {
+          const resolvedUser = resolved.user as typeof schema.user.$inferSelect;
+          user = resolvedUser;
           authMethod = "session";
           principal = {
             type: "user",
-            userId: rawUser.id,
-            user: rawUser as typeof schema.user.$inferSelect,
+            userId: resolved.userId,
+            user: resolvedUser,
           };
+          session = {
+            session: {
+              id: resolved.id,
+              token: resolved.token,
+              userId: resolved.userId,
+              expiresAt: resolved.expiresAt,
+              activeOrganizationId: resolved.activeOrganizationId,
+              activeTeamId: resolved.activeTeamId,
+            },
+            user: resolved.user,
+          };
+        } else if (resolved === null) {
+          authMethod = "none";
+        } else {
+          const rawSession = yield* attemptAuth(() => auth.api.getSession({ headers }));
+          const rawUser = rawSession?.user ?? null;
+          session = rawSession
+            ? {
+                session: rawSession.session
+                  ? {
+                      ...rawSession.session,
+                      activeOrganizationId: getActiveOrganizationId(rawSession.session),
+                    }
+                  : null,
+                user: rawSession.user,
+              }
+            : null;
+
+          if (rawUser) {
+            user = rawUser as typeof schema.user.$inferSelect;
+            authMethod = "session";
+            principal = {
+              type: "user",
+              userId: rawUser.id,
+              user: rawUser as typeof schema.user.$inferSelect,
+            };
+          }
         }
       }
 
@@ -398,25 +431,41 @@ export const buildSessionService = ({
             : null
         : null;
 
-      return {
-        user: user
+      const serializedUser = user
+        ? {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            emailVerified: user.emailVerified,
+            image: user.image ?? null,
+            role: user.role ?? null,
+            isAnonymous: user.isAnonymous ?? null,
+            locale: user.locale ?? null,
+          }
+        : null;
+
+      const serializedSession =
+        session?.session && serializedUser
           ? {
-              id: user.id,
-              name: user.name,
-              email: user.email,
-              emailVerified: user.emailVerified,
-              image: user.image ?? null,
-              role: user.role ?? null,
-              isAnonymous: user.isAnonymous ?? null,
-              locale: user.locale ?? null,
+              id: session.session.id,
+              token: session.session.token,
+              userId: session.session.userId,
+              expiresAt: session.session.expiresAt,
+              activeOrganizationId: session.session.activeOrganizationId,
+              activeTeamId: getActiveTeamId(session.session) ?? null,
+              user: serializedUser,
             }
-          : null,
+          : null;
+
+      return {
+        user: serializedUser,
         userId: user?.id ?? null,
         isAuthenticated,
         authMethod,
         principal: serializedPrincipal,
         apiKey: apiKeyInfo,
         permissions,
+        session: serializedSession,
         near: nearCapabilities,
         organization: organizationContext,
         organizations: organizations.length > 0 ? organizations : undefined,

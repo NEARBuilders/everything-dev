@@ -121,6 +121,17 @@ export const authVariablesSchema = z.object({
     })
     .optional(),
   siwn: z.union([authSiwnRecipientSchema, authSiwnRecipientsSchema]),
+  referral: z
+    .object({
+      maskReferredUserEmail: z.boolean().optional(),
+      steps: z
+        .array(z.string().trim().min(1))
+        .refine((steps) => !steps.includes("sign_up"), {
+          message: '"sign_up" is reserved for the automatic signup step',
+        })
+        .optional(),
+    })
+    .optional(),
   deviceLink: z
     .object({
       clientId: z.string().min(1).default(DEFAULT_DEVICE_LINK_CLIENT_ID),

@@ -10,7 +10,7 @@ import { PluginAdminService } from "../../src/services/plugins-admin";
 import { ResolutionSession, ResolutionSessionService } from "../../src/services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../src/types";
 
-vi.mock("../../src/code-artifacts", () => ({
+vi.mock("../../src/services/codegen/artifacts", () => ({
   generateCodeArtifacts: vi.fn(),
 }));
 

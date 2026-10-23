@@ -1,5 +1,6 @@
 import type { AnyRoute } from "@tanstack/react-router";
 import { createRootRoute, createRoute, Outlet, redirect } from "@tanstack/react-router";
+import { CORE_UI_PLUGIN_KEY } from "./contract";
 import { digestOf } from "./descriptor";
 import type { PluginManifest, RouteRecord } from "./manifest-schema";
 import { MOUNT_REGISTRY, type MountDef, type MountId, resolveMountSegment } from "./mount-registry";
@@ -177,23 +178,53 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
     resolved.push(await input.resolve(ref));
   }
 
+  const ordered = [
+    ...resolved.filter((plugin) => plugin.key === CORE_UI_PLUGIN_KEY),
+    ...resolved.filter((plugin) => plugin.key !== CORE_UI_PLUGIN_KEY),
+  ];
+
   const optionsByPlugin = new Map<string, Map<string, RouteOptionsBundle>>();
+  const skippedByPlugin = new Map<string, Set<string>>();
   for (const plugin of resolved) {
+    // A plugin with no manifest at all contributes no routes — skip it rather
+    // than crashing SSR composition (same contract as the missing-loader skip
+    // below).
+    if (!plugin.manifest?.routes) continue;
     const optionsById = new Map<string, RouteOptionsBundle>();
+    const skipped = new Set<string>();
     await Promise.all(
       plugin.manifest.routes.map(async (record) => {
         const loader = plugin.routeConfig.routeConfigLoaders[record.id];
         if (!loader) {
-          throw new Error(`routeConfig for "${plugin.key}" has no loader for route "${record.id}"`);
+          console.log(
+            `[Compose] skipping route "${record.id}" in "${plugin.key}" — no routeConfig loader`,
+          );
+          skipped.add(record.id);
+          return;
         }
         optionsById.set(record.id, await loader());
       }),
     );
+    // cascade: any route whose parent is skipped is also skipped
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const record of plugin.manifest.routes) {
+        if (skipped.has(record.id)) continue;
+        if (record.parentId && skipped.has(record.parentId)) {
+          skipped.add(record.id);
+          changed = true;
+        }
+      }
+    }
     optionsByPlugin.set(plugin.key, optionsById);
+    skippedByPlugin.set(plugin.key, skipped);
   }
 
   const declarations = new Map<MountId, MountDeclaration>();
-  for (const plugin of resolved) {
+  const mountByLayoutId = new Map<string, MountId>();
+  for (const plugin of ordered) {
+    if (!plugin.manifest?.routes) continue;
     for (const record of plugin.manifest.routes) {
       if (!record.mount) continue;
       const mountId = record.mount as MountId;
@@ -205,15 +236,24 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
       }
       const existing = declarations.get(mountId);
       if (existing) {
+        if (existing.key === CORE_UI_PLUGIN_KEY && plugin.key !== CORE_UI_PLUGIN_KEY) {
+          console.log(
+            `[Compose] mount declaration "${existing.key}:${existing.record.id}" (${mountId}) shadows "${plugin.key}:${record.id}" — core ui wins; shadowed declaration skipped`,
+          );
+          mountByLayoutId.set(record.id, mountId);
+          continue;
+        }
         throw new Error(
           `mount "${mountId}" declared by multiple sources: "${existing.key}" (${existing.record.file}) and "${plugin.key}" (${record.file})`,
         );
       }
+      if (skippedByPlugin.get(plugin.key)!.has(record.id)) continue;
       declarations.set(mountId, {
         key: plugin.key,
         record,
         options: optionsByPlugin.get(plugin.key)!.get(record.id)!,
       });
+      mountByLayoutId.set(record.id, mountId);
     }
   }
 
@@ -244,11 +284,6 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
     mountRoutes.set(mountId, toAnyRoute(route));
   }
 
-  const mountByLayoutId = new Map<string, MountId>();
-  for (const [mountId, declaration] of declarations) {
-    mountByLayoutId.set(declaration.record.id, mountId);
-  }
-
   const nav: NavItem[] = [];
   const mountCounts: Record<string, number> = {};
   const childrenByParent = new Map<AnyRoute, AnyRoute[]>();
@@ -260,7 +295,8 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
     childrenByParent.set(parent, list);
   };
 
-  for (const plugin of resolved) {
+  for (const plugin of ordered) {
+    if (!plugin.manifest?.routes) continue;
     const optionsById = optionsByPlugin.get(plugin.key)!;
     const fullPathById = new Map<string, string>();
     const mountById = new Map<string, MountId>();
@@ -301,18 +337,25 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
       throw new Error(`route "${record.id}" in "${plugin.key}" must live under a mount`);
     };
 
-    const pending = plugin.manifest.routes.filter((record) => !record.mount);
+    const pending = plugin.manifest.routes.filter(
+      (record) => !record.mount && !skippedByPlugin.get(plugin.key)!.has(record.id),
+    );
+    const shadowedIds = new Set<string>();
     let progressed = true;
     while (pending.length > 0 && progressed) {
       progressed = false;
       for (let i = 0; i < pending.length; i += 1) {
         const record = pending[i]!;
-        if (
-          record.parentId &&
-          !byId.has(record.parentId) &&
-          !mountByLayoutId.has(record.parentId)
-        ) {
-          continue;
+        const parentId = record.parentId;
+        if (parentId) {
+          if (shadowedIds.has(parentId)) {
+            shadowedIds.add(record.id);
+            pending.splice(i, 1);
+            i -= 1;
+            progressed = true;
+            continue;
+          }
+          if (!byId.has(parentId) && !mountByLayoutId.has(parentId)) continue;
         }
         pending.splice(i, 1);
         progressed = true;
@@ -325,6 +368,16 @@ export async function constructTree(input: ConstructInput): Promise<ConstructedT
           const siblings = claimedPathsByParent.get(parent.route) ?? new Map<string, string>();
           const claimant = siblings.get(routePath);
           if (claimant) {
+            if (
+              plugin.key !== CORE_UI_PLUGIN_KEY &&
+              claimant.startsWith(`${CORE_UI_PLUGIN_KEY}:`)
+            ) {
+              console.log(
+                `[Compose] route claim "${claimant}" (${routePath}) shadows "${plugin.key}:${record.id}" — core ui wins; shadowed route skipped`,
+              );
+              shadowedIds.add(record.id);
+              break;
+            }
             throw new Error(
               `path collision: "${plugin.key}" route "${record.id}" declares "${routePath}" which is already claimed by "${claimant}" under the same parent`,
             );

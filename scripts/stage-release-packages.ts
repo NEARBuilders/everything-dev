@@ -3,7 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { globSync } from "glob";
-import { stageReleasePackages } from "../packages/everything-dev/src/internal/manifest-normalizer";
+import { stageReleasePackages } from "../packages/everything-dev/src/services/registry/manifest-normalizer";
 
 const rootDir = join(import.meta.dirname, "..");
 const outDir = join(rootDir, ".release");

@@ -8,7 +8,6 @@ const bootstrap = vi.hoisted(() => ({
   createRouter: vi.fn(() => ({ router: {} })),
   render: vi.fn(),
   hydrateRoot: vi.fn(),
-  toastError: vi.fn(),
   coreRouteConfig: {
     routeConfigLoaders: {},
     rootMeta: { head: () => ({ meta: [{ name: "core", content: "1" }] }) },
@@ -34,8 +33,6 @@ vi.mock("react-dom/client", () => ({
   createRoot: () => ({ render: bootstrap.render }),
   hydrateRoot: bootstrap.hydrateRoot,
 }));
-
-vi.mock("sonner", () => ({ toast: { error: bootstrap.toastError } }));
 
 const composeMocks = vi.hoisted(() => ({
   loadRemote: vi.fn(),
@@ -366,16 +363,10 @@ describe("client bootstrap", () => {
       expect.objectContaining({ routeTree: { id: "composed-tree" } }),
     );
     // The SSR'd tree included the dropped remote — hydration is unsafe, so
-    // the page client-renders the degraded tree.
+    // the page client-renders the degraded tree. Degraded compose stays
+    // silent to the user (no toast) — console/debug-channel signals only.
     expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
     expect(bootstrap.render).toHaveBeenCalledOnce();
-    expect(bootstrap.toastError).toHaveBeenCalledWith(
-      "Some application features couldn't load",
-      expect.objectContaining({
-        duration: Number.POSITIVE_INFINITY,
-        action: expect.objectContaining({ label: "Reload" }),
-      }),
-    );
   });
 
   it("drops only the failed remote and composes the healthy subset", async () => {
@@ -459,6 +450,5 @@ describe("client bootstrap", () => {
     );
     expect(bootstrap.hydrateRoot).not.toHaveBeenCalled();
     expect(bootstrap.render).toHaveBeenCalledOnce();
-    expect(bootstrap.toastError).toHaveBeenCalledOnce();
   });
 });

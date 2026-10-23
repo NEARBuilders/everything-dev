@@ -1,3 +1,7 @@
+# FRAMEWORK-OWNED — reconciled from the parent template by `bos sync` / `bos upgrade`.
+# Local edits are allowed: on the next sync the template version wins and your copy
+# is backed up under `.bos/sync-backup/`. To make a change permanent, file an issue:
+# https://github.com/NEARBuilders/everything-dev/issues
 name: CI
 
 on:
@@ -23,11 +27,15 @@ concurrency:
 
 permissions:
   contents: read
+  # Read is the job default; the regression-image job grants packages: write
+  # locally. Read lets start-suite jobs pull the pushed regression-ci image
+  # even if the GHCR package visibility is private.
+  packages: read
 
 jobs:
   detect-changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       everything-dev: ${{ steps.changes.outputs.everything-dev }}
       every-plugin: ${{ steps.changes.outputs.every-plugin }}
@@ -141,7 +149,7 @@ jobs:
 
   lint-and-typecheck:
     name: Lint and Type Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -161,6 +169,28 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Effect monorepo clone
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: repos/effect
+          # `pnpm run prepare` shallow-clones the pinned effect tag into
+          # repos/effect; the tag lives in the prepare script (package.json),
+          # so a package.json change (effect bump or not) just re-clones once.
+          key: effect-${{ runner.os }}-${{ hashFiles('package.json') }}
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -212,7 +242,7 @@ jobs:
 
   workflows-lint:
     name: Workflow lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes]
     if: needs.detect-changes.outputs.workflows == 'true'
     timeout-minutes: 5
@@ -220,24 +250,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
 
-      - name: Setup Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0 (Node 24)
-        with:
-          go-version: "1.22"
-
-      # Guards the consumer reusable workflows: child repos call them by ref,
-      # so a syntax or schema error here breaks children the moment they sync
-      # the wrapper templates.
+      # Pinned release binary + checksum — the previous `go install` compiled
+      # actionlint from source on every run (~a minute of module downloads
+      # and Go build time); no Go toolchain needed at all now.
       - name: Lint workflow files (actionlint)
         run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-          "$(go env GOPATH)/bin/actionlint" -color .github/workflows/*.yml .github/templates/workflows/*.yml
+          curl -fsSL -o /tmp/actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+          echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  /tmp/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          /tmp/actionlint -color .github/workflows/*.yml .github/templates/workflows/*.yml
 
   framework-tests:
     name: Framework tests
     needs: [detect-changes]
     if: needs.detect-changes.outputs.everything-dev == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout repository
@@ -250,6 +278,18 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -267,7 +307,7 @@ jobs:
     name: Plugin tests
     needs: [detect-changes]
     if: needs.detect-changes.outputs.plugins == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -280,6 +320,19 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -292,14 +345,24 @@ jobs:
       # Plugin members wired into CI by plan 051. When adding a plugin under
       # plugins/, add its test step here too — suites that are absent from
       # this list never run anywhere.
+      # TMPDIR at step level: ubuntu-26.04 runners serve /tmp on a separate
+      # filesystem from $HOME — near-kit's sandbox download renames
+      # /tmp → ~/.near-kit and dies with EXDEV unless TMPDIR lives on the
+      # $HOME device (runner context is not available in job-level env).
       - name: Test auth plugin
         run: pnpm --filter @everything-dev/auth-plugin test
+        env:
+          TMPDIR: ${{ runner.temp }}
 
       - name: Test votes plugin
         run: pnpm --filter @everything-dev/votes-plugin test
+        env:
+          TMPDIR: ${{ runner.temp }}
 
       - name: Test registry plugin
         run: pnpm --filter @everything-dev/registry-plugin test
+        env:
+          TMPDIR: ${{ runner.temp }}
 
       # BLOCKED (plan 051): proposals suite is red on main — getProposals
       # masks createdBy for all non-admins (src/index.ts:245) while
@@ -311,7 +374,7 @@ jobs:
     name: UI and API tests
     needs: [detect-changes]
     if: needs.detect-changes.outputs.ui-api == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout repository
@@ -324,6 +387,19 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -340,7 +416,7 @@ jobs:
     name: Host tests
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.host == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -353,6 +429,28 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Cache Effect monorepo clone
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: repos/effect
+          # `pnpm run prepare` shallow-clones the pinned effect tag into
+          # repos/effect; the tag lives in the prepare script (package.json),
+          # so a package.json change (effect bump or not) just re-clones once.
+          key: effect-${{ runner.os }}-${{ hashFiles('package.json') }}
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -367,7 +465,7 @@ jobs:
 
   regression-unit:
     name: Regression unit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.regression-unit == 'true'
     timeout-minutes: 5
@@ -382,6 +480,19 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -389,23 +500,11 @@ jobs:
         run: pnpm run test:regression:unit
 
   regression-http:
-    name: Regression HTTP (${{ matrix.command }})
-    strategy:
-      fail-fast: false
-      matrix:
-        # dev = the dev server; start = the deployment image (ADR 0009).
-        # The HTTP suite is identical for SSR and CSR, so it runs on :ssr
-        # only. The start variant pays the docker build, hence the longer
-        # timeout.
-        include:
-          - command: dev
-            timeout: 15
-          - command: start
-            timeout: 25
-    runs-on: ubuntu-latest
+    name: Regression HTTP (dev)
+    runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.regression-http == 'true'
-    timeout-minutes: ${{ matrix.timeout }}
+    timeout-minutes: 15
     env:
       CI: true
       API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
@@ -455,26 +554,132 @@ jobs:
         with:
           go-version: "1.22"
 
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build every-plugin dist
-        if: matrix.command == 'dev'
         run: pnpm run build template
 
-      - name: Run HTTP regression suite (${{ matrix.command }})
-        run: pnpm run test:regression:http:${{ matrix.command }}
+      - name: Run HTTP regression suite (dev)
+        run: pnpm run test:regression:http:dev
 
       - name: Upload regression artifacts on failure
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
-          name: regression-http-artifacts-${{ matrix.command }}
+          name: regression-http-artifacts-dev
+          path: .bos/logs/**
+
+  # start = the deployment image (ADR 0009). The image is built once per run
+  # by the regression-image job and pulled here — three start suites used to
+  # pay three identical full docker builds. The suite is identical to the dev
+  # variant (SSR only); REGRESSION_PREBUILT_IMAGE makes start-container.mjs
+  # pull instead of build, and fall back to a local build when the image job
+  # was skipped (fork PRs) or failed.
+  regression-http-start:
+    name: Regression HTTP (start)
+    runs-on: ubuntu-24.04
+    needs: [detect-changes, lint-and-typecheck, regression-image]
+    if: >-
+      !cancelled() &&
+      needs.lint-and-typecheck.result == 'success' &&
+      needs.detect-changes.outputs.regression-http == 'true' &&
+      (needs.regression-image.result == 'success' || needs.regression-image.result == 'skipped' || needs.regression-image.result == 'failure')
+    timeout-minutes: 20
+    env:
+      CI: true
+      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
+      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5435/auth_test_db
+      CORS_ORIGIN: http://localhost:4100
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
+      REGRESSION_PREBUILT_IMAGE: ${{ needs.regression-image.result == 'success' && needs.regression-image.outputs.image || '' }}
+    services:
+      postgres-api-test:
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: api_test_db
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev -d api_test_db"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+      postgres-auth-test:
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: auth_test_db
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev -d auth_test_db"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: Setup Go
+        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0 (Node 24)
+        with:
+          go-version: "1.22"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Log in to GHCR
+        if: needs.regression-image.result == 'success'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Run HTTP regression suite (start)
+        run: pnpm run test:regression:http:start
+
+      - name: Upload regression artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: regression-http-artifacts-start
           path: .bos/logs/**
 
   regression-framework:
     name: Regression framework (process death)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.regression-framework == 'true'
     timeout-minutes: 15
@@ -526,6 +731,18 @@ jobs:
         with:
           go-version: "1.22"
 
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -547,23 +764,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # start:* = the deployment image via `bos start --config` (full suite);
-        # dev:* = the dev server, smoke-only (ADR 0009). The start variants
-        # pay the docker build, hence the longer timeout.
+        # dev:* = the dev server, smoke-only (ADR 0009).
         include:
-          - mode: start:ssr
-            slug: start-ssr
-            timeout: 25
-          - mode: start:csr
-            slug: start-csr
-            timeout: 25
           - mode: dev:ssr
             slug: dev-ssr
             timeout: 10
           - mode: dev:csr
             slug: dev-csr
             timeout: 10
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.regression-browser == 'true'
     timeout-minutes: ${{ matrix.timeout }}
@@ -611,11 +820,23 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build every-plugin dist
-        if: startsWith(matrix.mode, 'dev:')
         run: pnpm run build template
 
       - name: Cache Playwright browsers
@@ -658,3 +879,185 @@ jobs:
             resource-watchdog.log
             playwright-report/**
             test-results/**
+
+  # start:* = the deployment image via `bos start --config` (full suite).
+  # The image is built once per run by the regression-image job and pulled
+  # here — three start suites used to pay three identical full docker builds.
+  # REGRESSION_PREBUILT_IMAGE makes start-container.mjs pull instead of
+  # build, and fall back to a local build when the image job was skipped
+  # (fork PRs) or failed.
+  regression-browser-start:
+    name: Regression Browser (${{ matrix.mode }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: start:ssr
+            slug: start-ssr
+            timeout: 20
+          - mode: start:csr
+            slug: start-csr
+            timeout: 20
+    runs-on: ubuntu-24.04
+    needs: [detect-changes, lint-and-typecheck, regression-image]
+    if: >-
+      !cancelled() &&
+      needs.lint-and-typecheck.result == 'success' &&
+      needs.detect-changes.outputs.regression-browser == 'true' &&
+      (needs.regression-image.result == 'success' || needs.regression-image.result == 'skipped' || needs.regression-image.result == 'failure')
+    timeout-minutes: ${{ matrix.timeout }}
+    env:
+      CI: true
+      API_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5434/api_test_db
+      AUTH_DATABASE_URL: postgres://everythingdev:everythingdev@127.0.0.1:5435/auth_test_db
+      CORS_ORIGIN: http://localhost:4100
+      BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
+      REGRESSION_PREBUILT_IMAGE: ${{ needs.regression-image.result == 'success' && needs.regression-image.outputs.image || '' }}
+    services:
+      postgres-api-test:
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: api_test_db
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev -d api_test_db"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+      postgres-auth-test:
+        image: ghcr.io/nearbuilders/mirror-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_USER: everythingdev
+          POSTGRES_PASSWORD: everythingdev
+          POSTGRES_DB: auth_test_db
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U everythingdev -d auth_test_db"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Log in to GHCR
+        if: needs.regression-image.result == 'success'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright browser
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system deps
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Resource watchdog
+        run: |
+          # $(date) must expand inside the inner bash on every loop iteration —
+          # single quotes are intentional.
+          # shellcheck disable=SC2016
+          nohup bash -c 'while true; do
+            echo "=== watchdog $(date -u +%H:%M:%S) ==="
+            free -m
+            ps aux --sort=-rss | head -11
+            sleep 30
+          done' >> resource-watchdog.log 2>&1 &
+
+      - name: Run browser regression suite (${{ matrix.mode }})
+        run: pnpm run test:regression:browser:${{ matrix.mode }}
+
+      - name: Upload regression artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
+        with:
+          name: regression-browser-artifacts-${{ matrix.slug }}
+          path: |
+            .bos/logs/**
+            resource-watchdog.log
+            playwright-report/**
+            test-results/**
+
+  # Build the docker regression fixture once per run and push it for the
+  # start:* suites to pull (three suites otherwise pay three identical full
+  # builds). Also exports the shared builder-stage layers to the GHCR
+  # buildcache ref, which the deploy workflow's runtime build imports for
+  # the same SHA (the manifest-gen layers diverge — regression omits
+  # BOS_GIT_SHA — but the install + framework builds hit). Push events only:
+  # fork PR runs can't push to GHCR and fall back to per-suite local builds.
+  regression-image:
+    name: Build regression fixture image
+    needs: [detect-changes]
+    if: >-
+      github.event_name != 'pull_request' &&
+      (needs.detect-changes.outputs.regression-http == 'true' ||
+       needs.detect-changes.outputs.regression-browser == 'true')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 25
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push the regression fixture image
+        id: image
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          REF="${IMAGE}:regression-ci"
+          CACHE="${IMAGE}:buildcache"
+          docker buildx create --use --name bos-regression-builder
+          docker buildx build \
+            --target regression \
+            -t "$REF" \
+            --cache-from "type=registry,ref=$CACHE" \
+            --cache-to "type=registry,ref=$CACHE,mode=max" \
+            --push \
+            .
+          DIGEST="$(docker buildx imagetools inspect "$REF" 2>/dev/null | grep -oE 'sha256:[a-f0-9]{64}' | head -1 || true)"
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Could not capture the regression image digest for $REF"
+            exit 1
+          fi
+          echo "image=${REF}@${DIGEST}" >> "$GITHUB_OUTPUT"

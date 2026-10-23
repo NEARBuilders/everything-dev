@@ -20,7 +20,11 @@ export function createTeamHandlers(
     listUserTeams: builder.listUserTeams.use(requireAuth).effect(function* ({ input, context }) {
       const teams = yield* TeamsService;
       return yield* mapDomainError(
-        teams.listUserTeams(createHeaders(context.reqHeaders), input?.organizationId),
+        teams.listUserTeams(
+          createHeaders(context.reqHeaders),
+          input?.organizationId,
+          context.activeOrganizationId,
+        ),
       );
     }),
 

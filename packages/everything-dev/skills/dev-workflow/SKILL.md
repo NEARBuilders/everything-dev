@@ -2,7 +2,7 @@
 name: dev-workflow
 description: Development workflow for everything-dev projects using bos dev, bos start, and the Module Federation runtime. Use when starting dev servers, debugging hot reload, or understanding the service-descriptor architecture.
 metadata:
-  sources: "packages/everything-dev/src/service-descriptor.ts,packages/everything-dev/src/orchestrator.ts,packages/everything-dev/src/dev-logs.ts,packages/everything-dev/src/dev-session.ts,packages/everything-dev/src/process-registry.ts,packages/everything-dev/src/app.ts,packages/everything-dev/src/infra/preflight.ts,packages/everything-dev/src/dev-program.ts"
+  sources: "packages/everything-dev/src/services/dev/service-descriptor.ts,packages/everything-dev/src/services/dev/orchestrator.ts,packages/everything-dev/src/services/dev/logs.ts,packages/everything-dev/src/services/dev/session.ts,packages/everything-dev/src/services/processes/registry.ts,packages/everything-dev/src/infra/ports.ts,packages/everything-dev/src/infra/preflight.ts,packages/everything-dev/src/services/dev/boot.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
@@ -118,7 +118,7 @@ This means a new deployment requires a host restart to pick up new URLs.
 
 `bos dev` and `bos build` write the fully-merged config to `.bos/bos.resolved-config.json` (gitignored). This file includes `_resolved` metadata with env, timestamp, and extends chain.
 
-**The authored config is NOT modified during dev.** Only `bos publish --deploy`, `bos plugin publish/add/remove`, and `bos sync` write to it (`bos.app.ts` for TS-form projects; legacy JSON children keep their `bos.config.json`).
+**The authored config is NOT modified during dev.** Only `bos publish --deploy`, `bos plugin publish/add/remove`, and `bos upgrade` write to it (`bos.app.ts` for TS-form projects; legacy JSON children keep their `bos.config.json`).
 
 Build configs (rsbuild/rspack) read from `.bos/bos.resolved-config.json` first, falling back to the authored config. This allows slim child configs with `extends` to work correctly — the merged parent+child config is what the build sees.
 

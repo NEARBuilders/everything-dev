@@ -10,7 +10,7 @@ import {
   copyFilteredFiles,
   personalizeConfig,
 } from "../../src/cli/init";
-import { loadManifestNormalizationSpec } from "../../src/internal/manifest-normalizer";
+import { loadManifestNormalizationSpec } from "../../src/services/registry/manifest-normalizer";
 import { writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
@@ -309,5 +309,13 @@ describe("bos init — structure", () => {
     expect(agentsMd).not.toContain("NEAR_SUB_ACCOUNT_PARENT_KEY");
     expect(agentsMd).not.toContain("siwn.subAccount.parentAccount");
     expect(agentsMd).toContain("sputnik-dao");
+  });
+
+  it("generated AGENTS.md teaches the v2 pnpm workspace, not the bun train", () => {
+    const agentsMd = buildChildAgentsMd("", { overrides: ["ui", "api", "host"] });
+
+    expect(agentsMd).toContain("Never use bun");
+    expect(agentsMd).not.toMatch(/\bbun (install|run|x)\b/);
+    expect(agentsMd).toContain("Docker Desktop");
   });
 });

@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRuntimeConfig } from "../../src/config";
 import { configInputToDescriptor, toConfigInput } from "../../src/descriptor/resolve";
+import { clearSlotVersionCache } from "../../src/services/deploy/version-manifest";
 import { mergeBosConfigWithExtends } from "../../src/services/resolution/merge";
 import { BosConfigSchema } from "../../src/types";
-import { clearSlotVersionCache } from "../../src/version-manifest-resolve";
 
 const configWithPins = {
   account: "v1.citynode.near",
@@ -245,5 +245,125 @@ describe("auth mirror version-manifest derivation", () => {
       `${slots.authUi.base}/remoteEntry.server.${slots.authUi.entry}`,
     );
     expect(runtime.plugins?.auth?.ui?.ssrIntegrity).toBe(runtime.auth?.ui?.ssrIntegrity);
+  });
+});
+
+describe("dev-env version-manifest derivation", () => {
+  const sri = (content: string) =>
+    `sha384-${createHash("sha384").update(content).digest("base64")}`;
+
+  const makeManifest = (entry: string) => ({
+    version: "8f3ac1d2feedbeef",
+    builtAt: "2026-09-30T12:00:00.000Z",
+    entry,
+    entryIntegrity: "sha384-entry",
+  });
+
+  const slots = {
+    host: { base: "https://cdn.dev.test/host", entry: "remoteEntry.host.js" },
+    ui: { base: "https://cdn.dev.test/ui", entry: "remoteEntry.ui.js" },
+    api: { base: "https://cdn.dev.test/api", entry: "remoteEntry.api.js" },
+    auth: { base: "https://cdn.dev.test/auth", entry: "remoteEntry.auth.js" },
+  };
+
+  const bodies = new Map<string, string>(
+    Object.values(slots).map((slot) => [
+      `${slot.base}/versions/${slot.entry}.json`,
+      JSON.stringify(makeManifest(slot.entry)),
+    ]),
+  );
+
+  const slot = (
+    name: keyof typeof slots,
+    opts: { withDevForm?: boolean; withPin?: boolean } = {},
+  ) => {
+    const base = `${slots[name].base}/`;
+    const pinManifest = `versions/${slots[name].entry}.json`;
+    const bodyKey = `${slots[name].base}/versions/${slots[name].entry}.json`;
+    const ref = {
+      ...(opts.withDevForm === false ? {} : { development: `local:${name}` }),
+      production: base,
+      ...(opts.withPin === false
+        ? {}
+        : { pin: { manifest: pinManifest, integrity: sri(bodies.get(bodyKey)!) } }),
+    };
+    return ref;
+  };
+
+  const config = BosConfigSchema.parse({
+    account: "child.near",
+    domain: "child.dev",
+    app: {
+      host: slot("host"),
+      ui: slot("ui"),
+      api: slot("api"),
+      auth: { name: "@everything-dev/auth-plugin", ...slot("auth", { withDevForm: false }) },
+    },
+  });
+
+  const unpinnedConfig = BosConfigSchema.parse({
+    account: "child.near",
+    domain: "child.dev",
+    app: {
+      host: slot("host", { withPin: false }),
+      ui: slot("ui", { withPin: false }),
+      api: slot("api", { withPin: false }),
+      auth: {
+        name: "@everything-dev/auth-plugin",
+        ...slot("auth", { withDevForm: false, withPin: false }),
+      },
+    },
+  });
+
+  beforeEach(() => {
+    clearSlotVersionCache();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const body = bodies.get(String(input));
+        if (body === undefined) return new Response("nope", { status: 404 });
+        return new Response(body, { status: 200 });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("derives pinned remote slots in development exactly like production", async () => {
+    const runtime = await buildRuntimeConfig(config, process.cwd(), "development");
+
+    expect(runtime.host.source).toBe("remote");
+    expect(runtime.host.entryUrl).toBe(`${slots.host.base}/${slots.host.entry}`);
+    expect(runtime.ui.entryUrl).toBe(`${slots.ui.base}/${slots.ui.entry}`);
+    expect(runtime.api.entryUrl).toBe(`${slots.api.base}/${slots.api.entry}`);
+    expect(runtime.auth?.entryUrl).toBe(`${slots.auth.base}/${slots.auth.entry}`);
+    expect(runtime.auth?.integrity).toBe("sha384-entry");
+  });
+
+  it("skips unpinned remote slots silently in development", async () => {
+    const runtime = await buildRuntimeConfig(unpinnedConfig, process.cwd(), "development");
+
+    expect(runtime.host.entryUrl).toBeUndefined();
+    expect(runtime.auth?.entryUrl).toBeUndefined();
+  });
+
+  it("degrades a failed pin fetch to warn-and-skip in development", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("offline", { status: 503 })),
+    );
+
+    const runtime = await buildRuntimeConfig(config, process.cwd(), "development");
+
+    expect(runtime.host.entryUrl).toBeUndefined();
+    expect(runtime.auth?.entryUrl).toBeUndefined();
+  });
+
+  it("still throws loudly on an unpinned remote slot in production", async () => {
+    await expect(buildRuntimeConfig(unpinnedConfig, process.cwd(), "production")).rejects.toThrow(
+      /pins no version manifest/,
+    );
   });
 });

@@ -3,7 +3,7 @@ import type { DecoratedMiddleware, Implementer } from "@orpc/server";
 import { ORPCError } from "@orpc/server";
 import { Context } from "effect";
 import type { AuthContextShape } from "everything-dev/api";
-import type { ContractType } from "./contract";
+import type { ContractType, InferOutput } from "./contract";
 import type { DatabaseTag } from "./db/layer";
 import {
   AuthApiTag,
@@ -22,7 +22,7 @@ import type { PasskeysService } from "./services/passkeys";
 import type { PermissionsService } from "./services/permissions";
 import type { SessionService } from "./services/session";
 import type { TeamsService } from "./services/teams";
-import { createHeaders } from "./utils";
+import { createHeaders, getActiveOrganizationId } from "./utils";
 
 export type AuthSessionUser = PluginServices["auth"]["$Infer"]["Session"]["user"];
 
@@ -46,15 +46,25 @@ export type AuthEffectServices =
 export type AuthHandlerContext = AuthContextShape &
   WithEffectContext<AuthEffectServices> & {
     reqHeaders?: Record<string, string>;
+    session?: NonNullable<InferOutput<"getContext">["session"]> | null;
   };
 
 export type AuthHandlerAuthedContext = Omit<AuthHandlerContext, "user"> & {
   user: AuthSessionUser;
+  userId: string;
+  sessionId: string | null;
+  activeOrganizationId: string | null;
 };
 
 export type RequireAuthMiddleware = DecoratedMiddleware<
   AuthHandlerContext,
-  { userId: string; user: AuthSessionUser; reqHeaders?: Record<string, string> },
+  {
+    userId: string;
+    user: AuthSessionUser;
+    sessionId: string | null;
+    activeOrganizationId: string | null;
+    reqHeaders?: Record<string, string>;
+  },
   any,
   any,
   any
@@ -67,11 +77,24 @@ export function createRequireAuth(
     let user = (context.user as AuthSessionUser | null | undefined)?.id
       ? (context.user as AuthSessionUser)
       : null;
-    if (!user) {
+    let sessionId: string | null = null;
+    let activeOrganizationId: string | null = null;
+
+    if (user) {
+      sessionId = context.session?.id ?? null;
+      activeOrganizationId =
+        getActiveOrganizationId(context.session) ??
+        context.organization?.activeOrganizationId ??
+        null;
+    } else {
       const { auth } = Context.get(context["effect/context"], AuthApiTag);
       const headers = createHeaders(context.reqHeaders);
       const session = await auth.api.getSession({ headers });
       user = session?.user ?? null;
+      if (session?.session) {
+        sessionId = session.session.id;
+        activeOrganizationId = getActiveOrganizationId(session.session);
+      }
     }
 
     if (!user?.id) {
@@ -89,6 +112,8 @@ export function createRequireAuth(
       context: {
         userId: user.id,
         user,
+        sessionId,
+        activeOrganizationId,
         reqHeaders: context.reqHeaders,
       },
     });

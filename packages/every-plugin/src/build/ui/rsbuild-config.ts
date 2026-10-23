@@ -137,6 +137,7 @@ export function createUiRsbuildConfig(options: UiRsbuildConfigOptions): RsbuildC
               target: "react",
               autoCodeSplitting: true,
               routeFileIgnorePattern: "\\.(test|spec)\\.(ts|tsx)$",
+              generatedRouteTree: path.join(workspaceRootAbsolute, "src/routeTree.gen.ts"),
               ...(routesDirectory ? { routesDirectory } : {}),
             }),
             new FixMfDataUriPlugin(),

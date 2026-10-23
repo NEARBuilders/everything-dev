@@ -1,5 +1,5 @@
 import { Data } from "effect";
-import type { AppOrchestrator } from "../service-descriptor";
+import type { AppOrchestrator } from "../services/dev/service-descriptor";
 import type { RuntimeConfig } from "../types";
 
 export interface CliPorts {

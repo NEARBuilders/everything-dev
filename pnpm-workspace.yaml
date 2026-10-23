@@ -40,6 +40,7 @@ catalog:
   "@rspack/cli": 2.2.6
   "@rspack/core": 2.2.8
   "@scure/base": ^2.2.0
+  "@simplewebauthn/browser": ^13.3.0
   "@tanstack/ai": 0.61.0
   "@tanstack/ai-openai": 0.24.1
   "@tanstack/ai-react": 0.29.1
@@ -59,16 +60,16 @@ catalog:
   "@types/react-dom": ^19.2.3
   aws4fetch: ^1.0.20
   better-auth: 1.7.7
-  better-near-auth: ^2.0.0-rc.1
+  better-near-auth: ^2.0.0-rc.4
   drizzle-kit: ^0.31.8
   drizzle-orm: ^0.45.1
   effect: 4.0.0-rc.117
-  every-plugin: ^3.0.0-rc.6
-  everything-dev: ^2.0.0-rc.10
+  every-plugin: ^3.0.0-rc.10
+  everything-dev: ^2.0.0-rc.18
   near-kit: ^0.20.2
   pg: ^8.12.0
-  react: 19.2.4
-  react-dom: 19.2.4
+  react: 19.2.9
+  react-dom: 19.2.9
   sirv: 3.0.2
   typescript: ^7.0.2
   vitest: ^4.1.8
@@ -79,7 +80,9 @@ linkWorkspacePackages: true
 ignoreScripts: true
 overrides:
   "@better-fetch/fetch": 1.3.2
+  "@effect/platform-node": 4.0.0-rc.117
+  "@effect/platform-node-shared": 4.0.0-rc.117
   "@rspack/core": 2.2.8
   better-auth: 1.7.7
-  react: 19.2.4
-  react-dom: 19.2.4
+  react: 19.2.9
+  react-dom: 19.2.9

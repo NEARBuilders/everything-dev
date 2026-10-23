@@ -1,12 +1,16 @@
 import "@orpc/experimental-effect/extensions/effect";
+import { join } from "node:path";
 import { call, implement } from "@orpc/server";
 import { and, eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
+import {
+  createDatabaseDriver,
+  loadMigrations as loadSharedMigrations,
+  runMigrations,
+} from "everything-dev/db";
 import type { AuthPermissionStatements } from "../src/auth-config";
 import { type AuthConfig, createAuthInstance } from "../src/auth-instance";
 import { type ContractType, contract, type InferInput, type InferOutput } from "../src/contract";
-import { createDatabaseDriver } from "../src/db";
-import { loadMigrations, migrate } from "../src/db/migrate";
 import * as schema from "../src/db/schema";
 import { createAdminUsersHandlers } from "../src/handlers/admin-users";
 import { createApiKeyHandlers } from "../src/handlers/api-keys";
@@ -26,6 +30,11 @@ import type { PluginServices } from "../src/service-types";
 import { buildAuthServicesLayer } from "../src/service-wiring";
 
 const TEST_DB_URL = "pglite::memory:";
+
+const loadMigrations = loadSharedMigrations({
+  fromDir: join(import.meta.dirname, "../src/db"),
+  virtual: () => import("virtual:drizzle-migrations.sql"),
+});
 
 export const TEST_PERMISSIONS: AuthPermissionStatements = {
   statements: {
@@ -80,10 +89,10 @@ export async function createTestServices(
   configOverrides?: Partial<AuthConfig>,
   secrets?: { email?: { resend?: string } },
 ) {
-  const driver = await createDatabaseDriver(TEST_DB_URL);
+  const driver = await createDatabaseDriver(TEST_DB_URL, schema);
   const { migrations } = await Effect.runPromise(loadMigrations);
   if (migrations.length > 0) {
-    await Effect.runPromise(migrate(driver.db, migrations));
+    await Effect.runPromise(runMigrations(driver.db, migrations));
   }
   const auth = createAuthInstance(
     {

@@ -20,11 +20,5 @@ export function registerOps(builder: BosBuilder) {
       const ops = yield* OpsService;
       return yield* ops.kill(input);
     }),
-
-    infraExport: builder.infraExport.effect(function* (_opts, input) {
-      const session = yield* ResolutionSessionService;
-      const ops = yield* OpsService;
-      return yield* ops.infraExport(session, input.configDir);
-    }),
   };
 }

@@ -119,3 +119,47 @@ describe("requirePermission", () => {
     });
   });
 });
+
+describe("pass-through middleware keeps the caller context intact", () => {
+  type ChildContext = AuthContextShape & { "effect/context": { fiber: number } };
+  const builder = os.$context<ChildContext>();
+  const { requireAuth, requireAuthOrApiKey, requirePermission } =
+    createAuthMiddleware<ChildContext>(builder);
+
+  const authOrApiKeyRoute = builder
+    .use(requireAuthOrApiKey)
+    .handler(({ context }) => context["effect/context"].fiber);
+
+  const permissionRoute = builder.use(requirePermission("thing", "read")).handler(() => "ok");
+
+  const narrowedThenPassThroughRoute = builder
+    .use(requireAuth)
+    .use(requireAuthOrApiKey)
+    .handler(({ context }) => context["effect/context"].fiber);
+
+  const childContext: ChildContext = {
+    userId: "requester",
+    user: { role: "member" },
+    "effect/context": { fiber: 7 },
+  };
+
+  it("passes the route context through unchanged from auth-or-api-key", async () => {
+    await expect(call(authOrApiKeyRoute, undefined, { context: childContext })).resolves.toBe(7);
+  });
+
+  it("composes pass-through after narrowed middlewares without dropping context keys", async () => {
+    await expect(
+      call(narrowedThenPassThroughRoute, undefined, { context: childContext }),
+    ).resolves.toBe(7);
+  });
+
+  it("still enforces the permission guard itself", async () => {
+    const authedPermissionContext: ChildContext = { ...childContext };
+    await expect(
+      call(permissionRoute, undefined, { context: authedPermissionContext }),
+    ).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      data: { requiredPermissions: ["thing:read"] },
+    });
+  });
+});

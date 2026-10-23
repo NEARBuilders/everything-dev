@@ -2,7 +2,7 @@
 name: registry
 description: Read and write the FastKV config registry efficiently — key layout, namespace=signer semantics, integrity, and composing published runtimes into the local authored config. Use when publishing configs, composing another runtime's UI/host/api/plugins, or debugging why a published config doesn't resolve.
 metadata:
-  sources: "packages/everything-dev/src/services/registry/fastkv.ts,packages/everything-dev/src/services/deploy/train.ts,packages/everything-dev/src/services/auth/signer.ts,packages/everything-dev/src/near-signer.ts,packages/everything-dev/src/registry-use.ts,packages/everything-dev/src/plugin.ts"
+  sources: "packages/everything-dev/src/services/registry/fastkv.ts,packages/everything-dev/src/services/deploy/train.ts,packages/everything-dev/src/services/auth/signer.ts,packages/everything-dev/src/services/auth/near-signer.ts,packages/everything-dev/src/services/registry/use.ts,packages/everything-dev/src/plugin.ts"
 ---
 
 # FastKV Registry — Efficient Read & Write
@@ -22,6 +22,8 @@ Consequences:
 
 ```
 apps/<account>/<gateway>/bos.config.json          # a published runtime config
+apps/<account>/<gateway>/platform.json            # the platform release manifest (ADR 0034, full trains only)
+apps/<account>/<gateway>/manifests/<ts>.json      # per-deploy audit manifest (cross-references the other two by SRI)
 nostr/<account>                                    # (contextual.near) NEAR↔nostr identity binding
 ```
 
@@ -33,6 +35,8 @@ https://kv.test.fastnear.com/...                                            # te
 ```
 
 Or in code: `fetchBosConfigFromFastKv("bos://<account>/<gateway>")` from `everything-dev/fastkv`.
+
+The `platform.json` slot carries the platform release manifest (ADR 0034): framework/every-plugin versions, the release catalog, exact shared-dep versions, the hashed template inventory, and the compat floor — image `ref` + tags, never the digest. It is written by the deploy train on the **same atomic transaction** as the config and the audit manifest (a third `registryEntries` key — all three land or none do), rides only framework-rooted production trains (children and config-only publishes write nothing), and its compat floor derives from the previous release: a registry failure reading that release skips the manifest for that deploy rather than publishing a wrong window. Children resolve it through the extends chain like the catalog — the root runtime owns it.
 
 ## Writing (bos publish)
 

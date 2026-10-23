@@ -17,12 +17,12 @@ import { emitCoreUiStubs } from "every-plugin/build/ui";
 import { containerName } from "every-plugin/identity";
 import { composeVersionManifest } from "every-plugin/version-manifest";
 import { writeResolvedConfig } from "../../packages/everything-dev/src/config";
+import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/services/deploy/version-manifest";
 import {
   checkFederationTrain,
   resolveAuthWorkspace,
-} from "../../packages/everything-dev/src/federation-train";
+} from "../../packages/everything-dev/src/services/federation/train";
 import { openResolution } from "../../packages/everything-dev/src/services/resolution/session";
-import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/version-manifest-deploy";
 
 /**
  * Local production fixture rewriting (ADR 0009): a section named in the plan
@@ -316,6 +316,11 @@ const ports = {
   authUi: basePort + 4,
 };
 
+// One plugin→port mapping for the whole staging plan — auth serves on its own
+// slot port, the other local plugins are indexed from basePort+10.
+const pluginPort = (key: string): number =>
+  key === "auth" ? ports.auth : basePort + 10 + localPlugins.findIndex(([k]) => k === key);
+
 const sri384 = (bytes: string | Uint8Array): string =>
   `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
 
@@ -416,7 +421,8 @@ const stage = () => {
 
   // Namespace staging (plan 043): the same artifacts laid out at the exact
   // paths the /bundles/* FS route serves — bundles/<account>/<gateway>/<ws>/.
-  // The prod image's runtime points BOS_BUNDLE_DIR here. The template plugin
+  // The regression image's runtime stage points BOS_BUNDLE_DIR here (the
+  // deployment `runtime` stage is CDN-only — ADR 0021). The template plugin
   // is not staged: it stays registered and is built + uploaded by the deploy
   // train, so at boot its own-namespace miss falls through to the network
   // (unified resolution policy) and it loads from the CDN like a child.
@@ -471,17 +477,13 @@ const stage = () => {
       pin: pins.authUi,
     },
     plugins: Object.fromEntries(
-      localPlugins.map(([key]) => {
-        const port =
-          key === "auth" ? ports.auth : basePort + 10 + localPlugins.findIndex(([k]) => k === key);
-        return [
-          key,
-          {
-            production: slotUrl(port, key),
-            pin: pins[key],
-          },
-        ];
-      }),
+      localPlugins.map(([key]) => [
+        key,
+        {
+          production: slotUrl(pluginPort(key), key),
+          pin: pins[key],
+        },
+      ]),
     ),
   };
 
@@ -528,7 +530,7 @@ const stage = () => {
     if (key === "auth") continue;
     servers.push({
       dir: `dist/plugins/${key}`,
-      port: basePort + 10 + localPlugins.findIndex(([k]) => k === key),
+      port: pluginPort(key),
       ...(nsBase ? { basePath: `${nsBase}/${key}` } : {}),
     });
   }

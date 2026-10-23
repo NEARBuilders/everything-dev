@@ -119,26 +119,32 @@ export function ThingsLiveStreamPage() {
         />
       ) : (
         <ItemGroup data-testid="things-live-events">
-          {events.map(({ receiptId, event }) => (
-            <Item key={receiptId} variant="outline" size="sm" role="listitem">
-              <ItemContent className="min-w-0">
-                <ItemTitle className="max-w-full">
-                  <Badge variant={actionVariant(event.action)}>{event.action}</Badge>
-                  <Link
-                    to="/things/$thingId"
-                    params={{ thingId: event.thingId }}
-                    className="truncate font-mono text-foreground underline-offset-4 hover:underline"
-                  >
-                    {event.thingId}
-                  </Link>
-                </ItemTitle>
-                <ItemDescription>
-                  <span className="font-mono">{event.type}</span>
-                  <span aria-hidden="true"> · </span>
-                  <LocalDate value={event.timestamp} format="time" />
-                </ItemDescription>
-              </ItemContent>
-            </Item>
+          {events.map(({ receiptId, event }, index) => (
+            <div
+              key={receiptId}
+              className={index === 0 ? "animate-item-enter motion-reduce:animate-none" : undefined}
+            >
+              <Item variant="outline" size="sm" role="listitem">
+                <ItemContent className="min-w-0">
+                  <ItemTitle className="max-w-full">
+                    <Badge variant={actionVariant(event.action)}>{event.action}</Badge>
+                    <Link
+                      to="/things/$thingId"
+                      params={{ thingId: event.thingId }}
+                      viewTransition
+                      className="truncate font-mono text-foreground underline-offset-4 hover:underline"
+                    >
+                      {event.thingId}
+                    </Link>
+                  </ItemTitle>
+                  <ItemDescription>
+                    <span className="font-mono">{event.type}</span>
+                    <span aria-hidden="true"> · </span>
+                    <LocalDate value={event.timestamp} format="time" />
+                  </ItemDescription>
+                </ItemContent>
+              </Item>
+            </div>
           ))}
         </ItemGroup>
       )}

@@ -1,13 +1,13 @@
 ---
 name: init-upgrade
-description: bos init, bos sync, bos import, and bos upgrade workflows — template download, snapshot-based conflict detection, workspace import from upstream repos with divergence reporting, package version bumps, and how init/sync select and own files. Use when scaffolding new projects, syncing upstream changes, importing a workspace subtree from another repo, or upgrading framework packages.
+description: bos init, bos import, and bos upgrade workflows — template download, snapshot-based conflict detection, workspace import from upstream repos with divergence reporting, platform pin movement (ADR 0034), and how init/upgrade select and own files. Use when scaffolding new projects, importing a workspace subtree from another repo, or upgrading framework packages.
 metadata:
-  sources: "packages/everything-dev/src/cli/init.ts,packages/everything-dev/src/services/scaffold/sync.ts,packages/everything-dev/src/services/scaffold/import.ts,packages/everything-dev/src/handlers/import.ts,packages/everything-dev/src/services/scaffold/upgrade.ts,packages/everything-dev/src/services/scaffold/snapshot.ts,packages/everything-dev/src/cli.ts,packages/everything-dev/src/services/resolution/merge.ts"
+  sources: "packages/everything-dev/src/cli/init.ts,packages/everything-dev/src/services/scaffold/init-flow.ts,packages/everything-dev/src/services/scaffold/sync.ts,packages/everything-dev/src/services/scaffold/import.ts,packages/everything-dev/src/handlers/import.ts,packages/everything-dev/src/services/scaffold/upgrade.ts,packages/everything-dev/src/services/scaffold/snapshot.ts,packages/everything-dev/src/cli/commands/scaffold.ts,packages/everything-dev/src/services/resolution/merge.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
 
-# bos init, sync, import, upgrade
+# bos init, import, upgrade
 
 ## bos init
 
@@ -26,7 +26,7 @@ bos init --overrides ui,api,host                          # Include host locally
 4. Filter plugins: only included plugins + their routes are copied
 5. `personalizeConfig()` — sets `extends`, `account`, `domain`, removes production URLs
 6. `resolveWorkspaceRefs()` — normalizes each workspace `package.json`: rewrites `file:`/`workspace:*` refs to `catalog:`, ensures all workspace packages are listed in root `workspaces.catalog`, pins framework versions (`everything-dev`, `every-plugin`)
-7. Write initial snapshot (`.bos/sync-snapshot.json`) — records file path → content hash for all template-origin files, used later by `bos sync` for conflict detection
+7. Write initial snapshot (`.bos/sync-snapshot.json`) — records file path → content hash for all template-origin files, used later by `bos upgrade` for conflict detection
 8. `pnpm install` + `bos types gen`
 
 ## Shared Host + Custom Child App
@@ -107,50 +107,113 @@ Use the `extends-config` skill when reasoning about how the tenant config merges
 - Selected plugin workspaces (`plugins/<selected-plugin>/**`)
 - GitHub workflows (`.github/templates/**` → `.github/`)
 
-### Sync Ownership Model
+### Upgrade Ownership Model
 
-`bos sync` uses the init snapshot plus `FRAMEWORK_OWNED_SYNC_FILES` to decide what it may overwrite.
+`bos upgrade` uses the init snapshot plus the ownership inventory (`src/services/scaffold/ownership.ts` — `FRAMEWORK_OWNED_SYNC_FILES`, the per-plugin predicate, `AGENT_SYNC_GLOBS`; ADR 0032) to decide what it may overwrite.
 
-Framework-owned files are updated when the template changes, for example build configs, generated wiring, and shared runtime scaffolding.
-
-App-owned files are left alone unless the local file still matches the recorded snapshot or you pass `--force`, for example:
+Framework-owned files are updated when the template changes — build configs, shared runtime wiring, `drizzle.config.ts` (journal policy), agent-skill content. App-owned files are never considered, for example:
 - `ui/src/components/**`
 - `ui/src/routes/**`
+- `ui/src/router.tsx`, `ui/src/app.ts`
 - `api/src/contract.ts`
 - `api/src/index.ts`
-- `api/src/db/schema.ts`
+- `api/src/db/**` — the database seam (ADR 0033): the seam file layer, the schema, and the migrations are the app's, free to swap
+- `plugins/*/src/lib/context.ts` — the plugin's request-context schema
 
-Generated files are regenerated separately and are not the source of truth for sync decisions.
+Generated files are regenerated separately and are not the source of truth for upgrade decisions.
 
-## bos sync
+**Editing framework-owned files is allowed** (ADR 0032): when the template later changes, the template version is applied and your copy is backed up under `.bos/sync-backup/`. To make a local change permanent, file an issue at https://github.com/NEARBuilders/everything-dev/issues — the framework team implements it upstream and ships it in package versions.
 
-Pulls updates from the parent template:
+### Porting the vendored db trio (ADR 0033 prompt)
+
+Children scaffolded before ADR 0033 carry the old sync-owned `src/db/{index,layer,migrate}.ts` trio (~180 lines). Sync no longer manages those paths and the old copies keep working — but hand an agent this prompt to port a workspace to the shrunk seam:
+
+```text
+Port <workspace> to the ADR 0033 database seam:
+1. Replace <workspace>/src/db/{index,layer,migrate}.ts with a single ~15-line
+   src/db/layer.ts: declare `DatabaseTag` (Context.Service, id "<pluginId>/Database",
+   shape PgDatabase<PgQueryResultHKT, typeof schema>), the `Database` type alias,
+   a workspace-bound `loadMigrations` (loadMigrations from "everything-dev/db"
+   with fromDir: import.meta.dirname and virtual: () => import("virtual:drizzle-migrations.sql")),
+   and `DatabaseLive(config: { pluginId: string; secrets: { <SLUG>_DATABASE_URL: string } })`
+   calling `databaseLayer(DatabaseTag, config.secrets.<SLUG>_DATABASE_URL,
+   { pluginId: config.pluginId, schema, migrations: loadMigrations, namespace: <true|false> })`.
+   namespace: false only for the api shell (public schema) and auth (dedicated database).
+2. Keep src/db/schema.ts, src/db/migrations/, and drizzle.config.ts untouched.
+3. Re-point `type { Database } from "./db"` imports to "./db/layer"; import
+   DatabaseError/unwrapDatabaseError from "everything-dev/db" directly.
+4. `DatabaseLive(config)` now takes the initialize input (pluginId + secrets) —
+   update the plugin's initialize call site.
+5. In tests, drop any `Layer.succeed(PluginIdTag, ...)` provision for the db layer;
+   provide fakes with `Layer.succeed(DatabaseTag, fakeDb)` instead.
+6. Run the workspace's test suite and `pnpm run typecheck`.
+```
+
+## bos upgrade
+
+Children are **pinned snapshots** (ADR 0034): init derives the child's `platform` field from the parent's resolved platform release manifest, the authored config records it, and only `bos upgrade` moves it. There is no `bos sync` — everyday work never touches framework-owned files.
 
 ```bash
-bos sync                 # Sync from extends reference
-bos sync --force         # Overwrite even locally modified files
-bos sync --dry-run       # Preview without writing changes
+bos upgrade              # Re-pin to the parent's latest release + reconcile the template
+bos upgrade --dry-run    # Preview version bumps
+bos upgrade --check      # CI drift alarm (ADR 0034): exit 1 when updates are available
 ```
+
+### Flow
+1. Resolve the platform release manifest through the extends chain (unpinned — the upgrade itself is the pathway that moves the pin). When one resolves, its catalog is the version source (one registry read)
+2. Stamp the new `platform` pin in the authored config (restores a missing pin too — e.g. a child scaffolded with `--source`)
+3. Bump the root `package.json` catalog + all workspace refs to `catalog:`, then `pnpm install` + `bos types gen`
+4. **Pre-flight:** run the staged template sync as a dry-run first — any conflict between a child hand-edit and a template change aborts the whole run, listing the conflicted files and the upstream-issue URL
+5. Run the real sync, migrate the root package manifest, reconcile shared deps, and re-exec the remaining migration phases with `--from <previousVersion>` (internal)
 
 ### Snapshot-based conflict detection
 
-Uses `.bos/sync-snapshot.json` to track which files came from the template and their hashes:
+Uses `.bos/sync-snapshot.json` (written by init/import/upgrade) to track which files came from the template and their hashes:
 
 | Local state | Template changed? | Action |
 |------------|-------------------|--------|
 | No local file | Yes | Add |
 | Matches snapshot | Yes | Update (safe) |
-| Modified since snapshot | Yes | Skip (unless `--force`) |
+| Modified since snapshot | Yes | Conflicted — aborts the run listing the file + the upstream-issue URL; `--force` applies the template and backs your copy up to `.bos/sync-backup/` |
 | Matches template | No | Skip |
 
-Framework-owned files (from `FRAMEWORK_OWNED_SYNC_FILES`) are always updated when changed.
+The gate is **all-or-nothing**: one conflicted file blocks the entire sync step — never a partial template application. Re-run with `--force` to accept the template everywhere conflicting; your forks land in `.bos/sync-backup/` to diff and merge back.
 
-### What gets synced
+### Same-version upgrades never touch framework-owned files (ADR 0032)
 
-From parent template → local:
-- `app.*.production` — bundle URLs
-- `app.api.shared`, `app.auth.shared`, `plugins.*.shared` — dependency versions
-- Framework-owned files (rsbuild configs, routers, etc.)
+When the framework version does not change, the template sync is skipped entirely — framework-owned files are only reconciled at a version change.
+
+### Package ref strategy
+
+Workspace packages use `catalog:` refs so a single version bump in root catalog propagates everywhere. Skips `workspace:*` and `file:` refs.
+
+### Release-scoped sources (ADR 0034)
+
+The upgrade (and the sync it drives) fetches the parent template at the **release tag** — the pinned-and-stamped framework version's `v<version>` ref — not `main` HEAD, and pins the framework's own reusable-workflow refs in `.github/workflows/*.yml` to `@v<version>` (third-party actions are never repointed). The snapshot records `release` (the resolved sha/ref) beside `parentRef` for provenance.
+
+## the `platform` pin (ADR 0034)
+
+A child records **one** field in `bos.app.ts`:
+
+```ts
+export default App({
+  // …
+  platform: "2.0.0-rc.14",
+});
+```
+
+Everything else derives from the resolved **platform release manifest** (published to FastKV at `apps/<root-account>/<root-gateway>/platform.json` beside the config, and staged in-image): the release catalog (what `bos upgrade` bumps from), the image ref + version tag (`ref@v<version>` — the retired `ci.image` fails the deploy with a migration pointer), the release-scoped template source, and the compat contract (strict singletons must match the release's `sharedDeps`; the child's framework version must sit inside the release's compat window).
+
+Rules:
+- The pin is **exact** — no ranges. Resolution picks one manifest.
+- Field absent → latest manifest found via the `extends` chain (nearest wins). Offline, the cached `.bos/platform-manifest.json` (gitignored) resolves.
+- An explicit pin the chain cannot satisfy **fails loud** — publish the release or clear the pin.
+- Inspect what resolves: `bos platform manifest` (the booted host self-describes from the in-image copy). `--check` runs the compat gate against the local workspace and exits 1 on violations.
+- `bos init` without `--source` stamps the pin from the resolved manifest; a local-template init (source dir) leaves the pin off — the next `bos upgrade` stamps it from whatever release then resolves.
+
+What the upgrade reconciles from the parent template:
+- framework-owned files (build configs, workflow wrappers, db/lib plumbing — ADR 0032/0033)
+- `package.json` deps/scripts/workspaces inside the template's override scopes
 
 What stays local:
 - `account`, `testnet` — your NEAR accounts
@@ -158,29 +221,7 @@ What stays local:
 
 ### extends handling
 
-Sync reads the `extends` field (string or object form) to find the parent. For object extends, uses the `production` URL to locate the template source.
-
-## bos upgrade
-
-Bumps `everything-dev` and `every-plugin` across all workspaces:
-
-```bash
-bos upgrade              # Check for new versions, update, then sync
-bos upgrade --dry-run    # Preview without making changes
-```
-
-### Flow
-1. Check npm registry for latest versions of `everything-dev` and `every-plugin`
-2. Update root `package.json` workspaces.catalog
-3. Update all workspace `package.json` to use `catalog:` references
-4. `pnpm install` + `bos types gen`
-5. Run `bos sync` to pull template updates matching new version
-6. Rewrite legacy UI imports (e.g., `from "@/auth"` → `from "@/app"`)
-7. Remove obsolete files
-
-### Package ref strategy
-
-Workspace packages use `catalog:` refs so a single version bump in root catalog propagates everywhere. Skips `workspace:*` and `file:` refs.
+Upgrade reads the `extends` field (string or object form) of the authored `bos.app.ts` to find the parent. For object extends, uses the `production` URL to locate the template source.
 
 ## bos import
 
@@ -274,18 +315,18 @@ Unknown keys go after known keys. See `everything-dev#extends-config` for full o
 
 **"Scaffold a child that extends the base runtime."** `bos init --extends bos://<parent-account>/<gateway> --account <you>.near --domain <your.domain> --no-interactive`, then customize `account` / `domain` / `app.ui` in the authored config; init's tail runs `pnpm install` + `bos types gen` (unless `--no-install`).
 
-**"Sync reports conflicted files."** Your local edits diverged from the snapshot; upgrade applies the template version and leaves your copy in `.bos/sync-backup/` — diff and merge back, or `bos sync --force` deliberately.
+**"Sync/upgrade reports conflicted files."** Upgrade refuses atomically — nothing was applied. Your local edits diverged from the init snapshot AND the template changed since your pin. Diff the listed files; if the template should win re-run with `--force` (your copies land in `.bos/sync-backup/`), re-apply your change on top, or port it upstream by filing an issue (ADR 0032).
 
 **"Import a workspace from the base platform."** `bos import <workspace> --dry-run` (defaults to the extends chain; or `--from <owner/repo>` for an explicit upstream) first, read `.bos/import-report.md` for the conflict/migration/route picture, then real-run: plain invoke prompts in a TTY, `--yes` applies upstream over conflicts (backed up), and a flagged migration chain stays held until reconciliation.
 
-**"Upgrade framework packages."** `bos upgrade --dry-run` first, then `bos upgrade` — it bumps the root catalog, rewrites workspace refs to `catalog:`, syncs the template, and rewrites legacy imports.
+**"Upgrade framework packages."** `bos upgrade --dry-run` first, then `bos upgrade` — it re-pins `platform` (ADR 0034), bumps the catalog, rewrites workspace refs to `catalog:`, and reconciles the template. With **no version change** the template sync is skipped (ADR 0032): framework-owned files are only reconciled when the framework version actually changes.
 
 ## What comes back when it refuses
 
 | word | do |
 |---|---|
-| file listed as `conflicted` in sync results | local file modified since the snapshot AND the template changed — take the template version (your copy is backed up at `.bos/sync-backup/`) or re-apply your change on top |
-| sync keeps skipping my file | app-owned files that diverged from the snapshot are skipped without `--force`; framework-owned files always update when the template changes |
+| file listed as `conflicted` in upgrade results | local file modified since the snapshot AND the template changed — re-run with `--force` to take the template (your copy is backed up at `.bos/sync-backup/`) or re-apply your change on top |
+| my file is never touched by upgrade | app-owned files are never touched; framework-owned files only reconcile at a framework version change (ADR 0032) |
 | import exits 1 listing files | unresolvable conflicts (or a held migration chain) — read `.bos/import-report.md`, then re-run with `--yes` to apply upstream (local copies land in `.bos/import-backup/`), or port local changes manually first |
 | `Circular extends detected while resolving upgrade source` | the upgrade source's extends chain loops — resolve from a non-cyclic parent |
 | init copies fewer files than expected | `buildInitPatterns` filters to the selected plugins + their routes; pass `--overrides ui,api,host` to widen the scaffold |

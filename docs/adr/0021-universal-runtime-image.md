@@ -149,3 +149,29 @@ exists. The `regression` target keeps its staged dists and baked local config
 — it is a test fixture, built explicitly with `--target regression`, never
 the deployment artifact. A bare `bos start` with no identity and no mounted
 config fails with `StartConfigMissing` — loud, by design.
+
+## Amendment (2026-10-21): child pins via the platform manifest — `ci.image` is gone
+
+A child's deploy leg no longer treats a hand-pinned image as a root signal.
+The tier is now `Dockerfile at the config root || BOS_IMAGE` — a child cannot
+flip to root by config, so the #493 failure mode (a child setting `ci.image`,
+tier-flipping to root, and hard-failing the Railway leg on a digest it can
+never produce) cannot exist. `ci.image` is removed from the config schema
+entirely: a deploy fails fast with a migration pointer when the authored
+config carries it (the resolution session surfaces schema-stripped authored
+keys, so retired *and* mistyped keys are caught — the parse seam is lossless
+instead of silently stripping).
+
+The child's pin is `platform: "<version>"` (ADR 0034): the deploy resolves
+the manifest through the extends chain, derives `ref@v<version>`, resolves
+the tag's digest from the OCI distribution API, repoints the Railway service
+source to the pinned ref (`railway service source connect --image <ref:tag>`
+— project-scoped token, same context as the redeploy it already authorizes),
+then runs `redeploy --from-source`. The pin is by tag: the train's
+version/sha tags are append-only, and Railway's deployment history pins the
+exact digest each deployment pulled. With no manifest resolving (the additive
+fallback), the child keeps today's float redeploy. `--smoke` boots the pinned
+`image@digest` against the just-published config — "pulled bytes are what
+this train validated" now holds for children too. The decision table lives
+as pure data (`resolveDeployPlan` / `resolveRailwayStep`); the interpreter
+executes it without further decisions.

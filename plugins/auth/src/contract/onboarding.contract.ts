@@ -2,7 +2,7 @@ import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import { z } from "zod";
 import { Errors } from "./errors";
-import { onboardingCodeSummarySchema } from "./schemas";
+import { onboardingCodeSummarySchema, onboardingStatsSchema } from "./schemas";
 
 export const onboardingRoutes = {
   createOnboardingCode: oc
@@ -24,6 +24,7 @@ export const onboardingRoutes = {
     .input(
       z.object({
         organizationId: z.string().optional(),
+        eventId: z.string().optional(),
       }),
     )
     .output(z.array(onboardingCodeSummarySchema))
@@ -89,6 +90,20 @@ export const onboardingRoutes = {
         })
         .nullable(),
     )
+    .errors(Errors),
+
+  getOnboardingStats: oc
+    .route({ method: "GET", path: "/v1/auth/onboarding/stats" })
+    .input(
+      z.object({
+        month: z
+          .string()
+          .regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+          .optional(),
+        organizationId: z.string().optional(),
+      }),
+    )
+    .output(onboardingStatsSchema)
     .errors(Errors),
 
   redeemOnboardingCode: oc

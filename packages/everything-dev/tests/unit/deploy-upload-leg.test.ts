@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { localSriMap } from "../../src/services/deploy/diff";
+import type { BundleUploadResult, DistFile } from "../../src/services/deploy/storage";
 import { type StorageLegDeps, uploadWorkspaceBundle } from "../../src/services/deploy/upload-leg";
-import type { BundleUploadResult, DistFile } from "../../src/storage-upload";
 
 const archiveDir = mkdtempSync(join(tmpdir(), "upload-leg-"));
 const archivePath = join(archiveDir, "app.tar.gz");
@@ -92,6 +93,42 @@ describe("uploadWorkspaceBundle", () => {
     const outcome = await uploadWorkspaceBundle(baseInput({ workspaceKey: "app-ui", deps }));
     expect(outcome.kind).toBe("ok");
     expect(uploads).toEqual(["app-ui"]);
+  });
+
+  it("stays silent — detail lines are returned, never printed (sectioned renderer)", async () => {
+    const printed: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => printed.push(args.join(" "));
+    try {
+      const localSri = localSriMap(distFiles);
+      const deps = fakeDeps({
+        // The previous manifest's entry SRI matches the local hash — the
+        // skip decision — plus a file that left the dist.
+        resolveSlotVersion: async () => ({
+          files: { ...localSri, "stale.js": "sha384-stale" },
+        }),
+      });
+      const outcome = await uploadWorkspaceBundle(
+        baseInput({
+          deps,
+          previousPin: { manifest: "versions/v0.json", integrity: "sha384-prev" },
+        }),
+      );
+      expect(outcome.kind).toBe("ok");
+      if (outcome.kind === "ok") {
+        expect(outcome.detail).toMatchObject({
+          manifestFile: "versions/v1.json",
+        });
+        expect(outcome.uploaded).toBe(0);
+        expect(outcome.skipped).toBe(2);
+        expect(outcome.detail.notes.length).toBeGreaterThan(0);
+        expect(outcome.detail.notes.join("\n")).toContain("unchanged file(s)");
+        expect(outcome.detail.notes.join("\n")).toContain("version manifest versions/v1.json");
+      }
+    } finally {
+      console.log = log;
+    }
+    expect(printed).toEqual([]);
   });
 
   it("maps a memory-backend upload to the abort outcome", async () => {

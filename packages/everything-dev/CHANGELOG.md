@@ -1,5 +1,197 @@
 # everything-dev
 
+## 2.0.0-rc.18
+
+### Major Changes
+
+- 23d8bc1: Release-scoped child lifecycle (ADR 0034): children become pinned snapshots that move only through `bos upgrade`.
+
+  **Removed**
+
+  - `bos sync` is gone. The template-sync engine (`syncTemplate`) is now reachable only through `bos upgrade`, which gates it on the platform release manifest and the framework version delta. `bos sync` invocations in scripts/agents must be replaced with `bos upgrade`.
+
+  **Changed**
+
+  - `bos init` / `bos upgrade` stamp a `platform` pin (the framework release version) into the authored config; everyday resolution (sync, runtime boot) freezes to it, and the upgrade pathway is what moves it.
+  - Template sync is release-scoped: it resolves the platform release manifest (failing loud when none publishes) and pulls the release tag, not `main` HEAD. Workflow reusable-action pins are rewritten to `@v<version>`.
+  - The legacy `bos.config.json` scaffold path is retired from the template surface: `syncTemplate` reconciles TS-form children only (`bos.app.ts`).children scaffolded as JSON configs upgrade to the authored descriptor form.
+  - Upgrade preflight refuses to apply new framework packages while framework-owned files conflict with the upstream release; `--force` bypasses and backs up conflicting copies under `.bos/sync-backup/`.
+  - Init snapshots record the delivered (personalized) bytes of framework-owned files, so upgrade hand-edit detection compares against what the scaffold actually wrote.
+  - TS-form children now get their personalized workspace manifest and catalog in `personalizeConfig` (previously skipped by the JSON-config branch), so `catalog:` refs normalize on sync.
+  - The child-owned block protocol (`// child-owned-start|end` markers) lets hand-authored spans inside framework-owned files (e.g. `api/plugin.dev.ts` `variables`) survive reconciles without conflict.
+
+  **Fixed**
+
+  - TS-form children keep their authored identity fields (account/domain) across template sync instead of drifting back to the extends-derived defaults.
+
+### Minor Changes
+
+- 3b0bbd2: Adds the `HostingAdapter` seam and its Docker dev-substrate implementation (`everything-dev/hosting`, `everything-dev/hosting/docker`): the platform's single substrate-independent surface for operating runtime instances — deploy a digest-pinned image with `BOS_ACCOUNT`/`BOS_GATEWAY` identity env, health-gate on `/health`, observe, restart, stop. Alchemy is the control plane (in-process `Deploy.deploy`, local state ledger); no substrate resource types, ports, or networks cross the seam. First slice of the ADR 0035 deploy console.
+
+  `alchemy` ships as an **optional peer dependency** (satisfied by `devDependencies` in the framework repo): the packed tarball stays lean — consumers who never import `everything-dev/hosting/docker` (i.e. every child) install nothing new, and no naked install hits pnpm's un-approved-builds gate via alchemy's transitive `workerd`. Importers of the Docker adapter declare `alchemy` themselves.
+
+- 23d8bc1: RC path consolidation: remove two dead/duplicate CLI doors and the retired `ci.image` schema key.
+
+  - `bos infra export` is deleted — it had no consumers (the deploy workflow stopped calling it; the only other reference was its own test).
+  - `bos key generate` is deleted — `bos login --key` is the single publish-key minting path. The removed command printed the private key to stdout (a log-capture leak the code itself warned about); `bos login --key` exports to the near-cli-rs keystore instead. User-facing messages that pointed at `bos key generate` now point at `bos login --key`.
+  - The authored descriptor schema no longer accepts `ci.image` — a `bos.app.ts` that sets it now fails schema validation (it was already rejected at deploy time).
+
+- 8d87150: Sync preserves child-authored content in framework-owned files and children gain a blessed CI surface (#538):
+
+  - **Child-owned block protocol** — a framework-owned file may embed the span between `// child-owned-start` / `// child-owned-end` comments (shown around `variables` in `api/plugin.dev.ts`); sync lifts the span out of the local copy, splices it into the freshly built template content, and never reports it as a conflict. Marker-less local copies migrate once: the `variables: { … },` literal is lifted onto the protocol at the next sync.
+  - **Blessed child CI workflow** — `.github/workflows/ci-child.yml` ships as a child-owned placeholder (never in the framework-owned inventory); the template `ci.yml` shrinks to triggers + the pinned `consumer-ci` reusable call + the local `child-ci` call, with lint/typecheck/test and the platform-drift alarm moving into the reusable call itself. The merge gate asserts both calls (`needs: [ci, child-ci]`).
+
+- 8d87150: #536 — `bos types gen` is the complete hermetic local-resolution step: it now writes `.bos/bos.resolved-config.json` (same shape `bos dev`/`bos build` write) and as a regenerable step emits the core ui route tree, so a fresh checkout matches CI after one command. `bos typecheck` materializes the resolved config the same way. Also registers the `--env` / `--dry-run` / `--remote-plugins` flag schemas so the CLI parses them and `bos types gen --help` no longer crashes.
+- 8d87150: #537 — `/.well-known/version` now answers a `build` object with the serving build's identity: `frameworkVersion`, `everyPluginVersion`, `gitSha`, and `image.ref`/`tags`. The git sha rides the platform release manifest (optional `gitSha` field) composed identically in both publish homes — the FastKV publish train (deploy HEAD) and the in-image staging (`ARG BOS_GIT_SHA` build arg; CI and the local deploy train pass it, regression builds omit it and the field drops). The host remote can't read the in-image manifest file (its import URL is a CDN bundle), so the CLI orchestrator resolves it once at boot and injects it into the host server. Also fixes the latent `/.well-known/version` bug where the Effect promise was handed to `c.json()` un-awaited, serializing an empty object.
+
+### Patch Changes
+
+- 127afdf: Bump the digest-pinned Node base images to the October 21, 2026 security release (Node 24.22.1), fixing the Brotli decoder out-of-bounds write RCE (CVE-2026-111497), two TLS certificate hostname bypasses (CVE-2026-105483, CVE-2026-106069), DNS NUL truncation (CVE-2026-105482), and related advisories. Also bump react/react-dom from 19.2.4 to 19.2.9 to cover the React Flight RCE advisory (GHSA-xqc2-xf4c-x3h3) as defense-in-depth.
+
+## 2.0.0-rc.17
+
+### Patch Changes
+
+- 6d834dd: SSR compose integrity and deploy-gate hardening: the host compose verifies the pinned compose manifest's SRI on every fetch (a resolved config older than the deployed bundles now fails the compose loud instead of rendering a mixed tree), the deploy smoke's SSR check fails when the host serves the client-shell fallback, platform-manifest cache reads honor a 24h resolvedAt TTL, and remote preload hints are emitted server-side only.
+- Updated dependencies [6d834dd]
+  - better-near-auth@2.0.0-rc.4
+
+## 2.0.0-rc.16
+
+### Patch Changes
+
+- 0b54b8d: CLI failures now render the real error instead of `[CLI] [object Object]`: structured (non-`Error`) failures stringify through a shared formatter, the exit-path prints non-`CliError` failures too, and the upgrade migration phase prefers the re-exec'd child's parsed `error` field over raw stderr/stdout concatenation (#522).
+- 0b54b8d: Children can now author the ADR 0034 `platform: "<framework-version>"` pin in `bos.app.ts`: `AppDescriptorSchema` accepts it and the authored↔resolved round-trip (`toConfigInput` / `configInputToDescriptor` / the `bos.app.ts` serializer) carries it, so sync no longer strips the pin and exact-pin ("exact-or-loud") semantics are reachable (#520).
+- 0b54b8d: Release-scoped sync no longer hard-fails on `ref not found (v<version>)`: release tarballs try the canonical `v<version>` tag and then the changesets per-package tag (`everything-dev@<version>`), and child workflow wrappers pin the resolved `v` tag or, failing that, the resolved commit sha. The release train now also publishes the canonical `v<frameworkVersion>` tag (#519).
+- 0b54b8d: Fix the SSR authed-route 307 wall (#527): the root route's session resolver no longer seeds a null host-side session into the query cache — a null context session means "the host did not resolve one", not a verified sign-out. The freshly-seeded null was fresh for the guard's staleTime window, so `requireSession` trusted it and redirected to /login without ever running the session fetch, even with a valid cookie. The explicit signed-out entry (written by `clearAuthenticatedQueries`) still wins.
+- 0b54b8d: Sync and upgrade no longer break child installs with the parent's `workspace:^` specifiers (#521): every manifest the sync write path produces is normalized into child shape — `workspace:` specifiers for cataloged packages become `catalog:` and cross-field dep duplication is deduped (`dependencies` wins) — covering both the updated and conflicted outcomes. Also fixes the upgrade migration phase crashing with `EISDIR` on pnpm's symlinked `node_modules` entries (glob now ignores nested `node_modules`, unreadable entries are skipped) and makes the scaffolded `bos.app.ts` biome-clean (unquoted keys) so children pass the format check verbatim (#518).
+- 0b54b8d: Fix `bos upgrade --check` permanently exiting 1 on v2-layout children: the current catalog now reads from `pnpm-workspace.yaml` (via `readWorkspaceCatalog`, package.json fallback for v1) instead of package.json-only, and purely-additive chain-catalog entries no longer trip the drift alarm — only a pinned version that actually differs counts as drift (#524).
+
+## 2.0.0-rc.15
+
+### Minor Changes
+
+- db75ca0: Child deploys pin their runtime image via the platform release manifest (#493). `ci.image` is retired: the deploy fails fast with a migration pointer when an authored config sets it — children record `platform: "<version>"` and everything derives from the resolved manifest (the image ref `ref@v<version>`, the digest resolved from the registry at deploy time, the Railway service source repointed to the pin before `redeploy --from-source` pulls it, and the `--smoke` boot gate running against `image@digest`); the root runtime derives its build ref from `repository`. Internally, the post-publish legs are now a pure decision table (`resolveDeployPlan` + `resolveRailwayStep`) executed by a thin interpreter — tier precedence (digest handover > child pin > child inherit > root build) is data, not code order — and the resolution session surfaces schema-stripped authored keys (`unknownAuthoredKeys`) so retired or mistyped config keys fail the deploy instead of vanishing.
+- 609f31a: The database seam (ADR 0033): `everything-dev/db` gains `databaseLayer(tag, url, { pluginId, schema, migrations?, namespace? })` — the plugin author's whole database surface (driver acquireRelease, migrate-on-boot with the journal-scoped advisory lock, drift detection) providing the typed drizzle db on the plugin-owned tag, which is the swap seam: a different drizzle setup or a totally different storage situation is any other Layer for your own tag. `PluginInitializeInput` gains `pluginId: string` (the host's own id — no more `PluginIdTag` reads in plugin code; the tag stays provided for children's vendored layers). All workspaces' `src/db/` shrinks to a ~15-line plugin-owned `db/layer.ts` with namespaced tag ids (`"votes/Database"` etc.) — `src/db/index.ts` and `src/db/migrate.ts` are folded in and deleted, and `lib/context.ts` joins the db paths in leaving the sync-owned inventory (the drizzle-kit config stays owned — identity-driven wiring carrying journal policy). No codemod: existing children's trio copies keep working; port via the prompt in `everything-dev#init-upgrade`.
+- c66d5db: Framework-owned files: one inventory, honest markers, and same-version upgrades that leave them alone (ADR 0032). `bos upgrade` with no framework version change no longer runs the template sync — framework-owned files are only reconciled when the version actually changes (`bos sync` remains the explicit drift-pull). The ownership inventory moves to `services/scaffold/ownership.ts` (dropping the never-synced `tsconfig.contract.json` ghost), commentable owned files carry a canonical `FRAMEWORK-OWNED` header that says local edits are allowed and points at the upstream-issue protocol (https://github.com/NEARBuilders/everything-dev/issues), and the six files that kept lying "BE CAREFUL" headers after ADR 0023 (`ui/src/lib/api.ts`, `ui/src/lib/auth.ts`, `ui/src/routes/__root.tsx`, `ui/src/components/router-error.tsx`, plugin `ui/postcss.config.mjs`) are unmarked. Sync/upgrade output gains a shared outcome block, the upstream-issue protocol on conflicts, and an explicit "framework version unchanged" note; the init-upgrade skill's phantom `--force` flag is gone and the conflict table matches actual semantics (template applied, local backed up).
+- 5e22370: Platform release manifest — one pin, everything derived (ADR 0034). The deploy train composes a `PlatformReleaseManifest` per framework release and publishes it to two homes with byte-identical bytes: the FastKV pointer slot `apps/<account>/<gateway>/platform.json` (riding the atomic config write, SRI recorded in the per-deploy audit manifest) and the in-image copy generated inside the docker build (`packages/everything-dev/dist/platform-manifest.json`, self-described via `bos platform manifest`). Children record one exact `platform: "<framework-version>"` pin in `bos.app.ts` — catalog entries derive from the manifest, template sync pulls the release tag instead of the parent repo's main HEAD (reusable-workflow `@main` refs rewrite to the release tag, the sync snapshot records release provenance), and `bos upgrade --check` is CI's drift alarm (exit 1 when updates are available). The digest derives at `ref@v<version>` — it is never embedded or hand-pinned. Manifest-absent children keep today's behavior.
+
+### Patch Changes
+
+- eb19b65: `bos dev` sessions are now killable in every state (#507). An orphaned dev session — parent/wrapper killed so the CLI is reparented — used to crash-loop forever: the force-exit path referenced the session's log pipeline from out of scope (`ReferenceError: pipeline is not defined`), the orchestrator's `uncaughtException` handler swallowed the crash, and the 200ms orphan watchdog re-armed it eternally; even repeated `^C` just re-printed the error. The shutdown lifecycle is redesigned: the session exposes a single total `DevSessionHandle.shutdown("graceful" | "force")` instead of a seven-slot `DevSessionControls` record wired mutually between two scopes; the graceful→5s→force escalation ladder, orphan watchdog (now a scoped fiber), log-pipeline flush, process-group reaping, and registry unregistration all live inside the session where their resources live, each step individually guarded, with `process.exit` unconditional. `devApp` takes `(configDir, data, rendererLayer)` — the `DevSessionData` bundle callers already held — and the `startApp` alias is gone.
+- 994e186: Remove the passkey autofill input from the login page — passkey sign-in is now the explicit button only. The fake `autocomplete="username webauthn"` field (and the conditional-mediation request armed on page load) did nothing for visitors without a saved passkey and kept the browser's passkey sheet armed across view switches and navigation. Adds `cancelPasskeyCeremony()` and `isPasskeyCeremonyAborted()` to `everything-dev/ui/auth` so pending ceremonies are aborted when choosing another sign-in method, and ceremony aborts no longer surface as errors.
+- 5e22370: Speed up consumer CI: the reusable `consumer-ci.yml` now runs lint, typecheck, and test in parallel jobs (instead of one serial job), caches the pnpm store across runs, and caches generated types keyed on `bos.app.ts` so `bos types gen` is a no-op when the config is unchanged. Child repos using `lint-and-typecheck-gate` now depend on the `lint` and `typecheck` jobs.
+- Updated dependencies [5e22370]
+- Updated dependencies [609f31a]
+- Updated dependencies [2266306]
+  - every-plugin@3.0.0-rc.10
+  - better-near-auth@2.0.0-rc.3
+
+## 2.0.0-rc.14
+
+### Patch Changes
+
+- 4f1754e: The sync-owned db layer template keeps the api on public-schema topology (`schemaName` undefined) instead of namespacing it into `plugin_api` — reconciling the layer with `bos db doctor` (checks `public`), the drizzle-kit configs (no `schemaNames`), and every v1-upgraded database. Plugin workspaces keep `plugin_<slug>` isolation. Fixes #495.
+- 4f1754e: Fix the 2.0.0-rc.13 migration runner breaking every boot on workspaces with `ALTER TYPE ... ADD VALUE` migrations: the ADD VALUE pre-hoist ran against all migrations on every boot (42710 on migrated databases, 42704 on fresh ones) and never journaled the hoisted migrations. The runner now applies one committed transaction per migration under the journal-scoped advisory lock — ADD VALUE stays in-transaction (allowed since PG 12), each migration commits before the next runs, so a later migration can safely use a newly added enum value (the original 55P04 "unsafe use of new value" case), and every migration is hash-journaled. Fixes #502.
+
+## 2.0.0-rc.13
+
+### Minor Changes
+
+- ee049fd: Emit preload hints for composed plugin-UI remotes in SSR pages via new `getRemotePreloadLinks()` from `everything-dev/ui/head`. Plugin remote entries and their browser manifests were previously discovered only after the core remoteEntry executed and hydrate registered remotes, serializing document → remoteEntry → manifest → remoteEntry. The preload link attributes match the MF runtime's own load modes (plain no-cors script for entries, cors fetch for manifests) so the browser reuses the preloaded responses.
+
+### Patch Changes
+
+- Updated dependencies [4d98628]
+  - every-plugin@3.0.0-rc.9
+
+## 2.0.0-rc.12
+
+### Patch Changes
+
+- 5e6f95b: Drop the degraded-compose toast. A compose that degraded to the core-only tree
+  (dropped remote, digest mismatch, core-over-plugin shadowing) no longer surfaces an
+  infinite-duration "Some application features couldn't load" toast — `console.error`
+  and the `__CLIENT_PROGRESS__` debug channel remain the signals. The full-page
+  startup error UI is unchanged.
+- 483e1cb: fix(deploy): resolve the authored config before pipelined uploads start — a folder-form plugin ui upload starting mid-build read a config binding first initialized after the build phase and died with "Cannot access 'rawConfig' before initialization" after all workspaces built successfully
+- f94ed04: fix(deploy): ship better-near-auth in the universal runtime image — the CLI dist value-imports BOS_CLI_CLIENT_ID from it at boot (device-login), but the runtime stage never copied the workspace and it was declared only as an optional peer/devDep, so the smoke boot container died with ERR_MODULE_NOT_FOUND and rolled the deploy back. Now a declared dependency of the CLI (owning its runtime closure), copied into the runtime stage with a build-time boot assert that fails the image build instead of post-publish smoke.
+- Updated dependencies [5e6f95b]
+  - every-plugin@3.0.0-rc.8
+
+## 2.0.0-rc.11
+
+### Minor Changes
+
+- 88dbfd9: Deploy legs report structured outcomes and are runtime-tier aware: `bos deploy` exits 0 for consumer/child runtimes that publish successfully, instead of failing when the Railway leg cannot run. Each leg (image / smoke / railway) now carries `{ status: ok | skipped | failed, detail }` on the deploy result and the CLI renders a per-leg summary (✓ / – / ✗). A runtime that owns its image (`ci.image` configured or a Dockerfile at the config root) is "root" and keeps the hard gates — Railway requires a pinned digest. A runtime inheriting the universal image (ADR 0020/0021) is "child": the image and smoke legs soft-skip with a notice, and the Railway redeploy runs without a digest (`railway redeploy --from-source` is a reload trigger for the freshly published config; the token is project-scoped). "Config published, but the … leg(s) failed" names the failed legs. Child scaffolds declare `@opentelemetry/api` at the root so the `@better-auth/core` optional peer resolves — removing the recurring "Module not found" build warning in consumer CI (existing children are unaffected — the warning is cosmetic).
+- 522397c: Deploy output polish (ticket #431) — a sectioned train renderer with attributed warnings:
+
+  - **Sections**: Build / Upload / Publish render through a new `DeployTrainRenderService` (implemented by `cli/render/deploy-train.ts`), in deterministic target order — parallel upload units can no longer interleave their output. Image+Railway leg rows keep `renderDeployLegs`.
+  - **Attributed warnings**: `WorkspaceDeployResult` gains the structured `warnings` field the CLI was already rendering — build stderr is buffered per workspace, warning segments (rsbuild boxes, WARNING lines) are extracted and attributed to the workspace; raw stderr streams only under `--verbose`. `$ ` command echoes never count as warnings.
+  - **One line per workspace upload by default**: the ✓ line carries the aligned 28-char name column, the bundle base, upload/skip counts, and duration; detail lines (manifest-diff skips, the version-manifest pin row, source archive) print only under `--verbose`, indented under the workspace's named ✓ line — the version-manifest row is no longer a context-free empty-pad row that parallel uploads scatter across other workspaces' output. The upload leg itself is silent — it returns structured detail and the renderer decides.
+  - **Output snapshot tests** pin the section layout: column alignment, default-vs-verbose, the publish section (registry URL, fingerprint, slot pins, audit manifest), and the attributed warnings block. Image+Railway keep their existing leg rows (`renderDeployLegs`) — the one section that was already sectioned.
+
+- 1555405: Deploy speed (ticket #430), in the new service structure:
+
+  - **Content-hash rebuild oracle** behind the staleness seam: a Turborepo-style `contentHashStalenessOracle` (workspace tree + transitive local-dependency hashes + build-mode env, persisted at `.bos/build-cache.json`, unknown → build) replaces the deploy blanket force-rebuild of the prerequisite closure. On this repo (13 members) recording costs 765ms and a full freshness judgement 604ms — a warm deploy skips every fresh prerequisite instead of rebuilding them all. `--force-build` (and `BOS_FORCE_BUILD=1`) retains the forced-rebuild escape hatch.
+  - **Build concurrency capped** at ~`os.cpus()` (overridable per call via `concurrency`); unbounded parallel workspace builds oversubscribed 2–4 core CI runners.
+  - **Uploads concurrent and pipelined**: independent bundle keys upload with bounded concurrency (`BOS_UPLOAD_CONCURRENCY`, default 4) and each workspace's upload starts as its build completes instead of after the whole train; outcomes assemble in target order, so the published config is byte-identical to the serial train's, and the first failure in target order is the one thrown.
+  - **Redundant work trimmed**: the docker probe is skipped when an image digest is prebuilt (it could never reach the build branch), and the publish-confirmation wait tracks the submitted transaction — cheap history probes with a 2-probe trial window, then one authoritative read-back; a registry whose history never carries the tx falls back to plain equality polling. The preflight/idempotency config-fetch dedupe was attempted and reverted: the two readers normalize differently (raw JSON vs Zod-parsed), so comparing across them misdetects drift — config reads went 3→2, not 1. Pin-verification's manifest fetch is unchanged (the fetch is the propagation check it exists to be).
+
+  Timing on a fully representative deploy (real uploads + NEAR transaction) requires a funded run; the structural measurements above are from this repo's own workspace closure.
+
+- 92a39ec: Deploy train extracted to `services/deploy/` behind a `DeployTrainService` (ADR 0031 shape): the publish core, preflight, upload leg, rollback flow, and post-publish legs are now service modules with a typed error channel (`PublishTrainError` — preflight/build/reload/upload/missing-manifest/memory-backend/config-write/pin-verification/sign/submit/confirm kinds) replacing string-error overloads between the train and the handlers. Storage, registry reads, and signing are injectable `Context.Service` tags (`BundleStorage`, `RegistryStore`, `RegistrySigner`). Duplicated flows collapsed to one implementation each: the folder-form `-ui` sub-leg now runs the same workspace upload as the main bundle, the smoke-failure rollback and `bos rollback` share the snapshot republish path, and manifest SRI verification (rollback gate + slot resolution) is a single module. Auth guards validate the session/custody handles once per run instead of twice. Behavior-preserving; `bos deploy` and `bos plugin publish` call the same train.
+- a499320: The remaining command groups follow the plugin pattern end to end (ADR 0031): `ops` (`OpsService` — status/logs/kill/infra-export, including the deployed-version probe), `db` (`DbOpsService` — studio/doctor/repair, built over `DatabaseBindings`/`DrizzleKit`), `plugins` (`PluginAdminService` — add/remove/list/publish, closed over the deploy train at the composition root), `dev` (`DevFlowService` — the dev/start bootstrap and error-tag mapping), and `init` (`InitFlowService` — the full scaffold orchestration, timings included). Handlers are now thin adapters: yield the session, yield the service, return the contract result. Domain logic still reachable from `cli/` moved into `services/` behind thin facades — `services/status.ts` (was `cli/status.ts`), `services/infra.ts` (was `cli/infra.ts`), `services/db/{doctor,repair}.ts` (were `cli/db-*.ts`), `services/scaffold/prune.ts` (was `cli/prune.ts`) — the `cli/*` paths re-export unchanged surfaces. `infra/materializer` and `infra/planner` no longer import from `cli/` either. Behavior-preserving: same result shapes, error wording, timing phases, and exit semantics.
+- a499320: Package restructure (ADR 0031): `everything-dev` now follows the same `contract / handlers / services` shape as every other plugin. The public subpaths are unchanged in name and surface, but several now resolve to new sources — **if you deep-import source paths, update your imports**:
+
+  | Old source                                       | New source                                                                     |
+  | ------------------------------------------------ | ------------------------------------------------------------------------------ |
+  | `src/fastkv.ts`                                  | `src/services/registry/fastkv.ts`                                              |
+  | `src/fingerprint.ts`                             | `src/services/registry/fingerprint.ts`                                         |
+  | `src/dag.ts`                                     | `src/services/registry/dag.ts`                                                 |
+  | `src/resolver.ts`                                | `src/services/resolution/resolver.ts`                                          |
+  | `src/merge.ts` (internal)                        | `src/services/resolution/merge.ts`                                             |
+  | `src/resolution/session.ts`                      | `src/services/resolution/session.ts`                                           |
+  | `src/federation.ts`                              | `src/services/federation.ts`                                                   |
+  | `src/build.ts`                                   | `src/services/workspace/build-train.ts`                                        |
+  | `src/auth-login.ts`                              | `src/services/auth/device-login.ts`                                            |
+  | `src/near-signer.ts`                             | `src/services/auth/signer.ts`                                                  |
+  | `src/publish.ts`                                 | `src/services/deploy/train.ts`                                                 |
+  | `src/cli/{init,import,sync,upgrade,snapshot}.ts` | `src/services/scaffold/*.ts` (thin facades kept — `./cli/init` subpath stable) |
+  | `src/commands/*`                                 | `src/handlers/*.ts` as `.effect()` generators (directory deleted)              |
+
+  Domain highlights: the deploy train is `DeployTrainService` (`services/deploy/`), the workspace build train `BuildTrainService` (staleness oracle injectable), auth flows are `DeviceLoginService`/`SessionStore`/`SignerService` behind one `SiteClient` (oRPC error envelopes now surface the server's detail verbatim), registry services behind `FastKVRegistryService`, and the `BosDepsTag` grab-bag dissolved into real `Context.Service` tags handlers `yield*` (`ResolutionSessionService`, `DatabaseBindings`, `DrizzleKit`). The contract is the single flag source — `bos <command> --help` renders flags straight from the Zod option schemas (`contract.meta.ts` is a facade). All subpath exports (`./fastkv`, `./fingerprint`, `./dag`, `./resolver`, `./federation`, `./resolution`, `./config`, `./cli/init`, …) keep their names and type surfaces; `./config` consumers are unaffected (barrel re-exports the identical surface). Behavior-preserving throughout: same merge semantics, same exit codes, same login matrix, same build/deploy leg sequencing — pinned by the existing suites.
+
+- 4a7970c: SnapshotWatch adopt resolves the published pointer's extends chain; `walkExtendsChain`/`resolveMergedConfigInput` accept a `seedConfig`
+
+  - A child runtime's published pointer stores only its own overrides — slots inherited from its parent via `extends` (notably `app.host`) are absent. The adopt transaction built a runtime config straight from the raw pointer, so every adopt crashed with `Cannot read properties of undefined (reading 'production')` and the watch retried forever (backing off to 5 minutes). The adopt now derives the pointer through the same extends-walking pipeline the boot path uses, so inherited slots reach the runtime build and hot swaps work for `extends`-based child runtimes.
+  - The walk is seeded with the exact pointer bytes the watch fingerprinted (`seedConfig`) — no refetch of the entry itself, and fixture/historical pointers adopt without being published at their own URL. Parent nodes always load normally.
+  - No fallbacks: a pointer without a `domain` fails the adopt (there is no bos:// ref to resolve — never guess one), and the watch refuses to run against a `everything.dev`-guessed target — a domain-less production boot config disables the watch with a loud error instead of silently polling another runtime's pointer.
+  - An unresolvable extends chain fails the adopt with a surfaced cause and leaves the live snapshot untouched, per the adopt contract.
+
+### Patch Changes
+
+- 1555405: A bogus `BOS_BUNDLE_DIR` normalizes to unset instead of warning
+
+  An empty, whitespace-only, or quoted-empty value (e.g. the literal two characters `""` from a quoting mistake in a deployment env) is treated as unset — the runtime boots in the registry tier silently, with no `staged namespace … not found under ""` warning. A genuinely-set-but-missing bundle dir still warns, now with the value `JSON.stringify`'d so quoting mistakes are self-evident.
+
+- 374594e: oRPC v2 test scaffolds and skills: `RPCLink` snippets now teach `origin` plus a relative `url` (`StandardUrl` — a concatenated absolute URL fails typechecking at the link boundary), and client-side error guidance matches on `error.code` rather than message (oRPC v2 does not transport undefined-error messages). The `_template` integration test and the every-plugin request-context test were switched from message assertions to code assertions.
+- 422c23c: Fix three rc-train child boot problems (#462–#464):
+
+  - `createAuthMiddleware` pass-through middlewares (`requireAuthOrApiKey`, `requirePermission`) now declare their output context as `Record<never, never>` instead of `Record<string, never>` — oRPC's `IntersectPick` forced the old shape to provide every context key (including the required `"effect/context"`), failing typecheck at every `.use()` call site on rc-train contracts (#464).
+  - Version-manifest pin derivation no longer wholesale-skips development: pinned remote slots derive `entryUrl`/integrity in dev too, so dev children consuming remote production slots stop hanging forever probing the fixed-name `remoteEntry.js` that hash-canonical bundles never serve. Unpinned dev remote slots skip silently and a failed pin fetch degrades to warn-and-skip in dev; the unpinned/failed-in-production hard throw is unchanged (#463).
+  - `bos init` defaults its extends prompt (placeholder and default) to the production row `bos://dev.everything.near/everything.dev` — the staging row `dev.everything.near/dev.everything.dev` is still published from the superseded stable train and bricks rc-train children extending it (#462).
+
+- 5b07be1: Regression harness hardening residue (#344, post-#299 checks): the container leg now honors a non-4100 `REGRESSION_BASE_URL` port — `start-container.mjs` adds an explicit runner-port → container-start-port docker map when they differ, and fails loud when the base URL's port collides with the container's fixed 1:1 port block (previously the health probe hung the full 240s budget against a port nobody listens on). The staged layout loader reuses the layout's own base port instead of re-deriving it. `container-build.ts` dedupes the plugin→port mapping into one `pluginPort` helper used by both the slot plan and the static-server layout. The test-plugin fixture drops its dead `eslint-disable` comment (this repo runs Biome; the live `biome-ignore` stays).
+
+  The other #344 findings were already fixed on main and verified here: fail-loud `REGRESSION_VARIANT`, uniform health-loop sleep, live `spawnSync("docker rm")` status checks, 2s DB probe timeout, early-container-exit short-circuit, and stale-container reaping in `start-container.mjs`; the canonical sanitiser import in `container-build.ts`; the corrected `ssr-compose.spec.ts` project docblock.
+
+- 5b07be1: Template hygiene: AGENTS.md and plugin template teach the v2 pnpm world (#454/#456). The scaffolded AGENTS.md gains the ADR 0026 never-use-bun rule (CI fails on `bun.lock`) and a docker-daemon-hangs troubleshooting line; `plugins/_template/README.md` no longer teaches `bun install`/`bun run dev`, points standalone dev at `pnpm`, references the generated rspack config instead of a hand-authored one, and sends plugin authors to the authored descriptor (`bos.app.ts`, or `bos.config.json` in JSON-form projects). A new integration test scaffolds a full child project and runs `biome check .` with the scaffolded config, so sync-owned files stay lint-clean by construction.
+- Updated dependencies [a499320]
+- Updated dependencies [374594e]
+  - better-near-auth@2.0.0-rc.2
+  - every-plugin@3.0.0-rc.7
+
 ## 2.0.0-rc.10
 
 ### Minor Changes

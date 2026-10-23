@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer } from "effect";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SignerService } from "../../src/services/auth/signer";
 import { BundleStorage, RegistryStore } from "../../src/services/deploy/deps";
 import { PublishTrainError } from "../../src/services/deploy/errors";
@@ -26,8 +26,8 @@ vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/near-signer", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/near-signer")>();
+vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/auth/near-signer")>();
   return {
     ...actual,
     resolveSigningStrategy: resolveSigningStrategyMock,

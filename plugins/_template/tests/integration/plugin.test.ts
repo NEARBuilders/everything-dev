@@ -33,13 +33,15 @@ describe("Template Plugin Integration Tests", () => {
       await client.createThing({ thingId: "dup-id", payload: { kind: "note" } });
       await expect(
         client.createThing({ thingId: "dup-id", payload: { kind: "note" } }),
-      ).rejects.toThrow("already exists");
+      ).rejects.toMatchObject({ code: "CONFLICT" });
     });
 
     it("should reject fetching a missing thing with NOT_FOUND", async () => {
       const client = await getPluginClient({ userId: "user123" });
 
-      await expect(client.getThing({ thingId: "missing-thing" })).rejects.toThrow("not found");
+      await expect(client.getThing({ thingId: "missing-thing" })).rejects.toMatchObject({
+        code: "NOT_FOUND",
+      });
     });
   });
 });

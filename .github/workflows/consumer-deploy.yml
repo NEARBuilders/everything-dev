@@ -4,11 +4,13 @@ name: Consumer Deploy
 # repo. The caller owns triggers, permissions policy, and secrets (pass
 # `secrets: inherit` or map them explicitly). Runs the child's deploy command
 # (`pnpm run bos deploy`) from `working_directory`. Legs are tier-aware: a
-# child runtime (no `ci.image`, no Dockerfile) inherits the root's universal
-# image, so the image and smoke legs soft-skip; the Railway leg redeploys
-# without a digest when `RAILWAY_TOKEN` + `ci.railway.service` are set, and
-# soft-skips otherwise. The deploy exits 0 whenever the config publishes and
-# no leg failed — `RAILWAY_TOKEN` is optional.
+# child runtime (no Dockerfile) inherits the root's universal image — its
+# image ref derives from the platform release manifest (`platform` pin,
+# ADR 0034), the Railway leg repoints the service source to that pin and
+# redeploys, and the smoke gate boots the pinned digest when `smoke: true`.
+# A root runtime (Dockerfile or BOS_IMAGE) builds/pushes and pins the digest.
+# The deploy exits 0 whenever the config publishes and no leg failed —
+# `RAILWAY_TOKEN` is optional.
 
 on:
   workflow_call:
@@ -20,6 +22,11 @@ on:
         default: .
       verbose:
         description: Show full build output instead of clean summary
+        required: false
+        type: boolean
+        default: false
+      smoke:
+        description: Boot-gate the pinned image against the published config before Railway
         required: false
         type: boolean
         default: false
@@ -36,7 +43,7 @@ permissions:
 jobs:
   deploy:
     name: Deploy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     defaults:
       run:
@@ -49,7 +56,7 @@ jobs:
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 (Node 24)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
@@ -68,9 +75,28 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Deploy (preflight → build → upload → publish → image → Railway)
+      # The Railway deploy leg shells out to the `railway` CLI — runners don't
+      # ship it, and a missing binary surfaces as a failed leg after the config
+      # has already published ("Config published but Railway CLI not found").
+      # Pinned to the current major; bump deliberately.
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli@^5
+
+      - name: Deploy (preflight → build → upload → publish → image → smoke → Railway)
         timeout-minutes: 35
-        run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}
+        run: pnpm run bos deploy${{ inputs.verbose == true && ' --verbose' || '' }}${{ inputs.smoke == true && ' --smoke' || '' }}

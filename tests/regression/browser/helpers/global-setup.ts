@@ -96,7 +96,6 @@ export default async function globalSetup() {
   await migrateTestDatabase({
     migrationsDir: "api/src/db/migrations",
     databaseUrl: regressionEnv.dbUrls.API_DATABASE_URL,
-    schemaName: "plugin_api",
   });
   await seedMemberFixtures({ authDatabaseUrl, secret });
   console.log(`[global-setup] refreshed member fixtures`);

@@ -211,6 +211,7 @@ export function normalizeAuthConfig(
       },
     },
     passkey: variables.passkey,
+    referral: variables.referral,
     deviceLink: { clientId: variables.deviceLink?.clientId ?? DEFAULT_DEVICE_LINK_CLIENT_ID },
     phoneNumber:
       secrets.TWILIO_ACCOUNT_SID && secrets.TWILIO_AUTH_TOKEN && secrets.TWILIO_PHONE_NUMBER

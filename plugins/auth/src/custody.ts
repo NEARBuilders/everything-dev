@@ -4,7 +4,7 @@ import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthEndpoint, sessionMiddleware } from "better-auth/api";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import type { Database } from "./db";
+import type { Database } from "./db/layer";
 import * as schema from "./db/schema";
 import { createSealedBox } from "./sealed-box";
 

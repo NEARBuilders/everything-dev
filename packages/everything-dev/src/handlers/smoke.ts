@@ -1,6 +1,6 @@
 import { Effect } from "effect";
+import { runSmoke } from "../services/deploy/smoke";
 import { ResolutionSessionService } from "../services/resolution/session";
-import { runSmoke } from "../smoke";
 import type { BosBuilder } from "./shared";
 
 export function registerSmoke(builder: BosBuilder) {

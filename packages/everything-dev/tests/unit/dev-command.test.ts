@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type { DevSessionData, StartSummary } from "../../src/dev-program";
 import { registerDev } from "../../src/handlers/dev";
 import type { BosBuilder } from "../../src/handlers/shared";
-import { DevFlowService } from "../../src/services/dev-flow";
+import { DevFlowService } from "../../src/services/dev/flow";
+import type { DevSessionData, StartSummary } from "../../src/services/dev/session";
 import { ResolutionSession, ResolutionSessionService } from "../../src/services/resolution/session";
 import type { BosConfig, RuntimeConfig } from "../../src/types";
 
@@ -12,11 +12,18 @@ const mocks = vi.hoisted(() => ({
   startBootstrap: vi.fn(),
 }));
 
-vi.mock("../../src/dev-program", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/dev-program")>();
+vi.mock("../../src/services/dev/boot", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/dev/boot")>();
   return {
     ...actual,
     devBootstrap: mocks.devBootstrap,
+  };
+});
+
+vi.mock("../../src/services/start/boot", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/start/boot")>();
+  return {
+    ...actual,
     startBootstrap: mocks.startBootstrap,
   };
 });

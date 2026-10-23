@@ -1,5 +1,5 @@
-import { isAuthMirrorPluginEntry } from "../../service-descriptor";
 import type { JsonObject, RuntimeConfig, RuntimeDependencyNode } from "../../types";
+import { isAuthMirrorPluginEntry } from "../dev/service-descriptor";
 
 export interface DependencyDAG {
   nodes: Map<string, RuntimeDependencyNode>;

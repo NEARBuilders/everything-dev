@@ -2,14 +2,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { writeSessionHandle } from "../../src/auth-session";
+import { writeSessionHandle } from "../../src/services/auth/session";
 
 const { ensureDelegateKeyMock, submitRegistryWriteDelegatedMock } = vi.hoisted(() => ({
   ensureDelegateKeyMock: vi.fn(),
   submitRegistryWriteDelegatedMock: vi.fn(),
 }));
 
-vi.mock("../../src/delegate-signer", () => ({
+vi.mock("../../src/services/auth/delegate-signer", () => ({
   ensureDelegateKey: ensureDelegateKeyMock,
   submitRegistryWriteDelegated: submitRegistryWriteDelegatedMock,
 }));

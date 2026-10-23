@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { setSnapshotWatchIntervalForBoot } from "../../src/dev-program";
-import type { StartConfigSource } from "../../src/start-config-source";
+import { setSnapshotWatchIntervalForBoot } from "../../src/services/start/boot";
+import type { StartConfigSource } from "../../src/services/start/source";
 
 const REGISTRY_SOURCE: StartConfigSource = { registry: { account: "a.near", domain: "a.dev" } };
 const CONFIG_PATH_SOURCE: StartConfigSource = { configPath: "/app/bos.config.json" };

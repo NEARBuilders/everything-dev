@@ -160,7 +160,7 @@ export interface SIWNClientActions {
     getNearClient: (network?: "mainnet" | "testnet") => NearType;
   };
   signIn: {
-    near: (callbacks?: AuthCallbacks) => Promise<void>;
+    near: (callbacks?: AuthCallbacks, fetchOptions?: BetterFetchOption) => Promise<void>;
   };
 }
 
@@ -288,6 +288,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
   const initClientForNetwork = async (
     network: "mainnet" | "testnet",
     $fetch?: BetterFetch,
+    hasSession?: () => boolean,
   ): Promise<boolean> => {
     if (initializedNetworks.has(network)) return true;
     if (initPromises.has(network)) return initPromises.get(network)!;
@@ -351,7 +352,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
 
       initializedNetworks.add(network);
 
-      if ($fetch) {
+      // Session restore hits the session-gated /near/list-accounts endpoint;
+      // running it without a session is a guaranteed 401 on every anonymous
+      // first load. Only restore when the auth client reports a session —
+      // the sign-in transition below re-triggers the restore when a session
+      // appears after init.
+      if ($fetch && hasSession?.()) {
         void restoreFromSession($fetch);
       }
 
@@ -367,9 +373,9 @@ export const siwnClient = (config: SIWNClientConfig) => {
     }
   };
 
-  const initClient = async ($fetch?: BetterFetch): Promise<boolean> => {
+  const initClient = async ($fetch?: BetterFetch, hasSession?: () => boolean): Promise<boolean> => {
     const network = activeNetwork.get();
-    return initClientForNetwork(network, $fetch);
+    return initClientForNetwork(network, $fetch, hasSession);
   };
 
   let sessionRestored = false;
@@ -782,11 +788,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
       $store: ClientStore,
       _options: unknown,
     ): SIWNClientActions => {
-      void initClient($fetch);
-
       const sessionAtom = $store.atoms?.session;
+      const hasSession = () => Boolean(sessionAtom?.get()?.data?.user);
+      void initClient($fetch, hasSession);
+
       if (sessionAtom) {
-        let hadAuthenticatedSession = Boolean(sessionAtom.get()?.data?.user);
+        let hadAuthenticatedSession = hasSession();
         sessionAtom.subscribe(() => {
           const sessionData = sessionAtom.get()?.data ?? null;
           const hasAuthenticatedSession = Boolean(sessionData?.user);
@@ -799,6 +806,12 @@ export const siwnClient = (config: SIWNClientConfig) => {
             nearState.set(null);
             gasKeyState.set(null);
             sessionRestored = false;
+          }
+          if (!hadAuthenticatedSession && hasAuthenticatedSession) {
+            // The session arrived after init (the common path: the auth
+            // client fetches /getSession asynchronously) — restore the
+            // linked NEAR account state now that the endpoint can answer.
+            void restoreFromSession($fetch);
           }
           hadAuthenticatedSession = hasAuthenticatedSession;
         });
@@ -1131,7 +1144,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
           },
         },
         signIn: {
-          near: async (callbacks?: AuthCallbacks) => {
+          near: async (callbacks?: AuthCallbacks, fetchOptions?: BetterFetchOption) => {
             try {
               const { signedMessage, accountId, nonceHex, callbackUrl } = await signWithWallet();
               const net = activeNetwork.get();
@@ -1152,6 +1165,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
                     accountId,
                     callbackUrl,
                   },
+                  ...fetchOptions,
                 },
               );
 

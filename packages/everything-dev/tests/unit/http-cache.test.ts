@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearHttpCache, fetchJsonOrNull, httpCacheSize } from "../../src/http-client";
+import { clearHttpCache, fetchJsonOrNull, httpCacheSize } from "../../src/utils/http-client";
 
 describe("GET cache bound (#339)", () => {
   beforeEach(() => {

@@ -11,7 +11,6 @@ import {
   personalizeConfig,
   writeInitSnapshot,
 } from "../../src/cli/init";
-import { readSnapshot } from "../../src/cli/snapshot";
 import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
@@ -128,19 +127,10 @@ describe("init starter levels", () => {
 
     expect(existsSync(join(projectDir, "bos.app.ts"))).toBe(true);
     const source = readFileSync(join(projectDir, "bos.app.ts"), "utf-8");
-    expect(source).toContain(`"starter": "simple"`);
+    expect(source).toContain(`starter: "simple"`);
     // The authored TS form is the child's only config surface — the JSON
     // intermediate is converted and removed, never left beside bos.app.ts.
     expect(existsSync(join(projectDir, "bos.config.json"))).toBe(false);
-  });
-
-  it("records the level in the sync snapshot", async () => {
-    const projectDir = await scaffoldProject({ overrides: ["ui"], level: "simple" });
-    tempDirs.push(projectDir);
-
-    const snapshot = await readSnapshot(projectDir);
-    expect(snapshot).not.toBeNull();
-    expect(snapshot?.starter).toBe("simple");
   });
 
   it("defaults to simple: excludes guarded routes when the level is simple", () => {

@@ -10,7 +10,7 @@ interface FastKvListResponse {
   entries?: Array<FastKvEntry | null>;
 }
 
-import { fetchJsonOrNull, fetchRaw } from "../../http-client";
+import { fetchJsonOrNull, fetchRaw } from "../../utils/http-client";
 
 function getNetworkIdForAccount(accountId: string): NetworkId {
   return accountId.endsWith(".testnet") ? "testnet" : "mainnet";
@@ -113,6 +113,43 @@ export async function fetchBosConfigFromFastKv<T>(bosUrl: string, registry?: str
     `${getFastKvBaseUrlForAccount(accountId)}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId, registry))}/${encodeURIComponent(accountId)}/${key}`,
   );
   return parseFastKvConfigValue<T>(payload, bosUrl);
+}
+
+/**
+ * Read an arbitrary registry key under `apps/<account>/<gateway>/` — the
+ * well-known-slot seam (ADR 0034's `platform.json` lives beside the config).
+ * Absent key (404) → null; a network failure throws so callers can distinguish
+ * "the slot is empty" from "the slot is unreachable" (a swallowed error here
+ * would silently tighten a compat floor).
+ */
+export async function fetchRegistryKey<T>(
+  accountId: string,
+  gatewayId: string,
+  keyPath: string,
+  registry?: string,
+): Promise<T | null> {
+  const key = encodeURIComponent(`apps/${accountId}/${gatewayId}/${keyPath}`);
+  const payload = await fetchJson<FastKvListResponse>(
+    `${getFastKvBaseUrlForAccount(accountId)}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId, registry))}/${encodeURIComponent(accountId)}/${key}`,
+  );
+  const value = payload?.entries?.find(Boolean)?.value;
+  if (!value) return null;
+  if (typeof value === "string") return JSON.parse(value) as T;
+  return value as T;
+}
+
+/** Tolerant variant of {@link fetchRegistryKey} — any failure collapses to null. */
+export async function fetchRegistryKeyOrNull<T>(
+  accountId: string,
+  gatewayId: string,
+  keyPath: string,
+  registry?: string,
+): Promise<T | null> {
+  try {
+    return await fetchRegistryKey<T>(accountId, gatewayId, keyPath, registry);
+  } catch {
+    return null;
+  }
 }
 
 /** Read a published config from an already-built registry URL

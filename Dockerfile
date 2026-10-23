@@ -10,8 +10,15 @@
 # mirror copies upstream manifests verbatim, so the pinned digests are the
 # upstream ones.
 
-FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS builder
+FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS builder
 WORKDIR /app
+
+# The git SHA the build's bytes bake into the platform release manifest
+# (#537): docker contexts carry no .git, so the workflow / local deploy
+# train pass it as a build arg; omitted (regression builds) → the field
+# drops from the manifest instead of inventing a value. ARG stays a
+# Dockerfile-stub until this ENV brings it into the script's environment.
+ARG BOS_GIT_SHA
 
 # pnpm comes from Corepack — the root package.json `packageManager` field is
 # the single version source (ADR 0026 §5: the universal image is node-based
@@ -39,6 +46,12 @@ RUN test -e node_modules/.bin/every-plugin \
 RUN pnpm --filter every-plugin build
 RUN pnpm --filter better-near-auth build
 RUN pnpm --filter everything-dev build
+# The platform release manifest is generated in-build (ADR 0034): one
+# composer, two homes — the deploy train publishes the same bytes to the
+# FastKV pointer slot, the image stages them for self-description
+# (`bos platform manifest` reads it from the known path).
+ENV BOS_GIT_SHA=$BOS_GIT_SHA
+RUN node --import tsx scripts/generate-platform-manifest.ts
 RUN node --import tsx scripts/resolve-workspace-refs.ts
 
 # ── Dist build (ADR 0009): all workspaces the start stack serves ──
@@ -73,7 +86,10 @@ RUN rm -rf packages/everything-dev/src packages/everything-dev/skills \
     packages/every-plugin/src packages/every-plugin/skills \
            packages/every-plugin/CHANGELOG.md packages/every-plugin/README.md \
            packages/every-plugin/tsconfig*.json packages/every-plugin/vitest*.ts \
-           packages/every-plugin/bin
+           packages/every-plugin/bin \
+    packages/better-near-auth/src packages/better-near-auth/skills \
+           packages/better-near-auth/CHANGELOG.md packages/better-near-auth/README.md \
+           packages/better-near-auth/tsconfig.json packages/better-near-auth/vitest.config.ts
 
 # Clean broken workspace symlinks (the stripped workspaces leave dead links)
 RUN find node_modules -maxdepth 1 -type l ! -exec test -e {} \; -print -delete 2>/dev/null || true
@@ -81,7 +97,7 @@ RUN find node_modules -maxdepth 1 -type l ! -exec test -e {} \; -print -delete 2
 # ── Shared runtime base (ADR 0021): hardened user + env both final stages
 # inherit. The probe uses node's built-in fetch — no curl in the runtime
 # layers.
-FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime-base
+FROM ghcr.io/nearbuilders/mirror-node:24-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d AS runtime-base
 WORKDIR /app
 
 RUN addgroup -g 1001 -S appgroup && adduser -S appuser -u 1001
@@ -138,6 +154,13 @@ COPY --from=prod-builder --chown=appuser:appgroup /app/node_modules ./node_modul
 COPY --from=prod-builder --chown=appuser:appgroup /app/package.json .
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/everything-dev ./packages/everything-dev
 COPY --from=prod-builder --chown=appuser:appgroup /app/packages/every-plugin ./packages/every-plugin
+COPY --from=prod-builder --chown=appuser:appgroup /app/packages/better-near-auth ./packages/better-near-auth
+
+# Boot assert: the CLI dist's runtime imports must resolve inside the image —
+# a missing workspace (the better-near-auth dangling-symlink class) fails the
+# image build here instead of the post-publish smoke + config rollback.
+RUN node --input-type=module -e \
+      "await import('/app/packages/everything-dev/dist/services/auth/device-login.mjs')"
 
 # No BOS_BUNDLE_DIR (CDN-only) and no BOS_BUNDLE_CACHE_DIR (a self-activating
 # cache could serve older bundles after a reset or rollback); both remain

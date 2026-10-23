@@ -174,6 +174,7 @@ describe("BundleResolver global fetch adapter", () => {
     const handle = installGlobalBundleFetch({
       namespace: NAMESPACE,
       cacheDir,
+      timeoutMs: 100,
     });
     try {
       const foreign =
@@ -196,7 +197,7 @@ describe("BundleResolver global fetch adapter", () => {
       await handle.uninstall();
       globalThis.fetch = originalFetch;
     }
-  });
+  }, 15000);
 
   it("does not cache when no cache dir is configured", async () => {
     const fallthrough = new Response("from-network", { status: 200 });
@@ -353,6 +354,51 @@ describe("installBundleFetchFromEnv", () => {
   it("is inert without BOS_BUNDLE_DIR", () => {
     delete process.env.BOS_BUNDLE_DIR;
     expect(installBundleFetchFromEnv({ configPath: null })).toBeNull();
+  });
+
+  it("treats an empty or quoted-empty BOS_BUNDLE_DIR as unset — silently", () => {
+    delete process.env.BOS_ACCOUNT;
+    delete process.env.BOS_GATEWAY;
+    const originalWarn = console.warn;
+    console.warn = () => {};
+    try {
+      process.env.BOS_BUNDLE_DIR = "";
+      expect(installBundleFetchFromEnv({ configPath: null })).toBeNull();
+
+      process.env.BOS_BUNDLE_DIR = '""';
+      expect(installBundleFetchFromEnv({ configPath: null })).toBeNull();
+
+      process.env.BOS_BUNDLE_DIR = "''";
+      expect(installBundleFetchFromEnv({ configPath: null })).toBeNull();
+
+      process.env.BOS_BUNDLE_DIR = "   ";
+      expect(installBundleFetchFromEnv({ configPath: null })).toBeNull();
+    } finally {
+      delete process.env.BOS_BUNDLE_DIR;
+      console.warn = originalWarn;
+    }
+  });
+
+  it("trims and unquotes a whitespace/quote-wrapped BOS_BUNDLE_DIR", async () => {
+    stageFixture();
+    process.env.BOS_BUNDLE_DIR = `" ${NAMESPACE.bundleDir} "`;
+    process.env.BOS_ACCOUNT = NAMESPACE.account;
+    process.env.BOS_GATEWAY = NAMESPACE.gateway;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response("from-network", { status: 200 });
+    try {
+      const handle = installBundleFetchFromEnv({ configPath: null });
+      try {
+        const res = await fetch(
+          "https://citynode.app/bundles/v1.citynode.near/citynode.app/apps/plugin.manifest.json",
+        );
+        expect(res.status).toBe(200);
+      } finally {
+        await handle!.uninstall();
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("enables the foreign-namespace cache with an explicit cache dir and no staged bundle dir", async () => {

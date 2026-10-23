@@ -1,7 +1,7 @@
 import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { eq } from "drizzle-orm";
-import type { Database } from "./db";
+import type { Database } from "./db/layer";
 import * as schema from "./db/schema";
 
 export function organizationApproval(db: Database) {

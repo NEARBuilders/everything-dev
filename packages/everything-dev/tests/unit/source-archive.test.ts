@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { list as tarList } from "tar";
 import { afterEach, describe, expect, it } from "vitest";
-import { computeSriHash } from "../../src/integrity";
-import { buildSourceArchive } from "../../src/source-archive";
+import { computeSriHash } from "../../src/services/deploy/integrity";
+import { buildSourceArchive } from "../../src/services/deploy/source-archive";
 
 const tmpRoots: string[] = [];
 

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PortAllocatorLive } from "../../../src/app";
 import {
   buildEnvGenerated,
   buildLaunchSpec,
@@ -12,6 +11,7 @@ import {
   planInfra,
   workspaceKey,
 } from "../../../src/infra/planner";
+import { PortAllocatorLive } from "../../../src/infra/ports";
 import type { ResolvedPorts } from "../../../src/infra/types";
 import type { RuntimeConfig } from "../../src/types";
 
@@ -152,6 +152,43 @@ describe("buildServiceDescriptors", () => {
     const ports = stubResolvedPorts();
     const descs = buildServiceDescriptors(rc, ports);
     expect(descs.find((d) => d.key === "plugin:auth")).toBeUndefined();
+  });
+
+  it("spawns a plugin-ui unit for a remote auth mirror with a local ui override", () => {
+    const rc = stubRuntimeConfig({
+      auth: {
+        name: "auth",
+        url: "https://auth.example.com",
+        entry: "",
+        source: "remote",
+      },
+      plugins: {
+        auth: {
+          name: "auth",
+          url: "https://auth.example.com",
+          entry: "",
+          source: "remote",
+          ui: {
+            name: "auth-ui",
+            url: "",
+            entry: "",
+            source: "local",
+            localPath: "/tmp/auth-ui",
+            port: 3011,
+          },
+        },
+      },
+    } as Partial<RuntimeConfig>);
+    const ports = stubResolvedPorts({ plugins: { auth: { ui: 3011 } } });
+    const descs = buildServiceDescriptors(rc, ports);
+    expect(descs.find((d) => d.key === "plugin:auth")).toBeUndefined();
+    expect(descs.find((d) => d.key === "plugin-ui:auth")).toMatchObject({
+      key: "plugin-ui:auth",
+      source: "local",
+      port: 3011,
+      url: "http://localhost:3011",
+      localPath: "/tmp/auth-ui",
+    });
   });
 
   it("keeps plugins.auth as its own descriptor when it is not a mirror", () => {

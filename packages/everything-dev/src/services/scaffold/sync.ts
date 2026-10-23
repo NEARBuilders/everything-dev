@@ -1,98 +1,53 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { glob } from "glob";
 import { parse as parseYaml } from "yaml";
-import { loadAppDescriptorConfig } from "../../config";
-import type { SyncOptions, SyncResult } from "../../contract";
+import type { SyncResult } from "../../contract";
 import { materializeViaLayer } from "../../infra/materializer";
-import { syncResolvedSharedDeps } from "../../shared-deps";
 import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
-import { findWorkspaceRoot } from "../../workspace";
-import {
-  isPlainObject as isPlainObjectFromMerge,
-  mergeBosConfigWithTemplate,
-  resolveExtendsRef,
-} from "../resolution/merge";
+import { resolvePlatformManifest } from "../platform/manifest";
+import { loadInProcessDescriptor } from "../resolution/load";
+import { isPlainObject as isPlainObjectFromMerge, resolveExtendsRef } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
+import { readWorkspaceCatalog } from "../workspace/catalog";
+import { syncResolvedSharedDeps } from "../workspace/shared-deps";
+import { findWorkspaceRoot } from "../workspace/workspace";
 import {
   buildChildAgentsMd,
   buildChildRootScripts,
   extractSkillsBlock,
   personalizeConfig,
+  releaseRefCandidates,
   resolveSourceDir,
   runPnpmInstall,
   runTypesGen,
 } from "./init";
+import {
+  AGENT_SYNC_GLOBS,
+  CHILD_OWNED_BLOCK_START,
+  extractChildOwnedBlock,
+  FRAMEWORK_OWNED_SYNC_FILES,
+  spliceChildOwnedBlock,
+} from "./ownership";
 import { readSnapshot, writeSnapshot } from "./snapshot";
 
-const FRAMEWORK_OWNED_SYNC_FILES = new Set([
-  ".env.example",
-  ".gitignore",
-  "biome.json",
-  "bos.config.json",
-  "package.json",
-  ".changeset/config.json",
-  ".changeset/README.md",
-  ".github/workflows/ci.yml",
-  ".github/workflows/deploy.yml",
-  ".github/workflows/staging.yml",
-  ".github/workflows/release.yml",
-  "ui/package.json",
-  "ui/postcss.config.mjs",
-  "ui/tsconfig.json",
-  "api/package.json",
-  "api/plugin.dev.ts",
-  "api/rspack.config.js",
-  "api/tsconfig.json",
-  "api/src/lib/context.ts",
-  "api/drizzle.config.ts",
-  "api/src/db/index.ts",
-  "api/src/db/layer.ts",
-  "api/src/db/migrate.ts",
-  "api/src/global.d.ts",
-  "api/tests/types.d.ts",
-]);
+export * from "./ownership";
 
 /**
- * Files the scaffold previously sync-owned but has retired (ADR 0023) — the
- * generated `.gen` bootstrap stubs replaced them. During sync: a local copy
- * whose hash still matches the sync snapshot is deleted silently; a
- * hand-modified (or never-snapshotted) copy is backed up, then deleted. The
- * app's authored ui files (router.tsx, app.ts, lib, routes, components) are
- * NOT retired — they leave the sync list as app-owned files, untouched.
+ * Service-level sync options — deliberately narrower than the CLI contract's
+ * SyncOptionsSchema: `json` is a terminal-rendering concern and never crosses
+ * this seam.
  */
-export const RETIRED_SYNC_FILES = new Set([
-  "ui/src/entry.ts",
-  "ui/src/globals.d.ts",
-  "ui/src/hydrate.tsx",
-  "ui/src/router.server.tsx",
-  "ui/src/compose.ts",
-]);
+export interface TemplateSyncOptions {
+  dryRun?: boolean;
+  /** Overwrite conflicted files anyway (with a backup). Without it, anything
+   * the three-way comparison cannot resolve aborts the whole run — nothing is
+   * written, not even the clean updates. */
+  force?: boolean;
+  noInstall?: boolean;
+}
 
 type PackageJson = Record<string, unknown>;
-
-const AGENT_SYNC_GLOBS = [".agents/skills/**", "docs/agents/**", "skills-lock.json"];
-
-export function isFrameworkOwnedSyncFile(filePath: string): boolean {
-  if (FRAMEWORK_OWNED_SYNC_FILES.has(filePath)) return true;
-  if (
-    filePath.startsWith(".agents/skills/") ||
-    filePath.startsWith("docs/agents/") ||
-    filePath === "skills-lock.json"
-  )
-    return true;
-  // lib/auth.ts is NOT sync-owned since #207: the middleware factory lives in
-  // everything-dev/api (framework home); projects import it, they don't own a copy.
-  if (/^plugins\/[^/]+\/src\/lib\/context\.ts$/.test(filePath)) return true;
-  if (/^plugins\/[^/]+\/src\/db\/(index|layer|migrate)\.ts$/.test(filePath)) return true;
-  if (/^plugins\/[^/]+\/rspack\.config\.js$/.test(filePath)) return true;
-  if (/^plugins\/[^/]+\/drizzle\.config\.ts$/.test(filePath)) return true;
-  if (/^plugins\/[^/]+\/src\/global\.d\.ts$/.test(filePath)) return true;
-  if (/^plugins\/[^/]+\/tests\/types\.d\.ts$/.test(filePath)) return true;
-  if (/^plugins\/[^/]+\/tsconfig\.json$/.test(filePath)) return true;
-  if (/^plugins\/[^/]+\/tsconfig\.contract\.json$/.test(filePath)) return true;
-  return false;
-}
 
 function computeLocalHash(projectDir: string, filePath: string): string | null {
   const fullPath = join(projectDir, filePath);
@@ -120,48 +75,6 @@ function backupFiles(projectDir: string, filePaths: string[]): string | null {
   }
 
   return backupDir;
-}
-
-export interface RetiredSyncFilesResult {
-  /** unmodified stub copies — deleted (in a real run) */
-  retired: string[];
-  /** hand-modified or never-snapshotted stub copies — backed up, then deleted */
-  retiredConflicted: string[];
-  backupDir: string | null;
-}
-
-/**
- * Migrate a child off the retired bootstrap stub files (ADR 0023): unmodified
- * copies are deleted silently, hand-modified copies are backed up first. In
- * dry-run the actions are reported without touching the tree.
- */
-export function retireSyncedFiles(
-  projectDir: string,
-  snapshotFiles: Record<string, string>,
-  opts: { dryRun: boolean },
-): RetiredSyncFilesResult {
-  const retired: string[] = [];
-  const retiredConflicted: string[] = [];
-
-  for (const destPath of RETIRED_SYNC_FILES) {
-    const localHash = computeLocalHash(projectDir, destPath);
-    if (localHash === null) continue;
-    if (localHash === snapshotFiles[destPath]) {
-      retired.push(destPath);
-    } else {
-      retiredConflicted.push(destPath);
-    }
-  }
-
-  if (opts.dryRun || (retired.length === 0 && retiredConflicted.length === 0)) {
-    return { retired, retiredConflicted, backupDir: null };
-  }
-
-  const backupDir = backupFiles(projectDir, retiredConflicted);
-  for (const destPath of [...retired, ...retiredConflicted]) {
-    rmSync(join(projectDir, destPath));
-  }
-  return { retired, retiredConflicted, backupDir };
 }
 
 function mergeStringMaps(
@@ -302,6 +215,44 @@ export function mergePackageJson(
   return merged;
 }
 
+/**
+ * Child-shape normalization for every manifest sync writes (#521): the parent
+ * repo's own root manifest uses `workspace:^` specifiers, which only resolve
+ * where the framework packages are vendored workspace members. A child has no
+ * such members — any `workspace:` specifier that lands in a child manifest
+ * breaks the next `pnpm install --frozen-lockfile`. Runs on the merged (or
+ * raw-template) object before the bytes are written, so both the `updated`
+ * and `conflicted` outcomes land in child shape. A `workspace:` specifier
+ * without a catalog entry is left alone — there is no version to pin.
+ */
+export function normalizeChildManifest(pkg: PackageJson, catalog: Record<string, string>): boolean {
+  let modified = false;
+
+  for (const fieldName of ["dependencies", "devDependencies", "peerDependencies"] as const) {
+    const field = pkg[fieldName] as Record<string, string> | undefined;
+    if (!field) continue;
+    for (const [name, specifier] of Object.entries(field)) {
+      if (specifier.startsWith("workspace:") && catalog[name]) {
+        field[name] = "catalog:";
+        modified = true;
+      }
+    }
+  }
+
+  const dependencies = pkg.dependencies as Record<string, string> | undefined;
+  const devDependencies = pkg.devDependencies as Record<string, string> | undefined;
+  if (dependencies && devDependencies) {
+    for (const name of Object.keys(devDependencies)) {
+      if (name in dependencies) {
+        delete devDependencies[name];
+        modified = true;
+      }
+    }
+  }
+
+  return modified;
+}
+
 function toSourcePath(sourceDir: string, destPath: string): string | null {
   if (destPath.startsWith(".github/")) {
     const templatePath = destPath.replace(/^\.github\//, ".github/templates/");
@@ -318,12 +269,42 @@ function toSourcePath(sourceDir: string, destPath: string): string | null {
   return null;
 }
 
+/**
+ * Release-scoped workflow refs (ADR 0034 pt 4): when a platform manifest
+ * resolves, the child's *framework-owned* reusable-workflow wrappers pin the
+ * framework's version tag instead of `@main`. Only refs into the framework
+ * repo's own `.github/workflows/` repoint — third-party actions tracking
+ * `@main` are nobody's release contract. Applied at content-build time so the
+ * three-way hash comparison and the written bytes stay consistent.
+ */
+export function applyReleaseRefs(content: string, releaseTag: string): string {
+  return content.replace(
+    /(uses:\s*\S*everything-dev\/\.github\/workflows\/[^\s@]+@)main\b/g,
+    `$1${releaseTag}`,
+  );
+}
+
+/**
+ * The workflow pin derives from what the release tarball actually resolved
+ * from: the canonical `v<version>` tag when it resolved, otherwise the
+ * resolved commit sha. No resolved ref/sha → the release tag itself.
+ */
+export function resolveWorkflowReleasePin(
+  releaseTag: string,
+  resolvedRef?: string,
+  resolvedSha?: string,
+): string {
+  if (resolvedRef?.startsWith("v")) return resolvedRef;
+  return resolvedSha ?? releaseTag;
+}
+
 function buildSyncedFileContent(
   sourceDir: string,
   projectDir: string,
   filePath: string,
   explicitDestPath?: string,
   childScripts?: Record<string, string>,
+  release?: string,
 ): string | Uint8Array {
   const src = join(sourceDir, filePath);
   const destPath =
@@ -333,31 +314,48 @@ function buildSyncedFileContent(
       : filePath);
   const dest = join(projectDir, destPath);
 
-  if (filePath.endsWith("bos.config.json")) {
-    const localContent = existsSync(dest) ? readFileSync(dest, "utf-8") : null;
-    const templateContent = readFileSync(src, "utf-8");
-
-    if (localContent) {
-      const local = JSON.parse(localContent) as Record<string, unknown>;
-      const template = JSON.parse(templateContent) as Record<string, unknown>;
-      const merged = mergeBosConfigWithTemplate(local, template);
-      return `${JSON.stringify(merged, null, 2)}\n`;
-    }
-  }
-
   if (filePath.endsWith("package.json")) {
     const localContent = existsSync(dest) ? readFileSync(dest, "utf-8") : null;
     const templateContent = readFileSync(src, "utf-8");
+    const catalog = readWorkspaceCatalog(findWorkspaceRoot(projectDir)?.dir ?? projectDir);
 
     if (localContent) {
       const local = JSON.parse(localContent) as Record<string, unknown>;
       const template = JSON.parse(templateContent) as Record<string, unknown>;
       const merged = mergePackageJson(destPath, local, template, childScripts);
+      normalizeChildManifest(merged, catalog);
       return `${JSON.stringify(merged, null, 2)}\n`;
     }
+
+    const template = JSON.parse(templateContent) as Record<string, unknown>;
+    normalizeChildManifest(template, catalog);
+    return `${JSON.stringify(template, null, 2)}\n`;
   }
 
-  return readFileSync(src);
+  const raw = readFileSync(src);
+
+  // The child-owned block protocol (#538): framework-owned files carrying the
+  // markers get their marked span re-inserted from the child's local copy
+  // before any hash is computed — the splice happens at content-build time,
+  // so the side-by-side hash comparison and the written bytes agree. Files
+  // synced before the markers existed lift their `variables` literal onto the
+  // protocol on the first pass.
+  const template = raw.toString("utf-8");
+  if (template.includes(CHILD_OWNED_BLOCK_START) && filePath.endsWith("plugin.dev.ts")) {
+    const destPathLocal = join(projectDir, destPath);
+    if (existsSync(destPathLocal)) {
+      const childBlock = extractChildOwnedBlock(readFileSync(destPathLocal, "utf-8"));
+      if (childBlock) {
+        return spliceChildOwnedBlock(template, childBlock);
+      }
+    }
+    return template;
+  }
+
+  if (release && filePath.startsWith(".github/templates/workflows/")) {
+    return applyReleaseRefs(raw.toString("utf-8"), release);
+  }
+  return raw;
 }
 
 function writeSyncedFile(
@@ -366,6 +364,7 @@ function writeSyncedFile(
   filePath: string,
   explicitDestPath?: string,
   childScripts?: Record<string, string>,
+  release?: string,
 ): void {
   const destPath =
     explicitDestPath ??
@@ -376,8 +375,28 @@ function writeSyncedFile(
   mkdirSync(dirname(dest), { recursive: true });
   writeFileSync(
     dest,
-    buildSyncedFileContent(sourceDir, projectDir, filePath, destPath, childScripts),
+    buildSyncedFileContent(sourceDir, projectDir, filePath, destPath, childScripts, release),
   );
+}
+
+/**
+ * The child AGENTS.md the parent template's skills block personalizes to —
+ * shared by the dry-run preview and the write path so both agree on when
+ * AGENTS.md counts as drifted.
+ */
+function expectedChildAgentsMd(
+  sourceDir: string,
+  overrides: Array<"ui" | "api" | "host" | "plugins">,
+  childPlugins: string[],
+): { content: string; hash: string } | null {
+  const agentsMdSourcePath = toSourcePath(sourceDir, "AGENTS.md");
+  if (!agentsMdSourcePath) return null;
+  const skillsBlock = extractSkillsBlock(
+    readFileSync(join(sourceDir, agentsMdSourcePath), "utf-8"),
+  );
+  if (!skillsBlock) return null;
+  const content = buildChildAgentsMd(skillsBlock, { overrides, plugins: childPlugins });
+  return { content, hash: computeHash(content) };
 }
 
 async function getSelectedChildPlugins(
@@ -470,19 +489,30 @@ function hasPluginsWorkspace(projectDir: string): boolean {
   return false;
 }
 
-export async function syncTemplate(projectDir: string, options: SyncOptions): Promise<SyncResult> {
-  // Sync reads the user's authored config — the raw bos.config.json, or the
-  // materialized bos.app.ts descriptor for TS-form children — not the
-  // resolved config: it needs the user's explicit local settings (their
-  // extends ref, selected plugins, etc.). The resolved config is the merged
-  // result and would include inherited parent values that the user didn't
-  // explicitly choose, which would break sync filtering.
-  const tsFormChild = existsSync(join(projectDir, "bos.app.ts"));
-  const localConfig = (
-    tsFormChild
-      ? await loadAppDescriptorConfig(join(projectDir, "bos.app.ts"))
-      : JSON.parse(readFileSync(join(projectDir, "bos.config.json"), "utf-8"))
-  ) as Record<string, unknown>;
+export async function syncTemplate(
+  projectDir: string,
+  options: TemplateSyncOptions = {},
+): Promise<SyncResult> {
+  // Sync reads the user's authored config — the materialized bos.app.ts
+  // descriptor, not the resolved config: it needs the user's explicit local
+  // settings (their extends ref, selected plugins, etc.). The resolved config
+  // is the merged result and would include inherited parent values that the
+  // user didn't explicitly choose, which would break sync filtering.
+  const configPath = join(projectDir, "bos.app.ts");
+  if (!existsSync(configPath)) {
+    return {
+      status: "error",
+      updated: [],
+      skipped: [],
+      added: [],
+      conflicted: [],
+      error: "No bos.app.ts found — template sync only applies to TS-form children",
+    };
+  }
+  const localConfig = (await loadInProcessDescriptor(
+    readFileSync(configPath, "utf-8"),
+    configPath,
+  )) as Record<string, unknown>;
 
   let extendsRef: string | undefined;
   if (typeof localConfig.extends === "string") {
@@ -497,7 +527,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       skipped: [],
       added: [],
       conflicted: [],
-      error: "No extends field found in bos.config.json — cannot determine parent",
+      error: "No extends field found in bos.app.ts — cannot determine parent",
     };
   }
 
@@ -516,10 +546,32 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
   const extendsAccount = extendsMatch[1];
   const extendsGateway = extendsMatch[2];
 
-  const { sourceDir, cleanup } = await resolveSourceDir({
+  // ADR 0034 pt 4: release-scoped sync — the platform manifest is the chain's
+  // release authority. An unresolved manifest means the child was never
+  // pinned to a release; pulling main/moving HEAD on top of released bytes
+  // would drift the snapshot, so this fails loud instead.
+  const platform = await resolvePlatformManifest({ configDir: projectDir, localConfig });
+  if (!platform) {
+    return {
+      status: "error",
+      updated: [],
+      skipped: [],
+      added: [],
+      conflicted: [],
+      error:
+        "No platform release manifest resolved (" +
+        `platform pin missing in ${join(projectDir, "bos.app.ts")} and its extends chain) — ` +
+        "run `bos upgrade` to pin a release, or `bos status` to inspect the chain",
+    };
+  }
+  const releaseTag = releaseRefCandidates(platform.manifest.frameworkVersion);
+
+  const { sourceDir, cleanup, resolvedRef, resolvedSha } = await resolveSourceDir({
     extendsAccount,
     extendsGateway,
+    ref: releaseTag,
   });
+  const workflowPin = resolveWorkflowReleasePin(releaseTag, resolvedRef, resolvedSha);
 
   try {
     const childPlugins = await getSelectedChildPlugins(projectDir, localConfig);
@@ -536,11 +588,7 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
     });
 
     const destToSource = new Map<string, string>();
-    // TS-form children author bos.app.ts — the parent's JSON config must
-    // never sync into them.
-    const tsFormChild = !existsSync(join(projectDir, "bos.config.json"));
     for (const destPath of FRAMEWORK_OWNED_SYNC_FILES) {
-      if (destPath === "bos.config.json" && tsFormChild) continue;
       if (destPath.startsWith("ui/") && !withUi) continue;
       if (destPath.startsWith("api/") && !withApi) continue;
       if (destPath.startsWith("host/") && !withHost) continue;
@@ -559,16 +607,6 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       destToSource.set(destPath, destPath);
     }
 
-    // Sync api/src/lib/{auth,context}.ts into each plugin's src/lib/
-    for (const pluginKey of childPlugins) {
-      if (!existsSync(join(projectDir, "plugins", pluginKey, "src"))) continue;
-      for (const libFile of ["auth.ts", "context.ts"]) {
-        const sourceFile = `api/src/lib/${libFile}`;
-        if (!existsSync(join(sourceDir, sourceFile))) continue;
-        destToSource.set(`plugins/${pluginKey}/src/lib/${libFile}`, sourceFile);
-      }
-    }
-
     // Sync api/src/global.d.ts into each plugin's src/
     for (const pluginKey of childPlugins) {
       if (!existsSync(join(projectDir, "plugins", pluginKey, "src"))) continue;
@@ -583,16 +621,6 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       const sourceFile = "plugins/_template/tests/types.d.ts";
       if (!existsSync(join(sourceDir, sourceFile))) continue;
       destToSource.set(`plugins/${pluginKey}/tests/types.d.ts`, sourceFile);
-    }
-
-    // Sync api/src/db/{index,layer,migrate}.ts into each plugin's src/db/
-    for (const pluginKey of childPlugins) {
-      if (!existsSync(join(projectDir, "plugins", pluginKey, "src", "db"))) continue;
-      for (const dbFile of ["index.ts", "layer.ts", "migrate.ts"]) {
-        const sourceFile = `api/src/db/${dbFile}`;
-        if (!existsSync(join(sourceDir, sourceFile))) continue;
-        destToSource.set(`plugins/${pluginKey}/src/db/${dbFile}`, sourceFile);
-      }
     }
 
     // Sync rspack.config.js from the template into each plugin
@@ -637,7 +665,14 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       }
       const localHash = computeLocalHash(projectDir, destPath);
       const sourceHash = computeHash(
-        buildSyncedFileContent(sourceDir, projectDir, filePath, undefined, childScripts),
+        buildSyncedFileContent(
+          sourceDir,
+          projectDir,
+          filePath,
+          undefined,
+          childScripts,
+          workflowPin,
+        ),
       );
 
       if (localHash === null) {
@@ -677,25 +712,27 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
     if (withHost) overrides.push("host");
     if (withPlugins) overrides.push("plugins");
 
-    if (options.dryRun) {
-      const agentsMdSourcePath = toSourcePath(sourceDir, "AGENTS.md");
-      if (agentsMdSourcePath) {
-        const agentsMdSourceContent = readFileSync(join(sourceDir, agentsMdSourcePath), "utf-8");
-        const skillsBlock = extractSkillsBlock(agentsMdSourceContent);
-        if (skillsBlock) {
-          const expectedContent = buildChildAgentsMd(skillsBlock, {
-            overrides,
-            plugins: childPlugins,
-          });
-          const expectedHash = computeHash(expectedContent);
-          const agentsMdLocalHash = computeLocalHash(projectDir, "AGENTS.md");
-          if (agentsMdLocalHash !== expectedHash) {
-            updated.push("AGENTS.md");
-          }
-        }
-      }
+    // Conflicts never silently clobber: without --force a conflicted file
+    // aborts the whole run before any write — the clean updates and additions
+    // wait for a resolution, so a snapshot never half-advances.
+    if (conflicted.length > 0 && !options.force && !options.dryRun) {
+      return {
+        status: "conflicted",
+        updated: [],
+        skipped,
+        added: [],
+        conflicted,
+        error:
+          "Local edits conflict with the upstream template (run `bos upgrade --force` to " +
+          `overwrite — backups land in .bos/sync-backup/): ${conflicted.join(", ")}`,
+      };
+    }
 
-      const retirement = retireSyncedFiles(projectDir, snapshotFiles, { dryRun: true });
+    if (options.dryRun) {
+      const agentsMd = expectedChildAgentsMd(sourceDir, overrides, childPlugins);
+      if (agentsMd && computeLocalHash(projectDir, "AGENTS.md") !== agentsMd.hash) {
+        updated.push("AGENTS.md");
+      }
 
       return {
         status: "dry-run",
@@ -703,25 +740,18 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
         skipped,
         added,
         conflicted,
-        retired: retirement.retired,
-        retiredConflicted: retirement.retiredConflicted,
       };
     }
 
-    // Migrate the child off the retired bootstrap stubs (ADR 0023) before any
-    // writes — a retired file is never in destToSource, so its snapshot entry
-    // drops out at the next writeSnapshot.
-    const retirement = retireSyncedFiles(projectDir, snapshotFiles, { dryRun: false });
-
     const filesToWrite = [...updated, ...added, ...conflicted];
 
-    let backupDir: string | undefined = retirement.backupDir ?? undefined;
+    let backupDir: string | undefined;
     if (filesToWrite.length > 0) {
-      backupDir = backupFiles(projectDir, filesToWrite) ?? backupDir;
+      backupDir = backupFiles(projectDir, filesToWrite) ?? undefined;
 
       for (const destPath of filesToWrite) {
         const sourcePath = destToSource.get(destPath) ?? destPath;
-        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath, childScripts);
+        writeSyncedFile(sourceDir, projectDir, sourcePath, destPath, childScripts, workflowPin);
       }
     }
 
@@ -755,29 +785,17 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       }
     }
 
-    const agentsMdSourcePath = toSourcePath(sourceDir, "AGENTS.md");
-    if (agentsMdSourcePath) {
-      const agentsMdSourceContent = readFileSync(join(sourceDir, agentsMdSourcePath), "utf-8");
-      const skillsBlock = extractSkillsBlock(agentsMdSourceContent);
-      if (skillsBlock) {
-        const expectedContent = buildChildAgentsMd(skillsBlock, {
-          overrides,
-          plugins: childPlugins,
-        });
-        const expectedHash = computeHash(expectedContent);
-
-        const agentsMdLocalHash = computeLocalHash(projectDir, "AGENTS.md");
-        if (agentsMdLocalHash !== expectedHash) {
-          writeFileSync(join(projectDir, "AGENTS.md"), expectedContent);
-          updated.push("AGENTS.md");
-        }
-
-        newSnapshotFiles["AGENTS.md"] = expectedHash;
+    const agentsMd = expectedChildAgentsMd(sourceDir, overrides, childPlugins);
+    if (agentsMd) {
+      if (computeLocalHash(projectDir, "AGENTS.md") !== agentsMd.hash) {
+        writeFileSync(join(projectDir, "AGENTS.md"), agentsMd.content);
+        updated.push("AGENTS.md");
       }
+
+      newSnapshotFiles["AGENTS.md"] = agentsMd.hash;
     }
 
     await writeSnapshot(projectDir, {
-      parentRef: `bos://${extendsAccount}/${extendsGateway}`,
       files: newSnapshotFiles,
     });
 
@@ -792,9 +810,6 @@ export async function syncTemplate(projectDir: string, options: SyncOptions): Pr
       skipped,
       added,
       conflicted,
-      retired: retirement.retired,
-      retiredConflicted: retirement.retiredConflicted,
-      retiredBackupDir: retirement.backupDir ?? undefined,
       backupDir,
     };
   } finally {

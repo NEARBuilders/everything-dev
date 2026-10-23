@@ -99,6 +99,16 @@ export const apiKeyContextSchema = z.object({
   permissions: z.record(z.string(), z.array(z.string())).nullable(),
 });
 
+export const contextSessionSchema = z.object({
+  id: z.string(),
+  token: z.string(),
+  userId: z.string(),
+  expiresAt: z.date(),
+  activeOrganizationId: z.string().nullable(),
+  activeTeamId: z.string().nullable(),
+  user: sessionUserSchema,
+});
+
 export const requestContextSchema = z.object({
   user: sessionUserSchema.nullable(),
   userId: z.string().nullable(),
@@ -107,6 +117,7 @@ export const requestContextSchema = z.object({
   principal: principalSchema.nullable(),
   apiKey: apiKeyContextSchema.nullable(),
   permissions: z.record(z.string(), z.array(z.string())).nullable(),
+  session: contextSessionSchema.nullable(),
   near: nearCapabilitiesSchema,
   organization: organizationContextSchema,
   organizations: z
@@ -250,6 +261,22 @@ export const onboardingCodeSummarySchema = z.object({
   expiresAt: z.date(),
   revokedAt: z.date().nullable(),
   createdAt: z.date(),
+});
+
+export const onboardingStatsSchema = z.object({
+  month: z.string(),
+  totals: z.object({
+    redeemed: z.number().int(),
+    newMembers: z.number().int(),
+  }),
+  organizations: z.array(
+    z.object({
+      organizationId: z.string(),
+      organizationName: z.string().nullable(),
+      redeemed: z.number().int(),
+      newMembers: z.number().int(),
+    }),
+  ),
 });
 
 export const daoOutputSchema = z.object({

@@ -9,7 +9,7 @@ import {
 
 const fetchResponse = vi.hoisted(() => vi.fn());
 
-vi.mock("../../src/http-client", () => ({
+vi.mock("../../src/utils/http-client", () => ({
   fetchResponse: (...args: unknown[]) => fetchResponse(...args),
 }));
 
