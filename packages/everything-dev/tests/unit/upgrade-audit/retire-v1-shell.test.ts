@@ -41,7 +41,7 @@ describe("retireV1Shell", () => {
   it("rewires the rsbuild entry and exposes to the generated stubs", async () => {
     await write(
       "ui/rsbuild.config.ts",
-      RSBUILD + 'const expose = { "./Hydrate": "./src/hydrate.tsx" };\n',
+      `${RSBUILD}const expose = { "./Hydrate": "./src/hydrate.tsx" };\n`,
     );
     const result = await run(false);
     expect(result.writes).toContain("ui/rsbuild.config.ts");
