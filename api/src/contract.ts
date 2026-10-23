@@ -9,6 +9,7 @@ import {
 } from "every-plugin/errors";
 import { z } from "zod";
 import { ListDeploysInputSchema, ListDeploysOutputSchema } from "./lib/deploy-history";
+import { ReconcilerStatusSchema } from "./lib/reconciler-schema";
 
 const ErrorTestKindSchema = z.enum([
   "unauthorized",
@@ -61,6 +62,19 @@ export const contract = oc.router({
       .input(ListDeploysInputSchema)
       .output(ListDeploysOutputSchema)
       .errors({ UNAUTHORIZED, CONNECTION_ERROR }),
+
+    reconcilerStatus: oc
+      .route({
+        method: "POST",
+        path: "/hosting/reconciler/status",
+        summary: "Reconciler status",
+        description:
+          "Per-namespace reconciliation state for the platform-side watcher: last-seen and converged fingerprints, boot assumptions, drift reasons, and instance URLs. Disabled (empty watch list) reports no namespaces.",
+        tags: ["Hosting"],
+      })
+      .input(z.object({}))
+      .output(ReconcilerStatusSchema)
+      .errors({ UNAUTHORIZED }),
   }),
 
   secrets: oc.router({

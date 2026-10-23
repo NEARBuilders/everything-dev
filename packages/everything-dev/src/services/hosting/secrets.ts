@@ -7,7 +7,11 @@
  */
 import type { RuntimeDescriptor } from "./adapter";
 
-export const RESERVED_SECRET_NAMES: ReadonlySet<string> = new Set(["PORT"]);
+export const RESERVED_SECRET_NAMES: ReadonlySet<string> = new Set([
+  "PORT",
+  "API_DATABASE_URL",
+  "AUTH_DATABASE_URL",
+]);
 export const RESERVED_SECRET_PREFIX = "BOS_";
 export const SECRET_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 
