@@ -147,7 +147,7 @@ bos platform manifest          # print the resolved manifest + its source
 bos platform manifest --check  # also run the compat gate; exit 1 on violations
 ```
 
-Resolution order: the in-image manifest first (the booted host self-describes from the release bytes it runs on), registry resolution through the extends chain otherwise (`.bos/platform-manifest.json` is the offline cache). `--check` verifies the workspace's strict-singleton pins against the manifest's `sharedDeps` and the framework version against the release's compat floor — the same check the deploy smoke gate runs. Status is `absent` (no manifest resolves — pre-0034 behavior applies) or `fail` (unresolvable/error) with diagnostics.
+Resolution order: the in-image manifest first (the booted host self-describes from the release bytes it runs on), registry resolution through the extends chain otherwise (`.bos/platform-manifest.json` is the offline cache, 24h TTL). `--check` verifies the workspace's strict-singleton pins against the manifest's `sharedDeps` and the framework version against the release's compat floor — the same check the deploy smoke gate runs. When the authored pin names a release the chain no longer serves (a root republish overwrote the slot — #546), the report fails with a **drift** field instead of the raw pin error: `parent platform is <published> (published at bos://…), you pinned <pinned> — run \`bos upgrade\` to realign`. Status is `absent` (no manifest resolves — pre-0034 behavior applies) or `fail` (unresolvable/error) with diagnostics.
 
 ## Publishing
 

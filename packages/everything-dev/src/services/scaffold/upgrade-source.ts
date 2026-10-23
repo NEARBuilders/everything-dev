@@ -2,6 +2,7 @@ import { readAuthoredConfigInput } from "../../config";
 import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
 import {
   type ResolvedPlatformManifest,
+  type ResolvePlatformManifestOptions,
   resolvePlatformManifest,
   walkExtendsChain,
 } from "../platform/manifest";
@@ -15,7 +16,16 @@ export interface ExtendedRootSource {
   platform: ResolvedPlatformManifest;
 }
 
-export async function readExtendedRootSource(projectDir: string): Promise<ExtendedRootSource> {
+/** Injectable registry I/O (the test seam — mirrors the real FastKV layout). */
+export type ExtendedRootSourceOptions = Pick<
+  ResolvePlatformManifestOptions,
+  "fetchManifest" | "fetchParent" | "cacheRead" | "cacheWrite" | "now" | "cacheTtlMs"
+>;
+
+export async function readExtendedRootSource(
+  projectDir: string,
+  options: ExtendedRootSourceOptions = {},
+): Promise<ExtendedRootSource> {
   const localConfig = (await readAuthoredConfigInput(projectDir)) as Record<string, unknown> | null;
   if (!localConfig) {
     throw new Error("No authored config found in current directory");
@@ -32,6 +42,7 @@ export async function readExtendedRootSource(projectDir: string): Promise<Extend
     localConfig,
     localRepository:
       typeof localConfig.repository === "string" ? localConfig.repository : undefined,
+    ...(options.fetchParent ? { fetchParent: options.fetchParent } : {}),
   });
   const extendsChain = walk.chain.map((node) => `bos://${node.account}/${node.gateway}`);
   if (walk.circularAt) {
@@ -46,6 +57,12 @@ export async function readExtendedRootSource(projectDir: string): Promise<Extend
   const platform = await resolvePlatformManifest({
     configDir: projectDir,
     localConfig: { ...localConfig, platform: undefined },
+    ...(options.fetchManifest ? { fetchManifest: options.fetchManifest } : {}),
+    ...(options.fetchParent ? { fetchParent: options.fetchParent } : {}),
+    ...(options.cacheRead ? { cacheRead: options.cacheRead } : {}),
+    ...(options.cacheWrite ? { cacheWrite: options.cacheWrite } : {}),
+    ...(options.now ? { now: options.now } : {}),
+    ...(options.cacheTtlMs !== undefined ? { cacheTtlMs: options.cacheTtlMs } : {}),
   });
   if (!platform) {
     throw new Error(

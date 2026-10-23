@@ -39,7 +39,7 @@ The root-level `platform` field pins the framework release this runtime tracks:
 { "platform": "2.0.0-rc.14" }
 ```
 
-- **Exact string in v1 — no ranges.** Resolution picks exactly one platform release manifest (the root's published `platform.json`); a pin that no published manifest satisfies fails loud.
+- **Exact string in v1 — no ranges.** Resolution picks exactly one platform release manifest (the root's published `platform.json`); a pin that no published manifest satisfies fails loud. The slot is a **pointer**: a root republish overwrites it, so a stale pin survives only while the fresh `.bos/platform-manifest.json` cache (24h TTL) stands in — past that, resolution fails loud and `bos upgrade` (the re-pin pathway) is the repair (#546).
 - **Absent → latest via the extends chain** (nearest ancestor publishing a manifest wins). Sync/upgrade resolve it explicitly — they read the authored config, not just the merged result.
 - It is a scalar for merge purposes: child overrides parent, parent inherited when child omits.
 - The field is on sync's managed-key list, so it survives template personalization.

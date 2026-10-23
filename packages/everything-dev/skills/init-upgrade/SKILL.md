@@ -208,7 +208,8 @@ Rules:
 - The pin is **exact** — no ranges. Resolution picks one manifest.
 - Field absent → latest manifest found via the `extends` chain (nearest wins). Offline, the cached `.bos/platform-manifest.json` (gitignored) resolves.
 - An explicit pin the chain cannot satisfy **fails loud** — publish the release or clear the pin.
-- Inspect what resolves: `bos platform manifest` (the booted host self-describes from the in-image copy). `--check` runs the compat gate against the local workspace and exits 1 on violations.
+- **Pin lifecycle (#546):** the `platform.json` slot is a pointer — a root republish overwrites it. A stale child pin resolves only while the fresh cache (24h TTL) stands in, then fails loud (`platform pin <version> not found in the extends chain`). The repair is exactly this command: `bos upgrade` re-pins to the latest release. Deleting `.bos/platform-manifest.json` defeats the cache when diagnosing.
+- Inspect what resolves: `bos platform manifest` (the booted host self-describes from the in-image copy). `--check` runs the compat gate against the local workspace and exits 1 on violations — it also reports pin drift as "parent platform is X (published), you pinned Y" instead of the raw pin error.
 - `bos init` without `--source` stamps the pin from the resolved manifest; a local-template init (source dir) leaves the pin off — the next `bos upgrade` stamps it from whatever release then resolves.
 
 What the upgrade reconciles from the parent template:
