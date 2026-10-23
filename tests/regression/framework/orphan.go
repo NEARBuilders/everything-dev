@@ -26,6 +26,7 @@ func StartWrappedStack(t *testing.T, basePort int, registryPath string) *Stack {
 	pidFile := filepath.Join(t.TempDir(), "wrapped.pid")
 
 	cmd := exec.Command("node", append([]string{wrapper, pidFile, "node"}, tsxArgs(args)...)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Dir = repoRoot
 	cmd.Env = env
 	cmd.Stdout = logFile

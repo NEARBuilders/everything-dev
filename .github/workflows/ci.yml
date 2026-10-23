@@ -722,15 +722,33 @@ jobs:
       - name: Build every-plugin dist
         run: pnpm run build template
 
+      - name: Resource watchdog
+        run: |
+          # $(date) must expand inside the inner bash on every loop iteration —
+          # single quotes are intentional.
+          # shellcheck disable=SC2016
+          nohup bash -c 'while true; do
+            echo "=== watchdog $(date -u +%H:%M:%S) ==="
+            free -m
+            ps -eo pid,ppid,pgid,rss,etime,comm --sort=-rss | head -15
+            sleep 30
+          done' >> resource-watchdog.log 2>&1 &
+
       - name: Run framework regression suite
         run: pnpm run test:regression:framework
 
-      - name: Upload regression artifacts on failure or cancel
-        if: ${{ !success() }}
+      # always(), not !success(): run 40016532628 died with the whole step tree
+      # TERMed (exit 143) while two stacks booted — and this upload was skipped
+      # anyway, losing the evidence. The suite's own stack logs are the only
+      # ground truth about how far a boot got.
+      - name: Upload regression artifacts (always)
+        if: ${{ always() }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node 24)
         with:
           name: regression-framework-artifacts
-          path: .bos/logs/**
+          path: |
+            .bos/logs/**
+            resource-watchdog.log
 
   # dev:* = the dev server, smoke-only (ADR 0009). One job runs both projects
   # sequentially — one dependency-install exposure (the apt step that hung

@@ -160,11 +160,17 @@ func tsxArgs(args []string) []string {
 // port block, with the test env layered on top. interactive=false passes
 // --no-interactive (signal-driven teardown tests); interactive=true leaves
 // the TUI to mount under the caller's pty.
+//
+// Setpgid puts every spawned stack in its own process group: a stray
+// group-targeted kill (`kill(-pgid)`) can then never cross between the test
+// tree and a stack (or two stacks). The pty launcher replaces SysProcAttr
+// with its own Setsid/Setctty — a superset of this isolation.
 func buildDevCommand(t *testing.T, basePort int, registryPath string, interactive bool) (*exec.Cmd, *os.File, string) {
 	t.Helper()
 	args, env, repoRoot, logFile := devInvocation(t, basePort, registryPath, interactive)
 
 	cmd := exec.Command("node", tsxArgs(args)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Dir = repoRoot
 	cmd.Env = env
 	return cmd, logFile, repoRoot
@@ -333,6 +339,7 @@ func (s *Stack) RunBosKill(extraArgs ...string) {
 	s.t.Helper()
 	cliPath := filepath.Join(s.repoRoot, "packages", "everything-dev", "src", "cli.ts")
 	cmd := exec.Command("node", append([]string{"--import", "tsx", "--conditions=development", cliPath, "kill"}, extraArgs...)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Dir = s.repoRoot
 	base := os.Environ()
 	filtered := base[:0:0]

@@ -11,9 +11,14 @@ export interface SiteErrorFields {
  * body fields into the error object, so the host's 503 arrives as
  * `{ error, message, detail, detailFull, status }`. Ceremony-level errors are
  * `Error` instances with only a message. Returns nulls when nothing matches.
+ *
+ * A `TypeError` is the fetch layer's own network failure ("Failed to fetch",
+ * "Load failed") — it carries no server words, so it yields nulls and the
+ * caller's translated fallback line applies.
  */
 export function extractSiteError(error: unknown): SiteErrorFields {
   if (error === null || error === undefined) return { message: null, detail: null };
+  if (error instanceof TypeError) return { message: null, detail: null };
   if (error instanceof Error) return { message: error.message || null, detail: null };
   if (typeof error !== "object") return { message: null, detail: null };
   const record = error as Record<string, unknown>;

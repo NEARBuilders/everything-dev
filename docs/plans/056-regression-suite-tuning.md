@@ -27,7 +27,21 @@ is missing (fonts exempt — launch validation never checks them, and the suites
 assert DOM text, not rendered glyphs; a probe failure with no package list degrades
 to the real install). The cache-miss path also dropped `--with-deps` in favor of a
 plain `playwright install chromium` plus the same probe. First runs double as the
-empirical probe of what the ubuntu-24.04 runner image actually ships.
+empirical probe of what the ubuntu-24.04 runner image actually ships. Result (run
+40016532628): the probe ran in ~4s and reported the image complete — install-deps
+skipped on all five browser jobs; memory healthy (12GB available); the caching work
+is proven.
+
+**Framework 143 follow-up (run 40016532628):** the suite died with exit 143 (SIGTERM
+to the whole step tree) 94s in, in total silence, while two stacks were mid-boot —
+with the artifact upload skipped anyway. No in-repo kill path can reach the test
+tree (every `kill(-pid)` site targets registry/detached bos-owned pids; the two
+earlier framework "failures" that day were run-level cancellations, which TERM the
+tree identically). Hardening: `Setpgid` on every test-spawned process (stacks,
+wrapped stacks, `RunBosKill` — the pty launcher's own Setsid covers the interactive
+path), a ps/free watchdog on the framework job, and the artifact upload moved to
+`if: always()` so evidence can never be skipped again. If the 143 reproduces, the
+watchdog + logs name the sender.
 
 Chosen direction (maintainer decisions, this session): framework suite → parallelize
 via `t.Parallel()`; browser suite → shard `start:*` across CI jobs and merge the two

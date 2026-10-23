@@ -45,20 +45,23 @@ test("created API key authenticates REST, plugin RPC, and MCP", async ({ page, r
   expect(ping.status()).toBe(200);
 
   const thingId = `regression-api-key-${Date.now()}`;
+  // The oRPC RPC protocol wraps inputs in the `json` envelope — a raw body
+  // fails validation with "expected object, received undefined" (see
+  // tests/regression/http/plugin_registry_test.go for the same protocol).
   const created = await request.post("/api/rpc/template/createThing", {
     headers: { "x-api-key": apiKey, "content-type": "application/json" },
-    data: { thingId, payload: { source: "api-key-auth.spec" } },
+    data: { json: { thingId, payload: { source: "api-key-auth.spec" } } },
   });
   expect(created.status()).toBe(200);
-  const createdBody = await created.json();
+  const createdBody = (await created.json()).json;
   expect(createdBody.thingId).toBe(thingId);
 
   const readBack = await request.post("/api/rpc/template/getThing", {
     headers: { "x-api-key": apiKey, "content-type": "application/json" },
-    data: { thingId },
+    data: { json: { thingId } },
   });
   expect(readBack.status()).toBe(200);
-  const readBackBody = await readBack.json();
+  const readBackBody = (await readBack.json()).json;
   expect(readBackBody.thingId).toBe(thingId);
 
   const initialize = await request.post("/api/mcp", {
@@ -97,7 +100,7 @@ test("created API key authenticates REST, plugin RPC, and MCP", async ({ page, r
   // anything.
   const garbage = await request.post("/api/rpc/template/createThing", {
     headers: { "x-api-key": "api_garbage", "content-type": "application/json" },
-    data: { thingId: "regression-garbage", payload: {} },
+    data: { json: { thingId: "regression-garbage", payload: {} } },
   });
   expect(garbage.status()).toBe(401);
 });
