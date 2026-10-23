@@ -1,5 +1,19 @@
 # everything-dev
 
+## 2.0.0-rc.19
+
+### Minor Changes
+
+- 00280b5: `bos upgrade --from v1`: adopt the v2-upgrade audit tooling upstream (fixes #455). Audits a v1 child app for upgrade readiness (hardline mount-conformance gate, config surface, legacy imports) and applies the deterministic v2 transforms (authored descriptor, bun→pnpm catalog migration, consumerized refs, import rewrites, obsolete-file deletion, plugin dep declarations). State-aware: a tree with an authored `bos.app.ts` exits "already upgraded · v2" instead of reporting the v1-state blocker. Adds re-runnable post-upgrade maintenance steps via `--maintain port-route-guards|db-topology|i18n-seam|compose-seam`, bundles the `v1-to-v2-upgrade` intent skill, and emits `.bos/v2-upgrade-manifest.json` on audit.
+
+### Patch Changes
+
+- d5b5953: - `bos types gen` now generates manifest/route-tree artifacts for a local auth attachment's ui (`auth.ui`), keeping artifact generation hermetic for any child with a local plugin UI override. Fixes everything-dev#549
+  - The dev session now spawns a `plugin-ui:<id>` unit for a local ui override whose plugin backend is remote (e.g. a remote auth server with a local `auth.ui` workspace), so the host's SSR container becomes ready instead of timing out after 120 s. Fixes everything-dev#557
+  - The host compose now fails loud when a declared local ui source has no usable manifest or an identity mismatch, instead of silently dropping the slot with a warning. Remote sources keep their warn-and-drop isolation. Ships via the platform runtime image. Fixes everything-dev#556
+- Updated dependencies [6d451d1]
+  - every-plugin@3.0.0-rc.11
+
 ## 2.0.0-rc.18
 
 ### Major Changes
