@@ -1,0 +1,86 @@
+{
+  "name": "auth",
+  "manifestVersion": 2,
+  "routes": [
+    {
+      "id": "_authenticated/settings",
+      "type": "route",
+      "path": "/settings",
+      "file": "_authenticated/settings.tsx"
+    },
+    {
+      "id": "_public/login",
+      "type": "route",
+      "path": "/login",
+      "file": "_public/login.tsx"
+    },
+    {
+      "id": "_public/onboard",
+      "type": "route",
+      "path": "/onboard",
+      "file": "_public/onboard.tsx"
+    },
+    {
+      "id": "_authenticated/admin/users",
+      "type": "route",
+      "path": "/admin/users",
+      "file": "_authenticated/admin/users.tsx"
+    },
+    {
+      "id": "_authenticated/settings/api-keys",
+      "type": "route",
+      "path": "/api-keys",
+      "parentId": "_authenticated/settings",
+      "file": "_authenticated/settings/api-keys.tsx"
+    },
+    {
+      "id": "_authenticated/settings/auth-methods",
+      "type": "route",
+      "path": "/auth-methods",
+      "parentId": "_authenticated/settings",
+      "file": "_authenticated/settings/auth-methods.tsx"
+    },
+    {
+      "id": "_authenticated/settings/profile",
+      "type": "route",
+      "path": "/profile",
+      "parentId": "_authenticated/settings",
+      "file": "_authenticated/settings/profile.tsx"
+    },
+    {
+      "id": "_authenticated/settings/security",
+      "type": "route",
+      "path": "/security",
+      "parentId": "_authenticated/settings",
+      "file": "_authenticated/settings/security.tsx"
+    },
+    {
+      "id": "_authenticated/settings/",
+      "type": "index",
+      "path": "/",
+      "parentId": "_authenticated/settings",
+      "file": "_authenticated/settings/index.tsx"
+    },
+    {
+      "id": "_public/login/",
+      "type": "index",
+      "path": "/",
+      "parentId": "_public/login",
+      "file": "_public/login/index.tsx"
+    },
+    {
+      "id": "_public/login/device/approve",
+      "type": "route",
+      "path": "/device/approve",
+      "parentId": "_public/login",
+      "file": "_public/login/device/approve.tsx"
+    },
+    {
+      "id": "_public/login/device/",
+      "type": "route",
+      "path": "/device/",
+      "parentId": "_public/login",
+      "file": "_public/login/device/index.tsx"
+    }
+  ]
+}
