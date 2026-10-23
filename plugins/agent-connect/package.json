@@ -1,0 +1,56 @@
+{
+  "name": "@everything-dev/agent-connect-plugin",
+  "version": "0.1.0-rc.0",
+  "description": "Agent Connect control plane — agent accounts on the NEAR Intents Agent API for every signed-in user",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./contract": {
+      "types": "./src/contract.ts",
+      "default": "./src/contract.ts"
+    }
+  },
+  "peerDependencies": {
+    "typescript": "catalog:"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "catalog:",
+    "@near-intents-agent-api/sdk": "catalog:",
+    "@orpc/contract": "catalog:",
+    "@orpc/openapi": "catalog:",
+    "@orpc/server": "catalog:",
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:",
+    "pg": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@module-federation/node": "catalog:",
+    "@module-federation/runtime-tools": "catalog:",
+    "@rspack/cli": "catalog:",
+    "@rspack/core": "catalog:",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
+    "@proj-airi/unplugin-drizzle-orm-migrations": "^0.1.4",
+    "dotenv": "^17.2.3",
+    "drizzle-kit": "catalog:",
+    "everything-dev": "workspace:^",
+    "every-plugin": "workspace:^",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "catalog:"
+  },
+  "scripts": {
+    "build": "every-plugin build",
+    "dev": "every-plugin dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "typecheck": "tsc --noEmit"
+  }
+}

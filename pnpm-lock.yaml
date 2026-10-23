@@ -212,6 +212,9 @@ catalogs:
     '@module-federation/runtime-tools':
       specifier: ^2.9.0
       version: 2.9.2
+    '@near-intents-agent-api/sdk':
+      specifier: ^0.4.1
+      version: 0.4.1
     '@opentelemetry/api':
       specifier: ^1.9.0
       version: 1.9.1
@@ -674,6 +677,9 @@ importers:
 
   packages/better-near-auth:
     dependencies:
+      '@near-intents-agent-api/sdk':
+        specifier: ^0.4.1
+        version: 0.4.1
       '@noble/curves':
         specifier: ^2.4.0
         version: 2.4.0
@@ -686,6 +692,9 @@ importers:
       '@scure/base':
         specifier: ^2.2.0
         version: 2.4.0
+      '@simplewebauthn/browser':
+        specifier: ^13.3.0
+        version: 13.3.0
       nanostores:
         specifier: ^1.1.0
         version: 1.5.4
@@ -1019,6 +1028,79 @@ importers:
       '@orpc/publisher':
         specifier: 'catalog:'
         version: 2.0.0-beta.35(redis@6.3.0(@opentelemetry/api@1.9.1))
+      '@orpc/server':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.35
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.4.6)(@libsql/client@0.17.0(encoding@0.1.13))(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(bun-types@1.4.3)(kysely@0.29.6)(pg@8.23.1)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.117
+      pg:
+        specifier: 'catalog:'
+        version: 8.23.1
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
+    devDependencies:
+      '@module-federation/node':
+        specifier: 'catalog:'
+        version: 2.7.52(@rspack/core@2.2.8(@module-federation/runtime-tools@2.9.2)(@swc/helpers@0.5.23))(typescript@7.0.2)
+      '@module-federation/runtime-tools':
+        specifier: 'catalog:'
+        version: 2.9.2
+      '@proj-airi/unplugin-drizzle-orm-migrations':
+        specifier: ^0.1.4
+        version: 0.1.6(vite@8.3.2(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
+      '@rspack/cli':
+        specifier: 'catalog:'
+        version: 2.2.6(@rspack/core@2.2.8(@module-federation/runtime-tools@2.9.2)(@swc/helpers@0.5.23))
+      '@rspack/core':
+        specifier: 2.2.8
+        version: 2.2.8(@module-federation/runtime-tools@2.9.2)(@swc/helpers@0.5.23)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.9
+      '@types/pg':
+        specifier: 'catalog:'
+        version: 8.23.1
+      dotenv:
+        specifier: ^17.2.3
+        version: 17.4.2
+      drizzle-kit:
+        specifier: 'catalog:'
+        version: 0.31.11
+      every-plugin:
+        specifier: workspace:^
+        version: link:../../packages/every-plugin
+      everything-dev:
+        specifier: workspace:^
+        version: link:../../packages/everything-dev
+      vite-tsconfig-paths:
+        specifier: ^5.1.4
+        version: 5.1.4(typescript@7.0.2)(vite@8.3.2(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@25.9.9)(@vitest/ui@4.1.5)(jsdom@30.1.2(@noble/hashes@2.4.0))(vite@8.3.2(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0))
+
+  plugins/agent-connect:
+    dependencies:
+      '@electric-sql/pglite':
+        specifier: 'catalog:'
+        version: 0.4.6
+      '@near-intents-agent-api/sdk':
+        specifier: 'catalog:'
+        version: 0.4.1
+      '@orpc/contract':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.35
+      '@orpc/openapi':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.35
       '@orpc/server':
         specifier: 'catalog:'
         version: 2.0.0-beta.35
@@ -3754,6 +3836,10 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
+
+  '@near-intents-agent-api/sdk@0.4.1':
+    resolution: {integrity: sha512-1b9QlOK/j2jiFPfFuSfUS9ZRox+EHOuF8gd0bfwzasAYdGZ1S5QOOIAAYS6Vv6DAhdJHWwH7xk/rgVaQmoQCQQ==}
+    engines: {node: '>=24'}
 
   '@neodrag/core@3.0.0-next.11':
     resolution: {integrity: sha512-3WQWxyrbxiaK9zS5JU2wJsW2gpoQlZBXVghduBh61JpqaeE0T0cte8R0qYK2RuJo3J2TYQYqxO19CpG/C1i5eg==}
@@ -10928,6 +11014,12 @@ snapshots:
       '@emnapi/runtime': 1.11.3
       '@tybys/wasm-util': 0.10.4
     optional: true
+
+  '@near-intents-agent-api/sdk@0.4.1':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@scure/base': 2.4.0
 
   '@neodrag/core@3.0.0-next.11': {}
 

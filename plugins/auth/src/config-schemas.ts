@@ -155,6 +155,7 @@ export const authSecretsSchema = z.object({
   TWILIO_PHONE_NUMBER: z.string().optional(),
   NEAR_RELAYER_PRIVATE_KEY_MAINNET: z.string().optional(),
   NEAR_RELAYER_PRIVATE_KEY_TESTNET: z.string().optional(),
+  NEAR_INTENTS_AGENT_API_KEY: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
 });
 
