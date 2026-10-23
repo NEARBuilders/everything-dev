@@ -40,9 +40,7 @@ test("created API key authenticates REST, plugin RPC, and MCP", async ({ page, r
 
   expectNoHydrationFailure(errors);
 
-  const garbage = await request.get("/api/ping", { headers: { "x-api-key": "api_garbage" } });
-  expect(garbage.status()).toBe(401);
-
+  // Positive legs: the key authenticates REST, plugin RPC, and MCP.
   const ping = await request.get("/api/ping", { headers: { "x-api-key": apiKey } });
   expect(ping.status()).toBe(200);
 
@@ -93,4 +91,13 @@ test("created API key authenticates REST, plugin RPC, and MCP", async ({ page, r
   const toolsBody = unwrapMcp(await tools.text());
   const toolNames = (toolsBody.result?.tools ?? []).map((tool: { name: string }) => tool.name);
   expect(toolNames).toContain("ping");
+
+  // Negative: a garbage key is rejected on a PROTECTED route — /api/ping is
+  // open by design (the Go suite only CSRF-checks it), so it answers 200 to
+  // anything.
+  const garbage = await request.post("/api/rpc/template/createThing", {
+    headers: { "x-api-key": "api_garbage", "content-type": "application/json" },
+    data: { thingId: "regression-garbage", payload: {} },
+  });
+  expect(garbage.status()).toBe(401);
 });
