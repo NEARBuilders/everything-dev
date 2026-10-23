@@ -1,5 +1,5 @@
 ---
-"@everything-dev/everything-dev": patch
+"everything-dev": patch
 ---
 
 - `bos types gen` now generates manifest/route-tree artifacts for a local auth attachment's ui (`auth.ui`), keeping artifact generation hermetic for any child with a local plugin UI override. Fixes everything-dev#549
