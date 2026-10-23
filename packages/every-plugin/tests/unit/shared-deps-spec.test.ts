@@ -52,6 +52,7 @@ describe("shared-deps-spec canonical list", () => {
         "@lingui/react",
         "everything-dev/ui/auth",
         "everything-dev/ui/i18n",
+        "sonner",
       ].sort(),
     );
   });
@@ -82,8 +83,13 @@ describe("shared-deps-spec canonical list", () => {
       const spec = CORE_SHARED_DEPS.find((s) => s.name === name);
       expect(spec?.critical, `${name} was range-tolerant in every copy`).toBe(false);
     }
+    const tolerant = new Set(["sonner"]);
     for (const spec of UI_SHARED_DEPS) {
-      expect(spec.critical, `${spec.name} was strict in the rsbuild copy`).toBe(true);
+      if (tolerant.has(spec.name)) {
+        expect(spec.critical, `${spec.name} shares with a bundled fallback copy`).toBe(false);
+      } else {
+        expect(spec.critical, `${spec.name} was strict in the rsbuild copy`).toBe(true);
+      }
     }
   });
 });
@@ -176,11 +182,36 @@ describe("consumer derivation (structural — replaces the drift sync test)", ()
       expect(entry?.singleton).toBe(true);
       expect(entry?.eager).toBe(false);
       expect(entry?.version).toMatch(/^\d+\.\d+\.\d+/);
-      expect(entry?.requiredVersion).toBe(entry?.version);
-      expect(entry?.strictVersion).toBe(true);
-      expect(consumer[spec.name]?.import).toBe(false);
       expect(provider[spec.name]?.import).toBeUndefined();
+      if (spec.critical) {
+        expect(entry?.requiredVersion).toBe(entry?.version);
+        expect(entry?.strictVersion).toBe(true);
+        expect(consumer[spec.name]?.import).toBe(false);
+      } else {
+        expect(entry?.requiredVersion).toBe(false);
+        expect(entry?.strictVersion).toBe(false);
+        expect(consumer[spec.name]?.import).toBeUndefined();
+      }
     }
+  });
+
+  it("shares sonner as a tolerant singleton with a bundled fallback in consumers", () => {
+    const provider = createUiSharedDeps({ role: "provider" });
+    const consumer = createUiSharedDeps({ role: "consumer" });
+    expect(provider.sonner).toMatchObject({
+      singleton: true,
+      strictVersion: false,
+      requiredVersion: false,
+      eager: false,
+      shareScope: "default",
+    });
+    expect(provider.sonner?.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(consumer.sonner?.import).toBeUndefined();
+    expect(consumer.sonner).toMatchObject({
+      singleton: true,
+      strictVersion: false,
+      requiredVersion: false,
+    });
   });
 
   it("ignores declared ranges — the installed version is the only source", () => {

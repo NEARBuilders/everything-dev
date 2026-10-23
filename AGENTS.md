@@ -640,7 +640,7 @@ To switch to `RelayerExplicitConfig`, replace the rich-object shape with `relaye
 
 ### Shared Singleton Trust Model
 
-Module Federation shares React, TanStack Query, and TanStack Router as singletons across remotes. A compromise of these packages affects all remotes simultaneously. Defense:
+Module Federation shares React, TanStack Query, TanStack Router, and Sonner as singletons across remotes (ADR 0037 — the Toaster lives in the core ui, so remotes must resolve the same sonner instance for their `toast()` calls to render). A compromise of these packages affects all remotes simultaneously. Defense:
 
 - **Catalog pinning** — versions are locked in root `package.json` catalogs. Bump versions deliberately, not reactively.
 - **Renovate `minimumReleaseAge`** — 3 days general, 5 days for `@tanstack/*`. Malicious versions detected within hours are blocked from auto-merge.

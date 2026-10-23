@@ -329,6 +329,9 @@ catalogs:
     sirv:
       specifier: 3.0.2
       version: 3.0.2
+    sonner:
+      specifier: 2.0.8
+      version: 2.0.8
     typescript:
       specifier: ^7.0.2
       version: 7.0.2
@@ -1135,7 +1138,7 @@ importers:
         specifier: 19.2.9
         version: 19.2.9(react@19.2.9)
       sonner:
-        specifier: ^2.0.7
+        specifier: 'catalog:'
         version: 2.0.8(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       tw-animate-css:
         specifier: ^1.4.0
@@ -1292,7 +1295,7 @@ importers:
         specifier: 19.2.9
         version: 19.2.9(react@19.2.9)
       sonner:
-        specifier: ^2.0.7
+        specifier: 'catalog:'
         version: 2.0.8(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       tw-animate-css:
         specifier: ^1.4.0
@@ -1731,7 +1734,7 @@ importers:
         specifier: ^4.0.1
         version: 4.0.1
       sonner:
-        specifier: ^2.0.7
+        specifier: 'catalog:'
         version: 2.0.8(@types/react@19.3.0)(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
       tw-animate-css:
         specifier: ^1.4.0

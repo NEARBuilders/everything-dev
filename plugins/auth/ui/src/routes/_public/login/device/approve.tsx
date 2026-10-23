@@ -5,10 +5,12 @@ import { sessionQueryOptions, useAuthClient } from "everything-dev/ui/auth";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AuthPanel } from "@/components/auth-panel";
+import { ErrorDetail } from "@/components/error-detail";
 import { InfoPopover } from "@/components/info-popover";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { LoginI18nProvider, useLoginTranslation } from "@/i18n/runtime";
+import { siteErrorMessage } from "@/lib/site-error";
 import {
   type DevicePairingSearch,
   devicePairingHref,
@@ -36,7 +38,7 @@ function DeviceApproveContent() {
   const { data: session } = useQuery(sessionQueryOptions(auth));
   const { user_code, pubKey, contract, account, network, custody, source } = Route.useSearch();
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; detail: string | null } | null>(null);
   const [approved, setApproved] = useState(false);
   const [custodyWallet, setCustodyWallet] = useState<{
     walletId: string;
@@ -58,6 +60,9 @@ function DeviceApproveContent() {
     },
     onSuccess: (data) => {
       setCustodyWallet(data);
+    },
+    onError: (mutationError: Error) => {
+      setError(siteErrorMessage(mutationError, t("auth.device.custody.failed")));
     },
   });
 
@@ -92,7 +97,7 @@ function DeviceApproveContent() {
       return true;
     },
     onError: (mutationError: Error) => {
-      toast.error(mutationError.message || t("auth.device.delegate.toastFailed"));
+      setError(siteErrorMessage(mutationError, t("auth.device.delegate.toastFailed")));
     },
   });
 
@@ -115,7 +120,6 @@ function DeviceApproveContent() {
         await registerCustodyWallet.mutateAsync();
       } catch {
         setPending(false);
-        setError(t("auth.device.custody.failed"));
         return;
       }
     }
@@ -124,20 +128,20 @@ function DeviceApproveContent() {
         await addDelegateKey.mutateAsync();
       } catch {
         setPending(false);
-        setError(t("auth.device.delegate.failed"));
         return;
       }
     }
-    let approveFailed = false;
+    let approveFailure: { message: string; detail: string | null } | null = null;
     try {
       const { error: approveError } = await auth.device.approve({ userCode: user_code });
-      approveFailed = !!approveError;
+      if (approveError)
+        approveFailure = siteErrorMessage(approveError, t("auth.device.approve.failed"));
     } catch {
-      approveFailed = true;
+      approveFailure = { message: t("auth.device.approve.failed"), detail: null };
     }
     setPending(false);
-    if (approveFailed) {
-      setError(t("auth.device.approve.failed"));
+    if (approveFailure) {
+      setError(approveFailure);
       return;
     }
     if (isDelegateMode || source === "cli") {
@@ -153,16 +157,16 @@ function DeviceApproveContent() {
     if (!user_code) return;
     setPending(true);
     setError(null);
-    let denyFailed = false;
+    let denyFailure: { message: string; detail: string | null } | null = null;
     try {
       const { error: denyError } = await auth.device.deny({ userCode: user_code });
-      denyFailed = !!denyError;
+      if (denyError) denyFailure = siteErrorMessage(denyError, t("auth.device.deny.failed"));
     } catch {
-      denyFailed = true;
+      denyFailure = { message: t("auth.device.deny.failed"), detail: null };
     }
     setPending(false);
-    if (denyFailed) {
-      setError(t("auth.device.deny.failed"));
+    if (denyFailure) {
+      setError(denyFailure);
       return;
     }
     toast.info(t("auth.device.deny.success"));
@@ -276,9 +280,7 @@ function DeviceApproveContent() {
       )}
 
       {error && (
-        <p className="text-center text-sm text-destructive" data-testid="device.approve-error">
-          {error}
-        </p>
+        <ErrorDetail message={error.message} detail={error.detail} testId="device.approve-error" />
       )}
 
       {user_code && (

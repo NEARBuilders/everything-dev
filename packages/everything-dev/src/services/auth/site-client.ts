@@ -27,7 +27,17 @@ export function parseSiteErrorDetail(status: number, json: unknown): string | un
   const inner = typeof body.json === "object" && body.json !== null ? body.json : body;
   const innerBody = inner as Record<string, unknown>;
 
-  if (typeof innerBody.message === "string") return innerBody.message;
+  const message = pickErrorMessage(innerBody) ?? pickErrorMessage(body);
+  const detail = pickDetail(innerBody);
+  if (message && detail && detail !== message) return `${message} — ${detail}`;
+  void status;
+  return message ?? detail;
+}
+
+const DETAIL_KEYS = ["detail", "detailFull"] as const;
+
+function pickErrorMessage(body: Record<string, unknown>): string | undefined {
+  if (typeof body.message === "string" && body.message.trim() !== "") return body.message;
   if (
     typeof body.error === "object" &&
     body.error !== null &&
@@ -40,8 +50,13 @@ export function parseSiteErrorDetail(status: number, json: unknown): string | un
     const first = body.error[0] as Record<string, unknown> | undefined;
     if (first && typeof first.message === "string") return first.message;
   }
-  void status;
   return undefined;
+}
+
+function pickDetail(body: Record<string, unknown>): string | undefined {
+  return DETAIL_KEYS.map((key) => body[key]).find(
+    (value): value is string => typeof value === "string" && value.trim() !== "",
+  );
 }
 
 export interface SiteClientShape {

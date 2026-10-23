@@ -263,7 +263,14 @@ export function sessionQueryOptions(authClient: AuthClient) {
       const { data: session, error } = await authClient.getSession({
         query: { disableCookieCache: true },
       });
-      if (error) throw new Error(error.message || "Unable to load your session");
+      if (error) {
+        const record = error as { message?: string; detail?: string; detailFull?: string };
+        throw Object.assign(new Error(record.message || "Unable to load your session"), {
+          detail: [record.detail, record.detailFull].find(
+            (value) => typeof value === "string" && value.trim() !== "",
+          ),
+        });
+      }
       return session ?? null;
     },
     staleTime: 60 * 1000,
@@ -318,7 +325,7 @@ export function useRelayHistory(session: SessionData | null | undefined, authCli
 
 export type PasskeyWalletStatus = PasskeyWalletLink;
 
-export type PasskeyCeremonyError = Error & { code?: string };
+export type PasskeyCeremonyError = Error & { code?: string; status?: number };
 
 const UNSUPPORTED_AUTHENTICATOR_CODES = new Set([
   "PASSKEY_UNSUPPORTED_AUTHENTICATOR",
@@ -333,10 +340,13 @@ export function isUnsupportedAuthenticatorError(error: unknown): boolean {
 }
 
 function toPasskeyError(
-  error: { code?: string; message?: string } | null | undefined,
+  error: { code?: string; message?: string; status?: number } | null | undefined,
   fallback: string,
 ): PasskeyCeremonyError {
-  return Object.assign(new Error(error?.message || fallback), { code: error?.code });
+  return Object.assign(new Error(error?.message || fallback), {
+    code: error?.code,
+    status: error?.status,
+  });
 }
 
 export async function isPasskeyAutofillAvailable(): Promise<boolean> {
