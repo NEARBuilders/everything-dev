@@ -32,6 +32,7 @@ import { DeployTrainRenderService } from "./services/deploy/render";
 import { DeployTrainService } from "./services/deploy/train";
 import { DevFlowService } from "./services/dev/flow";
 import { OpsService } from "./services/ops";
+import { PlatformManifestService } from "./services/platform/manifest";
 import { PluginAdminService } from "./services/plugins-admin";
 import { ProcessesService } from "./services/processes/service";
 import { openResolution, ResolutionSessionService } from "./services/resolution/session";
@@ -122,6 +123,7 @@ export default createPlugin({
         PluginAdminService.Live.pipe(Layer.provide(deployTrainLayer)),
         DevFlowService.Live,
         InitFlowService.Live,
+        PlatformManifestService.Live,
       );
     }),
   createRouter: (builder) => ({

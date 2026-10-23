@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Context, Layer } from "effect";
 import {
   SHARED_DEP_SPECS,
   type SharedDependencyConfig,
@@ -391,35 +392,84 @@ function defaultFetchParent(
     .catch(() => null);
 }
 
+export interface ExtendsChainNode {
+  account: string;
+  gateway: string;
+}
+
+export interface ExtendsChainWalk {
+  /** child → root, nearest first — `chain[0]` is the local extends target */
+  chain: ExtendsChainNode[];
+  /** the most rootward `repository` seen — parent configs override the child's */
+  repository?: string;
+  /** set when the walk revisits a node — a pathological extends chain */
+  circularAt?: string;
+}
+
+/**
+ * The ONE extends-chain walk (child → root via FastKV parent configs): both
+ * `resolvePlatformManifest` and the upgrade source resolution used to carry
+ * their own `fetchParentConfig` loops; this is the shared implementation.
+ * A fetch failure (throw or null) stops the walk — the chain gathered so far
+ * is still returned.
+ */
+export async function walkExtendsChain(input: {
+  localConfig: Record<string, unknown>;
+  localRepository?: string;
+  fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
+}): Promise<ExtendsChainWalk> {
+  const fetchParent = input.fetchParent ?? defaultFetchParent;
+  const chain: ExtendsChainNode[] = [];
+  let repository = input.localRepository;
+
+  const startsRef = getExtendsRef(input.localConfig);
+  let cursor: ExtendsChainNode | null =
+    typeof startsRef === "string" && startsRef.startsWith("bos://")
+      ? (parseBosRef(startsRef) ?? null)
+      : null;
+  const visited = new Set<string>();
+  let circularAt: string | undefined;
+
+  while (cursor) {
+    const ref = `bos://${cursor.account}/${cursor.gateway}`;
+    if (visited.has(ref)) {
+      circularAt = ref;
+      break;
+    }
+    visited.add(ref);
+    chain.push(cursor);
+
+    const parentConfig = await fetchParent(cursor.account, cursor.gateway);
+    if (!parentConfig) break;
+    if (typeof parentConfig.repository === "string" && parentConfig.repository) {
+      repository = parentConfig.repository;
+    }
+    const nextRef = getExtendsRef(parentConfig);
+    cursor =
+      typeof nextRef === "string" && nextRef.startsWith("bos://")
+        ? (parseBosRef(nextRef) ?? null)
+        : null;
+  }
+
+  return {
+    chain,
+    ...(repository !== undefined ? { repository } : {}),
+    ...(circularAt ? { circularAt } : {}),
+  };
+}
+
 export async function resolvePlatformManifest(
   opts: ResolvePlatformManifestOptions,
 ): Promise<ResolvedPlatformManifest | null> {
   const fetchManifest =
     opts.fetchManifest ?? ((a: string, g: string) => defaultFetchManifest(a, g));
-  const fetchParent = opts.fetchParent ?? defaultFetchParent;
   const cacheRead = opts.cacheRead ?? (() => defaultCacheRead(opts.configDir));
   const cacheWrite = opts.cacheWrite ?? ((cached) => defaultCacheWrite(opts.configDir, cached));
 
-  // Walk the extends chain child → root, mirroring upgrade's chain walk.
-  const chain: Array<{ account: string; gateway: string }> = [];
-  const visited = new Set<string>();
-  let cursor: { account: string; gateway: string } | null = null;
-  const extendsRef = getExtendsRef(opts.localConfig);
-  if (typeof extendsRef === "string" && extendsRef.startsWith("bos://")) {
-    const parsed = parseBosRef(extendsRef);
-    if (parsed) cursor = { account: parsed.account, gateway: parsed.gateway };
-  }
-  while (cursor && !visited.has(`bos://${cursor.account}/${cursor.gateway}`)) {
-    visited.add(`bos://${cursor.account}/${cursor.gateway}`);
-    chain.push(cursor);
-    const parentConfig = await fetchParent(cursor.account, cursor.gateway);
-    if (!parentConfig) break;
-    const nextRef = getExtendsRef(parentConfig);
-    if (typeof nextRef !== "string" || !nextRef.startsWith("bos://")) break;
-    const parsed = parseBosRef(nextRef);
-    if (!parsed) break;
-    cursor = { account: parsed.account, gateway: parsed.gateway };
-  }
+  const { chain } = await walkExtendsChain({
+    localConfig: opts.localConfig,
+    ...(opts.fetchParent ? { fetchParent: opts.fetchParent } : {}),
+  });
 
   const writeCache = (
     manifest: PlatformReleaseManifest,
@@ -456,4 +506,31 @@ export async function resolvePlatformManifest(
     );
   }
   return null;
+}
+
+/**
+ * The platform release manifest as a Context.Service: the same "module is
+ * the implementation, the tag is the seam" shape as FastKVRegistryService —
+ * CLI handlers `yield*` the tag; pure and standalone callers keep using the
+ * plain functions. Tests provide `Layer.succeed` fakes instead of module
+ * mocks.
+ */
+export class PlatformManifestService extends Context.Service<
+  PlatformManifestService,
+  {
+    resolvePlatformManifest: typeof resolvePlatformManifest;
+    composePlatformReleaseManifest: typeof composePlatformReleaseManifest;
+    checkPlatformCompat: typeof checkPlatformCompat;
+    readInImagePlatformManifest: typeof readInImagePlatformManifest;
+  }
+>()("everything-dev/platform/manifest") {
+  static readonly Live = Layer.succeed(
+    this,
+    this.of({
+      resolvePlatformManifest,
+      composePlatformReleaseManifest,
+      checkPlatformCompat,
+      readInImagePlatformManifest,
+    }),
+  );
 }
