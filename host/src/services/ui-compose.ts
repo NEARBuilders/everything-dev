@@ -31,19 +31,21 @@ import {
   type RouteConfigModule,
 } from "everything-dev/ui/manifest";
 import type { RouterModule } from "../types";
-import { logger } from "../utils/logger";
+import { mark } from "../utils/effect-run";
 import type { RuntimeConfig } from "./config";
 import { UiComposeError } from "./errors";
+import {
+  FederationContainers,
+  resolveLocalRoot,
+  waitForLocalContainer,
+} from "./federation/containers";
 import {
   loadCoreUiRouteConfig,
   loadRouterModule,
   loadUiComposeModule,
   loadUiRouteConfig,
-  localUiRemoteEntry,
-  resolveLocalRoot,
-  waitForLocalContainer,
-} from "./federation.server";
-import { enforceCacheLimit } from "./ttl-cache";
+} from "./federation/loader";
+import { enforceCacheLimit } from "./serving-caches";
 
 const MAX_COMPOSE_VARIANTS = 64;
 
@@ -121,9 +123,10 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
     const ui = plugin?.ui;
     if (!ui) continue;
     if (ui.source !== "local" && !ui.url) {
-      logger.warn(
-        `[Compose] Plugin ui "${id}" has no production URL — skipping its routes. Deploy it with \`bos publish --deploy\`.`,
-      );
+      mark("plugin ui skipped — no production URL", {
+        plugin: id,
+        hint: "Deploy it with `bos publish --deploy`.",
+      });
       continue;
     }
     const urls = entryUrls(ui, config.env);
@@ -181,8 +184,10 @@ const loadRemoteManifestCached = Effect.fn("loadRemoteManifestCached")(function*
   const cached = cache.remoteManifests.get(source.key);
   const now = yield* Clock.currentTimeMillis;
   if (cached && now - cached.fetchedAt < MANIFEST_TTL_MS) {
+    mark("manifest hit", { source: source.key, url: manifestUrl });
     return cached.manifest;
   }
+  const fetchStartedAt = yield* Clock.currentTimeMillis;
   const fresh = yield* Effect.tryPromise({
     try: async () => {
       const response = await runFetch(manifestUrl);
@@ -223,6 +228,13 @@ const loadRemoteManifestCached = Effect.fn("loadRemoteManifestCached")(function*
         return yield* error;
       }),
     ),
+  );
+  yield* Effect.logDebug("manifest fetch").pipe(
+    Effect.annotateLogs({
+      source: source.key,
+      url: manifestUrl,
+      durationMs: (yield* Clock.currentTimeMillis) - fetchStartedAt,
+    }),
   );
   cache.remoteManifests.set(source.key, { manifest: fresh, fetchedAt: now });
   return fresh;
@@ -393,15 +405,15 @@ export const composeUi = Effect.fn("composeUi")(function* (
   config: RuntimeConfig,
   cache: UiComposeCacheState,
 ) {
+  const containers = yield* FederationContainers;
+  const composeStartedAt = yield* Clock.currentTimeMillis;
   const sources = uiSources(config);
   const composable = yield* resolveComposableSources(sources, cache);
   const corePair = composable.find(({ source }) => source.key === CORE_UI_KEY)!;
   const core = corePair.source;
 
   const coreEntry = core.localRoot
-    ? yield* Effect.tryPromise(() =>
-        localUiRemoteEntry({ name: core.mfName, localRoot: core.localRoot! }),
-      )
+    ? yield* containers.localUiRemoteEntry({ name: core.mfName, localRoot: core.localRoot! })
     : core.remote!;
   if (core.localRoot) {
     yield* waitForLocalContainer(coreEntry, config.env);
@@ -416,38 +428,43 @@ export const composeUi = Effect.fn("composeUi")(function* (
   // Per-source route-config isolation: a plugin whose container/config
   // cannot load drops itself (warn); the core stays loud. The digest is
   // computed over the final healthy set — after drops — so the engine's
-  // parity check and the client payload agree by construction.
+  // parity check and the client payload agree by construction. Plugin
+  // route-configs load in parallel: the per-plugin latency never composes
+  // (each source's container wait + load is independent).
   const healthy: ComposableSource[] = [{ source: core, manifest: corePair.manifest }];
   const routeConfigByName = new Map<string, RouteConfigModule>([
     [corePair.manifest.name, coreRouteConfig],
   ]);
-  for (const entry of composable) {
-    if (entry.source.key === CORE_UI_KEY) continue;
-    const loaded = yield* (
-      entry.source.localRoot
+  const nonCore = composable.filter(({ source }) => source.key !== CORE_UI_KEY);
+  const loaded = yield* Effect.forEach(
+    nonCore,
+    ({ source }) =>
+      (source.localRoot
         ? Effect.gen(function* () {
-            const localEntry = yield* Effect.tryPromise(() =>
-              localUiRemoteEntry({
-                name: entry.source.mfName,
-                localRoot: entry.source.localRoot!,
-              }),
-            );
+            const localEntry = yield* containers.localUiRemoteEntry({
+              name: source.mfName,
+              localRoot: source.localRoot!,
+            });
             yield* waitForLocalContainer(localEntry, config.env);
             return yield* loadUiRouteConfig(localEntry, config.env);
           })
-        : loadUiRouteConfig(entry.source.remote!, config.env)
-    ).pipe(
-      Effect.catch((error) =>
-        entry.source.localRoot
-          ? Effect.fail(error)
-          : Effect.logWarning(
-              `[Compose] dropping ui source "${entry.source.key}" — route config unavailable (${error.message})`,
-            ).pipe(Effect.as(null)),
+        : loadUiRouteConfig(source.remote!, config.env)
+      ).pipe(
+        Effect.catch((error) =>
+          source.localRoot
+            ? Effect.fail(error)
+            : Effect.logWarning(
+                `[Compose] dropping ui source "${source.key}" — route config unavailable (${error.message})`,
+              ).pipe(Effect.as(null)),
+        ),
       ),
-    );
-    if (loaded) {
-      healthy.push(entry);
-      routeConfigByName.set(entry.manifest.name, loaded);
+    { concurrency: "unbounded" },
+  );
+  for (const [index, routeConfig] of loaded.entries()) {
+    const entry = nonCore[index]!;
+    if (routeConfig) {
+      healthy.push({ source: entry.source, manifest: entry.manifest });
+      routeConfigByName.set(entry.manifest.name, routeConfig);
     }
   }
   const healthySources = healthy.map(({ source }) => source);
@@ -464,6 +481,13 @@ export const composeUi = Effect.fn("composeUi")(function* (
   const now = yield* Clock.currentTimeMillis;
   const cached = cache.variants.get(variantKey);
   if (cached && (isDev ? cached.staleAfter > now : true)) {
+    yield* Effect.logDebug("compose variant hit").pipe(
+      Effect.annotateLogs({
+        digest,
+        sources: healthySources.length,
+        durationMs: (yield* Clock.currentTimeMillis) - composeStartedAt,
+      }),
+    );
     return cached.variant;
   }
 
@@ -507,6 +531,13 @@ export const composeUi = Effect.fn("composeUi")(function* (
     isDev ? now + DEV_VARIANT_TTL_MS : Number.POSITIVE_INFINITY,
   );
   enforceCacheLimit(cache.variants, MAX_COMPOSE_VARIANTS);
+  yield* Effect.logDebug("compose variant constructed").pipe(
+    Effect.annotateLogs({
+      digest,
+      sources: healthySources.length,
+      durationMs: (yield* Clock.currentTimeMillis) - composeStartedAt,
+    }),
+  );
   return variant;
 });
 
@@ -529,9 +560,20 @@ export const composeClientPayload = Effect.fn("composeClientPayload")(function* 
   config: RuntimeConfig,
   cache: UiComposeCacheState,
 ) {
+  const composeStartedAt = yield* Clock.currentTimeMillis;
   const sources = uiSources(config);
-  if (sources.every((source) => source.key === CORE_UI_KEY)) return undefined;
+  if (sources.every((source) => source.key === CORE_UI_KEY)) {
+    yield* Effect.logDebug("client payload skipped", { sources: sources.length });
+    return undefined;
+  }
   const composable = yield* resolveComposableSources(sources, cache);
   const digest = yield* digestOfSources(composable);
+  yield* Effect.logDebug("client payload composed").pipe(
+    Effect.annotateLogs({
+      digest,
+      sources: composable.length,
+      durationMs: (yield* Clock.currentTimeMillis) - composeStartedAt,
+    }),
+  );
   return { digest, clientPayload: clientPayloadOf(composable, digest) };
 });

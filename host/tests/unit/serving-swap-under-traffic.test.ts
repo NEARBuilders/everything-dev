@@ -4,6 +4,7 @@ import { buildRuntimeConfigEffect, type ConfigVersionManifestError } from "every
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";
+import { FederationLifecycle } from "../../src/services/federation/lifecycle";
 import { RuntimeSnapshot } from "../../src/services/runtime-snapshot";
 import { adoptPublishedPointer } from "../../src/services/snapshot-coordinator";
 import { createSsrRender } from "../../src/services/ssr-render";
@@ -42,9 +43,9 @@ const { loadUiComposeModuleMock, loadCoreUiRouteConfigMock, loadRouterModuleMock
   }),
 );
 
-vi.mock("../../src/services/federation.server", async () => {
-  const actual = await vi.importActual<typeof import("../../src/services/federation.server")>(
-    "../../src/services/federation.server",
+vi.mock("../../src/services/federation/loader", async () => {
+  const actual = await vi.importActual<typeof import("../../src/services/federation/loader")>(
+    "../../src/services/federation/loader",
   );
   return {
     ...actual,
@@ -200,6 +201,7 @@ const setGate = () => {
 
 const snapshotLayer = RuntimeSnapshot.layer().pipe(
   Layer.provide(Layer.succeed(ConfigService, genConfig(0))),
+  Layer.provideMerge(FederationLifecycle.layer),
 );
 
 describe("swap under traffic (C7: shadow-flip, ESM disposal, leak measurement)", () => {

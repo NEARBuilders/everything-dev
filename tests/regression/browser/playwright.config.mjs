@@ -75,7 +75,11 @@ export default defineConfig({
       // The dev server is smoke-only — boot + one page per render mode + the
       // redirect spec. Its resource profile must never stall CI again.
       name: "dev:ssr",
-      testMatch: ["specs/csr-compose.spec.ts", "specs/auth-redirect.spec.ts"],
+      testMatch: [
+        "specs/csr-compose.spec.ts",
+        "specs/auth-redirect.spec.ts",
+        "specs/ssr-first-paint.spec.ts",
+      ],
     },
     {
       name: "dev:csr",
