@@ -17,13 +17,15 @@ func adoptionEnabled() bool {
 }
 
 func TestHardKillThenBosKillReapsOrphans(t *testing.T) {
+	t.Parallel()
 	if !adoptionEnabled() {
 		t.Skip("plan 036 Phase 1 acceptance — run with BOS_TEARDOWN_ADOPTION=1")
 	}
-	requireTestDatabases(t)
+	acquireStackSlot(t)
+	defer releaseStackSlot()
 
 	registry := filepath.Join(t.TempDir(), "pids.json")
-	stack := StartStack(t, 5600, registry)
+	stack := StartStack(t, 5950, registry)
 	pids := stack.SnapshotPids()
 
 	stack.Signal(syscall.SIGKILL)
@@ -37,19 +39,21 @@ func TestHardKillThenBosKillReapsOrphans(t *testing.T) {
 }
 
 func TestNextBootAdoptsOrphans(t *testing.T) {
+	t.Parallel()
 	if !adoptionEnabled() {
 		t.Skip("plan 036 Phase 1.4 acceptance — run with BOS_TEARDOWN_ADOPTION=1")
 	}
-	requireTestDatabases(t)
+	acquireStackSlot(t)
+	defer releaseStackSlot()
 
 	registry := filepath.Join(t.TempDir(), "pids.json")
-	stack := StartStack(t, 5600, registry)
+	stack := StartStack(t, 5950, registry)
 	pids := stack.SnapshotPids()
 
 	stack.Signal(syscall.SIGKILL)
 	stack.WaitExit(128 + int(syscall.SIGKILL))
 
-	next := StartStack(t, 5700, registry)
+	next := StartStack(t, 5960, registry)
 	defer next.Reap()
 
 	AssertAllDead(t, pids, deadRetryWindow)

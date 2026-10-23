@@ -3,7 +3,6 @@ package framework
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,10 +15,41 @@ import (
 )
 
 const (
-	readyTimeout    = 3 * time.Minute
-	exitTimeout     = 30 * time.Second
+	readyTimeout = 3 * time.Minute
+	exitTimeout  = 30 * time.Second
+	// deadRetryWindow bounds the teardown polls; AssertTeardownComplete runs
+	// them concurrently so the wall cost is one window, not two.
 	deadRetryWindow = 10 * time.Second
 )
+
+// maxStackSlots bounds how many dev stacks boot concurrently across the
+// parallel tests (each stack is a full tsx CLI + services + watchers; more
+// slots than cores thrashes boots past readyTimeout). Env-tunable so CI
+// runners with fewer cores can pin a smaller bound.
+var maxStackSlots = func() int {
+	if raw, err := strconv.Atoi(os.Getenv("BOS_FRAMEWORK_STACK_SLOTS")); err == nil && raw > 0 {
+		return raw
+	}
+	return 3
+}()
+
+var stackSlots = make(chan struct{}, maxStackSlots)
+
+// acquireStackSlot blocks until a stack slot frees. Every test holds exactly
+// one slot for its whole body (adoption tests boot two stacks sequentially
+// under one slot), released via defer before t.Cleanup reaping.
+func acquireStackSlot(t *testing.T) {
+	t.Helper()
+	select {
+	case stackSlots <- struct{}{}:
+	case <-time.After(10 * time.Minute):
+		t.Fatalf("timed out waiting for a stack slot")
+	}
+}
+
+func releaseStackSlot() {
+	<-stackSlots
+}
 
 type Stack struct {
 	t            *testing.T
@@ -66,21 +96,11 @@ func findRepoRoot(t *testing.T) string {
 	}
 }
 
-func requireTestDatabases(t *testing.T) {
-	t.Helper()
-	for _, port := range []int{5434, 5435} {
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second)
-		if err != nil {
-			t.Skipf("test database on port %d is not running — start it with `pnpm run test:db:up`", port)
-		}
-		conn.Close()
-	}
-}
-
 // devInvocation assembles the real `bos dev` invocation shared by the direct
 // and wrapped launch paths: the tsx cli.ts argv, the layered env
-// (.env.test's DB URLs and secret, port-derived origins, ephemeral-run
-// guards), the repo root, and the run's log file.
+// (.env.test's secret — DB URLs are deliberately NOT passed: each stack runs
+// on its own ephemeral pglite per the zero-config default), the port-derived
+// origins, the ephemeral-run guards, the repo root, and the run's log file.
 func devInvocation(t *testing.T, basePort int, registryPath string, interactive bool) ([]string, []string, string, *os.File) {
 	t.Helper()
 	repoRoot := findRepoRoot(t)
@@ -89,7 +109,11 @@ func devInvocation(t *testing.T, basePort int, registryPath string, interactive 
 	if err != nil {
 		t.Fatalf("parsing .env.test: %v", err)
 	}
-	overrides := envOverridesFromDotenv(dotenv)
+	devDotenv, devErr := parseDotenvFile(filepath.Join(repoRoot, ".env"))
+	if devErr != nil {
+		t.Logf("parsing local .env (best-effort substrate neutralization): %v", devErr)
+	}
+	overrides := envOverridesFromDotenv(dotenv, devDotenv)
 	origin := "http://localhost:" + strconv.Itoa(basePort)
 	overrides["BASE_URL"] = origin
 	overrides["CORS_ORIGIN"] = origin
@@ -305,10 +329,10 @@ func (s *Stack) logTail(n int) string {
 
 // RunBosKill invokes `bos kill` in the repo root, sharing the stack's
 // registry override so it acts on the test session's entry.
-func (s *Stack) RunBosKill() {
+func (s *Stack) RunBosKill(extraArgs ...string) {
 	s.t.Helper()
 	cliPath := filepath.Join(s.repoRoot, "packages", "everything-dev", "src", "cli.ts")
-	cmd := exec.Command("node", "--import", "tsx", "--conditions=development", cliPath, "kill")
+	cmd := exec.Command("node", append([]string{"--import", "tsx", "--conditions=development", cliPath, "kill"}, extraArgs...)...)
 	cmd.Dir = s.repoRoot
 	base := os.Environ()
 	filtered := base[:0:0]

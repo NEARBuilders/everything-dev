@@ -11,12 +11,14 @@ import (
 )
 
 // tuiMountMarker is the alt-screen enter escape the dev renderer writes when
-// it mounts. It proves the session took the interactive path; raw mode is
-// enabled a few statements later, so quitters wait on it plus a short settle
-// window before sending bytes — a premature Ctrl-C would arrive while ISIG is
-// still on and SIGINT the session instead of exercising the key path.
+// it mounts. tuiReadyMarker is the renderer's raw-mode-ready pin
+// (dev-render.ts emits \x1b]bos;ready\x07 once setRawMode(true) succeeded and
+// the key handler is attached) — waiting on it makes q/Ctrl-C sends
+// deterministic; the mount marker plus a settle window is the fallback for
+// CLIs that predate the pin.
 const (
 	tuiMountMarker = "\x1b[?1049h"
+	tuiReadyMarker = "\x1b]bos;ready\x07"
 	tuiSettleDelay = time.Second
 	tuiPtyRows     = 40
 	tuiPtyCols     = 120
@@ -34,6 +36,7 @@ type InteractiveStack struct {
 	mu      sync.Mutex
 	output  string
 	mounted chan struct{}
+	ready   chan struct{}
 }
 
 // StartInteractiveStack boots the same stack as StartStack but without
@@ -54,6 +57,7 @@ func StartInteractiveStack(t *testing.T, basePort int, registryPath string) *Int
 			exited:       make(chan struct{}, 1),
 		},
 		mounted: make(chan struct{}, 1),
+		ready:   make(chan struct{}, 1),
 	}
 
 	master, startErr := pty.StartWithSize(cmd, &pty.Winsize{Rows: tuiPtyRows, Cols: tuiPtyCols})
@@ -95,6 +99,7 @@ func (s *InteractiveStack) teePtyOutput(logFile *os.File) {
 				s.output = s.output[len(s.output)-outputKeepMax:]
 			}
 			mounted := strings.Contains(s.output, tuiMountMarker)
+			ready := strings.Contains(s.output, tuiReadyMarker)
 			s.mu.Unlock()
 			if _, writeErr := logFile.WriteString(chunk); writeErr != nil {
 				return
@@ -105,6 +110,12 @@ func (s *InteractiveStack) teePtyOutput(logFile *os.File) {
 				default:
 				}
 			}
+			if ready {
+				select {
+				case s.ready <- struct{}{}:
+				default:
+				}
+			}
 		}
 		if err != nil {
 			return
@@ -112,17 +123,24 @@ func (s *InteractiveStack) teePtyOutput(logFile *os.File) {
 	}
 }
 
-// WaitTuiMounted blocks until the alt-screen escape appeared in the pty
-// output, then lets the renderer finish enabling raw mode before callers
-// send key bytes.
+// WaitTuiMounted blocks until the renderer's raw-mode-ready pin appeared in
+// the pty output — typed bytes now reach the key handler with ISIG off, so no
+// settle window is needed. CLIs predating the pin never emit it: after the
+// ready timeout, the mount marker plus a short settle is the fallback.
 func (s *InteractiveStack) WaitTuiMounted() {
 	s.t.Helper()
 	select {
-	case <-s.mounted:
+	case <-s.ready:
+		return
 	case <-time.After(30 * time.Second):
-		s.t.Fatalf("TUI never mounted under the pty\n--- pty tail ---\n%s", s.OutputTail(30))
+		select {
+		case <-s.mounted:
+			s.t.Log("raw-mode ready pin missing (older CLI) — falling back to mount marker + settle")
+			time.Sleep(tuiSettleDelay)
+		case <-time.After(30 * time.Second):
+			s.t.Fatalf("TUI never mounted under the pty\n--- pty tail ---\n%s", s.OutputTail(30))
+		}
 	}
-	time.Sleep(tuiSettleDelay)
 }
 
 // SendInput writes bytes to the pty master — they reach the session's stdin

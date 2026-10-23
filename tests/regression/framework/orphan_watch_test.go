@@ -11,7 +11,9 @@ import (
 // tree on its own — no external signal, no zombie, no port squatters, no
 // 200ms crash loop (#507).
 func TestOrphanedSessionForceExits(t *testing.T) {
-	requireTestDatabases(t)
+	t.Parallel()
+	acquireStackSlot(t)
+	defer releaseStackSlot()
 
 	stack := StartWrappedStack(t, 5900, filepath.Join(t.TempDir(), "pids.json"))
 	pids := stack.SnapshotPids()
@@ -22,8 +24,7 @@ func TestOrphanedSessionForceExits(t *testing.T) {
 	stack.KillWrapper()
 	stack.WaitChildExit(orphanExitDeadline)
 
-	AssertAllDead(t, append(pids, stack.wrappedPid), deadRetryWindow)
-	AssertPortsFree(t, portList(stack), deadRetryWindow)
+	AssertTeardownComplete(t, append(pids, stack.wrappedPid), portList(stack), deadRetryWindow)
 	AssertRegistryClean(t, stack.registryPath, stack.wrappedPid)
-	AssertNoRepoSurvivors(t, stack.repoRoot)
+	AssertNoRepoSurvivors(t, stack.repoRoot, stack.basePort, stack.registryPath)
 }
