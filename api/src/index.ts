@@ -13,6 +13,7 @@ import {
   ReconcilerLive,
   ReconcilerService,
 } from "./lib/reconciler";
+import { RollbackService, RollbackServiceLive } from "./lib/rollback-service";
 import {
   isValidSecretName,
   SecretsStore,
@@ -59,6 +60,15 @@ export default createPlugin.withPlugins<PluginsClient>()({
           .describe(
             "Reconciler (plan 055 ticket 08): converges hosted instances to each namespace's latest published fingerprint via the hosting adapter. Requires the alchemy optional peer for the docker adapter.",
           ),
+        rollback: z
+          .object({
+            account: z.string().min(1).describe("The account this runtime may roll back"),
+            gateway: z.string().min(1).describe("The gateway this runtime may roll back"),
+          })
+          .optional()
+          .describe(
+            "Server-side rollback (plan 055 ticket 04): the namespace whose snapshots this runtime's console may republish. Absent — the rollback route refuses.",
+          ),
       })
       .optional(),
   }),
@@ -72,6 +82,12 @@ export default createPlugin.withPlugins<PluginsClient>()({
       .string()
       .describe(
         "Platform root secret — the secrets vault derives each runtime's KEK from it (HKDF, runtime-scoped salt).",
+      ),
+    ROLLBACK_PRIVATE_KEY: z
+      .string()
+      .optional()
+      .describe(
+        "NEAR private key (ed25519:/secp256k1:) signing this runtime's rollback republishes. Generate with `bos login --key`. Absent — the rollback route refuses.",
       ),
   }),
 
@@ -90,8 +106,12 @@ export default createPlugin.withPlugins<PluginsClient>()({
       );
       const reconciler = config.variables.hosting?.reconciler;
       const watch = reconciler?.watch ?? [];
+      const rollbackLayer = RollbackServiceLive(
+        config.variables.hosting?.rollback,
+        config.secrets.ROLLBACK_PRIVATE_KEY,
+      );
       if (watch.length === 0) {
-        return Layer.mergeAll(base, ReconcilerDisabled);
+        return Layer.mergeAll(base, ReconcilerDisabled, rollbackLayer);
       }
       const docker = yield* Effect.tryPromise({
         try: () => import("everything-dev/hosting/docker"),
@@ -106,6 +126,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
       ).pipe(
         Layer.provideMerge(docker.dockerHostingAdapterLayer({ adopt: true })),
         Layer.provideMerge(base),
+        Layer.provideMerge(rollbackLayer),
       );
     }),
 
@@ -172,6 +193,11 @@ export default createPlugin.withPlugins<PluginsClient>()({
             const reconciler = yield* ReconcilerService;
             return yield* reconciler.status();
           }),
+
+        rollback: builder.hosting.rollback.use(requireAuthOrApiKey).effect(function* ({ input }) {
+          const rollback = yield* RollbackService;
+          return yield* rollback.rollback(input);
+        }),
       },
 
       secrets: {

@@ -75,6 +75,41 @@ export const contract = oc.router({
       .input(z.object({}))
       .output(ReconcilerStatusSchema)
       .errors({ UNAUTHORIZED }),
+
+    rollback: oc
+      .route({
+        method: "POST",
+        path: "/hosting/rollback",
+        summary: "Roll back to a previous deploy snapshot",
+        description:
+          "Republishes the config snapshot at the given block height with the CLI's verification semantics (pinned-slot SRI checks, refuse rather than half-execute), stamping rolledBackFrom; the config and the audit manifest ride one atomic write signed by this runtime's own key. Own namespace only — other namespaces roll back from their own runtime's console.",
+        tags: ["Hosting"],
+      })
+      .input(
+        z.object({
+          account: z.string().min(1).describe("Runtime account (must be this runtime's own)"),
+          gateway: z.string().min(1).describe("Runtime gateway (must be this runtime's own)"),
+          blockHeight: z.number().int().min(1).describe("Block height of the target deploy row"),
+        }),
+      )
+      .output(
+        z.object({
+          status: z.enum(["published", "refused"]),
+          txHash: z.string().optional(),
+          blockHeight: z.number().int().optional(),
+          reason: z.string().optional(),
+          verification: z
+            .array(
+              z.object({
+                slot: z.string(),
+                ok: z.boolean(),
+                reason: z.string().optional(),
+              }),
+            )
+            .optional(),
+        }),
+      )
+      .errors({ UNAUTHORIZED }),
   }),
 
   secrets: oc.router({

@@ -65,6 +65,8 @@ export default defineConfig({
     "src/services/registry/bundle-cache.ts",
     "src/services/resolution/resolver.ts",
     "src/services/registry/fingerprint.ts",
+    "src/services/deploy/rollback.ts",
+    "src/services/auth/near-signer.ts",
     "src/services/deploy/version-manifest.ts",
     "src/services/version/status.ts",
     "src/services/registry/fastkv.ts",

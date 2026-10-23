@@ -476,6 +476,9 @@ importers:
       every-plugin:
         specifier: workspace:^
         version: link:../packages/every-plugin
+      near-kit:
+        specifier: 'catalog:'
+        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940)
       pg:
         specifier: 'catalog:'
         version: 8.23.1

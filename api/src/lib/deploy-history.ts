@@ -246,7 +246,7 @@ function parseJsonValue(value: string): unknown {
   }
 }
 
-function normalizeHistoryEntries(payload: unknown): RegistryHistoryEntry[] {
+export function normalizeHistoryEntries(payload: unknown): RegistryHistoryEntry[] {
   const raw = asRecord(payload)?.entries;
   if (!Array.isArray(raw)) return [];
   const list = raw.filter((entry): entry is Record<string, unknown> => Boolean(entry));

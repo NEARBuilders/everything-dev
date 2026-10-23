@@ -1,9 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
 import { getAccount, getGatewayId, useApiClient } from "@/app";
 import {
   Badge,
   Button,
+  ConfirmDialog,
   EmptyState,
   Input,
   Label,
@@ -34,14 +37,39 @@ function DeploysPage() {
   const search = Route.useSearch();
   const navigate = useNavigate();
   const apiClient = useApiClient();
+  const queryClient = useQueryClient();
+  const [rollbackTarget, setRollbackTarget] = useState<number | null>(null);
 
   const account = search.account ?? getAccount(runtimeConfig);
   const gateway = search.gateway ?? getGatewayId(runtimeConfig) ?? "";
+  const ownAccount = getAccount(runtimeConfig);
+  const ownGateway = getGatewayId(runtimeConfig) ?? "";
+  const canRollback = Boolean(ownGateway) && account === ownAccount && gateway === ownGateway;
 
   const deploys = useQuery({
     queryKey: ["deploys", account, gateway],
     queryFn: () => apiClient.hosting.listDeploys({ account, gateway, limit: 50 }),
     staleTime: 30 * 1000,
+  });
+
+  const rollback = useMutation({
+    mutationFn: (blockHeight: number) =>
+      apiClient.hosting.rollback({ account, gateway, blockHeight }),
+    onSuccess: (result) => {
+      setRollbackTarget(null);
+      if (result.status === "published") {
+        toast.success(
+          `Rolled back to the snapshot at block height ${result.blockHeight}${result.txHash ? ` — tx ${result.txHash}` : ""}`,
+        );
+        void queryClient.invalidateQueries({ queryKey: ["deploys", account, gateway] });
+      } else {
+        toast.error(result.reason ?? "Rollback refused");
+      }
+    },
+    onError: (error) => {
+      setRollbackTarget(null);
+      toast.error(error instanceof Error ? error.message : "Rollback failed");
+    },
   });
 
   const rows = deploys.data?.deploys ?? [];
@@ -185,11 +213,39 @@ function DeploysPage() {
                     </div>
                   )}
                 </div>
+                {canRollback && (
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-testid={`deploys-rollback-button-${index}`}
+                      onClick={() => setRollbackTarget(deploy.blockHeight)}
+                      disabled={rollback.isPending}
+                    >
+                      Roll back to this deploy
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
       </section>
+
+      <ConfirmDialog
+        open={rollbackTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRollbackTarget(null);
+        }}
+        title="Roll back to this deploy?"
+        description={`Republishes the config snapshot at block height ${rollbackTarget ?? ""} with its pinned slots verified (a slot whose bytes are gone or no longer match its SRI refuses the rollback). The instance then converges to the rolled-back pin on the reconciler's next tick.`}
+        confirmLabel="Roll back"
+        variant="destructive"
+        isPending={rollback.isPending}
+        onConfirm={() => {
+          if (rollbackTarget !== null) rollback.mutate(rollbackTarget);
+        }}
+      />
     </PageContainer>
   );
 }
