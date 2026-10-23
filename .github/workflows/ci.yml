@@ -722,23 +722,12 @@ jobs:
       - name: Build every-plugin dist
         run: pnpm run build template
 
-      # Two attempts + a TERM trap + an in-step resource watchdog. History
-      # (2026-10-23): three runs died with the whole step tree TERMed (exit
-      # 143) at ~77-95s into the suite — run 40028793503 proved the sender:
-      # "The runner has received a shutdown signal", TERM delivered by
-      # Runner.Worker — hosted-runner reclamation, not repo code (the stacks
-      # run in their own process groups via Setpgid, and no in-repo kill path
-      # can reach the step tree).
-      #
-      # The watchdog lives INSIDE this step, not in its own step: a background
-      # process spawned by a separate step inherits THAT step's stdout pipe,
-      # and the runner stops reading a step's pipe when the step ends — the
-      # tee dies of SIGPIPE after one tick (run 40028793503 captured exactly
-      # one snapshot). From inside this step it inherits the suite step's
-      # pipe, which stays open for the step's lifetime, so every 15s snapshot
-      # lands in the step log (which GitHub always stores, even mid-kill —
-      # the post-steps and the always() artifact upload below were both
-      # force-skipped on those runs).
+      # Background watchdog → resource-watchdog.log (file only; the artifact
+      # upload below carries it on any completed run). A TERM trap on the
+      # step shell timestamps infra kills: the 2026-10-23 exit-143 deaths
+      # turned out to be hosted-runner reclamation ("The runner has received
+      # a shutdown signal", TERM delivered by Runner.Worker) — never a test
+      # failure. No in-step retry: deterministic failures just re-fail.
       - name: Run framework regression suite
         run: |
           # $(date) must expand inside the inner bash on every loop iteration —
@@ -748,24 +737,12 @@ jobs:
             echo "=== watchdog $(date -u +%H:%M:%S) ==="
             free -m
             ps -eo pid,ppid,pgid,rss,etime,comm --sort=-rss | head -15
-            sleep 15
-          done' 2>&1 | tee resource-watchdog.log &
+            sleep 30
+          done' >> resource-watchdog.log 2>&1 &
 
           # shellcheck disable=SC2016
           trap 'echo "[term-trap] step shell received TERM at $(date -u +%H:%M:%S); ancestors: $(ps -o ppid=,comm= -p $PPID 2>/dev/null | tr "\n" ";")"' TERM
-          for attempt in 1 2; do
-            echo "[attempt $attempt] framework suite starting"
-            set +e
-            pnpm run test:regression:framework
-            rc=$?
-            set -e
-            if [ "$rc" -eq 0 ]; then
-              echo "[attempt $attempt] suite passed"
-              exit 0
-            fi
-            echo "[attempt $attempt] suite exited $rc"
-          done
-          exit 1
+          pnpm run test:regression:framework
 
       # always(), not !success(): run 40016532628 died with the whole step tree
       # TERMed (exit 143) while two stacks booted — and this upload was skipped

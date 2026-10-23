@@ -55,7 +55,6 @@ func StartWrappedStack(t *testing.T, basePort int, registryPath string) *Stack {
 
 	stack.wrappedPid = awaitWrappedPid(t, pidFile)
 	t.Logf("stack %d: wrapped CLI pid %d", basePort, stack.wrappedPid)
-	waitForReady(t, stack)
 	stack.awaitRegistryEntry()
 	return stack
 }

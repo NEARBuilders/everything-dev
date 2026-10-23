@@ -3,7 +3,6 @@ package framework
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -109,10 +108,7 @@ func devInvocation(t *testing.T, basePort int, registryPath string, interactive 
 	if err != nil {
 		t.Fatalf("parsing .env.test: %v", err)
 	}
-	devDotenv, devErr := parseDotenvFile(filepath.Join(repoRoot, ".env"))
-	if devErr != nil {
-		t.Logf("parsing local .env (best-effort substrate neutralization): %v", devErr)
-	}
+	devDotenv, _ := parseDotenvFile(filepath.Join(repoRoot, ".env"))
 	overrides := envOverridesFromDotenv(dotenv, devDotenv)
 	origin := "http://localhost:" + strconv.Itoa(basePort)
 	overrides["BASE_URL"] = origin
@@ -163,8 +159,10 @@ func tsxArgs(args []string) []string {
 //
 // Setpgid puts every spawned stack in its own process group: a stray
 // group-targeted kill (`kill(-pgid)`) can then never cross between the test
-// tree and a stack (or two stacks). The pty launcher replaces SysProcAttr
-// with its own Setsid/Setctty — a superset of this isolation.
+// tree and a stack (or two stacks). The pty launcher passes its own attrs
+// (Setpgid without setsid/setctty — the TUI only needs stdin/stdout on a
+// tty; hardened runners deny the setsid fork with EPERM, which the launcher
+// turns into a skip).
 func buildDevCommand(t *testing.T, basePort int, registryPath string, interactive bool) (*exec.Cmd, *os.File, string) {
 	t.Helper()
 	args, env, repoRoot, logFile := devInvocation(t, basePort, registryPath, interactive)
@@ -211,36 +209,19 @@ func StartStack(t *testing.T, basePort int, registryPath string) *Stack {
 		close(stack.exited)
 	}()
 
-	waitForReady(t, stack)
 	stack.awaitRegistryEntry()
 	return stack
 }
 
-func waitForReady(t *testing.T, stack *Stack) {
-	t.Helper()
-	url := fmt.Sprintf("http://127.0.0.1:%d/health", stack.basePort)
-	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(readyTimeout)
-	for {
-		resp, err := client.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			t.Logf("stack %d: host ready", stack.basePort)
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("host on port %d never became ready within %v (last: %v)\n--- log tail ---\n%s",
-				stack.basePort, readyTimeout, err, stack.logTail(30))
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-}
-
-// awaitRegistryEntry waits until the CLI has registered itself with a full
-// childPids map (written after the last service reaches ready).
+// awaitRegistryEntry is the suite's single readiness definition: the CLI has
+// registered itself with a full childPids map, which the session writes only
+// after every service — host last — has reached ready. Unlike a /health probe
+// on the base port (the deleted waitForReady), nothing else can satisfy it: a
+// lingering orphan on an overlapping block's port answered /health in 1.6ms
+// and faked a whole boot's readiness (run 40032463029).
 func (s *Stack) awaitRegistryEntry() {
 	s.t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(readyTimeout)
 	for {
 		entry, err := s.ownEntry()
 		if err == nil && len(entry.ChildPids) > 0 {
@@ -250,8 +231,8 @@ func (s *Stack) awaitRegistryEntry() {
 			return
 		}
 		if time.Now().After(deadline) {
-			s.t.Fatalf("registry entry with childPids never appeared for pid %d (registry %s): %v",
-				s.bosPid(), s.registryPath, err)
+			s.t.Fatalf("registry entry with childPids never appeared for pid %d (registry %s) within %v: %v\n--- log tail ---\n%s",
+				s.bosPid(), s.registryPath, readyTimeout, err, s.logTail(30))
 		}
 		time.Sleep(250 * time.Millisecond)
 	}

@@ -315,18 +315,15 @@ const survivorGraceWindow = 15 * time.Second
 
 // knownFrameworkPorts lists every port block the framework tests boot stacks
 // on; a stack CLI's argv carries its block, so these markers identify sibling
-// stacks in the survivor scan.
-//
-// Block layout: base..base+3 for host/api/auth/ui, base+10..base+16 for
-// plugins — so concurrent blocks must be spaced ≥ 17 (the suite uses 20).
-// Blocks sharing a decade collided under t.Parallel (5950's plugin range
-// 5960-5966 sat on 5960's host block; 5800's plugins sat on 5810's) — the
-// colliding tests were renumbered to 5930 and 5820.
-var knownFrameworkPorts = map[int]bool{
-	5300: true, 5400: true, 5600: true, 5700: true, 5800: true,
-	5810: true, 5820: true, 5900: true, 5930: true, 5950: true,
-	5960: true, 6000: true, 6100: true,
-}
+// stacks in the survivor scan. Derived from the suite's block layout
+// (ports.go).
+var knownFrameworkPorts = func() map[int]bool {
+	m := map[int]bool{}
+	for _, block := range frameworkBlocks {
+		m[block] = true
+	}
+	return m
+}()
 
 func argvPort(line string) (int, bool) {
 	idx := strings.Index(line, "--port ")

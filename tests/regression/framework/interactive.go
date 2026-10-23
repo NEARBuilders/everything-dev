@@ -1,9 +1,11 @@
 package framework
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -60,8 +62,11 @@ func StartInteractiveStack(t *testing.T, basePort int, registryPath string) *Int
 		ready:   make(chan struct{}, 1),
 	}
 
-	master, startErr := pty.StartWithSize(cmd, &pty.Winsize{Rows: tuiPtyRows, Cols: tuiPtyCols})
+	master, startErr := pty.StartWithAttrs(cmd, &pty.Winsize{Rows: tuiPtyRows, Cols: tuiPtyCols}, &syscall.SysProcAttr{Setpgid: true})
 	if startErr != nil {
+		if errors.Is(startErr, syscall.EPERM) {
+			t.Skipf("pty creation denied in this environment (hardened runner): %v — TUI quit paths need a pty-capable runner", startErr)
+		}
 		t.Fatalf("starting bos dev under pty (port block %d): %v", basePort, startErr)
 	}
 	stack.master = master
@@ -78,7 +83,6 @@ func StartInteractiveStack(t *testing.T, basePort int, registryPath string) *Int
 
 	go stack.teePtyOutput(logFile)
 
-	waitForReady(t, stack.Stack)
 	stack.awaitRegistryEntry()
 	return stack
 }

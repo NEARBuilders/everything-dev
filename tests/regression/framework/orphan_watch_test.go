@@ -15,7 +15,7 @@ func TestOrphanedSessionForceExits(t *testing.T) {
 	acquireStackSlot(t)
 	defer releaseStackSlot()
 
-	stack := StartWrappedStack(t, 5900, filepath.Join(t.TempDir(), "pids.json"))
+	stack := StartWrappedStack(t, blockOrphanedSession, filepath.Join(t.TempDir(), "pids.json"))
 	pids := stack.SnapshotPids()
 	if len(pids) < 2 {
 		t.Fatalf("expected at least 2 processes in the kill snapshot (children + watchers), got %d", len(pids))

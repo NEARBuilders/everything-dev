@@ -14,7 +14,7 @@ func TestInteractiveQuitByKey(t *testing.T) {
 	acquireStackSlot(t)
 	defer releaseStackSlot()
 
-	stack := StartInteractiveStack(t, 5800, filepath.Join(t.TempDir(), "pids.json"))
+	stack := StartInteractiveStack(t, blockInteractiveQuitQ, filepath.Join(t.TempDir(), "pids.json"))
 	stack.WaitTuiMounted()
 
 	pids := stack.SnapshotPids()
@@ -40,7 +40,7 @@ func TestInteractiveQuitByCtrlC(t *testing.T) {
 	acquireStackSlot(t)
 	defer releaseStackSlot()
 
-	stack := StartInteractiveStack(t, 5820, filepath.Join(t.TempDir(), "pids.json"))
+	stack := StartInteractiveStack(t, blockInteractiveCtrlC, filepath.Join(t.TempDir(), "pids.json"))
 	stack.WaitTuiMounted()
 
 	pids := stack.SnapshotPids()
