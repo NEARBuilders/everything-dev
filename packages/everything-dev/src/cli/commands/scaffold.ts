@@ -118,6 +118,48 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
       return;
     }
     console.log();
+    if (result.status === "already-upgraded") {
+      console.log(colors.green(`${icons.ok} Already upgraded · v2 — nothing to do`));
+      for (const note of result.notes ?? []) console.log(`  ${colors.dim(note)}`);
+      console.log();
+      return;
+    }
+    if (result.status === "audit") {
+      type AuditFinding = {
+        check: string;
+        path: string;
+        severity: "blocker" | "warn";
+        message: string;
+      };
+      const audit = result.audit;
+      const findings: AuditFinding[] = audit?.findings ?? [];
+      const blockers = findings.filter((f) => f.severity === "blocker");
+      const warns = findings.filter((f) => f.severity === "warn");
+      console.log(colors.cyan(`v1 upgrade audit — Tier ${audit?.tier ?? "?"}`));
+      console.log(`  ${colors.dim(`blockers: ${blockers.length}, warns: ${warns.length}`)}`);
+      const formatFinding = (f: AuditFinding) =>
+        `  [${f.severity}] ${f.check} ${f.path}: ${f.message}`;
+      for (const f of blockers) console.log(colors.error(formatFinding(f)));
+      for (const f of warns) console.log(colors.yellow(formatFinding(f)));
+      console.log(`  ${colors.dim("manifest: .bos/v2-upgrade-manifest.json")}`);
+      console.log();
+      return;
+    }
+    if (result.status === "gate-blocked") {
+      console.error(colors.error("\nGATE BLOCKED — normalize in v1 before upgrading to v2."));
+      for (const blocker of (result.blockers ?? []) as Array<{
+        check: string;
+        path: string;
+        severity: string;
+        message: string;
+      }>) {
+        console.error(
+          `  [${blocker.severity}] ${blocker.check} ${blocker.path}: ${blocker.message}`,
+        );
+      }
+      console.error();
+      process.exit(1);
+    }
     if (exitCodeFor(result) === 1) {
       console.error(`[CLI] ${result.error || "Unknown error"}`);
       process.exit(1);
@@ -162,6 +204,9 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
     if (result.migrated && result.migrated.length > 0) {
       console.log(`  Migrated: ${result.migrated.length} file(s)`);
       for (const f of result.migrated) console.log(`    ${colors.dim(f)}`);
+    }
+    for (const note of result.notes ?? []) {
+      console.log(`  ${colors.dim(`note: ${note}`)}`);
     }
     if (versionDelta || (result.sync && result.sync.conflicted.length > 0)) {
       console.log();

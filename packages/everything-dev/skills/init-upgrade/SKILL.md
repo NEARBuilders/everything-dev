@@ -221,7 +221,32 @@ What stays local:
 
 ### extends handling
 
-Upgrade reads the `extends` field (string or object form) of the authored `bos.app.ts` to find the parent. For object extends, uses the `production` URL to locate the template source.
+Both sync and upgrade read the `extends` field (string or object form) of the authored `bos.app.ts` to find the parent. For object extends, uses the `production` URL to locate the template source.
+
+## bos upgrade
+
+Bumps `everything-dev` and `every-plugin` across all workspaces:
+
+```bash
+bos upgrade              # Check for new versions, update, then sync
+bos upgrade --dry-run    # Preview without making changes
+```
+
+> **v1 trees:** upgrading a pre-v2 child app onto the v2 train is a separate
+> flow — see the `v1-to-v2-upgrade` skill (`bos upgrade --from v1 --audit`).
+
+### Flow
+1. Check npm registry for latest versions of `everything-dev` and `every-plugin`
+2. Update root `package.json` workspaces.catalog
+3. Update all workspace `package.json` to use `catalog:` references
+4. `pnpm install` + `bos types gen`
+5. Run `bos sync` to pull template updates matching new version
+6. Rewrite legacy UI imports (e.g., `from "@/auth"` → `from "@/app"`)
+7. Remove obsolete files
+
+### Package ref strategy
+
+Workspace packages use `catalog:` refs so a single version bump in root catalog propagates everywhere. Skips `workspace:*` and `file:` refs.
 
 ## bos import
 
