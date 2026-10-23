@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ModuleFederationPlugin } from "@module-federation/enhanced/rspack";
 import type { Compiler, RspackPluginInstance } from "@rspack/core";
+import { sharedVersionRecord } from "../../shared-deps-spec";
 import {
   DEV_ENTRY_FILENAME,
   findHashedEntry,
@@ -128,6 +129,7 @@ export class EveryPluginBuild implements RspackPluginInstance {
 
     this.configureDefaults(compiler, pluginInfo);
 
+    const sharedDependencies = buildSharedDependencies(pluginInfo);
     new ModuleFederationPlugin({
       name: pluginInfo.normalizedName,
       filename: uiEntryFilename({ isBuild: isBuildInvocation() }),
@@ -138,11 +140,13 @@ export class EveryPluginBuild implements RspackPluginInstance {
       exposes: {
         "./plugin": "./src/index.ts",
       },
-      shared: buildSharedDependencies(pluginInfo),
+      shared: sharedDependencies,
       shareStrategy: "version-first",
     }).apply(compiler);
 
-    new BuildReportPlugin().apply(compiler);
+    new BuildReportPlugin("remoteEntry", {
+      shared: sharedVersionRecord(sharedDependencies),
+    }).apply(compiler);
     new ChunkCompletenessPlugin().apply(compiler);
 
     if (this.options.dts === false) {

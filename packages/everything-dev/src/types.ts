@@ -143,6 +143,11 @@ const PluginRuntimeUiSchema = z.object({
    * manifest against it so a host resolving an older pin never silently
    * mixes newer manifest bytes into its composed tree */
   manifestIntegrity: z.string().optional(),
+  /** Shared-singleton `name → version` the pinned build embedded (#546) —
+   * the host's composition guard cross-compares it across UI sources before
+   * loading, so a platform skew fails with a named error instead of the
+   * federation runtime's cryptic singleton error. */
+  sharedVersions: z.record(z.string(), z.string()).optional(),
   dependsOn: z.array(z.string()).optional(),
 });
 export type PluginRuntimeUi = z.infer<typeof PluginRuntimeUiSchema>;
@@ -436,6 +441,9 @@ export const RuntimeConfigSchema = z.object({
     /** SRI of the pinned compose manifest (manifest.gen.json) — verified by
      * the host compose on every fetch (see PluginRuntimeUiSchema) */
     manifestIntegrity: z.string().optional(),
+    /** Shared-singleton `name → version` the pinned build embedded (#546) —
+     * see PluginRuntimeUiSchema; mirrors the runtime slot type */
+    sharedVersions: z.record(z.string(), z.string()).optional(),
     dependsOn: z.array(z.string()).optional(),
   }),
   api: FederationEntrySchema.extend({

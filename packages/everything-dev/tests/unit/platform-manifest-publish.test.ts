@@ -5,6 +5,7 @@ import {
   composePlatformManifestPublishEntry,
   deriveImageRefFromPlatformManifest,
   PLATFORM_IMAGE_REF,
+  platformTruthViolations,
 } from "../../src/services/deploy/platform-manifest";
 import { PlatformReleaseManifestSchema } from "../../src/services/platform/manifest";
 
@@ -118,5 +119,75 @@ describe("deriveImageRefFromPlatformManifest", () => {
       fetchManifest: async () => null,
     });
     expect(derived).toBeNull();
+  });
+});
+
+describe("platformTruthViolations", () => {
+  it("flags a workspace whose installed shared version disagrees with the release manifest (#546)", () => {
+    const manifest = PlatformReleaseManifestSchema.parse({
+      schemaVersion: 1,
+      kind: "everything-dev/platform-manifest",
+      frameworkVersion: "2.0.0-rc.18",
+      everyPluginVersion: "3.0.0-rc.10",
+      image: { ref: PLATFORM_IMAGE_REF, tags: ["v2.0.0-rc.18"] },
+      catalog: {},
+      sharedDeps: {
+        react: {
+          version: "19.2.9",
+          requiredVersion: "19.2.9",
+          singleton: true,
+          strictVersion: true,
+          eager: false,
+          shareScope: "default",
+        },
+      },
+      templateInventory: [],
+      compat: { minChild: "2.0.0-rc.17" },
+    });
+
+    const violations = platformTruthViolations(
+      manifest,
+      new Map([
+        ["ui", { react: "19.2.9" }],
+        ["votes", { react: "19.2.4" }],
+      ]),
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("votes was built against react@19.2.4");
+    expect(violations[0]).toContain("pins 19.2.9");
+  });
+
+  it("passes when every workspace's shared record agrees with the release manifest", () => {
+    const manifest = PlatformReleaseManifestSchema.parse({
+      schemaVersion: 1,
+      kind: "everything-dev/platform-manifest",
+      frameworkVersion: "2.0.0-rc.18",
+      everyPluginVersion: "3.0.0-rc.10",
+      image: { ref: PLATFORM_IMAGE_REF, tags: ["v2.0.0-rc.18"] },
+      catalog: {},
+      sharedDeps: {
+        react: {
+          version: "19.2.9",
+          requiredVersion: "19.2.9",
+          singleton: true,
+          strictVersion: true,
+          eager: false,
+          shareScope: "default",
+        },
+      },
+      templateInventory: [],
+      compat: { minChild: "2.0.0-rc.17" },
+    });
+
+    const violations = platformTruthViolations(
+      manifest,
+      new Map([
+        ["ui", { react: "19.2.9", reactDom: "19.2.9" }],
+        ["votes-ui", { react: "19.2.9" }],
+      ]),
+    );
+
+    expect(violations).toEqual([]);
   });
 });
