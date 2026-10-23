@@ -145,7 +145,10 @@ export const authVariablesSchema = z.object({
 });
 
 export const authSecretsSchema = z.object({
-  AUTH_DATABASE_URL: z.string(),
+  AUTH_DATABASE_URL: z
+    .string()
+    .default("pglite:.bos/auth/:memory:")
+    .describe("Database connection string. Use pglite: for local, postgres:// for production."),
   BETTER_AUTH_SECRET: z.string(),
   GITHUB_CLIENT_SECRET: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),

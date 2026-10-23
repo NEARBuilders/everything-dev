@@ -7,7 +7,12 @@ import {
 } from "../../config";
 import type { StartOptions } from "../../contract";
 import { isRailwayPublicProxyUrl } from "../../db/driver";
-import { deleteProcessEnv, getProcessEnv, processEnvRecord } from "../../env/process-env";
+import {
+  deleteProcessEnv,
+  getProcessEnv,
+  operatorEnvRecord,
+  processEnvRecord,
+} from "../../env/process-env";
 import { captureShellEnv, ProjectEnv } from "../../env/project-env";
 import { planInfra } from "../../infra/planner";
 import type { InfraPlan } from "../../infra/types";
@@ -219,6 +224,13 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       }
     }
 
+    if (!operatorEnvRecord().API_DATABASE_URL && !operatorEnvRecord().AUTH_DATABASE_URL) {
+      warnings.push(
+        "No *_DATABASE_URL set — plugins without explicit URLs boot on ephemeral pglite and their " +
+          "data will not survive restarts. Set API_DATABASE_URL/AUTH_DATABASE_URL in .env for production.",
+      );
+    }
+
     const stagingEnvVars: Record<string, string> = isStaging
       ? { BOS_GATEWAY: baseConfig.staging?.domain ?? baseConfig.domain ?? "" }
       : {};
@@ -226,6 +238,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
     const plan: InfraPlan = yield* planInfra({
       configDir: sessionRoot,
       bosConfig: runtimeConfig,
+      operatorEnv: operatorEnvRecord(),
       cli: {
         port: input.port,
         ssr: false,
