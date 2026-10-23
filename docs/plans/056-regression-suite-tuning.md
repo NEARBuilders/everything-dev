@@ -17,6 +17,18 @@ deleted outright (the suite needs no databases), and the framework CI job droppe
 Postgres service containers. Concurrency is bounded by a slot semaphore
 (`BOS_FRAMEWORK_STACK_SLOTS`, default 3; CI pins 2).
 
+**Phase 5 structural follow-up (2026-10-23, later):** 5.1's bounded-retry band-aid
+left the root cause — `playwright install-deps` runs `apt-get update` on every job
+even when every package is already installed, so each run paid (and could hang on)
+the apt network five times. Both browser jobs now probe first with
+`install-deps chromium --dry-run` (`apt-get install -s`, local-only simulation, no
+update/network/root) and run the bounded real install only when a non-font package
+is missing (fonts exempt — launch validation never checks them, and the suites
+assert DOM text, not rendered glyphs; a probe failure with no package list degrades
+to the real install). The cache-miss path also dropped `--with-deps` in favor of a
+plain `playwright install chromium` plus the same probe. First runs double as the
+empirical probe of what the ubuntu-24.04 runner image actually ships.
+
 Chosen direction (maintainer decisions, this session): framework suite → parallelize
 via `t.Parallel()`; browser suite → shard `start:*` across CI jobs and merge the two
 dev legs into one job (ADR 0009 stands for intra-runner workers); fold all four
