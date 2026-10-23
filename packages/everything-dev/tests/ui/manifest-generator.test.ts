@@ -1,5 +1,4 @@
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parsePluginManifest } from "every-plugin/ui/manifest";
@@ -8,8 +7,14 @@ import { describe, expect, it } from "vitest";
 
 const fixtureRoot = fileURLToPath(new URL("../fixtures/ui", import.meta.url));
 
+// The router generator stages its output under <cwd>/.tanstack/tmp and renames
+// it into the fixture — keep fixtures on that same filesystem, since CI runners
+// serve os.tmpdir() (/tmp) on a separate device and the rename dies with EXDEV.
+const tempRoot = fileURLToPath(new URL("../../.tanstack", import.meta.url));
+
 async function withFixture(name: string, run: (dir: string) => Promise<void>): Promise<void> {
-  const dir = await mkdtemp(path.join(tmpdir(), "manifest-gen-"));
+  await mkdir(tempRoot, { recursive: true });
+  const dir = await mkdtemp(path.join(tempRoot, "manifest-gen-"));
   try {
     await cp(path.join(fixtureRoot, name), path.join(dir, name), { recursive: true });
     await run(path.join(dir, name));

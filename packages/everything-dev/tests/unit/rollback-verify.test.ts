@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearHttpCache } from "../../src/http-client";
-import { buildRollbackPayload, verifyRollbackSnapshot } from "../../src/rollback";
+import { buildRollbackPayload, verifyRollbackSnapshot } from "../../src/services/deploy/rollback";
 import { type BosConfigInput, BosConfigSchema } from "../../src/types";
+import { clearHttpCache } from "../../src/utils/http-client";
 
 beforeEach(() => {
   clearHttpCache();

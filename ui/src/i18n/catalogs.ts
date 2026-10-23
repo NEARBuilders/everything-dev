@@ -1,4 +1,5 @@
 import type { Messages } from "@lingui/core";
+import { compileMessageOrThrow } from "@lingui/message-utils/compileMessage";
 
 export const APP_LOCALES = ["en", "es", "fr", "zh"] as const;
 export type AppLocale = (typeof APP_LOCALES)[number];
@@ -678,5 +679,12 @@ const translatedMessages: Record<AppLocale, Partial<Record<AppMessageId, string>
 };
 
 export function getAppMessages(locale: AppLocale): Messages {
-  return { ...englishAppMessages, ...translatedMessages[locale] };
+  return Object.fromEntries(
+    Object.entries({ ...englishAppMessages, ...translatedMessages[locale] }).map(
+      ([id, message]) => [
+        id,
+        typeof message === "string" ? compileMessageOrThrow(message) : message,
+      ],
+    ),
+  );
 }

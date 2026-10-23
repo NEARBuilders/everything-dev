@@ -1,4 +1,10 @@
-import { KeyIcon, ShieldCheckIcon, UserCircleIcon, UserIcon } from "@phosphor-icons/react";
+import {
+  GiftIcon,
+  KeyIcon,
+  ShieldCheckIcon,
+  UserCircleIcon,
+  UserIcon,
+} from "@phosphor-icons/react";
 import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { sessionQueryOptions } from "everything-dev/ui/auth";
 import { useEffect, useRef } from "react";
@@ -28,6 +34,7 @@ const tabs = [
     icon: UserCircleIcon,
   },
   { value: "api-keys", to: "/settings/api-keys", label: "API keys", icon: KeyIcon },
+  { value: "referrals", to: "/settings/referrals", label: "Referrals", icon: GiftIcon },
   { value: "security", to: "/settings/security", label: "Security", icon: ShieldCheckIcon },
 ] as const;
 

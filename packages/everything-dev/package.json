@@ -1,6 +1,6 @@
 {
   "name": "everything-dev",
-  "version": "2.0.0-rc.10",
+  "version": "2.0.0-rc.18",
   "type": "module",
   "engines": {
     "node": ">=20.11"
@@ -63,14 +63,32 @@
       "import": "./dist/services/registry/dag.mjs",
       "require": "./dist/services/registry/dag.cjs"
     },
+    "./hosting": {
+      "development": {
+        "types": "./src/services/hosting/adapter.ts",
+        "import": "./src/services/hosting/adapter.ts"
+      },
+      "types": "./dist/services/hosting/adapter.d.mts",
+      "import": "./dist/services/hosting/adapter.mjs",
+      "require": "./dist/services/hosting/adapter.cjs"
+    },
+    "./hosting/docker": {
+      "development": {
+        "types": "./src/services/hosting/docker.ts",
+        "import": "./src/services/hosting/docker.ts"
+      },
+      "types": "./dist/services/hosting/docker.d.mts",
+      "import": "./dist/services/hosting/docker.mjs",
+      "require": "./dist/services/hosting/docker.cjs"
+    },
     "./bundle-cache": {
       "development": {
-        "types": "./src/bundle-cache.ts",
-        "import": "./src/bundle-cache.ts"
+        "types": "./src/services/registry/bundle-cache.ts",
+        "import": "./src/services/registry/bundle-cache.ts"
       },
-      "types": "./dist/bundle-cache.d.mts",
-      "import": "./dist/bundle-cache.mjs",
-      "require": "./dist/bundle-cache.cjs"
+      "types": "./dist/services/registry/bundle-cache.d.mts",
+      "import": "./dist/services/registry/bundle-cache.mjs",
+      "require": "./dist/services/registry/bundle-cache.cjs"
     },
     "./fingerprint": {
       "development": {
@@ -83,12 +101,12 @@
     },
     "./version-manifest-resolve": {
       "development": {
-        "types": "./src/version-manifest-resolve.ts",
-        "import": "./src/version-manifest-resolve.ts"
+        "types": "./src/services/deploy/version-manifest.ts",
+        "import": "./src/services/deploy/version-manifest.ts"
       },
-      "types": "./dist/version-manifest-resolve.d.mts",
-      "import": "./dist/version-manifest-resolve.mjs",
-      "require": "./dist/version-manifest-resolve.cjs"
+      "types": "./dist/services/deploy/version-manifest.d.mts",
+      "import": "./dist/services/deploy/version-manifest.mjs",
+      "require": "./dist/services/deploy/version-manifest.cjs"
     },
     "./resolver": {
       "development": {
@@ -128,21 +146,21 @@
     },
     "./federation": {
       "development": {
-        "types": "./src/services/federation.ts",
-        "import": "./src/services/federation.ts"
+        "types": "./src/services/federation/service.ts",
+        "import": "./src/services/federation/service.ts"
       },
-      "types": "./dist/services/federation.d.mts",
-      "import": "./dist/services/federation.mjs",
-      "require": "./dist/services/federation.cjs"
+      "types": "./dist/services/federation/service.d.mts",
+      "import": "./dist/services/federation/service.mjs",
+      "require": "./dist/services/federation/service.cjs"
     },
     "./integrity": {
       "development": {
-        "types": "./src/integrity.ts",
-        "import": "./src/integrity.ts"
+        "types": "./src/services/deploy/integrity.ts",
+        "import": "./src/services/deploy/integrity.ts"
       },
-      "types": "./dist/integrity.d.mts",
-      "import": "./dist/integrity.mjs",
-      "require": "./dist/integrity.cjs"
+      "types": "./dist/services/deploy/integrity.d.mts",
+      "import": "./dist/services/deploy/integrity.mjs",
+      "require": "./dist/services/deploy/integrity.cjs"
     },
     "./plugin": {
       "development": {
@@ -400,9 +418,12 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.10.1",
+    "@effect/platform-node": "4.0.0-rc.117",
+    "@effect/platform-node-shared": "4.0.0-rc.117",
     "@module-federation/enhanced": "catalog:",
     "@module-federation/node": "catalog:",
     "@module-federation/runtime-core": "catalog:",
+    "better-near-auth": "workspace:^",
     "chalk": "^5.6.2",
     "defu": "^6.1.7",
     "dotenv": "^17.3.1",
@@ -412,6 +433,7 @@
     "glob": "^13.0.6",
     "near-kit": "catalog:",
     "@outlayer/sdk": "catalog:",
+    "@simplewebauthn/browser": "catalog:",
     "pg": "catalog:",
     "tar": "^7.4.3",
     "yaml": "catalog:",
@@ -427,6 +449,7 @@
     "@orpc/tanstack-query": "catalog:",
     "@tanstack/react-query": ">=5.0.0",
     "@tanstack/react-router": ">=1.0.0",
+    "alchemy": ">=2.0.0-beta.79 <3.0.0",
     "better-auth": "catalog:",
     "better-near-auth": "workspace:^",
     "effect": "catalog:",
@@ -463,6 +486,9 @@
     "@tanstack/react-router": {
       "optional": true
     },
+    "alchemy": {
+      "optional": true
+    },
     "sonner": {
       "optional": true
     },
@@ -493,8 +519,8 @@
     "@tanstack/router-plugin": "catalog:",
     "@types/node": "catalog:",
     "@types/tar": "^7.0.0",
+    "alchemy": "2.0.0-beta.79",
     "better-auth": "catalog:",
-    "better-near-auth": "workspace:^",
     "jsdom": "^30.0.1",
     "react": "catalog:",
     "react-dom": "catalog:",

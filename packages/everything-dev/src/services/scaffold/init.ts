@@ -3,22 +3,22 @@ import { dirname, join, relative } from "node:path";
 import { execa } from "execa";
 import { glob } from "glob";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { loadAppDescriptorConfig } from "../../config";
+import type { OverrideSection } from "../../contract";
+import { serializeAppDescriptorSource } from "../../descriptor/serialize";
+import type { BosConfigInput, ParentStarterConfig, StarterLevel } from "../../types";
+import { saveBosConfig } from "../../utils/save-config";
+import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
 import {
   buildAuthContractStub,
   buildAuthExportStub,
   buildAuthTypesGenContent,
-} from "../../auth-types-gen";
-import { loadAppDescriptorConfig } from "../../config";
-import type { OverrideSection } from "../../contract";
-import { serializeAppDescriptorSource } from "../../descriptor/serialize";
-import { resolveCatalogChainSource } from "../../init-source";
+} from "../codegen/auth-types";
 import {
   loadManifestNormalizationSpec,
   normalizePackageManifestsInTree,
-} from "../../internal/manifest-normalizer";
-import type { BosConfigInput, ParentStarterConfig, StarterLevel } from "../../types";
-import { saveBosConfig } from "../../utils/save-config";
-import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
+} from "../registry/manifest-normalizer";
+import { resolveCatalogChainSource } from "../resolution/init-source";
 import { writeSnapshot } from "./snapshot";
 
 export {
@@ -26,11 +26,12 @@ export {
   downloadTarball,
   fetchParentConfig,
   parseGitHubUrl,
+  releaseRefCandidates,
   resolveCatalogChainSource,
   resolveRepositoryViaExtendsChain,
   resolveSourceDir,
   type SourceResult,
-} from "../../init-source";
+} from "../resolution/init-source";
 
 export const PNPM_PACKAGE_MANAGER = "pnpm@12.10.1";
 
@@ -586,6 +587,12 @@ export function buildChildRootScripts(sections: {
   return scripts;
 }
 
+function missingCatalogSource(): never {
+  throw new Error(
+    "No catalog source — pass `catalog` (the platform release manifest's) or `workspaceOpts.sourceDir` (a local release tree)",
+  );
+}
+
 export async function personalizeConfig(
   destination: string,
   opts: {
@@ -605,6 +612,11 @@ export async function personalizeConfig(
     testnet?: string;
     staging?: unknown;
     starter?: StarterLevel;
+    /** The platform release's catalog (ADR 0034) — skips the local chain walk. */
+    catalog?: Record<string, string>;
+    /** The framework version to pin (ADR 0034) — stamped onto the authored
+     * config; absent in sync mode, the child's existing pin is preserved. */
+    platform?: string;
   },
 ): Promise<void> {
   const has = (section: OverrideSection) => opts.overrides.includes(section);
@@ -618,6 +630,13 @@ export async function personalizeConfig(
       config.starter = opts.starter;
     } else if (opts.mode !== "sync") {
       delete config.starter;
+    }
+  };
+  const applyPlatformField = (config: Record<string, unknown>): void => {
+    if (opts.platform !== undefined) {
+      config.platform = opts.platform;
+    } else if (opts.mode !== "sync") {
+      delete config.platform;
     }
   };
 
@@ -635,6 +654,8 @@ export async function personalizeConfig(
             "workspaceOpts",
             "mode",
             "existingConfig",
+            "catalog",
+            "platform",
           ].includes(key),
       )
       .map(([key]) => key),
@@ -669,6 +690,7 @@ export async function personalizeConfig(
     }
 
     applyStarter(config);
+    applyPlatformField(config);
 
     if (config.app && typeof config.app === "object") {
       const app = config.app as Record<string, unknown>;
@@ -738,7 +760,6 @@ export async function personalizeConfig(
     }
 
     writeFileSync(appConfigPath, serializeAppDescriptorSource(config as BosConfigInput));
-    return;
   }
 
   const configPath = join(destination, "bos.config.json");
@@ -767,6 +788,7 @@ export async function personalizeConfig(
     }
 
     applyStarter(config);
+    applyPlatformField(config);
 
     if (config.app && typeof config.app === "object") {
       const app = config.app as Record<string, unknown>;
@@ -836,7 +858,16 @@ export async function personalizeConfig(
     }
 
     if (opts.mode === "sync" && opts.existingConfig) {
-      const managedRootKeys = new Set(["extends", "account", "domain", "app", "plugins"]);
+      // "platform" is managed (ADR 0034): the child's pin survives
+      // personalization instead of being stripped as an unknown root key.
+      const managedRootKeys = new Set([
+        "extends",
+        "account",
+        "domain",
+        "platform",
+        "app",
+        "plugins",
+      ]);
       const preservedRootKeys = new Set([
         ...managedRootKeys,
         ...Object.keys(opts.existingConfig),
@@ -956,13 +987,16 @@ export async function personalizeConfig(
         catalog["every-plugin"] = rootCatalogEveryPlugin;
       }
     }
-    const frameworkCatalog = (
-      await resolveCatalogChainSource({
-        extendsAccount: opts.extendsAccount,
-        extendsGateway: opts.extendsGateway,
-        sourceDir: opts.workspaceOpts?.sourceDir,
-      })
-    ).catalog;
+    const frameworkCatalog = opts.catalog
+      ? opts.catalog
+      : opts.workspaceOpts?.sourceDir
+        ? (
+            await resolveCatalogChainSource({
+              sourceDir: opts.workspaceOpts.sourceDir,
+              originRef: `bos://${opts.extendsAccount}/${opts.extendsGateway}`,
+            })
+          ).catalog
+        : missingCatalogSource();
     for (const [name, version] of Object.entries(frameworkCatalog)) {
       catalog[name] = version;
     }
@@ -1150,8 +1184,6 @@ export async function runTypesGen(
   throw new Error("Unable to locate bos CLI for types generation");
 }
 
-export { runDockerComposeUp } from "../../infra/docker";
-
 async function runWithProgress(
   command: string,
   args: string[],
@@ -1199,6 +1231,10 @@ export async function scaffoldMinimalProject(
     starter?: StarterLevel;
     /** local parent source dir — resolves the catalog offline (tests, --source) */
     catalogSourceDir?: string;
+    /** the platform release's catalog (ADR 0034) — preferred over the walk */
+    catalog?: Record<string, string>;
+    /** the framework version to pin (ADR 0034) */
+    platform?: string;
   },
 ): Promise<number> {
   mkdirSync(destination, { recursive: true });
@@ -1213,6 +1249,7 @@ export async function scaffoldMinimalProject(
     ...(opts.title ? { title: opts.title } : {}),
     ...(opts.description ? { description: opts.description } : {}),
     ...(opts.starter ? { starter: opts.starter } : {}),
+    ...(opts.platform ? { platform: opts.platform } : {}),
   };
 
   if (parentConfig.app && typeof parentConfig.app === "object") {
@@ -1268,13 +1305,16 @@ export async function scaffoldMinimalProject(
     workspacePackages.push("plugins/*");
   }
 
-  const catalog = (
-    await resolveCatalogChainSource({
-      extendsAccount: opts.extendsAccount,
-      extendsGateway: opts.extendsGateway,
-      sourceDir: opts.catalogSourceDir,
-    })
-  ).catalog;
+  const catalog = opts.catalog
+    ? { ...opts.catalog }
+    : opts.catalogSourceDir
+      ? (
+          await resolveCatalogChainSource({
+            sourceDir: opts.catalogSourceDir,
+            originRef: `bos://${opts.extendsAccount}/${opts.extendsGateway}`,
+          })
+        ).catalog
+      : missingCatalogSource();
 
   const pkg: Record<string, unknown> = {
     name: "monorepo",
@@ -1359,16 +1399,19 @@ export async function writeInitSnapshot(
     if (!stat.isFile()) continue;
     const destPath = sourcePathToDestinationPath(filePath);
     // Only snapshot what the scaffold actually delivered — files pruned
-    // after copy (e.g. unused ui sources) must not come back via bos sync.
+    // after copy (e.g. unused ui sources) must not come back via bos upgrade.
     if (!existsSync(join(destination, destPath))) continue;
-    const content = readFileSync(src);
+    // The snapshot records what the scaffold delivered — the destination's
+    // on-disk bytes, not the template source: personalized files (package.json,
+    // AGENTS.md, pnpm-workspace.yaml) already diverge from the parent at init,
+    // and those delivered hashes are the baseline the next upgrade compares
+    // hand edits against (ADR 0034).
+    const content = readFileSync(join(destination, destPath));
     fileHashes[destPath] = computeHash(content);
   }
 
   await writeSnapshot(destination, {
-    parentRef: `bos://${extendsAccount}/${extendsGateway}`,
     files: fileHashes,
-    starter: options.starter,
   });
 }
 
@@ -1461,7 +1504,7 @@ The Railway template deploys the everything.dev Docker image. Set these variable
 
 You don't need to wait for a PR to merge and run through CI/CD. Publish your own config on-chain under your own NEAR account and run your own host instance, inheriting the base platform via \`extends\`.
 
-1. **Install near-cli-rs** (the \`bos\` CLI shells out to it for \`bos publish\` and \`bos key generate\`):
+1. **Install near-cli-rs** (the \`bos\` CLI shells out to it for \`bos publish\` and \`bos login --key\`):
    \`\`\`bash
    curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/near-cli-rs/releases/download/v0.23.5/near-cli-rs-installer.sh | sh
    \`\`\`
@@ -1471,10 +1514,9 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
    \`\`\`
 3. **Generate a publish key** — a function-call key scoped to the FastKV registry contract:
    \`\`\`bash
-   bos key generate
-   # Output: NEAR_PRIVATE_KEY=ed25519:...
+   bos login --key
    \`\`\`
-   Add the key to your account via near-cli-rs, then set \`NEAR_PRIVATE_KEY\` in \`.env\` or CI secrets.
+   The key is exported to the near-cli-rs keystore; set \`NEAR_PRIVATE_KEY\` in \`.env\` or CI secrets when running non-interactively.
 4. **Update \`bos.app.ts\`** — set \`account\` to your NEAR account, add \`extends\` to inherit the base platform, keep \`domain\` as the gateway:
    \`\`\`ts
    { "extends": "bos://<parent-account>/<parent-gateway>", "account": "<your-account>.near", "domain": "<parent-gateway>" }
@@ -1549,6 +1591,12 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
 - No code comments in implementation
 - Component file naming: lowercase kebab-case (\`data-table.tsx\`, \`user-profile.tsx\`)
 - Follow existing patterns in neighboring files`);
+
+  parts.push(`### Framework-owned files and the upstream-change protocol (ADR 0032)
+
+The files carrying the \`FRAMEWORK-OWNED\` header (build configs, db/lib plumbing, workflows) are reconciled from the parent template by \`bos upgrade\`: template wins on the next upgrade, local copies are backed up under \`.bos/sync-backup/\`, and **same-version upgrades never touch them** (only the framework version change reconciles them).
+
+**Editing them is allowed.** When the work needs it, edit a framework-owned file, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next upgrade will quietly clobber.`);
 
   if (has("api")) {
     parts.push(`### Adding API Endpoints

@@ -1,4 +1,4 @@
-import { DevFlowService } from "../services/dev-flow";
+import { DevFlowService } from "../services/dev/flow";
 import { ResolutionSessionService } from "../services/resolution/session";
 import type { BosBuilder } from "./shared";
 

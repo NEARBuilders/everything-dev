@@ -30,4 +30,10 @@ describe("resolveSessionFromCache", () => {
     queryClient.setQueryData(sessionQueryKey, null);
     expect(resolveSessionFromCache(queryClient, staleSession)).toBeNull();
   });
+
+  it("leaves an empty cache alone when the context session is null — unknown, not signed out (#527)", () => {
+    const queryClient = new QueryClient();
+    expect(resolveSessionFromCache(queryClient, null)).toBeNull();
+    expect(queryClient.getQueryData(sessionQueryKey)).toBeUndefined();
+  });
 });

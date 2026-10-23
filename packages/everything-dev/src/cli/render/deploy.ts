@@ -1,4 +1,4 @@
-import type { DeployLegs } from "../../deploy-legs";
+import type { DeployLegs } from "../../services/deploy/legs";
 import { colors, icons } from "../../utils/theme";
 
 const DEPLOY_LEG_NAMES = ["image", "smoke", "railway"] as const;

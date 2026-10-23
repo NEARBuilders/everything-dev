@@ -16,6 +16,7 @@
 
 import { readFileSync, statSync } from "node:fs";
 import { Clock, Data, Effect, Schema } from "effect";
+import { computeSriHash } from "everything-dev/integrity";
 import {
   CORE_UI_PLUGIN_KEY as CORE_UI_KEY,
   type ComposePayload,
@@ -34,17 +35,15 @@ import { mark } from "../utils/effect-run";
 import type { RuntimeConfig } from "./config";
 import { UiComposeError } from "./errors";
 import {
-  FederationContainers,
-  resolveLocalRoot,
-  waitForLocalContainer,
-} from "./federation/containers";
-import {
   loadCoreUiRouteConfig,
   loadRouterModule,
   loadUiComposeModule,
   loadUiRouteConfig,
-} from "./federation/loader";
-import { enforceCacheLimit } from "./serving-caches";
+  localUiRemoteEntry,
+  resolveLocalRoot,
+  waitForLocalContainer,
+} from "./federation.server";
+import { enforceCacheLimit } from "./ttl-cache";
 
 const MAX_COMPOSE_VARIANTS = 64;
 
@@ -70,6 +69,10 @@ interface UiSource {
   remote?: EntrySlot;
   localRoot?: string;
   manifestUrl?: string;
+  /** SRI the pinned version manifest records for the compose manifest —
+   * verified on every fetch so mutable-latest bytes that drifted from the
+   * resolved pin fail the compose loud instead of rendering a mixed tree */
+  manifestIntegrity?: string;
   /** the MF browser manifest URL (mf-manifest.json — hashed when the slot
    * pins a version manifest); rides the compose payload for hydrate-time
    * remote registration */
@@ -109,6 +112,7 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
         config.ui.source === "local"
           ? undefined
           : `${config.ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`,
+      manifestIntegrity: config.ui.manifestIntegrity,
       browserManifestUrl: coreUrls.browserManifest,
       webEntry: coreUrls.web,
     },
@@ -135,7 +139,10 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
         localPath: ui.localPath,
       },
       localRoot: ui.localPath ? resolveLocalRoot(ui.localPath) : undefined,
-      manifestUrl: `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`,
+      // Remote sources publish their manifest at a known URL; local slots are
+      // read straight from the workspace (src/manifest.gen.json) — no URL.
+      manifestUrl: ui.url ? `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}` : undefined,
+      manifestIntegrity: ui.manifestIntegrity,
       browserManifestUrl: urls.browserManifest,
       webEntry: urls.web,
     });
@@ -185,11 +192,29 @@ const loadRemoteManifestCached = Effect.fn("loadRemoteManifestCached")(function*
       if (!response.ok) {
         throw new Error(`manifest fetch ${response.status} for ${manifestUrl}`);
       }
-      return parsePluginManifest(await response.json()) satisfies PluginManifest;
+      const text = await response.text();
+      if (source.manifestIntegrity && computeSriHash(text) !== source.manifestIntegrity) {
+        throw new Error(
+          `manifest bytes at ${manifestUrl} do not match the resolved pin's SRI — ` +
+            `the resolved config is older than the deployed bundles (stale host or rolled-back publish); ` +
+            `redeploy or restart the host to re-resolve`,
+        );
+      }
+      return text;
     },
     catch: (cause) =>
       new UiComposeError({ operation: `Failed to load UI manifest from ${manifestUrl}`, cause }),
   }).pipe(
+    Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Schema.Json))),
+    Effect.mapError((cause) =>
+      cause instanceof UiComposeError
+        ? cause
+        : new UiComposeError({
+            operation: `Failed to load UI manifest from ${manifestUrl}`,
+            cause,
+          }),
+    ),
+    Effect.map((manifestJson) => parsePluginManifest(manifestJson) satisfies PluginManifest),
     Effect.catch((error) =>
       Effect.gen(function* () {
         if (cached?.manifest) {
@@ -274,14 +299,28 @@ const resolveComposableSources = Effect.fn("resolveComposableSources")(function*
             cause: new Error("identity mismatch (ADR 0008 §2)"),
           });
         }
+        // A local ui source is authored into this runtime — a manifest that
+        // names another plugin is a configuration bug, not a transient remote
+        // failure: fail loud instead of silently dropping the slot.
+        if (source.localRoot) {
+          return yield* new UiComposeError({
+            operation: `[Compose] local ui source "${source.key}" manifest names itself "${manifest.name}" — expected "${source.key}"`,
+            cause: new Error("identity mismatch (ADR 0008 §2)"),
+          });
+        }
         yield* Effect.logWarning(
           `[Compose] dropping ui source "${source.key}" — its manifest names itself "${manifest.name}" (identity mismatch, ADR 0008 §2)`,
         );
         return null;
       }).pipe(
         Effect.catch((error) =>
-          source.key === CORE_UI_KEY
-            ? Effect.fail(error)
+          source.localRoot || source.key === CORE_UI_KEY
+            ? Effect.fail(
+                new UiComposeError({
+                  operation: `Failed to load UI manifest for ${source.localRoot ? "local" : "core"} ui source "${source.key}"`,
+                  cause: error,
+                }),
+              )
             : Effect.logWarning(
                 `[Compose] dropping ui source "${source.key}" — no usable manifest (${error.message})`,
               ).pipe(Effect.as(null)),
@@ -364,7 +403,6 @@ export const composeUi = Effect.fn("composeUi")(function* (
   config: RuntimeConfig,
   cache: UiComposeCacheState,
 ) {
-  const containers = yield* FederationContainers;
   const composeStartedAt = yield* Clock.currentTimeMillis;
   const sources = uiSources(config);
   const composable = yield* resolveComposableSources(sources, cache);
@@ -372,7 +410,9 @@ export const composeUi = Effect.fn("composeUi")(function* (
   const core = corePair.source;
 
   const coreEntry = core.localRoot
-    ? yield* containers.localUiRemoteEntry({ name: core.mfName, localRoot: core.localRoot! })
+    ? yield* Effect.tryPromise(() =>
+        localUiRemoteEntry({ name: core.mfName, localRoot: core.localRoot! }),
+      )
     : core.remote!;
   if (core.localRoot) {
     yield* waitForLocalContainer(coreEntry, config.env);
@@ -387,41 +427,38 @@ export const composeUi = Effect.fn("composeUi")(function* (
   // Per-source route-config isolation: a plugin whose container/config
   // cannot load drops itself (warn); the core stays loud. The digest is
   // computed over the final healthy set — after drops — so the engine's
-  // parity check and the client payload agree by construction. Plugin
-  // route-configs load in parallel: the per-plugin latency never composes
-  // (each source's container wait + load is independent).
+  // parity check and the client payload agree by construction.
   const healthy: ComposableSource[] = [{ source: core, manifest: corePair.manifest }];
   const routeConfigByName = new Map<string, RouteConfigModule>([
     [corePair.manifest.name, coreRouteConfig],
   ]);
-  const nonCore = composable.filter(({ source }) => source.key !== CORE_UI_KEY);
-  const loaded = yield* Effect.forEach(
-    nonCore,
-    ({ source }) =>
-      (source.localRoot
+  for (const entry of composable) {
+    if (entry.source.key === CORE_UI_KEY) continue;
+    const loaded = yield* (
+      entry.source.localRoot
         ? Effect.gen(function* () {
-            const localEntry = yield* containers.localUiRemoteEntry({
-              name: source.mfName,
-              localRoot: source.localRoot!,
-            });
+            const localEntry = yield* Effect.tryPromise(() =>
+              localUiRemoteEntry({
+                name: entry.source.mfName,
+                localRoot: entry.source.localRoot!,
+              }),
+            );
             yield* waitForLocalContainer(localEntry, config.env);
             return yield* loadUiRouteConfig(localEntry, config.env);
           })
-        : loadUiRouteConfig(source.remote!, config.env)
-      ).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning(
-            `[Compose] dropping ui source "${source.key}" — route config unavailable (${error.message})`,
-          ).pipe(Effect.as(null)),
-        ),
+        : loadUiRouteConfig(entry.source.remote!, config.env)
+    ).pipe(
+      Effect.catch((error) =>
+        entry.source.localRoot
+          ? Effect.fail(error)
+          : Effect.logWarning(
+              `[Compose] dropping ui source "${entry.source.key}" — route config unavailable (${error.message})`,
+            ).pipe(Effect.as(null)),
       ),
-    { concurrency: "unbounded" },
-  );
-  for (const [index, routeConfig] of loaded.entries()) {
-    const entry = nonCore[index]!;
-    if (routeConfig) {
-      healthy.push({ source: entry.source, manifest: entry.manifest });
-      routeConfigByName.set(entry.manifest.name, routeConfig);
+    );
+    if (loaded) {
+      healthy.push(entry);
+      routeConfigByName.set(entry.manifest.name, loaded);
     }
   }
   const healthySources = healthy.map(({ source }) => source);

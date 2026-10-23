@@ -23,6 +23,17 @@ function eventOf(title: string, eventId: string = crypto.randomUUID()) {
   return { eventId, eventName: title };
 }
 
+function previousMonthString(): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+    .toISOString()
+    .slice(0, 7);
+}
+
+function monthInstant(month: string): Date {
+  return new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 15, 12));
+}
+
 describe("onboarding handlers", () => {
   it("creates a code with an event team and returns the plaintext code once", async () => {
     const owner = await createTestUser(services.services);
@@ -432,6 +443,177 @@ describe("onboarding handlers", () => {
       ),
     });
     expect(teamMember).toBeTruthy();
+  });
+
+  it("filters listed codes by event", async () => {
+    const owner = await createTestUser(services.services);
+    const org = await createTestOrg(services.services, owner.userId);
+    const handlers = createTestHandlers(services.services);
+
+    await handlers.onboarding.createOnboardingCode({
+      input: { ...eventOf("Launch Night"), organizationId: org.id },
+      context: { reqHeaders: owner.reqHeaders },
+    });
+    const otherEvent = eventOf("Other Night");
+    const other = await handlers.onboarding.createOnboardingCode({
+      input: { ...otherEvent, organizationId: org.id },
+      context: { reqHeaders: owner.reqHeaders },
+    });
+
+    const listed = await handlers.onboarding.listOnboardingCodes({
+      input: { organizationId: org.id },
+      context: { reqHeaders: owner.reqHeaders },
+    });
+    expect(listed).toHaveLength(2);
+
+    const filtered = await handlers.onboarding.listOnboardingCodes({
+      input: { organizationId: org.id, eventId: otherEvent.eventId },
+      context: { reqHeaders: owner.reqHeaders },
+    });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]!.id).toBe(other.id);
+  });
+});
+
+describe("onboarding stats", () => {
+  it("aggregates monthly stats across organizations for platform admins", async () => {
+    const owner1 = await createTestUser(services.services);
+    const org1 = await createTestOrg(services.services, owner1.userId, { name: "Stats One" });
+    const owner2 = await createTestUser(services.services);
+    const org2 = await createTestOrg(services.services, owner2.userId, { name: "Stats Two" });
+    const admin = await createTestUser(services.services, { email: undefined });
+    await services.services.db
+      .update(schema.user)
+      .set({ role: "admin" })
+      .where(eq(schema.user.id, admin.userId));
+    const handlers = createTestHandlers(services.services);
+
+    const code1 = await handlers.onboarding.createOnboardingCode({
+      input: { ...eventOf("Stats Event One"), organizationId: org1.id },
+      context: { reqHeaders: owner1.reqHeaders },
+    });
+    const newcomerA = await createTestUser(services.services, { email: undefined });
+    const newcomerB = await createTestUser(services.services, { email: undefined });
+    await handlers.onboarding.redeemOnboardingCode({
+      input: { code: code1.code },
+      context: { reqHeaders: newcomerA.reqHeaders },
+    });
+    await handlers.onboarding.redeemOnboardingCode({
+      input: { code: code1.code },
+      context: { reqHeaders: newcomerB.reqHeaders },
+    });
+
+    const code2 = await handlers.onboarding.createOnboardingCode({
+      input: { ...eventOf("Stats Event Two"), organizationId: org2.id },
+      context: { reqHeaders: owner2.reqHeaders },
+    });
+    const existing = await createTestUser(services.services, { email: undefined });
+    await addTestMember(services.services, org2.id, existing.userId, "member");
+    await handlers.onboarding.redeemOnboardingCode({
+      input: { code: code2.code },
+      context: { reqHeaders: existing.reqHeaders },
+    });
+
+    const month = previousMonthString();
+    const redeemedAt = monthInstant(month);
+    for (const newcomer of [newcomerA, newcomerB]) {
+      await services.services.db
+        .update(schema.member)
+        .set({ createdAt: redeemedAt })
+        .where(
+          and(eq(schema.member.userId, newcomer.userId), eq(schema.member.organizationId, org1.id)),
+        );
+      await services.services.db
+        .update(schema.onboardingRedemption)
+        .set({ createdAt: redeemedAt })
+        .where(
+          and(
+            eq(schema.onboardingRedemption.userId, newcomer.userId),
+            eq(schema.onboardingRedemption.codeId, code1.id),
+          ),
+        );
+    }
+    await services.services.db
+      .update(schema.member)
+      .set({ createdAt: new Date(redeemedAt.getTime() - 31 * 24 * 3_600_000) })
+      .where(
+        and(eq(schema.member.userId, existing.userId), eq(schema.member.organizationId, org2.id)),
+      );
+    await services.services.db
+      .update(schema.onboardingRedemption)
+      .set({ createdAt: redeemedAt })
+      .where(
+        and(
+          eq(schema.onboardingRedemption.userId, existing.userId),
+          eq(schema.onboardingRedemption.codeId, code2.id),
+        ),
+      );
+
+    const stats = await handlers.onboarding.getOnboardingStats({
+      input: { month },
+      context: { reqHeaders: admin.reqHeaders },
+    });
+
+    expect(stats.month).toBe(month);
+    expect(stats.organizations).toHaveLength(2);
+    const statsOne = stats.organizations.find((entry) => entry.organizationId === org1.id);
+    const statsTwo = stats.organizations.find((entry) => entry.organizationId === org2.id);
+    expect(statsOne).toEqual({
+      organizationId: org1.id,
+      organizationName: "Stats One",
+      redeemed: 2,
+      newMembers: 2,
+    });
+    expect(statsTwo).toEqual({
+      organizationId: org2.id,
+      organizationName: "Stats Two",
+      redeemed: 1,
+      newMembers: 0,
+    });
+    expect(stats.totals).toEqual({
+      redeemed: statsOne!.redeemed + statsTwo!.redeemed,
+      newMembers: statsOne!.newMembers + statsTwo!.newMembers,
+    });
+  });
+
+  it("scopes stats to one organization for its organizers and denies others", async () => {
+    const owner = await createTestUser(services.services);
+    const org = await createTestOrg(services.services, owner.userId, { name: "Scoped Org" });
+    const handlers = createTestHandlers(services.services);
+
+    const code = await handlers.onboarding.createOnboardingCode({
+      input: { ...eventOf("Scoped Event"), organizationId: org.id },
+      context: { reqHeaders: owner.reqHeaders },
+    });
+    const newcomer = await createTestUser(services.services, { email: undefined });
+    await handlers.onboarding.redeemOnboardingCode({
+      input: { code: code.code },
+      context: { reqHeaders: newcomer.reqHeaders },
+    });
+
+    const stats = await handlers.onboarding.getOnboardingStats({
+      input: { organizationId: org.id },
+      context: { reqHeaders: owner.reqHeaders },
+    });
+    expect(stats.organizations).toEqual([
+      { organizationId: org.id, organizationName: "Scoped Org", redeemed: 1, newMembers: 1 },
+    ]);
+
+    const plainMember = await createTestUser(services.services, { email: undefined });
+    await addTestMember(services.services, org.id, plainMember.userId, "member");
+    await expect(
+      handlers.onboarding.getOnboardingStats({
+        input: { organizationId: org.id },
+        context: { reqHeaders: plainMember.reqHeaders },
+      }),
+    ).rejects.toThrow(/organizers/i);
+
+    await expect(
+      handlers.onboarding.getOnboardingStats({
+        input: {},
+        context: { reqHeaders: owner.reqHeaders },
+      }),
+    ).rejects.toThrow(/platform admin/i);
   });
 });
 

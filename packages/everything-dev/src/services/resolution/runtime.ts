@@ -1,11 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { Effect } from "effect";
-import { sanitizeContainerName } from "every-plugin/ui/manifest/contract";
-import { fetchApiPluginManifest } from "../../api-contract";
+import { MANIFEST_FILENAME, sanitizeContainerName } from "every-plugin/ui/manifest/contract";
 import { getProcessEnv } from "../../env/process-env";
-import { fetchJsonOrNull } from "../../http-client";
-import { getNetworkIdForAccount } from "../../network";
 import type {
   BosConfig,
   BosPluginRef,
@@ -15,7 +12,10 @@ import type {
   RuntimeConfig,
   RuntimePluginConfig,
 } from "../../types";
-import { type ResolvedSlotVersion, resolveSlotVersion } from "../../version-manifest-resolve";
+import { fetchJsonOrNull } from "../../utils/http-client";
+import { getNetworkIdForAccount } from "../../utils/network";
+import { fetchApiPluginManifest } from "../codegen/api-contract";
+import { type ResolvedSlotVersion, resolveSlotVersion } from "../deploy/version-manifest";
 import { manifestPluginsToNodes } from "../registry/dag";
 import {
   ConfigExtendsError,
@@ -403,6 +403,7 @@ async function deriveVersionManifestFields(
     ui.integrity = r.entryIntegrity;
     ui.ssrEntryUrl = r.ssrEntryUrl;
     ui.ssrIntegrity = r.ssrIntegrity ?? ui.ssrIntegrity;
+    ui.manifestIntegrity = r.files?.[MANIFEST_FILENAME] ?? ui.manifestIntegrity;
   };
 
   await derive("app.host", config.app.host, result.host, (r) => {

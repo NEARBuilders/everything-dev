@@ -5,7 +5,7 @@
 # frozen pnpm install requires every lockfile importer to exist on disk.
 # Deploy target: Railway service `upload`.
 
-FROM public.ecr.aws/docker/library/node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+FROM public.ecr.aws/docker/library/node:24-alpine@sha256:6a1c190e17215d844926b0677f4bf87273ff7d5e54db06d3b5b5863ab0b09a3d
 
 WORKDIR /app
 

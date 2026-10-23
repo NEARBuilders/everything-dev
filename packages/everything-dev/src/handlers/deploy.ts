@@ -7,10 +7,10 @@ import type {
   RollbackResult,
   WorkspaceDeployResult,
 } from "../contract";
-import { isValidImageDigest } from "../image-deploy";
-import { summarizeSlotPins, verifyRollbackSnapshot } from "../rollback";
 import type { PublishTrainError, PublishTrainOk } from "../services/deploy/errors";
+import { isValidImageDigest } from "../services/deploy/image";
 import { runPostPublishLegs } from "../services/deploy/legs";
+import { summarizeSlotPins, verifyRollbackSnapshot } from "../services/deploy/rollback";
 import {
   fetchLiveConfig,
   fetchRollbackHistory,
@@ -38,6 +38,15 @@ type TrainResult = TrainOk | TrainErrorResult;
 
 const mapTrainError = (error: PublishTrainError) =>
   Effect.succeed({ ...error.toResult(), status: "error" as const }) as Effect.Effect<TrainResult>;
+
+function unknownAuthoredKeysError(keys: readonly string[]): string {
+  return (
+    `The authored config has unknown keys: ${keys.join(", ")} — remove them from bos.app.ts. ` +
+    "ci.image in particular was retired (ADR 0034): children pin the runtime image via " +
+    'platform: "<version>" (the platform release manifest resolves the image ref and digest ' +
+    "at deploy time); the root runtime derives its image from repository."
+  );
+}
 
 export function registerDeploy(builder: BosBuilder) {
   return {
@@ -110,8 +119,21 @@ export function registerDeploy(builder: BosBuilder) {
           error: MISSING_CONFIG_MESSAGE,
         } satisfies DeployResult;
       }
+      const retiredKeys = session.unknownAuthoredKeys;
+      if (retiredKeys.length > 0) {
+        return {
+          status: "error" as const,
+          registryUrl: "",
+          error: unknownAuthoredKeysError(retiredKeys),
+        } satisfies DeployResult;
+      }
       const config = session.config;
-      const deploySession = { config, runtime: session.runtime, root: session.root };
+      const deploySession = {
+        config,
+        runtime: session.runtime,
+        root: session.root,
+        rawConfig: session.rawConfig,
+      };
 
       return yield* Effect.tryPromise({
         try: () => deployBody(train, deploySession, input),
@@ -285,7 +307,12 @@ async function deployBody(
   train: {
     publish: (input: DeployTrainInput) => Effect.Effect<PublishTrainOk, PublishTrainError>;
   },
-  session: { config: BosConfig; runtime: RuntimeConfig | null; root: string },
+  session: {
+    config: BosConfig;
+    runtime: RuntimeConfig | null;
+    root: string;
+    rawConfig: BosConfigInput | null;
+  },
   input: {
     registry?: string;
     statusList: boolean;
@@ -424,7 +451,9 @@ async function deployBody(
     account: nextSession.config?.account,
     domain: nextSession.config?.domain,
     runtimeConfig: nextSession.runtime,
-    ciImage: nextSession.config?.ci?.image,
+    localConfig: session.rawConfig
+      ? (session.rawConfig as unknown as Record<string, unknown>)
+      : undefined,
     repository: nextSession.config?.repository,
   });
 

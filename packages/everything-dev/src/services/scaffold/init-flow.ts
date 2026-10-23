@@ -2,16 +2,18 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { Context, Effect, Layer } from "effect";
-import { generateCodeArtifacts } from "../../code-artifacts";
 import type { InitResult, OverrideSection, PhaseTiming } from "../../contract";
 import { makeProjectEnv } from "../../env/project-env";
 import { materializeViaLayer } from "../../infra/materializer";
-import { timePhase } from "../../progress";
-import { syncResolvedSharedDeps } from "../../shared-deps";
 import type { BosConfig, BosConfigInput, StarterLevel } from "../../types";
 import { saveBosConfig } from "../../utils/save-config";
+import { generateCodeArtifacts } from "../codegen/artifacts";
+import { timePhase } from "../dev/progress";
+import type { ResolvedPlatformManifest } from "../platform/manifest";
+import { resolvePlatformManifest } from "../platform/manifest";
 import { parseBosUrl } from "../registry/fastkv";
 import { openResolution } from "../resolution/session";
+import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import {
   buildInitPatterns,
   buildPluginRouteExclusions,
@@ -23,6 +25,7 @@ import {
   generateDatabaseMigrations,
   personalizeAgentsMd,
   personalizeConfig,
+  releaseRefCandidates,
   removeStrayLockfiles,
   resolveSourceDir,
   runPnpmInstall,
@@ -145,6 +148,50 @@ export class InitFlowService extends Context.Service<
               (await detectGitRemoteUrl(process.cwd()).catch(() => undefined)) ??
               parentConfig?.repository;
 
+            // ADR 0034: init scaffolds a pinned snapshot. Resolve the platform
+            // release manifest first (unpinned — the child does not exist yet,
+            // and its future pin must not constrain introducing it); the
+            // framework version becomes the scaffold's release ref and the
+            // authored config's `platform` pin. No manifest and no explicit
+            // --source → fail loud.
+            let platform: ResolvedPlatformManifest | undefined;
+            if (!input.source) {
+              const chainManifest = await timePhase(timings, "platform manifest", () =>
+                resolvePlatformManifest({
+                  configDir: process.cwd(),
+                  localConfig: {
+                    ...(parentConfig as Record<string, unknown>),
+                    extends: extendsRef,
+                    platform: undefined,
+                  },
+                  cacheRead: () => null,
+                  cacheWrite: () => {},
+                }),
+              );
+              if (!chainManifest) {
+                console.warn(
+                  `[init] No platform release manifest resolves behind ${extendsRef} — publish one or scaffold with --source`,
+                );
+                return {
+                  status: "error" as const,
+                  directory,
+                  extendsRef,
+                  account,
+                  domain,
+                  extends: extendsRef,
+                  plugins,
+                  overrides,
+                  filesCopied: 0,
+                  timings,
+                  error: `No platform release manifest resolves behind ${extendsRef} — publish a platform manifest (bos publish) or scaffold with --source`,
+                };
+              }
+              platform = chainManifest;
+            }
+            const releaseRef = platform
+              ? releaseRefCandidates(platform.manifest.frameworkVersion)
+              : undefined;
+
             const {
               sourceDir,
               parentConfig: resolvedParentConfig,
@@ -154,6 +201,7 @@ export class InitFlowService extends Context.Service<
                 extendsAccount,
                 extendsGateway,
                 source: input.source,
+                ref: releaseRef,
               }),
             );
 
@@ -178,6 +226,8 @@ export class InitFlowService extends Context.Service<
                     title: parentConfig?.title,
                     description: parentConfig?.description,
                     starter: level,
+                    catalog: platform?.manifest.catalog,
+                    platform: platform?.manifest.frameworkVersion,
                   }),
                 );
 
@@ -196,6 +246,8 @@ export class InitFlowService extends Context.Service<
                     testnet: parentConfig?.testnet,
                     staging: parentConfig?.staging,
                     starter: level,
+                    catalog: platform?.manifest.catalog,
+                    platform: platform?.manifest.frameworkVersion,
                   }),
                 );
 
@@ -249,6 +301,8 @@ export class InitFlowService extends Context.Service<
                     testnet: parentConfig?.testnet,
                     staging: parentConfig?.staging,
                     starter: level,
+                    catalog: platform?.manifest.catalog,
+                    platform: platform?.manifest.frameworkVersion,
                   }),
                 );
 

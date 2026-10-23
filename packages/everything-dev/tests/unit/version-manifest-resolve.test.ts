@@ -3,7 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearSlotVersionCache, resolveSlotVersion } from "../../src/version-manifest-resolve";
+import {
+  clearSlotVersionCache,
+  resolveSlotVersion,
+} from "../../src/services/deploy/version-manifest";
 
 const sri = (content: string) => `sha384-${createHash("sha384").update(content).digest("base64")}`;
 

@@ -3,28 +3,19 @@ import { join } from "node:path";
 import process from "node:process";
 import { Context, Effect, Layer, Option } from "effect";
 import { hasFolderFormUi } from "every-plugin/build/ui";
-import { generateCodeArtifacts } from "../../code-artifacts";
 import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "../../config";
 import type { WorkspaceDeployResult } from "../../contract";
-import { ensureCustodyBalance, submitRegistryWriteCustody } from "../../custody-signer";
-import { ensureDelegateKey, submitRegistryWriteDelegated } from "../../delegate-signer";
-import {
-  type PreviousPin,
-  pinsFromDeployState,
-  pinsFromPublishedConfig,
-  upsertDeployStatePins,
-} from "../../deploy-diff";
-import { applyDeployResults, type DeployResultEntry } from "../../integrity";
-import { submitRegistryWrite } from "../../near-signer";
-import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "../../platform-deploy";
-import { verifyRollbackSnapshot } from "../../rollback";
 import { openResolution } from "../../services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
+import { ensureCustodyBalance, submitRegistryWriteCustody } from "../auth/custody-signer";
+import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegate-signer";
+import { submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
-import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
+import { generateCodeArtifacts } from "../codegen/artifacts";
+import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKey } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { mergeAuthoredOverPublished } from "../resolution/merge";
 import {
@@ -36,10 +27,23 @@ import {
   resolveWorkspaceTarget,
 } from "../workspace/build-train";
 import { BundleStorage, RegistryStore, type RegistryStoreShape } from "./deps";
+import {
+  type PreviousPin,
+  pinsFromDeployState,
+  pinsFromPublishedConfig,
+  upsertDeployStatePins,
+} from "./diff";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
 import { formatNearError } from "./format";
+import { applyDeployResults, type DeployResultEntry } from "./integrity";
+import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
+import {
+  composePlatformManifestPublishEntry,
+  type PlatformManifestPublishEntry,
+} from "./platform-manifest";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
 import { type DeployTrainRender, DeployTrainRenderService } from "./render";
+import { verifyRollbackSnapshot } from "./rollback";
 import {
   realStorageLegDeps,
   type StorageLegDeps,
@@ -265,8 +269,6 @@ export async function runPublishTrain(
   let built: string[] | undefined;
   let skipped: string[] | undefined;
   let deployResults: WorkspaceDeployResult[] | undefined;
-  let refreshedRawConfig: BosConfigInput | null = null;
-
   const urlOrigin = plan.cdnOrigin ?? `https://${gateway}`;
   const platformEntries: DeployResultEntry[] = [];
   const fullUpload = input.fullUpload === true || process.env.BOS_FULL_UPLOAD === "1";
@@ -298,6 +300,27 @@ export async function runPublishTrain(
         ...pinsFromDeployState(configDir, account, gateway),
       };
 
+  const authoredPath = findConfigPath(configDir);
+  const tsForm = authoredPath !== null && isAppDescriptorPath(authoredPath);
+  // Resolved before the build phase: pipelined uploads (#430) start the moment
+  // a workspace build completes and the folder-form plugin-ui leg reads the
+  // authored config — the binding must be live by then, never first
+  // initialized after the train. The post-build refresh reassigns
+  // publishRawConfig for the publish payload.
+  const openedRaw = await openResolution({ cwd: configDir });
+  if (!openedRaw?.rawConfig) {
+    throw new PublishTrainError({
+      kind: "reload",
+      registryUrl,
+      built,
+      skipped,
+      deployResults,
+      error: "Failed to load the authored config for publish",
+    });
+  }
+  const authoredRawConfig = openedRaw.rawConfig;
+  let publishRawConfig: BosConfigInput = authoredRawConfig;
+
   render?.cdnBanner?.(storageOrigin);
 
   // One workspace = one upload unit: the workspace bundle, then (for
@@ -307,6 +330,7 @@ export async function runPublishTrain(
   // start the moment a build completes.
   const uploadOneWorkspace = async (
     key: string,
+    rawConfig: BosConfigInput,
   ): Promise<{ entries: DeployResultEntry[]; detail: UploadUnitDetail }> => {
     const startedAt = Date.now();
     const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
@@ -486,7 +510,7 @@ export async function runPublishTrain(
       (async () => {
         await acquireUploadSlot();
         try {
-          return await uploadOneWorkspace(key);
+          return await uploadOneWorkspace(key, authoredRawConfig);
         } finally {
           releaseUploadSlot();
         }
@@ -564,28 +588,9 @@ export async function runPublishTrain(
     }
 
     bosConfig = refreshed.config;
-    refreshedRawConfig = refreshed.rawConfig;
+    if (refreshed.rawConfig) publishRawConfig = refreshed.rawConfig;
   }
 
-  const authoredPath = findConfigPath(configDir);
-  const tsForm = authoredPath !== null && isAppDescriptorPath(authoredPath);
-  let rawConfig: BosConfigInput;
-  if (refreshedRawConfig) {
-    rawConfig = refreshedRawConfig;
-  } else {
-    const opened = await openResolution({ cwd: configDir });
-    if (!opened?.rawConfig) {
-      throw new PublishTrainError({
-        kind: "reload",
-        registryUrl,
-        built,
-        skipped,
-        deployResults,
-        error: "Failed to load the authored config for publish",
-      });
-    }
-    rawConfig = opened.rawConfig;
-  }
   if (
     tsForm &&
     !input.build &&
@@ -614,8 +619,11 @@ export async function runPublishTrain(
         ? // Config-only publish on a TS-form project: the authored config owns
           // composition (hand-edits win) while live pipeline state (bundle
           // URLs, integrity) carries over from the published config.
-          mergeAuthoredOverPublished((plan.publishedConfig ?? {}) as BosConfigInput, rawConfig)
-        : rawConfig;
+          mergeAuthoredOverPublished(
+            (plan.publishedConfig ?? {}) as BosConfigInput,
+            publishRawConfig,
+          )
+        : publishRawConfig;
 
   // Everything the pipeline has not already started uploads now — same
   // bounded pool. With build:false there is nothing to upload (config-only).
@@ -673,7 +681,7 @@ export async function runPublishTrain(
   }
 
   if (platformEntries.length > 0) {
-    const merged = applyDeployResults(rawConfig as Record<string, unknown>, platformEntries);
+    const merged = applyDeployResults(publishRawConfig as Record<string, unknown>, platformEntries);
     if (!tsForm) {
       // Legacy JSON-form children keep their local write-back; TS-form keeps
       // pipeline state in FastKV only — a write-back would shadow the
@@ -725,13 +733,51 @@ export async function runPublishTrain(
     [registryKey]: JSON.stringify(publishPayload),
   };
   const manifestKey = `apps/${account}/${gateway}/manifests/${publishedAt.replace(/[:.]/g, "-")}.json`;
+  // ADR 0034: the platform release manifest rides the same atomic write —
+  // framework-rooted production build trains only (children and config-only
+  // publishes publish nothing). The compat floor is the previous release; a
+  // registry *failure* (vs an absent slot) skips this deploy's manifest —
+  // a silently-widened or silently-tightened floor would publish a wrong
+  // compat window — and the next deploy lands it.
+  let platformManifest: PlatformManifestPublishEntry | null = null;
+  if (!isStaging && input.build) {
+    try {
+      const previous = await fetchRegistryKey<{ frameworkVersion?: string }>(
+        account,
+        gateway,
+        "platform.json",
+      );
+      platformManifest = composePlatformManifestPublishEntry({
+        configDir,
+        account,
+        gateway,
+        previousFrameworkVersion: previous?.frameworkVersion,
+        gitSha,
+      });
+    } catch (error) {
+      console.warn(
+        `  platform manifest skipped this deploy — the previous release could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   registryEntries[manifestKey] = JSON.stringify({
     account,
     gateway,
     network,
     publishedAt,
     registryUrl,
+    ...(platformManifest
+      ? {
+          platformManifest: {
+            file: platformManifest.key,
+            integrity: platformManifest.integrity,
+          },
+        }
+      : {}),
   });
+  if (platformManifest) {
+    registryEntries[platformManifest.key] = platformManifest.value;
+  }
 
   render?.publish?.({
     registryUrl,

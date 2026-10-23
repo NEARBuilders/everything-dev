@@ -1,3 +1,4 @@
+import NumberFlow from "@number-flow/react";
 import {
   ArrowUpIcon,
   BroadcastIcon,
@@ -120,7 +121,7 @@ function ThingsIndexPage() {
           action={newThingButton}
         />
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 animate-in fade-in-0 duration-150">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <InputGroup className="w-full sm:max-w-sm">
               <InputGroupAddon>
@@ -160,7 +161,13 @@ function ThingsIndexPage() {
                   variant="outline"
                   size="sm"
                   role="listitem"
-                  render={<Link to="/things/$thingId" params={{ thingId: thing.thingId }} />}
+                  render={
+                    <Link
+                      to="/things/$thingId"
+                      params={{ thingId: thing.thingId }}
+                      viewTransition
+                    />
+                  }
                   data-testid={`things-row-${thing.thingId}`}
                 >
                   <ItemMedia variant="icon">
@@ -178,11 +185,15 @@ function ThingsIndexPage() {
                     <Badge variant="outline" className="hidden font-mono sm:inline-flex">
                       {thing.type}
                     </Badge>
-                    <span className="inline-flex min-w-10 items-center justify-end gap-1 text-sm text-muted-foreground tabular-nums">
+                    <span className="inline-flex min-w-10 items-center justify-end gap-1 text-sm text-muted-foreground">
                       <ArrowUpIcon />
-                      {upvoteCountsQuery.isLoading
-                        ? "—"
-                        : (upvoteCountsQuery.data?.[thing.thingId]?.totalCount ?? 0)}
+                      {upvoteCountsQuery.isLoading ? (
+                        "—"
+                      ) : (
+                        <NumberFlow
+                          value={upvoteCountsQuery.data?.[thing.thingId]?.totalCount ?? 0}
+                        />
+                      )}
                       <span className="sr-only">upvotes</span>
                     </span>
                     <CaretRightIcon className="text-muted-foreground" />

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { join } from "node:path";
-import { normalizePackageManifestsInTree } from "../packages/everything-dev/src/internal/manifest-normalizer";
+import { normalizePackageManifestsInTree } from "../packages/everything-dev/src/services/registry/manifest-normalizer";
 
 const rootDir = join(import.meta.dirname, "..");
 const updatedFiles = await normalizePackageManifestsInTree({

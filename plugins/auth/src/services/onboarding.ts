@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { Context, Effect } from "effect";
-import { attemptAuth, attemptDb } from "../attempts";
+import { attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
 import { toDate, toOnboardingSummary } from "../serializers";
@@ -10,7 +10,6 @@ import type {
   OnboardingCodeCipherTag,
   PluginServices,
 } from "../service-types";
-import { createHeaders } from "../utils";
 import {
   AuthenticationRequired,
   type AuthFailure,
@@ -24,11 +23,11 @@ import {
   EventTeamCreateFailed,
   OrgFull,
   OrgRequiresApproval,
+  PlatformAdminRequired,
   RedeemOrgMissing,
 } from "./domain-errors";
 import type { OrganizerCaller, PermissionsService } from "./permissions";
 
-type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
 
 const DEFAULT_MAX_USES = 300;
@@ -51,6 +50,20 @@ function codeState(row: typeof schema.onboardingCode.$inferSelect): CodeState {
   return "active";
 }
 
+function monthWindow(month: string | undefined): { month: string; start: Date; end: Date } {
+  const resolved = month ?? new Date().toISOString().slice(0, 7);
+  const year = Number(resolved.slice(0, 4));
+  const monthIndex = Number(resolved.slice(5, 7)) - 1;
+  return {
+    month: resolved,
+    start: new Date(Date.UTC(year, monthIndex, 1)),
+    end:
+      monthIndex === 11
+        ? new Date(Date.UTC(year + 1, 0, 1))
+        : new Date(Date.UTC(year, monthIndex + 1, 1)),
+  };
+}
+
 export class OnboardingService extends Context.Service<
   OnboardingService,
   {
@@ -66,7 +79,7 @@ export class OnboardingService extends Context.Service<
     ) => Effect.Effect<InferOutput<"createOnboardingCode">, AuthFailure>;
     listOnboardingCodes: (
       context: OrganizerCaller,
-      organizationId: string | undefined,
+      input: { organizationId?: string; eventId?: string },
     ) => Effect.Effect<InferOutput<"listOnboardingCodes">, AuthFailure>;
     revokeOnboardingCode: (
       context: OrganizerCaller,
@@ -80,6 +93,10 @@ export class OnboardingService extends Context.Service<
       context: OrganizerCaller,
       input: { organizationId?: string; codeId: string },
     ) => Effect.Effect<InferOutput<"getOnboardingStatus">, AuthFailure>;
+    getOnboardingStats: (
+      context: OrganizerCaller,
+      input: { month?: string; organizationId?: string },
+    ) => Effect.Effect<InferOutput<"getOnboardingStats">, AuthFailure>;
     getOnboardingCodeInfo: (
       code: string,
     ) => Effect.Effect<InferOutput<"getOnboardingCodeInfo">, AuthFailure>;
@@ -91,13 +108,11 @@ export class OnboardingService extends Context.Service<
 >()("auth/OnboardingService") {}
 
 export const buildOnboardingService = ({
-  auth,
   db,
   permissions,
   cipher,
   membershipPolicy,
 }: {
-  auth: Auth;
   db: Db;
   permissions: PermissionsService["Service"];
   cipher: OnboardingCodeCipherTag["Service"];
@@ -168,21 +183,99 @@ export const buildOnboardingService = ({
 
     listOnboardingCodes: Effect.fn("OnboardingService.listOnboardingCodes")(function* (
       context: OrganizerCaller,
-      organizationId: string | undefined,
+      input: { organizationId?: string; eventId?: string },
     ) {
       const { organizationId: resolved } = yield* permissions.requireOrganizer(
         context,
-        organizationId,
+        input.organizationId,
       );
       const rows = yield* attemptDb(() =>
         db
           .select()
           .from(schema.onboardingCode)
-          .where(eq(schema.onboardingCode.organizationId, resolved))
+          .where(
+            and(
+              eq(schema.onboardingCode.organizationId, resolved),
+              input.eventId ? eq(schema.onboardingCode.eventId, input.eventId) : undefined,
+            ),
+          )
           .orderBy(desc(schema.onboardingCode.createdAt))
           .limit(20),
       );
       return rows.map(toOnboardingSummary);
+    }),
+
+    getOnboardingStats: Effect.fn("OnboardingService.getOnboardingStats")(function* (
+      context: OrganizerCaller,
+      input: { month?: string; organizationId?: string },
+    ) {
+      const window = monthWindow(input.month);
+      let scopedOrganizationId: string | undefined;
+      if (input.organizationId) {
+        const { organizationId } = yield* permissions.requireOrganizer(
+          context,
+          input.organizationId,
+        );
+        scopedOrganizationId = organizationId;
+      } else if (context.user?.role !== "admin") {
+        return yield* Effect.fail(
+          new PlatformAdminRequired({
+            message:
+              "Viewing onboarding stats across all organizations requires a platform admin; pass organizationId for organization-scoped stats",
+          }),
+        );
+      }
+
+      const rows = yield* attemptDb(() =>
+        db
+          .select({
+            organizationId: schema.onboardingCode.organizationId,
+            organizationName: schema.organization.name,
+            redeemed: sql<number>`count(*)::int`,
+            newMembers: sql<number>`count(distinct ${schema.onboardingRedemption.userId}) filter (where exists (
+              select 1 from ${schema.member} member_this_month
+              where member_this_month.user_id = ${schema.onboardingRedemption.userId}
+                and member_this_month.organization_id = ${schema.onboardingCode.organizationId}
+                and member_this_month.created_at >= ${window.start}
+                and member_this_month.created_at < ${window.end}
+            ))::int`,
+          })
+          .from(schema.onboardingRedemption)
+          .innerJoin(
+            schema.onboardingCode,
+            eq(schema.onboardingRedemption.codeId, schema.onboardingCode.id),
+          )
+          .leftJoin(
+            schema.organization,
+            eq(schema.organization.id, schema.onboardingCode.organizationId),
+          )
+          .where(
+            and(
+              gte(schema.onboardingRedemption.createdAt, window.start),
+              lt(schema.onboardingRedemption.createdAt, window.end),
+              scopedOrganizationId
+                ? eq(schema.onboardingCode.organizationId, scopedOrganizationId)
+                : undefined,
+            ),
+          )
+          .groupBy(schema.onboardingCode.organizationId, schema.organization.name)
+          .orderBy(schema.onboardingCode.organizationId),
+      );
+
+      const organizations = rows.map((row) => ({
+        organizationId: row.organizationId,
+        organizationName: row.organizationName ?? null,
+        redeemed: row.redeemed,
+        newMembers: row.newMembers,
+      }));
+      return {
+        month: window.month,
+        totals: {
+          redeemed: organizations.reduce((sum, org) => sum + org.redeemed, 0),
+          newMembers: organizations.reduce((sum, org) => sum + org.newMembers, 0),
+        },
+        organizations,
+      };
     }),
 
     revokeOnboardingCode: Effect.fn("OnboardingService.revokeOnboardingCode")(function* (
@@ -330,16 +423,13 @@ export const buildOnboardingService = ({
       context: OrganizerCaller,
       code: string,
     ) {
-      const headers = createHeaders(context.reqHeaders);
-      const session = yield* attemptAuth(() => auth.api.getSession({ headers }));
-      const sessionData = session as { user?: { id?: string }; session?: { id?: string } } | null;
-      const userId = context.userId ?? sessionData?.user?.id ?? null;
-      if (!userId || !sessionData?.session?.id) {
+      const userId = context.userId;
+      const sessionId = context.sessionId ?? null;
+      if (!userId || !sessionId) {
         return yield* Effect.fail(
           new AuthenticationRequired({ message: "Authentication required" }),
         );
       }
-      const sessionId = sessionData.session.id;
 
       const codeRow = yield* attemptDb(() =>
         db.query.onboardingCode.findFirst({

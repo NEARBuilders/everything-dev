@@ -1,9 +1,6 @@
 /**
  * HTML shell — head/scripts/styles, runtime config handoff.
  * Root boundary between the host-rendered document and the UI application.
- *
- * BE CAREFUL MODIFYING THIS FILE — changes will be overwritten by `bos sync` / `bos upgrade`.
- * Prefer upstream changes at https://github.com/nearbuilders/everything-dev
  */
 
 import { TanStackDevtools } from "@tanstack/react-devtools";
@@ -16,7 +13,11 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
-import { getRemoteScripts, getThemeInitScript } from "everything-dev/ui/head";
+import {
+  getRemotePreloadLinks,
+  getRemoteScripts,
+  getThemeInitScript,
+} from "everything-dev/ui/head";
 import { getSocialImageMeta } from "everything-dev/ui/metadata";
 import { MotionConfig } from "framer-motion";
 import { ThemeProvider } from "next-themes";
@@ -81,7 +82,8 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         { charSet: "utf-8" },
         {
           name: "viewport",
-          content: "width=device-width, initial-scale=1.0, viewport-fit=cover",
+          content:
+            "width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content",
         },
         { title },
         { name: "description", content: description },
@@ -106,6 +108,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         }),
       ],
       links: [
+        ...getRemotePreloadLinks(runtimeConfig ?? undefined),
         {
           rel: "stylesheet",
           href: `${assetsUrl ?? ""}/static/css/style.css${runtimeConfig?.ui?.integrity ? `?v=${encodeURIComponent(runtimeConfig.ui.integrity)}` : ""}`,

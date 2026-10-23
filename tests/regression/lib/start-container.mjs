@@ -195,8 +195,19 @@ const main = async () => {
   dockerRemove([containerName], "pre-run cleanup: nothing to remove");
   reapStaleContainers();
 
-  log(`building the deployment image (docker build --target regression)…`);
-  await run("docker", ["build", "--target", "regression", "-t", image, "."]);
+  const prebuilt = process.env.REGRESSION_PREBUILT_IMAGE;
+  if (prebuilt) {
+    // CI provides the fixture built once per run by the regression-image job
+    // (digest-pinned ref pushed to GHCR); pulling beats rebuilding on an
+    // ephemeral runner. Local runs (and CI fallback when the image job was
+    // skipped or failed) keep the build path.
+    log(`pulling the prebuilt regression image ${prebuilt}…`);
+    await run("docker", ["pull", prebuilt]);
+    await run("docker", ["tag", prebuilt, image]);
+  } else {
+    log(`building the deployment image (docker build --target regression)…`);
+    await run("docker", ["build", "--target", "regression", "-t", image, "."]);
+  }
 
   const { range, containerBasePort } = mappedRange();
   const child = dockerRun(range, containerBasePort);

@@ -2,7 +2,11 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createDevLogger, readDevLatestLog, resolveDevLatestFile } from "../../src/dev-logs";
+import {
+  createDevLogger,
+  readDevLatestLog,
+  resolveDevLatestFile,
+} from "../../src/services/dev/logs";
 
 let tempDir: string;
 

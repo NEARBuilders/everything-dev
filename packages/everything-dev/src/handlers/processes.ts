@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { PsResult } from "../contract";
-import { ProcessesService } from "../services/processes";
+import { ProcessesService } from "../services/processes/service";
 import type { BosBuilder } from "./shared";
 
 export function registerProcesses(builder: BosBuilder) {

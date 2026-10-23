@@ -9,7 +9,7 @@ metadata:
 
 # CLI Command Reference
 
-20 `bos` commands organised by workflow category.
+21 `bos` commands organised by workflow category.
 
 ## Development
 
@@ -92,32 +92,23 @@ bos init --source ./my-app --no-interactive    # from local source, skip prompts
 
 → [`init-upgrade`](.) skill for template download, file selection, snapshots, and conflict wiring.
 
-### `bos sync`
-
-Sync template files from the parent project. Compares snapshot-versioned files to detect conflicts.
-
-**Flags:** `--dry-run` `--no-install`
-
-```bash
-bos sync
-bos sync --dry-run    # preview without writing
-```
-
-→ [`init-upgrade`](.) skill for snapshot-based conflict detection and framework-owned sections.
-
 ### `bos upgrade`
 
-Upgrade framework packages then sync template files. Interactive; prompts for package selection.
+Upgrade a child behind a pinned parent to the parent's latest platform release, moving the `platform` pin (ADR 0034). Fails out on unresolvable local conflicts — the template wins; conflicting copies are backed up to `.bos/sync-backup/` only with `--force`.
 
-**Flags:** `--dry-run` `--no-install` `--no-sync`
+**Flags:** `--dry-run` `--check` `--no-install` `--no-sync` `--force` (`--from <version>` is passed internally by the scheduled re-exec, not user-facing)
 
 ```bash
 bos upgrade
 bos upgrade --dry-run       # preview version bumps
-bos upgrade --no-sync       # only upgrade packages, skip template sync
+bos upgrade --check         # CI drift alarm (ADR 0034): exit 1 when updates are available
+bos upgrade --no-sync       # only upgrade packages, skip the template sync
+bos upgrade --force         # accept the template, back up conflicting local edits, continue
 ```
 
-→ [`init-upgrade`](.) skill for catalog strategy, legacy import rewrites, and upgrade+publish flow.
+When a platform release manifest resolves, its catalog is the version source (one registry read); `--check` diffs the recorded `platform` pin against the latest published manifest and exits nonzero on drift. The pre-flight runs the staged `dryRun` `dry-run` sync first: any file the child hand-edited past its init snapshot aborts the whole run with the conflicted list and the upstream-issue URL — re-run with `--force` to back up the forks and take the template. Framework-owned files are reconciled only when the framework version actually changes (ADR 0032).
+
+→ [`init-upgrade`](.) skill for catalog strategy, snapshot conflict gates, and upgrade+publish flow.
 
 ### `bos import`
 
@@ -144,6 +135,19 @@ bos status
 ```
 
 Output includes installed vs latest versions for each workspace package, whether the parent extends reference is reachable, whether `.env` exists, and when the last sync ran. No flags.
+
+### `bos platform manifest`
+
+Show the resolved platform release manifest (ADR 0034) — the contract of the framework release this runtime is pinned to.
+
+**Flags:** `--check`
+
+```bash
+bos platform manifest          # print the resolved manifest + its source
+bos platform manifest --check  # also run the compat gate; exit 1 on violations
+```
+
+Resolution order: the in-image manifest first (the booted host self-describes from the release bytes it runs on), registry resolution through the extends chain otherwise (`.bos/platform-manifest.json` is the offline cache). `--check` verifies the workspace's strict-singleton pins against the manifest's `sharedDeps` and the framework version against the release's compat floor — the same check the deploy smoke gate runs. Status is `absent` (no manifest resolves — pre-0034 behavior applies) or `fail` (unresolvable/error) with diagnostics.
 
 ## Publishing
 
@@ -189,7 +193,7 @@ bos deploy --no-build                   # publish only, skip workspace build
 bos deploy --service my-railway         # override Railway service name
 ```
 
-**Deploy legs** (image / smoke / railway) report per-leg outcomes (✓ ok / – skipped / ✗ failed) and are tier-aware (ADR 0020/0021): a runtime that owns its image (`ci.image` configured or a Dockerfile at the config root) is "root" and must pin a digest before Railway; a runtime inheriting the universal image is "child" — image and smoke soft-skip, and the Railway redeploy runs without a digest (`railway redeploy --from-source` is a reload trigger). The deploy exits 0 whenever the config publishes and no leg failed; `RAILWAY_TOKEN` is optional.
+**Deploy legs** (image / smoke / railway) report per-leg outcomes (✓ ok / – skipped / ✗ failed) and are tier-aware (ADR 0020/0021): a runtime that owns its image (a Dockerfile at the config root or `BOS_IMAGE`) is "root" and must pin a digest before Railway; a runtime inheriting the universal image is "child" — its image ref derives from the platform release manifest (`platform` pin, ADR 0034): the Railway leg repoints the service source to the pinned ref and redeploys (`railway service source connect --image <ref:tag>`, then `redeploy --from-source`), float children without a resolved manifest redeploy without a digest, and `ci.image` in an authored config fails the deploy with a migration pointer. The deploy exits 0 whenever the config publishes and no leg failed; `RAILWAY_TOKEN` is optional. The platform release manifest (ADR 0034) rides the FastKV publish as a third `registryEntries` key — full trains only (a root's production build with upload; config-only publishes and staging skip it), and a registry failure reading the previous release skips the manifest rather than publishing a wrong compat window.
 
 → [`publish-sync`](.) skill and [`super-app`](.) for tenant-aware deploy considerations.
 
@@ -276,14 +280,15 @@ bos plugin publish my-plugin
 
 ### `bos types gen`
 
-Generate and fetch type definitions from configured API and plugin contracts. Runs automatically on `pnpm install`, `bos dev`, `bos build`, `bos plugin add`, and `bos plugin remove`.
+Generate and fetch type definitions from configured API and plugin contracts. Runs automatically on `pnpm install`, `bos dev`, `bos build`, `bos plugin add`, and `bos plugin remove`. Also the hermetic local-resolution step: it writes `.bos/bos.resolved-config.json` and regenerates the ui route tree, so a fresh checkout needs exactly one `bos types gen` before `pnpm typecheck` to match CI.
 
-**Flags:** `--env <development|production>` `--dry-run`
+**Flags:** `--env <development|production>` `--dry-run` `--remote-plugins <ids>`
 
 ```bash
 bos types gen                     # development mode (local + remote sources)
 bos types gen --env production    # production mode (remote sources only)
 bos types gen --dry-run           # preview without writing files
+bos types gen --remote-plugins auth,registry   # fetch contract types remotely
 ```
 
 Generated files: `api-types.gen.ts`, `auth-types.gen.ts` (ui, api, host), `plugins-types.gen.ts`. Uses `local:` sources in dev and production URLs in production mode.
@@ -307,5 +312,7 @@ Requires the `DATABASE_URL` secret to be set on the target plugin. Uses the plug
 **"Regenerate the types."** `bos types gen` — or just `pnpm run typecheck`, which regenerates first and then checks. Never hand-edit `*.gen.ts` files.
 
 **"Which command deploys?"** `pnpm run deploy` (the full train: preflight → build → upload → publish → image). Config-only is `bos publish`; one plugin is `bos plugin publish <key>`.
+
+**"What release am I on?"** `bos platform manifest` — the resolved platform release manifest and its source; `--check` adds the compat gate. `bos upgrade --check` is the CI drift alarm against the latest release.
 
 **"What is running right now?"** `bos ps` for tracked dev processes, `bos status` for health and versions, `ls .bos/logs/` for per-service logs.

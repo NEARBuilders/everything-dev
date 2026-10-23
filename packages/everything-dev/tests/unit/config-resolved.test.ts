@@ -15,7 +15,7 @@ import {
 import { openResolution } from "../../src/services/resolution/session";
 import { BosConfigInputSchema } from "../../src/types";
 
-vi.mock("../../src/version-manifest-resolve", () => ({
+vi.mock("../../src/services/deploy/version-manifest", () => ({
   resolveSlotVersion: vi.fn(async () => ({
     entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
     entryIntegrity: "sha384-entry",
@@ -33,8 +33,8 @@ vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/api-contract", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/api-contract")>();
+vi.mock("../../src/services/codegen/api-contract", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/codegen/api-contract")>();
   return {
     ...actual,
     fetchApiPluginManifest: async () => {
@@ -43,8 +43,8 @@ vi.mock("../../src/api-contract", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/http-client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/http-client")>();
+vi.mock("../../src/utils/http-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/utils/http-client")>();
   return {
     ...actual,
     fetchResponse: async () => {

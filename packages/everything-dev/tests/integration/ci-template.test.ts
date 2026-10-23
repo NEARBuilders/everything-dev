@@ -36,7 +36,7 @@ describe("consumer CI template (.github/templates/workflows/ci.yml)", () => {
     expect(doc.on?.pull_request?.["paths-ignore"]).toBeUndefined();
   });
 
-  it("ships a slash-free caller-side gate job that fails unless the ci job succeeded", () => {
+  it("ships a slash-free caller-side gate job that fails unless both the reusable and child-owned calls succeeded", () => {
     const doc = loadCiTemplate();
 
     const gateJobs = Object.entries(doc.jobs ?? {}).filter(
@@ -49,10 +49,17 @@ describe("consumer CI template (.github/templates/workflows/ci.yml)", () => {
     expect(gateId).toBe("lint-and-typecheck-gate");
     expect(gate.name).toBe("Lint and Type Check");
     expect(gate.name).not.toContain("/");
-    expect(gate.needs).toEqual(["ci"]);
+    expect(gate.needs).toEqual(["ci", "child-ci"]);
     expect(gate.if).toBe("always()");
 
     const gateStepRuns = gate.steps?.map((step) => step.run ?? "").join("\n");
     expect(gateStepRuns).toContain("needs.ci.result");
+    expect(gateStepRuns).toContain("needs.child-ci.result");
+
+    const childJobs = Object.entries(doc.jobs ?? {}).filter(([, job]) =>
+      job.uses?.endsWith("/.github/workflows/ci-child.yml"),
+    );
+    expect(childJobs).toHaveLength(1);
+    expect(childJobs[0]![0]).toBe("child-ci");
   });
 });

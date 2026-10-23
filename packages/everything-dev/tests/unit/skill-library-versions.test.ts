@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   syncSkillLibraryVersions,
   syncWorkspaceSkillLibraryVersions,
-} from "../../src/skill-library-versions";
+} from "../../src/services/skills/sync";
 
 const tmpRoot = join(import.meta.dirname, ".skill-library-versions-fixture");
 

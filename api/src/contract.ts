@@ -8,6 +8,7 @@ import {
   UNAUTHORIZED,
 } from "every-plugin/errors";
 import { z } from "zod";
+import { ListDeploysInputSchema, ListDeploysOutputSchema } from "./lib/deploy-history";
 
 const ErrorTestKindSchema = z.enum([
   "unauthorized",
@@ -46,6 +47,21 @@ export const contract = oc.router({
       }),
     )
     .errors({ UNAUTHORIZED, FORBIDDEN, NOT_FOUND, BAD_REQUEST, CONNECTION_ERROR }),
+
+  hosting: oc.router({
+    listDeploys: oc
+      .route({
+        method: "GET",
+        path: "/hosting/deploys",
+        summary: "List deploy history",
+        description:
+          "One row per published deploy, resolved from the namespace's per-deploy audit manifests on the FastKV registry (public reads, any account/gateway namespace).",
+        tags: ["Hosting"],
+      })
+      .input(ListDeploysInputSchema)
+      .output(ListDeploysOutputSchema)
+      .errors({ UNAUTHORIZED, CONNECTION_ERROR }),
+  }),
 });
 
 export type ContractType = typeof contract;

@@ -3,7 +3,7 @@ import { APIError, createAuthEndpoint, sessionMiddleware } from "better-auth/api
 import { setSessionCookie } from "better-auth/cookies";
 import { and, eq, gt, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { Database } from "./db";
+import type { Database } from "./db/layer";
 import * as schema from "./db/schema";
 import {
   createOrganizationMembershipPolicy,

@@ -9,7 +9,7 @@ Dev-session process output had three inconsistent views. The on-screen tail and 
 
 ## Decision
 
-All output from every dev-session process flows through a single pure pipeline (`packages/everything-dev/src/dev-log-pipeline.ts`) with three stages:
+All output from every dev-session process flows through a single pure pipeline (`packages/everything-dev/src/services/dev/logs.ts`) with three stages:
 
 1. **Normalize** — per-source lookahead state machine collapses multi-line blocks into one event per logical log: Effect Logger `{`…`}` object blocks (including the header line they follow), stack-trace `    at …` continuation lines, and brace-balanced pretty-printed JSON.
 2. **Classify** — assigns a level (`error`/`warn`/`info`/`debug`) and a category (`banner`/`build`/`db`/`mf`/`lifecycle`/`shutdown`/`other`). `WARN [Better Auth]`-style stdout lines classify as `warn`; the old `LOG_NOISE_PATTERNS` list folds into the classifier as `mf`/`build` info events; dev-server banner blocks and rspack/rsbuild chatter classify as `banner`/`build`; clean exits (`Process exited … (exit code: 0)`) classify as `shutdown` **info**, not `[ERR]`.

@@ -212,7 +212,7 @@ function OrganizationsList() {
           }
         />
       ) : (
-        <section className="flex flex-col gap-4">
+        <section className="flex flex-col gap-4 animate-in fade-in-0 duration-150">
           {hasInvitations && <SectionHeader title="Your organizations" />}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {orgs.map((org, index) => {
@@ -228,6 +228,7 @@ function OrganizationsList() {
                     <Link
                       to="/orgs/$slug"
                       params={{ slug: org.slug }}
+                      viewTransition
                       className="flex min-w-0 items-start gap-3 outline-none focus-visible:underline"
                     >
                       <OrgAvatar name={org.name} logo={org.logo} size="lg" />

@@ -1,5 +1,24 @@
+import { execSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isFrameworkOwnedSyncFile, mergePackageJson, RETIRED_SYNC_FILES } from "../../src/cli/sync";
+import {
+  composePlatformReleaseManifest,
+  computeTemplateInventory,
+  PlatformReleaseManifestSchema,
+  serializePlatformReleaseManifest,
+} from "../../src/services/platform/manifest";
+import {
+  CHILD_OWNED_BLOCK_END,
+  CHILD_OWNED_BLOCK_START,
+  extractChildOwnedBlock,
+  FRAMEWORK_OWNED_HEADER,
+  FRAMEWORK_OWNED_SYNC_FILES,
+  frameworkOwnedHeaderComment,
+  isFrameworkOwnedSyncFile,
+  spliceChildOwnedBlock,
+} from "../../src/services/scaffold/ownership";
+import { mergePackageJson } from "../../src/services/scaffold/sync";
 
 describe("bos sync — framework-owned files", () => {
   it("marks scaffold runtime files as framework-owned", () => {
@@ -31,19 +50,22 @@ describe("bos sync — framework-owned files", () => {
     expect(isFrameworkOwnedSyncFile("ui/src/globals.gen.ts")).toBe(false);
   });
 
-  it("retires exactly the stub files the generated set replaced", () => {
-    expect([...RETIRED_SYNC_FILES].sort()).toEqual([
-      "ui/src/compose.ts",
-      "ui/src/entry.ts",
-      "ui/src/globals.d.ts",
-      "ui/src/hydrate.tsx",
-      "ui/src/router.server.tsx",
-    ]);
+  it("no longer owns the db files or the request-context schema (ADR 0033)", () => {
+    expect(isFrameworkOwnedSyncFile("api/src/db/layer.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("api/src/db/index.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("api/src/db/migrate.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/src/db/layer.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/src/db/migrate.ts")).toBe(false);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/context.ts")).toBe(false);
+    // the drizzle-kit config stays owned: identity-driven wiring carrying
+    // journal policy, zero app decisions
+    expect(isFrameworkOwnedSyncFile("api/drizzle.config.ts")).toBe(true);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/drizzle.config.ts")).toBe(true);
   });
 
-  it("marks per-plugin lib files as framework-owned", () => {
-    expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/context.ts")).toBe(true);
-    expect(isFrameworkOwnedSyncFile("plugins/_template/src/lib/context.ts")).toBe(true);
+  it("marks per-plugin plumbing files as framework-owned", () => {
+    expect(isFrameworkOwnedSyncFile("plugins/apps/src/global.d.ts")).toBe(true);
+    expect(isFrameworkOwnedSyncFile("plugins/apps/tests/types.d.ts")).toBe(true);
   });
 
   it("marks agent workflow skills and docs as framework-owned", () => {
@@ -68,6 +90,74 @@ describe("bos sync — framework-owned files", () => {
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/auth-types.gen.ts")).toBe(false);
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/service.ts")).toBe(false);
     expect(isFrameworkOwnedSyncFile("plugins/apps/src/lib/other.ts")).toBe(false);
+  });
+});
+
+describe("framework-owned marker guardrail (ADR 0032)", () => {
+  const REPO_ROOT = join(import.meta.dirname, "../../../../");
+
+  function trackedFiles(): string[] {
+    // Tracked + untracked-but-not-ignored: a brand-new file must be scanned
+    // locally too, not only after it is committed (the CI trap).
+    return execSync("git ls-files --cached --others --exclude-standard", {
+      cwd: REPO_ROOT,
+      encoding: "utf-8",
+    })
+      .split("\n")
+      .filter(Boolean);
+  }
+
+  function fileStartsWithMarker(file: string): boolean {
+    try {
+      const content = readFileSync(join(REPO_ROOT, file), "utf-8");
+      return (
+        content.startsWith("/**\n * FRAMEWORK-OWNED") ||
+        content.startsWith("# FRAMEWORK-OWNED") ||
+        content.startsWith("<!--\nFRAMEWORK-OWNED")
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  it("every file carrying the marker is in the ownership inventory", () => {
+    const offenders = trackedFiles().filter(
+      (file) => fileStartsWithMarker(file) && !isFrameworkOwnedSyncFile(file),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("no stale warning headers remain in template or source files", () => {
+    const staleNeedle = ["BE CAREFUL", "MODIFYING"].join(" ");
+    const offenders = trackedFiles().filter((file) => {
+      // Dated records — historical ADRs and plans may quote the retired
+      // header verbatim (the same exclusion docs-link-check applies to
+      // ADR bodies), and CHANGELOG.md is historical by convention.
+      if (
+        file.endsWith("CHANGELOG.md") ||
+        file.startsWith("docs/plans/") ||
+        file.startsWith("docs/adr/")
+      )
+        return false;
+      try {
+        return readFileSync(join(REPO_ROOT, file), "utf-8").includes(staleNeedle);
+      } catch {
+        return false;
+      }
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("the canonical header text is defined once in ownership.ts", () => {
+    const ownership = readFileSync(
+      join(REPO_ROOT, "packages/everything-dev/src/services/scaffold/ownership.ts"),
+      "utf-8",
+    );
+    for (const line of FRAMEWORK_OWNED_HEADER.split("\n")) {
+      expect(ownership).toContain(line);
+      expect(frameworkOwnedHeaderComment("block")).toContain(line);
+      expect(frameworkOwnedHeaderComment("hash")).toContain(line);
+    }
   });
 });
 
@@ -219,5 +309,158 @@ describe("bos sync — package.json merge", () => {
     expect(merged.devDependencies.custom).toBe("1.0.0");
     expect(merged.devDependencies["everything-dev"]).toBe("catalog:");
     expect(merged.devDependencies.vitest).toBe("catalog:");
+  });
+});
+
+describe("platform release manifest guardrail (ADR 0034)", () => {
+  const REPO_ROOT = join(import.meta.dirname, "../../../..");
+
+  it("every existing inventory path appears in the release templateInventory — and vice versa", () => {
+    const inventory = computeTemplateInventory(REPO_ROOT);
+    const paths = new Set(inventory.map((entry) => entry.path));
+    for (const owned of FRAMEWORK_OWNED_SYNC_FILES) {
+      if (existsSync(join(REPO_ROOT, owned))) {
+        expect(paths.has(owned), `inventory missing framework-owned path: ${owned}`).toBe(true);
+      }
+    }
+    const templateScaffold = new Set([
+      "plugins/_template/rspack.config.js",
+      "plugins/_template/tsconfig.json",
+      "plugins/_template/tests/types.d.ts",
+    ]);
+    for (const entry of inventory) {
+      expect(
+        isFrameworkOwnedSyncFile(entry.path) || templateScaffold.has(entry.path),
+        `inventory carries a non-framework-owned path: ${entry.path}`,
+      ).toBe(true);
+    }
+  });
+
+  it("a composed manifest parses back through the published schema with that inventory", () => {
+    const manifest = composePlatformReleaseManifest({
+      frameworkVersion: "0.0.0-test",
+      everyPluginVersion: "0.0.0-test",
+      imageRef: "ghcr.io/nearbuilders/everything-dev",
+      catalog: {},
+      templateInventory: computeTemplateInventory(REPO_ROOT),
+      compatMinChild: "0.0.0-test",
+    });
+    const parsed = PlatformReleaseManifestSchema.parse(
+      JSON.parse(serializePlatformReleaseManifest(manifest)),
+    );
+    expect(parsed.templateInventory.length).toBeGreaterThan(0);
+  });
+});
+
+describe("child-owned block protocol (#538)", () => {
+  const REPO_ROOT = join(import.meta.dirname, "../../../..");
+
+  it("ci-child.yml is the blessed child-owned CI workflow — never in the inventory", () => {
+    expect(existsSync(join(REPO_ROOT, ".github/templates/workflows/ci-child.yml"))).toBe(true);
+    expect(isFrameworkOwnedSyncFile(".github/workflows/ci-child.yml")).toBe(false);
+    expect(
+      readFileSync(join(REPO_ROOT, ".github/templates/workflows/ci-child.yml"), "utf-8"),
+    ).toContain("CHILD-OWNED");
+  });
+
+  it("the root ci-child.yml copy mirrors the template so actionlint resolves the local call", () => {
+    // The template ci.yml references ./.github/workflows/ci-child.yml; at the
+    // framework home (this repo) that path must exist for the root actionlint
+    // pass, so a reference copy is kept in sync with the template by hand.
+    expect(readFileSync(join(REPO_ROOT, ".github/workflows/ci-child.yml"), "utf-8")).toBe(
+      readFileSync(join(REPO_ROOT, ".github/templates/workflows/ci-child.yml"), "utf-8"),
+    );
+  });
+
+  it("the template ci.yml is thin: reusable call + child-owned call + merge gate, no drift job", () => {
+    const ci = readFileSync(join(REPO_ROOT, ".github/templates/workflows/ci.yml"), "utf-8");
+    expect(ci).toContain("consumer-ci.yml@main");
+    expect(ci).toContain("./.github/workflows/ci-child.yml");
+    expect(ci).toContain("needs: [ci, child-ci]");
+    // the drift alarm belongs to the reusable workflow — children inherit it
+    // without edit-fighting a pinned copy in their caller
+    expect(ci).not.toContain("platform-drift");
+    const consumer = readFileSync(join(REPO_ROOT, ".github/workflows/consumer-ci.yml"), "utf-8");
+    expect(consumer).toContain("platform-drift");
+    expect(consumer).toContain("bos upgrade --check");
+  });
+
+  it("the template api/plugin.dev.ts carries the child-owned markers around variables", () => {
+    for (const copy of ["api/plugin.dev.ts", ".github/templates/api/plugin.dev.ts"]) {
+      const content = readFileSync(join(REPO_ROOT, copy), "utf-8");
+      const start = content.indexOf(CHILD_OWNED_BLOCK_START);
+      const end = content.indexOf(CHILD_OWNED_BLOCK_END);
+      expect(start, `${copy} missing ${CHILD_OWNED_BLOCK_START}`).toBeGreaterThan(-1);
+      expect(end, `${copy} missing ${CHILD_OWNED_BLOCK_END}`).toBeGreaterThan(start);
+      expect(content.slice(start, end)).toContain("variables:");
+    }
+  });
+
+  it("extracts the marked span verbatim and splices it back over the template's", () => {
+    const local = [
+      'import "dotenv/config";',
+      "export const x = {",
+      "  // child-owned-start",
+      '  variables: { domain: "citynode.app" },',
+      "  // child-owned-end",
+      "};",
+    ].join("\n");
+    expect(extractChildOwnedBlock(local)).toBe('variables: { domain: "citynode.app" },');
+
+    const template = [
+      "/* template */",
+      "  // child-owned-start",
+      "  variables: {},",
+      "  // child-owned-end",
+      "/* end */",
+    ].join("\n");
+    const spliced = spliceChildOwnedBlock(template, 'variables: { domain: "citynode.app" },');
+    expect(spliced).toContain('variables: { domain: "citynode.app" },');
+    expect(spliced).toContain("/* template */");
+    expect(spliced).not.toContain("variables: {}");
+  });
+
+  it("spliceChildOwnedBlock returns the template verbatim when it carries no markers", () => {
+    const template = "export default { config: { variables: {} } };";
+    expect(spliceChildOwnedBlock(template, 'variables: { domain: "x" },')).toBe(template);
+  });
+
+  it("an empty marked span extracts to null (nothing child-authored)", () => {
+    const local = ["// child-owned-start", "// child-owned-end", ""].join("\n");
+    expect(extractChildOwnedBlock(local)).toBeNull();
+  });
+
+  it("extract→splice round-trips to the same span (byte-stable across syncs)", () => {
+    const template = [
+      "/* template */",
+      "  // child-owned-start",
+      "  variables: {},",
+      "  // child-owned-end",
+      "/* end */",
+    ].join("\n");
+    const childBlock = 'variables: { domain: "citynode.app" },';
+    const spliced = spliceChildOwnedBlock(template, childBlock);
+    expect(spliced).toBe(
+      '/* template */\n  // child-owned-start\n  variables: { domain: "citynode.app" },\n  // child-owned-end\n/* end */',
+    );
+    // the spliced file is the fixed point: extracting from it reproduces the span
+    expect(extractChildOwnedBlock(spliced)).toBe(childBlock);
+  });
+
+  it("a marker-less (pre-#538) local copy migrates its variables literal onto the protocol", () => {
+    const local = [
+      "/* FRAMEWORK-OWNED */",
+      "export default {",
+      "  config: {",
+      "    variables: {",
+      '      domain: "citynode.app",',
+      "      nested: { a: 1 },",
+      "    },",
+      '    secrets: { K: "v" },',
+      "  },",
+      "};",
+    ].join("\n");
+    const block = extractChildOwnedBlock(local);
+    expect(block).toBe('variables: {\n  domain: "citynode.app",\n  nested: { a: 1 },\n},');
   });
 });

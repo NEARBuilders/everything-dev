@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRuntimeConfig } from "../../src/config";
 import { configInputToDescriptor, toConfigInput } from "../../src/descriptor/resolve";
+import { clearSlotVersionCache } from "../../src/services/deploy/version-manifest";
 import { mergeBosConfigWithExtends } from "../../src/services/resolution/merge";
 import { BosConfigSchema } from "../../src/types";
-import { clearSlotVersionCache } from "../../src/version-manifest-resolve";
 
 const configWithPins = {
   account: "v1.citynode.near",

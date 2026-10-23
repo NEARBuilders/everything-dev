@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { buildRuntimeConfigEffect, type ConfigVersionManifestError } from "everything-dev/config";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";
 import { FederationLifecycle } from "../../src/services/federation/lifecycle";
 import { deploymentFingerprint, RuntimeSnapshot } from "../../src/services/runtime-snapshot";
@@ -44,6 +44,16 @@ const publishedPointer = {
   },
 } as unknown as BosConfig;
 
+// what resolveMergedConfigInput returns for a child pointer: the extends
+// chain walked, so slots the child inherits — notably app.host — are present
+const mergedPointer = {
+  ...publishedPointer,
+  app: {
+    ...publishedPointer.app,
+    host: { development: "local:host", production: "https://cdn.example.test/host/" },
+  },
+} as unknown as BosConfig;
+
 // the entry bytes the fake CDN serves for the hashed entry — the adopt
 // transaction verifies the pinned entry (SRI) before swapping
 const entryBytes = "console.log('hashed entry');";
@@ -65,11 +75,16 @@ const snapshotLayer = RuntimeSnapshot.layer().pipe(
 
 const buildRuntimeConfigMock = vi.mocked(buildRuntimeConfigEffect);
 const composeUiMock = vi.hoisted(() => vi.fn());
+const resolveMergedConfigInputMock = vi.hoisted(() => vi.fn());
 
 vi.mock("everything-dev/config", async (importOriginal) => {
   const actual = await importOriginal<typeof import("everything-dev/config")>();
   return { ...actual, buildRuntimeConfigEffect: vi.fn() };
 });
+
+vi.mock("everything-dev/resolution", () => ({
+  resolveMergedConfigInput: resolveMergedConfigInputMock,
+}));
 
 // the pre-warm compose is the seam: its internals (SSR container loads, digest
 // parity) are covered by ui-compose's own suite
@@ -81,12 +96,13 @@ vi.mock("../../src/services/ui-compose", async (importOriginal) => {
   };
 });
 
+const fakeCdnFetch = async (input: string | URL | Request): Promise<Response> => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  if (url.endsWith("/remoteEntry.cf71.js")) return new Response(entryBytes, { status: 200 });
+  return new Response("not found", { status: 404 });
+};
+
 beforeAll(() => {
-  const fakeCdnFetch = async (input: string | URL | Request): Promise<Response> => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url.endsWith("/remoteEntry.cf71.js")) return new Response(entryBytes, { status: 200 });
-    return new Response("not found", { status: 404 });
-  };
   vi.stubGlobal("fetch", vi.fn(fakeCdnFetch) as unknown as typeof fetch);
 });
 afterAll(() => {
@@ -94,6 +110,11 @@ afterAll(() => {
 });
 
 describe("adoptPublishedPointer", () => {
+  beforeEach(() => {
+    resolveMergedConfigInputMock.mockReset();
+    resolveMergedConfigInputMock.mockResolvedValue(mergedPointer);
+  });
+
   it("derives the new config, pre-warms a fresh compose state, and swaps", async () => {
     buildRuntimeConfigMock.mockReturnValue(Effect.succeed(derivedConfig));
     composeUiMock.mockReturnValue(Effect.succeed({ digest: "digest-prewarm" }));
@@ -111,11 +132,12 @@ describe("adoptPublishedPointer", () => {
     );
 
     expect(result.outcome.status).toBe("swapped");
-    expect(buildRuntimeConfigMock).toHaveBeenCalledWith(
-      publishedPointer,
-      expect.any(String),
-      "production",
-    );
+    expect(buildRuntimeConfigMock).toHaveBeenCalledTimes(1);
+    const [builtFrom, builtBaseDir, builtEnv] = buildRuntimeConfigMock.mock.calls[0]!;
+    expect(builtEnv).toBe("production");
+    expect(builtBaseDir).toEqual(expect.any(String));
+    expect(builtFrom.app.host).toEqual(mergedPointer.app.host);
+    expect(builtFrom.app.ui).toMatchObject({ production: "https://cdn.example.test/ui/" });
     expect(composeUiMock).toHaveBeenCalledTimes(1);
     // the pre-warm composes into the FRESH serving caches, which the swap
     // adopts as a whole — the warm state IS the serving state (C7)
@@ -212,6 +234,81 @@ describe("adoptPublishedPointer", () => {
     if (!Exit.isFailure(result.exit)) throw new Error("expected adopt failure");
     const squashed = Cause.squash(result.exit.cause);
     expect((squashed as SnapshotAdoptError).message).toContain("failed verification");
+    expect(result.after).toBe(result.before);
+    // restore the good CDN for the tests that follow
+    vi.stubGlobal("fetch", vi.fn(fakeCdnFetch) as unknown as typeof fetch);
+  });
+
+  it("derives from the extends-merged pointer — inherited slots (app.host) reach the runtime build", async () => {
+    // a child pointer carries no app.host (inherited via extends); building
+    // straight from the raw pointer crashed the adopt with
+    // `Cannot read properties of undefined (reading 'production')`
+    buildRuntimeConfigMock.mockReturnValue(Effect.succeed(derivedConfig));
+    composeUiMock.mockReturnValue(Effect.succeed({ digest: "digest-prewarm" }));
+
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const snapshot = yield* RuntimeSnapshot;
+        return yield* adoptPublishedPointer({ snapshot, publishedConfig: publishedPointer });
+      }).pipe(Effect.provide(snapshotLayer)),
+    );
+
+    expect(outcome.status).toBe("swapped");
+    expect(resolveMergedConfigInputMock).toHaveBeenCalledWith(
+      "bos://v1.citynode.near/citynode.app",
+      { env: "production", seedConfig: publishedPointer },
+    );
+    const builtFrom = buildRuntimeConfigMock.mock.calls[0]![0] as BosConfig;
+    expect(builtFrom.app.host).toEqual({
+      development: "local:host",
+      production: "https://cdn.example.test/host/",
+    });
+  });
+
+  it("an unresolvable extends chain fails the adopt and leaves the live snapshot untouched", async () => {
+    resolveMergedConfigInputMock.mockRejectedValue(
+      new Error("No config found for bos://dev.everything.near/everything.dev"),
+    );
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const snapshot = yield* RuntimeSnapshot;
+        const before = yield* snapshot.get;
+        const exit = yield* Effect.exit(
+          adoptPublishedPointer({ snapshot, publishedConfig: publishedPointer }),
+        );
+        const after = yield* snapshot.get;
+        return { before, exit, after };
+      }).pipe(Effect.provide(snapshotLayer)),
+    );
+    if (!Exit.isFailure(result.exit)) throw new Error("expected adopt failure");
+    const squashed = Cause.squash(result.exit.cause);
+    expect((squashed as SnapshotAdoptError).message).toContain(
+      "deriving the published pointer failed",
+    );
+    expect((squashed as SnapshotAdoptError).message).toContain("No config found");
+    expect(result.after).toBe(result.before);
+  });
+
+  it("a pointer without a domain fails the adopt — no fallback to another runtime's ref", async () => {
+    const domainLess = { ...publishedPointer, domain: undefined } as unknown as BosConfig;
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const snapshot = yield* RuntimeSnapshot;
+        const before = yield* snapshot.get;
+        const exit = yield* Effect.exit(
+          adoptPublishedPointer({ snapshot, publishedConfig: domainLess }),
+        );
+        const after = yield* snapshot.get;
+        return { before, exit, after };
+      }).pipe(Effect.provide(snapshotLayer)),
+    );
+    if (!Exit.isFailure(result.exit)) throw new Error("expected adopt failure");
+    const squashed = Cause.squash(result.exit.cause);
+    expect((squashed as SnapshotAdoptError).message).toContain(
+      "deriving the published pointer failed",
+    );
+    expect((squashed as SnapshotAdoptError).message).toContain("has no domain");
+    expect(resolveMergedConfigInputMock).not.toHaveBeenCalled();
     expect(result.after).toBe(result.before);
   });
 });

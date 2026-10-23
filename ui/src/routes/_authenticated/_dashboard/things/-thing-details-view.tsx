@@ -1,3 +1,4 @@
+import NumberFlow from "@number-flow/react";
 import { ArrowLeftIcon, ArrowUpIcon, ClockIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { useApiClient } from "@/app";
@@ -88,7 +89,7 @@ export function ThingDetailsView({
                 data-testid="thing-upvote"
               >
                 <ArrowUpIcon />
-                <span className="tabular-nums">{upvoteCount?.totalCount ?? 0}</span>
+                <NumberFlow value={upvoteCount?.totalCount ?? 0} />
                 <span>{hasUpvote ? "upvoted" : "upvote"}</span>
               </Button>
             ) : undefined

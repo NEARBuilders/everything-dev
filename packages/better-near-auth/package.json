@@ -1,6 +1,6 @@
 {
   "name": "better-near-auth",
-  "version": "2.0.0-rc.1",
+  "version": "2.0.0-rc.4",
   "description": "Sign in with NEAR (SIWN) plugin for Better Auth",
   "main": "dist/index.js",
   "module": "dist/index.js",

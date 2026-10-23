@@ -367,13 +367,7 @@ export async function hydrate(options: CoreHydrateOptions) {
     }
 
     if (composed?.degraded) {
-      const { toast } = await import("sonner");
-      toast.error("Some application features couldn't load", {
-        id: "application-compose-error",
-        description: "Plugin pages are unavailable. Reload to try again.",
-        duration: Number.POSITIVE_INFINITY,
-        action: { label: "Reload", onClick: () => window.location.reload() },
-      });
+      mark("degraded compose — plugin pages unavailable (core-only fallback)");
     }
 
     console.log("[Hydrate] Complete!");

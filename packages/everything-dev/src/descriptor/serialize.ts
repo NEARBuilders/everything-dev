@@ -21,8 +21,10 @@ const FIELD_COMMENTS: Record<string, string> = {
   domain: "The gateway: FastKV lookup key and public ingress for this runtime.",
   title: "Human-readable runtime title (surfaced by the UI).",
   description: "Human-readable runtime description.",
-  repository: "GitHub repository tarball source used by `bos init`/`bos sync` templates.",
+  repository: "GitHub repository tarball source used by `bos init` templates.",
   testnet: "Testnet identity for this runtime.",
+  platform:
+    'The platform release pin (ADR 0034): the exact framework version this app targets ("exact-or-loud").',
   staging: "Staging environment identity.",
   starter: "Authoring-only: the starter level this child was scaffolded with (simple | advanced).",
   ci: "CI settings: runtime image name, Railway service.",
@@ -37,13 +39,23 @@ const FIELD_COMMENTS: Record<string, string> = {
     "Attached plugins, keyed by registry key. `path` = local workspace, `extends` = published module.",
 };
 
+/**
+ * Biome emits unquoted object keys; JSON.stringify quotes them. Only keys are
+ * unquoted — a line-initial `"identifier":` is always a key, never a value —
+ * so the emitted `bos.app.ts` passes the child's biome format check verbatim
+ * (#518).
+ */
+function unquoteKeys(block: string): string {
+  return block.replace(/^(\s*)"([A-Za-z_$][A-Za-z0-9_$]*)":/gm, "$1$2:");
+}
+
 /** The authored `bos.app.ts` source for a personalized child config. */
 export function serializeAppDescriptorSource(input: BosConfigInput): string {
   const descriptor = configInputToDescriptor(input);
   const blocks: string[] = [];
   for (const [key, value] of Object.entries(descriptor)) {
     const comment = FIELD_COMMENTS[key];
-    const body = JSON.stringify({ [key]: value }, null, 2);
+    const body = unquoteKeys(JSON.stringify({ [key]: value }, null, 2));
     const block = [...(comment ? [`  // ${comment}`] : []), ...body.split("\n").slice(1, -1)];
     blocks.push(block.join("\n"));
   }

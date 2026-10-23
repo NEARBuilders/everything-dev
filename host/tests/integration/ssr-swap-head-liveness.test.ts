@@ -282,6 +282,8 @@ describe("SSR head liveness across a serving swap (full host pipeline)", () => {
           account: "dev.everything.near",
           domain: "everything.dev",
           app: {
+            host: { development: "local:host" },
+            api: { development: "local:api" },
             ui: {
               development: "local:ui",
               production: `${serverB.baseUrl}/ui/`,

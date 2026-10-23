@@ -1,0 +1,5 @@
+---
+"everything-dev": patch
+---
+
+`bos dev` sessions are now killable in every state (#507). An orphaned dev session — parent/wrapper killed so the CLI is reparented — used to crash-loop forever: the force-exit path referenced the session's log pipeline from out of scope (`ReferenceError: pipeline is not defined`), the orchestrator's `uncaughtException` handler swallowed the crash, and the 200ms orphan watchdog re-armed it eternally; even repeated `^C` just re-printed the error. The shutdown lifecycle is redesigned: the session exposes a single total `DevSessionHandle.shutdown("graceful" | "force")` instead of a seven-slot `DevSessionControls` record wired mutually between two scopes; the graceful→5s→force escalation ladder, orphan watchdog (now a scoped fiber), log-pipeline flush, process-group reaping, and registry unregistration all live inside the session where their resources live, each step individually guarded, with `process.exit` unconditional. `devApp` takes `(configDir, data, rendererLayer)` — the `DevSessionData` bundle callers already held — and the `startApp` alias is gone.

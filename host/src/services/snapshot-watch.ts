@@ -300,15 +300,16 @@ export class SnapshotWatch extends Context.Service<
         let lastSeen: string | undefined;
         let lastOutcome: WatchTickOutcome | undefined;
         let consecutiveAdoptFailures = 0;
+        const watchTarget = config.domain ? `bos://${config.account}/${config.domain}` : undefined;
         const tick = Effect.gen(function* () {
           const result = yield* runWatchTick({
             snapshot,
             adopt: (published) =>
               Effect.runPromiseWith(effectContext)(coordinator.adopt(published)),
             fetchPointer: () =>
-              fetchBosConfigFromFastKv<BosConfig>(
-                `bos://${config.account}/${config.domain ?? "everything.dev"}`,
-              ).catch(() => null),
+              watchTarget
+                ? fetchBosConfigFromFastKv<BosConfig>(watchTarget).catch(() => null)
+                : Promise.resolve(null),
             verifyEntries: (current) => verifyCurrentEntries(current),
             lastSeen,
           });
@@ -341,9 +342,19 @@ export class SnapshotWatch extends Context.Service<
           });
         }
 
-        logger.info(
-          `[SnapshotWatch] watching bos://${config.account}/${config.domain ?? "everything.dev"} every ${intervalMs / 1000}s`,
-        );
+        if (!watchTarget) {
+          logger.error(
+            "[SnapshotWatch] disabled — the boot config has no domain, so there is no published pointer to watch",
+          );
+          return SnapshotWatch.of({
+            tick,
+            get lastOutcome() {
+              return lastOutcome;
+            },
+          });
+        }
+
+        logger.info(`[SnapshotWatch] watching ${watchTarget} every ${intervalMs / 1000}s`);
         yield* Effect.forkScoped(
           Effect.gen(function* () {
             while (true) {

@@ -5,7 +5,7 @@ import { setSessionCookie } from "better-auth/cookies";
 import { BOS_CLI_CLIENT_ID } from "better-near-auth";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
-import type { Database } from "./db";
+import type { Database } from "./db/layer";
 import * as schema from "./db/schema";
 
 export const DEVICE_LINK_CLAIM_TTL_MS = 60_000;

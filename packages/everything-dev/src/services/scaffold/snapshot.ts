@@ -2,10 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface SyncSnapshot {
-  parentRef: string;
   timestamp: string;
   files: Record<string, string>;
-  starter?: string;
 }
 
 const SNAPSHOT_DIR = ".bos";
@@ -30,7 +28,7 @@ export async function readSnapshot(projectDir: string): Promise<SyncSnapshot | n
 
 export async function writeSnapshot(
   projectDir: string,
-  data: { parentRef: string; files: Record<string, string>; starter?: string },
+  data: { files: Record<string, string> },
 ): Promise<void> {
   const dir = join(projectDir, SNAPSHOT_DIR);
   if (!existsSync(dir)) {
@@ -38,10 +36,8 @@ export async function writeSnapshot(
   }
 
   const snapshot: SyncSnapshot = {
-    parentRef: data.parentRef,
     timestamp: new Date().toISOString(),
     files: data.files,
-    ...(data.starter ? { starter: data.starter } : {}),
   };
 
   writeFileSync(snapshotPath(projectDir), `${JSON.stringify(snapshot, null, 2)}\n`);

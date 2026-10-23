@@ -1,5 +1,6 @@
 import { apiKeyClient } from "@better-auth/api-key/client";
 import { passkeyClient } from "@better-auth/passkey/client";
+import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import type { BetterFetch } from "better-auth/client";
@@ -112,6 +113,59 @@ export interface CustodyWalletRegistration {
   handoffUrl: string | null;
 }
 
+export interface ReferralDashboard {
+  code: string;
+  stats: { completed: number; joinedToday: number; pending: number; total: number };
+}
+
+export interface ReferralListResult {
+  code: string;
+  total: number;
+  limit: number;
+  offset: number;
+  referrals: Array<{
+    id: string;
+    status: "pending" | "completed";
+    completedAt: Date | string | null;
+    createdAt: Date | string;
+    progress: {
+      requiredSteps: string[];
+      completedSteps: string[];
+      remainingSteps: string[];
+      completed: number;
+      total: number;
+      isCompleted: boolean;
+    };
+    referredUser: { id: string; name: string; email: string; image: string | null };
+  }>;
+}
+
+/**
+ * Typed client surface for the auth plugin's referral endpoints — a local
+ * plugin (like custodyClient) instead of the upstream client plugin, whose
+ * single-module entry drags its server-side nanoid → node:crypto imports
+ * into every browser bundle that includes this file.
+ */
+function referralClient() {
+  return {
+    id: "better-auth-referral" as const,
+    $InferServerPlugin: {},
+    getActions: ($fetch: BetterFetch) => ({
+      referrals: {
+        dashboard: async () => {
+          return await $fetch<ReferralDashboard>("/referrals", { method: "GET" });
+        },
+        list: async (params?: { limit?: number; offset?: number }) => {
+          return await $fetch<ReferralListResult>("/referrals/list-referrals", {
+            method: "GET",
+            query: params,
+          });
+        },
+      },
+    }),
+  };
+}
+
 /**
  * Typed client surface for the auth plugin's custody endpoints — the
  * escape-hatch replacement for raw `auth.$fetch("/custody/register")` on the
@@ -158,6 +212,7 @@ export function createAuthClient(options: CreateAuthClientOptions = {}) {
       apiKeyClient(),
       deviceAuthorizationClient(),
       custodyClient(),
+      referralClient(),
     ],
   });
 }
@@ -228,6 +283,11 @@ export async function refreshSessionCache(
  * authoritative by the single sessionQueryOptions read path), and a populated
  * router-context session — the host's SSR resolution — seeds an empty cache so
  * the dehydrated state carries it to the client.
+ *
+ * A null context session is "the host did not resolve one", not a verified
+ * sign-out: seeding it handed requireSession a freshly-cached null and the
+ * guard 307'd to /login without ever running the fetch (#527). The explicit
+ * signed-out entry still wins — clearAuthenticatedQueries writes it itself.
  */
 export function resolveSessionFromCache<T>(
   queryClient: QueryClient | undefined,
@@ -238,7 +298,7 @@ export function resolveSessionFromCache<T>(
   const cachedSession = queryClient.getQueryData<T | null>(sessionQueryKey);
   if (cachedSession !== undefined) return cachedSession;
 
-  if (contextSession !== undefined) {
+  if (contextSession !== null && contextSession !== undefined) {
     queryClient.setQueryData(sessionQueryKey, contextSession);
   }
   return contextSession;
@@ -288,15 +348,31 @@ export async function isPasskeyAutofillAvailable(): Promise<boolean> {
   }
 }
 
+/**
+ * Aborts any pending passkey ceremony (modal or conditional-mediation).
+ * Targets the same `WebAuthnAbortService` singleton instance
+ * `@better-auth/passkey` resolves, so the abort reaches the request the
+ * browser is holding.
+ */
+export function cancelPasskeyCeremony(): void {
+  WebAuthnAbortService.cancelCeremony();
+}
+
+export function isPasskeyCeremonyAborted(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ERROR_CEREMONY_ABORTED";
+}
+
 export async function createAccountWithPasskey(
   authClient: AuthClient,
   options?: {
     onSuccess?: (result: { passkeyWallet?: PasskeyWalletStatus }) => void;
     onError?: (error: PasskeyCeremonyError) => void;
+    referralCode?: string;
   },
 ): Promise<void> {
   try {
-    const { data, error } = await authClient.passkey.addPasskey();
+    const headers = options?.referralCode ? { "x-referral-code": options.referralCode } : undefined;
+    const { data, error } = await authClient.passkey.addPasskey(undefined, { headers });
     if (error || !data) {
       options?.onError?.(toPasskeyError(error, "Could not create your account"));
       return;

@@ -7,7 +7,7 @@ export function formatNearError(error: unknown): string {
     return (
       "The publish access key has insufficient allowance to cover this transaction.\n" +
       "  Regenerate your key with a higher allowance:\n" +
-      "    bos key generate\n" +
+      "    bos login --key\n" +
       `  Original: ${message}`
     );
   }

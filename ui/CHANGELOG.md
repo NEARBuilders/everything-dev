@@ -1,5 +1,27 @@
 # ui
 
+## 2.0.0-rc.4
+
+### Minor Changes
+
+- 3b0bbd2: Deploy console history surface (ADR 0035): a `hosting.listDeploys` api route resolves any namespace's per-deploy audit manifests from the FastKV registry (public reads, session/api-key gated) into deploy summaries — fingerprint, image pin in force, platform pin, `rolledBackFrom` marker — and a `/deploys` authenticated page renders the history list with namespace switching.
+
+## 2.0.0-rc.3
+
+### Patch Changes
+
+- 6d834dd: Compile the app message catalogs (compileMessageOrThrow at load) so production builds ship Lingui compiled messages — ICU interpolation and plurals work and the "Uncompiled message detected" console warning is gone.
+- Updated dependencies [6d834dd]
+  - better-near-auth@2.0.0-rc.4
+
+## 2.0.0-rc.2
+
+### Patch Changes
+
+- ada98f8: Mobile-native feel pass: platform baseline (tap-highlight, overscroll, touch-action, safe-area bottom insets, keyboard-resizing viewport), shared easing/drawer motion tokens, sliding tab indicator, checkbox checkmark animation, Item press feedback, live-stream entrance animation, animated vote counts (NumberFlow), view transitions on list→detail navigation, share-sheet on the skill prompt, and PageContainer on admin routes.
+- Updated dependencies [2266306]
+  - better-near-auth@2.0.0-rc.3
+
 ## 2.0.0-rc.1
 
 ### Patch Changes

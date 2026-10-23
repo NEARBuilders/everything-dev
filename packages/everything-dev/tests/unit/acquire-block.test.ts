@@ -4,8 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PortAllocator, PortAllocatorLive, type PortBlockRequest } from "../../src/app";
-import { isPidAlive, readRegistry, registerStandalone } from "../../src/process-registry";
+import { PortAllocator, PortAllocatorLive, type PortBlockRequest } from "../../src/infra/ports";
+import {
+  isPidAlive,
+  readRegistry,
+  registerStandalone,
+} from "../../src/services/processes/registry";
 
 let tempDir: string;
 let registryPath: string;

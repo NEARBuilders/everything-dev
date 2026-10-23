@@ -25,7 +25,7 @@ import { SecretsService } from "./secrets.service";
  */
 const collectPluginWarnings = (
   plugin: AnyPlugin,
-  config: { variables: unknown; secrets: unknown },
+  config: { pluginId: string; variables: unknown; secrets: unknown },
 ): PluginWarningInfo[] => {
   const warningsFn = plugin.warnings;
   if (!warningsFn) return [];
@@ -299,7 +299,14 @@ export const PluginLoaderServiceDefault = Layer.effect(
           // initialization leaks until the process exits.
           const effectContext = yield* Effect.gen(function* () {
             const layer = yield* plugin
-              .initialize({ variables: _variables, secrets: hydratedConfig.secrets }, plugins ?? {})
+              .initialize(
+                {
+                  pluginId: plugin.id,
+                  variables: _variables,
+                  secrets: hydratedConfig.secrets,
+                },
+                plugins ?? {},
+              )
               .pipe(
                 Effect.provideService(PluginIdTag, plugin.id),
                 Effect.provideService(Scope.Scope, scope),
@@ -338,10 +345,15 @@ export const PluginLoaderServiceDefault = Layer.effect(
           return {
             plugin,
             metadata: pluginInstance.metadata,
-            config: { variables: _variables, secrets: hydratedConfig.secrets },
+            config: {
+              pluginId: plugin.id,
+              variables: _variables,
+              secrets: hydratedConfig.secrets,
+            },
             effectContext,
             scope,
             warnings: collectPluginWarnings(plugin, {
+              pluginId: plugin.id,
               variables: _variables,
               secrets: hydratedConfig.secrets,
             }),

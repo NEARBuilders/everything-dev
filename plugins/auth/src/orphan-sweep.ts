@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, lt, notExists, or } from "drizzle-orm";
 import { Duration, Effect, Layer, Schedule } from "effect";
-import type { Database } from "./db";
+import type { Database } from "./db/layer";
 import * as schema from "./db/schema";
 
 export const ORPHAN_USER_MAX_AGE_MS = 60 * 60 * 1000;

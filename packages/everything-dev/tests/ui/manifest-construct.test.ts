@@ -1,5 +1,5 @@
 import { createRouter, isRedirect } from "@tanstack/react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   constructTree,
   digestOf,
@@ -47,6 +47,8 @@ const route = (id: string, path: string, extra: Partial<RouteRecord> = {}): Rout
 });
 
 describe("constructTree", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("mount routes compose the registry gate BEFORE the declaration's beforeLoad", async () => {
     const core: TestPlugin = {
       key: "ui",
@@ -203,7 +205,8 @@ describe("constructTree", () => {
     expect((tree.rootRoute as unknown as { options: { ssr: unknown } }).options.ssr).toBe(true);
   });
 
-  it("rejects cross-plugin path collisions under the same mount parent", async () => {
+  it("shadows a plugin's path claim that collides with the core ui's (core wins)", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const core: TestPlugin = {
       key: "ui",
       routes: [mountLayout("public"), route("_public/login", "/login", { parentId: "_public" })],
@@ -213,8 +216,28 @@ describe("constructTree", () => {
       routes: [route("_public/login-clone", "/login")],
     };
 
-    await expect(construct([core, other])).rejects.toThrow(
-      /path collision: "ui" route "_public\/login" declares "\/login" which is already claimed by "other:_public\/login-clone"/,
+    const tree = await construct([core, other]);
+
+    expect(tree.mountCounts).toEqual({ public: 1 });
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'route claim "ui:_public/login" (/login) shadows "other:_public/login-clone"',
+      ),
+    );
+  });
+
+  it("still rejects plugin-vs-plugin path collisions under the same mount parent", async () => {
+    const alpha: TestPlugin = {
+      key: "alpha",
+      routes: [mountLayout("public"), route("_public/login", "/login", { parentId: "_public" })],
+    };
+    const beta: TestPlugin = {
+      key: "beta",
+      routes: [route("_public/login-clone", "/login")],
+    };
+
+    await expect(construct([alpha, beta])).rejects.toThrow(
+      /path collision: "beta" route "_public\/login-clone" declares "\/login" which is already claimed by "alpha:_public\/login"/,
     );
   });
 
@@ -236,7 +259,7 @@ describe("constructTree", () => {
     const mount = root.children[0] as unknown as {
       children: Array<{ options: { path: string; id: string } }>;
     };
-    expect(mount.children.map((child) => child.options.path)).toEqual(["/about", "/login"]);
+    expect(mount.children.map((child) => child.options.path)).toEqual(["/login", "/about"]);
     expect(tree.mountCounts).toEqual({ public: 2 });
   });
 
@@ -395,11 +418,25 @@ describe("constructTree", () => {
     ).not.toThrow();
   });
 
-  it("rejects duplicate mount declarations across sources", async () => {
+  it("shadows a plugin's duplicate mount declaration (core wins)", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const core: TestPlugin = { key: "ui", routes: [mountLayout("public")] };
-    const other: TestPlugin = { key: "auth", routes: [mountLayout("public")] };
-    await expect(construct([core, other])).rejects.toThrow(
-      /mount "public" declared by multiple sources: "auth" .* and "ui"/,
+    const other: TestPlugin = {
+      key: "auth",
+      routes: [mountLayout("public"), route("_public/login", "/login")],
+    };
+    const tree = await construct([core, other]);
+    expect(tree.mountCounts).toEqual({ public: 1 });
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('mount declaration "ui:_public" (public) shadows "auth:_public"'),
+    );
+  });
+
+  it("still rejects duplicate mount declarations across plugin sources", async () => {
+    const alpha: TestPlugin = { key: "alpha", routes: [mountLayout("public")] };
+    const beta: TestPlugin = { key: "beta", routes: [mountLayout("public")] };
+    await expect(construct([alpha, beta])).rejects.toThrow(
+      /mount "public" declared by multiple sources: "alpha" .* and "beta"/,
     );
   });
 

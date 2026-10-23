@@ -5,7 +5,7 @@ import {
   catalogFromPackageJson,
   readWorkspaceCatalog,
   writeWorkspaceCatalog,
-} from "../../src/workspace-catalog";
+} from "../../src/services/workspace/catalog";
 
 const tmpRoot = join(import.meta.dirname, ".workspace-catalog-fixture");
 

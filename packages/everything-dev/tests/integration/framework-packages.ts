@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execa } from "execa";
 import { globSync } from "glob";
-import { readWorkspaceCatalog } from "../../src/workspace-catalog";
+import { readWorkspaceCatalog } from "../../src/services/workspace/catalog";
 
 type FrameworkTarballs = {
   "better-near-auth": string;
