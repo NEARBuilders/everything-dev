@@ -67,6 +67,26 @@ InteractiveQuitByCtrlC @5810. Renumbered: HardKill → 5930, InteractiveQuitByCt
 verified green locally; the pty tests cannot start under the agent's sandbox
 (`fork/exec: operation not permitted`) and are CI-verified only.
 
+**Final suite redesign (2026-10-23, bdca181a):** the suite's contract is stated
+once in doc.go — every path that stops a `bos dev` session must leave zero
+processes and zero held ports; coverage is dev-mode only, with `bos start`
+recorded as a gap (services/start shares none of the dev session's signal
+handling). Deep-module moves: `ports.go` owns the block layout (spacing ≥ 20,
+named per-test blocks, pairwise-disjoint guard test — the collision class is now
+a test failure); readiness is ONE signal (the stack's own registry entry with
+childPids — the deleted /health poll was answered by a lingering orphan in 1.6ms
+and faked a boot, run 40032463029); the duplicate-path tests merged into tables
+(TestSignalQuitKillsEverything over TERM/INT, TestBosKillReapsLiveSession over
+scoped/--all) — 7 functions, 10 boots, every boot a distinct stop path; the pty
+launcher drops setsid/setctty (Setpgid only — TUI needs stdin/stdout on a tty,
+not a controlling terminal; interactive tests passed locally for the first time)
+with an EPERM→skip guard for hardened runners; CI wrapper demobilized (watchdog
+file-only at 30s, retry deleted, TERM trap + milestones + always() upload kept).
+A local full-mirror false alarm (merged tests flagging "survivors") was traced to
+ghost stacks from an aborted run — orphaned CLIs at PPID 1, 40+ minutes old,
+holding ports — reaped manually; AssertNoRepoSurvivors worked exactly as
+designed.
+
 Chosen direction (maintainer decisions, this session): framework suite → parallelize
 via `t.Parallel()`; browser suite → shard `start:*` across CI jobs and merge the two
 dev legs into one job (ADR 0009 stands for intra-runner workers); fold all four
