@@ -118,7 +118,7 @@ func buildTargetEnv(cfg *Config) []string {
 	setIfUnset("BETTER_AUTH_SECRET", cfg.AuthSecret)
 	setIfUnset("CI", "true")
 	setIfUnset("RATE_LIMIT_WINDOW_MS", "1000")
-	setIfUnset("RATE_LIMIT_MAX", "100")
+	setIfUnset("RATE_LIMIT_MAX", "20")
 	setIfUnset("BODY_LIMIT_MAX", "65536")
 	return env
 }

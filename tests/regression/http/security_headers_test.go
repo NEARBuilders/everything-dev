@@ -3,6 +3,8 @@ package regression
 import (
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -114,14 +116,21 @@ func TestBodyLimit(t *testing.T) {
 func TestRateLimiting(t *testing.T) {
 	client := regtest.NewCookieClient()
 
-	// Clear any residual count in the current window so the burst is deterministic.
-	time.Sleep(1200 * time.Millisecond)
+	// The regression env pins RATE_LIMIT_WINDOW_MS=1000 and RATE_LIMIT_MAX=20;
+	// window-derived sleeps keep the test correct if the pin changes.
+	windowMs, err := strconv.Atoi(os.Getenv("RATE_LIMIT_WINDOW_MS"))
+	if err != nil || windowMs <= 0 {
+		windowMs = 1000
+	}
+	settle := time.Duration(windowMs+200) * time.Millisecond
 
-	// Fire 150 requests concurrently so they all land inside a single 1000ms
-	// window. The regression env pins RATE_LIMIT_WINDOW_MS=1000 and
-	// RATE_LIMIT_MAX=100.
-	const workers = 10
-	const perWorker = 15
+	// Clear any residual count in the current window so the burst is deterministic.
+	time.Sleep(settle)
+
+	// Fire 50 requests concurrently so they all land inside a single window —
+	// 50 > 20 guarantees at least one 429 while the first 20 answer 200.
+	const workers = 5
+	const perWorker = 10
 
 	// burst fires `path` concurrently with plain (no cookie jar) clients and
 	// records which statuses were observed.
@@ -168,7 +177,7 @@ func TestRateLimiting(t *testing.T) {
 		t.Fatal("health probes must be exempt from the rate limit")
 	}
 
-	// A regular API endpoint is limited: 150 > 100 guarantees at least one 429.
+	// A regular API endpoint is limited: 50 > 20 guarantees at least one 429.
 	got200, got429, lastRateLimitBody := burst("/api/ping")
 	if !got200 {
 		t.Fatal("expected at least one 200 in the burst before the rate limit applies")
@@ -181,7 +190,7 @@ func TestRateLimiting(t *testing.T) {
 	}
 
 	// After the sliding window passes the server must recover.
-	time.Sleep(1200 * time.Millisecond)
+	time.Sleep(settle)
 	status, _, body := regtest.GetRaw(t, client, baseURL+"/api/ping")
 	regtest.MustStatus(t, status, 200, body)
 }
