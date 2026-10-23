@@ -4,7 +4,7 @@ import { defineConfig, type EnvironmentConfig, type RsbuildConfig, rspack } from
 import { pluginReact } from "@rsbuild/plugin-react";
 import { TanStackRouterRspack } from "@tanstack/router-plugin/rspack";
 import { FixMfDataUriPlugin } from "../../build/rspack";
-import { createUiSharedDeps } from "../../shared-deps-spec";
+import { createUiSharedDeps, sharedVersionRecord } from "../../shared-deps-spec";
 import { sanitizeContainerName } from "../../ui/manifest/contract";
 import { isBuildInvocation, uiEntryFilename } from "../artifact-names";
 import { hashArtifactsPlugin } from "./hash-artifacts-plugin";
@@ -79,6 +79,7 @@ export function createUiRsbuildConfig(options: UiRsbuildConfigOptions): RsbuildC
   const manifestGen = () =>
     uiManifestGenPlugin({ workspaceRoot: workspaceRootAbsolute, pluginName: manifestName });
   const uiSharedDeps = createUiSharedDeps({ role, workspaceRoot: workspaceRootAbsolute });
+  const uiSharedVersions = sharedVersionRecord(uiSharedDeps);
 
   const isBuild = isBuildInvocation();
 
@@ -101,6 +102,7 @@ export function createUiRsbuildConfig(options: UiRsbuildConfigOptions): RsbuildC
             hashArtifactsPlugin({
               entryBase: "remoteEntry",
               distRoot: path.join(workspaceRootAbsolute, "dist"),
+              shared: uiSharedVersions,
             }),
           ]
         : []),
@@ -190,6 +192,7 @@ export function createUiRsbuildConfig(options: UiRsbuildConfigOptions): RsbuildC
             hashArtifactsPlugin({
               entryBase: "remoteEntry.server",
               distRoot: path.resolve(workspaceRootAbsolute, "dist", "ssr"),
+              shared: uiSharedVersions,
             }),
           ]
         : []),

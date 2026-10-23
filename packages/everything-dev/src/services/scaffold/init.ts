@@ -1354,8 +1354,8 @@ async function resolveWorkspaceRefs(
 
 export async function writeInitSnapshot(
   destination: string,
-  extendsAccount: string,
-  extendsGateway: string,
+  _extendsAccount: string,
+  _extendsGateway: string,
   sourceDir: string,
   patterns: string[],
   options: {

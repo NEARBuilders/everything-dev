@@ -62,6 +62,7 @@ export interface SiteClientShape {
     path: string,
     input: unknown,
     cookiePair?: string,
+    extraHeaders?: Record<string, string>,
   ) => Promise<SiteResponse>;
   /** Plain GET returning parsed JSON (account resolution). */
   getJson: (url: string, cookiePair?: string) => Promise<unknown>;
@@ -75,7 +76,8 @@ export class SiteClient extends Context.Service<SiteClient, SiteClientShape>()(
     SiteClient.of({
       authPost: (siteUrl, path, body, cookiePair, extraHeaders, signal) =>
         authPost(siteUrl, path, body, cookiePair, extraHeaders, signal),
-      rpcPost: (siteUrl, path, input, cookiePair) => rpcPost(siteUrl, path, input, cookiePair),
+      rpcPost: (siteUrl, path, input, cookiePair, extraHeaders) =>
+        rpcPost(siteUrl, path, input, cookiePair, extraHeaders),
       getJson: (url, cookiePair) => getJson(url, cookiePair),
     }),
   );
@@ -116,9 +118,14 @@ export async function rpcPost(
   path: string,
   input: unknown,
   cookiePair?: string,
+  extraHeaders?: Record<string, string>,
 ): Promise<SiteResponse> {
   const origin = new URL(siteUrl).origin;
-  const headers: Record<string, string> = { "content-type": "application/json", origin };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    origin,
+    ...(extraHeaders ?? {}),
+  };
   if (cookiePair) headers.cookie = cookiePair;
   const response = await fetch(`${siteUrl.replace(/\/$/, "")}${path}`, {
     method: "POST",

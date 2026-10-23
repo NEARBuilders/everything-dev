@@ -126,7 +126,8 @@ async function diffUploadWorkspace(
 
 /** Compose + upload the workspace's version manifest — server-computed SRI of
  * the just-finished upload, uploaded additively at `versions/<version>.json`.
- * Returns undefined when the dist predates hashed entry names. */
+ * Returns undefined when the dist predates hashed entry names. The manifest's
+ * `shared` record rides back for the publish train's truth gate (#546). */
 async function pinWorkspaceVersionManifest(
   deps: StorageLegDeps,
   input: {
@@ -143,7 +144,7 @@ async function pinWorkspaceVersionManifest(
     gitSha?: string;
     notes: string[];
   },
-): Promise<VersionManifestPin | undefined> {
+): Promise<{ pin: VersionManifestPin; shared?: Record<string, string> } | undefined> {
   if (!input.report) return undefined;
   const versionManifest = deps.composeWorkspaceVersionManifest({
     report: input.report,
@@ -172,7 +173,10 @@ async function pinWorkspaceVersionManifest(
   const manifestIntegrity = manifestUpload.integrity[manifestFile];
   if (!manifestIntegrity) return undefined;
   input.notes.push(`version manifest ${manifestFile} (SRI pinned)`);
-  return { file: manifestFile, integrity: manifestIntegrity, storage: manifestUpload.storage };
+  return {
+    pin: { file: manifestFile, integrity: manifestIntegrity, storage: manifestUpload.storage },
+    ...(versionManifest.shared ? { shared: versionManifest.shared } : {}),
+  };
 }
 
 /** Source-archive leg (publish.sourcePublish, #406): tar the workspace
@@ -265,6 +269,10 @@ export type WorkspaceBundleUpload =
       /** entry SRI keyed by the build report's hashed name */
       entryIntegrity?: string;
       ssrEntryIntegrity?: string;
+      /** Shared-singleton `name → version` the pinned build embedded (#546) —
+       * the publish train's truth gate cross-checks it against the platform
+       * release manifest before FastKV. */
+      shared?: Record<string, string>;
       uploaded: number;
       skipped: number;
       durationMs: number;
@@ -332,7 +340,7 @@ export async function uploadWorkspaceBundle(
       phase = "upload";
     }
 
-    const pin = await pinWorkspaceVersionManifest(deps, {
+    const pinned = await pinWorkspaceVersionManifest(deps, {
       origin: input.storageOrigin,
       apiKey: input.storageApiKey,
       account: input.account,
@@ -346,7 +354,8 @@ export async function uploadWorkspaceBundle(
       ...(input.gitSha ? { gitSha: input.gitSha } : {}),
       notes,
     });
-    if (!pin) return { kind: "missing-manifest" };
+    if (!pinned) return { kind: "missing-manifest" };
+    const pin = pinned.pin;
     if (outcome.result.storage === "memory" || pin.storage === "memory") {
       return { kind: "memory" };
     }
@@ -357,6 +366,7 @@ export async function uploadWorkspaceBundle(
       storage: outcome.result.storage,
       entryIntegrity,
       ssrEntryIntegrity,
+      ...(pinned.shared ? { shared: pinned.shared } : {}),
       uploaded: outcome.uploaded,
       skipped: outcome.skipped,
       durationMs: Date.now() - startedAt,

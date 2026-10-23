@@ -476,3 +476,27 @@ export function mergeSharedMaps(
   }
   return merged;
 }
+
+export interface SharedVersionRecordEntry {
+  version: string;
+  singleton?: boolean;
+}
+
+/**
+ * The `name → version` record of a build's shared-singleton map, for the
+ * build report (and from there the version manifest's `shared` field) —
+ * #546: a slot's pin must carry shared-dep semantics so consumers can detect
+ * a build skew before loading. Singletons only — non-singletons never take
+ * part in the negotiation a skew breaks.
+ */
+export function sharedVersionRecord(
+  shared: Record<string, SharedVersionRecordEntry>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, config] of Object.entries(shared)) {
+    if (config.singleton !== false && config.version) {
+      out[name] = config.version;
+    }
+  }
+  return out;
+}

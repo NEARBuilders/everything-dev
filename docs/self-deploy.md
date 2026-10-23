@@ -31,7 +31,7 @@ Run your own host instance on your own NEAR account while inheriting the base pl
      "domain": "citynode.app"
    }
    ```
-   Keep `domain` as `citynode.app` (the gateway). See "Same gateway, own account" below. Optionally pin the framework release your repo tracks — `"platform": "2.0.0-rc.14"` (ADR 0034); absent means latest via `extends`, and `bos upgrade --check` is the drift alarm.
+   Keep `domain` as `citynode.app` (the gateway). See "Same gateway, own account" below. Optionally pin the framework release your repo tracks — `"platform": "2.0.0-rc.14"` (ADR 0034); absent means latest via `extends`, and `bos upgrade --check` is the manual drift alarm.
 
 5. **Deploy:**
     ```bash

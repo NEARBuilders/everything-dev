@@ -280,7 +280,10 @@ export function configInputToDescriptor(input: BosConfigInput): AppDescriptor {
   }
 
   const auth = app.auth;
-  if (auth?.development) descriptor.auth = entryToAttachment("auth", auth);
+  // No `development` guard: a remote-only auth attachment (published plugin
+  // with variables/secrets, no local path) must round-trip like the plugins
+  // loop below — dropping it deleted authored auth config.
+  if (auth) descriptor.auth = entryToAttachment("auth", auth);
 
   const plugins: Record<string, unknown> = {};
   for (const [key, raw] of Object.entries((input.plugins ?? {}) as Record<string, unknown>)) {

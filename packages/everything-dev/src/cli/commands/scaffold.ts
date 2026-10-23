@@ -118,14 +118,54 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
       return;
     }
     console.log();
+    if (result.status === "already-upgraded") {
+      console.log(colors.green(`${icons.ok} Already upgraded · v2 — nothing to do`));
+      for (const note of result.notes ?? []) console.log(`  ${colors.dim(note)}`);
+      console.log();
+      return;
+    }
+    if (result.status === "audit") {
+      type AuditFinding = {
+        check: string;
+        path: string;
+        severity: "blocker" | "warn";
+        message: string;
+      };
+      const audit = result.audit;
+      const findings: AuditFinding[] = audit?.findings ?? [];
+      const blockers = findings.filter((f) => f.severity === "blocker");
+      const warns = findings.filter((f) => f.severity === "warn");
+      console.log(colors.cyan(`v1 upgrade audit — Tier ${audit?.tier ?? "?"}`));
+      console.log(`  ${colors.dim(`blockers: ${blockers.length}, warns: ${warns.length}`)}`);
+      const formatFinding = (f: AuditFinding) =>
+        `  [${f.severity}] ${f.check} ${f.path}: ${f.message}`;
+      for (const f of blockers) console.log(colors.error(formatFinding(f)));
+      for (const f of warns) console.log(colors.yellow(formatFinding(f)));
+      console.log(`  ${colors.dim("manifest: .bos/v2-upgrade-manifest.json")}`);
+      console.log();
+      return;
+    }
+    if (result.status === "gate-blocked") {
+      console.error(colors.error("\nGATE BLOCKED — normalize in v1 before upgrading to v2."));
+      for (const blocker of (result.blockers ?? []) as Array<{
+        check: string;
+        path: string;
+        severity: string;
+        message: string;
+      }>) {
+        console.error(
+          `  [${blocker.severity}] ${blocker.check} ${blocker.path}: ${blocker.message}`,
+        );
+      }
+      console.error();
+      process.exit(1);
+    }
     if (exitCodeFor(result) === 1) {
       console.error(`[CLI] ${result.error || "Unknown error"}`);
       process.exit(1);
     }
     if (result.status === "dry-run") {
       console.log(colors.cyan(`${icons.ok} Dry run — no changes applied`));
-      // CI drift alarm (ADR 0034): --check exits 1 when updates are available
-      if ((input as any).check) process.exit(result.updatesAvailable ? 1 : 0);
     } else {
       console.log(colors.green(`${icons.ok} Upgrade complete`));
     }
@@ -148,12 +188,27 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
         console.log(`  ${colors.dim(`${pkg.name}  ${pkg.from} → ${pkg.to}`)}`);
       } else if (!pkg.from) {
         console.log(`  ${colors.dim(`${pkg.name}  ${pkg.to} (new)`)}`);
-      } else {
+      } else if (result.status !== "dry-run") {
         console.log(`  ${colors.dim(`${pkg.name}  ${pkg.to} (up to date)`)}`);
       }
     }
     if (result.changelogUrl) {
       console.log(`  Changelog: ${result.changelogUrl}`);
+    }
+    for (const note of result.notes ?? []) {
+      console.log(`  ${colors.dim(`note: ${note}`)}`);
+    }
+    // CI drift alarm (ADR 0034): --check exits 1 when updates are available —
+    // after the drift details are printed, never silently.
+    if (result.status === "dry-run" && (input as any).check) {
+      if (result.updatesAvailable) {
+        console.log(colors.yellow(`${icons.err} Updates available — run \`bos upgrade\``));
+        console.log();
+        process.exit(1);
+      }
+      console.log(colors.green(`${icons.ok} Up to date`));
+      console.log();
+      process.exit(0);
     }
     if (result.sync) {
       console.log(`  ${colors.dim("Sync results:")}`);

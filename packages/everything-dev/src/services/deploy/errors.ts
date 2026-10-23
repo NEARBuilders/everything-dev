@@ -20,6 +20,7 @@ export type TrainErrorKind =
   | "memory-backend"
   | "config-write"
   | "pin-verification"
+  | "platform-truth"
   | "sign"
   | "submit"
   | "confirm";
