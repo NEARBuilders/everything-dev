@@ -277,7 +277,7 @@ Two resolution rules keep this safe (ADR 0018): **bundler-configuration code res
 ```bash
 bos sync                 # Pull updates from published config/template state (release-scoped — ADR 0034)
 bos upgrade              # Check for new versions, update, then sync
-bos upgrade --check      # CI drift alarm: exit 1 when the platform pin is behind the latest release
+bos upgrade --check      # Manual drift alarm: exit 1 when updates are available (prints what drifted)
 bos platform manifest    # Show the resolved platform release manifest (--check adds the compat gate)
 bos publish              # Re-publish the resolved config to FastKV (config-only; authored hand-edits merge over what's live)
 bos deploy               # Deploy train: preflight → build → upload bundles → publish config + platform manifest → image (pre-pushed digest or local docker build) → post-publish smoke (--smoke) → Railway

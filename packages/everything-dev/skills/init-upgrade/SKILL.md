@@ -156,7 +156,7 @@ Children are **pinned snapshots** (ADR 0034): init derives the child's `platform
 ```bash
 bos upgrade              # Re-pin to the parent's latest release + reconcile the template
 bos upgrade --dry-run    # Preview version bumps
-bos upgrade --check      # CI drift alarm (ADR 0034): exit 1 when updates are available
+bos upgrade --check      # Manual drift alarm (ADR 0034): exit 1 when updates are available
 ```
 
 ### Flow

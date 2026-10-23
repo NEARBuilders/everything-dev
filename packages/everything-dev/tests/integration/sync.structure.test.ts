@@ -377,12 +377,12 @@ describe("child-owned block protocol (#538)", () => {
     expect(ci).toContain("consumer-ci.yml@main");
     expect(ci).toContain("./.github/workflows/ci-child.yml");
     expect(ci).toContain("needs: [ci, child-ci]");
-    // the drift alarm belongs to the reusable workflow — children inherit it
-    // without edit-fighting a pinned copy in their caller
     expect(ci).not.toContain("platform-drift");
+    // The platform-drift job was removed from the reusable workflow — the
+    // drift alarm is manual (`bos upgrade --check`), never a blocking gate.
     const consumer = readFileSync(join(REPO_ROOT, ".github/workflows/consumer-ci.yml"), "utf-8");
-    expect(consumer).toContain("platform-drift");
-    expect(consumer).toContain("bos upgrade --check");
+    expect(consumer).not.toContain("platform-drift");
+    expect(consumer).not.toContain("bos upgrade --check");
   });
 
   it("the template api/plugin.dev.ts carries the child-owned markers around variables", () => {

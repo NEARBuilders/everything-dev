@@ -44,7 +44,7 @@ The root-level `platform` field pins the framework release this runtime tracks:
 - It is a scalar for merge purposes: child overrides parent, parent inherited when child omits.
 - The field is on sync's managed-key list, so it survives template personalization.
 - Everything else derives from the resolved manifest: the upgrade catalog, the image ref (`ref@v<version>`), the release-scoped sync source, and the compat contract. Offline dev caches the resolved manifest at `.bos/platform-manifest.json` (gitignored memo).
-- Inspect with `bos platform manifest` (`--check` adds the compat gate); `bos upgrade --check` is the CI drift alarm against the latest release.
+- Inspect with `bos platform manifest` (`--check` adds the compat gate); `bos upgrade --check` is the manual drift alarm against the latest release.
 
 ## Deep Merge Semantics
 

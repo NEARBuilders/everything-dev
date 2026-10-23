@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../../contract";
@@ -20,11 +20,48 @@ export interface MigrationScope {
 }
 
 /**
+ * Surgical platform-pin edit on the authored `bos.app.ts` source: rewrites
+ * only the `platform: "…"` line (or inserts one after `extends`), leaving
+ * every other byte — formatting, comments, attachments — untouched. Throws
+ * with the version to set by hand when no safe anchor exists; the authored
+ * file is never re-serialized.
+ */
+export function stampPlatformPin(source: string, version: string): string {
+  const platformLineRe = /^([ \t]*)(platform|"platform")[ \t]*:[ \t]*"([^"]*)"(,?)[ \t]*$/;
+  const extendsLineRe = /^([ \t]*)(extends|"extends")[ \t]*:[ \t]*("[^"]*")(,?)[ \t]*$/;
+  const lines = source.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(platformLineRe);
+    if (match) {
+      lines[i] = `${match[1]}platform: "${version}"${match[4]}`;
+      return lines.join("\n");
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(extendsLineRe);
+    if (match) {
+      lines[i] = `${match[1]}${match[2]}: ${match[3]},`;
+      lines.splice(i + 1, 0, `${match[1]}platform: "${version}",`);
+      return lines.join("\n");
+    }
+  }
+
+  throw new Error(
+    `could not stamp the platform pin surgically — no platform or extends ` +
+      `property found in the authored config; set platform: "${version}" ` +
+      `in bos.app.ts manually and re-run`,
+  );
+}
+
+/**
  * Stamp the resolved framework version into the authored config's `platform`
  * pin (ADR 0034). Runs at the top of the migration phase on both the inline
  * and re-exec'd paths, so everyday resolution (sync, init, runtime) always
  * freezes to the release this upgrade just landed from — whether or not the
- * package versions actually moved.
+ * package versions actually moved. The authored `bos.app.ts` is edited
+ * surgically (the pin line only) — never re-serialized.
  */
 export async function applyPlatformPin(
   projectDir: string,
@@ -35,9 +72,16 @@ export async function applyPlatformPin(
   if (!config) return undefined;
   if (config.platform === version) return undefined;
 
+  const appConfigPath = join(projectDir, "bos.app.ts");
+  if (existsSync(appConfigPath)) {
+    const source = readFileSync(appConfigPath, "utf-8");
+    writeFileSync(appConfigPath, stampPlatformPin(source, version));
+    return "bos.app.ts";
+  }
+
   config.platform = version;
   await saveBosConfig(projectDir, config);
-  return existsSync(join(projectDir, "bos.app.ts")) ? "bos.app.ts" : "bos.config.json";
+  return "bos.config.json";
 }
 
 /**
