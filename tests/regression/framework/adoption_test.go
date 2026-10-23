@@ -25,7 +25,7 @@ func TestHardKillThenBosKillReapsOrphans(t *testing.T) {
 	defer releaseStackSlot()
 
 	registry := filepath.Join(t.TempDir(), "pids.json")
-	stack := StartStack(t, 5950, registry)
+	stack := StartStack(t, 5930, registry)
 	pids := stack.SnapshotPids()
 
 	stack.Signal(syscall.SIGKILL)

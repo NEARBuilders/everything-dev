@@ -55,6 +55,18 @@ suite step it inherits the suite step's pipe and every 15s snapshot lands in the
 step log, which GitHub always stores — including mid-kill, when the post-steps
 and the always() upload are force-skipped.
 
+**Local full-mirror audit (2026-10-23, `BOS_TEARDOWN_ADOPTION=1`):** found a real
+suite bug the CI infra-kills had been masking — Phase 0.2's renumbering collided
+with itself: HardKill @5950's plugin range (5960-5966) sits on NextBootAdopts'
+second boot @5960 (host/api/auth/ui), so the two parallel adoption tests race on
+ports; the loser's never-registered services then leak and trip the macOS
+survivor scan (no /proc env attribution on darwin) in TestBosKillAllReapsEverything.
+Same class: InteractiveQuitByKey @5800's plugins (5810-5816) overlap
+InteractiveQuitByCtrlC @5810. Renumbered: HardKill → 5930, InteractiveQuitByCtrlC →
+5820 (blocks spaced ≥ 17; layout documented on knownFrameworkPorts). Non-pty tests
+verified green locally; the pty tests cannot start under the agent's sandbox
+(`fork/exec: operation not permitted`) and are CI-verified only.
+
 Chosen direction (maintainer decisions, this session): framework suite → parallelize
 via `t.Parallel()`; browser suite → shard `start:*` across CI jobs and merge the two
 dev legs into one job (ADR 0009 stands for intra-runner workers); fold all four

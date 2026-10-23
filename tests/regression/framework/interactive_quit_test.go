@@ -40,7 +40,7 @@ func TestInteractiveQuitByCtrlC(t *testing.T) {
 	acquireStackSlot(t)
 	defer releaseStackSlot()
 
-	stack := StartInteractiveStack(t, 5810, filepath.Join(t.TempDir(), "pids.json"))
+	stack := StartInteractiveStack(t, 5820, filepath.Join(t.TempDir(), "pids.json"))
 	stack.WaitTuiMounted()
 
 	pids := stack.SnapshotPids()
