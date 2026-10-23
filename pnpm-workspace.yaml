@@ -63,8 +63,8 @@ catalog:
   drizzle-kit: ^0.31.8
   drizzle-orm: ^0.45.1
   effect: 4.0.0-rc.117
-  every-plugin: ^3.0.0-rc.11
-  everything-dev: ^2.0.0-rc.19
+  every-plugin: ^3.0.0-rc.12
+  everything-dev: ^2.0.0-rc.20
   near-kit: ^0.20.2
   pg: ^8.12.0
   react: 19.2.9
