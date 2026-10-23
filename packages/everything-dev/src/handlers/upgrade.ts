@@ -10,10 +10,9 @@ import { generateCodeArtifacts } from "../services/codegen/artifacts";
 import { checkFederationCompat, checkUiCompositionCompat } from "../services/federation/service";
 import { readInstalledFrameworkVersion } from "../services/framework-version";
 import {
-  checkPlatformCompat,
   type PlatformCompatViolation,
-  readInImagePlatformManifest,
-  resolvePlatformManifest,
+  PlatformManifestService,
+  type ResolvedPlatformManifest,
 } from "../services/platform/manifest";
 import { resolvePublishedConfig } from "../services/registry/published";
 import { openResolution } from "../services/resolution/session";
@@ -405,6 +404,7 @@ export function registerUpgrade(builder: BosBuilder) {
     }),
 
     mfCheck: builder.mfCheck.effect(function* (_opts, input) {
+      const platformManifest = yield* PlatformManifestService;
       return yield* Effect.promise(async () => {
         let authored: BosConfig | null = null;
         try {
@@ -472,13 +472,13 @@ export function registerUpgrade(builder: BosBuilder) {
           const configPath = findConfigPath();
           if (configPath) {
             const projectDir = resolve(dirname(configPath));
-            const resolved = await resolvePlatformManifest({
+            const resolved = await platformManifest.resolvePlatformManifest({
               configDir: projectDir,
               localConfig: authored as Record<string, unknown>,
             });
             if (resolved) {
               const root = findWorkspaceRoot(projectDir)?.dir ?? projectDir;
-              const violations = checkPlatformCompat(resolved.manifest, {
+              const violations = platformManifest.checkPlatformCompat(resolved.manifest, {
                 platformVersion: readInstalledFrameworkVersion(projectDir, "everything-dev"),
                 catalog: readWorkspaceCatalog(root),
               });
@@ -510,11 +510,12 @@ export function registerUpgrade(builder: BosBuilder) {
     }),
 
     platformManifest: builder.platformManifest.effect(function* (_opts, input) {
+      const platformManifest = yield* PlatformManifestService;
       return yield* Effect.promise(async () => {
         // In-image: the booted host self-describes (ADR 0034 pt 1) — the
         // staged manifest is the release's own bytes; a compat check of the
         // image against itself is trivially consistent.
-        const inImage = readInImagePlatformManifest();
+        const inImage = platformManifest.readInImagePlatformManifest();
         if (inImage) {
           return {
             status: "ok" as const,
@@ -536,10 +537,10 @@ export function registerUpgrade(builder: BosBuilder) {
         try {
           const authoredConfig =
             ((await readAuthoredConfigInput()) as Record<string, unknown> | null) ?? {};
-          let resolved: Awaited<ReturnType<typeof resolvePlatformManifest>>;
+          let resolved: ResolvedPlatformManifest | null;
           let drift: { pinned: string; published: string } | undefined;
           try {
-            resolved = await resolvePlatformManifest({
+            resolved = await platformManifest.resolvePlatformManifest({
               configDir: projectDir,
               localConfig: authoredConfig,
             });
@@ -548,7 +549,7 @@ export function registerUpgrade(builder: BosBuilder) {
             // republished past it (issue #546). Resolve the latest published
             // manifest so the report names the drift instead of the cryptic
             // pin-not-found error.
-            const latest = await resolvePlatformManifest({
+            const latest = await platformManifest.resolvePlatformManifest({
               configDir: projectDir,
               localConfig: { ...authoredConfig, platform: undefined },
             });
@@ -580,7 +581,7 @@ export function registerUpgrade(builder: BosBuilder) {
             return base;
           }
           const root = findWorkspaceRoot(projectDir)?.dir ?? projectDir;
-          const violations = checkPlatformCompat(resolved.manifest, {
+          const violations = platformManifest.checkPlatformCompat(resolved.manifest, {
             platformVersion: readInstalledFrameworkVersion(projectDir, "everything-dev"),
             catalog: readWorkspaceCatalog(root),
           });

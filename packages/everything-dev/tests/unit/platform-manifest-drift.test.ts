@@ -1,24 +1,14 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BosBuilder } from "../../src/handlers/shared";
 import {
+  PlatformManifestService,
   PlatformReleaseManifestSchema,
   type ResolvedPlatformManifest,
 } from "../../src/services/platform/manifest";
-
-const platformMocks = vi.hoisted(() => ({ resolvePlatformManifest: vi.fn() }));
-
-vi.mock("../../src/services/platform/manifest", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/services/platform/manifest")>();
-  return {
-    ...actual,
-    readInImagePlatformManifest: () => null,
-    resolvePlatformManifest: (opts: unknown) => platformMocks.resolvePlatformManifest(opts),
-  };
-});
 
 const { registerUpgrade } = await import("../../src/handlers/upgrade");
 
@@ -42,7 +32,6 @@ beforeEach(() => {
 afterEach(() => {
   process.chdir(originalCwd);
   rmSync(dir, { recursive: true, force: true });
-  platformMocks.resolvePlatformManifest.mockReset();
 });
 
 const PUBLISHED = PlatformReleaseManifestSchema.parse({
@@ -61,10 +50,29 @@ function resolved(source: { account: string; gateway: string }): ResolvedPlatfor
   return { manifest: PUBLISHED, source, fromCache: false };
 }
 
-function platformManifestEffect(): Promise<unknown> {
+function serviceWith(
+  resolve: (opts: {
+    configDir: string;
+    localConfig: Record<string, unknown>;
+  }) => Promise<ResolvedPlatformManifest | null>,
+): Layer.Layer<PlatformManifestService> {
+  return Layer.succeed(
+    PlatformManifestService,
+    PlatformManifestService.of({
+      resolvePlatformManifest: resolve,
+      composePlatformReleaseManifest: () => {
+        throw new Error("not exercised by this test");
+      },
+      checkPlatformCompat: () => [],
+      readInImagePlatformManifest: () => null,
+    }),
+  );
+}
+
+function platformManifestEffect(layer: Layer.Layer<PlatformManifestService>): Promise<unknown> {
   const effectHandler =
     (fn: (opts: unknown, input: unknown) => Generator) => (opts: unknown, input: unknown) =>
-      Effect.runPromise(Effect.gen(() => fn(opts, input)));
+      Effect.runPromise(Effect.gen(() => fn(opts, input)).pipe(Effect.provide(layer)));
   const builder = {
     upgrade: { effect: effectHandler },
     typesGen: { effect: effectHandler },
@@ -80,29 +88,25 @@ function platformManifestEffect(): Promise<unknown> {
 
 describe("platformManifest handler — pin drift (issue #546)", () => {
   it("reports the published parent platform against the stale pin instead of a cryptic pin-not-found error", async () => {
-    platformMocks.resolvePlatformManifest.mockImplementation(
-      (opts: { localConfig: Record<string, unknown> }) => {
-        if (typeof opts.localConfig.platform === "string") {
-          return Promise.reject(
-            new Error(
-              "platform pin 2.0.0-rc.16 not found in the extends chain (bos://dev.everything.near/everything.dev) — publish the release or clear the pin",
-            ),
-          );
-        }
-        return Promise.resolve(
-          resolved({ account: "dev.everything.near", gateway: "everything.dev" }),
+    const resolve = vi.fn(async (opts: { localConfig: Record<string, unknown> }) => {
+      if (typeof opts.localConfig.platform === "string") {
+        throw new Error(
+          "platform pin 2.0.0-rc.16 not found in the extends chain (bos://dev.everything.near/everything.dev) — publish the release or clear the pin",
         );
-      },
-    );
-
-    const result = (await platformManifestEffect()) as {
+      }
+      return resolved({
+        account: "dev.everything.near",
+        gateway: "everything.dev",
+      });
+    });
+    const result = (await platformManifestEffect(serviceWith(resolve))) as {
       status: string;
       version: string | null;
       drift?: { pinned: string; published: string };
       error?: string;
     };
 
-    expect(platformMocks.resolvePlatformManifest).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenCalledTimes(2);
     expect(result.status).toBe("fail");
     expect(result.version).toBe("2.0.0-rc.18");
     expect(result.drift).toEqual({ pinned: "2.0.0-rc.16", published: "2.0.0-rc.18" });
@@ -112,17 +116,16 @@ describe("platformManifest handler — pin drift (issue #546)", () => {
   });
 
   it("resolves normally when the pin still matches the chain", async () => {
-    platformMocks.resolvePlatformManifest.mockImplementation(() =>
-      Promise.resolve(resolved({ account: "dev.everything.near", gateway: "everything.dev" })),
+    const resolve = vi.fn(async () =>
+      resolved({ account: "dev.everything.near", gateway: "everything.dev" }),
     );
-
-    const result = (await platformManifestEffect()) as {
+    const result = (await platformManifestEffect(serviceWith(resolve))) as {
       status: string;
       version: string | null;
       drift?: unknown;
     };
 
-    expect(platformMocks.resolvePlatformManifest).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("ok");
     expect(result.version).toBe("2.0.0-rc.18");
     expect(result.drift).toBeUndefined();
