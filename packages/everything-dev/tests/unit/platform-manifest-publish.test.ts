@@ -190,4 +190,69 @@ describe("platformTruthViolations", () => {
 
     expect(violations).toEqual([]);
   });
+
+  it("passes when a range-shaped pin is satisfied by the exact built version", () => {
+    const manifest = PlatformReleaseManifestSchema.parse({
+      schemaVersion: 1,
+      kind: "everything-dev/platform-manifest",
+      frameworkVersion: "2.0.0-rc.18",
+      everyPluginVersion: "3.0.0-rc.11",
+      image: { ref: PLATFORM_IMAGE_REF, tags: ["v2.0.0-rc.18"] },
+      catalog: { "every-plugin": "^3.0.0-rc.11" },
+      sharedDeps: {
+        "every-plugin": {
+          version: "^3.0.0-rc.11",
+          requiredVersion: "^3.0.0-rc.11",
+          singleton: true,
+          strictVersion: true,
+          eager: false,
+          shareScope: "default",
+        },
+      },
+      templateInventory: [],
+      compat: { minChild: "2.0.0-rc.17" },
+    });
+
+    const violations = platformTruthViolations(
+      manifest,
+      new Map([
+        ["api", { "every-plugin": "3.0.0-rc.11" }],
+        ["votes", { "every-plugin": "3.0.0-rc.11" }],
+      ]),
+    );
+
+    expect(violations).toEqual([]);
+  });
+
+  it("flags a built prerelease that falls below the range-shaped pin's floor", () => {
+    const manifest = PlatformReleaseManifestSchema.parse({
+      schemaVersion: 1,
+      kind: "everything-dev/platform-manifest",
+      frameworkVersion: "2.0.0-rc.18",
+      everyPluginVersion: "3.0.0-rc.11",
+      image: { ref: PLATFORM_IMAGE_REF, tags: ["v2.0.0-rc.18"] },
+      catalog: { "every-plugin": "^3.0.0-rc.11" },
+      sharedDeps: {
+        "every-plugin": {
+          version: "^3.0.0-rc.11",
+          requiredVersion: "^3.0.0-rc.11",
+          singleton: true,
+          strictVersion: true,
+          eager: false,
+          shareScope: "default",
+        },
+      },
+      templateInventory: [],
+      compat: { minChild: "2.0.0-rc.17" },
+    });
+
+    const violations = platformTruthViolations(
+      manifest,
+      new Map([["api", { "every-plugin": "3.0.0-rc.9" }]]),
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("api was built against every-plugin@3.0.0-rc.9");
+    expect(violations[0]).toContain("pins ^3.0.0-rc.11");
+  });
 });

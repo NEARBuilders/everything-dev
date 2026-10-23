@@ -6,6 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { satisfiesConstraint } from "../federation/service";
 import {
   composePlatformReleaseManifest,
   computeTemplateInventory,
@@ -86,7 +87,11 @@ export interface DerivedImageRef {
  * the same names from the release catalog. A version that appears in both but
  * disagrees means the workspace's install drifted from the catalog — the
  * manifest would lie about the uploaded bytes and pinned children would boot
- * a skewed composition. Returns human-readable violations; empty = clean.
+ * a skewed composition. Pin shapes mirror `checkPlatformCompat`'s semantics
+ * (via `satisfiesConstraint`): an exact pin must match exactly, a range pin
+ * must be satisfied by the built version — the catalog pinning every-plugin
+ * as `^X` while bundles record the exact resolved version is not a violation.
+ * Returns human-readable violations; empty = clean.
  */
 export function platformTruthViolations(
   manifest: PlatformReleaseManifest,
@@ -97,7 +102,7 @@ export function platformTruthViolations(
     if (!shared) continue;
     for (const [name, version] of Object.entries(shared)) {
       const pin = manifest.sharedDeps[name];
-      if (pin && pin.version !== version) {
+      if (pin && !satisfiesConstraint(version, pin.version)) {
         violations.push(
           `${workspace} was built against ${name}@${version}, the release manifest pins ${pin.version} — ` +
             `a stale install publishes a manifest that lies about the uploaded bytes; ` +
