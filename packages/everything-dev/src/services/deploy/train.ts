@@ -397,6 +397,7 @@ export async function runPublishTrain(
     // Folder-form plugin ui: the workspace build also produces <plugin>/ui/dist
     // (web remoteEntry + ssr container) — upload it as its own bundle key and
     // pin <slot>.<key>.ui.* so the host can compose the ui surface in production.
+    let uiOutcomeShared: Record<string, string> | undefined;
     if (hasFolderFormUi(ws.path)) {
       const uiDistDir = join(ws.path, "ui", "dist");
       const uiSlot = ws.kind === "app" ? "app" : "plugins";
@@ -408,7 +409,6 @@ export async function runPublishTrain(
       let uiIntegrity: string | undefined;
       let uiSsrIntegrity: string | undefined;
       let uiPin: (typeof outcome)["pin"] | undefined;
-      let _uiOutcomeShared: Record<string, string> | undefined;
       if (existsSync(uiDistDir)) {
         const uiOutcome = await uploadWorkspaceBundle({
           account,
@@ -445,7 +445,7 @@ export async function runPublishTrain(
         uiIntegrity = uiOutcome.entryIntegrity;
         uiSsrIntegrity = uiOutcome.ssrEntryIntegrity;
         uiPin = uiOutcome.pin;
-        _uiOutcomeShared = uiOutcome.shared;
+        uiOutcomeShared = uiOutcome.shared;
       } else {
         console.log(
           `    ${colors.green(icons.ok)} ${padRight(`${key}-ui`, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/`,
