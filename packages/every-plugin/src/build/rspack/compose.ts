@@ -20,6 +20,9 @@ class EveryPluginComposedBuild implements RspackPluginInstance {
 export interface PluginBaseConfigOptions {
   drizzle?: boolean;
   externals?: string[];
+  /** Rspack plugin instances appended after the composed defaults — the escape
+   * hatch for build-time integrations (content pipelines, codegen, ...). */
+  extraPlugins?: unknown[];
   /** Concrete rspack fields to merge over the defaults (devtool, infrastructureLogging, ...). */
   rspack?: Partial<PluginBaseConfig>;
 }
@@ -80,7 +83,7 @@ export function createPluginBaseConfig(options: PluginBaseConfigOptions = {}): P
     ...options.rspack,
     externals: options.externals ?? options.rspack?.externals ?? ["pg", "@electric-sql/pglite"],
     devtool: options.rspack?.devtool ?? (shouldDeploy ? false : "source-map"),
-    plugins,
+    plugins: [...plugins, ...(options.extraPlugins ?? [])],
     infrastructureLogging: options.rspack?.infrastructureLogging ?? { level: "error" },
     stats: options.rspack?.stats ?? "errors-warnings",
   };

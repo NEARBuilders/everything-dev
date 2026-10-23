@@ -17,12 +17,12 @@ import { emitCoreUiStubs } from "every-plugin/build/ui";
 import { containerName } from "every-plugin/identity";
 import { composeVersionManifest } from "every-plugin/version-manifest";
 import { writeResolvedConfig } from "../../packages/everything-dev/src/config";
-import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/services/deploy/version-manifest";
 import {
   checkFederationTrain,
   resolveAuthWorkspace,
 } from "../../packages/everything-dev/src/services/federation/train";
 import { openResolution } from "../../packages/everything-dev/src/services/resolution/session";
+import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/services/deploy/version-manifest";
 
 /**
  * Local production fixture rewriting (ADR 0009): a section named in the plan
@@ -49,11 +49,8 @@ interface OriginPlan {
     string,
     {
       production?: string;
-      ui?: string;
-      uiName?: string;
-      uiPublicUrl?: string;
       pin?: SlotPin;
-      uiPin?: SlotPin;
+      ui?: { production?: string; ssr?: string; name?: string; publicUrl?: string; pin?: SlotPin };
     }
   >;
 }
@@ -111,11 +108,14 @@ function rewritePluginRef(
   planned:
     | {
         production?: string;
-        ui?: string;
-        uiName?: string;
-        uiPublicUrl?: string;
         pin?: SlotPin;
-        uiPin?: SlotPin;
+        ui?: {
+          production?: string;
+          ssr?: string;
+          name?: string;
+          publicUrl?: string;
+          pin?: SlotPin;
+        };
       }
     | undefined,
 ): Record<string, unknown> {
@@ -129,15 +129,7 @@ function rewritePluginRef(
     next.pin = planned.pin;
   }
   if (next.ui) {
-    next.ui = rewriteUi(
-      { ...(next.ui as Record<string, unknown>) },
-      {
-        ...(planned.ui ? { production: planned.ui } : {}),
-        ...(planned.uiName ? { name: planned.uiName } : {}),
-        ...(planned.uiPublicUrl ? { publicUrl: planned.uiPublicUrl } : {}),
-        ...(planned.uiPin ? { pin: planned.uiPin } : {}),
-      },
-    );
+    next.ui = rewriteUi({ ...(next.ui as Record<string, unknown>) }, planned.ui);
   }
   return next;
 }
@@ -306,7 +298,8 @@ function assertFederationTrain(distDir: string): void {
 }
 
 // Fixed in-container port map — every service is container-local, so only the
-// host port needs mapping at `docker run`.
+// host port needs mapping at `docker run`. Plugin ui bundle keys occupy
+// basePort+20+idx (mirroring platform-deploy's `<key>-ui` bundle shape).
 const basePort = 4100;
 const ports = {
   hostDist: basePort + 5,
@@ -320,6 +313,35 @@ const ports = {
 // slot port, the other local plugins are indexed from basePort+10.
 const pluginPort = (key: string): number =>
   key === "auth" ? ports.auth : basePort + 10 + localPlugins.findIndex(([k]) => k === key);
+
+/**
+ * Folder-form plugin ui slots (plugins.<key>.ui with a local workspace that
+ * hosts a `ui/` source — the shape platform-deploy uploads as `<key>-ui`).
+ * Mirrors the deploy train: without these entries the plugin ui resolves with
+ * no production URL and the composer drops its routes.
+ */
+const pluginUiSlots = new Map(
+  localPlugins
+    .filter(([key, workspace]) => {
+      if (key === "auth") return false;
+      const uiPath = path.join(workspace, "ui");
+      return existsSync(path.join(root, uiPath, "src"));
+    })
+    .map(([key, workspace], index) => {
+      const pkgName = JSON.parse(readFileSync(path.join(root, workspace, "package.json"), "utf8"))
+        .name as string;
+      return [
+        key,
+        {
+          workspace,
+          port: basePort + 20 + index,
+          name: containerName(pkgName),
+          uiDist: path.join(workspace, "ui/dist"),
+          uiDistSsr: path.join(workspace, "ui/dist/ssr"),
+        },
+      ] as const;
+    }),
+);
 
 const sri384 = (bytes: string | Uint8Array): string =>
   `sha384-${createHash("sha384").update(bytes).digest("base64")}`;
@@ -406,6 +428,9 @@ const stage = () => {
     ...Object.fromEntries(
       localPlugins.map(([key, workspace]) => [key, pinDist(path.join(workspace, "dist"))]),
     ),
+    ...Object.fromEntries(
+      [...pluginUiSlots].map(([key, slot]) => [`${key}Ui`, pinDist(slot.uiDist, slot.uiDistSsr)]),
+    ),
   };
 
   copyDist("host/dist", "host");
@@ -417,6 +442,9 @@ const stage = () => {
   copyDist("plugins/auth/ui/dist", "auth-ui");
   for (const [key, workspace] of localPlugins) {
     copyDist(path.join(workspace, "dist"), path.join("plugins", key));
+  }
+  for (const [key, slot] of pluginUiSlots) {
+    copyDist(slot.uiDist, `${key}-ui`);
   }
 
   // Namespace staging (plan 043): the same artifacts laid out at the exact
@@ -440,6 +468,9 @@ const stage = () => {
       ...localPlugins
         .filter(([key]) => key !== "template")
         .map(([key, workspace]) => [path.join(workspace, "dist"), key] as const),
+      ...[...pluginUiSlots]
+        .filter(([key]) => key !== "template")
+        .map(([key, slot]) => [slot.uiDist, `${key}-ui`] as const),
     ]) {
       cpSync(path.join(root, from), path.join(ns, to), { recursive: true });
     }
@@ -477,13 +508,26 @@ const stage = () => {
       pin: pins.authUi,
     },
     plugins: Object.fromEntries(
-      localPlugins.map(([key]) => [
-        key,
-        {
-          production: slotUrl(pluginPort(key), key),
-          pin: pins[key],
-        },
-      ]),
+      localPlugins.map(([key]) => {
+        const port = pluginPort(key);
+        const ui = pluginUiSlots.get(key);
+        return [
+          key,
+          {
+            production: slotUrl(port, key),
+            pin: pins[key],
+            ...(ui
+              ? {
+                  ui: {
+                    production: slotUrl(ui.port, `${key}-ui`),
+                    name: ui.name,
+                    pin: pins[`${key}Ui`],
+                  },
+                }
+              : {}),
+          },
+        ];
+      }),
     ),
   };
 
@@ -498,6 +542,30 @@ const stage = () => {
         ...plan.authUi,
         ...(variant === "ssr" ? { ssr: `${plan.authUi.production}/ssr` } : {}),
       },
+      plugins: Object.fromEntries(
+        Object.entries(plan.plugins).map(([key, value]) => {
+          const ui = pluginUiSlots.get(key);
+          const slot = value as {
+            production?: string;
+            pin?: SlotPin;
+            ui?: { production?: string; name?: string; pin?: SlotPin };
+          };
+          return [
+            key,
+            {
+              ...slot,
+              ...(ui && slot.ui
+                ? {
+                    ui: {
+                      ...slot.ui,
+                      ...(variant === "ssr" ? { ssr: `${slot.ui.production}/ssr` } : {}),
+                    },
+                  }
+                : {}),
+            },
+          ] as const;
+        }),
+      ),
     });
     // The auth plugin's reachable origin is environment truth, not fixture
     // data: the harness injects BASE_URL/CORS_ORIGIN at `docker run`
@@ -532,6 +600,13 @@ const stage = () => {
       dir: `dist/plugins/${key}`,
       port: pluginPort(key),
       ...(nsBase ? { basePath: `${nsBase}/${key}` } : {}),
+    });
+  }
+  for (const [key, slot] of pluginUiSlots) {
+    servers.push({
+      dir: `dist/${key}-ui`,
+      port: slot.port,
+      ...(nsBase ? { basePath: `${nsBase}/${key}-ui` } : {}),
     });
   }
   writeFileSync(

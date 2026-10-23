@@ -1,5 +1,6 @@
 import {
   BankIcon,
+  BookOpenIcon,
   BuildingsIcon,
   ChartBarIcon,
   CompassIcon,
@@ -263,6 +264,7 @@ const PLUGIN_ICON_MAP: Record<string, SidebarItem["icon"]> = {
   compass: CompassIcon,
   sparkles: SparkleIcon,
   boxes: CubeIcon,
+  book: BookOpenIcon,
   home: HouseIcon,
   network: NetworkIcon,
   landmark: BankIcon,
