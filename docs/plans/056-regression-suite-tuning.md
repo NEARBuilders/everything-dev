@@ -41,7 +41,19 @@ tree identically). Hardening: `Setpgid` on every test-spawned process (stacks,
 wrapped stacks, `RunBosKill` — the pty launcher's own Setsid covers the interactive
 path), a ps/free watchdog on the framework job, and the artifact upload moved to
 `if: always()` so evidence can never be skipped again. If the 143 reproduces, the
-watchdog + logs name the sender.
+watchdog + logs name the sender. Resolution (run 40028793503): the trap named
+the sender — `Runner.Worker` TERMed the step tree under "The runner has received
+a shutdown signal" — hosted-runner reclamation, infra-side, not repo code (the
+suite was killed mid-boot before any assertion; milestones showed both stacks
+started, none ready). The in-step 2-attempt retry cannot survive a dying runner
+(attempt 2 was TERMed instantly). No auto-retry bot — infra kills are handled by
+manual re-run of failed jobs. The resource watchdog moved INTO the suite step: a
+background process spawned by its own separate step inherits that step's stdout
+pipe, which the runner stops reading at step end, so the tee dies of SIGPIPE
+after one tick (run 40028793503 captured exactly one snapshot); from inside the
+suite step it inherits the suite step's pipe and every 15s snapshot lands in the
+step log, which GitHub always stores — including mid-kill, when the post-steps
+and the always() upload are force-skipped.
 
 Chosen direction (maintainer decisions, this session): framework suite → parallelize
 via `t.Parallel()`; browser suite → shard `start:*` across CI jobs and merge the two

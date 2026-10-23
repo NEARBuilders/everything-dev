@@ -722,12 +722,24 @@ jobs:
       - name: Build every-plugin dist
         run: pnpm run build template
 
-      # The watchdog tees into this step's captured stdout, not just a file:
-      # when the suite's process tree gets TERMed mid-run (exit 143, runs
-      # 40016532628 and 40025298923) the post-steps — including the
-      # always() artifact upload — are force-skipped, so a file alone dies
-      # with the job. Step log output is always stored by GitHub.
-      - name: Resource watchdog
+      # Two attempts + a TERM trap + an in-step resource watchdog. History
+      # (2026-10-23): three runs died with the whole step tree TERMed (exit
+      # 143) at ~77-95s into the suite — run 40028793503 proved the sender:
+      # "The runner has received a shutdown signal", TERM delivered by
+      # Runner.Worker — hosted-runner reclamation, not repo code (the stacks
+      # run in their own process groups via Setpgid, and no in-repo kill path
+      # can reach the step tree).
+      #
+      # The watchdog lives INSIDE this step, not in its own step: a background
+      # process spawned by a separate step inherits THAT step's stdout pipe,
+      # and the runner stops reading a step's pipe when the step ends — the
+      # tee dies of SIGPIPE after one tick (run 40028793503 captured exactly
+      # one snapshot). From inside this step it inherits the suite step's
+      # pipe, which stays open for the step's lifetime, so every 15s snapshot
+      # lands in the step log (which GitHub always stores, even mid-kill —
+      # the post-steps and the always() artifact upload below were both
+      # force-skipped on those runs).
+      - name: Run framework regression suite
         run: |
           # $(date) must expand inside the inner bash on every loop iteration —
           # single quotes are intentional.
@@ -739,12 +751,6 @@ jobs:
             sleep 15
           done' 2>&1 | tee resource-watchdog.log &
 
-      # Two attempts + a TERM trap: the step tree was TERMed twice at ~95s into
-      # the suite with no in-repo kill path able to reach it (stacks run in
-      # their own process groups via Setpgid) — the trap timestamps the receipt
-      # and the watchdog snapshot beside it brackets the killer within 15s.
-      - name: Run framework regression suite
-        run: |
           # shellcheck disable=SC2016
           trap 'echo "[term-trap] step shell received TERM at $(date -u +%H:%M:%S); ancestors: $(ps -o ppid=,comm= -p $PPID 2>/dev/null | tr "\n" ";")"' TERM
           for attempt in 1 2; do
