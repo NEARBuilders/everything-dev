@@ -35,15 +35,17 @@ import { mark } from "../utils/effect-run";
 import type { RuntimeConfig } from "./config";
 import { UiComposeError } from "./errors";
 import {
+  FederationContainers,
+  resolveLocalRoot,
+  waitForLocalContainer,
+} from "./federation/containers";
+import {
   loadCoreUiRouteConfig,
   loadRouterModule,
   loadUiComposeModule,
   loadUiRouteConfig,
-  localUiRemoteEntry,
-  resolveLocalRoot,
-  waitForLocalContainer,
-} from "./federation.server";
-import { enforceCacheLimit } from "./ttl-cache";
+} from "./federation/loader";
+import { enforceCacheLimit } from "./serving-caches";
 
 const MAX_COMPOSE_VARIANTS = 64;
 
@@ -403,6 +405,7 @@ export const composeUi = Effect.fn("composeUi")(function* (
   config: RuntimeConfig,
   cache: UiComposeCacheState,
 ) {
+  const containers = yield* FederationContainers;
   const composeStartedAt = yield* Clock.currentTimeMillis;
   const sources = uiSources(config);
   const composable = yield* resolveComposableSources(sources, cache);
@@ -410,9 +413,7 @@ export const composeUi = Effect.fn("composeUi")(function* (
   const core = corePair.source;
 
   const coreEntry = core.localRoot
-    ? yield* Effect.tryPromise(() =>
-        localUiRemoteEntry({ name: core.mfName, localRoot: core.localRoot! }),
-      )
+    ? yield* containers.localUiRemoteEntry({ name: core.mfName, localRoot: core.localRoot! })
     : core.remote!;
   if (core.localRoot) {
     yield* waitForLocalContainer(coreEntry, config.env);
@@ -427,38 +428,43 @@ export const composeUi = Effect.fn("composeUi")(function* (
   // Per-source route-config isolation: a plugin whose container/config
   // cannot load drops itself (warn); the core stays loud. The digest is
   // computed over the final healthy set — after drops — so the engine's
-  // parity check and the client payload agree by construction.
+  // parity check and the client payload agree by construction. Plugin
+  // route-configs load in parallel: the per-plugin latency never composes
+  // (each source's container wait + load is independent).
   const healthy: ComposableSource[] = [{ source: core, manifest: corePair.manifest }];
   const routeConfigByName = new Map<string, RouteConfigModule>([
     [corePair.manifest.name, coreRouteConfig],
   ]);
-  for (const entry of composable) {
-    if (entry.source.key === CORE_UI_KEY) continue;
-    const loaded = yield* (
-      entry.source.localRoot
+  const nonCore = composable.filter(({ source }) => source.key !== CORE_UI_KEY);
+  const loaded = yield* Effect.forEach(
+    nonCore,
+    ({ source }) =>
+      (source.localRoot
         ? Effect.gen(function* () {
-            const localEntry = yield* Effect.tryPromise(() =>
-              localUiRemoteEntry({
-                name: entry.source.mfName,
-                localRoot: entry.source.localRoot!,
-              }),
-            );
+            const localEntry = yield* containers.localUiRemoteEntry({
+              name: source.mfName,
+              localRoot: source.localRoot!,
+            });
             yield* waitForLocalContainer(localEntry, config.env);
             return yield* loadUiRouteConfig(localEntry, config.env);
           })
-        : loadUiRouteConfig(entry.source.remote!, config.env)
-    ).pipe(
-      Effect.catch((error) =>
-        entry.source.localRoot
-          ? Effect.fail(error)
-          : Effect.logWarning(
-              `[Compose] dropping ui source "${entry.source.key}" — route config unavailable (${error.message})`,
-            ).pipe(Effect.as(null)),
+        : loadUiRouteConfig(source.remote!, config.env)
+      ).pipe(
+        Effect.catch((error) =>
+          source.localRoot
+            ? Effect.fail(error)
+            : Effect.logWarning(
+                `[Compose] dropping ui source "${source.key}" — route config unavailable (${error.message})`,
+              ).pipe(Effect.as(null)),
+        ),
       ),
-    );
-    if (loaded) {
-      healthy.push(entry);
-      routeConfigByName.set(entry.manifest.name, loaded);
+    { concurrency: "unbounded" },
+  );
+  for (const [index, routeConfig] of loaded.entries()) {
+    const entry = nonCore[index]!;
+    if (routeConfig) {
+      healthy.push({ source: entry.source, manifest: entry.manifest });
+      routeConfigByName.set(entry.manifest.name, routeConfig);
     }
   }
   const healthySources = healthy.map(({ source }) => source);

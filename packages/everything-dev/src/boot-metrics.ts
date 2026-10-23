@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { PhaseTiming } from "./contract";
-import { stripAnsi } from "./dev-log-pipeline";
-import type { ServiceDescriptor } from "./service-descriptor";
+import { stripAnsi } from "./services/dev/logs";
+import type { ServiceDescriptor } from "./services/dev/service-descriptor";
 
 export interface BootServiceTiming {
   name: string;

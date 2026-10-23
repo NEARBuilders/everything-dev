@@ -128,12 +128,12 @@
     },
     "./dev-log-pipeline": {
       "development": {
-        "types": "./src/dev-log-pipeline.ts",
-        "import": "./src/dev-log-pipeline.ts"
+        "types": "./src/services/dev/logs.ts",
+        "import": "./src/services/dev/logs.ts"
       },
-      "types": "./dist/dev-log-pipeline.d.mts",
-      "import": "./dist/dev-log-pipeline.mjs",
-      "require": "./dist/dev-log-pipeline.cjs"
+      "types": "./dist/services/dev/logs.d.mts",
+      "import": "./dist/services/dev/logs.mjs",
+      "require": "./dist/services/dev/logs.cjs"
     },
     "./contract.meta": {
       "development": {

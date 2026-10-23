@@ -580,7 +580,12 @@ describe("composeUi", () => {
     // age every manifest cache entry past MANIFEST_TTL_MS so the next compose
     // must refetch — and fail the refetch
     for (const entry of cache.remoteManifests.values()) entry.fetchedAt -= 31_000;
-    fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+      text: async () => "{}",
+    });
 
     const second = await compose(config);
 
