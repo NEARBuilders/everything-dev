@@ -722,6 +722,11 @@ jobs:
       - name: Build every-plugin dist
         run: pnpm run build template
 
+      # The watchdog tees into this step's captured stdout, not just a file:
+      # when the suite's process tree gets TERMed mid-run (exit 143, runs
+      # 40016532628 and 40025298923) the post-steps — including the
+      # always() artifact upload — are force-skipped, so a file alone dies
+      # with the job. Step log output is always stored by GitHub.
       - name: Resource watchdog
         run: |
           # $(date) must expand inside the inner bash on every loop iteration —
@@ -731,11 +736,30 @@ jobs:
             echo "=== watchdog $(date -u +%H:%M:%S) ==="
             free -m
             ps -eo pid,ppid,pgid,rss,etime,comm --sort=-rss | head -15
-            sleep 30
-          done' >> resource-watchdog.log 2>&1 &
+            sleep 15
+          done' 2>&1 | tee resource-watchdog.log &
 
+      # Two attempts + a TERM trap: the step tree was TERMed twice at ~95s into
+      # the suite with no in-repo kill path able to reach it (stacks run in
+      # their own process groups via Setpgid) — the trap timestamps the receipt
+      # and the watchdog snapshot beside it brackets the killer within 15s.
       - name: Run framework regression suite
-        run: pnpm run test:regression:framework
+        run: |
+          # shellcheck disable=SC2016
+          trap 'echo "[term-trap] step shell received TERM at $(date -u +%H:%M:%S); ancestors: $(ps -o ppid=,comm= -p $PPID 2>/dev/null | tr "\n" ";")"' TERM
+          for attempt in 1 2; do
+            echo "[attempt $attempt] framework suite starting"
+            set +e
+            pnpm run test:regression:framework
+            rc=$?
+            set -e
+            if [ "$rc" -eq 0 ]; then
+              echo "[attempt $attempt] suite passed"
+              exit 0
+            fi
+            echo "[attempt $attempt] suite exited $rc"
+          done
+          exit 1
 
       # always(), not !success(): run 40016532628 died with the whole step tree
       # TERMed (exit 143) while two stacks booted — and this upload was skipped

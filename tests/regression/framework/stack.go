@@ -200,6 +200,7 @@ func StartStack(t *testing.T, basePort int, registryPath string) *Stack {
 	if startErr := cmd.Start(); startErr != nil {
 		t.Fatalf("starting bos dev (port block %d): %v", basePort, startErr)
 	}
+	t.Logf("stack %d: node started (pid %d)", basePort, cmd.Process.Pid)
 	t.Cleanup(func() {
 		logFile.Close()
 	})
@@ -224,6 +225,7 @@ func waitForReady(t *testing.T, stack *Stack) {
 		resp, err := client.Get(url)
 		if err == nil {
 			resp.Body.Close()
+			t.Logf("stack %d: host ready", stack.basePort)
 			return
 		}
 		if time.Now().After(deadline) {
@@ -244,6 +246,7 @@ func (s *Stack) awaitRegistryEntry() {
 		if err == nil && len(entry.ChildPids) > 0 {
 			s.Ports = entry.Ports
 			s.ChildPids = entry.ChildPids
+			s.t.Logf("stack %d: registry entry (%d children)", s.basePort, len(entry.ChildPids))
 			return
 		}
 		if time.Now().After(deadline) {
@@ -281,6 +284,7 @@ func (s *Stack) SnapshotPids() []int {
 
 func (s *Stack) Signal(sig syscall.Signal) {
 	s.t.Helper()
+	s.t.Logf("stack %d: sending %v to pid %d", s.basePort, sig, s.cmd.Process.Pid)
 	if err := s.cmd.Process.Signal(sig); err != nil {
 		s.t.Fatalf("signaling bos dev: %v", err)
 	}
@@ -292,6 +296,7 @@ func (s *Stack) WaitExit(expectedCode int) {
 	s.t.Helper()
 	select {
 	case <-s.exited:
+		s.t.Logf("stack %d: exited %d", s.basePort, s.exitCode)
 		if s.exitCode != expectedCode {
 			s.t.Fatalf("bos dev exited %d, want %d\n--- log tail ---\n%s",
 				s.exitCode, expectedCode, s.logTail(30))
@@ -337,6 +342,7 @@ func (s *Stack) logTail(n int) string {
 // registry override so it acts on the test session's entry.
 func (s *Stack) RunBosKill(extraArgs ...string) {
 	s.t.Helper()
+	s.t.Logf("stack %d: bos kill %s starting", s.basePort, strings.Join(extraArgs, " "))
 	cliPath := filepath.Join(s.repoRoot, "packages", "everything-dev", "src", "cli.ts")
 	cmd := exec.Command("node", append([]string{"--import", "tsx", "--conditions=development", cliPath, "kill"}, extraArgs...)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
