@@ -166,8 +166,6 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
     }
     if (result.status === "dry-run") {
       console.log(colors.cyan(`${icons.ok} Dry run — no changes applied`));
-      // CI drift alarm (ADR 0034): --check exits 1 when updates are available
-      if ((input as any).check) process.exit(result.updatesAvailable ? 1 : 0);
     } else {
       console.log(colors.green(`${icons.ok} Upgrade complete`));
     }
@@ -190,12 +188,27 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
         console.log(`  ${colors.dim(`${pkg.name}  ${pkg.from} → ${pkg.to}`)}`);
       } else if (!pkg.from) {
         console.log(`  ${colors.dim(`${pkg.name}  ${pkg.to} (new)`)}`);
-      } else {
+      } else if (result.status !== "dry-run") {
         console.log(`  ${colors.dim(`${pkg.name}  ${pkg.to} (up to date)`)}`);
       }
     }
     if (result.changelogUrl) {
       console.log(`  Changelog: ${result.changelogUrl}`);
+    }
+    for (const note of result.notes ?? []) {
+      console.log(`  ${colors.dim(`note: ${note}`)}`);
+    }
+    // CI drift alarm (ADR 0034): --check exits 1 when updates are available —
+    // after the drift details are printed, never silently.
+    if (result.status === "dry-run" && (input as any).check) {
+      if (result.updatesAvailable) {
+        console.log(colors.yellow(`${icons.err} Updates available — run \`bos upgrade\``));
+        console.log();
+        process.exit(1);
+      }
+      console.log(colors.green(`${icons.ok} Up to date`));
+      console.log();
+      process.exit(0);
     }
     if (result.sync) {
       console.log(`  ${colors.dim("Sync results:")}`);
@@ -204,9 +217,6 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
     if (result.migrated && result.migrated.length > 0) {
       console.log(`  Migrated: ${result.migrated.length} file(s)`);
       for (const f of result.migrated) console.log(`    ${colors.dim(f)}`);
-    }
-    for (const note of result.notes ?? []) {
-      console.log(`  ${colors.dim(`note: ${note}`)}`);
     }
     if (versionDelta || (result.sync && result.sync.conflicted.length > 0)) {
       console.log();

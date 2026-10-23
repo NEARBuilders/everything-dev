@@ -101,7 +101,7 @@ Upgrade a child behind a pinned parent to the parent's latest platform release, 
 ```bash
 bos upgrade
 bos upgrade --dry-run       # preview version bumps
-bos upgrade --check         # CI drift alarm (ADR 0034): exit 1 when updates are available
+bos upgrade --check         # Manual drift alarm (ADR 0034): exit 1 when updates are available, prints what drifted
 bos upgrade --no-sync       # only upgrade packages, skip the template sync
 bos upgrade --force         # accept the template, back up conflicting local edits, continue
 ```
@@ -313,6 +313,6 @@ Requires the `DATABASE_URL` secret to be set on the target plugin. Uses the plug
 
 **"Which command deploys?"** `pnpm run deploy` (the full train: preflight → build → upload → publish → image). Config-only is `bos publish`; one plugin is `bos plugin publish <key>`.
 
-**"What release am I on?"** `bos platform manifest` — the resolved platform release manifest and its source; `--check` adds the compat gate. `bos upgrade --check` is the CI drift alarm against the latest release.
+**"What release am I on?"** `bos platform manifest` — the resolved platform release manifest and its source; `--check` adds the compat gate. `bos upgrade --check` is the manual drift alarm against the latest release.
 
 **"What is running right now?"** `bos ps` for tracked dev processes, `bos status` for health and versions, `ls .bos/logs/` for per-service logs.

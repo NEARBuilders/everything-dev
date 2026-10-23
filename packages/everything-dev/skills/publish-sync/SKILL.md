@@ -107,10 +107,10 @@ Bump `every-plugin` and `everything-dev` across all workspaces:
 ```bash
 bos upgrade              # Check for new versions, update, then sync
 bos upgrade --dry-run    # Preview without making changes
-bos upgrade --check      # CI drift alarm (ADR 0034): dry-run + exit 1 when updates are available
+bos upgrade --check      # Manual drift alarm (ADR 0034): dry-run + exit 1 when updates are available
 ```
 
-When a platform release manifest resolves, its catalog is the version source (one registry read — no parent-repo tarball walk). `--check` diffs the recorded `platform` pin against the latest published manifest and exits 1 when updates are available; child CI runs it as the `platform-drift` job inside the pinned `consumer-ci` reusable call. Note the pointer-slot semantics (#546): a root republish overwrites `platform.json`, so a stale pin only resolves through the fresh 24h `.bos/platform-manifest.json` cache before failing loud — `bos upgrade` is always the repair.
+When a platform release manifest resolves, its catalog is the version source (one registry read — no parent-repo tarball walk). `--check` diffs the recorded `platform` pin against the latest published manifest and exits 1 when updates are available, printing what drifted. Note the pointer-slot semantics (#546): a root republish overwrites `platform.json`, so a stale pin only resolves through the fresh 24h `.bos/platform-manifest.json` cache before failing loud — `bos upgrade` is always the repair.
 
 `bos upgrade` updates **all workspace `package.json`s**, not just root. Also updates `peerDependencies` and `workspaces.catalog`. Correctly skips `workspace:*` and `catalog:` references.
 
