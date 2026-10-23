@@ -1,25 +1,25 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import type { CustodyWalletRecord, SessionCredential } from "../../auth-session";
-import { readSessionHandle } from "../../auth-session";
-import { type CdnDeployInputs, probeStorageOrigin, resolveCdnDeployInputs } from "../../cdn-deploy";
-import { fetchResponse } from "../../http-client";
+import { selectWorkspaceTargets } from "../../services/workspace/build-train";
+import type { BosConfig, PublishConfig } from "../../types";
+import { fetchResponse } from "../../utils/http-client";
+import { getNetworkIdForAccount } from "../../utils/network";
+import { colors } from "../../utils/theme";
 import {
   describeSigningStrategy,
   resolveSigningStrategy,
   type SigningStrategy,
-} from "../../near-signer";
-import { getNetworkIdForAccount } from "../../network";
-import { selectWorkspaceTargets } from "../../services/workspace/build-train";
-import type { BosConfig, PublishConfig } from "../../types";
-import { colors } from "../../utils/theme";
+} from "../auth/near-signer";
+import type { CustodyWalletRecord, SessionCredential } from "../auth/session";
+import { readSessionHandle } from "../auth/session";
 import {
   buildRegistryConfigUrlForNetwork,
   fetchPublishedConfigFromFastKv,
   getRegistryNamespaceForNetwork,
   type NetworkId,
 } from "../registry/fastkv";
+import { type CdnDeployInputs, probeStorageOrigin, resolveCdnDeployInputs } from "./cdn";
 
 /**
  * Pure publish preflight (resolve, don't mutate) — every failure returns

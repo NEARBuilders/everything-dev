@@ -1,3 +1,7 @@
+# FRAMEWORK-OWNED — reconciled from the parent template by `bos sync` / `bos upgrade`.
+# Local edits are allowed: on the next sync the template version wins and your copy
+# is backed up under `.bos/sync-backup/`. To make a change permanent, file an issue:
+# https://github.com/NEARBuilders/everything-dev/issues
  ### macOS template
 # General
 .DS_Store
@@ -305,6 +309,9 @@ fabric.properties
 !.bos/sync-snapshot.json
 !.bos/infra-state.json
 .bos/session.json
+
+# alchemy state ledger (runtime artifact of hosting-adapter stacks)
+.alchemy/
 
 # AI tool config (local only, not committed)
 .opencode/

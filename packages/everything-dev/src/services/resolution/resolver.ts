@@ -13,9 +13,9 @@ import {
   Schema,
 } from "effect";
 import { cacheControlOf } from "every-plugin/build/artifact-names";
-import { bundleCachePath, readBundleCache, writeBundleCache } from "../../bundle-cache";
 import { isAppDescriptorPath } from "../../config";
-import { FetchNetworkError, HttpFetch, type HttpFetchShape } from "../../http-client";
+import { FetchNetworkError, HttpFetch, type HttpFetchShape } from "../../utils/http-client";
+import { bundleCachePath, readBundleCache, writeBundleCache } from "../registry/bundle-cache";
 
 type FetchImpl = typeof globalThis.fetch;
 

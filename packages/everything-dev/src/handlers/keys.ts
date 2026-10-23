@@ -1,63 +1,26 @@
 import process from "node:process";
 import { Effect } from "effect";
 import { parseKey } from "near-kit";
-import type { SessionCredential } from "../auth-session";
-import { MISSING_CONFIG_MESSAGE } from "../config";
 import {
   DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS,
   DEFAULT_LOGIN_EXPIRES_IN_SECONDS,
-  type KeyPublishResult,
   type LoginResult,
   type LogoutResult,
 } from "../contract";
-import { deleteAccessKeys } from "../near-cli";
-import { getNetworkIdForAccount } from "../network";
-import { loginOutlayerCli } from "../outlayer-login";
 import { DeviceLoginService, openInBrowser } from "../services/auth/device-login";
-import { mintPublishKey, PUBLISH_FUNCTION_NAMES } from "../services/auth/publish-key";
+import { loginOutlayerCli } from "../services/auth/outlayer";
+import { mintPublishKey } from "../services/auth/publish-key";
+import type { SessionCredential } from "../services/auth/session";
 import { SessionStore } from "../services/auth/session-store";
 import { SiteClient, type SiteClientShape } from "../services/auth/site-client";
-import { getRegistryNamespaceForAccount } from "../services/registry/fastkv";
 import type { ResolutionSession } from "../services/resolution/session";
 import { ResolutionSessionService } from "../services/resolution/session";
+import { getNetworkIdForAccount } from "../utils/network";
 import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";
 
 export function registerKeys(builder: BosBuilder) {
   return {
-    keyPublish: builder.keyPublish.effect(function* (_opts, input) {
-      const session = yield* ResolutionSessionService;
-      if (!session?.config) {
-        return {
-          status: "error" as const,
-          account: "",
-          network: "mainnet" as const,
-          env: input.env,
-          contract: "",
-          allowance: input.allowance,
-          functionNames: PUBLISH_FUNCTION_NAMES,
-          error: MISSING_CONFIG_MESSAGE,
-        } satisfies KeyPublishResult;
-      }
-
-      return yield* Effect.tryPromise({
-        try: () => keyPublishBody(session, input),
-        catch: (error) => {
-          const account = keyPublishAccount(session, input.env);
-          return {
-            status: "error" as const,
-            account,
-            network: account ? getNetworkIdForAccount(account) : ("mainnet" as const),
-            env: input.env,
-            contract: getRegistryNamespaceForAccount(account, input.registry),
-            allowance: input.allowance,
-            functionNames: PUBLISH_FUNCTION_NAMES,
-            error: error instanceof Error ? error.message : "Unknown error",
-          };
-        },
-      });
-    }),
-
     login: builder.login.effect(function* (_opts, input) {
       const session = yield* ResolutionSessionService;
       const deviceLogin = yield* DeviceLoginService;
@@ -285,75 +248,6 @@ async function logoutBody(
     removedPublishKey,
     warning,
   } satisfies LogoutResult;
-}
-
-function keyPublishAccount(
-  session: { config: { account?: string; staging?: { account?: string } | undefined } | null },
-  env: "production" | "staging",
-): string {
-  const account =
-    env === "staging"
-      ? (session.config?.staging?.account ?? session.config?.account)
-      : session.config?.account;
-  return account ?? "";
-}
-
-async function keyPublishBody(
-  session: { config: { account?: string; staging?: { account?: string } | undefined } | null },
-  input: {
-    env: "production" | "staging";
-    allowance: string;
-    registry?: string;
-    removeOldKeys?: boolean;
-  },
-): Promise<KeyPublishResult> {
-  const account = keyPublishAccount(session, input.env);
-  const minted = await mintPublishKey({
-    account: account ?? "",
-    registry: input.registry,
-    allowance: input.allowance,
-  });
-
-  if (minted.oldKeys.length > 0) {
-    console.log();
-    console.log(
-      `  Found ${minted.oldKeys.length} existing publish key${minted.oldKeys.length > 1 ? "s" : ""}:`,
-    );
-    for (const k of minted.oldKeys) {
-      console.log(`    ${colors.dim(k)}`);
-    }
-
-    if (input.removeOldKeys === true) {
-      try {
-        await deleteAccessKeys(account ?? "", minted.oldKeys, minted.network);
-        console.log(
-          `  ${colors.green("✓")} Removed ${minted.oldKeys.length} old key${
-            minted.oldKeys.length > 1 ? "s" : ""
-          }`,
-        );
-      } catch {
-        console.log(
-          `  ${colors.yellow("⚠")} Failed to remove old key${
-            minted.oldKeys.length > 1 ? "s" : ""
-          } (new key still active)`,
-        );
-      }
-    } else {
-      console.log(`  ${colors.dim("Old key(s) retained.")}`);
-    }
-  }
-
-  return {
-    status: "published",
-    account: account ?? "",
-    network: minted.network,
-    env: input.env,
-    contract: minted.contract,
-    allowance: input.allowance,
-    functionNames: PUBLISH_FUNCTION_NAMES,
-    publicKey: minted.keyPair.publicKey,
-    privateKey: minted.keyPair.privateKey,
-  };
 }
 
 function resolveLoginSiteUrl(

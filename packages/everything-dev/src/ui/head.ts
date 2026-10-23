@@ -1,6 +1,6 @@
 import type { ClientRuntimeConfig } from "../types";
 import { type EntrySlot, entryUrls } from "./slot";
-import type { HeadScript } from "./types";
+import type { HeadLink, HeadScript } from "./types";
 
 export interface RemoteScriptsOptions {
   runtimeConfig?: Partial<ClientRuntimeConfig>;
@@ -85,6 +85,50 @@ export function getRemoteScripts(options: RemoteScriptsOptions): HeadScript[] {
   }
 
   return [entryScript, getHydrateScript(runtimeConfig, containerName, hydratePath, cspNonce)];
+}
+
+/**
+ * Preload hints for the composed plugin-UI remotes (`ui.compose`). Without
+ * them each remote entry is discovered only after the core remoteEntry
+ * executes and hydrate registers remotes — serializing
+ * document → remoteEntry → manifest → remoteEntry. Attributes must match
+ * how the MF runtime loads these resources (plain no-cors `<script>` for
+ * entries, cors `fetch()` for manifests) or the browser refetches.
+ *
+ * Server-only: the client render (hydration re-render of head content, or
+ * the client-shell fallback) runs after the hydrate compose has already
+ * fetched the manifests and entries — re-injecting the hints then produces
+ * preloads nothing will ever consume ("preloaded but not used" console
+ * warnings on every load).
+ */
+export function getRemotePreloadLinks(
+  runtimeConfig: Partial<ClientRuntimeConfig> | undefined,
+): HeadLink[] {
+  if (typeof window !== "undefined") return [];
+  const remotes = runtimeConfig?.ui?.compose?.remotes ?? [];
+  const seen = new Set<string>();
+  const links: HeadLink[] = [];
+  for (const remote of remotes) {
+    if (remote.manifestUrl && !seen.has(remote.manifestUrl)) {
+      seen.add(remote.manifestUrl);
+      links.push({
+        rel: "preload",
+        href: remote.manifestUrl,
+        as: "fetch",
+        crossOrigin: "anonymous",
+      });
+    }
+    if (remote.entry && !seen.has(remote.entry)) {
+      seen.add(remote.entry);
+      links.push({
+        rel: "preload",
+        href: remote.entry,
+        as: "script",
+        fetchPriority: "high",
+      });
+    }
+  }
+  return links;
 }
 
 export function getBaseStyles(): string {

@@ -225,12 +225,13 @@ export default defineConfig({
 - Forgetting `vite-tsconfig-paths` plugin — package subpath imports like `every-plugin/errors` won't resolve
 - Omitting the `registry` object when calling `createPluginRuntime(...)` — the runtime requires explicit plugin entries
 - Testing only happy paths — always test error channels (Effect failures, ORPCError throws)
+- Asserting errors by message from a client call — oRPC v2 does not transport undefined-error messages, so message-based assertions are brittle. Match on `error.code` instead: `await expect(client.getById({ id: "x" })).rejects.toMatchObject({ code: "NOT_FOUND" })`.
 
 ## The tasks you will actually be given
 
 **"Add an integration test for a new route"** — in `plugins/<your-plugin>/tests/integration/plugin.test.ts`, follow the `_template` pattern (`plugins/_template/tests/setup.ts`): call `await getPluginClient({ userId: "user123" })` — it boots `createPluginRuntime` with the registry keyed by the package.json `name`, config from `plugin.dev.ts`, and an HTTP server that maps `x-test-user`/`x-test-session` headers to context. Then drive the route through the client and assert the response. Run with `cd plugins/<your-plugin> && pnpm test` (script `vitest run`, `testTimeout: 30000` in `vitest.config.ts`).
 
-**"Prove a service method fails with the right ORPC code"** — follow `plugins/_template/tests/unit/things-service.test.ts`: build a fresh layer with `DatabaseLive('pglite:<mkdtemp dir>')` and `Layer.succeed(PluginIdTag, "<pluginId>")`, run the failing effect through `Effect.runPromiseExit` + `Cause.squash`, then `expect(error).toBeInstanceOf(ORPCError)` and `expect(error.code).toBe("CONFLICT")` (or `NOT_FOUND`). Clean the temp dir in `afterEach`.
+**"Prove a service method fails with the right ORPC code"** — follow `plugins/_template/tests/unit/things-service.test.ts`: build a fresh layer with `DatabaseLive({ pluginId: "<pluginId>", secrets: { <SLUG>_DATABASE_URL: "pglite:<mkdtemp dir>" } })` (pluginId is a value on the initialize input since ADR 0033 — no `PluginIdTag` provision needed), run the failing effect through `Effect.runPromiseExit` + `Cause.squash`, then `expect(error).toBeInstanceOf(ORPCError)` and `expect(error.code).toBe("CONFLICT")` (or `NOT_FOUND`). Clean the temp dir in `afterEach`. For a pure unit seam, provide a fake with `Layer.succeed(DatabaseTag, fakeDb)` — the plugin-owned tag is the swap seam.
 
 **"A test fails at `usePlugin` with a validation error"** — the config comes from `plugin.dev.ts` via `tests/setup.ts` (`TEST_CONFIG`). The runtime validates `variables` and `secrets` against the plugin's zod schemas (`validate-config` / `validate-secrets` → `PluginRuntimeError` with a `zodError` cause). Fix the config in `plugin.dev.ts`, not the test.
 

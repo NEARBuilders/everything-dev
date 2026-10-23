@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeSpawnEnv, mergeGeneratedOverFileEnv } from "../../src/orchestrator";
+import { composeSpawnEnv, mergeGeneratedOverFileEnv } from "../../src/services/dev/orchestrator";
 
 describe("mergeGeneratedOverFileEnv", () => {
   it("generated env wins over stale .env-file values (port drift)", () => {

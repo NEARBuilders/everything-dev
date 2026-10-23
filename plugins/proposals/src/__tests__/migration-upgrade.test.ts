@@ -1,15 +1,25 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { Effect } from "effect";
-import { getMigrationStorage } from "everything-dev/db";
+import {
+  createDatabaseDriver,
+  getMigrationStorage,
+  loadMigrations as loadSharedMigrations,
+  runMigrations,
+} from "everything-dev/db";
 import { describe, expect, it } from "vitest";
-import { createDatabaseDriver } from "../db/index";
-import { loadMigrations, migrate } from "../db/migrate";
+import * as schema from "../db/schema";
+
+const loadMigrations = loadSharedMigrations({
+  fromDir: join(import.meta.dirname, "../db"),
+  virtual: () => import("virtual:drizzle-migrations.sql"),
+});
 
 describe("proposals migrations", () => {
   it("upgrades legacy proposals before current lifecycle queries run", async () => {
-    const driver = await createDatabaseDriver(":memory:", "plugin_proposals");
+    const driver = await createDatabaseDriver(":memory:", schema, "plugin_proposals");
     try {
       await driver.db.execute(
         sql.raw(`
@@ -69,7 +79,9 @@ describe("proposals migrations", () => {
       );
 
       const { migrations } = await Effect.runPromise(loadMigrations);
-      await Effect.runPromise(migrate(driver.db, migrations, storage, "plugin_proposals"));
+      await Effect.runPromise(
+        runMigrations(driver.db, migrations, { journal: storage, schemaName: "plugin_proposals" }),
+      );
 
       const result = await driver.db.execute(
         sql.raw(`

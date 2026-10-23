@@ -2,7 +2,7 @@
 name: publish-sync
 description: Publish the authored config (bos.app.ts) to the FastKV registry, sync from upstream, and upgrade workspace packages. Use when deploying, syncing, or managing runtime configuration across projects.
 metadata:
-  sources: "packages/everything-dev/src/plugin.ts,packages/everything-dev/src/services/scaffold/sync.ts,packages/everything-dev/src/services/scaffold/upgrade.ts,packages/everything-dev/src/services/registry/fastkv.ts,packages/everything-dev/src/integrity.ts,packages/everything-dev/src/config.ts"
+  sources: "packages/everything-dev/src/plugin.ts,packages/everything-dev/src/services/scaffold/sync.ts,packages/everything-dev/src/services/scaffold/upgrade.ts,packages/everything-dev/src/services/registry/fastkv.ts,packages/everything-dev/src/services/deploy/integrity.ts,packages/everything-dev/src/services/deploy/train.ts,packages/everything-dev/src/services/deploy/platform-manifest.ts,packages/everything-dev/src/services/platform/manifest.ts,packages/everything-dev/src/config.ts"
 ---
 
 > **Config form:** the authored config is `bos.app.ts` (canonical, preferred when both exist). A legacy `bos.config.json` is still supported for older children. Where this doc says `bos.config.json` for the *local authored file*, read "the authored config". The published artifact on FastKV keeps the key name `bos.config.json`.
@@ -12,9 +12,9 @@ metadata:
 ## Core Workflow
 
 ```
-Build → Publish → Sync
-  ↓        ↓        ↓
-rspack  FastKV    bos sync
+Build → Publish
+  ↓        ↓
+rspack  FastKV
 ```
 
 ## Publish
@@ -38,6 +38,7 @@ After `bos publish --deploy`:
 1. Each workspace builds; the publish writes deterministic bundle URLs (`https://<domain>/bundles/<account>/<gateway>/<workspace>/`)
 2. Pipeline state (production URLs, integrity) goes to FastKV. For legacy JSON-form projects, `bos.config.json` is also updated locally; for the authored `bos.app.ts` form, nothing is written back — the authoring surface never holds pipeline state
 3. Config is published to the FastKV registry at `{account}/bos/gateways/{gateway}/bos.config.json`
+4. On a full deploy train (production build with upload — config-only publishes and staging skip this), the **platform release manifest** (ADR 0034) rides the same atomic write as a third `registryEntries` key at `apps/<account>/<gateway>/platform.json`, with its own SRI recorded in the per-deploy audit manifest. A registry failure reading the previous release skips the manifest for that deploy — a silently-wrong compat window is never published; the next deploy lands it.
 
 The `--network` flag controls the NEAR network (mainnet by default). With `--network testnet`, publishes go to the NEAR testnet chain under the testnet account specified in config.
 
@@ -81,27 +82,20 @@ After that one-time setup, `bos deploy` (with `RAILWAY_TOKEN` + `ci.railway.serv
 
 **Subaccount creation** (unused by the tenant wizard today — tenants are owned by the connected sputnik-dao account) requires an explicit relayer with a named account: set `siwn.relayer.{mainnet,testnet}.accountId` + a private key, and point `siwn.subAccount.parentAccount`, `siwn.recipients`, and `siwn.relayer.*.whitelistedContracts` to your account.
 
-## Sync
+## Upgrade (ADR 0034)
 
-Pull template updates from the parent referenced by the local authored config:
+Template updates arrive only through `bos upgrade`, which re-pins the child's `platform` field to the parent's latest release and reconciles framework-owned files at that **release tag** (not `main` HEAD). Conflicting local edits abort the run with the upstream-issue URL; `--force` backs them up under `.bos/sync-backup/` and continues. See `everything-dev#init-upgrade` for the full flow.
 
-```bash
-bos sync
-bos sync --force
-bos sync --dry-run
-```
-
-What gets synced from the parent template:
-- `app.*.production` — bundle URLs
-- `app.*.ssr` — SSR URLs
-- `shared` — shared dependency versions
-- framework-owned files like build configs, router wiring, and shared runtime scaffolding
+What the upgrade reconciles from the parent template:
+- framework-owned files (build configs, workflow wrappers, db/lib plumbing — ADR 0032/0033)
+- `package.json` deps/scripts/workspaces inside the template's override scopes
+- the `platform` pin and the catalog behind it (ADR 0034)
 
 What stays local:
 - `account`, `testnet` — your NEAR accounts
 - `app.*.development` — local dev URLs
 
-What gets merged:
+Publish still merges what the parent publishes with the child's authored surface:
 - `app.*.secrets` — union of remote + local
 - `app.*.variables` — merged (local overrides remote)
 
@@ -112,7 +106,10 @@ Bump `every-plugin` and `everything-dev` across all workspaces:
 ```bash
 bos upgrade              # Check for new versions, update, then sync
 bos upgrade --dry-run    # Preview without making changes
+bos upgrade --check      # CI drift alarm (ADR 0034): dry-run + exit 1 when updates are available
 ```
+
+When a platform release manifest resolves, its catalog is the version source (one registry read — no parent-repo tarball walk). `--check` diffs the recorded `platform` pin against the latest published manifest and exits 1 when updates are available; child CI runs it as the `platform-drift` job inside the pinned `consumer-ci` reusable call.
 
 `bos upgrade` updates **all workspace `package.json`s**, not just root. Also updates `peerDependencies` and `workspaces.catalog`. Correctly skips `workspace:*` and `catalog:` references.
 
@@ -148,6 +145,7 @@ All runtime config lives in the authored config. Key sections:
 - `account` — NEAR mainnet account
 - `testnet` — NEAR testnet account
 - `staging.domain` — Staging domain
+- `platform` — the framework release pin (ADR 0034, e.g. `"2.0.0-rc.14"`); absent = latest via extends
 - `app.host`, `app.ui`, `app.api`, `app.auth` — Module configs with development/production URLs
 - `plugins.{key}` — Plugin configs with variables, secrets, routes
 - `app.api.shared`, `app.auth.shared`, `plugins.{key}.shared` — Module Federation shared dependency versions
@@ -182,7 +180,7 @@ For remix-host browsing with the apps plugin:
 
 ### What bos dev writes vs bos publish writes
 
-See `everything-dev#extends-config` for the full table. In short: `bos dev` and `bos build` write to `.bos/bos.resolved-config.json` (gitignored); `bos publish --deploy`, `bos plugin publish`, and `bos sync` write to the authored config — `bos.app.ts` for TS-form projects, `bos.config.json` for legacy JSON-form children. Pipeline state (deploy-injected URLs) is written back only for JSON-form.
+See `everything-dev#extends-config` for the full table. In short: `bos dev` and `bos build` write to `.bos/bos.resolved-config.json` (gitignored); `bos publish --deploy`, `bos plugin publish`, and `bos upgrade` (pin stamping) write to the authored config — `bos.app.ts` for TS-form projects, `bos.config.json` for legacy JSON-form children. Pipeline state (deploy-injected URLs) is written back only for JSON-form.
 
 ## Troubleshooting
 

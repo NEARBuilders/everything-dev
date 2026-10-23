@@ -3,7 +3,6 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Context } from "effect";
 import { applyDevOverlay } from "../../descriptor/resolve";
-import { readWorkspaceCatalog, resolveSourceDir } from "../../init-source";
 import type {
   BosConfig,
   BosConfigInput,
@@ -14,6 +13,7 @@ import type {
 import { BosConfigSchema } from "../../types";
 import { parseBosRef } from "../../utils/bos-ref";
 import { fetchBosConfigFromFastKv } from "../registry/fastkv";
+import { readWorkspaceCatalog, resolveSourceDir } from "./init-source";
 import {
   CircularExtendsError,
   ConfigExtendsError,
@@ -34,6 +34,7 @@ import {
 import type { BosEnv } from "./merge";
 import { mergeBosConfigWithExtends, resolveExtendsRef } from "./merge";
 import { buildRuntimeConfig, buildRuntimePluginsForConfig } from "./runtime";
+import { collectUnknownKeys } from "./unknown-keys";
 
 export interface ResolutionRequest {
   cwd?: string;
@@ -95,6 +96,10 @@ interface WalkOptions {
   registry?: string;
   io: ResolvedIo;
   collectCatalogs: boolean;
+  /** use this config for the entry node itself instead of fetching/reading
+   * it — the caller already holds the bytes (e.g. the adopt path's pointer);
+   * parent nodes always load normally */
+  seedConfig?: BosConfigInput;
   visit?: (link: WalkLink) => Promise<void>;
   registerCleanup?: (fn: () => Promise<void>) => void;
 }
@@ -106,6 +111,9 @@ interface SessionParts {
   path: string | null;
   chain: string[];
   rawConfig: BosConfigInput | null;
+  /** Authored-leaf keys the schema strips silently (retired or mistyped) —
+   * `bos deploy` fails on these (the lossless parse seam). */
+  unknownAuthoredKeys?: string[];
   catalog: Record<string, string> | null;
   repository: string | undefined;
   env: BosEnv;
@@ -173,7 +181,9 @@ async function walkExtends(
   let nodeBaseDir = baseDir;
   let sourceDir: string | undefined;
 
-  if (ref.startsWith("bos://") && options.collectCatalogs) {
+  if (options.seedConfig) {
+    config = options.seedConfig;
+  } else if (ref.startsWith("bos://") && options.collectCatalogs) {
     const parsed = parseBosRef(ref);
     if (!parsed) {
       throw new ConfigLoadError({ path: ref, message: `Invalid bos ref: ${ref}` });
@@ -218,13 +228,10 @@ async function walkExtends(
 
   const nextVisited = new Set(visited);
   nextVisited.add(ref);
-  const parent = await walkExtends(
-    parsedParentRef.configPath,
-    parentBaseDir,
-    nextVisited,
-    chain,
-    options,
-  );
+  const parent = await walkExtends(parsedParentRef.configPath, parentBaseDir, nextVisited, chain, {
+    ...options,
+    seedConfig: undefined,
+  });
 
   await options.visit?.({ ref, config, baseDir: nodeBaseDir, sourceDir, isLeaf: false });
   return mergeBosConfigWithExtends(parent, config);
@@ -296,6 +303,7 @@ export class ResolutionSession {
   readonly path: string | null;
   readonly chain: readonly string[];
   readonly rawConfig: BosConfigInput | null;
+  readonly unknownAuthoredKeys: readonly string[];
   readonly catalog: Record<string, string> | null;
   readonly repository: string | undefined;
 
@@ -309,6 +317,7 @@ export class ResolutionSession {
     this.path = parts.path;
     this.chain = parts.chain;
     this.rawConfig = parts.rawConfig;
+    this.unknownAuthoredKeys = parts.unknownAuthoredKeys ?? [];
     this.catalog = parts.catalog;
     this.repository = parts.repository;
     this.#env = parts.env;
@@ -329,6 +338,7 @@ export class ResolutionSession {
       path: parts.source?.path ?? null,
       chain: parts.source?.extended ?? [],
       rawConfig: null,
+      unknownAuthoredKeys: [],
       catalog: null,
       repository: undefined,
       env: defaultConfigEnv(),
@@ -412,17 +422,22 @@ export async function openResolution(
         });
 
         let overlayMerged = mergedRaw;
+        let devOverlay: Record<string, unknown> | undefined;
         if (env === "development" && !dispatch.remote) {
           const overlayPath = join(dirname(dispatch.entry), DEV_OVERLAY_FILENAME);
           if ((await resolvedIo.readFileOrNull(overlayPath)) !== null) {
-            const overlay = parseDevOverlayModule(
+            devOverlay = parseDevOverlayModule(
               await resolvedIo.importModule(overlayPath),
               overlayPath,
             );
-            overlayMerged = applyDevOverlay(mergedRaw, overlay);
+            overlayMerged = applyDevOverlay(mergedRaw, devOverlay);
           }
         }
 
+        const unknownAuthoredKeys = [
+          ...collectUnknownKeys(rawConfig ?? null, BosConfigSchema),
+          ...(devOverlay ? collectUnknownKeys(devOverlay, BosConfigSchema) : []),
+        ];
         const config = await resolveConfigComposableEntries(
           BosConfigSchema.parse(overlayMerged),
           dispatch.baseDir,
@@ -446,6 +461,7 @@ export async function openResolution(
           path: dispatch.path,
           chain,
           rawConfig: rawConfig ?? null,
+          unknownAuthoredKeys,
           catalog: collectCatalogs ? Object.assign({}, ...[...catalogs].reverse()) : null,
           repository,
         } satisfies Omit<SessionParts, "env" | "warnings">;
@@ -478,6 +494,7 @@ export async function walkExtendsChain(
     io?: ResolutionIo;
     registry?: string;
     collectCatalogs?: boolean;
+    seedConfig?: BosConfigInput;
     visit: (link: WalkLink) => Promise<void>;
     registerCleanup?: (fn: () => Promise<void>) => void;
   },
@@ -491,6 +508,7 @@ export async function walkExtendsChain(
       registry: options.registry,
       io: resolveIo(options.io),
       collectCatalogs: options.collectCatalogs === true,
+      seedConfig: options.seedConfig,
       visit: options.visit,
       registerCleanup: options.registerCleanup ?? ((fn) => ownedCleanups.push(fn)),
     });
@@ -509,7 +527,13 @@ export async function walkExtendsChain(
  */
 export async function resolveMergedConfigInput(
   entry: string,
-  options?: { baseDir?: string; env?: BosEnv; io?: ResolutionIo; registry?: string },
+  options?: {
+    baseDir?: string;
+    env?: BosEnv;
+    io?: ResolutionIo;
+    registry?: string;
+    seedConfig?: BosConfigInput;
+  },
 ): Promise<BosConfigInput> {
   const baseDir = options?.baseDir ?? process.cwd();
   return walkExtends(entry, baseDir, new Set(), [], {
@@ -517,5 +541,6 @@ export async function resolveMergedConfigInput(
     registry: options?.registry,
     io: resolveIo(options?.io),
     collectCatalogs: false,
+    seedConfig: options?.seedConfig,
   });
 }

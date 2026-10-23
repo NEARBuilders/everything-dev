@@ -44,6 +44,7 @@ export default App({
       deviceLink: { clientId: "everything-dev-web" },
       passkey: { rpID: "everything.dev", rpName: "everything.dev" },
       socialProviders: { github: {}, google: {} },
+      referral: { maskReferredUserEmail: true },
       siwn: {
         recipients: {
           mainnet: "dev.everything.near",

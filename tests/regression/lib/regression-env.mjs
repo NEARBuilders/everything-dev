@@ -40,19 +40,20 @@ export function loadRegressionConfig(repoRoot) {
     return JSON.parse(fs.readFileSync(path.join(repoRoot, "bos.config.json"), "utf-8"));
   }
 
-  const result = spawnSync(
-    "node",
-    [
-      "--import",
-      "tsx",
-      "--conditions=development",
-      path.join(repoRoot, "tests/regression/lib/resolve-config.mjs"),
-    ],
-    { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
-  );
+  // `bos types gen` is the hermetic local-resolution step: fresh checkouts
+  // get .bos/bos.resolved-config.json materialized by the same CLI resolution
+  // the dev/build train uses — no hand-rolled reader needed. Spawned through
+  // the root script (tsx + source conditions), not the bin: CI jobs never
+  // build the CLI dist, and `pnpm exec` only finds `bos` where a global
+  // install happens to sit on PATH.
+  const result = spawnSync("pnpm", ["run", "bos", "types", "gen"], {
+    cwd: repoRoot,
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   if (result.status !== 0) {
     throw new Error(
-      `Failed to resolve the authored config (resolve-config exited ${result.status}):\n${result.stderr ?? result.stdout ?? ""}`,
+      `Failed to resolve the authored config (bos types gen exited ${result.status}):\n${result.stderr ?? result.stdout ?? ""}`,
     );
   }
   const resolved = readGeneratedConfig(repoRoot);

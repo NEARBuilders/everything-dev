@@ -1,6 +1,6 @@
-import type { StartSummary } from "../../dev-program";
+import type { StartSummary } from "../../services/dev/session";
 import { colors } from "../../utils/theme";
-import { formatDuration, sumPhaseDurations } from "../timing";
+import { formatDuration, sumPhaseDurations } from "../../utils/timing";
 
 /** The `bos start` boot summary. */
 export function printStartSummary(summary: StartSummary) {

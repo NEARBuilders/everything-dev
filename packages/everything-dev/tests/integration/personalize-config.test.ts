@@ -9,7 +9,7 @@ import {
   PNPM_PACKAGE_MANAGER,
   personalizeConfig,
 } from "../../src/cli/init";
-import { loadManifestNormalizationSpec } from "../../src/internal/manifest-normalizer";
+import { loadManifestNormalizationSpec } from "../../src/services/registry/manifest-normalizer";
 import { loadParentConfigFixture, writeChildConfigFixture } from "../helpers/parent-config";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");

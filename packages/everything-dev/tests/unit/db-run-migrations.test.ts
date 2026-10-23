@@ -3,9 +3,6 @@ import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
-import { migrate as apiMigrate } from "../../../../api/src/db/migrate";
-import { migrate as proposalsMigrate } from "../../../../plugins/proposals/src/db/migrate";
-import { migrate as votesMigrate } from "../../../../plugins/votes/src/db/migrate";
 import {
   type DatabaseError,
   isConcurrentDdlUniqueViolation,
@@ -23,7 +20,13 @@ type Runner = (
   schemaName?: string,
 ) => Effect.Effect<number, DatabaseError>;
 
-const apiMigrationRunner: Runner = apiMigrate;
+/**
+ * The workspace copies of `migrate` were deleted with the db trio (ADR 0033)
+ * — every workspace reaches the same runner through `databaseLayer`. The
+ * characterization suite now exercises the shared runner directly.
+ */
+const apiMigrationRunner: Runner = (db, migrations, storage, schemaName) =>
+  Effect.map(runMigrations(db, migrations, { journal: storage, schemaName }), (r) => r.applied);
 
 function migration(idx: number, tag: string, statements: string[]): Migration {
   return {
@@ -76,27 +79,25 @@ describe("db migration runners (008 characterization)", () => {
     expect(rows.rows.map((r) => r.hash)).toEqual(["hash-mig_one", "hash-mig_two"]);
   });
 
-  it("partial overlap (the 25P2 bug): every runner — including votes/proposals via adapters — survives via savepoints", async () => {
-    const runners: readonly Runner[] = [apiMigrate, votesMigrate, proposalsMigrate];
-    for (const runner of runners) {
-      const db = makeDb();
-      await db.execute(sql.raw('CREATE TABLE "t_legacy" (id int)'));
+  it("partial overlap (the 25P2 bug): journal statement ordering survives via savepoints", async () => {
+    const runner = apiMigrationRunner;
+    const db = makeDb();
+    await db.execute(sql.raw('CREATE TABLE "t_legacy" (id int)'));
 
-      const migrations = [
-        migration(0, "overlap", [
-          'CREATE TABLE "t_legacy" (id int)',
-          'CREATE TABLE "t_new" (id int)',
-        ]),
-      ];
+    const migrations = [
+      migration(0, "overlap", [
+        'CREATE TABLE "t_legacy" (id int)',
+        'CREATE TABLE "t_new" (id int)',
+      ]),
+    ];
 
-      const applied = await runMigration(runner(db, migrations, JOURNAL));
-      expect(applied).toBe(1);
+    const applied = await runMigration(runner(db, migrations, JOURNAL));
+    expect(applied).toBe(1);
 
-      const exists = (await db.execute(
-        sql`SELECT table_name FROM information_schema.tables WHERE table_name = 't_new'`,
-      )) as { rows: unknown[] };
-      expect(exists.rows).toHaveLength(1);
-    }
+    const exists = (await db.execute(
+      sql`SELECT table_name FROM information_schema.tables WHERE table_name = 't_new'`,
+    )) as { rows: unknown[] };
+    expect(exists.rows).toHaveLength(1);
   });
 
   it("preflight: migration whose expected tables all exist is recorded as applied without replaying DDL", async () => {
@@ -150,6 +151,93 @@ describe("db migration runners (008 characterization)", () => {
 });
 
 const itPostgres = process.env.TEST_DATABASE === "postgres" ? it : it.skip;
+
+describe("ALTER TYPE ... ADD VALUE migrations (per-migration commit boundaries)", () => {
+  const enumMigrations = [
+    migration(0, "enum_create", [
+      `CREATE TYPE "public"."tenant_status" AS ENUM ('active', 'suspended')`,
+      `ALTER TYPE "public"."tenant_status" ADD VALUE 'pending' BEFORE 'suspended'`,
+      `CREATE TABLE "tenants" (id int, status "public"."tenant_status" DEFAULT 'active')`,
+    ]),
+    migration(1, "enum_add", [
+      `ALTER TYPE "public"."tenant_status" ADD VALUE 'archived' AFTER 'suspended'`,
+    ]),
+    migration(2, "enum_use", [`ALTER TABLE "tenants" ALTER COLUMN status SET DEFAULT 'archived'`]),
+  ];
+
+  it("fresh db: type creation, ADD VALUE, and a later migration using the value all apply", async () => {
+    const db = makeDb();
+
+    const report = await Effect.runPromise(
+      runMigrations(db as unknown as MigrationDatabase, enumMigrations, { journal: JOURNAL }),
+    );
+    expect(report.applied).toBe(3);
+
+    const defaults = (await db.execute(
+      sql`SELECT column_default FROM information_schema.columns WHERE table_name = 'tenants' AND column_name = 'status'`,
+    )) as { rows: { column_default: string }[] };
+    expect(defaults.rows[0]?.column_default).toContain("archived");
+  });
+
+  it("already-migrated db: rerun applies 0 without re-running ADD VALUE (no 42710)", async () => {
+    const db = makeDb();
+    await Effect.runPromise(
+      runMigrations(db as unknown as MigrationDatabase, enumMigrations, { journal: JOURNAL }),
+    );
+
+    const rerun = await Effect.runPromise(
+      runMigrations(db as unknown as MigrationDatabase, enumMigrations, { journal: JOURNAL }),
+    );
+    expect(rerun.applied).toBe(0);
+  });
+
+  it("ADD VALUE migrations are journaled like any other migration", async () => {
+    const db = makeDb();
+    await Effect.runPromise(
+      runMigrations(db as unknown as MigrationDatabase, enumMigrations, { journal: JOURNAL }),
+    );
+
+    const rows = (await db.execute(
+      sql`SELECT hash FROM "drizzle"."__drizzle_migrations" ORDER BY id`,
+    )) as { rows: { hash: string }[] };
+    expect(rows.rows.map((r) => r.hash)).toEqual([
+      "hash-enum_create",
+      "hash-enum_add",
+      "hash-enum_use",
+    ]);
+  });
+
+  it("ADD VALUE works under a plugin schema namespace (statement stripping)", async () => {
+    const db = makeDb();
+    const schemaName = "plugin_enum_ns";
+
+    const report = await Effect.runPromise(
+      runMigrations(db as unknown as MigrationDatabase, enumMigrations, {
+        journal: JOURNAL,
+        schemaName,
+      }),
+    );
+    expect(report.applied).toBe(3);
+
+    // The bare test driver has no namespaced search_path, so unqualified DDL
+    // resolves to public — the assertion is that stripping "public". didn't
+    // break the enum chain, and the data schema was created.
+    const labels = (await db.execute(
+      sql`SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = 'tenant_status' ORDER BY e.enumsortorder`,
+    )) as { rows: { enumlabel: string }[] };
+    expect(labels.rows.map((r) => r.enumlabel)).toEqual([
+      "active",
+      "pending",
+      "suspended",
+      "archived",
+    ]);
+
+    const schemas = (await db.execute(
+      sql`SELECT count(*) AS count FROM information_schema.schemata WHERE schema_name = 'plugin_enum_ns'`,
+    )) as { rows: { count: string }[] };
+    expect(Number(schemas.rows[0]?.count)).toBe(1);
+  });
+});
 
 describe("advisory-lock serialization (postgres-only)", () => {
   itPostgres(

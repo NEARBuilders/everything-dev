@@ -159,19 +159,12 @@ function extractChangelogNotes(changelogPath: string, version: string): string |
   return body.length > 0 ? body.join("\n") : null;
 }
 
-for (const { dir } of releaseDirs) {
-  const { name, version } = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as {
-    name: string;
-    version: string;
-  };
-  const tag = `${name}@${version}`;
-
+function ensureRelease(tag: string, version: string, notes: string | null): void {
   if (probe("gh", ["release", "view", tag])) {
     console.log(`Release ${tag} already exists, skipping`);
-    continue;
+    return;
   }
 
-  const notes = extractChangelogNotes(join(dir, "CHANGELOG.md"), version) ?? `Release ${tag}`;
   const args = [
     "release",
     "create",
@@ -179,12 +172,41 @@ for (const { dir } of releaseDirs) {
     "--title",
     tag,
     "--notes",
-    notes,
+    notes ?? `Release ${tag}`,
     "--target",
     releaseCommit,
   ];
   if (version.includes("-")) args.push("--prerelease");
   run("gh", args);
+}
+
+let frameworkVersion: string | undefined;
+
+for (const { dir } of releaseDirs) {
+  const { name, version } = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as {
+    name: string;
+    version: string;
+  };
+  if (name === "everything-dev") frameworkVersion = version;
+
+  ensureRelease(
+    `${name}@${version}`,
+    version,
+    extractChangelogNotes(join(dir, "CHANGELOG.md"), version),
+  );
+}
+
+// The canonical framework release tag (ADR 0034 pt 4): release-scoped sync
+// pulls the `v<frameworkVersion>` tarball and child workflow wrappers pin it
+// in their `uses:` refs. The per-package changesets tag alone left upgrades
+// hard-failing on `ref not found (v<version>)` until this tag was pushed by
+// hand — the release train now owns it.
+if (frameworkVersion) {
+  ensureRelease(
+    `v${frameworkVersion}`,
+    frameworkVersion,
+    `Framework release ${frameworkVersion} — the platform release tag release-scoped sync and child workflow refs pin (ADR 0034).`,
+  );
 }
 
 console.log(`Published ${published} package(s) to npm.`);

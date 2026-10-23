@@ -43,6 +43,11 @@ export interface AuthSiwnRecipientsConfig extends AuthSiwnBaseConfig {
 
 export type AuthSiwnConfig = AuthSiwnRecipientConfig | AuthSiwnRecipientsConfig;
 
+export interface AuthReferralConfig {
+  maskReferredUserEmail?: boolean;
+  steps?: string[];
+}
+
 export interface AuthConfig {
   secret: string;
   baseUrl: string;
@@ -50,6 +55,7 @@ export interface AuthConfig {
   organizationMembershipLimit?: number;
   trustedOrigins?: string[];
   isProduction?: boolean;
+  referral?: AuthReferralConfig;
   socialProviders?: {
     github?: {
       clientId?: string;

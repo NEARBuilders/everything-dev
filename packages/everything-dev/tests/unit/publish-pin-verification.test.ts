@@ -20,8 +20,8 @@ const {
   buildWorkspaceTargetsMock: vi.fn(),
 }));
 
-vi.mock("../../src/rollback", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/rollback")>();
+vi.mock("../../src/services/deploy/rollback", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/deploy/rollback")>();
   return { ...actual, verifyRollbackSnapshot: verifyRollbackSnapshotMock };
 });
 
@@ -34,8 +34,8 @@ vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/near-signer", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/near-signer")>();
+vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/auth/near-signer")>();
   return {
     ...actual,
     resolveSigningStrategy: resolveSigningStrategyMock,

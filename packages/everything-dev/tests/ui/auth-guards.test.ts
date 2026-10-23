@@ -12,7 +12,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../src/ui/api";
 import type { AuthClient, SessionData } from "../../src/ui/auth";
-import { sessionQueryKey } from "../../src/ui/auth";
+import { resolveSessionFromCache, sessionQueryKey } from "../../src/ui/auth";
 import { clearAuthenticatedQueries, requireSession } from "../../src/ui/auth-guards";
 
 const signedInSession = {
@@ -60,6 +60,23 @@ describe("requireSession", () => {
     });
 
     expect(result.auth.isAuthenticated).toBe(true);
+  });
+
+  it("fetches when the host resolved no session instead of trusting a freshly-seeded null (#527)", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // The SSR root route's beforeLoad hands every null host-side resolution to
+    // the cache — the guard must still run the real fetch (a valid cookie was
+    // resolving 307s because the seeded null was fresh).
+    resolveSessionFromCache(queryClient, null);
+    const authClient = createAuthClientMock([signedInSession]);
+
+    const result = await requireSession({
+      context: createContext(queryClient, authClient),
+      location: { href: "/dashboard" },
+    });
+
+    expect(result.auth.isAuthenticated).toBe(true);
+    expect(authClient.getSession).toHaveBeenCalled();
   });
 
   it("redirects to /login with the current href when no session resolves", async () => {

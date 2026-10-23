@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { isFrameworkOwnedSyncFile } from "./sync";
+import { isFrameworkOwnedSyncFile } from "./ownership";
 
 const EXTENSIONS = [
   "",

@@ -30,12 +30,12 @@ vi.mock("@outlayer/sdk", () => {
   return { OutlayerClient, OutlayerError, PolicyDeniedError, WalletFrozenError };
 });
 
-import type { CustodyWalletRecord } from "../../src/auth-session";
 import {
   custodyFundUrl,
   ensureCustodyBalance,
   submitRegistryWriteCustody,
-} from "../../src/custody-signer";
+} from "../../src/services/auth/custody-signer";
+import type { CustodyWalletRecord } from "../../src/services/auth/session";
 
 const wallet: CustodyWalletRecord = {
   apiKey: "wk_test",

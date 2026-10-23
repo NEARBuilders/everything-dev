@@ -1,13 +1,13 @@
 import { Effect, Layer } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DevOptions, PhaseTiming } from "../../src/contract";
+import { ProjectEnv } from "../../src/env/project-env";
 import {
   type BootstrapDeps,
   DevConfigMissing,
   DevStepError,
   devBootstrap,
-} from "../../src/dev-program";
-import { ProjectEnv } from "../../src/env/project-env";
+} from "../../src/services/dev/boot";
 import { ResolutionSession } from "../../src/services/resolution/session";
 import type { BosConfig, RuntimeConfig } from "../../src/types";
 
@@ -16,16 +16,16 @@ const mocks = vi.hoisted(() => ({
   syncResolvedSharedDeps: vi.fn(),
 }));
 
-vi.mock("../../src/shared-deps", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/shared-deps")>();
+vi.mock("../../src/services/workspace/shared-deps", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/workspace/shared-deps")>();
   return {
     ...actual,
     syncResolvedSharedDeps: mocks.syncResolvedSharedDeps,
   };
 });
 
-vi.mock("../../src/workspace", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/workspace")>();
+vi.mock("../../src/services/workspace/workspace", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/workspace/workspace")>();
   return {
     ...actual,
     ensureFreshDeps: vi.fn(async () => ({ rebuilt: [], fresh: [] })),

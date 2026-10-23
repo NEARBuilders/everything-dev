@@ -1,5 +1,73 @@
 # @everything-dev/auth-plugin
 
+## 2.0.0-rc.7
+
+### Minor Changes
+
+- 94597b9: Generic onboarding stats in the published auth plugin (absorbs the last citynode-specific contract surface, letting children delete their local plugins/auth copies):
+
+  - New route `GET /v1/auth/onboarding/stats` (`getOnboardingStats`), input `{ month?: "YYYY-MM", organizationId?: string }`, output `{ month, totals: { redeemed, newMembers }, organizations: [{ organizationId, organizationName, redeemed, newMembers }] }` over a single-DB SQL aggregation of onboarding redemptions. Month defaults to the current UTC month and windows are UTC first-of-month boundaries. With `organizationId` the caller must be an organizer of that organization and stats scope to it; without it the caller must be a platform admin and stats cover all organizations. `newMembers` counts distinct users whose membership in the organization was created within the same month window — users who joined by invitation or redeemed in an earlier month count as redeemed but not new.
+  - `listOnboardingCodes` gains an optional `eventId` filter alongside `organizationId`.
+
+### Patch Changes
+
+- Updated dependencies [23d8bc1]
+- Updated dependencies [3b0bbd2]
+- Updated dependencies [127afdf]
+- Updated dependencies [23d8bc1]
+- Updated dependencies [8d87150]
+- Updated dependencies [8d87150]
+- Updated dependencies [8d87150]
+  - everything-dev@2.0.0-rc.18
+
+## 2.0.0-rc.6
+
+### Minor Changes
+
+- 2266306: Add user referrals via @marinedotsh/better-auth-referral. Every user gets a referral code; signup links (/login?ref=CODE) attribute wallet, passkey, and email signups to the referrer. New "Referrals" settings tab shows the code, invite link, stats, and referred users. Configurable through the auth variables referral block (maskReferredUserEmail, steps); better-near-auth's signIn.near now forwards fetchOptions (used for the referral header).
+
+### Patch Changes
+
+- 994e186: Remove the passkey autofill input from the login page — passkey sign-in is now the explicit button only. The fake `autocomplete="username webauthn"` field (and the conditional-mediation request armed on page load) did nothing for visitors without a saved passkey and kept the browser's passkey sheet armed across view switches and navigation. Adds `cancelPasskeyCeremony()` and `isPasskeyCeremonyAborted()` to `everything-dev/ui/auth` so pending ceremonies are aborted when choosing another sign-in method, and ceremony aborts no longer surface as errors.
+- Updated dependencies [5e22370]
+- Updated dependencies [db75ca0]
+- Updated dependencies [609f31a]
+- Updated dependencies [eb19b65]
+- Updated dependencies [c66d5db]
+- Updated dependencies [5e22370]
+- Updated dependencies [994e186]
+- Updated dependencies [2266306]
+- Updated dependencies [5e22370]
+  - every-plugin@3.0.0-rc.10
+  - everything-dev@2.0.0-rc.15
+  - better-near-auth@2.0.0-rc.3
+
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- 1555405: Better Auth resolves the client IP from `x-forwarded-for`
+
+  Behind a reverse proxy (Railway, and most PaaS ingress) the socket address is the proxy's, so Better Auth could not resolve the client IP and rate limiting collapsed into one shared per-path bucket — a single abusive client could throttle everyone. The `advanced.ipAddress.ipAddressHeaders` config now trusts the standard forwarded header; deployments without a proxy are unaffected (the header is absent and the existing fallback applies). Trust precondition: the proxy must **overwrite** `x-forwarded-for`, not append — a host reachable directly by clients lets them forge the header and rotate IPs past per-IP rate limits.
+
+- c6cdfc1: Session resolved once per authed call (#429): the host session middleware now makes a single `getContext` call (which carries the session row and user) instead of parallel `getSession` + `getContext` round-trips, `requireAuth` memoizes `sessionId`/`activeOrganizationId` into the oRPC context instead of discarding them, and the auth services (`requireOrganizer`, `listUserTeams`, `redeemOnboardingCode`, `addMember`, `getInvitation`) take session-derived values as explicit parameters instead of re-hitting better-auth with raw headers. `getContext` output carries the resolved `session` (id, token, userId, expiresAt, activeOrganizationId, activeTeamId, user) so the host and handlers can reuse the one resolution.
+- Updated dependencies [a499320]
+- Updated dependencies [1555405]
+- Updated dependencies [88dbfd9]
+- Updated dependencies [522397c]
+- Updated dependencies [1555405]
+- Updated dependencies [92a39ec]
+- Updated dependencies [a499320]
+- Updated dependencies [374594e]
+- Updated dependencies [a499320]
+- Updated dependencies [422c23c]
+- Updated dependencies [5b07be1]
+- Updated dependencies [5b07be1]
+- Updated dependencies [4a7970c]
+  - better-near-auth@2.0.0-rc.2
+  - everything-dev@2.0.0-rc.11
+  - every-plugin@3.0.0-rc.7
+
 ## 2.0.0-rc.4
 
 ### Minor Changes

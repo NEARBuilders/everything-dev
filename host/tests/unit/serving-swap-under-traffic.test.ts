@@ -125,6 +125,8 @@ const publishedPointer = {
   account: "v1.citynode.near",
   domain: "citynode.app",
   app: {
+    host: { development: "local:host" },
+    api: { development: "local:api" },
     ui: {
       development: "local:ui",
       production: `${assetBaseUrl}/ui/`,

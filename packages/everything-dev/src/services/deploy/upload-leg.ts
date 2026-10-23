@@ -1,22 +1,20 @@
 import { readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { SourceRef } from "every-plugin/version-manifest";
-import {
-  diffWorkspaceFiles,
-  localSriMap,
-  mergedFileIntegrity,
-  type PreviousPin,
-} from "../../deploy-diff";
-import { buildSourceArchive, makeSourceArchiveTempDir } from "../../source-archive";
+import { diffWorkspaceFiles, localSriMap, mergedFileIntegrity, type PreviousPin } from "./diff";
+import { buildSourceArchive, makeSourceArchiveTempDir } from "./source-archive";
 import {
   type BundleUploadResult,
   collectDistFiles,
   type DistFile,
   uploadBundle,
   uploadWorkspaceDist,
-} from "../../storage-upload";
-import { composeWorkspaceVersionManifest, readBuildReport } from "../../version-manifest-deploy";
-import { resolveSlotVersion } from "../../version-manifest-resolve";
+} from "./storage";
+import {
+  composeWorkspaceVersionManifest,
+  readBuildReport,
+  resolveSlotVersion,
+} from "./version-manifest";
 
 /**
  * The ONE workspace upload leg (ticket #422): dist collection → diff upload

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { API, App, applyDevOverlay, Plugin, UI } from "../../src/descriptor/constructors";
-import { resolveApp, resolveApps } from "../../src/descriptor/resolve";
+import {
+  configInputToDescriptor,
+  resolveApp,
+  resolveApps,
+  toConfigInput,
+} from "../../src/descriptor/resolve";
 import type { AppRegistry } from "../../src/descriptor/schema";
 import type { BosConfigInput } from "../../src/types";
 
@@ -55,6 +60,7 @@ describe("descriptor constructors", () => {
   it("reject unknown keys (typo guard)", () => {
     expect(() => App({ name: "x", domian: "nope" } as never)).toThrow();
     expect(() => App({ name: "x", ui: { pat: "ui" } as never })).toThrow();
+    expect(() => App({ name: "x", ci: { image: "ghcr.io/acme/app:sha-abc" } as never })).toThrow();
   });
 
   it("Plugin.extends produces a bos:// ref attachment", () => {
@@ -186,6 +192,31 @@ describe("imported-App extends", () => {
     expect(() => resolveApp("leaf", { everything: baseApp, leaf })).toThrow(
       /deeper than one level/,
     );
+  });
+});
+
+describe("platform pin (ADR 0034)", () => {
+  it("accepts an authored platform pin and carries it into the resolved config", () => {
+    const child = App({ name: "pinned", platform: "2.0.0-rc.15" });
+    expect(() => App({ name: "strict-typo-guard", platform: 2 } as never)).toThrow();
+    expect(resolveApp("pinned", { pinned: child }).platform).toBe("2.0.0-rc.15");
+  });
+
+  it("survives the authored↔resolved round-trip so sync never strips the pin", () => {
+    const input = toConfigInput(App({ name: "pinned", platform: "2.0.0-rc.15" }));
+    expect(input.platform).toBe("2.0.0-rc.15");
+    const descriptor = configInputToDescriptor(input);
+    expect(descriptor.platform).toBe("2.0.0-rc.15");
+  });
+
+  it("inherits the parent's pin child-wins", () => {
+    const registry: AppRegistry = {
+      base: App({ name: "base", platform: "2.0.0-rc.14" }),
+      leaf: App({ name: "leaf", extends: "base" }),
+      over: App({ name: "over", extends: "base", platform: "2.0.0-rc.15" }),
+    };
+    expect(resolveApp("leaf", registry).platform).toBe("2.0.0-rc.14");
+    expect(resolveApp("over", registry).platform).toBe("2.0.0-rc.15");
   });
 });
 

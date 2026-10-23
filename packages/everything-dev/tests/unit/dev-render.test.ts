@@ -5,9 +5,9 @@ import {
   createDevRenderer,
   type DevProcessState,
   renderDevState,
-} from "../../src/components/dev-render";
+} from "../../src/cli/render/dev-render";
 
-import { stripAnsi } from "../../src/dev-log-pipeline";
+import { stripAnsi } from "../../src/services/dev/logs";
 
 const proc = (
   name: string,
@@ -511,5 +511,58 @@ describe("createDevRenderer (TTY alt-screen)", () => {
     });
     stdin.emit("data", Buffer.from("l"));
     expect(onExportLogs).toHaveBeenCalledTimes(1);
+  });
+});
+
+const clipLine = (line: string, cols: number): string => {
+  const visible = stripAnsi(line);
+  if (visible.length <= cols) return line;
+  let consumed = 0;
+  let cut = line.length;
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i];
+    if (ch === "\x1b") {
+      while (i < line.length && line[i] !== "m") i++;
+      if (i < line.length) i++;
+      continue;
+    }
+    consumed++;
+    if (consumed > cols - 1) {
+      cut = i;
+      break;
+    }
+    i++;
+  }
+  return `${line.slice(0, cut)}…`;
+};
+
+describe("clipLine", () => {
+  it("returns the line unchanged when it fits within cols", () => {
+    expect(clipLine("hello world", 20)).toBe("hello world");
+  });
+
+  it("truncates a long line and appends ellipsis", () => {
+    const longLine = "This is a very long line that should be truncated";
+    const clipped = clipLine(longLine, 20);
+    expect(clipped).toHaveLength(20);
+    expect(clipped.endsWith("…")).toBe(true);
+    const visible = stripAnsi(clipped);
+    expect(visible.length).toBeLessThanOrEqual(20);
+  });
+
+  it("handles ANSI escape sequences correctly", () => {
+    const withAnsi = "\x1b[31mHello world\x1b[0m";
+    const clipped = clipLine(withAnsi, 10);
+    expect(clipped).toContain("…");
+  });
+
+  it("clips at the exact column boundary", () => {
+    const exactly20 = "12345678901234567890"; // exactly 20 chars
+    expect(clipLine(exactly20, 20)).toBe(exactly20);
+
+    const over20 = "123456789012345678901"; // 21 chars
+    const clipped = clipLine(over20, 20);
+    expect(clipped.endsWith("…")).toBe(true);
   });
 });

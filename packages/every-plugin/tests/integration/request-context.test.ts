@@ -135,9 +135,9 @@ describe("Request Context Integration", () => {
 
     const client: ContractRouterClient<typeof testContract> = createORPCClient(link);
 
-    await expect(client.requiresSpecialConfig({ checkValue: "test" })).rejects.toThrow(
-      "User ID required",
-    );
+    await expect(client.requiresSpecialConfig({ checkValue: "test" })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
   });
 
   it("should allow public routes without context", { timeout: 10000 }, async () => {

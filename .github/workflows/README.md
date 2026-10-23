@@ -31,13 +31,18 @@ Design: `CI` is the validation workflow. On a successful push to `main`, the `De
 4. `plugin-tests` — `every-plugin` tests (only if `every-plugin` changed)
 5. `host-tests` — host test suite (only if `host/`, `ui/`, or packages changed)
 6. `regression-unit` / `regression-http` / `regression-framework` / `regression-browser` — the regression stack (path-gated)
-7. `image-smoke` — builds the runtime image and boots it (path-gated)
-8. `mirror-images` — standalone (not part of CI): weekly/dispatchable refresh of the org's GHCR base-image mirror (`mirror-node`/`mirror-postgres`/`mirror-redis`, synced from the upstream library — Docker Hub and ECR Public both rate-limit shared CI egress IPs)
+7. `regression-http-start` / `regression-browser-start` — the `start:*` regression variants (deployment image); pull the fixture built once per run by `regression-image` instead of building it
+8. `regression-image` — builds the docker regression fixture once per run (push events only — fork PRs fall back to per-suite local builds) and exports the shared builder-stage layers to a GHCR buildcache ref the Deploy image job imports for the same SHA
+9. `mirror-images` — standalone (not part of CI): weekly/dispatchable refresh of the org's GHCR base-image mirror (`mirror-node`/`mirror-postgres`/`mirror-redis`, synced from the upstream library — Docker Hub and ECR Public both rate-limit shared CI egress IPs)
 
 **Key design decisions:**
 - Generated types (`types:gen`) are produced on demand: `pnpm run typecheck` chains `types:gen` first, `bos dev`/`bos build`/`bos publish` regenerate via `generateCodeArtifacts` — no postinstall hook exists (it was dead code under `--ignore-scripts` installs).
 - `detect-changes` uses native `git diff` (no third-party action). For `workflow_dispatch`, all tests run unconditionally.
 - Playwright browsers are cached by `pnpm-lock.yaml` hash — cache hit only installs system deps (~10s), miss does full install (~60-90s).
+- Every installing job caches the pnpm store (same pattern as `consumer-ci.yml`) — cold-cache network installs only happen when the lockfile changes.
+- `lint-and-typecheck` and `host-tests` cache `repos/effect` (the 61MB Effect monorepo clone `pnpm run prepare` creates), keyed on the pinned effect tag in the prepare script.
+- The three `start:*` regression suites share one docker build: `regression-image` builds `--target regression` once, pushes it to `ghcr.io/<repo>:regression-ci` as a digest-pinned ref, and the start suites pull it (`REGRESSION_PREBUILT_IMAGE` → `start-container.mjs` skips the build; local runs and CI fallback build as before).
+- Docker layer caching uses a GHCR registry buildcache (`ghcr.io/<repo>:buildcache`, `type=registry,mode=max`) — the gha backend's 10GB repo cap can't hold this monorepo's GB-scale node_modules layers. Note the cache-mount pnpm store *inside* the image build is never exported (BuildKit cache mounts aren't part of layer caches), so the win is the shared builder-stage layers (base, install, framework builds) — the deploy image job imports them for the same SHA CI just built.
 - `cancel-in-progress: true` is safe for CI — cancelled runs never trigger Deploy (the `workflow_run` gate requires a fresh `push` event and a `success` conclusion).
 - Skipped jobs in `needs` are non-blocking for the workflow result: `framework-tests`/`plugin-tests` may be skipped (no relevant changes) without failing CI.
 - Deploy reads its config from FastKV at runtime (`BOS_ACCOUNT`/`BOS_GATEWAY` on Railway), so nothing needs to be committed back after a deploy.

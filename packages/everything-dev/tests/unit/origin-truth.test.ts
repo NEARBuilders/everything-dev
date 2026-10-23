@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { syncEnvFile } from "../../src/env/project-env";
 import { preflightLocalInfra } from "../../src/infra/preflight";
-import { mergeGeneratedOverFileEnv } from "../../src/orchestrator";
+import { mergeGeneratedOverFileEnv } from "../../src/services/dev/orchestrator";
 
 describe("preflight credentialed URL parsing", () => {
   it("probes the planner's credentialed postgres URLs (previously a silent no-op)", async () => {

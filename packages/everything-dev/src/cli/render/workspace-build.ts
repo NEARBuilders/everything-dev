@@ -1,7 +1,7 @@
 import type { WorkspaceBuildRender } from "../../services/workspace/build-train";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
-import { formatDuration } from "../timing";
+import { formatDuration } from "../../utils/timing";
 
 /** The deploy build train's ✓/✗ table — exact presentation moved out of the
  * service by #424. */

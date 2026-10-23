@@ -3,7 +3,7 @@ import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import * as schema from "../db/schema";
 import type { PluginServices } from "../service-types";
-import { createHeaders, getActiveOrganizationId, memberRoleOf, parseTeamAreas } from "../utils";
+import { createHeaders, memberRoleOf, parseTeamAreas } from "../utils";
 import {
   type AuthFailure,
   NoOrganizationSelected,
@@ -19,6 +19,8 @@ export interface OrganizerCaller {
   reqHeaders?: Record<string, string>;
   userId: string;
   user: SessionUser;
+  sessionId?: string | null;
+  activeOrganizationId?: string | null;
 }
 
 export class PermissionsService extends Context.Service<
@@ -37,20 +39,14 @@ export const buildPermissionsService = ({ auth, db }: { auth: Auth; db: Db }) =>
       context: OrganizerCaller,
       inputOrganizationId: string | undefined,
     ) {
-      const headers = createHeaders(context.reqHeaders);
-      const session = yield* attemptAuth(() => auth.api.getSession({ headers }));
-      const sessionData = session as {
-        user?: { id?: string };
-        session?: { activeOrganizationId?: string | null };
-      } | null;
-      const userId = context.userId ?? sessionData?.user?.id ?? null;
-      const organizationId =
-        inputOrganizationId ?? getActiveOrganizationId(sessionData?.session) ?? null;
+      const organizationId = inputOrganizationId ?? context.activeOrganizationId ?? null;
+      const userId = context.userId;
       if (!userId || !organizationId) {
         return yield* Effect.fail(
           new NoOrganizationSelected({ message: "No organization selected" }),
         );
       }
+      const headers = createHeaders(context.reqHeaders);
       const organization = yield* attemptDb(() =>
         db.query.organization.findFirst({
           where: eq(schema.organization.id, organizationId),

@@ -15,7 +15,7 @@ import type { z } from "zod";
 
 /** Structural minimum the middlewares read — the generated `AuthPluginContext` satisfies it. */
 export interface AuthContextShape {
-  user?: { role?: string | null } | null;
+  user?: { id?: string; role?: string | null } | null;
   userId?: string | null;
   apiKey?: { permissions?: Record<string, string[]> | null } | null;
   permissions?: Record<string, string[]> | null;
@@ -113,7 +113,7 @@ export function createAuthMiddleware<
       }
       return next({ context });
     },
-  ) as DecoratedMiddleware<Ctx, Record<string, never>, any, any, any>;
+  ) as DecoratedMiddleware<Ctx, Record<never, never>, any, any, any>;
 
   const requireRole = <TRoles extends readonly string[]>(...roles: TRoles) =>
     builder.middleware(async ({ context, next }: { context: Ctx; next: any }) => {
@@ -257,7 +257,7 @@ export function createAuthMiddleware<
         });
       }
       return next({ context });
-    }) as DecoratedMiddleware<Ctx, Record<string, never>, any, any, any>;
+    }) as DecoratedMiddleware<Ctx, Record<never, never>, any, any, any>;
 
   return {
     requireAuth,

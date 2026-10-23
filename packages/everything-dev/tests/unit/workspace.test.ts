@@ -12,7 +12,7 @@ import {
   mtimeStalenessOracle,
   type WorkspaceMember,
   type WorkspaceRoot,
-} from "../../src/workspace";
+} from "../../src/services/workspace/workspace";
 
 const tmpDirs: string[] = [];
 

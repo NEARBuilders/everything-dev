@@ -18,6 +18,7 @@ const harness = vi.hoisted(() => ({
   refreshSessionCache: vi.fn(),
   deviceCode: vi.fn(),
   deviceToken: vi.fn(),
+  cancelPasskeyCeremony: vi.fn(),
 }));
 
 vi.mock("everything-dev/ui/auth", () => ({
@@ -25,7 +26,8 @@ vi.mock("everything-dev/ui/auth", () => ({
   refreshSessionCache: harness.refreshSessionCache,
   createAccountWithPasskey: harness.createAccountWithPasskey,
   signInWithPasskey: harness.signInWithPasskey,
-  isPasskeyAutofillAvailable: async () => false,
+  cancelPasskeyCeremony: harness.cancelPasskeyCeremony,
+  isPasskeyCeremonyAborted: (error: { code?: string }) => error.code === "ERROR_CEREMONY_ABORTED",
   isUnsupportedAuthenticatorError: (error: { code?: string }) =>
     error.code === "PASSKEY_UNSUPPORTED_AUTHENTICATOR",
   getDeviceLinkClientId: () => "test-client",
@@ -94,6 +96,34 @@ describe("login page", () => {
     expect(screen.getByTestId("login.device-button")).toBeTruthy();
   });
 
+  it("does not arm a passkey ceremony or render an autofill field on load", async () => {
+    renderLogin();
+
+    await screen.findByTestId("login.heading");
+    expect(harness.signInWithPasskey).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("login.passkey-autofill")).toBeNull();
+  });
+
+  it("aborts a pending passkey ceremony when choosing the NEAR wallet instead", async () => {
+    harness.signInWithPasskey.mockImplementation(
+      async (
+        _auth: unknown,
+        options?: { onError?: (error: Error & { code?: string }) => void },
+      ) => {
+        options?.onError?.(Object.assign(new Error("aborted"), { code: "ERROR_CEREMONY_ABORTED" }));
+      },
+    );
+    renderLogin();
+
+    await screen.findByTestId("login.heading");
+    fireEvent.click(screen.getByTestId("login.passkey-button"));
+    expect(harness.cancelPasskeyCeremony).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("near.signin-button"));
+    expect(harness.cancelPasskeyCeremony).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("login.no-passkey-hint")).toBeNull();
+  });
+
   it("tells visitors coming from staking that signing in lets them stake", async () => {
     renderLogin(`/login?redirect=${encodeURIComponent("/stake?node=india")}`);
     expect(await screen.findByText("Sign in to stake with a community.")).toBeTruthy();
@@ -117,6 +147,36 @@ describe("login page", () => {
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/orgs"));
     expect(harness.refreshSessionCache).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces a referral code from ?ref and forwards it on passkey signup", async () => {
+    harness.createAccountWithPasskey.mockImplementation(
+      async (_auth: unknown, options?: { onSuccess?: (result: object) => void }) => {
+        options?.onSuccess?.({});
+      },
+    );
+    renderLogin(`/login?ref=${"ab".toUpperCase()}CD1234`);
+
+    expect(await screen.findByTestId("login.referral-chip").then((el) => el.textContent)).toBe(
+      "Referral code ABCD1234 applied",
+    );
+
+    fireEvent.click(await screen.findByTestId("login.create-account-link"));
+    fireEvent.click(screen.getByTestId("login.create-account-button"));
+
+    await waitFor(() =>
+      expect(harness.createAccountWithPasskey).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ referralCode: "ABCD1234" }),
+      ),
+    );
+  });
+
+  it("ignores a malformed ?ref value instead of showing the chip", async () => {
+    renderLogin("/login?ref=bad-code");
+
+    expect(await screen.findByTestId("login.heading")).toBeTruthy();
+    expect(screen.queryByTestId("login.referral-chip")).toBeNull();
   });
 
   it("offers a NEAR wallet when the device cannot create a supported passkey", async () => {

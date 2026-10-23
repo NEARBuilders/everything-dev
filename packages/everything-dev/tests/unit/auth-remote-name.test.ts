@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // the production-config tests below are about auth naming, not version-manifest
 // resolution — every remote slot pins a manifest, and resolution is stubbed
-vi.mock("../../src/version-manifest-resolve", () => ({
+vi.mock("../../src/services/deploy/version-manifest", () => ({
   resolveSlotVersion: vi.fn(async () => ({
     entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
     entryIntegrity: "sha384-entry",

@@ -22,6 +22,16 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Digest-pinned base images in Dockerfiles (GHCR mirror FROM lines, plus ECR-direct FROM lines like the upload service)",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/"],
+      "matchStrings": [
+        "FROM\\s+(?<depName>ghcr\\.io/nearbuilders/mirror-[a-z0-9_-]+|public\\.ecr\\.aws/docker/library/[a-z0-9_-]+):(?<currentValue>[^\\s@]+)@sha256:(?<currentDigest>[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
     }
   ],
   "packageRules": [

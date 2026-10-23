@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { applyDeployResults } from "../../src/integrity";
-import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "../../src/platform-deploy";
+import { applyDeployResults } from "../../src/services/deploy/integrity";
+import {
+  platformUrlDeployEntries,
+  pluginUiUrlDeployEntries,
+} from "../../src/services/deploy/platform";
 
 describe("platformUrlDeployEntries (image-native)", () => {
   const ORIGIN = "https://citynode.app";

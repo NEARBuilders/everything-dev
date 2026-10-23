@@ -1,11 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { Effect } from "effect";
-import { sanitizeContainerName } from "every-plugin/ui/manifest/contract";
-import { fetchApiPluginManifest } from "../../api-contract";
+import { MANIFEST_FILENAME, sanitizeContainerName } from "every-plugin/ui/manifest/contract";
 import { getProcessEnv } from "../../env/process-env";
-import { fetchJsonOrNull } from "../../http-client";
-import { getNetworkIdForAccount } from "../../network";
 import type {
   BosConfig,
   BosPluginRef,
@@ -15,7 +12,10 @@ import type {
   RuntimeConfig,
   RuntimePluginConfig,
 } from "../../types";
-import { type ResolvedSlotVersion, resolveSlotVersion } from "../../version-manifest-resolve";
+import { fetchJsonOrNull } from "../../utils/http-client";
+import { getNetworkIdForAccount } from "../../utils/network";
+import { fetchApiPluginManifest } from "../codegen/api-contract";
+import { type ResolvedSlotVersion, resolveSlotVersion } from "../deploy/version-manifest";
 import { manifestPluginsToNodes } from "../registry/dag";
 import {
   ConfigExtendsError,
@@ -331,17 +331,21 @@ export const buildRuntimeConfigEffect = Effect.fn("buildRuntimeConfig")(function
  * `integrity`/`ssrIntegrity`/`ssrEntryUrl` — so consumers load immutable
  * hashed bytes without knowing the pointer indirection.
  *
- * Hard break: outside development every remote slot MUST pin a version
- * manifest — an unpinned remote slot fails resolution loudly (the deploy
- * train pins every workspace it uploads; a manifest-less slot means a
- * pre-atomic-deploy config).
+ * Pinned remote slots derive in every environment, development included —
+ * hash-canonical bundles never serve the fixed-name dev entry, so a dev
+ * consumer pointing at remote production slots needs the same `entryUrl`
+ * stamps or its readiness probe 404s forever. Unpinned remote slots skip
+ * silently in development (a local-links resolution has nothing to pin);
+ * outside development they fail loud — the deploy train pins every
+ * workspace it uploads, so a manifest-less slot there is a
+ * pre-atomic-deploy config.
  */
 async function deriveVersionManifestFields(
   result: RuntimeConfig,
   config: BosConfig,
   env: BosEnv,
 ): Promise<void> {
-  if (env === "development") return;
+  const isDev = env === "development";
 
   const derive = async (
     label: string,
@@ -366,6 +370,7 @@ async function deriveVersionManifestFields(
         ? { manifest: rawPin.manifest, integrity: rawPin.integrity }
         : undefined;
     if (!pin) {
+      if (isDev) return;
       throw new Error(
         `slot "${label}" (${slot.url}) pins no version manifest — remote slots must pin ` +
           `a version manifest outside development (pre-atomic-deploy config; redeploy required)`,
@@ -374,7 +379,19 @@ async function deriveVersionManifestFields(
     // The pin resolves against the slot's REMOTE base — the host slot's `url`
     // is its own listening origin (the bytes it would serve don't exist
     // there); its `remoteUrl` carries the deployment bundle base.
-    const resolved = await resolveSlotVersion({ base: slot.remoteUrl ?? slot.url, pin });
+    let resolved: ResolvedSlotVersion;
+    try {
+      resolved = await resolveSlotVersion({ base: slot.remoteUrl ?? slot.url, pin });
+    } catch (cause) {
+      if (isDev) {
+        warnOutsideEffect(
+          `[Config] Version-manifest pin for "${label}" (${pin.manifest}) failed to resolve, ` +
+            `continuing unpinned (development): ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+        return;
+      }
+      throw cause;
+    }
     apply(resolved);
   };
 
@@ -386,6 +403,7 @@ async function deriveVersionManifestFields(
     ui.integrity = r.entryIntegrity;
     ui.ssrEntryUrl = r.ssrEntryUrl;
     ui.ssrIntegrity = r.ssrIntegrity ?? ui.ssrIntegrity;
+    ui.manifestIntegrity = r.files?.[MANIFEST_FILENAME] ?? ui.manifestIntegrity;
   };
 
   await derive("app.host", config.app.host, result.host, (r) => {

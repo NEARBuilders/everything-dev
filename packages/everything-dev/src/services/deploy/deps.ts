@@ -1,10 +1,13 @@
 import { Context, Layer } from "effect";
-import { buildSourceArchive } from "../../source-archive";
-import { collectDistFiles, uploadBundle, uploadWorkspaceDist } from "../../storage-upload";
-import { composeWorkspaceVersionManifest, readBuildReport } from "../../version-manifest-deploy";
-import { resolveSlotVersion } from "../../version-manifest-resolve";
 import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
+import { buildSourceArchive } from "./source-archive";
+import { collectDistFiles, uploadBundle, uploadWorkspaceDist } from "./storage";
 import type { StorageLegDeps } from "./upload-leg";
+import {
+  composeWorkspaceVersionManifest,
+  readBuildReport,
+  resolveSlotVersion,
+} from "./version-manifest";
 
 /**
  * The train's I/O surfaces as Context.Service tags (ticket #422): storage,

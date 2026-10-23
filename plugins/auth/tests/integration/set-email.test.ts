@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Database } from "../../src/db";
+import type { Database } from "../../src/db/layer";
 import * as schema from "../../src/db/schema";
 import { isSyntheticEmail } from "../../src/synthetic-email";
 import { createTestServices, createTestUser, type TestUser } from "../helpers";

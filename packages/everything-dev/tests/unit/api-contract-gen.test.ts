@@ -27,7 +27,7 @@ function writeFile(path: string, content: string) {
 
 describe("writeGeneratedFiles — auth types gen uses export type *", () => {
   it("uses `export type *` so new types added to auth-export flow through automatically", async () => {
-    const { writeGeneratedFiles } = await import("../../src/api-contract");
+    const { writeGeneratedFiles } = await import("../../src/services/codegen/api-contract");
     testDir = mkdtempSync(join(tmpdir(), "api-contract-auth-test-"));
 
     const apiSrc = join(testDir, "api", "src");
@@ -82,7 +82,7 @@ export type InferOutput<T extends string> = Record<string, unknown>;
   });
 
   it("creates an auth export fallback when no authExportPath is provided", async () => {
-    const { writeGeneratedFiles } = await import("../../src/api-contract");
+    const { writeGeneratedFiles } = await import("../../src/services/codegen/api-contract");
     testDir = mkdtempSync(join(tmpdir(), "api-contract-auth-test-"));
 
     const apiSrc = join(testDir, "api", "src");
@@ -125,7 +125,7 @@ export type InferOutput<T extends string> = Record<string, unknown>;
 
 describe("writeGeneratedFiles — apiDependsOn filtering", () => {
   it("includes all plugins + auth when apiDependsOn is not set", async () => {
-    const { writeGeneratedFiles } = await import("../../src/api-contract");
+    const { writeGeneratedFiles } = await import("../../src/services/codegen/api-contract");
     testDir = mkdtempSync(join(tmpdir(), "api-contract-test-"));
 
     const apiSrc = join(testDir, "api", "src");
@@ -159,7 +159,7 @@ describe("writeGeneratedFiles — apiDependsOn filtering", () => {
   });
 
   it("filters plugins-types.gen.ts when apiDependsOn is set", async () => {
-    const { writeGeneratedFiles } = await import("../../src/api-contract");
+    const { writeGeneratedFiles } = await import("../../src/services/codegen/api-contract");
     testDir = mkdtempSync(join(tmpdir(), "api-contract-test-"));
 
     const apiSrc = join(testDir, "api", "src");
@@ -190,7 +190,7 @@ describe("writeGeneratedFiles — apiDependsOn filtering", () => {
   });
 
   it("generates per-plugin plugins-client.gen.ts from pluginDependsOn", async () => {
-    const { writeGeneratedFiles } = await import("../../src/api-contract");
+    const { writeGeneratedFiles } = await import("../../src/services/codegen/api-contract");
     testDir = mkdtempSync(join(tmpdir(), "api-contract-test-"));
 
     const apiSrc = join(testDir, "api", "src");
@@ -237,7 +237,7 @@ describe("writeGeneratedFiles — apiDependsOn filtering", () => {
   });
 
   it("generates plugins-client.gen.ts for a local auth plugin from authLocalPath", async () => {
-    const { writeGeneratedFiles } = await import("../../src/api-contract");
+    const { writeGeneratedFiles } = await import("../../src/services/codegen/api-contract");
     testDir = mkdtempSync(join(tmpdir(), "api-contract-test-"));
 
     const apiSrc = join(testDir, "api", "src");
@@ -273,7 +273,7 @@ describe("writeGeneratedFiles — apiDependsOn filtering", () => {
   });
 
   it("generates an empty PluginsClient for a local auth plugin with no dependsOn", async () => {
-    const { writeGeneratedFiles } = await import("../../src/api-contract");
+    const { writeGeneratedFiles } = await import("../../src/services/codegen/api-contract");
     testDir = mkdtempSync(join(tmpdir(), "api-contract-test-"));
 
     const apiSrc = join(testDir, "api", "src");

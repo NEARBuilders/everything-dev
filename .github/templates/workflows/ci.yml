@@ -1,9 +1,13 @@
 name: CI
 
 # Thin wrapper — the shared implementation lives in the base runtime repo
-# (NEARBuilders/everything-dev). This repo owns triggers, secret policy, and
-# working directory. The @main ref matches the sync trust model: bos sync
-# already tracks the parent's main for all framework-owned files.
+# (NEARBuilders/everything-dev): lint/typecheck/test plus the platform drift
+# alarm all run inside the pinned reusable call. The @main ref here is the
+# reusable-wrapper pointer only — `bos sync` re-points it to the release tag
+# (ADR 0034) — and the child's framework surface is pinned via `platform`,
+# moving exclusively through `bos upgrade`. Extra, repo-specific jobs belong
+# in ci-child.yml, which this wrapper calls and bos sync never rewrites
+# (#538); keep those jobs there instead of editing this file.
 on:
   push:
     branches: [main]
@@ -28,18 +32,24 @@ jobs:
       working_directory: .
     secrets: inherit
 
+  # Child-owned CI entry point (#538): the reusable call covers lint,
+  # typecheck, test, and the platform drift alarm; everything else lives in
+  # ci-child.yml — replace its placeholder with this repo's own jobs. It runs
+  # in parallel with the reusable call (no `needs` between them).
+  child-ci:
+    name: Child CI Jobs
+    uses: ./.github/workflows/ci-child.yml
+
   # Merge gate for branch protection. Require this check name ("Lint and Type
   # Check") in Settings → Branches — it is child-owned and slash-free, unlike
   # the reusable call, which GitHub renders as "CI / Lint, typecheck, and test"
   # (the callee half cannot be overridden and breaks silently on upstream
   # renames). A reusable job cannot take caller jobs in `needs`, so this gate
-  # lives here, not in the shared workflow. Once consumer-regression.yml
-  # (everything-dev#368) ships, add that job to `needs` if E2E should gate
-  # merges.
+  # lives here, not in the shared workflow.
   lint-and-typecheck-gate:
     name: Lint and Type Check
-    needs: [ci]
+    needs: [ci, child-ci]
     if: always() # a plain needs-skip reports "skipped", not failure
     runs-on: ubuntu-latest
     steps:
-      - run: test "${{ needs.ci.result }}" = "success"
+      - run: test "${{ needs.ci.result }}" = "success" && test "${{ needs.child-ci.result }}" = "success"

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearHttpCache } from "../../src/http-client";
 import { fetchDeployManifests } from "../../src/services/registry/fastkv";
-import { computeDeployedVersionStatus } from "../../src/version-status";
+import { computeDeployedVersionStatus } from "../../src/services/version/status";
+import { clearHttpCache } from "../../src/utils/http-client";
 
 beforeEach(() => {
   clearHttpCache();

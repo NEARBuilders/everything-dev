@@ -20,9 +20,9 @@ import { writeResolvedConfig } from "../../packages/everything-dev/src/config";
 import {
   checkFederationTrain,
   resolveAuthWorkspace,
-} from "../../packages/everything-dev/src/federation-train";
+} from "../../packages/everything-dev/src/services/federation/train";
 import { openResolution } from "../../packages/everything-dev/src/services/resolution/session";
-import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/version-manifest-deploy";
+import { readBuildReport as readWorkspaceBuildReport } from "../../packages/everything-dev/src/services/deploy/version-manifest";
 
 /**
  * Local production fixture rewriting (ADR 0009): a section named in the plan
@@ -309,6 +309,11 @@ const ports = {
   authUi: basePort + 4,
 };
 
+// One plugin→port mapping for the whole staging plan — auth serves on its own
+// slot port, the other local plugins are indexed from basePort+10.
+const pluginPort = (key: string): number =>
+  key === "auth" ? ports.auth : basePort + 10 + localPlugins.findIndex(([k]) => k === key);
+
 /**
  * Folder-form plugin ui slots (plugins.<key>.ui with a local workspace that
  * hosts a `ui/` source — the shape platform-deploy uploads as `<key>-ui`).
@@ -504,8 +509,7 @@ const stage = () => {
     },
     plugins: Object.fromEntries(
       localPlugins.map(([key]) => {
-        const port =
-          key === "auth" ? ports.auth : basePort + 10 + localPlugins.findIndex(([k]) => k === key);
+        const port = pluginPort(key);
         const ui = pluginUiSlots.get(key);
         return [
           key,
@@ -594,7 +598,7 @@ const stage = () => {
     if (key === "auth") continue;
     servers.push({
       dir: `dist/plugins/${key}`,
-      port: basePort + 10 + localPlugins.findIndex(([k]) => k === key),
+      port: pluginPort(key),
       ...(nsBase ? { basePath: `${nsBase}/${key}` } : {}),
     });
   }

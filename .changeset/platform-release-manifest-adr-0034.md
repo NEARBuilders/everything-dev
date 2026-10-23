@@ -1,0 +1,5 @@
+---
+"everything-dev": minor
+---
+
+Platform release manifest — one pin, everything derived (ADR 0034). The deploy train composes a `PlatformReleaseManifest` per framework release and publishes it to two homes with byte-identical bytes: the FastKV pointer slot `apps/<account>/<gateway>/platform.json` (riding the atomic config write, SRI recorded in the per-deploy audit manifest) and the in-image copy generated inside the docker build (`packages/everything-dev/dist/platform-manifest.json`, self-described via `bos platform manifest`). Children record one exact `platform: "<framework-version>"` pin in `bos.app.ts` — catalog entries derive from the manifest, template sync pulls the release tag instead of the parent repo's main HEAD (reusable-workflow `@main` refs rewrite to the release tag, the sync snapshot records release provenance), and `bos upgrade --check` is CI's drift alarm (exit 1 when updates are available). The digest derives at `ref@v<version>` — it is never embedded or hand-pinned. Manifest-absent children keep today's behavior.

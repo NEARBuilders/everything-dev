@@ -1,7 +1,12 @@
 import { Context, Effect, Layer, Schema, Semaphore } from "effect";
-import { buildRuntimeConfigEffect } from "everything-dev/config";
+import {
+  BosConfigSchema,
+  buildRuntimeConfigEffect,
+  resolveConfigComposableEntries,
+} from "everything-dev/config";
 import { verifySriForUrl } from "everything-dev/integrity";
-import type { BosConfig } from "everything-dev/types";
+import { resolveMergedConfigInput } from "everything-dev/resolution";
+import type { BosConfig, BosConfigInput } from "everything-dev/types";
 import {
   createRuntimeSnapshotState,
   deploymentFingerprint,
@@ -32,6 +37,29 @@ const adoptFailure = (message: string, cause: unknown) =>
   new SnapshotAdoptError({ message: `${message}: ${describeCause(cause)}`, cause });
 
 /**
+ * A published pointer stores only the runtime's own overrides — slots it
+ * inherits from its parent via `extends` (notably `app.host`) are absent.
+ * Derive the adoptable config through the same extends-walking pipeline the
+ * boot path uses (tenant-runtime): building a runtime config straight from
+ * the raw pointer crashes on the first inherited slot. A pointer without a
+ * domain has no bos:// ref to resolve — fail rather than guess one; failure
+ * of any kind leaves the live snapshot untouched.
+ */
+const resolvePointerConfig = async (
+  publishedConfig: BosConfig,
+  baseDir: string,
+): Promise<BosConfig> => {
+  if (!publishedConfig.domain) {
+    throw new Error(`published pointer for ${publishedConfig.account} has no domain`);
+  }
+  const merged = await resolveMergedConfigInput(
+    `bos://${publishedConfig.account}/${publishedConfig.domain}`,
+    { env: "production", seedConfig: publishedConfig as BosConfigInput },
+  );
+  return resolveConfigComposableEntries(BosConfigSchema.parse(merged), baseDir, "production");
+};
+
+/**
  * The swap transaction (atomic-deploys 07): derive the published pointer into
  * a runtime config (version manifests fetched + SRI-verified), pre-warm the
  * NEXT state's own compose cache (validating compose + digest parity), then
@@ -59,12 +87,15 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
   SnapshotAdoptError
 > {
   const { snapshot, publishedConfig } = input;
+  const baseDir = input.baseDir ?? process.cwd();
 
-  const nextConfig = yield* buildRuntimeConfigEffect(
-    publishedConfig,
-    input.baseDir ?? process.cwd(),
-    "production",
+  const resolvedPointer = yield* Effect.tryPromise(() =>
+    resolvePointerConfig(publishedConfig, baseDir),
   ).pipe(Effect.catch((cause) => adoptFailure("deriving the published pointer failed", cause)));
+
+  const nextConfig = yield* buildRuntimeConfigEffect(resolvedPointer, baseDir, "production").pipe(
+    Effect.catch((cause) => adoptFailure("deriving the published pointer failed", cause)),
+  );
 
   const current = yield* snapshot.get;
   const nextFingerprint = deploymentFingerprint(nextConfig);

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { join } from "node:path";
-import { syncWorkspaceSkillLibraryVersions } from "../packages/everything-dev/src/skill-library-versions";
+import { syncWorkspaceSkillLibraryVersions } from "../packages/everything-dev/src/services/skills/sync";
 
 const rootDir = join(import.meta.dirname, "..");
 
