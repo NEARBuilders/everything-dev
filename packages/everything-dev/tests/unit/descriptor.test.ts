@@ -209,6 +209,45 @@ describe("platform pin (ADR 0034)", () => {
     expect(descriptor.platform).toBe("2.0.0-rc.15");
   });
 
+  it("keeps the authoring-only starter level through the save-path round-trip (#565)", () => {
+    const input = toConfigInput(App({ name: "child", starter: "advanced" }));
+    expect(input.starter).toBe("advanced");
+    const descriptor = configInputToDescriptor(input);
+    expect(descriptor.starter).toBe("advanced");
+    // but the resolved config never carries it
+    const resolved = resolveApp("child", { child: App({ name: "child", starter: "advanced" }) });
+    expect(resolved.starter).toBeUndefined();
+  });
+
+  it("keeps a remote-only api slot (variables, no workspace) through the round-trip (#566)", () => {
+    const input = {
+      account: "child.near",
+      app: {
+        api: { variables: { platformAccount: "child.near" }, secrets: ["API_KEY"] },
+      },
+    } as unknown as BosConfigInput;
+    const descriptor = configInputToDescriptor(input);
+    expect(descriptor.api).toEqual({
+      variables: { platformAccount: "child.near" },
+      secrets: ["API_KEY"],
+    });
+    const roundTripped = toConfigInput(descriptor);
+    expect(roundTripped.app?.api).toEqual({
+      variables: { platformAccount: "child.near" },
+      secrets: ["API_KEY"],
+    });
+  });
+
+  it("keeps a local api slot's path and a remote-only api's variables distinct", () => {
+    const descriptor = configInputToDescriptor({
+      account: "child.near",
+      app: {
+        api: { development: "local:api", variables: { a: 1 } },
+      },
+    } as unknown as BosConfigInput);
+    expect(descriptor.api).toEqual({ path: "api", variables: { a: 1 } });
+  });
+
   it("inherits the parent's pin child-wins", () => {
     const registry: AppRegistry = {
       base: App({ name: "base", platform: "2.0.0-rc.14" }),

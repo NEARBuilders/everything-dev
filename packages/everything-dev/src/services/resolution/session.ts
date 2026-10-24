@@ -234,7 +234,14 @@ async function walkExtends(
   });
 
   await options.visit?.({ ref, config, baseDir: nodeBaseDir, sourceDir, isLeaf: false });
-  return mergeBosConfigWithExtends(parent, config);
+  const merged = mergeBosConfigWithExtends(parent, config);
+  // A TS descriptor's starter is the authoring-only level string — it never
+  // enters resolved configs (#565). A JSON parent's starter *block*
+  // (ParentStarterConfig) is publish metadata and must survive the merge.
+  if (typeof (merged as Record<string, unknown>).starter === "string") {
+    delete (merged as Record<string, unknown>).starter;
+  }
+  return merged;
 }
 
 function canResolveExtendsRef(parentRef: string, baseDir: string | undefined): boolean {
