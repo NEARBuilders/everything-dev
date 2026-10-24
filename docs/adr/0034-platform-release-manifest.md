@@ -99,4 +99,4 @@ The pin lifecycle is exercised end-to-end by
 - Sha-tags stop mattering to children; digests derive at deploy time from the manifest's tags.
 - Framework releases gain a machine-readable contract; `upgradeTemplate`'s catalog source moves from "walk the parent repo tarball" to one registry read.
 - The citynode correlator-commit class of error is caught at deploy time by the platform check instead of at runtime by a federation failure.
-- Future seams, recorded not built: caret-tolerant `platform` pins (auto-minor within compat) once range resolution proves out; per-dep compat granularity; a versioned manifest history beside the pointer slot (the registry's history API covers this for now — and per the #546 amendment, it is also the fix for stale pins outliving a republish).
+- Future seams, recorded not built: caret-tolerant `platform` pins (#586 — auto-minor within compat) once range resolution proves out; per-dep compat granularity (#586); a versioned manifest history beside the pointer slot (#585 — the registry's history API covers this for now, and per the #546 amendment it is also the fix for stale pins outliving a republish).

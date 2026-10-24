@@ -73,7 +73,7 @@ ADR: `docs/adr/0034-platform-release-manifest.md`.
         content-build time (hash-compare and written bytes stay consistent; third-party
         `@main` actions are never repointed); sync snapshot gains `release` provenance;
         manifest-absent → today's flow (existing sync tests pass unchanged)
-- [ ] T5 (open seam) — consume `templateInventory` hashes at sync time to skip the tarball
+- [ ] T5 (open seam, #589) — consume `templateInventory` hashes at sync time to skip the tarball
         download when nothing changed (today the release tarball is downloaded and the existing
         three-way hash compare does the touching-only-changed work — same outcome, one download).
         The cheap correct delta test is snapshot provenance: `snapshot.release ===
@@ -86,7 +86,7 @@ ADR: `docs/adr/0034-platform-release-manifest.md`.
         mf-check pattern): in-image read first, registry resolution otherwise, `--check` runs the
         compat gate and exits 1 on violations; the smoke gate reads + parses the in-image manifest
         and fails the boot gate when the release contract is missing (summary reports `platform:`)
-- [ ] T6 (follow-up) — run the full `checkPlatformCompat` at the smoke gate (the in-image step
+- [ ] T6 (follow-up, #590) — run the full `checkPlatformCompat` at the smoke gate (the in-image step
         today verifies presence + shape; the compat data isn't in the container's workspace), and
         wire the additive `platform` section into `mf check`'s report (`MfCheckResultSchema` +
         handler). The one implementation is already shared; both are call-site wiring.
