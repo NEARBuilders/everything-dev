@@ -320,7 +320,6 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
 
   beforeAll(async () => {
     childDir = mkdtempSync(join(tmpdir(), "platform-e2e-skew-"));
-    tempDirs.push(childDir);
     server = createServer((req, res) => {
       const manifests: Record<string, unknown> = {
         "/root-ui-manifest.json": { shared: [{ name: "react", version: "19.3.0" }] },
@@ -375,6 +374,7 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
   afterAll(() => {
     server.close();
     registry.delete(PLATFORM_KEY);
+    rmSync(childDir, { recursive: true, force: true });
   });
 
   it("mf check's ui gate names the skewed slots and versions", async () => {

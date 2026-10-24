@@ -119,7 +119,8 @@ export function platformTruthViolations(
  * manifest resolves, a runtime's image ref derives as `ref@v<version>` —
  * never hand-pinned. Digest resolution rides the registry and arrives as
  * `digest` when the caller can fetch it; the deploy preflight consumer is
- * follow-up work (plan 054 T4).
+ * `resolveChildImagePin` (`services/deploy/legs.ts`), which resolves the
+ * tag's digest and repoints the Railway service source.
  */
 export async function deriveImageRefFromPlatformManifest(opts: {
   configDir: string;
