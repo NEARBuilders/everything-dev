@@ -1,6 +1,5 @@
 ---
 "every-plugin": patch
-"@everything-dev/auth-plugin": patch
 "everything-dev": patch
 ---
 

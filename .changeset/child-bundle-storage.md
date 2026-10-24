@@ -1,5 +1,4 @@
 ---
-"api": minor
 "everything-dev": minor
 ---
 

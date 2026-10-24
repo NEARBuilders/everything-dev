@@ -1,9 +1,5 @@
 ---
 "everything-dev": patch
-"ui": patch
-"host": patch
-"api": patch
-"@everything-dev/registry-plugin": patch
 ---
 
 Build output hardening for the platform deploy path.

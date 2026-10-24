@@ -315,7 +315,17 @@ export async function migrateChildRootPackageJson(projectDir: string): Promise<b
       changed = true;
     }
   }
-  for (const obsoleteScript of [...getParentOnlyScriptKeys(projectDir), "sync-catalog", "init"]) {
+  // #572: children lost changesets — the release lever lives in the root
+  // runtime only. Existing children's scripts go on the next migration; their
+  // release.yml/.changeset copies become unowned (delete at will).
+  for (const obsoleteScript of [
+    ...getParentOnlyScriptKeys(projectDir),
+    "sync-catalog",
+    "init",
+    "changeset",
+    "version",
+    "release",
+  ]) {
     if (obsoleteScript in scripts) {
       delete scripts[obsoleteScript];
       changed = true;
