@@ -417,6 +417,8 @@ The files carrying the `FRAMEWORK-OWNED` header (build configs, lib plumbing, `d
 
 **Editing them is allowed.** When the work needs it, edit a framework-owned file in this repo, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next sync will quietly clobber. (This repo *is* the framework home: changes here land via PR + changeset and flow outward to children through the same sync.)
 
+When the need is a **bug**, a **missing capability**, or a **pattern improvement**, follow [`docs/agents/change-placement.md`](docs/agents/change-placement.md) — including its first rule: sync-owned files are a contribution channel, not a fence. A human-facing diagram tour of the whole runtime lives in [`docs/agents/how-it-fits.md`](docs/agents/how-it-fits.md); `/teach` builds lessons from it.
+
 ### Style Requirements
 - Use semantic Tailwind classes: `bg-background`, `text-foreground`, `text-muted-foreground`
 - No hardcoded colors like `bg-blue-600`
@@ -424,6 +426,8 @@ The files carrying the `FRAMEWORK-OWNED` header (build configs, lib plumbing, `d
 - Component file naming: lowercase kebab-case (`data-table.tsx`, `user-profile.tsx`)
 - File/directory naming: kebab-case for all files and directories
 - Follow existing patterns in neighboring files
+
+Review-time rules — the write-once goal, type-safety patterns, the workaround protocol, and the comment `KEEP`/`TODO` conventions — are in [`docs/agents/coding-standards.md`](docs/agents/coding-standards.md).
 
 ### Adding API Endpoints
 App-level routes live in the slim `api/` plugin shell; feature routes live in
@@ -525,6 +529,9 @@ Host tests specifically use vitest via the workspace script:
 pnpm --filter host test    # NODE_ENV=production vitest run
 ```
 Always use `pnpm run test` / `pnpm --filter host test` — never a bare `vitest` without the workspace's NODE_ENV pin.
+
+When to write a test, which layer, what the parent framework covers vs what
+this repo must cover: [`docs/agents/testing.md`](docs/agents/testing.md).
 
 ### Test value rules
 

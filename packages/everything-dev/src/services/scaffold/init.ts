@@ -1590,13 +1590,17 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
 - No hardcoded colors like \`bg-blue-600\`
 - No code comments in implementation
 - Component file naming: lowercase kebab-case (\`data-table.tsx\`, \`user-profile.tsx\`)
-- Follow existing patterns in neighboring files`);
+- Follow existing patterns in neighboring files
+
+Review-time rules — the write-once goal, type-safety patterns, the workaround protocol, and the comment \`KEEP\`/\`TODO\` conventions — are in [\`docs/agents/coding-standards.md\`](docs/agents/coding-standards.md).`);
 
   parts.push(`### Framework-owned files and the upstream-change protocol (ADR 0032)
 
 The files carrying the \`FRAMEWORK-OWNED\` header (build configs, db/lib plumbing, workflows) are reconciled from the parent template by \`bos upgrade\`: template wins on the next upgrade, local copies are backed up under \`.bos/sync-backup/\`, and **same-version upgrades never touch them** (only the framework version change reconciles them).
 
-**Editing them is allowed.** When the work needs it, edit a framework-owned file, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next upgrade will quietly clobber.`);
+**Editing them is allowed.** When the work needs it, edit a framework-owned file, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next upgrade will quietly clobber.
+
+When the need is a **bug**, a **missing capability**, or a **pattern improvement**, follow [\`docs/agents/change-placement.md\`](docs/agents/change-placement.md) — including its first rule: sync-owned files are a contribution channel, not a fence. A human-facing diagram tour of the whole runtime lives in [\`docs/agents/how-it-fits.md\`](docs/agents/how-it-fits.md); \`/teach\` builds lessons from it.`);
 
   if (has("api")) {
     parts.push(`### Adding API Endpoints
@@ -1638,7 +1642,10 @@ If you hand-edit \`bos.app.ts\`, run \`bos types gen\` or restart \`bos dev\` to
 **Before committing:**
 \`\`\`bash
 ${testCommands.join("\n")}
-\`\`\``);
+\`\`\`
+
+When to write a test, which layer, what the parent framework covers vs what
+this repo must cover: [\`docs/agents/testing.md\`](docs/agents/testing.md).`);
   }
 
   parts.push(`## Common Patterns

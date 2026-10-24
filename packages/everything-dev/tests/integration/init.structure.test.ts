@@ -318,4 +318,17 @@ describe("bos init — structure", () => {
     expect(agentsMd).not.toMatch(/\bbun (install|run|x)\b/);
     expect(agentsMd).toContain("Docker Desktop");
   });
+
+  it("generated AGENTS.md links the promoted agent docs (#597)", () => {
+    const agentsMd = buildChildAgentsMd("", { overrides: ["ui", "api", "host"] });
+
+    expect(agentsMd).toContain(
+      "[`docs/agents/coding-standards.md`](docs/agents/coding-standards.md)",
+    );
+    expect(agentsMd).toContain(
+      "[`docs/agents/change-placement.md`](docs/agents/change-placement.md)",
+    );
+    expect(agentsMd).toContain("[`docs/agents/how-it-fits.md`](docs/agents/how-it-fits.md)");
+    expect(agentsMd).toContain("[`docs/agents/testing.md`](docs/agents/testing.md)");
+  });
 });
