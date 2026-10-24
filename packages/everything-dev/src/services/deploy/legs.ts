@@ -176,7 +176,7 @@ export function resolveDeployPlan(input: {
 
 export type RailwayStep =
   | { action: "repoint-and-redeploy"; service: string; image: string }
-  | { action: "redeploy"; service: string }
+  | { action: "redeploy"; service: string; notice?: string }
   | { action: "fail"; detail: string }
   | { action: "skip"; detail: string };
 
@@ -184,17 +184,22 @@ export type RailwayStep =
  * The railway step, decided after the image leg ran: a root runtime must
  * have pinned bytes (`pinnedDigest` — handover, pin, or build capture);
  * without them the "pulled bytes are what this train validated" guarantee
- * (ADR 0021) is unmeetable, and that is a failure, not a skip. A child
- * runtime never needs a digest: with a pin the service source repoints to
- * the pinned ref before the redeploy pulls it; without one, `redeploy
- * --from-source` is just a reload trigger for the freshly published config.
- * The token is project-scoped (`RAILWAY_TOKEN`) or workspace-scoped
- * (`RAILWAY_API_TOKEN`); only the caller's scope can rule a step, and a
- * project token cannot touch another project's service.
+ * (ADR 0021) is unmeetable, and that is a failure, not a skip. Children are
+ * tiered by token scope (Railway authorizes verbs by scope — ADR 0035
+ * addendum): a workspace-scoped RAILWAY_API_TOKEN opts into the advanced
+ * pin-following repoint, while a project-scoped RAILWAY_TOKEN — the default
+ * child credential, scoped to one environment and deploy commands only —
+ * gets the plain `redeploy --from-source` reload; with a platform pin
+ * resolved it also carries a `notice` that the service source follows the
+ * pin only under the workspace token, so drift after a `bos upgrade` is
+ * loud instead of silent. Without a pin, the redeploy is just a reload
+ * trigger for the freshly published config.
  */
 export function resolveRailwayStep(input: {
   tier: RuntimeTier;
   token?: string;
+  /** Workspace-scoped token presence — the child repoint's authorization. */
+  workspaceToken?: string;
   service?: string;
   pinnedDigest?: string;
   childPin?: ChildImagePin;
@@ -221,41 +226,23 @@ export function resolveRailwayStep(input: {
     };
   }
   if (input.childPin) {
+    if (input.workspaceToken) {
+      return {
+        action: "repoint-and-redeploy",
+        service: input.service,
+        image: `${input.childPin.image}:${input.childPin.tag}`,
+      };
+    }
     return {
-      action: "repoint-and-redeploy",
+      action: "redeploy",
       service: input.service,
-      image: `${input.childPin.image}:${input.childPin.tag}`,
+      notice:
+        `platform pin ${input.childPin.image}:${input.childPin.tag} resolved but the service source was not repointed` +
+        " — a project-scoped RAILWAY_TOKEN cannot run `service source connect`; the redeploy pulls whatever the source" +
+        " currently points at. Set a workspace-scoped RAILWAY_API_TOKEN for pin-following, or repoint manually at `bos upgrade` time.",
     };
   }
   return { action: "redeploy", service: input.service };
-}
-
-/**
- * Actionable context for a failed railway leg. Railway's token scopes differ
- * by verb: a project-scoped RAILWAY_TOKEN authorizes deploy commands
- * (`redeploy`) but NOT the `serviceConnect` mutation (`service source
- * connect`), while a workspace-scoped RAILWAY_API_TOKEN authorizes both.
- * The child repoint fires before the redeploy, so a project token surfaces
- * as a bare "Unauthorized. Please check that your RAILWAY_TOKEN is valid..."
- * that reads as a validity problem — minting a fresh project token keeps
- * failing (citynode.app's deploys, 2026-10-24). The pointer is appended only
- * for unauthorized repoint failures under a project token; a workspace token
- * present means the failure is real access trouble, worth no misleading hint.
- */
-export function diagnoseRailwayFailure(input: {
-  message: string;
-  action?: RailwayStep["action"];
-  workspaceToken?: string;
-}): string {
-  if (input.action !== "repoint-and-redeploy") return "";
-  if (input.workspaceToken) return "";
-  const lower = input.message.toLowerCase();
-  if (!lower.includes("unauthorized") && !lower.includes("not authorized")) return "";
-  return (
-    " This is a token-scope failure, not a validity one: a project-scoped RAILWAY_TOKEN cannot run" +
-    " `service source connect`. Set a workspace-scoped RAILWAY_API_TOKEN plus RAILWAY_PROJECT_ID /" +
-    " RAILWAY_ENVIRONMENT_ID (see .github/workflows/README.md), or pin the service source out-of-band with a full-scope token."
-  );
 }
 
 /**
@@ -528,6 +515,7 @@ export async function runPostPublishLegs(
   const railwayStep = resolveRailwayStep({
     tier,
     token: process.env.RAILWAY_TOKEN || workspaceToken,
+    workspaceToken,
     service: input.railwayService,
     pinnedDigest: imageDigest,
     childPin,
@@ -547,10 +535,15 @@ export async function runPostPublishLegs(
     };
   } else {
     service = railwayStep.service;
+    if (railwayStep.action === "redeploy" && railwayStep.notice) {
+      console.log(colors.yellow(`  ${railwayStep.notice}`));
+    }
     try {
       // A pinned child's service source follows the platform manifest pin
-      // before the redeploy pulls from it (ADR 0034): the pulled bytes are
-      // the pin, not whatever the dashboard's floating ref moved to.
+      // before the redeploy pulls from it (ADR 0034) — workspace-token scope
+      // only (the decision table downgrades a project token to a plain,
+      // notice-carrying redeploy). The pulled bytes are the pin, not
+      // whatever the dashboard's floating ref moved to.
       if (railwayStep.action === "repoint-and-redeploy") {
         await deps.repointServiceSource({
           service: railwayStep.service,
@@ -571,15 +564,10 @@ export async function runPostPublishLegs(
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const diagnosis = diagnoseRailwayFailure({
-        message,
-        action: railwayStep.action,
-        workspaceToken,
-      });
       const railError =
         message.includes("not found") || message.includes("ENOENT")
           ? "Railway CLI not found. Install it: npm i -g @railway/cli"
-          : `Railway deploy failed: ${message}${diagnosis}`;
+          : `Railway deploy failed: ${message}`;
       legs.railway = { status: "failed", detail: railError };
       console.log(colors.yellow(`  ${railError}`));
       return {

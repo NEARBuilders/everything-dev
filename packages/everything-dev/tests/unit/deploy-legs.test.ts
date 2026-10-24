@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   type ChildImagePin,
-  diagnoseRailwayFailure,
   resolveChildImagePin,
   resolveDeployPlan,
   resolveRailwayStep,
@@ -234,11 +233,12 @@ describe("resolveRailwayStep", () => {
     });
   });
 
-  it("repoints-and-redeploys for a pinned child — the service source follows the pin", () => {
+  it("repoints-and-redeploys for a pinned child that carries a workspace token — the service source follows the pin", () => {
     expect(
       resolveRailwayStep({
         tier: "child",
-        token: "token",
+        token: "workspace-token",
+        workspaceToken: "workspace-token",
         service: "app",
         pinnedDigest: digest64,
         childPin: pin,
@@ -248,6 +248,28 @@ describe("resolveRailwayStep", () => {
       service: "app",
       image: `${pin.image}:${pin.tag}`,
     });
+  });
+
+  it("downgrades a pinned child with only a project token to a plain redeploy with the drift notice", () => {
+    const step = resolveRailwayStep({
+      tier: "child",
+      token: "project-token",
+      service: "app",
+      pinnedDigest: digest64,
+      childPin: pin,
+    });
+    expect(step).toMatchObject({ action: "redeploy", service: "app" });
+    expect(step.action === "redeploy" && step.notice).toContain("service source connect");
+    expect(step.action === "redeploy" && step.notice).toContain("RAILWAY_API_TOKEN");
+  });
+
+  it("a float child with only a project token redeploys without a notice", () => {
+    const step = resolveRailwayStep({
+      tier: "child",
+      token: "project-token",
+      service: "app",
+    });
+    expect(step).toEqual({ action: "redeploy", service: "app" });
   });
 
   it("redeploys in either tier when a digest pins the image", () => {
@@ -261,55 +283,6 @@ describe("resolveRailwayStep", () => {
         }).action,
       ).toBe("redeploy");
     }
-  });
-});
-
-describe("diagnoseRailwayFailure", () => {
-  it("explains the token-scope failure for an unauthorized repoint under a project token", () => {
-    const diagnosis = diagnoseRailwayFailure({
-      message:
-        "railway service failed with exit code 1\nrailway stderr (tail):\nUnauthorized. Please check that your RAILWAY_TOKEN is valid and has access to the resource you're trying to use.",
-      action: "repoint-and-redeploy",
-    });
-    expect(diagnosis).toContain("token-scope failure");
-    expect(diagnosis).toContain("RAILWAY_API_TOKEN");
-    expect(diagnosis).toContain("RAILWAY_PROJECT_ID");
-  });
-
-  it("also catches the GraphQL 'Not Authorized' shape", () => {
-    expect(
-      diagnoseRailwayFailure({
-        message: "railway service failed with exit code 1: Not Authorized",
-        action: "repoint-and-redeploy",
-      }),
-    ).toContain("service source connect");
-  });
-
-  it("stays silent when the workspace token is present — the failure is real access trouble", () => {
-    expect(
-      diagnoseRailwayFailure({
-        message: "Unauthorized. Please check that your RAILWAY_TOKEN is valid",
-        action: "repoint-and-redeploy",
-        workspaceToken: "workspace-token",
-      }),
-    ).toBe("");
-  });
-
-  it("stays silent for a plain redeploy failure and for non-unauthorized messages", () => {
-    for (const action of ["redeploy", undefined] as const) {
-      expect(
-        diagnoseRailwayFailure({
-          message: "Unauthorized. Please check that your RAILWAY_TOKEN is valid",
-          action,
-        }),
-      ).toBe("");
-    }
-    expect(
-      diagnoseRailwayFailure({
-        message: "railway service failed with exit code 1: Service 'app' not found",
-        action: "repoint-and-redeploy",
-      }),
-    ).toBe("");
   });
 });
 
@@ -377,9 +350,10 @@ describe("runPostPublishLegs", () => {
     };
   }
 
-  it("pinned child: pins the manifest ref, boots the digest, repoints the service before the redeploy", async () => {
+  it("pinned child with a workspace token: pins the manifest ref, boots the digest, repoints the service before the redeploy", async () => {
     sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-pin-"));
-    vi.stubEnv("RAILWAY_TOKEN", "token");
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    vi.stubEnv("RAILWAY_API_TOKEN", "workspace-token");
     vi.stubEnv("BOS_IMAGE", "");
     const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
 
@@ -552,22 +526,12 @@ describe("runPostPublishLegs", () => {
     expect(process.env.RAILWAY_TOKEN).toBeUndefined();
   });
 
-  it("project token repoint: an Unauthorized failure carries the token-scope diagnosis", async () => {
-    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-diag-"));
+  it("pinned child with a project token: redeploy-only — no repoint attempted despite the pin", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-tier-"));
     vi.stubEnv("RAILWAY_TOKEN", "project-token");
     vi.stubEnv("RAILWAY_API_TOKEN", "");
     vi.stubEnv("BOS_IMAGE", "");
-    const deps = {
-      ...baseDeps(),
-      resolveChildImagePin: vi.fn().mockResolvedValue(pin),
-      repointServiceSource: vi
-        .fn()
-        .mockRejectedValue(
-          new Error(
-            "railway service failed with exit code 1\nrailway stderr (tail):\nUnauthorized. Please check that your RAILWAY_TOKEN is valid and has access to the resource you're trying to use.",
-          ),
-        ),
-    };
+    const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
 
     const outcome = await runPostPublishLegs(
       {
@@ -581,8 +545,13 @@ describe("runPostPublishLegs", () => {
       deps,
     );
 
-    expect(outcome.failure).toContain("token-scope failure");
-    expect(outcome.failure).toContain("RAILWAY_API_TOKEN");
-    expect(outcome.legs.railway?.status).toBe("failed");
+    expect(outcome.failure).toBeUndefined();
+    expect(deps.repointServiceSource).not.toHaveBeenCalled();
+    expect(deps.deployImageToRailway).toHaveBeenCalledWith({
+      service: "app",
+      configDir: sessionRoot,
+    });
+    expect(outcome.legs.railway?.status).toBe("ok");
+    expect(outcome.legs.railway?.detail).toBe(`redeployed app`);
   });
 });
