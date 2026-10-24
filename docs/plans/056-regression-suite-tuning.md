@@ -87,6 +87,19 @@ ghost stacks from an aborted run — orphaned CLIs at PPID 1, 40+ minutes old,
 holding ports — reaped manually; AssertNoRepoSurvivors worked exactly as
 designed.
 
+**Framework job cost tuning (2026-10-24):** the ~9.5m job drops to ~6-6.5m with
+two moves, zero coverage change. (1) The "Build every-plugin dist" step is
+removed — the suite boots only `bos dev`, which resolves every-plugin from TS
+source through tsx (ADR 0018; every-plugin.mjs's own dev path and no-dist
+fallback), so a fresh checkout boots identically; the http/browser jobs keep
+the step (their dev modes run ui via `dev:built` = `every-plugin build &&
+preview`, so the build is not dead weight there). (2) CI raises
+`BOS_FRAMEWORK_STACK_SLOTS` 2 → 3 (matching the locally-validated default) and
+gains `BOS_FRAMEWORK_READY_TIMEOUT_MINUTES: "4"` headroom — `readyTimeout`
+is now env-tunable (stack.go, default 3 min unchanged) via the same pattern
+as `maxStackSlots`, guarding against boot-stretch under three-way contention
+tripping the old 3-min ceiling (plan Phase 0.3's exact risk class).
+
 Chosen direction (maintainer decisions, this session): framework suite → parallelize
 via `t.Parallel()`; browser suite → shard `start:*` across CI jobs and merge the two
 dev legs into one job (ADR 0009 stands for intra-runner workers); fold all four

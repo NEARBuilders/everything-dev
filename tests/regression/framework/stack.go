@@ -14,12 +14,22 @@ import (
 )
 
 const (
-	readyTimeout = 3 * time.Minute
-	exitTimeout  = 30 * time.Second
+	exitTimeout = 30 * time.Second
 	// deadRetryWindow bounds the teardown polls; AssertTeardownComplete runs
 	// them concurrently so the wall cost is one window, not two.
 	deadRetryWindow = 10 * time.Second
 )
+
+// readyTimeout bounds how long one boot may take to reach readiness.
+// Env-tunable so CI can add headroom under slot contention (three parallel
+// boots on a 4-core runner stretch each boot); the 3-minute default keeps
+// local false-reds fast.
+var readyTimeout = func() time.Duration {
+	if raw, err := strconv.Atoi(os.Getenv("BOS_FRAMEWORK_READY_TIMEOUT_MINUTES")); err == nil && raw > 0 {
+		return time.Duration(raw) * time.Minute
+	}
+	return 3 * time.Minute
+}()
 
 // maxStackSlots bounds how many dev stacks boot concurrently across the
 // parallel tests (each stack is a full tsx CLI + services + watchers; more

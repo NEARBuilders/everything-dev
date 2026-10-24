@@ -687,7 +687,8 @@ jobs:
       CI: true
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
       BOS_TEARDOWN_ADOPTION: "1"
-      BOS_FRAMEWORK_STACK_SLOTS: "2"
+      BOS_FRAMEWORK_STACK_SLOTS: "3"
+      BOS_FRAMEWORK_READY_TIMEOUT_MINUTES: "4"
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
@@ -719,8 +720,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build every-plugin dist
-        run: pnpm run build template
+      # No "Build every-plugin dist" here: the suite boots only `bos dev`,
+      # which resolves every-plugin from TS source through tsx (ADR 0018) —
+      # a fresh checkout boots the same. The http/browser jobs keep the
+      # build step (their dev modes run ui via dev:built).
 
       # Background watchdog → resource-watchdog.log (file only; the artifact
       # upload below carries it on any completed run). A TERM trap on the
