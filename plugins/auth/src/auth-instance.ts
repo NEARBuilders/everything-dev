@@ -37,6 +37,10 @@ import {
   requireUserVerifiedSignIn,
   requireWalletCapablePasskey,
 } from "./passkey-sign-up";
+import {
+  activatePersonalOrganizationForSession,
+  ensurePersonalOrganization,
+} from "./personal-organization";
 import { attributeReferralOnUserCreate, referralSignupGuard } from "./referral-signup";
 import { setEmail } from "./set-email";
 
@@ -201,50 +205,6 @@ async function sendSMS(
   console.log(`Code: ${code}`);
   console.log(`Message: Your verification code is: ${code}`);
   console.log(`================================================================\n`);
-}
-
-async function createPersonalOrganization(
-  database: AuthDatabase,
-  user: { id: string; name?: string; email?: string; isAnonymous?: boolean },
-) {
-  if (user.isAnonymous) {
-    return null;
-  }
-
-  const existingOrg = await database.query.organization.findFirst({
-    where: (org, { eq, and }) =>
-      and(eq(org.slug, user.id), eq(org.metadata, JSON.stringify({ isPersonal: true }))),
-  });
-
-  if (existingOrg) {
-    return existingOrg;
-  }
-
-  const [personalOrg] = await database
-    .insert(schema.organization)
-    .values({
-      id: crypto.randomUUID(),
-      name: user.name || "My Organization",
-      slug: user.id,
-      logo: null,
-      metadata: JSON.stringify({ isPersonal: true }),
-      createdAt: new Date(),
-    })
-    .returning();
-
-  if (!personalOrg) {
-    throw new Error("Failed to create personal organization");
-  }
-
-  await database.insert(schema.member).values({
-    id: crypto.randomUUID(),
-    userId: user.id,
-    organizationId: personalOrg.id,
-    role: "owner",
-    createdAt: new Date(),
-  });
-
-  return personalOrg;
 }
 
 export function createAuthInstance(
@@ -528,8 +488,20 @@ export function createAuthInstance(
           after: async (user) => {
             const userData = user as typeof schema.user.$inferInsert & { isAnonymous?: boolean };
             if (userData.isAnonymous) return;
-            await createPersonalOrganization(db, user);
+            await ensurePersonalOrganization(db, user);
             await attributeReferralOnUserCreate(user, config.referral);
+          },
+        },
+      },
+      session: {
+        create: {
+          after: async (session) => {
+            await activatePersonalOrganizationForSession(db, session).catch((error) => {
+              console.warn(
+                "[Auth] Failed to activate personal organization on session create",
+                error,
+              );
+            });
           },
         },
       },
