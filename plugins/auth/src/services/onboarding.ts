@@ -4,6 +4,7 @@ import { Context, Effect } from "effect";
 import { attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
+import { rememberActiveOrganization } from "../personal-organization";
 import { toDate, toOnboardingSummary } from "../serializers";
 import type {
   MembershipPolicyTag,
@@ -479,6 +480,7 @@ export const buildOnboardingService = ({
             .set({ activeOrganizationId: codeRow.organizationId })
             .where(eq(schema.session.id, sessionId)),
         );
+        yield* attemptDb(() => rememberActiveOrganization(db, userId, codeRow.organizationId));
         return {
           success: true,
           alreadyRedeemed: true,
@@ -580,6 +582,7 @@ export const buildOnboardingService = ({
           .set({ activeOrganizationId: codeRow.organizationId })
           .where(eq(schema.session.id, sessionId)),
       );
+      yield* attemptDb(() => rememberActiveOrganization(db, userId, codeRow.organizationId));
 
       return {
         success: true,

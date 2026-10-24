@@ -2,11 +2,10 @@ import { and, eq, inArray, isNull, lt, notExists, or } from "drizzle-orm";
 import { Duration, Effect, Layer, Schedule } from "effect";
 import type { Database } from "./db/layer";
 import * as schema from "./db/schema";
+import { PERSONAL_ORGANIZATION_METADATA } from "./personal-organization";
 
 export const ORPHAN_USER_MAX_AGE_MS = 60 * 60 * 1000;
 export const ORPHAN_SWEEP_INTERVAL = Duration.minutes(15);
-
-const PERSONAL_ORGANIZATION_METADATA = JSON.stringify({ isPersonal: true });
 
 export async function sweepOrphanUsers(db: Database, now: Date = new Date()): Promise<string[]> {
   const cutoff = new Date(now.getTime() - ORPHAN_USER_MAX_AGE_MS);
