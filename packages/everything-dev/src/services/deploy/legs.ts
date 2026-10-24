@@ -188,7 +188,9 @@ export type RailwayStep =
  * runtime never needs a digest: with a pin the service source repoints to
  * the pinned ref before the redeploy pulls it; without one, `redeploy
  * --from-source` is just a reload trigger for the freshly published config.
- * The token is project-scoped and cannot touch another project's service.
+ * The token is project-scoped (`RAILWAY_TOKEN`) or workspace-scoped
+ * (`RAILWAY_API_TOKEN`); only the caller's scope can rule a step, and a
+ * project token cannot touch another project's service.
  */
 export function resolveRailwayStep(input: {
   tier: RuntimeTier;
@@ -198,7 +200,7 @@ export function resolveRailwayStep(input: {
   childPin?: ChildImagePin;
 }): RailwayStep {
   if (!input.token) {
-    return { action: "skip", detail: "RAILWAY_TOKEN not set" };
+    return { action: "skip", detail: "no RAILWAY_TOKEN / RAILWAY_API_TOKEN is set" };
   }
   if (!input.service) {
     return input.tier === "root"
@@ -226,6 +228,34 @@ export function resolveRailwayStep(input: {
     };
   }
   return { action: "redeploy", service: input.service };
+}
+
+/**
+ * Actionable context for a failed railway leg. Railway's token scopes differ
+ * by verb: a project-scoped RAILWAY_TOKEN authorizes deploy commands
+ * (`redeploy`) but NOT the `serviceConnect` mutation (`service source
+ * connect`), while a workspace-scoped RAILWAY_API_TOKEN authorizes both.
+ * The child repoint fires before the redeploy, so a project token surfaces
+ * as a bare "Unauthorized. Please check that your RAILWAY_TOKEN is valid..."
+ * that reads as a validity problem — minting a fresh project token keeps
+ * failing (citynode.app's deploys, 2026-10-24). The pointer is appended only
+ * for unauthorized repoint failures under a project token; a workspace token
+ * present means the failure is real access trouble, worth no misleading hint.
+ */
+export function diagnoseRailwayFailure(input: {
+  message: string;
+  action?: RailwayStep["action"];
+  workspaceToken?: string;
+}): string {
+  if (input.action !== "repoint-and-redeploy") return "";
+  if (input.workspaceToken) return "";
+  const lower = input.message.toLowerCase();
+  if (!lower.includes("unauthorized") && !lower.includes("not authorized")) return "";
+  return (
+    " This is a token-scope failure, not a validity one: a project-scoped RAILWAY_TOKEN cannot run" +
+    " `service source connect`. Set a workspace-scoped RAILWAY_API_TOKEN plus RAILWAY_PROJECT_ID /" +
+    " RAILWAY_ENVIRONMENT_ID (see .github/workflows/README.md), or pin the service source out-of-band with a full-scope token."
+  );
 }
 
 /**
@@ -476,9 +506,28 @@ export async function runPostPublishLegs(
     }
   }
 
+  // Workspace-token precedence (Railway token scopes): the CLI resolves
+  // RAILWAY_TOKEN first and a project-scoped token cannot repoint a service
+  // source — when a workspace-scoped token is present it owns the whole leg.
+  // GitHub Actions exports set-but-empty env vars for absent secrets, so the
+  // project token var is deleted even when empty: the railway CLI reads
+  // Some("") as a set token and keeps failing the connect.
+  const workspaceToken = process.env.RAILWAY_API_TOKEN;
+  if (workspaceToken) {
+    const projectToken = process.env.RAILWAY_TOKEN;
+    if (projectToken) {
+      console.log(
+        colors.yellow(
+          "  RAILWAY_API_TOKEN set — dropping RAILWAY_TOKEN (project tokens cannot repoint a service source)",
+        ),
+      );
+    }
+    delete process.env.RAILWAY_TOKEN;
+  }
+
   const railwayStep = resolveRailwayStep({
     tier,
-    token: process.env.RAILWAY_TOKEN,
+    token: process.env.RAILWAY_TOKEN || workspaceToken,
     service: input.railwayService,
     pinnedDigest: imageDigest,
     childPin,
@@ -522,10 +571,15 @@ export async function runPostPublishLegs(
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const diagnosis = diagnoseRailwayFailure({
+        message,
+        action: railwayStep.action,
+        workspaceToken,
+      });
       const railError =
         message.includes("not found") || message.includes("ENOENT")
           ? "Railway CLI not found. Install it: npm i -g @railway/cli"
-          : `Railway deploy failed: ${message}`;
+          : `Railway deploy failed: ${message}${diagnosis}`;
       legs.railway = { status: "failed", detail: railError };
       console.log(colors.yellow(`  ${railError}`));
       return {

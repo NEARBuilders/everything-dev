@@ -833,61 +833,10 @@ jobs:
       - name: Build every-plugin dist
         run: pnpm run build template
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-
-      # Browser download only — system deps are probed separately below, so the
-      # miss path no longer pays `--with-deps` (and its unconditional apt-get).
-      - name: Install Playwright browser
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: |
-          for attempt in 1 2 3; do
-            echo "attempt $attempt"
-            timeout 240 pnpm exec playwright install chromium && exit 0
-            echo "install attempt $attempt failed — retrying"
-          done
-          exit 1
-
-      # apt hangs have killed runs at the job timeout (2026-10-23, three runs
-      # stuck in install-deps): `install-deps` runs `apt-get update` even when
-      # every package is already present, so every job paid — and could hang
-      # on — the network. Probe first with `install-deps --dry-run`, a local
-      # `apt-get install -s` simulation (no update, no network, no root), and
-      # only run the bounded real install when a non-font package is missing.
-      # Fonts are exempt: launch validation never checks them and the suites
-      # assert DOM text, not rendered glyphs. A failed probe (no package list,
-      # e.g. stale apt lists) degrades to the real install.
-      - name: Check Playwright system deps
-        id: pw-deps
-        run: |
-          output=$(pnpm exec playwright install-deps chromium --dry-run 2>&1) && code=0 || code=$?
-          echo "$output"
-          if [ "$code" -eq 0 ]; then
-            echo "needed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          missing=$(printf '%s\n' "$output" | awk '/^Missing system dependencies/{flag=1; next} flag && NF{print $1}')
-          non_fonts=$(printf '%s\n' "$missing" | grep -Ev '^x?fonts-' || true)
-          if [ -n "$missing" ] && [ -z "$non_fonts" ]; then
-            echo "fonts-only system-dep gap — skipping apt: $missing"
-            echo "needed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Install Playwright system deps
-        if: steps.pw-deps.outputs.needed == 'true'
-        run: |
-          for attempt in 1 2 3; do
-            echo "attempt $attempt"
-            timeout 240 pnpm exec playwright install-deps chromium && exit 0
-            echo "install-deps attempt $attempt failed — retrying"
-          done
-          exit 1
+      # Shared browser install (cache + probe-gated system deps) — the apt-hang
+      # rationale lives in the action. Child repos reuse it cross-repo:
+      # NEARBuilders/everything-dev/.github/actions/install-playwright
+      - uses: ./.github/actions/install-playwright
 
       - name: Resource watchdog
         run: |
@@ -1026,61 +975,10 @@ jobs:
         if: needs.regression-image.result == 'success'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-
-      # Browser download only — system deps are probed separately below, so the
-      # miss path no longer pays `--with-deps` (and its unconditional apt-get).
-      - name: Install Playwright browser
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: |
-          for attempt in 1 2 3; do
-            echo "attempt $attempt"
-            timeout 240 pnpm exec playwright install chromium && exit 0
-            echo "install attempt $attempt failed — retrying"
-          done
-          exit 1
-
-      # apt hangs have killed runs at the job timeout (2026-10-23, three runs
-      # stuck in install-deps): `install-deps` runs `apt-get update` even when
-      # every package is already present, so every job paid — and could hang
-      # on — the network. Probe first with `install-deps --dry-run`, a local
-      # `apt-get install -s` simulation (no update, no network, no root), and
-      # only run the bounded real install when a non-font package is missing.
-      # Fonts are exempt: launch validation never checks them and the suites
-      # assert DOM text, not rendered glyphs. A failed probe (no package list,
-      # e.g. stale apt lists) degrades to the real install.
-      - name: Check Playwright system deps
-        id: pw-deps
-        run: |
-          output=$(pnpm exec playwright install-deps chromium --dry-run 2>&1) && code=0 || code=$?
-          echo "$output"
-          if [ "$code" -eq 0 ]; then
-            echo "needed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          missing=$(printf '%s\n' "$output" | awk '/^Missing system dependencies/{flag=1; next} flag && NF{print $1}')
-          non_fonts=$(printf '%s\n' "$missing" | grep -Ev '^x?fonts-' || true)
-          if [ -n "$missing" ] && [ -z "$non_fonts" ]; then
-            echo "fonts-only system-dep gap — skipping apt: $missing"
-            echo "needed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "needed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Install Playwright system deps
-        if: steps.pw-deps.outputs.needed == 'true'
-        run: |
-          for attempt in 1 2 3; do
-            echo "attempt $attempt"
-            timeout 240 pnpm exec playwright install-deps chromium && exit 0
-            echo "install-deps attempt $attempt failed — retrying"
-          done
-          exit 1
+      # Shared browser install (cache + probe-gated system deps) — the apt-hang
+      # rationale lives in the action. Child repos reuse it cross-repo:
+      # NEARBuilders/everything-dev/.github/actions/install-playwright
+      - uses: ./.github/actions/install-playwright
 
       - name: Resource watchdog
         run: |

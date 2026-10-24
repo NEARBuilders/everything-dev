@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   type ChildImagePin,
+  diagnoseRailwayFailure,
   resolveChildImagePin,
   resolveDeployPlan,
   resolveRailwayStep,
@@ -263,6 +264,55 @@ describe("resolveRailwayStep", () => {
   });
 });
 
+describe("diagnoseRailwayFailure", () => {
+  it("explains the token-scope failure for an unauthorized repoint under a project token", () => {
+    const diagnosis = diagnoseRailwayFailure({
+      message:
+        "railway service failed with exit code 1\nrailway stderr (tail):\nUnauthorized. Please check that your RAILWAY_TOKEN is valid and has access to the resource you're trying to use.",
+      action: "repoint-and-redeploy",
+    });
+    expect(diagnosis).toContain("token-scope failure");
+    expect(diagnosis).toContain("RAILWAY_API_TOKEN");
+    expect(diagnosis).toContain("RAILWAY_PROJECT_ID");
+  });
+
+  it("also catches the GraphQL 'Not Authorized' shape", () => {
+    expect(
+      diagnoseRailwayFailure({
+        message: "railway service failed with exit code 1: Not Authorized",
+        action: "repoint-and-redeploy",
+      }),
+    ).toContain("service source connect");
+  });
+
+  it("stays silent when the workspace token is present — the failure is real access trouble", () => {
+    expect(
+      diagnoseRailwayFailure({
+        message: "Unauthorized. Please check that your RAILWAY_TOKEN is valid",
+        action: "repoint-and-redeploy",
+        workspaceToken: "workspace-token",
+      }),
+    ).toBe("");
+  });
+
+  it("stays silent for a plain redeploy failure and for non-unauthorized messages", () => {
+    for (const action of ["redeploy", undefined] as const) {
+      expect(
+        diagnoseRailwayFailure({
+          message: "Unauthorized. Please check that your RAILWAY_TOKEN is valid",
+          action,
+        }),
+      ).toBe("");
+    }
+    expect(
+      diagnoseRailwayFailure({
+        message: "railway service failed with exit code 1: Service 'app' not found",
+        action: "repoint-and-redeploy",
+      }),
+    ).toBe("");
+  });
+});
+
 describe("resolveChildImagePin", () => {
   const manifest = {
     frameworkVersion: "2.0.0-rc.14",
@@ -448,5 +498,91 @@ describe("runPostPublishLegs", () => {
       expect.objectContaining({ image: `ghcr.io/nearbuilders/everything-dev@${digest64}` }),
     );
     expect(deps.deployImageToRailway).toHaveBeenCalled();
+  });
+
+  it("workspace token: owns the leg when set — the project token is dropped, the pin still repoints", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-ws-"));
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    vi.stubEnv("RAILWAY_API_TOKEN", "workspace-token");
+    vi.stubEnv("BOS_IMAGE", "");
+    const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: false,
+        railwayService: "app",
+        runtimeConfig: null,
+        localConfig: { extends: "bos://acct/gateway" },
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toBeUndefined();
+    expect(deps.repointServiceSource).toHaveBeenCalledWith({
+      service: "app",
+      image: `${pin.image}:${pin.tag}`,
+      configDir: sessionRoot,
+    });
+    expect(process.env.RAILWAY_TOKEN).toBeUndefined();
+  });
+
+  it("workspace token with a set-but-empty project token (GitHub absent-secret shape) still repoints", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-ws-empty-"));
+    vi.stubEnv("RAILWAY_TOKEN", "");
+    vi.stubEnv("RAILWAY_API_TOKEN", "workspace-token");
+    vi.stubEnv("BOS_IMAGE", "");
+    const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: false,
+        railwayService: "app",
+        runtimeConfig: null,
+        localConfig: { extends: "bos://acct/gateway" },
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toBeUndefined();
+    expect(deps.repointServiceSource).toHaveBeenCalled();
+    expect(process.env.RAILWAY_TOKEN).toBeUndefined();
+  });
+
+  it("project token repoint: an Unauthorized failure carries the token-scope diagnosis", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-diag-"));
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    vi.stubEnv("RAILWAY_API_TOKEN", "");
+    vi.stubEnv("BOS_IMAGE", "");
+    const deps = {
+      ...baseDeps(),
+      resolveChildImagePin: vi.fn().mockResolvedValue(pin),
+      repointServiceSource: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            "railway service failed with exit code 1\nrailway stderr (tail):\nUnauthorized. Please check that your RAILWAY_TOKEN is valid and has access to the resource you're trying to use.",
+          ),
+        ),
+    };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: false,
+        railwayService: "app",
+        runtimeConfig: null,
+        localConfig: { extends: "bos://acct/gateway" },
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toContain("token-scope failure");
+    expect(outcome.failure).toContain("RAILWAY_API_TOKEN");
+    expect(outcome.legs.railway?.status).toBe("failed");
   });
 });

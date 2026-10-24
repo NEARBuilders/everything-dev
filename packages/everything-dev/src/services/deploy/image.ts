@@ -448,11 +448,14 @@ async function runRailwayStreaming(
  * Pin the service's source to an exact image ref (Railway `ServiceConnect`):
  * a child deploy repoints the dashboard-connected source at the platform
  * manifest's `ref:tag` (ADR 0034), so the following `redeploy --from-source`
- * pulls the pinned bytes instead of whatever a floating ref moved to. The
- * project-scoped RAILWAY_TOKEN already authorizes the redeploy — connect
- * runs in the same context. The ref pins by tag: the train's version/sha
- * tags are append-only, and Railway's deployment history pins the exact
- * digest each deployment pulled (ADR 0021).
+ * pulls the pinned bytes instead of whatever a floating ref moved to. Token
+ * scopes differ by verb: a project-scoped RAILWAY_TOKEN authorizes the
+ * redeploy but NOT this connect (the serviceConnect mutation requires
+ * workspace scope) — a workspace-scoped RAILWAY_API_TOKEN with
+ * RAILWAY_PROJECT_ID / RAILWAY_ENVIRONMENT_ID targeting authorizes both.
+ * The ref pins by tag: the train's version/sha tags are append-only, and
+ * Railway's deployment history pins the exact digest each deployment pulled
+ * (ADR 0021).
  */
 export async function repointServiceSource(input: {
   service: string;

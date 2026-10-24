@@ -54,6 +54,14 @@ jobs:
       BOS_STORAGE_ORIGIN: ${{ inputs.storage_origin }}
       BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      # Railway token scopes differ by verb: a project-scoped RAILWAY_TOKEN
+      # authorizes redeploy commands only; the child repoint (`railway service
+      # source connect`, the serviceConnect mutation) needs workspace scope —
+      # set RAILWAY_API_TOKEN (workspace token from railway.com/account/tokens)
+      # plus the project/environment targeting vars and it owns the whole leg.
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+      RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
