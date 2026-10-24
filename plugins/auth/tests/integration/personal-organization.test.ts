@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../../src/db/schema";
 import { createTestHandlers, createTestOrg, createTestServices, createTestUser } from "../helpers";
@@ -86,5 +86,159 @@ describe("personal organization", () => {
     expect(result.organization.organization?.name).toBe(user.name);
     expect(result.organization.isPersonal).toBe(true);
     expect(result.organization.member?.role).toBe("owner");
+  });
+
+  describe("restore on re-login", () => {
+    it("restores the previously active organization", async () => {
+      const user = await createTestUser(services.services);
+      const org = await createTestOrg(services.services, user.userId);
+      const handlers = createTestHandlers(services.services);
+
+      await handlers.organizations.setActiveOrganization({
+        input: { organizationId: org.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+
+      const remembered = await services.services.db.query.user.findFirst({
+        where: eq(schema.user.id, user.userId),
+      });
+      expect(remembered?.lastActiveOrganizationId).toBe(org.id);
+
+      const relogin = await services.services.auth.api.signInEmail({
+        body: { email: user.email, password: "Test1234!" },
+      });
+      const session = await services.services.db.query.session.findFirst({
+        where: eq(schema.session.token, relogin.token),
+      });
+      expect(session?.activeOrganizationId).toBe(org.id);
+    });
+
+    it("restores the remembered team of the remembered organization", async () => {
+      const user = await createTestUser(services.services);
+      const org = await createTestOrg(services.services, user.userId);
+      const handlers = createTestHandlers(services.services);
+
+      const team = await handlers.teams.createTeam({
+        input: { name: "Restore Crew", organizationId: org.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      await handlers.teams.addTeamMember({
+        input: { teamId: team.id, userId: user.userId, organizationId: org.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+
+      await handlers.organizations.setActiveOrganization({
+        input: { organizationId: org.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      await handlers.teams.setActiveTeam({
+        input: { teamId: team.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+
+      const remembered = await services.services.db.query.user.findFirst({
+        where: eq(schema.user.id, user.userId),
+      });
+      expect(remembered?.lastActiveTeamId).toBe(team.id);
+
+      const relogin = await services.services.auth.api.signInEmail({
+        body: { email: user.email, password: "Test1234!" },
+      });
+      const session = await services.services.db.query.session.findFirst({
+        where: eq(schema.session.token, relogin.token),
+      });
+      expect(session?.activeOrganizationId).toBe(org.id);
+      expect(session?.activeTeamId).toBe(team.id);
+    });
+
+    it("falls back to the personal org when membership in the remembered org is revoked", async () => {
+      const user = await createTestUser(services.services);
+      const org = await createTestOrg(services.services, user.userId);
+      const handlers = createTestHandlers(services.services);
+
+      await handlers.organizations.setActiveOrganization({
+        input: { organizationId: org.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      await services.services.db
+        .delete(schema.member)
+        .where(
+          and(eq(schema.member.userId, user.userId), eq(schema.member.organizationId, org.id)),
+        );
+
+      const relogin = await services.services.auth.api.signInEmail({
+        body: { email: user.email, password: "Test1234!" },
+      });
+      const session = await services.services.db.query.session.findFirst({
+        where: eq(schema.session.token, relogin.token),
+      });
+      expect(session?.activeOrganizationId).toBe(user.personalOrgId);
+      expect(session?.activeTeamId).toBeNull();
+    });
+
+    it("falls back to the personal org when the remembered org is no longer active", async () => {
+      const user = await createTestUser(services.services);
+      const org = await createTestOrg(services.services, user.userId);
+      const handlers = createTestHandlers(services.services);
+
+      await handlers.organizations.setActiveOrganization({
+        input: { organizationId: org.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      await services.services.db
+        .update(schema.organization)
+        .set({ status: "pending" })
+        .where(eq(schema.organization.id, org.id));
+
+      const relogin = await services.services.auth.api.signInEmail({
+        body: { email: user.email, password: "Test1234!" },
+      });
+      const session = await services.services.db.query.session.findFirst({
+        where: eq(schema.session.token, relogin.token),
+      });
+      expect(session?.activeOrganizationId).toBe(user.personalOrgId);
+    });
+
+    it("does not restore a team that belongs to a different organization", async () => {
+      const user = await createTestUser(services.services);
+      const org = await createTestOrg(services.services, user.userId);
+      const otherOrg = await createTestOrg(services.services, user.userId);
+      const handlers = createTestHandlers(services.services);
+
+      const team = await handlers.teams.createTeam({
+        input: { name: "Other Crew", organizationId: otherOrg.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      await handlers.teams.addTeamMember({
+        input: { teamId: team.id, userId: user.userId, organizationId: otherOrg.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+
+      await handlers.organizations.setActiveOrganization({
+        input: { organizationId: org.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      await handlers.organizations.setActiveOrganization({
+        input: { organizationId: otherOrg.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      await handlers.teams.setActiveTeam({
+        input: { teamId: team.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      await handlers.organizations.setActiveOrganization({
+        input: { organizationId: org.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+
+      const relogin = await services.services.auth.api.signInEmail({
+        body: { email: user.email, password: "Test1234!" },
+      });
+      const session = await services.services.db.query.session.findFirst({
+        where: eq(schema.session.token, relogin.token),
+      });
+      expect(session?.activeOrganizationId).toBe(org.id);
+      expect(session?.activeTeamId).toBeNull();
+    });
   });
 });

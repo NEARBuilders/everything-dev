@@ -38,8 +38,9 @@ import {
   requireWalletCapablePasskey,
 } from "./passkey-sign-up";
 import {
-  activatePersonalOrganizationForSession,
+  activateDefaultOrganizationForSession,
   ensurePersonalOrganization,
+  mirrorSessionOrganizationChoice,
 } from "./personal-organization";
 import { attributeReferralOnUserCreate, referralSignupGuard } from "./referral-signup";
 import { setEmail } from "./set-email";
@@ -496,11 +497,18 @@ export function createAuthInstance(
       session: {
         create: {
           after: async (session) => {
-            await activatePersonalOrganizationForSession(db, session).catch((error) => {
+            await activateDefaultOrganizationForSession(db, session).catch((error) => {
               console.warn(
-                "[Auth] Failed to activate personal organization on session create",
+                "[Auth] Failed to activate default organization on session create",
                 error,
               );
+            });
+          },
+        },
+        update: {
+          after: async (session) => {
+            await mirrorSessionOrganizationChoice(db, session).catch((error) => {
+              console.warn("[Auth] Failed to remember organization preference", error);
             });
           },
         },

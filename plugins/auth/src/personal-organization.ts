@@ -71,13 +71,111 @@ export async function ensurePersonalOrganization(
   return personalOrg;
 }
 
-export async function activatePersonalOrganizationForSession(
+export async function rememberActiveOrganization(
+  database: Database,
+  userId: string,
+  organizationId: string | null,
+  teamId?: string | null,
+) {
+  const current = await database.query.user.findFirst({
+    where: eq(schema.user.id, userId),
+    columns: { lastActiveOrganizationId: true, lastActiveTeamId: true },
+  });
+  if (!current) {
+    return;
+  }
+  const nextTeamId = teamId === undefined ? current.lastActiveTeamId : (teamId ?? null);
+  if (
+    current.lastActiveOrganizationId === organizationId &&
+    current.lastActiveTeamId === nextTeamId
+  ) {
+    return;
+  }
+  await database
+    .update(schema.user)
+    .set({ lastActiveOrganizationId: organizationId, lastActiveTeamId: nextTeamId })
+    .where(eq(schema.user.id, userId));
+}
+
+export async function mirrorSessionOrganizationChoice(
+  database: Database,
+  session: Partial<{
+    userId: string;
+    activeOrganizationId: string | null;
+    activeTeamId: string | null;
+  }>,
+) {
+  if (!session.userId || !session.activeOrganizationId) {
+    return;
+  }
+  await rememberActiveOrganization(
+    database,
+    session.userId,
+    session.activeOrganizationId,
+    session.activeTeamId === undefined ? undefined : (session.activeTeamId ?? null),
+  );
+}
+
+async function restorePreferredTeam(
+  database: Database,
+  userId: string,
+  organizationId: string,
+  preferredTeamId: string | null | undefined,
+) {
+  if (!preferredTeamId) {
+    return null;
+  }
+  const [team] = await database
+    .select({ id: schema.team.id, organizationId: schema.team.organizationId })
+    .from(schema.teamMember)
+    .innerJoin(schema.team, eq(schema.teamMember.teamId, schema.team.id))
+    .where(and(eq(schema.teamMember.userId, userId), eq(schema.team.id, preferredTeamId)))
+    .limit(1);
+  return team?.organizationId === organizationId ? team.id : null;
+}
+
+export async function activateDefaultOrganizationForSession(
   database: Database,
   session: { id: string; userId: string; activeOrganizationId?: string | null },
 ) {
   if (session.activeOrganizationId) {
     return;
   }
+
+  const preferences = await database.query.user.findFirst({
+    where: eq(schema.user.id, session.userId),
+    columns: { lastActiveOrganizationId: true, lastActiveTeamId: true },
+  });
+  const preferredOrgId = preferences?.lastActiveOrganizationId ?? null;
+
+  if (preferredOrgId) {
+    const organization = await database.query.organization.findFirst({
+      where: eq(schema.organization.id, preferredOrgId),
+    });
+    const membership = await database.query.member.findFirst({
+      where: and(
+        eq(schema.member.userId, session.userId),
+        eq(schema.member.organizationId, preferredOrgId),
+      ),
+    });
+    if (organization?.status === "active" && membership) {
+      const restoredTeamId = await restorePreferredTeam(
+        database,
+        session.userId,
+        preferredOrgId,
+        preferences?.lastActiveTeamId,
+      );
+      await database
+        .update(schema.session)
+        .set({
+          activeOrganizationId: preferredOrgId,
+          ...(restoredTeamId ? { activeTeamId: restoredTeamId } : {}),
+        })
+        .where(eq(schema.session.id, session.id));
+      return;
+    }
+  }
+
   const personalOrg = await findPersonalOrganization(database, session.userId);
   if (!personalOrg || personalOrg.status !== "active") {
     return;
