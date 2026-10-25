@@ -78,7 +78,8 @@ is a child-only fork of a platform responsibility.
    everything-dev#…`). Someone may have built it.
 2. **Build the smallest reference implementation** with a cross-check and tests —
    a generator plus a verify step diffing its output against the real engine
-   (the runtime-map generator proposed in everything-dev#591 is the model).
+   (the runtime-map generator — shipped in everything-dev#612, see
+   `docs/agents/runtime-map.md` — is the model).
 3. **File or comment upstream with the reference attached** — ask for the API
    shape you need, show what works.
 4. **Keep the interim local, wired sync-safely**, and track the tech debt: hook
