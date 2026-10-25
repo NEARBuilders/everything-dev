@@ -14,7 +14,7 @@ import {
   deploymentFingerprint,
   RuntimeSnapshot,
 } from "./runtime-snapshot";
-import { composeUi } from "./ui-compose";
+import { UiComposer } from "./ui-composer";
 
 export class SnapshotAdoptError extends Schema.TaggedError<SnapshotAdoptError>()(
   "SnapshotAdoptError",
@@ -87,7 +87,7 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
 }): Effect.fn.Return<
   Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" }>,
   SnapshotAdoptError,
-  FederationContainers | FederationLoader
+  FederationContainers | FederationLoader | UiComposer
 > {
   const { snapshot, publishedConfig } = input;
   const baseDir = input.baseDir ?? process.cwd();
@@ -111,9 +111,10 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
     config: nextConfig,
     pointer: publishedConfig,
   });
-  const composed = yield* composeUi(nextConfig, nextState.composeState).pipe(
-    Effect.catch((cause) => adoptFailure("pre-warm compose failed", cause)),
-  );
+  const composer = yield* UiComposer;
+  const composed = yield* composer
+    .composeUi(nextConfig, nextState.composeState)
+    .pipe(Effect.catch((cause) => adoptFailure("pre-warm compose failed", cause)));
 
   const verifyTargets = (
     [
@@ -154,7 +155,7 @@ export const adoptPublishedPointer = Effect.fn("SnapshotCoordinator.adopt")(func
 }): Effect.fn.Return<
   Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" }>,
   SnapshotAdoptError,
-  FederationContainers | FederationLoader
+  FederationContainers | FederationLoader | UiComposer
 > {
   return yield* adoptPermits.withPermits(1)(adoptTransaction(input));
 });
@@ -180,13 +181,19 @@ export class SnapshotCoordinator extends Context.Service<
       const snapshot = yield* RuntimeSnapshot;
       const containers = yield* FederationContainers;
       const loader = yield* FederationLoader;
+      const composer = yield* UiComposer;
       return SnapshotCoordinator.of({
         adopt: (publishedConfig) =>
           adoptPublishedPointer({ snapshot, publishedConfig, baseDir: process.cwd() }).pipe(
             Effect.provideService(FederationContainers, containers),
             Effect.provideService(FederationLoader, loader),
+            Effect.provideService(UiComposer, composer),
           ),
       });
     }),
-  ).pipe(Layer.provide(FederationLoader.layer), Layer.provide(FederationContainers.layer));
+  ).pipe(
+    Layer.provide(FederationLoader.layer),
+    Layer.provide(FederationContainers.layer),
+    Layer.provide(UiComposer.layer),
+  );
 }

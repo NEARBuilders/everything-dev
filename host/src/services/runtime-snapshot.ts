@@ -3,7 +3,7 @@ import { Context, Effect, Layer, Ref } from "effect";
 import type { RuntimeConfig } from "everything-dev/types";
 import { ConfigService } from "./config";
 import { type ClientConfigCacheState, createClientConfigCacheState } from "./serving-caches";
-import { createUiComposeCacheState, type UiComposeCacheState } from "./ui-compose";
+import { createUiComposeCacheState, type UiComposeCacheState } from "./ui-composer";
 
 export interface RuntimeSnapshotState {
   /** hash over the load-bearing slot coordinates — changes on every adopted deploy */

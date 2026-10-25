@@ -34,7 +34,7 @@ vi.mock("../../src/services/tenant-runtime", async () => {
 
 const { FederationError } = await import("../../src/services/errors");
 const { runServer } = await import("../../src/program");
-const { createUiComposeCacheState } = await import("../../src/services/ui-compose");
+const { createUiComposeCacheState } = await import("../../src/services/ui-composer");
 
 const CORE_MANIFEST = {
   name: "ui",

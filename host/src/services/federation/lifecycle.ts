@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from "effect";
+import { UiComposer } from "../ui-composer";
 import { FederationContainers } from "./containers";
 import { FederationLoader } from "./loader";
 
@@ -14,6 +15,7 @@ export class FederationLifecycle extends Context.Service<FederationLifecycle, un
   static readonly layer = Layer.mergeAll(
     FederationLoader.layer,
     FederationContainers.layer,
+    UiComposer.layer,
     Layer.effect(FederationLifecycle, Effect.succeed(FederationLifecycle.of(undefined))),
   );
 }

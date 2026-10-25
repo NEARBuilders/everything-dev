@@ -15,7 +15,7 @@
  */
 
 import { readFileSync, statSync } from "node:fs";
-import { Clock, Data, Effect, Schema } from "effect";
+import { Clock, Context, Data, Effect, Layer, Schema } from "effect";
 import { computeSriHash } from "everything-dev/integrity";
 import {
   CORE_UI_PLUGIN_KEY as CORE_UI_KEY,
@@ -677,3 +677,28 @@ export const composeClientPayload = Effect.fn("composeClientPayload")(function* 
   );
   return { digest, clientPayload: clientPayloadOf(composable, digest) };
 });
+
+/**
+ * The composition seam the host talks to (epic #473's fourth service): one
+ * tag for the manifest-composition surface — base/tenant variant compose and
+ * the client payload. The cache states move with the serving snapshot
+ * (pre-warm → atomic swap), so the service carries no state of its own; the
+ * implementations above are its private module.
+ */
+export class UiComposer extends Context.Service<
+  UiComposer,
+  {
+    readonly composeUi: typeof composeUi;
+    readonly composeClientPayload: typeof composeClientPayload;
+  }
+>()("host/services/UiComposer") {
+  static readonly layer = Layer.effect(
+    UiComposer,
+    Effect.succeed(
+      UiComposer.of({
+        composeUi,
+        composeClientPayload,
+      }),
+    ),
+  );
+}

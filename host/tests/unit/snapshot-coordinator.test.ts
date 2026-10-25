@@ -87,12 +87,24 @@ vi.mock("everything-dev/resolution", () => ({
 }));
 
 // the pre-warm compose is the seam: its internals (SSR container loads, digest
-// parity) are covered by ui-compose's own suite
-vi.mock("../../src/services/ui-compose", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/services/ui-compose")>();
+// parity) are covered by the composer's own suite. The mock must replace the
+// UiComposer layer — the service closes over the module-internal composeUi,
+// so overriding the plain `composeUi` export would not intercept it.
+vi.mock("../../src/services/ui-composer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/ui-composer")>();
   return {
     ...actual,
-    composeUi: composeUiMock,
+    UiComposer: class extends actual.UiComposer {
+      static readonly layer = Layer.effect(
+        actual.UiComposer,
+        Effect.succeed(
+          actual.UiComposer.of({
+            composeUi: composeUiMock,
+            composeClientPayload: actual.composeClientPayload,
+          }),
+        ),
+      );
+    },
   };
 });
 

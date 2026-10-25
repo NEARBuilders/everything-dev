@@ -7,10 +7,11 @@ import type { FederationContainers } from "../services/federation/containers";
 import type { FederationLoader } from "../services/federation/loader";
 import type { PluginResult } from "../services/plugins";
 import { createSsrRender, type ServingSnapshot } from "../services/ssr-render";
+import type { UiComposer } from "../services/ui-composer";
 
 type HonoEnv = { Variables: AuthVariables };
 
-type Federated<A, E> = Effect.Effect<A, E, FederationContainers | FederationLoader>;
+type Federated<A, E> = Effect.Effect<A, E, FederationContainers | FederationLoader | UiComposer>;
 
 /**
  * Thin Hono adapter over the SSR render module: extracts the framework

@@ -32,7 +32,7 @@ import { PluginsService } from "./services/plugins";
 import { deploymentFingerprint, RuntimeSnapshot } from "./services/runtime-snapshot";
 import { SnapshotCoordinator } from "./services/snapshot-coordinator";
 import { SnapshotWatch, watchIntervalMs } from "./services/snapshot-watch";
-import { composeUi, isSsrAvailable, type UiComposeCacheState } from "./services/ui-compose";
+import { isSsrAvailable, type UiComposeCacheState, UiComposer } from "./services/ui-composer";
 import { minimumLogLevel, runEffect } from "./utils/effect-run";
 import { extractErrorDetails } from "./utils/errors";
 import { logger } from "./utils/logger";
@@ -84,6 +84,7 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
     yield* FederationLifecycle;
     const containers = yield* FederationContainers;
     const loader = yield* FederationLoader;
+    const composer = yield* UiComposer;
     const apiProxyMode = Boolean(config.api?.proxy);
 
     const ssrEnabled = isSsrAvailable(config);
@@ -120,7 +121,7 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
     if (ssrEnabled) {
       const bootState = yield* snapshot.get;
       const bootStartedAt = yield* Clock.currentTimeMillis;
-      const boot = yield* Effect.exit(composeUi(config, bootState.composeState));
+      const boot = yield* Effect.exit(composer.composeUi(config, bootState.composeState));
       const bootMs = (yield* Clock.currentTimeMillis) - bootStartedAt;
       if (Exit.isFailure(boot)) {
         const cause = Cause.squash(boot.cause);
@@ -245,6 +246,7 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           effect.pipe(
             Effect.provideService(FederationContainers, containers),
             Effect.provideService(FederationLoader, loader),
+            Effect.provideService(UiComposer, composer),
           ),
         ),
       ),

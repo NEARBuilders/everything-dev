@@ -29,7 +29,8 @@ import {
   createUiComposeCacheState,
   isSsrAvailable,
   type UiComposeCacheState,
-} from "./ui-compose";
+  UiComposer,
+} from "./ui-composer";
 
 /**
  * One seam from request to stream: tenant resolution, manifest composition,
@@ -60,7 +61,7 @@ export interface SsrRenderDeps {
    * servers live for the server's whole life; standalone callers (tests)
    * get a lifecycle-scoped runtime built once per render instance. */
   runFederated?: <A, E>(
-    effect: Effect.Effect<A, E, FederationContainers | FederationLoader>,
+    effect: Effect.Effect<A, E, FederationContainers | FederationLoader | UiComposer>,
   ) => Promise<A>;
 }
 
@@ -159,20 +160,23 @@ export function createSsrRender(deps: SsrRenderDeps) {
       let services: Promise<{
         containers: FederationContainers["Service"];
         loader: FederationLoader["Service"];
+        composer: UiComposer["Service"];
       }> | null = null;
       const load = () =>
         (services ??= (async () => ({
           containers: await runtime.runPromise(FederationContainers),
           loader: await runtime.runPromise(FederationLoader),
+          composer: await runtime.runPromise(UiComposer),
         }))());
       return async <A, E>(
-        effect: Effect.Effect<A, E, FederationContainers | FederationLoader>,
+        effect: Effect.Effect<A, E, FederationContainers | FederationLoader | UiComposer>,
       ): Promise<A> => {
-        const { containers, loader } = await load();
+        const { containers, loader, composer } = await load();
         return runEffect(
           effect.pipe(
             Effect.provideService(FederationContainers, containers),
             Effect.provideService(FederationLoader, loader),
+            Effect.provideService(UiComposer, composer),
           ),
         );
       };

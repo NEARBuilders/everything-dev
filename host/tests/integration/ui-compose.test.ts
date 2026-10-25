@@ -28,7 +28,7 @@ vi.mock("../../src/services/federation/loader", async (importOriginal) => {
 });
 
 const { composeUi, composeClientPayload, createUiComposeCacheState, uiSources } = await import(
-  "../../src/services/ui-compose"
+  "../../src/services/ui-composer"
 );
 const { FederationLifecycle } = await import("../../src/services/federation/lifecycle");
 
