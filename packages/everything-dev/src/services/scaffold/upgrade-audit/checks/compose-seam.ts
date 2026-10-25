@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { Effect } from "effect";
-import { Finding } from "../domain";
+import { formatUnknownError } from "../../../../utils/errors";
+import { fetchRaw } from "../../../../utils/http-client";
+import { AuditStepError, Finding } from "../domain";
 import { fileExists, readText } from "../fs";
 
 /**
@@ -125,7 +127,12 @@ export const runComposeProbe = async (
         ],
         resolve: async (ref) => {
           const manifest = manifests.get(ref.key);
-          if (!manifest) throw new Error(`probe has no manifest for "${ref.key}"`);
+          if (!manifest) {
+            throw new AuditStepError({
+              step: "compose-seam",
+              message: `probe has no manifest for "${ref.key}"`,
+            });
+          }
           return {
             key: ref.key,
             manifest,
@@ -142,7 +149,7 @@ export const runComposeProbe = async (
         uiClaimsLogin: claimsLogin,
       };
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const message = formatUnknownError(error);
     const shadowedARoute = lines.some((line) => line.includes(SHADOW_LOG_MARKER));
     return {
       seam: classifyComposeError(message, shadowedARoute),
@@ -161,16 +168,27 @@ export const runComposeProbe = async (
   }
 };
 
-const loadManifest = (source: string, label: string): Effect.Effect<PluginManifestData, Error> =>
+const loadManifest = (
+  source: string,
+  label: string,
+): Effect.Effect<PluginManifestData, AuditStepError> =>
   Effect.try({
     try: () => {
       const parsed = JSON.parse(source) as PluginManifestData;
       if (!Array.isArray(parsed.routes) || typeof parsed.name !== "string") {
-        throw new Error("not a plugin manifest (name/routes missing)");
+        throw new AuditStepError({
+          step: "compose-seam",
+          message: "not a plugin manifest (name/routes missing)",
+        });
       }
       return parsed;
     },
-    catch: (error) => new Error(`${label}: ${String(error)}`),
+    catch: (error) =>
+      new AuditStepError({
+        step: "compose-seam",
+        message: `${label}: ${formatUnknownError(error)}`,
+        cause: error,
+      }),
   });
 
 export interface ProbeOptions {
@@ -202,30 +220,49 @@ export const probeComposeSeam = (
     if (options?.live) {
       authSource = yield* Effect.tryPromise({
         try: async () => {
-          const response = await fetch(AUTH_MANIFEST_URL);
+          const response = await fetchRaw(AUTH_MANIFEST_URL);
           if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
           return await response.text();
         },
-        catch: (error) => new Error(`failed to fetch deployed auth-ui manifest: ${String(error)}`),
+        catch: (error) =>
+          new AuditStepError({
+            step: "compose-seam",
+            message: "failed to fetch deployed auth-ui manifest",
+            cause: error,
+          }),
       });
     } else {
       authSource = yield* Effect.tryPromise({
         try: () => readFile(new URL(`../${AUTH_FIXTURE_PATH}`, import.meta.url), "utf-8"),
         catch: (error) =>
-          new Error(`failed to load the committed auth-ui fixture: ${String(error)}`),
+          new AuditStepError({
+            step: "compose-seam",
+            message: "failed to load the committed auth-ui fixture",
+            cause: error,
+          }),
       });
     }
     const authManifest = yield* loadManifest(authSource, "auth-ui manifest");
 
     const { constructTree } = yield* Effect.tryPromise({
       try: () => import("every-plugin/ui/manifest"),
-      catch: (error) => new Error(`failed to load every-plugin's composer: ${String(error)}`),
+      catch: (error) =>
+        new AuditStepError({
+          step: "compose-seam",
+          message: "failed to load every-plugin's composer",
+          cause: error,
+        }),
     });
 
     return yield* Effect.tryPromise({
       try: () =>
         runComposeProbe(uiManifest, authManifest, constructTree as unknown as ConstructTreeFn),
-      catch: (error) => new Error(`compose probe failed: ${String(error)}`),
+      catch: (error) =>
+        new AuditStepError({
+          step: "compose-seam",
+          message: "compose probe failed",
+          cause: error,
+        }),
     });
   });
 

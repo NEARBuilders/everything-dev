@@ -61,6 +61,7 @@ function getHandlers(): Map<string, unknown> {
         },
         effect: (fn: (opts: unknown, input: unknown) => Generator) => {
           const callable = (opts: unknown, input: unknown) =>
+            // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- test harness mirrors @orpc middlewareGen interop
             Effect.gen(() => fn(opts, input)).pipe(
               Effect.provideService(ResolutionSessionService, session),
               Effect.provide(DevFlowService.Live),
@@ -80,6 +81,7 @@ function run(name: string, input: Record<string, unknown>): Promise<any> {
     opts: unknown,
     input: unknown,
   ) => Effect.Effect<unknown>;
+  // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- test harness mirrors @orpc middlewareGen interop
   return Effect.runPromise(handler({}, input) as Effect.Effect<unknown, unknown, never>);
 }
 

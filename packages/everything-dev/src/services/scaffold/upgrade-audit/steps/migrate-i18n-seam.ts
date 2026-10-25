@@ -214,7 +214,7 @@ export const migrateI18nSeam = (
         notes.push(...blockers.map((f) => `[blocker] ${f.message}`));
         return result;
       }
-      return yield* Effect.fail(new GateBlocked({ findings: blockers }));
+      return yield* new GateBlocked({ findings: blockers });
     }
     return result;
   });

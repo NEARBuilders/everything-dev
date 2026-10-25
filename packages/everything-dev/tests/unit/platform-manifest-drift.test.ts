@@ -72,6 +72,7 @@ function serviceWith(
 function platformManifestEffect(layer: Layer.Layer<PlatformManifestService>): Promise<unknown> {
   const effectHandler =
     (fn: (opts: unknown, input: unknown) => Generator) => (opts: unknown, input: unknown) =>
+      // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- test harness mirrors @orpc middlewareGen interop
       Effect.runPromise(Effect.gen(() => fn(opts, input)).pipe(Effect.provide(layer)));
   const builder = {
     upgrade: { effect: effectHandler },

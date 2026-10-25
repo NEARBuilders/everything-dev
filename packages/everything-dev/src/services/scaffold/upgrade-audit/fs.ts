@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { Effect } from "effect";
 import { glob } from "glob";
+import { AuditFileError } from "./domain";
 
 const execFileAsync = promisify(execFile);
 
@@ -15,7 +16,12 @@ export const listFiles = (projectDir: string, pattern: string | string[]) =>
         dot: false,
         absolute: false,
       }),
-    catch: (error) => new Error(`glob failed for ${pattern}: ${String(error)}`),
+    catch: (error) =>
+      new AuditFileError({
+        op: "glob",
+        target: Array.isArray(pattern) ? pattern.join(" ") : pattern,
+        cause: error,
+      }),
   });
 
 export const fileExists = (projectDir: string, relativePath: string) =>
@@ -28,13 +34,13 @@ export const fileExists = (projectDir: string, relativePath: string) =>
         return false;
       }
     },
-    catch: (error) => new Error(`stat failed for ${relativePath}: ${String(error)}`),
+    catch: (error) => new AuditFileError({ op: "stat", target: relativePath, cause: error }),
   });
 
 export const readText = (projectDir: string, relativePath: string) =>
   Effect.tryPromise({
     try: () => readFile(`${projectDir}/${relativePath}`, "utf-8"),
-    catch: (error) => new Error(`read failed for ${relativePath}: ${String(error)}`),
+    catch: (error) => new AuditFileError({ op: "read", target: relativePath, cause: error }),
   });
 
 export const writeText = (projectDir: string, relativePath: string, content: string) =>
@@ -46,7 +52,7 @@ export const writeText = (projectDir: string, relativePath: string, content: str
       await writeFile(target, content);
       return relativePath;
     },
-    catch: (error) => new Error(`write failed for ${relativePath}: ${String(error)}`),
+    catch: (error) => new AuditFileError({ op: "write", target: relativePath, cause: error }),
   });
 
 export const removePath = (projectDir: string, relativePath: string) =>
@@ -55,7 +61,7 @@ export const removePath = (projectDir: string, relativePath: string) =>
       await rm(`${projectDir}/${relativePath}`, { force: true, recursive: true });
       return relativePath;
     },
-    catch: (error) => new Error(`remove failed for ${relativePath}: ${String(error)}`),
+    catch: (error) => new AuditFileError({ op: "remove", target: relativePath, cause: error }),
   });
 
 export const runCommand = (cwd: string, command: string, args: readonly string[]) =>
@@ -67,5 +73,10 @@ export const runCommand = (cwd: string, command: string, args: readonly string[]
       });
       return stdout;
     },
-    catch: (error) => new Error(`command failed: ${command} ${args.join(" ")}\n${String(error)}`),
+    catch: (error) =>
+      new AuditFileError({
+        op: "command",
+        target: `${command} ${args.join(" ")}`,
+        cause: error,
+      }),
   });

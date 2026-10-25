@@ -91,14 +91,7 @@ export interface ProcessState {
 
 const probeHttpOk = (url: string, timeoutMs = 400) =>
   Effect.tryPromise({
-    try: async () => {
-      try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-        return res.ok;
-      } catch {
-        return false;
-      }
-    },
+    try: () => fetchRaw(url, undefined, timeoutMs).then((res) => res.ok),
     catch: () => false,
   });
 

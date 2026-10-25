@@ -23,7 +23,21 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Effect } from "effect";
+import { Clock, Data, Effect } from "effect";
+
+export class RuntimeMapError extends Data.TaggedError("RuntimeMapError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {
+  override toString(): string {
+    return this.message;
+  }
+}
+
+const envBool = (name: string): boolean => process.env[name] === "1";
+
+const isoNow = (ms: number): string => new Date(ms).toISOString();
+
 import {
   MANIFEST_VERSION,
   type PluginManifest,
@@ -518,7 +532,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
   runtimeConfig: RuntimeConfig,
   opts?: { strict?: boolean; env?: string; platform?: string | null; extendsChain?: string[] },
 ): Effect.fn.Return<RuntimeMapResult | null, Error> {
-  const allowUnresolved = process.env.BOS_MAP_ALLOW_UNRESOLVED === "1";
+  const allowUnresolved = envBool("BOS_MAP_ALLOW_UNRESOLVED");
   const unresolved: UnresolvedSource[] = [];
 
   const descriptors = [
@@ -558,7 +572,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
             });
           }
         },
-        catch: (cause) => new Error(String(cause)),
+        catch: (cause) => new RuntimeMapError({ message: String(cause) }),
       });
     }
   }
@@ -599,29 +613,29 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
       }
       return collected;
     },
-    catch: (cause) => new Error(String(cause)),
+    catch: (cause) => new RuntimeMapError({ message: String(cause) }),
   });
 
   if (sources.length === 0 && unresolved.length === 0 && backends.length === 0) return null;
 
   if (unresolved.length > 0 && !allowUnresolved) {
     for (const entry of unresolved) {
-      console.error(`[runtime-map] UNRESOLVED ${entry.key} (${entry.kind}): ${entry.reason}`);
+      yield* Effect.logError(
+        `[runtime-map] UNRESOLVED ${entry.key} (${entry.kind}): ${entry.reason}`,
+      );
     }
     if (opts?.strict) {
       // the reasons ride in the error — the wire (e.g. the typesGen JSON)
       // only sees this message, never the console.error lines above
-      return yield* Effect.fail(
-        new Error(
-          `runtime map is incomplete — ${unresolved.map((entry) => `${entry.key} (${entry.kind}): ${entry.reason}`).join("; ")} — fix the source or set BOS_MAP_ALLOW_UNRESOLVED=1 for offline work`,
-        ),
-      );
+      return yield* new RuntimeMapError({
+        message: `runtime map is incomplete — ${unresolved.map((entry) => `${entry.key} (${entry.kind}): ${entry.reason}`).join("; ")} — fix the source or set BOS_MAP_ALLOW_UNRESOLVED=1 for offline work`,
+      });
     }
   }
 
   const composed = composeRuntimeMap(sources);
   const map: GeneratedRuntimeMap = {
-    generatedAt: new Date().toISOString(),
+    generatedAt: isoNow(yield* Clock.currentTimeMillis),
     env: opts?.env ?? "unknown",
     platform: opts?.platform ?? null,
     extends: opts?.extendsChain?.join(" → ") ?? null,
@@ -662,13 +676,13 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
 
   const remoteCount = map.routes.filter((route) => !route.core).length;
   const remoteBackends = backends.filter((backend) => backend.source === "remote").length;
-  console.log(
+  yield* Effect.log(
     `[runtime-map] ${map.routes.length} routes (${remoteCount} remote) from ${sources.length} sources; ${backends.length} backends (${remoteBackends} remote)`,
   );
   for (const entry of unresolved) {
-    console.warn(`[runtime-map] unresolved ${entry.key}: ${entry.reason}`);
+    yield* Effect.logWarning(`[runtime-map] unresolved ${entry.key}: ${entry.reason}`);
   }
-  console.log(
+  yield* Effect.log(
     `[runtime-map] wrote ${jsonPath}${tsPath ? ` + ${tsPath}` : " (no local core ui — ts emission skipped)"}`,
   );
 

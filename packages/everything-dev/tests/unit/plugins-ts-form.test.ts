@@ -75,6 +75,7 @@ function getHandler(name: string): (args: unknown) => Promise<any> {
           // with (opts, input), provide the plugin services, return a promise.
           const fn = (args: { input: unknown }) =>
             Effect.runPromise(
+              // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- test harness mirrors @orpc middlewareGen interop
               Effect.gen(() => gen(args, args.input)).pipe(
                 Effect.provideService(ResolutionSessionService, tsSession()),
                 Effect.provide(

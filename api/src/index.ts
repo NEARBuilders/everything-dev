@@ -93,9 +93,13 @@ export default createPlugin.withPlugins<PluginsClient>()({
       if (watch.length === 0) {
         return Layer.mergeAll(base, ReconcilerDisabled);
       }
+      // eslint-disable-next-line effecttsgo/global-error-in-effect-catch -- initialize contract's error channel is plain Error
       const docker = yield* Effect.tryPromise({
         try: () => import("everything-dev/hosting/docker"),
         catch: () =>
+          // KEEP: the initialize contract's error channel is the plain Error
+          // type; a tagged error does not fit it here.
+          // eslint-disable-next-line effecttsgo/global-error-in-effect-failure
           new Error(
             "The reconciler watch list is configured but the docker hosting adapter's optional peer is missing — install alchemy in the api workspace",
           ),

@@ -405,11 +405,7 @@ function defaultFetchManifest(
   })();
 }
 
-function defaultFetchSlot(
-  account: string,
-  gateway: string,
-  version: string,
-): Promise<unknown | null> {
+function defaultFetchSlot(account: string, gateway: string, version: string): Promise<unknown> {
   // NOT the OrNull variant: a read failure must stay distinguishable from a
   // clean absent-slot — the resolver fails loud with the slot key on a
   // failure and treats null as absence.

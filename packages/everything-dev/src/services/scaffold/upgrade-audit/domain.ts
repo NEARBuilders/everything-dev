@@ -1,4 +1,5 @@
 import { Data } from "effect";
+import { formatUnknownError } from "../../../utils/errors";
 
 export type CheckId =
   | "routes"
@@ -24,6 +25,32 @@ export class Finding extends Data.TaggedClass("Finding")<{
 export class GateBlocked extends Data.TaggedError("GateBlocked")<{
   readonly findings: readonly Finding[];
 }> {}
+
+export class AuditFileError extends Data.TaggedError("AuditFileError")<{
+  readonly op: "glob" | "stat" | "read" | "write" | "remove" | "command";
+  readonly target: string;
+  readonly cause: unknown;
+}> {
+  get message(): string {
+    return `${this.op} failed for ${this.target ?? "—"}: ${formatUnknownError(this.cause)}`;
+  }
+
+  override toString(): string {
+    return this.message;
+  }
+}
+
+export class AuditStepError extends Data.TaggedError("AuditStepError")<{
+  readonly step: string;
+  readonly message: string;
+  readonly cause?: unknown;
+}> {
+  override toString(): string {
+    return this.cause === undefined
+      ? this.message
+      : `${this.message}: ${formatUnknownError(this.cause)}`;
+  }
+}
 
 export interface ImportRewrite {
   readonly from: string;

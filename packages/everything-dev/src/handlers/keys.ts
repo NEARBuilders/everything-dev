@@ -1,5 +1,5 @@
 import process from "node:process";
-import { Effect } from "effect";
+import { Clock, Effect } from "effect";
 import { parseKey } from "near-kit";
 import {
   DEFAULT_DEPLOY_KEY_EXPIRES_IN_SECONDS,
@@ -18,6 +18,8 @@ import { ResolutionSessionService } from "../services/resolution/session";
 import { getNetworkIdForAccount } from "../utils/network";
 import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";
+
+const isoAt = (ms: number): string => new Date(ms).toISOString();
 
 export function registerKeys(builder: BosBuilder) {
   return {
@@ -79,11 +81,12 @@ export function registerKeys(builder: BosBuilder) {
       yield* Effect.catchIf(
         Effect.tryPromise(() => openInBrowser(login.verificationUrl)),
         () => true,
-        (error) => Effect.sync(() => console.log(colors.yellow(`  ⚠ ${(error as Error).message}`))),
+        (error) => Effect.logWarning(colors.yellow(`  ⚠ ${(error as Error).message}`)),
       );
       console.log();
       console.log(`  Waiting for approval at ${colors.dim(login.verificationUrl)}…`);
 
+      const startedMs = yield* Clock.currentTimeMillis;
       return yield* Effect.tryPromise({
         try: async () => {
           const approval = await login.waitForApproval();
@@ -96,7 +99,7 @@ export function registerKeys(builder: BosBuilder) {
             } satisfies LoginResult;
           }
 
-          const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+          const expiresAt = isoAt(startedMs + expiresIn * 1000);
           const configDir = session?.root ?? process.cwd();
           const existingSession = sessions.read(configDir);
           sessions.write(configDir, {
@@ -108,7 +111,7 @@ export function registerKeys(builder: BosBuilder) {
               accountId: approval.accountId,
               label: input.device ?? siteUrl,
               siteUrl,
-              createdAt: new Date().toISOString(),
+              createdAt: isoAt(startedMs),
               expiresAt,
             },
             publishKey: null,

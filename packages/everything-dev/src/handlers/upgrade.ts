@@ -31,6 +31,12 @@ import type { BosConfig } from "../types";
 import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";
 
+const nodeEnvProduction = (): boolean => process.env.NODE_ENV === "production";
+const envOf = (name: string): string | undefined => process.env[name];
+const stageLog = (message: string): void => {
+  console.log(message);
+};
+
 export function registerUpgrade(builder: BosBuilder) {
   return {
     upgrade: builder.upgrade.effect(function* (_opts, input) {
@@ -140,8 +146,7 @@ export function registerUpgrade(builder: BosBuilder) {
           }
 
           const projectDir = resolve(dirname(configPath));
-          const env =
-            input.env ?? (process.env.NODE_ENV === "production" ? "production" : "development");
+          const env = input.env ?? (nodeEnvProduction() ? "production" : "development");
 
           const refreshed = await openResolution({
             cwd: projectDir,
@@ -349,7 +354,7 @@ export function registerUpgrade(builder: BosBuilder) {
           const resolvedConfig = refreshed.config;
 
           await generateCodeArtifacts(projectDir, resolvedConfig, {
-            env: process.env.NODE_ENV === "production" ? "production" : "development",
+            env: nodeEnvProduction() ? "production" : "development",
             extendsChain: [...refreshed.chain],
             runtimeConfig: runtime,
           });
@@ -464,7 +469,7 @@ export function registerUpgrade(builder: BosBuilder) {
               } catch {}
             }
 
-            console.log(`\n  ${colors.dim("Checking")} ${colors.cyan(entry.label)}`);
+            stageLog(`\n  ${colors.dim("Checking")} ${colors.cyan(entry.label)}`);
             const child = spawnSync("pnpm", args, {
               cwd: entry.dir,
               stdio: "inherit",
@@ -514,8 +519,8 @@ export function registerUpgrade(builder: BosBuilder) {
           // No local authored config (the universal image carries none): fall
           // back to the registry identity — the same source `bos start` boots
           // from in a runtime container.
-          const account = process.env.BOS_ACCOUNT;
-          const gateway = process.env.BOS_GATEWAY;
+          const account = envOf("BOS_ACCOUNT");
+          const gateway = envOf("BOS_GATEWAY");
           if (!account || !gateway) {
             return {
               status: "fail" as const,

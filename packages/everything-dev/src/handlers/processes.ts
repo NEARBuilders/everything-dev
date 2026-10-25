@@ -7,10 +7,10 @@ export function registerProcesses(builder: BosBuilder) {
   return {
     ps: builder.ps.effect(function* () {
       const processes = yield* ProcessesService;
-      return yield* processes.list().pipe(
+      return yield* processes.list.pipe(
         Effect.map((entries): PsResult => ({ status: "ok", entries })),
-        Effect.catchIf(
-          (error) => error instanceof Error,
+        Effect.catchTag(
+          "ProcessesRegistryError",
           (error): Effect.Effect<PsResult> =>
             Effect.succeed({
               status: "error",

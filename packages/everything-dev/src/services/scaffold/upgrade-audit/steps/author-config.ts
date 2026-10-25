@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import type { PluginInventory } from "../domain";
+import { AuditStepError } from "../domain";
 import { readText, writeText } from "../fs";
 
 interface BosConfig {
@@ -119,11 +120,11 @@ export const authorConfig = (
   Effect.gen(function* () {
     const config = JSON.parse(yield* readText(projectDir, "bos.config.json")) as BosConfig;
     if (!config.extends || !config.account || !config.domain) {
-      return yield* Effect.fail(
-        new Error(
+      return yield* new AuditStepError({
+        step: "author-config",
+        message:
           "bos.config.json missing extends/account/domain — audit gate should have caught this",
-        ),
-      );
+      });
     }
 
     const bosApp = renderBosAppTs(descriptorBody(config, inventory));

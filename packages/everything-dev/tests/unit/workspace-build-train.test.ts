@@ -410,13 +410,16 @@ describe("BuildTrainService", () => {
         ),
       );
     }).pipe(
-      Effect.provide(BuildTrainService.Live),
       Effect.provide(
-        Layer.succeed(
-          WorkspaceBuildRenderService,
-          WorkspaceBuildRenderService.of({
-            outcome: (outcome) => rendered.push(`${outcome.key}:${outcome.success}`),
-          }),
+        BuildTrainService.Live.pipe(
+          Layer.provideMerge(
+            Layer.succeed(
+              WorkspaceBuildRenderService,
+              WorkspaceBuildRenderService.of({
+                outcome: (outcome) => rendered.push(`${outcome.key}:${outcome.success}`),
+              }),
+            ),
+          ),
         ),
       ),
       Effect.runPromise,

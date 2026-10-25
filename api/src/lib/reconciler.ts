@@ -203,13 +203,12 @@ export function buildReconciler(
                 platformUrl: deps.platformDatabaseUrl ?? "",
               })
               .pipe(
-                Effect.catch((error) =>
-                  Effect.fail(
+                Effect.mapError(
+                  (error) =>
                     new ReconcileConvergenceError({
                       message: describeError(error),
                       cause: error,
                     }),
-                  ),
                 ),
               )
           : {};
@@ -269,6 +268,7 @@ export function buildReconciler(
   return { status: () => Effect.succeed(snapshot()), tick: () => tick };
 }
 
+// eslint-disable-next-line effecttsgo/lazy-effect -- status/tick Effects rebuild per call over captured reconciler state; static members cannot express that
 export class ReconcilerService extends Context.Service<
   ReconcilerService,
   {
