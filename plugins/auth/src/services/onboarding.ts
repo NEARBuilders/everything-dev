@@ -22,6 +22,7 @@ import {
   CodeRevoked,
   EventEnded,
   EventTeamCreateFailed,
+  NotOrgMember,
   OrgFull,
   OrgRequiresApproval,
   PlatformAdminRequired,
@@ -474,6 +475,19 @@ export const buildOnboardingService = ({
         }),
       );
       if (already) {
+        const membership = yield* attemptDb(() =>
+          db.query.member.findFirst({
+            where: and(
+              eq(schema.member.userId, userId),
+              eq(schema.member.organizationId, codeRow.organizationId),
+            ),
+          }),
+        );
+        if (!membership) {
+          return yield* new NotOrgMember({
+            message: "You are no longer a member of this organization",
+          });
+        }
         yield* attemptDb(() =>
           db
             .update(schema.session)
