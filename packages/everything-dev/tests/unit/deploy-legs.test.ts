@@ -347,6 +347,12 @@ describe("runPostPublishLegs", () => {
       repointServiceSource: vi.fn().mockResolvedValue(undefined),
       resolveChildImagePin: vi.fn().mockResolvedValue(undefined),
       rollbackToPreviousSnapshot: vi.fn(),
+      detectOwedWork: vi.fn().mockResolvedValue({
+        npmOwed: false,
+        manifestOwed: false,
+        release: false,
+        detail: { unpublished: [], pointerExists: false },
+      }),
     };
   }
 
