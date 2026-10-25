@@ -227,6 +227,10 @@ export function registerUpgrade(builder: BosBuilder) {
             extendsChain: [...refreshed.chain],
             runtimeConfig: runtime,
             forceRouteTree: true,
+            // bos types gen is the strict runtime-map gate (#594): an
+            // unresolvable remote manifest fails the run so typecheck
+            // catches an upstream rename instead of shrinking the map
+            runtimeMapStrict: true,
           });
 
           const hasLocalApiWorkspace = existsSync(join(projectDir, "api", "src"));
@@ -275,7 +279,19 @@ export function registerUpgrade(builder: BosBuilder) {
 
           return {
             status: "success" as const,
-            generated: [...generated, ".bos/bos.resolved-config.json"],
+            generated: [
+              ...generated,
+              ".bos/bos.resolved-config.json",
+              // the composition inventory (#594) — emitted when the map's
+              // sources resolve (skipped with a note otherwise)
+              ...(existsSync(join(projectDir, ".bos/generated/runtime-map.json"))
+                ? [".bos/generated/runtime-map.json"]
+                : []),
+              ...(runtime.ui?.source === "local" &&
+              existsSync(join(runtime.ui.localPath, "src/lib/runtime-map.gen.ts"))
+                ? ["ui/src/lib/runtime-map.gen.ts"]
+                : []),
+            ],
             fetched,
             skipped,
             failed,
