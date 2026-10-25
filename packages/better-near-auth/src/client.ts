@@ -195,6 +195,7 @@ export const passkeyWalletManifest: WalletManifest = {
   },
   permissions: {
     storage: true,
+    webauthn: true,
   },
 };
 
