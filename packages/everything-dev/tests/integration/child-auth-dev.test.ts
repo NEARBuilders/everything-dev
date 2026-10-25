@@ -1,12 +1,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
-import { stripLocalDevelopmentTargets } from "../../src/services/resolution/merge";
-import { buildRuntimeConfigEffect } from "../../src/services/resolution/runtime";
+import { afterEach, describe, expect, it } from "vitest";
 import { planInfra } from "../../src/infra/planner";
 import { PortAllocatorLive } from "../../src/infra/ports";
+import { stripLocalDevelopmentTargets } from "../../src/services/resolution/merge";
+import { buildRuntimeConfigEffect } from "../../src/services/resolution/runtime";
 import { detectLocalPackages } from "../../src/services/workspace/linked-packages";
 
 let tempDir: string;
