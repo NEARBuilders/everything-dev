@@ -682,12 +682,17 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.regression-framework == 'true'
-    timeout-minutes: 20
+    # Serial (one stack slot): this suite is the only one that boots several
+    # full dev stacks concurrently; on a 4-core/16GB hosted runner that boot
+    # wave exhausts RAM (240-450MB free observed), the pty tests fail under
+    # contention, and the saturated runner is torn down mid-job ("The runner
+    # has received a shutdown signal"). One stack fits easily (~2GB).
+    timeout-minutes: 35
     env:
       CI: true
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
       BOS_TEARDOWN_ADOPTION: "1"
-      BOS_FRAMEWORK_STACK_SLOTS: "3"
+      BOS_FRAMEWORK_STACK_SLOTS: "1"
       BOS_FRAMEWORK_READY_TIMEOUT_MINUTES: "4"
     steps:
       - name: Checkout repository
@@ -725,12 +730,13 @@ jobs:
       # a fresh checkout boots the same. The http/browser jobs keep the
       # build step (their dev modes run ui via dev:built).
 
-      # Background watchdog → resource-watchdog.log (file only; the artifact
-      # upload below carries it on any completed run). A TERM trap on the
-      # step shell timestamps infra kills: the 2026-10-23 exit-143 deaths
-      # turned out to be hosted-runner reclamation ("The runner has received
-      # a shutdown signal", TERM delivered by Runner.Worker) — never a test
-      # failure. No in-step retry: deterministic failures just re-fail.
+      # Background watchdog: teed into resource-watchdog.log AND the step's
+      # output pipe — when a runner death skips the artifact upload below,
+      # free -m / top still land in the fetched log. A TERM trap on the
+      # step shell timestamps infra kills: the 2026-10-23/24 exit-143 deaths
+      # turned out to be RAM saturation from concurrent stack boots (see the
+      # serial slots note above) — runner loss, never a test failure.
+      # No in-step retry: deterministic failures just re-fail.
       - name: Run framework regression suite
         run: |
           # $(date) must expand inside the inner bash on every loop iteration —
@@ -741,7 +747,7 @@ jobs:
             free -m
             ps -eo pid,ppid,pgid,rss,etime,comm --sort=-rss | head -15
             sleep 30
-          done' >> resource-watchdog.log 2>&1 &
+          done' 2>&1 | tee resource-watchdog.log &
 
           # shellcheck disable=SC2016
           trap 'echo "[term-trap] step shell received TERM at $(date -u +%H:%M:%S); ancestors: $(ps -o ppid=,comm= -p $PPID 2>/dev/null | tr "\n" ";")"' TERM
