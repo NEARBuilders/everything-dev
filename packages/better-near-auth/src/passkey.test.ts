@@ -185,6 +185,89 @@ describe("verifyPasskeyNep413Signature", () => {
       }),
     ).toBe(false);
   });
+
+  it("accepts a proof signed for the configured relying party", () => {
+    const nonce = crypto.getRandomValues(new Uint8Array(32));
+    const signedMessage = fabricateAssertion(computeNep413Challenge(MESSAGE, RECIPIENT, nonce));
+
+    expect(
+      verifyPasskeyNep413Signature({
+        accountId: signedMessage.accountId,
+        publicKey: signedMessage.publicKey,
+        signature: signedMessage.signature,
+        message: MESSAGE,
+        recipient: RECIPIENT,
+        nonce,
+        relyingParty: { rpID: "localhost", origins: ["https://localhost"] },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects a proof whose rpIdHash does not match the configured RP ID", () => {
+    const nonce = crypto.getRandomValues(new Uint8Array(32));
+    const signedMessage = fabricateAssertion(computeNep413Challenge(MESSAGE, RECIPIENT, nonce));
+
+    expect(
+      verifyPasskeyNep413Signature({
+        accountId: signedMessage.accountId,
+        publicKey: signedMessage.publicKey,
+        signature: signedMessage.signature,
+        message: MESSAGE,
+        recipient: RECIPIENT,
+        nonce,
+        relyingParty: { rpID: "evil.example.com", origins: ["https://localhost"] },
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a proof whose clientData origin is outside the allowlist", () => {
+    const nonce = crypto.getRandomValues(new Uint8Array(32));
+    const signedMessage = fabricateAssertion(computeNep413Challenge(MESSAGE, RECIPIENT, nonce));
+
+    expect(
+      verifyPasskeyNep413Signature({
+        accountId: signedMessage.accountId,
+        publicKey: signedMessage.publicKey,
+        signature: signedMessage.signature,
+        message: MESSAGE,
+        recipient: RECIPIENT,
+        nonce,
+        relyingParty: { rpID: "localhost", origins: ["https://other.example.com"] },
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a proof whose clientData lacks an origin when the allowlist is configured", () => {
+    const nonce = crypto.getRandomValues(new Uint8Array(32));
+    const signedMessage = fabricateAssertion(computeNep413Challenge(MESSAGE, RECIPIENT, nonce));
+    const proof = JSON.parse(new TextDecoder().decode(base64.decode(signedMessage.signature))) as {
+      client_data_json: string;
+    };
+    const clientData = JSON.parse(proof.client_data_json) as { origin?: string };
+    delete clientData.origin;
+
+    expect(
+      verifyPasskeyNep413Signature({
+        accountId: signedMessage.accountId,
+        publicKey: signedMessage.publicKey,
+        signature: base64.encode(
+          new TextEncoder().encode(
+            JSON.stringify({ ...proof, client_data_json: JSON.stringify(clientData) }),
+          ),
+        ),
+        message: MESSAGE,
+        recipient: RECIPIENT,
+        nonce,
+        relyingParty: { rpID: "localhost", origins: ["https://localhost"] },
+      }),
+    ).toBe(false);
+  });
+
+  it("throws on a wrong nonce length instead of producing an empty challenge", () => {
+    expect(() => computeNep413Challenge(MESSAGE, RECIPIENT, new Uint8Array(16))).toThrowError(
+      /nonce length/i,
+    );
+  });
 });
 
 describe("getPasskeyWalletFactory", () => {

@@ -119,8 +119,10 @@ export function resolvePasskeyRelyingPartyOptions(
 }
 
 export function buildSiwnOptions(config: AuthConfig): Parameters<typeof siwn>[0] {
+  const relyingParty = resolvePasskeyRelyingPartyOptions(config);
   const base = {
     passkeyWalletNetwork: config.network ?? "mainnet",
+    passkeyWalletRelyingParty: { rpID: relyingParty.rpID, origins: relyingParty.origin },
     apiKey: config.siwn.apiKey,
     rpcUrl: config.siwn.rpcUrl,
     relayer: config.siwn.relayer,
