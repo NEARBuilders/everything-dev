@@ -101,12 +101,15 @@ export const checkI18nSeam = (projectDir: string): Effect.Effect<Finding[], Erro
 
     // The host's auth plugin consumes shared @lingui/* (import: false) — only a
     // wired core-ui provides it, so the seam matters even without appLocale.
+    // A seam that ships no @lingui/* into the share scope is blocker-class:
+    // SSR composition dies with RUNTIME-012 and the app cannot boot. Catalog
+    // drift is warn-class — cosmetic config skew, not composition-fatal.
     if (seam === "missing") {
       findings.push(
         new Finding({
           check: "i18n-seam",
           path: RUNTIME_PATH,
-          severity: "warn",
+          severity: "blocker",
           message:
             "the shared i18n runtime is not wired — the UI bundle shares no @lingui/*, so the host's auth plugin fails SSR composition with RUNTIME-012 (shareKey @lingui/core). Run `pnpm i18n-seam` to scaffold ui/src/i18n and mount AppI18nProvider",
         }),
@@ -116,7 +119,7 @@ export const checkI18nSeam = (projectDir: string): Effect.Effect<Finding[], Erro
         new Finding({
           check: "i18n-seam",
           path: RUNTIME_PATH,
-          severity: "warn",
+          severity: "blocker",
           message:
             "ui/src/i18n/runtime.tsx exists but no route imports it — the provider never enters the bundle, so @lingui/* stays out of the share scope (RUNTIME-012 at SSR composition). Mount AppI18nProvider in the root route",
         }),
@@ -126,9 +129,9 @@ export const checkI18nSeam = (projectDir: string): Effect.Effect<Finding[], Erro
         new Finding({
           check: "i18n-seam",
           path: ROOT_PATH,
-          severity: "warn",
+          severity: "blocker",
           message:
-            "ui/src/i18n/runtime.tsx exists but ui/src/routes/__root.tsx is absent — the provider cannot be mounted; inspect the route tree",
+            "ui/src/i18n/runtime.tsx exists but ui/src/routes/__root.tsx is absent — the provider cannot be mounted and the bundle shares no @lingui/* (RUNTIME-012 at SSR composition); inspect the route tree",
         }),
       );
     }

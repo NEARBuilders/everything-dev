@@ -57,7 +57,7 @@ export type ApplyOutcome = {
   readonly notes: string[];
 };
 
-const toPlainFinding = (finding: RuntimeFinding): PlainFinding => ({
+export const toPlainFinding = (finding: RuntimeFinding): PlainFinding => ({
   check: finding.check,
   path: finding.path,
   severity: finding.severity,
@@ -165,3 +165,4 @@ export const describeComposeProbe = (probe: ComposeProbe): string => {
 };
 
 export type { Manifest, RouterSeam, StepResult };
+export { GateBlocked };

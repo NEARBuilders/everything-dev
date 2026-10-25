@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { GateBlocked } from "../../../src/services/scaffold/upgrade-audit";
 import { checkI18nSeam } from "../../../src/services/scaffold/upgrade-audit/checks/i18n-seam";
 import { migrateI18nSeam } from "../../../src/services/scaffold/upgrade-audit/steps/migrate-i18n-seam";
 
@@ -58,11 +59,11 @@ const run = async (dryRun: boolean) => Effect.runPromise(migrateI18nSeam(project
 const readUi = (name: string) => readFile(join(projectDir, "ui/src", name), "utf-8");
 
 describe("checkI18nSeam", () => {
-  it("warns with the RUNTIME-012 consequence when the seam is missing", async () => {
+  it("blocks with the RUNTIME-012 consequence when the seam is missing", async () => {
     const findings = await Effect.runPromise(checkI18nSeam(projectDir));
     expect(findings).toHaveLength(1);
     expect(findings[0].check).toBe("i18n-seam");
-    expect(findings[0].severity).toBe("warn");
+    expect(findings[0].severity).toBe("blocker");
     expect(findings[0].message).toMatch(/RUNTIME-012/);
     expect(findings[0].message).toMatch(/pnpm i18n-seam/);
   });
@@ -153,13 +154,22 @@ describe("migrateI18nSeam", () => {
     expect(result.notes.join("\n")).toMatch(/already mounts AppI18nProvider/);
   });
 
-  it("leaves unrecognized root shells alone with a manual note", async () => {
+  it("blocks when the root shell is unrecognized — the provider never mounts", async () => {
     await writeFile(
       join(projectDir, "ui/src/routes/__root.tsx"),
       "export const chrome = <SessionShell />;\n",
     );
-    const result = await run(false);
-    expect(result.writes).not.toContain("ui/src/routes/__root.tsx");
-    expect(result.notes.join("\n")).toMatch(/mount AppI18nProvider manually/);
+    const failure = await Effect.runPromise(Effect.flip(migrateI18nSeam(projectDir, false)));
+    expect(failure).toBeInstanceOf(GateBlocked);
+    if (failure instanceof GateBlocked) {
+      expect(failure.findings.map((f) => f.severity)).toEqual(["blocker"]);
+      expect(failure.findings[0].message).toMatch(/Mount AppI18nProvider/);
+    }
+  });
+
+  it("previews blockers as notes on dry-run instead of failing", async () => {
+    const result = await run(true);
+    expect(result.writes).toContain("ui/src/i18n/catalogs.ts");
+    expect(result.notes.join("\n")).toMatch(/\[blocker\].*mount AppI18nProvider/i);
   });
 });
