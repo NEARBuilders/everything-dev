@@ -606,9 +606,11 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
       console.error(`[runtime-map] UNRESOLVED ${entry.key} (${entry.kind}): ${entry.reason}`);
     }
     if (opts?.strict) {
+      // the reasons ride in the error — the wire (e.g. the typesGen JSON)
+      // only sees this message, never the console.error lines above
       return yield* Effect.fail(
         new Error(
-          "runtime map is incomplete — fix the source or set BOS_MAP_ALLOW_UNRESOLVED=1 for offline work",
+          `runtime map is incomplete — ${unresolved.map((entry) => `${entry.key} (${entry.kind}): ${entry.reason}`).join("; ")} — fix the source or set BOS_MAP_ALLOW_UNRESOLVED=1 for offline work`,
         ),
       );
     }

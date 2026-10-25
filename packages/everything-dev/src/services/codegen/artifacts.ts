@@ -14,7 +14,28 @@ import { generateRuntimeMapEffect } from "./runtime-map";
 export class ArtifactGenError extends Schema.TaggedError<ArtifactGenError>()("ArtifactGenError", {
   phase: Schema.String,
   cause: Schema.optional(Schema.Unknown),
-}) {}
+}) {
+  // TaggedError carries no message field, so `error.message` serializes as ""
+  // down every `error instanceof Error ? error.message` wire (CI output
+  // included). Render the phase + cause instead — a generation failure must
+  // always name what failed.
+  override get message(): string {
+    let detail: string;
+    try {
+      detail =
+        this.cause instanceof Error
+          ? this.cause.message
+          : this.cause === undefined
+            ? ""
+            : String(this.cause);
+    } catch {
+      // some Error subclasses (Effect's YieldableError) delete toString —
+      // a non-serializable cause must not break rendering the message
+      detail = "non-serializable cause";
+    }
+    return `artifact generation failed (${this.phase})${detail ? `: ${detail}` : ""}`;
+  }
+}
 
 interface GeneratedArtifacts {
   resolvedConfigPath?: string;
@@ -27,7 +48,7 @@ interface UiManifestTarget {
   emitRouteTree: boolean;
 }
 
-function uiManifestTargets(
+export function uiManifestTargets(
   runtimeConfig: RuntimeConfig,
   forceRouteTree?: boolean,
 ): UiManifestTarget[] {
@@ -65,7 +86,13 @@ function uiManifestTargets(
   }
   for (const [key, plugin] of Object.entries(runtimeConfig.plugins ?? {})) {
     const uiPath = plugin.ui?.localPath;
-    if (plugin.ui?.source === "local" && uiPath && existsSync(join(uiPath, "rsbuild.config.ts"))) {
+    // Folder-form plugin uis (no committed rsbuild.config.ts) are still
+    // manifest targets: generateUiManifest needs only src/routes, and on a
+    // fresh checkout no manifest.gen.json exists until something generates
+    // it — gating on the rsbuild config left those uis ungenerated, so a
+    // strict types gen failed the run on a source typegen itself should
+    // have produced (the #558 class; same reason auth-ui is unconditional).
+    if (plugin.ui?.source === "local" && uiPath && existsSync(join(uiPath, "src/routes"))) {
       targets.push({ workspaceRoot: uiPath, pluginName: key, emitRouteTree: false });
     }
   }
