@@ -238,11 +238,6 @@ jobs:
       - name: Run typecheck
         run: pnpm run typecheck
 
-      # The framework packages typecheck their own sources (tsc --noEmit) —
-      # `pnpm run typecheck` above only covers the app units
-      - name: Run package self-typecheck
-        run: pnpm run typecheck:packages
-
       # Staleness-checked prerequisite builds + the template plugin target —
       # contract types + manifest pipeline in one command.
       - name: Build template plugin (contract types + manifest pipeline)

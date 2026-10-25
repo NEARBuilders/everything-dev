@@ -14,7 +14,7 @@
     "infra:plan": "cd infra && pnpm exec alchemy plan",
     "publish": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts publish",
     "bos": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts",
-    "typecheck": "BOS_NO_BANNER=1 pnpm run bos typecheck",
+    "typecheck": "BOS_NO_BANNER=1 pnpm run bos typecheck && pnpm run typecheck:packages",
     "typecheck:packages": "pnpm --filter everything-dev --filter every-plugin --filter better-near-auth run typecheck",
     "lint": "biome check . && pnpm run lint:effect",
     "lint:effect": "oxlint --type-aware --ignore-pattern=repos .",
