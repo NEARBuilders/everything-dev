@@ -240,7 +240,11 @@ describe("buildAndPushImage", () => {
       return ok();
     });
 
-    const result = await buildAndPushImage({ image: "ghcr.io/acme/app", configDir, release: false });
+    const result = await buildAndPushImage({
+      image: "ghcr.io/acme/app",
+      configDir,
+      release: false,
+    });
 
     expect(result).toEqual({
       image: "ghcr.io/acme/app",

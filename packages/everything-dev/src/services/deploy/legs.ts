@@ -13,7 +13,6 @@ import {
   resolveImageRef,
   resolveRegistryDigest,
 } from "./image";
-import { detectOwedWork, owedWorkDrift } from "./owed";
 import { deriveImageRefFromPlatformManifest } from "./platform-manifest";
 import { rollbackToPreviousSnapshot } from "./rollback-flow";
 import { runSmoke } from "./smoke";

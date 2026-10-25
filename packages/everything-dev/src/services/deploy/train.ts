@@ -35,7 +35,9 @@ import {
 } from "./diff";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
 import { formatNearError } from "./format";
+import { readFrameworkVersion } from "./image";
 import { applyDeployResults, type DeployResultEntry } from "./integrity";
+import { computeOwedWork } from "./owed";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
   composePlatformManifestPublishEntry,
@@ -44,8 +46,6 @@ import {
   type PlatformManifestPublishEntry,
   platformTruthViolations,
 } from "./platform-manifest";
-import { computeOwedWork } from "./owed";
-import { readFrameworkVersion } from "./image";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
 import { type DeployTrainRender, DeployTrainRenderService } from "./render";
 import { verifyRollbackSnapshot } from "./rollback";

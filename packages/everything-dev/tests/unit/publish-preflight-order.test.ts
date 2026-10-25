@@ -286,7 +286,6 @@ describe("publishToFastKv preflight ordering", () => {
     });
 
     const result = await publishToFastKv({ ...baseInput, configDir, packages: "all" });
-    
 
     expect(result.status).toBe("published");
     expect(uploadWorkspaceDistMock).toHaveBeenCalledWith(

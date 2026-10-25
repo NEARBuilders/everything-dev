@@ -14,8 +14,8 @@
  */
 
 import { fetchRegistryKeyOrNull } from "../registry/fastkv";
-import { findUnpublishedFrameworkPackages } from "./preflight";
 import { readFrameworkVersion } from "./image";
+import { findUnpublishedFrameworkPackages } from "./preflight";
 
 /** Tri-state pointer read: `present` (a completed release cycle exists),
  * `absent` (read succeeded, no slot — a first release), or `unknown` (the
