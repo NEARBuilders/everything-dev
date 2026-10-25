@@ -29,7 +29,7 @@ async function signUpWithReferral(
   return services.auth.handler(
     new Request(`${BASE}/sign-up/email`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(referralHeader ?? {}) },
+      headers: { "Content-Type": "application/json", ...referralHeader },
       body: JSON.stringify({ email, password: "Test1234!", name: "Referred" }),
     }),
   );

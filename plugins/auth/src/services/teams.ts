@@ -172,7 +172,7 @@ export const buildTeamsService = ({
         }),
       );
       if (!team) {
-        return yield* Effect.fail(new TeamNotFound({ message: "Team not found", teamId }));
+        return yield* new TeamNotFound({ message: "Team not found", teamId });
       }
       const membership = yield* attemptDb(() =>
         db.query.member.findFirst({
@@ -183,9 +183,9 @@ export const buildTeamsService = ({
         }),
       );
       if (!membership) {
-        return yield* Effect.fail(
-          new NotOrgMember({ message: "You are not a member of this team's organization" }),
-        );
+        return yield* new NotOrgMember({
+          message: "You are not a member of this team's organization",
+        });
       }
       const rows = yield* attemptDb(() =>
         db.query.teamMember.findMany({
@@ -206,11 +206,9 @@ export const buildTeamsService = ({
       input: { teamId: string; userId: string; organizationId?: string; role?: string },
     ) {
       if (input.role !== undefined && !(input.role in registry.roleGrants)) {
-        return yield* Effect.fail(
-          new UnknownTeamRole({
-            message: `Unknown team role "${input.role}" — declare it in siwn.permissions.roles (valid: ${Object.keys(registry.roleGrants).join(", ")})`,
-          }),
-        );
+        return yield* new UnknownTeamRole({
+          message: `Unknown team role "${input.role}" — declare it in siwn.permissions.roles (valid: ${Object.keys(registry.roleGrants).join(", ")})`,
+        });
       }
       const result = yield* attemptAuth(() =>
         auth.api.addTeamMember({
@@ -240,7 +238,7 @@ export const buildTeamsService = ({
         teamId: result.teamId,
         userId: result.userId,
         role: input.role ?? "member",
-        createdAt: result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
+        createdAt: toDate(result.createdAt),
       };
     }),
 

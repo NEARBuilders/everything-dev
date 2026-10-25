@@ -137,12 +137,10 @@ export const buildApiKeysService = ({ auth, db }: { auth: Auth; db: Db }) =>
           }),
         );
         if (!linked) {
-          return yield* Effect.fail(
-            new DeployKeyAccountNotLinked({
-              message: `Deploy keys can only be minted for NEAR accounts linked to your login — link ${input.account} first`,
-              action: `deploy-key ${input.account}/${input.gateway}`,
-            }),
-          );
+          return yield* new DeployKeyAccountNotLinked({
+            message: `Deploy keys can only be minted for NEAR accounts linked to your login — link ${input.account} first`,
+            action: `deploy-key ${input.account}/${input.gateway}`,
+          });
         }
         return yield* attemptAuth(() =>
           auth.api.createApiKey({

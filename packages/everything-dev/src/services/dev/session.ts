@@ -348,7 +348,9 @@ export const runDevSession = (
         while (true) {
           yield* Effect.sleep("200 millis");
           if (ppidNow() === initialPpid) continue;
-          console.error("\n[Dev] Parent process died — force exiting (orphaned service tree)");
+          yield* Effect.logError(
+            "[Dev] Parent process died — force exiting (orphaned service tree)",
+          );
           force();
         }
       }),

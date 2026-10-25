@@ -121,7 +121,7 @@ describe("set-email with an email provider configured", () => {
         const url =
           typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         if (url === "https://api.resend.com/emails") {
-          const body = JSON.parse(String(init?.body)) as {
+          const body = JSON.parse(init?.body as string) as {
             to: string;
             subject: string;
             text: string;

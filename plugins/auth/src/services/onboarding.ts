@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
-import { Context, Effect } from "effect";
+import { Clock, Context, Effect } from "effect";
 import { attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
@@ -34,6 +34,14 @@ type Db = PluginServices["db"];
 
 const DEFAULT_MAX_USES = 300;
 const DEFAULT_EXPIRES_IN_HOURS = 24;
+
+function dateFromMillis(ms: number): Date {
+  return new Date(ms);
+}
+
+function resolveExpiry(value: Date | undefined, nowMs: number): Date {
+  return value ? toDate(value) : dateFromMillis(nowMs + DEFAULT_EXPIRES_IN_HOURS * 3_600_000);
+}
 
 type CodeState = "active" | "revoked" | "expired" | "used-up";
 
@@ -138,16 +146,13 @@ export const buildOnboardingService = ({
 
       const eventName = String(input.eventName).trim();
       const eventId = String(input.eventId);
-      const now = new Date();
-      const expiresAt = input.expiresAt
-        ? toDate(input.expiresAt)
-        : new Date(now.getTime() + DEFAULT_EXPIRES_IN_HOURS * 3_600_000);
+      const nowMs = yield* Clock.currentTimeMillis;
+      const now = dateFromMillis(nowMs);
+      const expiresAt = resolveExpiry(input.expiresAt, nowMs);
       if (expiresAt <= now) {
-        return yield* Effect.fail(
-          new EventEnded({
-            message: "This event has ended, so its onboarding code would already be expired",
-          }),
-        );
+        return yield* new EventEnded({
+          message: "This event has ended, so its onboarding code would already be expired",
+        });
       }
 
       const teamId = yield* attemptDb(() =>
@@ -177,7 +182,7 @@ export const buildOnboardingService = ({
           .returning(),
       );
       if (!row) {
-        return yield* Effect.fail(new CodeCreateFailed({ message: "Failed to create code" }));
+        return yield* new CodeCreateFailed({ message: "Failed to create code" });
       }
 
       return { ...toOnboardingSummary(row), code };
@@ -220,12 +225,10 @@ export const buildOnboardingService = ({
         );
         scopedOrganizationId = organizationId;
       } else if (context.user?.role !== "admin") {
-        return yield* Effect.fail(
-          new PlatformAdminRequired({
-            message:
-              "Viewing onboarding stats across all organizations requires a platform admin; pass organizationId for organization-scoped stats",
-          }),
-        );
+        return yield* new PlatformAdminRequired({
+          message:
+            "Viewing onboarding stats across all organizations requires a platform admin; pass organizationId for organization-scoped stats",
+        });
       }
 
       const rows = yield* attemptDb(() =>
@@ -299,9 +302,10 @@ export const buildOnboardingService = ({
           .returning(),
       );
       if (!revoked) {
-        return yield* Effect.fail(
-          new CodeNotFound({ message: "Onboarding code not found", codeId: input.codeId }),
-        );
+        return yield* new CodeNotFound({
+          message: "Onboarding code not found",
+          codeId: input.codeId,
+        });
       }
       return { success: true };
     }),
@@ -320,14 +324,13 @@ export const buildOnboardingService = ({
         }),
       );
       if (!row) {
-        return yield* Effect.fail(
-          new CodeNotFound({ message: "Onboarding code not found", codeId: input.codeId }),
-        );
+        return yield* new CodeNotFound({
+          message: "Onboarding code not found",
+          codeId: input.codeId,
+        });
       }
       if (!row.encryptedCode || codeState(row) !== "active") {
-        return yield* Effect.fail(
-          new CodeInactive({ message: "This onboarding code is no longer active" }),
-        );
+        return yield* new CodeInactive({ message: "This onboarding code is no longer active" });
       }
 
       const encryptedCode = row.encryptedCode;
@@ -351,9 +354,10 @@ export const buildOnboardingService = ({
         }),
       );
       if (!row) {
-        return yield* Effect.fail(
-          new CodeNotFound({ message: "Onboarding code not found", codeId: input.codeId }),
-        );
+        return yield* new CodeNotFound({
+          message: "Onboarding code not found",
+          codeId: input.codeId,
+        });
       }
 
       const joined = yield* attemptDb(() =>
@@ -428,9 +432,7 @@ export const buildOnboardingService = ({
       const userId = context.userId;
       const sessionId = context.sessionId ?? null;
       if (!userId || !sessionId) {
-        return yield* Effect.fail(
-          new AuthenticationRequired({ message: "Authentication required" }),
-        );
+        return yield* new AuthenticationRequired({ message: "Authentication required" });
       }
 
       const codeRow = yield* attemptDb(() =>
@@ -439,7 +441,7 @@ export const buildOnboardingService = ({
         }),
       );
       if (!codeRow) {
-        return yield* Effect.fail(new CodeNotFound({ message: "Onboarding code not found" }));
+        return yield* new CodeNotFound({ message: "Onboarding code not found" });
       }
 
       const organization = yield* attemptDb(() =>
@@ -449,21 +451,21 @@ export const buildOnboardingService = ({
       );
       const organizationName = organization?.name ?? "";
       if (organization?.status !== "active") {
-        return yield* Effect.fail(
-          new OrgRequiresApproval({ message: "Organization requires platform-admin approval" }),
-        );
+        return yield* new OrgRequiresApproval({
+          message: "Organization requires platform-admin approval",
+        });
       }
 
       if (codeRow.revokedAt) {
-        return yield* Effect.fail(new CodeRevoked({ message: "This onboarding code was revoked" }));
+        return yield* new CodeRevoked({ message: "This onboarding code was revoked" });
       }
-      if (toDate(codeRow.expiresAt) < new Date()) {
-        return yield* Effect.fail(new CodeExpired({ message: "This onboarding code has expired" }));
+      if (toDate(codeRow.expiresAt) < dateFromMillis(yield* Clock.currentTimeMillis)) {
+        return yield* new CodeExpired({ message: "This onboarding code has expired" });
       }
       if (codeRow.usedCount >= codeRow.maxUses) {
-        return yield* Effect.fail(
-          new CodeLimitReached({ message: "This onboarding code has reached its limit" }),
-        );
+        return yield* new CodeLimitReached({
+          message: "This onboarding code has reached its limit",
+        });
       }
 
       const already = yield* attemptDb(() =>

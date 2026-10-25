@@ -3,7 +3,7 @@ import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
-import { toOrganizationInfo } from "../serializers";
+import { toDate, toOrganizationInfo } from "../serializers";
 import type { PluginServices } from "../service-types";
 import { canReadMemberEmails, parseTeamAreas, toAuthApiError, tryJsonParse } from "../utils";
 import { AuthApiError, type AuthFailure, isAuthFailure, OrgNotFound } from "./domain-errors";
@@ -115,7 +115,7 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
         Effect.map((result: any) =>
           result.map((org: any) => ({
             ...toOrganizationInfo(org),
-            createdAt: org.createdAt instanceof Date ? org.createdAt : new Date(org.createdAt),
+            createdAt: toDate(org.createdAt),
           })),
         ),
       ),
@@ -143,19 +143,18 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
             if (!result) return null;
             return {
               ...toOrganizationInfo(result),
-              createdAt:
-                result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
+              createdAt: toDate(result.createdAt),
               members: (result.members ?? []).map((m: any) => ({
                 id: m.id,
                 userId: m.userId,
                 organizationId: m.organizationId,
                 role: m.role,
-                createdAt: m.createdAt instanceof Date ? m.createdAt : new Date(m.createdAt),
+                createdAt: toDate(m.createdAt),
               })),
               invitations: (result.invitations ?? []).map((inv: any) => ({
                 ...inv,
                 email: emailAllowed ? inv.email : null,
-                expiresAt: inv.expiresAt instanceof Date ? inv.expiresAt : new Date(inv.expiresAt),
+                expiresAt: toDate(inv.expiresAt),
               })),
               teams: result.teams
                 ? result.teams.map((t: any) => ({
@@ -163,8 +162,8 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
                     name: t.name,
                     organizationId: t.organizationId,
                     areas: parseTeamAreas(t.metadata),
-                    createdAt: t.createdAt instanceof Date ? t.createdAt : new Date(t.createdAt),
-                    updatedAt: t.updatedAt instanceof Date ? t.updatedAt : new Date(t.updatedAt),
+                    createdAt: toDate(t.createdAt),
+                    updatedAt: toDate(t.updatedAt),
                   }))
                 : undefined,
             };
@@ -208,8 +207,7 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
       ).pipe(
         Effect.map((result: any) => ({
           ...toOrganizationInfo(result),
-          createdAt:
-            result.createdAt instanceof Date ? result.createdAt : new Date(result.createdAt),
+          createdAt: toDate(result.createdAt),
         })),
       ),
 
@@ -308,7 +306,7 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
             where: eq(schema.organization.id, input.organizationId),
           }),
         );
-        if (!org) return yield* Effect.fail(notFound(input.organizationId));
+        if (!org) return yield* notFound(input.organizationId);
 
         const existingMetadata = tryJsonParse<Record<string, unknown>>(org.metadata) ?? {};
         existingMetadata.daoAccountId = input.daoAccountId;
@@ -324,7 +322,7 @@ export const buildOrganizationsService = ({ auth, db }: { auth: Auth; db: Db }) 
             where: eq(schema.organization.id, input.organizationId),
           }),
         );
-        if (!org) return yield* Effect.fail(notFound(input.organizationId));
+        if (!org) return yield* notFound(input.organizationId);
 
         const existingMetadata = tryJsonParse<Record<string, unknown>>(org.metadata) ?? {};
         delete existingMetadata.daoAccountId;

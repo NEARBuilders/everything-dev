@@ -215,7 +215,7 @@ export const migratePnpm = (
       workspaces?: { packages?: string[]; catalog?: Record<string, string> };
     };
 
-    const catalog = { ...(pkg.workspaces?.catalog ?? {}), ...V2_CATALOG };
+    const catalog = { ...pkg.workspaces?.catalog, ...V2_CATALOG };
     const packages = pkg.workspaces?.packages ?? ["api", "ui", "plugins/*"];
     const workspaceYaml = renderWorkspaceYaml({ packages, catalog });
 

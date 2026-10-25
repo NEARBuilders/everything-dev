@@ -139,7 +139,7 @@ export async function rpcPost(
   const headers: Record<string, string> = {
     "content-type": "application/json",
     origin,
-    ...(extraHeaders ?? {}),
+    ...extraHeaders,
   };
   if (cookiePair) headers.cookie = cookiePair;
   const response = await fetch(`${siteUrl.replace(/\/$/, "")}${path}`, {
