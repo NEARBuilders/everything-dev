@@ -194,6 +194,15 @@ export type RailwayStep =
  * pin only under the workspace token, so drift after a `bos upgrade` is
  * loud instead of silent. Without a pin, the redeploy is just a reload
  * trigger for the freshly published config.
+ *
+ * The root repoints too, for the same bytes-validity reason: the
+ * dashboard-connected source is a floating ref (`:rc`) that the image job
+ * moved *before* the smoke gate ran, so a Railway auto-redeploy on image
+ * update can pull unvalidated bytes — the leak behind the 2026-10-25
+ * incident. Repointing to `ref@sha256:<digest>` after a green smoke makes
+ * the service source immutable-per-deploy; it needs the workspace-scoped
+ * token (the serviceConnect mutation), so a project-token-only root keeps
+ * the plain redeploy with a notice.
  */
 export function resolveRailwayStep(input: {
   tier: RuntimeTier;
@@ -203,6 +212,8 @@ export function resolveRailwayStep(input: {
   service?: string;
   pinnedDigest?: string;
   childPin?: ChildImagePin;
+  /** Root repoint: the image this train built/pinned (requires pinnedDigest). */
+  image?: string;
 }): RailwayStep {
   if (!input.token) {
     return { action: "skip", detail: "no RAILWAY_TOKEN / RAILWAY_API_TOKEN is set" };
@@ -242,7 +253,23 @@ export function resolveRailwayStep(input: {
         " currently points at. Set a workspace-scoped RAILWAY_API_TOKEN for pin-following, or repoint manually at `bos upgrade` time.",
     };
   }
-  return { action: "redeploy", service: input.service };
+  if (input.tier === "root" && input.image && input.workspaceToken) {
+    return {
+      action: "repoint-and-redeploy",
+      service: input.service,
+      image: imageRefWithDigest(input.image, input.pinnedDigest),
+    };
+  }
+  return input.tier === "root"
+    ? {
+        action: "redeploy" as const,
+        service: input.service,
+        notice:
+          "service source not repointed to the digest — set a workspace-scoped RAILWAY_API_TOKEN so each" +
+          " deploy pins the source to the exact image this train smoked; today the source follows the floating" +
+          " dashboard ref, which Railway may redeploy outside the train on an image tag update.",
+      }
+    : { action: "redeploy" as const, service: input.service };
 }
 
 /**
@@ -527,6 +554,7 @@ export async function runPostPublishLegs(
     service: input.railwayService,
     pinnedDigest: imageDigest,
     childPin,
+    image,
   });
 
   if (railwayStep.action === "skip") {

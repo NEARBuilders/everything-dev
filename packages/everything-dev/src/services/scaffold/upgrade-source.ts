@@ -14,6 +14,12 @@ export interface ExtendedRootSource {
   extendsChain: string[];
   /** The resolved platform release manifest when one publishes (ADR 0034). */
   platform: ResolvedPlatformManifest;
+  /** The authored `platform` pin as read from disk — the durable record of
+   * the release the tree is aligned to. The manifest above is resolved
+   * *ignoring* this pin, so `authoredPin !== platform.manifest.frameworkVersion`
+   * is the pending-delta fact the migration phase is derived from; it needs
+   * no flag carried across the re-exec boundary. */
+  authoredPin?: string;
 }
 
 /** Injectable registry I/O (the test seam — mirrors the real FastKV layout). */
@@ -75,6 +81,7 @@ export async function readExtendedRootSource(
     repository: walk.repository,
     extendsChain,
     platform,
+    ...(typeof localConfig.platform === "string" ? { authoredPin: localConfig.platform } : {}),
   };
 }
 

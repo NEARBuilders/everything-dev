@@ -217,7 +217,10 @@ export const UiConfigSchema = z
 export type UiConfig = z.infer<typeof UiConfigSchema>;
 
 export const HostConfigSchema = z.object({
-  development: z.string(),
+  /** The host slot is local to the running image — published configs strip
+   * workspace-relative `local:` targets (publish canonicalization, #584), so
+   * production reads omit `development` entirely. */
+  development: z.string().optional(),
   /** Deploy state (ADR 0005) — absent until the first publish writes it. */
   production: z.string().optional(),
   /** direct entry SRI — only for slots without a `pin` */

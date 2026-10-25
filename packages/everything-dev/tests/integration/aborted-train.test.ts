@@ -516,6 +516,7 @@ describe("a pipelined folder-form plugin ui upload started mid-build", () => {
     account: "v1.citynode.near",
     domain: "citynode.app",
     cdn: { origin: "https://cdn.example.test" },
+    app: { host: {}, ui: {}, api: {} },
     plugins: {
       auth: {
         development: "local:plugins/auth",
