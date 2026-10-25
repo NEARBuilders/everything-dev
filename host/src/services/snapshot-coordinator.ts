@@ -72,9 +72,9 @@ const resolvePointerConfig = async (
  * Order constraints (MAP): the pointer-derived config is resolved FIRST
  * (SSR entry URLs derive from it); composeUi validates the digest the client
  * payload will carry; the swap is a single atomic Ref write. Old-snapshot
- * in-flight requests keep composing against their own entry URLs through the
- * shared composition instance (the same per-request re-registration steady
- * state tenant overrides already exercise).
+ * in-flight requests keep composing through the composition session they
+ * pinned — a deploy landing mid-compose changes the next compose's
+ * generation, never the in-flight tree's bytes.
  *
  * API plugins and auth are boot-frozen (MAP decision 3): the derived config
  * still carries them, but they are not reloaded — the swap adopts UI/SSR/

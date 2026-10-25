@@ -339,7 +339,9 @@ describe("SSR fallback paths", () => {
       const html = await response.text();
 
       expect(response.status).toBe(200);
-      expect(html).toContain("Loading...");
+      expect(html).toContain("Loading…");
+      expect(html).toContain('role="status"');
+      expect(html).toContain("animate-spin");
       expect(html).toContain("remoteEntry.aaa.js");
     });
   });
