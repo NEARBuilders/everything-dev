@@ -153,7 +153,7 @@ export async function deleteKeyAcrossConfigs(
     });
     return;
   } catch (firstError) {
-    if (isAuthFailure(firstError) && !(firstError instanceof ApiKeyNotFound)) {
+    if (isAuthFailure(firstError) && firstError._tag !== "ApiKeyNotFound") {
       throw firstError;
     }
     for (const fallbackConfigId of API_KEY_CONFIG_IDS) {

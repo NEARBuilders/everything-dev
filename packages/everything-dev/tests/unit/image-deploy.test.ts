@@ -563,10 +563,9 @@ describe("resolveRegistryDigest", () => {
     await expect(
       resolveRegistryDigest({ ref: "ghcr.io/acme/app:v2.0.0-rc.14", fetch }),
     ).resolves.toBe(digest64);
-    expect(calls[0].url).toBe("https://ghcr.io/v2/acme/app/manifests/v2.0.0-rc.14");
-    expect((calls[0].init?.headers as Record<string, string>).Accept).toContain(
-      "application/vnd.oci.image.index.v1+json",
-    );
+    expect(calls[0]!.url).toBe("https://ghcr.io/v2/acme/app/manifests/v2.0.0-rc.14");
+    const initHeaders = calls[0]!.init?.headers as Record<string, string> | undefined;
+    expect(initHeaders?.Accept).toContain("application/vnd.oci.image.index.v1+json");
   });
 
   it("follows the WWW-Authenticate token challenge on 401", async () => {
@@ -593,10 +592,11 @@ describe("resolveRegistryDigest", () => {
     await expect(
       resolveRegistryDigest({ ref: "ghcr.io/acme/app:v2.0.0-rc.14", fetch }),
     ).resolves.toBe(digest64);
-    expect(calls[1].url).toBe(
+    expect(calls[1]!.url).toBe(
       "https://ghcr.io/token?service=ghcr.io&scope=repository%3Aacme%2Fapp%3Apull",
     );
-    expect((calls[2].init?.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+    const authHeaders = calls[2]!.init?.headers as Record<string, string> | undefined;
+    expect(authHeaders?.Authorization).toBe("Bearer tok");
   });
 
   it("throws when the registry has no manifest for the tag", async () => {

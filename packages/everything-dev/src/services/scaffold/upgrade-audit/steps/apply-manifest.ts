@@ -116,7 +116,7 @@ const declarePluginDeps = (
         }
       }
 
-      const nextDeps = { ...(pkg.dependencies ?? {}) };
+      const nextDeps = { ...pkg.dependencies };
       let modified = false;
       for (const name of needed) {
         if (declared.has(name) || name === pluginDir.split("/")[1]) continue;

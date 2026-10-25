@@ -370,5 +370,5 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
 export function mapDomainError<A, E extends AuthFailure>(
   self: Effect.Effect<A, E, never>,
 ): Effect.Effect<A, ORPCError<string, unknown>, never> {
-  return Effect.catch(self, (error) => Effect.fail(toTransportError(error)));
+  return Effect.mapError(self, (error) => toTransportError(error));
 }

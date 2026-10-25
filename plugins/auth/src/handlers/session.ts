@@ -9,7 +9,7 @@ export function createSessionHandlers(builder: Implementer<ContractType, AuthHan
   return {
     health: builder.health.effect(function* () {
       const session = yield* SessionService;
-      return yield* mapDomainError(session.health());
+      return yield* mapDomainError(session.health);
     }),
 
     getSession: builder.getSession.effect(function* ({ context }) {
