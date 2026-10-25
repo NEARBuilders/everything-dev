@@ -21,6 +21,7 @@ import { custody } from "./custody";
 import type { Database as AuthDatabase } from "./db/layer";
 import * as schema from "./db/schema";
 import { BOS_CLI_CLIENT_ID, deviceLink } from "./device-link";
+import { emailVisibility } from "./email-visibility";
 import {
   isNearInvitation,
   isNearNetwork,
@@ -44,6 +45,7 @@ import {
 } from "./personal-organization";
 import { attributeReferralOnUserCreate, referralSignupGuard } from "./referral-signup";
 import { setEmail } from "./set-email";
+import type { OrgPermissionAuth } from "./utils";
 
 function buildOrganizationAccess(permissions: AuthPermissionStatements) {
   const ac = createAccessControl(permissions.statements);
@@ -244,7 +246,9 @@ export function createAuthInstance(
     ? siwnOptions.recipients.mainnet
     : siwnOptions.recipient;
 
-  return betterAuth({
+  let authRef: OrgPermissionAuth | undefined;
+
+  const auth = betterAuth({
     database: drizzleAdapter(db, {
       provider: "pg",
       schema: schema,
@@ -302,10 +306,12 @@ export function createAuthInstance(
       passkeySignUp({ network, referral: config.referral }),
       setEmail({ requireVerification: Boolean(emailApiKey && emailConfig?.from) }),
       organizationApproval(db),
+      emailVisibility({ getAuth: () => authRef }),
       organization({
         ac: orgAc,
         roles: orgRoles,
         membershipLimit: membershipPolicy.limit,
+        requireEmailVerificationOnInvitation: true,
         teams: {
           enabled: true,
           defaultTeam: { enabled: false },
@@ -543,6 +549,8 @@ export function createAuthInstance(
       },
     },
   });
+  authRef = auth;
+  return auth;
 }
 
 export type Auth = ReturnType<typeof createAuthInstance>;

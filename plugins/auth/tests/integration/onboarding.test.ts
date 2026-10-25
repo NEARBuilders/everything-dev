@@ -252,6 +252,60 @@ describe("onboarding handlers", () => {
     expect(status.joined[0]!.userName).toBe(newcomer.name);
   });
 
+  it("fails a re-redeem after the member was removed, leaving the active organization untouched", async () => {
+    const owner = await createTestUser(services.services);
+    const org = await createTestOrg(services.services, owner.userId);
+    const handlers = createTestHandlers(services.services);
+
+    const code = await handlers.onboarding.createOnboardingCode({
+      input: { ...eventOf("Return Visits"), organizationId: org.id },
+      context: { reqHeaders: owner.reqHeaders },
+    });
+    const newcomer = await createTestUser(services.services, { email: undefined });
+
+    await handlers.onboarding.redeemOnboardingCode({
+      input: { code: code.code },
+      context: { reqHeaders: newcomer.reqHeaders },
+    });
+
+    const membership = await services.services.db.query.member.findFirst({
+      where: and(
+        eq(schema.member.userId, newcomer.userId),
+        eq(schema.member.organizationId, org.id),
+      ),
+    });
+    expect(membership).toBeDefined();
+    await handlers.members.removeMember({
+      input: { memberIdOrEmail: membership!.id, organizationId: org.id },
+      context: { reqHeaders: owner.reqHeaders },
+    });
+
+    await services.services.db
+      .update(schema.session)
+      .set({ activeOrganizationId: null })
+      .where(eq(schema.session.userId, newcomer.userId));
+
+    await expect(
+      handlers.onboarding.redeemOnboardingCode({
+        input: { code: code.code },
+        context: { reqHeaders: newcomer.reqHeaders },
+      }),
+    ).rejects.toThrow(/no longer a member/i);
+
+    const member = await services.services.db.query.member.findFirst({
+      where: and(
+        eq(schema.member.userId, newcomer.userId),
+        eq(schema.member.organizationId, org.id),
+      ),
+    });
+    expect(member).toBeUndefined();
+
+    const session = await services.services.db.query.session.findFirst({
+      where: eq(schema.session.userId, newcomer.userId),
+    });
+    expect(session?.activeOrganizationId).toBeNull();
+  });
+
   it("enforces the use cap", async () => {
     const owner = await createTestUser(services.services);
     const org = await createTestOrg(services.services, owner.userId);

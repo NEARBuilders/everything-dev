@@ -44,12 +44,20 @@ export function AddEmailDialog({ open, onOpenChange }: AddEmailDialogProps) {
           ? (apiError as { message?: string }).message
           : undefined;
       if (apiError) throw new Error(message || "Could not save email");
-      return (data as { status?: boolean; verificationRequired?: boolean } | null) ?? null;
+      return (
+        (data as {
+          status?: boolean;
+          verificationRequired?: boolean;
+          emailVerified?: boolean;
+        } | null) ?? null
+      );
     },
     onSuccess: async (data) => {
       await refreshSessionCache(auth, queryClient);
       if (data?.verificationRequired) {
         toast.success("Verification email sent — open the link we emailed you to finish.");
+      } else if (data?.emailVerified === false) {
+        toast.info("Email saved — unverified until email verification is set up.");
       } else {
         toast.success("Email saved");
       }

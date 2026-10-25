@@ -49,18 +49,18 @@ export function setEmail(options: SetEmailOptions) {
             });
             await sendVerificationEmailFn(ctx, updatedUser);
             await setSessionCookie(ctx, { session, user: updatedUser });
-            return ctx.json({ status: true, verificationRequired: true });
+            return ctx.json({ status: true, verificationRequired: true, emailVerified: false });
           }
 
           await ctx.context.internalAdapter.updateUserByEmail(user.email, {
             email: newEmail,
-            emailVerified: true,
+            emailVerified: false,
           });
           await setSessionCookie(ctx, {
             session,
-            user: { ...user, email: newEmail, emailVerified: true },
+            user: { ...user, email: newEmail, emailVerified: false },
           });
-          return ctx.json({ status: true, verificationRequired: false });
+          return ctx.json({ status: true, verificationRequired: false, emailVerified: false });
         },
       ),
     },
