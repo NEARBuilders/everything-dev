@@ -1,5 +1,4 @@
 ---
-"@everything-dev/upload-app": patch
 "everything-dev": patch
 ---
 

@@ -1,6 +1,5 @@
 ---
 "everything-dev": major
-"api": minor
 ---
 
 Consolidated `bos deploy` — one command runs the full train, and `bos publish` is config-only (ADR 0020/0021).

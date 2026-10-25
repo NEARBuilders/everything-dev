@@ -494,9 +494,13 @@ This repo is the parent platform, not a generated child project.
 ## Changesets
 
 **When to add a changeset:**
-- Any user-facing change (features, fixes, deprecations)
+- Any user-facing change (features, fixes, deprecations) to the publishable framework packages (`packages/*`)
 - Breaking changes
 - Skip for: docs-only changes, internal refactors, test-only changes
+
+**Release-capture rule (#572):** a changeset written against `everything-dev` means "cut a release including everything merged so far" — it is the release lever, not a per-package changelog entry. Small changes ride continuous deploys and are swept up by the next release. Private workspaces (`host`, `ui`, `api`, `plugins/*`) are changesets-ignored and never version; a CI guard rejects changesets naming only private workspaces.
+
+**Children have no changesets.** The child release.yml template is gone, `bos init` scaffolds no `.changeset/` and no `version`/`release` scripts, and existing children's copies are unowned — delete at will on the next upgrade (their `changeset`/`version`/`release` scripts are removed by the root migration). The deploy pipeline is content-addressed end to end, so child package versions feed nothing mechanically.
 
 **Release flow:**
 - CI is the validation workflow. On successful push to `main`, the Deploy workflow triggers automatically via `workflow_run` and checks out the exact SHA CI validated.
