@@ -140,6 +140,8 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
   yield* generateRuntimeMapEffect(configDir, runtimeConfig, {
     strict: opts?.runtimeMapStrict === true,
     env,
+    platform: config.platform ?? null,
+    ...(opts?.extendsChain ? { extendsChain: opts.extendsChain } : {}),
   }).pipe(
     Effect.catch((error) => {
       if (opts?.runtimeMapStrict === true) {

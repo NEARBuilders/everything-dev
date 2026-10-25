@@ -332,13 +332,116 @@ async function fetchRemoteManifest(url: string): Promise<PluginManifest> {
   return (await response.json()) as PluginManifest;
 }
 
+async function fetchPluginManifestAsset(url: string): Promise<PluginManifestAsset> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  const asset = (await response.json()) as PluginManifestAsset;
+  if (!asset || typeof asset !== "object" || asset.kind !== "every-plugin/manifest") {
+    throw new Error("not a plugin manifest");
+  }
+  return asset;
+}
+
+function pluginManifestUrlFor(base: string): string {
+  return new URL("plugin.manifest.json", base.endsWith("/") ? base : `${base}/`).toString();
+}
+
+/** The backend inventory (#594 review): host, api, the auth server, and every
+ * plugin backend — the "who serves this runtime, from where" analog of the ui
+ * sources list. Local backends are their own truth (workspace path); remote
+ * backends fetch their published `plugin.manifest.json` for the version +
+ * contract hash drift signal. The host is source-level only (it ships no
+ * manifest asset — it is not an every-plugin module). */
+function describeBackend(
+  root: string,
+  key: string,
+  kind: BackendRecord["kind"],
+  slot:
+    | {
+        name?: string;
+        url?: string;
+        localPath?: string;
+        source?: string;
+        remoteUrl?: string;
+        remoteEntry?: string;
+        pin?: { manifest?: string };
+        integrity?: string;
+        dependsOn?: string[];
+      }
+    | undefined,
+): BackendRecord | null {
+  if (!slot) return null;
+  const name = typeof slot.name === "string" ? slot.name : null;
+  const pin = slot.pin?.manifest;
+  const dependsOn = slot.dependsOn;
+  if (slot.localPath) {
+    return {
+      key,
+      kind,
+      name,
+      source: "local",
+      location: slot.localPath.startsWith(root)
+        ? slot.localPath.slice(root.length + 1)
+        : slot.localPath,
+      ...(pin ? { pin } : {}),
+      ...(slot.integrity ? { integrity: slot.integrity } : {}),
+      ...(dependsOn ? { dependsOn } : {}),
+    };
+  }
+  const remote = slot.remoteUrl ?? slot.url;
+  if (isHttp(remote)) {
+    return {
+      key,
+      kind,
+      name,
+      source: "remote",
+      location: remote,
+      pluginManifestUrl: pluginManifestUrlFor(remote),
+      ...(pin ? { pin } : {}),
+      ...(slot.integrity ? { integrity: slot.integrity } : {}),
+      ...(dependsOn ? { dependsOn } : {}),
+    };
+  }
+  return null;
+}
+
 export interface RuntimeMapResult {
   routeCount: number;
   remoteCount: number;
   sourceCount: number;
+  backendCount: number;
   unresolved: UnresolvedSource[];
   jsonPath: string;
   tsPath: string | undefined;
+}
+
+/** The published `plugin.manifest.json` (EmitPluginManifest asset) — the
+ * backend inventory's remote drift signal: which plugin version, and which
+ * contract bytes, is this runtime actually composing? */
+export interface PluginManifestAsset {
+  schemaVersion: number;
+  kind: string;
+  plugin?: { name?: string; version?: string };
+  contract?: { types?: { sha256?: string } };
+}
+
+export interface BackendRecord {
+  key: string;
+  kind: "host" | "api" | "auth" | "plugin";
+  name: string | null;
+  source: "local" | "remote";
+  /** Workspace-relative path (local) or URL (remote). */
+  location: string;
+  pin?: string;
+  integrity?: string;
+  dependsOn?: string[];
+  /** Remote backends only: the composed plugin bundle's version + contract
+   * hash, from its published `plugin.manifest.json`. */
+  pluginVersion?: string;
+  contractSha256?: string;
+  /** Where the remote manifest asset was fetched from. */
+  pluginManifestUrl?: string;
+  note?: string;
 }
 
 /** The TS emission requires a local core ui workspace (`ui/src/lib/`); a
@@ -359,11 +462,19 @@ function renderTypeScript(map: GeneratedRuntimeMap): string {
 // Regenerate with \`bos types gen\` (or \`pnpm run types:gen\`). A static model of the
 // composed runtime: core ui wins route/mount claims; plugin routes are listed
 // below. Nav labels are runtime-only (route options, not manifests).
+// See docs/agents/runtime-map.md for the investigation workflows.
 
 export const RUNTIME_MAP_GENERATED_AT = ${JSON.stringify(map.generatedAt)};
 export const RUNTIME_MAP_ENV = ${JSON.stringify(map.env)};
+export const RUNTIME_PLATFORM = ${JSON.stringify(map.platform)};
 
 export const RUNTIME_SOURCES = ${json(map.sources)} as const;
+
+/** The serving side: host, api, the auth server, and every plugin backend —
+ * source-level inventory; remote entries carry the composed plugin version
+ * and contract hash. */
+export const RUNTIME_BACKENDS = ${json(map.backends)} as const;
+export type RuntimeBackend = (typeof RUNTIME_BACKENDS)[number];
 
 /** Routes owned by a plugin/remote ui source (not the core). */
 export const REMOTE_ROUTES = ${json(remoteRoutes)} as const;
@@ -392,6 +503,7 @@ interface GeneratedRuntimeMap {
     pin: string | null;
     note: string | null;
   }>;
+  backends: BackendRecord[];
   unresolved: UnresolvedSource[];
   mounts: ComposedRuntimeMap["mounts"];
   routes: ComposedRuntimeMap["routes"];
@@ -401,7 +513,7 @@ interface GeneratedRuntimeMap {
 export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function* (
   configDir: string,
   runtimeConfig: RuntimeConfig,
-  opts?: { strict?: boolean; env?: string },
+  opts?: { strict?: boolean; env?: string; platform?: string | null; extendsChain?: string[] },
 ): Effect.fn.Return<RuntimeMapResult | null, Error> {
   const allowUnresolved = process.env.BOS_MAP_ALLOW_UNRESOLVED === "1";
   const unresolved: UnresolvedSource[] = [];
@@ -448,7 +560,46 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
     }
   }
 
-  if (sources.length === 0 && unresolved.length === 0) return null;
+  // Backend inventory (#594 review): the auth mirror dedupes against the
+  // auth app slot's backend (same source, same key collision rule). Effect
+  // generators cannot await — the fetch loop runs inside the promise.
+  const backendSlots: Array<BackendRecord | null> = [
+    describeBackend(configDir, "host", "host", runtimeConfig.host),
+    describeBackend(configDir, "api", "api", runtimeConfig.api),
+    describeBackend(configDir, "auth", "auth", runtimeConfig.auth),
+  ];
+  for (const [key, plugin] of Object.entries(runtimeConfig.plugins ?? {})) {
+    if (key === "auth" && runtimeConfig.auth !== undefined) continue;
+    backendSlots.push(describeBackend(configDir, key, "plugin", plugin));
+  }
+  const backends: BackendRecord[] = yield* Effect.tryPromise({
+    try: async () => {
+      const collected: BackendRecord[] = [];
+      for (const backend of backendSlots) {
+        if (!backend) continue;
+        if (backend.pluginManifestUrl) {
+          try {
+            const asset = await fetchPluginManifestAsset(backend.pluginManifestUrl);
+            collected.push({
+              ...backend,
+              pluginVersion: asset.plugin?.version,
+              contractSha256: asset.contract?.types?.sha256,
+            });
+          } catch (error) {
+            const reason = `plugin manifest ${backend.pluginManifestUrl} failed: ${error instanceof Error ? error.message : String(error)}`;
+            unresolved.push({ key: backend.key, kind: backend.kind, reason });
+            collected.push({ ...backend, note: reason });
+          }
+        } else {
+          collected.push(backend);
+        }
+      }
+      return collected;
+    },
+    catch: (cause) => new Error(String(cause)),
+  });
+
+  if (sources.length === 0 && unresolved.length === 0 && backends.length === 0) return null;
 
   if (unresolved.length > 0 && !allowUnresolved) {
     for (const entry of unresolved) {
@@ -467,8 +618,8 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
   const map: GeneratedRuntimeMap = {
     generatedAt: new Date().toISOString(),
     env: opts?.env ?? "unknown",
-    platform: null,
-    extends: null,
+    platform: opts?.platform ?? null,
+    extends: opts?.extendsChain?.join(" → ") ?? null,
     sources: sources.map((source) => ({
       key: source.key,
       kind: source.kind,
@@ -483,6 +634,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
       pin: source.pin ?? null,
       note: source.note ?? null,
     })),
+    backends,
     unresolved,
     mounts: composed.mounts,
     routes: composed.routes,
@@ -504,8 +656,9 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
   }
 
   const remoteCount = map.routes.filter((route) => !route.core).length;
+  const remoteBackends = backends.filter((backend) => backend.source === "remote").length;
   console.log(
-    `[runtime-map] ${map.routes.length} routes (${remoteCount} remote) from ${sources.length} sources`,
+    `[runtime-map] ${map.routes.length} routes (${remoteCount} remote) from ${sources.length} sources; ${backends.length} backends (${remoteBackends} remote)`,
   );
   for (const entry of unresolved) {
     console.warn(`[runtime-map] unresolved ${entry.key}: ${entry.reason}`);
@@ -518,6 +671,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
     routeCount: map.routes.length,
     remoteCount,
     sourceCount: sources.length,
+    backendCount: backends.length,
     unresolved,
     jsonPath,
     tsPath,

@@ -291,7 +291,9 @@ bos types gen --dry-run           # preview without writing files
 bos types gen --remote-plugins auth,registry   # fetch contract types remotely
 ```
 
-Generated files: `api-types.gen.ts`, `auth-types.gen.ts` (ui, api, host), `plugins-types.gen.ts`. Uses `local:` sources in dev and production URLs in production mode.
+Generated files: `api-types.gen.ts`, `auth-types.gen.ts` (ui, api, host), `plugins-types.gen.ts`, plus the **runtime map** — `.bos/generated/runtime-map.json` + `ui/src/lib/runtime-map.gen.ts` (the composition inventory: ui sources, backends incl. host/api/auth/plugins — remote ones carry the composed plugin version + contract hash — mounts, owned routes, shadowed claims). Route/service ownership questions ("who owns /settings?", "which auth-plugin version is composing?") are answered from the runtime map — see `docs/agents/runtime-map.md`; never by grepping `node_modules`. Uses `local:` sources in dev and production URLs in production mode.
+
+**Runtime-map degradation:** strict in `bos types gen` — an unresolvable remote manifest fails the run so typecheck catches upstream renames; dev/build/train boots warn and continue. `BOS_MAP_ALLOW_UNRESOLVED=1` forces offline tolerance; `BOS_MAP_FETCH_TIMEOUT_MS` tunes the fetch timeout.
 
 ### `bos db studio`
 
