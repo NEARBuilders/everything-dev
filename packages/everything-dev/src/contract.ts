@@ -770,6 +770,9 @@ export const UpgradeResultSchema = z.object({
       resolved: z.string(),
       source: z.string(),
       fromCache: z.boolean(),
+      /** slot = the immutable version slot (an exact pin's target); pointer =
+       * the moving platform.json (unpinned resolution) — #574. */
+      provenance: z.enum(["slot", "pointer"]).optional(),
     })
     .optional(),
   /** Dry-run/check only: whether any update is available. */
@@ -1045,6 +1048,9 @@ export const PlatformManifestResultSchema = z.object({
   version: z.string().nullable(),
   source: z.string().optional(),
   fromCache: z.boolean().optional(),
+  /** slot = immutable version slot (an exact pin's target); pointer = the
+   * moving platform.json (unpinned resolution) — #574. */
+  provenance: z.enum(["slot", "pointer"]).optional(),
   error: z.string().optional(),
   /** Set when the authored `platform` pin no longer matches anything in the
    * extends chain — the root republished past it (issue #546). */
