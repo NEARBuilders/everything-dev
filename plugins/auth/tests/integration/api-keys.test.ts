@@ -177,11 +177,11 @@ describe("API key handlers", () => {
   describe("createDeployKey", () => {
     it("mints a deploy key that passes verifyApiKey with bundles:write", async () => {
       const user = await createTestUser(services.services);
-      await linkTestNearAccount(services.services, user.userId, "citynode.near");
+      await linkTestNearAccount(services.services, user.userId, "deploy-mint.near");
       const handlers = createTestHandlers(services.services);
 
       const created = await handlers.apiKeys.createDeployKey({
-        input: { account: "citynode.near", gateway: "citynode.app" },
+        input: { account: "deploy-mint.near", gateway: "citynode.app" },
         context: { reqHeaders: user.reqHeaders },
       });
       expect(created.key).toMatch(/^api_/);
@@ -216,12 +216,12 @@ describe("API key handlers", () => {
 
     it("honors a custom name and expiry", async () => {
       const user = await createTestUser(services.services);
-      await linkTestNearAccount(services.services, user.userId, "citynode.near");
+      await linkTestNearAccount(services.services, user.userId, "expiry-test.near");
       const handlers = createTestHandlers(services.services);
 
       const created = await handlers.apiKeys.createDeployKey({
         input: {
-          account: "citynode.near",
+          account: "expiry-test.near",
           gateway: "citynode.app",
           name: "ci deploy key",
           expiresIn: 7 * 24 * 60 * 60,
@@ -323,14 +323,17 @@ describe("API key handlers", () => {
 
     it("mints from the service when the account is linked", async () => {
       const user = await createTestUser(services.services);
-      await linkTestNearAccount(services.services, user.userId, "citynode.near");
+      await linkTestNearAccount(services.services, user.userId, "service-mint.near");
       const apiKeys = buildApiKeysService({
         auth: services.services.auth,
         db: services.services.db,
       });
 
       const created = await Effect.runPromise(
-        apiKeys.createDeployKey(user.userId, { account: "citynode.near", gateway: "citynode.app" }),
+        apiKeys.createDeployKey(user.userId, {
+          account: "service-mint.near",
+          gateway: "citynode.app",
+        }),
       );
 
       expect(created.key).toMatch(/^api_/);

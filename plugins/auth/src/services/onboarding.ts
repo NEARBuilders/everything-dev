@@ -590,16 +590,14 @@ export const buildOnboardingService = ({
             userId,
             createdAt: new Date(),
           });
+
+          await tx
+            .update(schema.session)
+            .set({ activeOrganizationId: codeRow.organizationId })
+            .where(eq(schema.session.id, sessionId));
+          await rememberActiveOrganization(tx, userId, codeRow.organizationId);
         }),
       );
-
-      yield* attemptDb(() =>
-        db
-          .update(schema.session)
-          .set({ activeOrganizationId: codeRow.organizationId })
-          .where(eq(schema.session.id, sessionId)),
-      );
-      yield* attemptDb(() => rememberActiveOrganization(db, userId, codeRow.organizationId));
 
       return {
         success: true,
@@ -631,17 +629,24 @@ async function resolveEventTeamId(
   if (prior) return prior.teamId;
 
   const now = new Date();
-  const [team] = await db
+  await db
     .insert(schema.team)
     .values({
       id: crypto.randomUUID(),
       name: eventName,
       organizationId,
+      eventId,
       metadata: null,
       createdAt: now,
       updatedAt: now,
     })
-    .returning();
+    .onConflictDoNothing({ target: [schema.team.organizationId, schema.team.eventId] });
+
+  const [team] = await db
+    .select({ id: schema.team.id })
+    .from(schema.team)
+    .where(and(eq(schema.team.organizationId, organizationId), eq(schema.team.eventId, eventId)))
+    .limit(1);
   if (!team) {
     throw new EventTeamCreateFailed({ message: "Failed to create event team" });
   }
