@@ -57,7 +57,7 @@ do not need a cleanup PR to remove a comment. Two exemptions:
   states what no code confesses (the why, the gotcha, the invariant). Unmarked
   comments are deletable on sight.
 - **`TODO(<ticket>)`** — allowed only with a reference to tracked work, e.g.
-  `TODO(#591)` (upstream issue) or `TODO(runtime-map/04)` (`.scratch` ticket).
+  `TODO(#613)` (upstream issue) or `TODO(runtime-map/04)` (`.scratch` ticket).
   A bare `TODO:` is a review violation: attach the ticket or delete it.
 
 Both markers are greppable contracts: `KEEP` means *this comment was argued

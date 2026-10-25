@@ -1,9 +1,11 @@
 # How it all fits — the everything.dev runtime, drawn
 
 For the human wondering how this app, the framework, and the deployed runtime
-connect. Two companions: your repo's runtime map (`docs/runtime-map.md`, where
-one is generated — see everything-dev#591) is the **operational** view (what is
-local vs remote, how to override) and [`GLOSSARY.md`](../../GLOSSARY.md) is the
+connect. Two companions: the runtime map (`docs/agents/runtime-map.md`, with the
+generated inventory in `.bos/generated/runtime-map.json` and the typed
+`ui/src/lib/runtime-map.gen.ts` — regenerate with `pnpm run types:gen`) is the
+**operational** view (what is local vs remote, who owns each path, how to
+override) and [`GLOSSARY.md`](../../GLOSSARY.md) is the
 domain vocabulary. An agent can teach any
 section below interactively (`/teach`) — this file is the reference those
 lessons cite.

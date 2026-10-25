@@ -2,11 +2,13 @@ import { Effect } from "effect";
 import {
   APP_PATH,
   CATALOGS_PATH,
+  checkI18nSeam,
   parseAppLocale,
   ROOT_PATH,
   RUNTIME_IMPORT,
   RUNTIME_PATH,
 } from "../checks/i18n-seam";
+import { GateBlocked } from "../domain";
 import { fileExists, readText, writeText } from "../fs";
 import type { StepResult } from "./author-config";
 
@@ -28,6 +30,12 @@ import type { StepResult } from "./author-config";
  *
  * Maintenance step for post-upgrade trees:
  * `pnpm i18n-seam [--dry-run]`
+ *
+ * Enforcing: a run that leaves a composition-fatal seam in place (unwired
+ * runtime, unmounted provider) fails with `GateBlocked` — the missing
+ * share-scope only surfaces later as RUNTIME-012 at SSR composition, which is
+ * past every check that could have named the cause. Dry-run previews the
+ * blockers as notes instead of failing.
  */
 
 const DEFAULT_LOCALE_CONFIG = {
@@ -172,30 +180,41 @@ export const migrateI18nSeam = (
     const rootExists = yield* fileExists(projectDir, ROOT_PATH);
     if (!rootExists) {
       notes.push("ui/src/routes/__root.tsx absent — provider not mounted, inspect manually");
-      return { writes, deletes: [], notes };
+    } else {
+      const rootSource = yield* readText(projectDir, ROOT_PATH);
+      if (!rootSource.includes(RUNTIME_IMPORT)) {
+        const { source: mounted, mounted: ok } = mountProvider(rootSource);
+        if (ok) {
+          const withImport = `${`import { AppI18nProvider } from "${RUNTIME_IMPORT}";\n`}${mounted}`;
+          if (!dryRun) yield* writeText(projectDir, ROOT_PATH, withImport);
+          writes.push(ROOT_PATH);
+          notes.push(
+            "AppI18nProvider mounted in the root route — the UI bundle now provides @lingui/* through the share scope",
+            "optional follow-up: thread the session user's locale as preferredLocale (the canonical upstream root does)",
+          );
+        } else {
+          notes.push(
+            'root route shell shape not recognized (expected a single child under <div id="root">) — mount AppI18nProvider manually',
+          );
+        }
+      } else {
+        notes.push("root route already mounts AppI18nProvider");
+      }
     }
 
-    const rootSource = yield* readText(projectDir, ROOT_PATH);
-    if (rootSource.includes(RUNTIME_IMPORT)) {
-      notes.push("root route already mounts AppI18nProvider");
-      return { writes, deletes: [], notes };
+    // Enforcement tail: a step that leaves a composition-fatal seam in place
+    // fails the upgrade instead of returning notes — the share-scope hole only
+    // surfaces later as RUNTIME-012 at SSR composition. Dry-run previews the
+    // blockers as notes instead of failing.
+    const result: StepResult = { writes, deletes: [], notes };
+    const findings = yield* checkI18nSeam(projectDir);
+    const blockers = findings.filter((f) => f.severity === "blocker");
+    if (blockers.length > 0) {
+      if (dryRun) {
+        notes.push(...blockers.map((f) => `[blocker] ${f.message}`));
+        return result;
+      }
+      return yield* Effect.fail(new GateBlocked({ findings: blockers }));
     }
-
-    const { source: mounted, mounted: ok } = mountProvider(rootSource);
-    if (!ok) {
-      notes.push(
-        'root route shell shape not recognized (expected a single child under <div id="root">) — mount AppI18nProvider manually',
-      );
-      return { writes, deletes: [], notes };
-    }
-
-    const withImport = `${`import { AppI18nProvider } from "${RUNTIME_IMPORT}";\n`}${mounted}`;
-    if (!dryRun) yield* writeText(projectDir, ROOT_PATH, withImport);
-    writes.push(ROOT_PATH);
-    notes.push(
-      "AppI18nProvider mounted in the root route — the UI bundle now provides @lingui/* through the share scope",
-      "optional follow-up: thread the session user's locale as preferredLocale (the canonical upstream root does)",
-    );
-
-    return { writes, deletes: [], notes };
+    return result;
   });
