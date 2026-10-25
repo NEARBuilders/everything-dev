@@ -24,37 +24,62 @@ export function renderClientShellHtml(
   const uiVersion = uiIntegrity ? `?v=${encodeURIComponent(uiIntegrity)}` : "";
   const coreEntrySrc = entryUrls(runtimeSourceConfig.ui, runtimeSourceConfig.env).web;
 
-  const pluginUiScripts = (
-    runtimeConfig.ui?.compose
-      ? Object.values(runtimeConfig.plugins ?? {}).flatMap((plugin) => {
-          const ui = plugin?.ui;
-          if (!ui?.url) return [];
-          const pluginSri = ui.integrity ? ` integrity="${ui.integrity}"` : "";
-          const pluginSrc = entryUrls(
-            { ...ui, name: plugin.name } satisfies EntrySlot,
-            runtimeSourceConfig.env,
-          ).web;
-          return [
-            `<script${nonceAttr} src="${pluginSrc}" crossorigin="anonymous"${pluginSri}></script>`,
-          ];
-        })
-      : []
-  ).join("\n          ");
+  const pluginScripts = runtimeConfig.ui?.compose
+    ? Object.values(runtimeConfig.plugins ?? {}).flatMap((plugin) => {
+        const ui = plugin?.ui;
+        if (!ui?.url) return [];
+        const pluginSri = ui.integrity ? ` integrity="${ui.integrity}"` : "";
+        const pluginSrc = entryUrls(
+          { ...ui, name: plugin.name } satisfies EntrySlot,
+          runtimeSourceConfig.env,
+        ).web;
+        return [{ src: pluginSrc, sri: pluginSri }];
+      })
+    : [];
+  const pluginUiScripts = pluginScripts
+    .map(
+      ({ src, sri }) => `<script${nonceAttr} src="${src}" crossorigin="anonymous"${sri}></script>`,
+    )
+    .join("\n          ");
+
+  // Module scripts are CORS-fetched — preconnect each distinct entry origin
+  // so the browser's compose chain starts its connections at head parse.
+  const originOf = (src: string): string | null => {
+    try {
+      return new URL(src).origin;
+    } catch {
+      return null;
+    }
+  };
+  const preconnectLinks = [
+    ...new Set(
+      [coreEntrySrc, ...pluginScripts.map(({ src }) => src)]
+        .map(originOf)
+        .filter((origin): origin is string => origin !== null),
+    ),
+  ]
+    .map((origin) => `<link rel="preconnect" href="${origin}" crossorigin="anonymous" />`)
+    .join("\n          ");
 
   const baseStyles = `
     ${getBaseStyles()}
     .shell { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; }
     .fade { animation: fadeIn 0.3s ease-in; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    .error { color: #fca5a5; }
+    .error { color: var(--destructive); }
   `.trim();
 
   const themeScript = `<script${nonceAttr}>${(getThemeInitScript() as { children?: string }).children ?? ""}</script>`;
 
+  const bootShell = `<div class="fade flex flex-col items-center gap-3" role="status" aria-label="Loading">
+            <div class="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-muted-foreground"></div>
+            <p class="text-sm text-muted-foreground">Loading…</p>
+          </div>`;
+
   const shellBody = `<div id="root"><div class="shell"><div class="fade">${
     error
       ? `<p class="error">SSR unavailable, showing client app.</p><p>${escapeHtml(error.message)}${requestId ? `<br /><small>(request ${escapeHtml(requestId)})</small>` : ""}</p>`
-      : `<p>Loading...</p>`
+      : bootShell
   }</div></div></div>`;
 
   const title =
@@ -79,6 +104,7 @@ export function renderClientShellHtml(
           <link rel="stylesheet" href="${assetsUrl}/static/css/style.css${uiVersion}" />
           <style>${baseStyles}</style>
           ${themeScript}
+          ${preconnectLinks}
           <script${nonceAttr} src="${coreEntrySrc}"${sriAttr}></script>
           ${pluginUiScripts}
           <script${nonceAttr}>${hydrateScript}</script>

@@ -9,9 +9,9 @@ const loadUiRouteConfigMock = vi.fn();
 const loadRouterModuleMock = vi.fn();
 const resolveRequestRuntimeMock = vi.fn();
 
-vi.mock("../../src/services/federation.server", async () => {
-  const actual = await vi.importActual<typeof import("../../src/services/federation.server")>(
-    "../../src/services/federation.server",
+vi.mock("../../src/services/federation/loader", async () => {
+  const actual = await vi.importActual<typeof import("../../src/services/federation/loader")>(
+    "../../src/services/federation/loader",
   );
   return {
     ...actual,
@@ -34,7 +34,7 @@ vi.mock("../../src/services/tenant-runtime", async () => {
 
 const { FederationError } = await import("../../src/services/errors");
 const { runServer } = await import("../../src/program");
-const { createUiComposeCacheState } = await import("../../src/services/ui-compose");
+const { createUiComposeCacheState } = await import("../../src/services/ui-composer");
 
 const CORE_MANIFEST = {
   name: "ui",
@@ -303,6 +303,29 @@ describe("SSR fallback paths", () => {
     });
   });
 
+  describe("SSR timing surface", () => {
+    it("SSR success responses carry the compose/render/total Server-Timing header", async () => {
+      mockCompositionSucceeds();
+      clearComposeFixtureCache();
+
+      const response = await fetch(`${baseUrl}/`);
+      expect(response.status).toBe(200);
+
+      const header = response.headers.get("server-timing");
+      expect(header).toBeTruthy();
+      const metrics = Object.fromEntries(
+        (header ?? "").split(",").map((part) => {
+          const [name, dur] = part.trim().split(";dur=");
+          return [name.trim(), Number(dur)];
+        }),
+      );
+      expect(Number.isFinite(metrics.compose)).toBe(true);
+      expect(Number.isFinite(metrics.render)).toBe(true);
+      expect(Number.isFinite(metrics.total)).toBe(true);
+      expect(metrics.total).toBeGreaterThanOrEqual(metrics.compose + metrics.render - 0.5);
+    });
+  });
+
   describe("SSR URL not configured", () => {
     it("renders client shell without SSR", async () => {
       resolveRequestRuntimeMock.mockResolvedValue({
@@ -316,7 +339,9 @@ describe("SSR fallback paths", () => {
       const html = await response.text();
 
       expect(response.status).toBe(200);
-      expect(html).toContain("Loading...");
+      expect(html).toContain("Loading…");
+      expect(html).toContain('role="status"');
+      expect(html).toContain("animate-spin");
       expect(html).toContain("remoteEntry.aaa.js");
     });
   });

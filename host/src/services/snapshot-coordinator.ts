@@ -7,12 +7,14 @@ import {
 import { verifySriForUrl } from "everything-dev/integrity";
 import { resolveMergedConfigInput } from "everything-dev/resolution";
 import type { BosConfig, BosConfigInput } from "everything-dev/types";
+import { FederationContainers } from "./federation/containers";
+import { FederationLoader } from "./federation/loader";
 import {
   createRuntimeSnapshotState,
   deploymentFingerprint,
   RuntimeSnapshot,
 } from "./runtime-snapshot";
-import { composeUi } from "./ui-compose";
+import { UiComposer } from "./ui-composer";
 
 export class SnapshotAdoptError extends Schema.TaggedError<SnapshotAdoptError>()(
   "SnapshotAdoptError",
@@ -70,9 +72,9 @@ const resolvePointerConfig = async (
  * Order constraints (MAP): the pointer-derived config is resolved FIRST
  * (SSR entry URLs derive from it); composeUi validates the digest the client
  * payload will carry; the swap is a single atomic Ref write. Old-snapshot
- * in-flight requests keep composing against their own entry URLs through the
- * shared composition instance (the same per-request re-registration steady
- * state tenant overrides already exercise).
+ * in-flight requests keep composing through the composition session they
+ * pinned — a deploy landing mid-compose changes the next compose's
+ * generation, never the in-flight tree's bytes.
  *
  * API plugins and auth are boot-frozen (MAP decision 3): the derived config
  * still carries them, but they are not reloaded — the swap adopts UI/SSR/
@@ -84,7 +86,8 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
   baseDir?: string;
 }): Effect.fn.Return<
   Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" }>,
-  SnapshotAdoptError
+  SnapshotAdoptError,
+  FederationContainers | FederationLoader | UiComposer
 > {
   const { snapshot, publishedConfig } = input;
   const baseDir = input.baseDir ?? process.cwd();
@@ -108,9 +111,10 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
     config: nextConfig,
     pointer: publishedConfig,
   });
-  const composed = yield* composeUi(nextConfig, nextState.composeState).pipe(
-    Effect.catch((cause) => adoptFailure("pre-warm compose failed", cause)),
-  );
+  const composer = yield* UiComposer;
+  const composed = yield* composer
+    .composeUi(nextConfig, nextState.composeState)
+    .pipe(Effect.catch((cause) => adoptFailure("pre-warm compose failed", cause)));
 
   const verifyTargets = (
     [
@@ -150,7 +154,8 @@ export const adoptPublishedPointer = Effect.fn("SnapshotCoordinator.adopt")(func
   baseDir?: string;
 }): Effect.fn.Return<
   Extract<SnapshotAdoptOutcome, { status: "swapped" | "unchanged" }>,
-  SnapshotAdoptError
+  SnapshotAdoptError,
+  FederationContainers | FederationLoader | UiComposer
 > {
   return yield* adoptPermits.withPermits(1)(adoptTransaction(input));
 });
@@ -174,10 +179,21 @@ export class SnapshotCoordinator extends Context.Service<
     SnapshotCoordinator,
     Effect.gen(function* () {
       const snapshot = yield* RuntimeSnapshot;
+      const containers = yield* FederationContainers;
+      const loader = yield* FederationLoader;
+      const composer = yield* UiComposer;
       return SnapshotCoordinator.of({
         adopt: (publishedConfig) =>
-          adoptPublishedPointer({ snapshot, publishedConfig, baseDir: process.cwd() }),
+          adoptPublishedPointer({ snapshot, publishedConfig, baseDir: process.cwd() }).pipe(
+            Effect.provideService(FederationContainers, containers),
+            Effect.provideService(FederationLoader, loader),
+            Effect.provideService(UiComposer, composer),
+          ),
       });
     }),
+  ).pipe(
+    Layer.provide(FederationLoader.layer),
+    Layer.provide(FederationContainers.layer),
+    Layer.provide(UiComposer.layer),
   );
 }

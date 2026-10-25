@@ -1,11 +1,17 @@
+import type { Effect } from "effect";
 import type { Context } from "hono";
 import type { AuthVariables } from "../lib/auth";
 import { buildPluginContext } from "../services/auth";
 import type { RuntimeConfig } from "../services/config";
+import type { FederationContainers } from "../services/federation/containers";
+import type { FederationLoader } from "../services/federation/loader";
 import type { PluginResult } from "../services/plugins";
 import { createSsrRender, type ServingSnapshot } from "../services/ssr-render";
+import type { UiComposer } from "../services/ui-composer";
 
 type HonoEnv = { Variables: AuthVariables };
+
+type Federated<A, E> = Effect.Effect<A, E, FederationContainers | FederationLoader | UiComposer>;
 
 /**
  * Thin Hono adapter over the SSR render module: extracts the framework
@@ -17,8 +23,14 @@ export function createSsrFallbackHandler(
   plugins: PluginResult,
   CSP_STRICT: boolean,
   getServingState?: () => Promise<ServingSnapshot>,
+  runFederated?: <A, E>(effect: Federated<A, E>) => Promise<A>,
 ) {
-  const render = createSsrRender({ config, getServingState, plugins });
+  const render = createSsrRender({
+    config,
+    getServingState,
+    plugins,
+    ...(runFederated ? { runFederated } : {}),
+  });
   return async (c: Context<HonoEnv>) => {
     if (c.req.path === "/api" || c.req.path.startsWith("/api/")) {
       return c.notFound();

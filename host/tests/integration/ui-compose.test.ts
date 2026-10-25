@@ -16,8 +16,8 @@ const federationMocks = vi.hoisted(() => ({
   loadRouterModule: vi.fn(),
 }));
 
-vi.mock("../../src/services/federation.server", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/services/federation.server")>();
+vi.mock("../../src/services/federation/loader", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/federation/loader")>();
   return {
     ...actual,
     loadUiComposeModule: (...args: unknown[]) => federationMocks.loadUiComposeModule(...args),
@@ -28,9 +28,9 @@ vi.mock("../../src/services/federation.server", async (importOriginal) => {
 });
 
 const { composeUi, composeClientPayload, createUiComposeCacheState, uiSources } = await import(
-  "../../src/services/ui-compose"
+  "../../src/services/ui-composer"
 );
-const { FederationLifecycle } = await import("../../src/services/federation.server");
+const { FederationLifecycle } = await import("../../src/services/federation/lifecycle");
 
 const CORE_MANIFEST = {
   name: "ui",
@@ -172,18 +172,22 @@ const cdnAwareFetch = async (url: unknown) => {
 
 const fetchMock = vi.fn(cdnAwareFetch);
 let cache = createUiComposeCacheState();
+const startFederationRuntime = () => ManagedRuntime.make(FederationLifecycle.layer);
+let federationRuntime: ReturnType<typeof startFederationRuntime> | undefined;
 let disposeFederation: (() => Promise<void>) | undefined;
 
-const compose = (config: RuntimeConfig) => Effect.runPromise(composeUi(config, cache));
-const composeExit = (config: RuntimeConfig) => Effect.runPromiseExit(composeUi(config, cache));
+const compose = (config: RuntimeConfig) => federationRuntime!.runPromise(composeUi(config, cache));
+const composeExit = (config: RuntimeConfig) =>
+  federationRuntime!.runPromiseExit(composeUi(config, cache));
 const composeClient = (config: RuntimeConfig) =>
-  Effect.runPromise(composeClientPayload(config, cache));
+  federationRuntime!.runPromise(composeClientPayload(config, cache));
 
 beforeEach(async () => {
   vi.clearAllMocks();
   cache = createUiComposeCacheState();
-  const lifecycle = ManagedRuntime.make(FederationLifecycle.layer);
+  const lifecycle = startFederationRuntime();
   await lifecycle.runPromise(FederationLifecycle);
+  federationRuntime = lifecycle;
   disposeFederation = () => lifecycle.dispose();
   fetchMock.mockImplementation(cdnAwareFetch);
   vi.stubGlobal("fetch", fetchMock);
@@ -199,6 +203,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   await disposeFederation?.();
   disposeFederation = undefined;
+  federationRuntime = undefined;
 });
 
 describe("uiSources", () => {
@@ -540,6 +545,67 @@ describe("composeUi", () => {
       variant.clientPayload,
     );
     expect(clientConfig.ui?.compose).toEqual(variant.clientPayload);
+  });
+
+  it("concurrent composes resolve consistently — same digest, same tree", async () => {
+    const config = configWithPlugin();
+    const [first, second, third] = await Promise.all([
+      compose(config),
+      compose(config),
+      compose(config),
+    ]);
+
+    expect(second.digest).toBe(first.digest);
+    expect(third.digest).toBe(first.digest);
+    expect(second.routeTree).toEqual(first.routeTree);
+    expect(second.clientPayload).toEqual(first.clientPayload);
+    expect(construct).toHaveBeenCalled();
+  });
+
+  it("drops a plugin whose route config cannot load — the core-only tree still serves", async () => {
+    federationMocks.loadUiRouteConfig.mockReturnValue(Effect.fail(new Error("config down")));
+    const variant = await compose(configWithPlugin());
+
+    expect(variant.routeTree).toEqual({ id: "composed-tree" });
+    const constructCall = construct.mock.calls[0]?.[0] as {
+      plugins: Array<{ key: string }>;
+    };
+    expect(constructCall.plugins.map((plugin) => plugin.key)).toEqual(["ui"]);
+  });
+
+  it("falls back to the last-good manifest snapshot when a refresh fails past the TTL", async () => {
+    const config = configWithPlugin();
+    const first = await compose(config);
+
+    // age every manifest cache entry past MANIFEST_TTL_MS so the next compose
+    // must refetch — and fail the refetch
+    for (const entry of cache.remoteManifests.values()) entry.fetchedAt -= 31_000;
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+      text: async () => "{}",
+    });
+
+    const second = await compose(config);
+
+    expect(second.digest).toBe(first.digest);
+    expect(second.routeTree).toEqual(first.routeTree);
+    // the variant fingerprint (integrity) is unchanged — the cached variant
+    // serves, no re-construct
+    expect(construct).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails the compose when the engine's digest disagrees with the manifest digest", async () => {
+    construct.mockImplementationOnce(async () => ({
+      rootRoute: { id: "tampered" },
+      routeTree: { id: "tampered" },
+      nav: { items: [] },
+      manifests: [],
+      digest: "sha384-tampered",
+    }));
+
+    await expect(compose(configWithPlugin())).rejects.toThrow(/digest/i);
   });
 });
 

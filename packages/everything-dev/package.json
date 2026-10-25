@@ -135,6 +135,15 @@
       "import": "./dist/services/registry/fastkv.mjs",
       "require": "./dist/services/registry/fastkv.cjs"
     },
+    "./dev-log-pipeline": {
+      "development": {
+        "types": "./src/services/dev/logs.ts",
+        "import": "./src/services/dev/logs.ts"
+      },
+      "types": "./dist/services/dev/logs.d.mts",
+      "import": "./dist/services/dev/logs.mjs",
+      "require": "./dist/services/dev/logs.cjs"
+    },
     "./contract.meta": {
       "development": {
         "types": "./src/contract.meta.ts",

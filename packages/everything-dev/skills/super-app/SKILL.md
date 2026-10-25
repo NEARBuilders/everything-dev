@@ -2,7 +2,7 @@
 name: super-app
 description: Build shared-host, shared-API super apps with tenant-specific UI composition. Use when setting up a base runtime plus custom tenant apps, configuring fixed-core multi-tenancy, reasoning about extends-based runtime lineage, or deciding what tenants can override today.
 metadata:
-  sources: "host/src/services/tenant-runtime.ts,host/src/services/binding-resolver.ts,host/src/program.ts,host/src/services/federation.server.ts,packages/everything-dev/src/config.ts"
+  sources: "host/src/services/tenant-runtime.ts,host/src/services/binding-resolver.ts,host/src/program.ts,host/src/services/federation/instance.ts,packages/everything-dev/src/config.ts"
 ---
 
 # Super Apps

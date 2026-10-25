@@ -32,8 +32,8 @@ func TestBootSurface(t *testing.T) {
 		regtest.MustStatus(t, status, 200, body)
 
 		var result struct {
-			Status  string `json:"status"`
-			Auth    struct {
+			Status string `json:"status"`
+			Auth   struct {
 				Mounted bool `json:"mounted"`
 			} `json:"auth"`
 			Plugins struct {
@@ -74,6 +74,10 @@ func TestBootSurface(t *testing.T) {
 			t.Fatalf("served the client-shell fallback instead of SSR'd content:\n%s", tail(body, 600))
 		}
 		regtest.MustContain(t, body, `data-testid="landing-steps"`)
+		if ssrMode() {
+			regtest.MustContain(t, body, "data-everything-ssr")
+			regtest.MustContain(t, headers.Get("Server-Timing"), "total;dur=")
+		}
 	})
 
 	t.Run("skill_md", func(t *testing.T) {
