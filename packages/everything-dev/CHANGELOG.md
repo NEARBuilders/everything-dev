@@ -1,5 +1,78 @@
 # everything-dev
 
+## 2.0.0-rc.22
+
+### Minor Changes
+
+- a9d7f48: Enforce the i18n-seam guard (#496): the composition-fatal findings (unwired i18n runtime, unmounted provider, absent root) are promoted from warn to blocker, and `bos upgrade --from v1 --maintain i18n-seam` now **fails with `gate-blocked`** when a blocker remains after the step runs — a child core UI that ships no `@lingui/*` share-scope entries can no longer pass silently and only surface later as RUNTIME-012 at SSR composition. Dry-run previews the blockers as notes instead of failing. The maintain branch also now runs on v2 trees (previously the `already-upgraded` early-return made it unreachable on exactly the post-upgrade trees the guard targets).
+- 8a0671f: Published payloads never carry `local:` dev targets — children inherit consumable slots (#584)
+
+  Publish canonicalization strips `local:` development refs (app slots, auth/`auth.ui`, plugins and their ui sub-slots) from the published config. A `local:` target is workspace-relative — it resolves only in the repo that declares the workspace, and a child inheriting one could never spawn it. The authoring surface (`bos.app.ts`) keeps its own refs for the parent's own `bos dev`; `extends` now hands children only consumable targets, so a freshly scaffolded child with no local auth workspace runs `bos dev` and loads the auth plugin (server + UI) from its published bundle with no dev override. The runtime's existing production-fallback behavior (`resolveDevelopmentTarget`) is covered end to end by an integration test (runtime slot + dev-harness derivation + planner port allocation).
+
+- 1342ca5: Owed-work detection: the train derives release work from live state (#571)
+
+  New `detectOwedWork` reads two facts — npm registry (a publishable version npm does not serve yet) and the FastKV platform-manifest pointer (trailing the repo's framework version, or absent) — never git history. Unknown states (npm unreachable, FastKV read failure) read as not-owed and never block, matching the preflight npm gate's tolerance. The root's build leg now runs the detection: release deploys move version + floating image tags, non-release deploys push `sha-<short>` only (`conditionImageTags`) — version tags stay append-only, the property pinned children's digest derivation depends on. An owed-on-one-side-only state with a completed release cycle on record (the #568 silent-skip window) is drift: the train fails loudly naming both facts before the image pushes.
+
+- d5d0699: Promote the child-authored agent docs into the template (#597): `docs/agents/` gains `change-placement.md` (bug/missing-capability/pattern-improvement placement, branching-and-stacking rules), `how-it-fits.md` (the drawn runtime tour — authored → published → resolved → served, composition, generated types, `.bos` state surfaces), `testing.md` (testing doctrine and the parent/child coverage boundary), and `coding-standards.md` (write-once, type-safety-is-the-drift-killer, the workaround protocol, the comment `KEEP`/`TODO` policy, deletions-first tests). All four sync to children via the agent-sync globs at the next `bos upgrade`, and the generated child `AGENTS.md` now links them from its Style Requirements, upstream-change-protocol, and Testing sections. The `everything-dev-app` skill reconciles with the corrected child wording (`bos.app.ts`, `pnpm dlx`, the `bos deploy` train) and teaches branch stacking.
+- 1cb72f4: redeemOnboardingCode returns the organizationId
+
+  The redemption output now includes `organizationId` alongside `organizationName`, so children can link the freshly-joined member to the organization's public page without a second lookup. Restores a field the local template snapshot carried before the published contract dropped it.
+
+- f13be80: Release-scoped platform-manifest writes: immutable versioned slots, truth gate on every deploy (#573)
+
+  The train's platform-release-manifest leg is now release-scoped (`computeOwedWork` on the single pointer read — the preflight npm gate guarantees npm is published in-train, so the pointer is the release classifier):
+
+  - **Release deploys** write the immutable `platform-versions/<version>.json` slot plus the `platform.json` pointer flip in the same atomic write as the config — a red smoke rolls all of it back (the rollback restores the pointer from its own history in the same write).
+  - **Non-release deploys** write no manifest keys at all.
+  - **Immutable slots**: an SRI-identical republish succeeds idempotently; a divergent republish hard-fails with a "burned version" error — never reuse a version.
+  - **No skip path**: the pointer read failing fails the deploy loud (an unknown state must never silently classify a release as non-release — the #568 window class).
+  - **Truth gate on every production deploy**: the shared-singleton cross-check runs against the composed manifest on non-release deploys too — drifted shared deps block until the next rc.
+  - The preflight npm-gate message drops "re-run the Release workflow first" — the train owns the npm leg.
+
+  The train's decision threads to the image leg (`releaseLeg`), so version + floating image tags move on the release deploy only — one decision point, no duplicate detection reads.
+
+- b84c6e5: Runtime map gains the backend inventory — host, api, auth server, and plugin backends (#594 review)
+
+  The composition inventory now covers the serving side, not just the ui sources: the map's `backends` section lists the host (source-level — it ships no manifest asset), the api shell, the auth server, and every plugin backend with its workspace path (local) or composed `pluginVersion` + `contractSha256` (remote, from the published `plugin.manifest.json`). Same loud-degradation semantics as ui sources (strict in `bos types gen`, warn on boots, `BOS_MAP_ALLOW_UNRESOLVED=1` offline). The map also records the runtime's `platform` pin and `extends` chain, and the TS surface gains `RUNTIME_BACKENDS`. A parity test runs the real `constructTree` engine over fixture manifests and diffs the composed full-path sets — the static model cannot drift from the engine. Investigation workflows (ownership lookups, shadow detection, drift alarms, change placement) live in `docs/agents/runtime-map.md`.
+
+- b84c6e5: `bos types gen` emits the composition inventory — the runtime map (#594)
+
+  Every types-gen run now also generates the effective route tree: `.bos/generated/runtime-map.json` (machine/human inventory: sources, mounts, routes with owners + full paths, shadowed claims, unresolved sources) and `ui/src/lib/runtime-map.gen.ts` (typed `REMOTE_ROUTES` / `RemotePath` unions). It is a static model of `constructTree` — core-wins precedence applied, peer collisions thrown — so "does this app have /login? who owns /settings?" is answerable without reverse-engineering the runtime compose. Local manifests are freshly generated; remote ones fetch from the published `<ui>/manifest.gen.json`. `bos types gen` degrades strictly (an unresolvable remote fails the run — typecheck catches upstream renames); dev/build/train paths warn and continue. `BOS_MAP_ALLOW_UNRESOLVED=1` for offline work.
+
+- 59f1147: Slot-first platform-pin resolution — old pins resolvable forever (#574)
+
+  An exact `platform` pin resolves the immutable `platform-versions/<pin>.json` slot, scanning the extends chain; the moving `platform.json` pointer serves only unpinned ("latest") resolution. A root release never strands a child pin — slots are immutable and the pointer only moves forward, so the #546 stale-pin class is dead and the "pin not found, publish the release or clear the pin" dead path is deleted:
+
+  - a clean slot miss produces the actionable error ("the release's manifest leg never published it; re-run the release deploy") — the #568 npm-published/manifest-skipped race
+  - a slot read _failure_ (offline dev) may fall back to the fresh cache — the `.bos/platform-manifest.json` cache is now an offline-dev aid only, never stale-pin grace; TTL docs updated
+  - `bos platform manifest --check`, `bos mf check`, and the upgrade report surface pin provenance (resolved from slot vs pointer)
+
+### Patch Changes
+
+- b150f24: bos dev prunes dated logs — bounded `.bos/logs` sediment
+
+  Every `bos dev` boot wrote a dated `dev-<ts>-<pid>.log` (plus a per-pid `dev-latest-<pid>.log`) and nothing ever cleaned them up — 79 files after nine working days on a child. Each boot now prunes the dated logs: keep the newest 20, drop anything older than 7 days, and never touch files modified in the last 24 hours (a concurrent live session may still be appending). `dev-latest.log` and the regression stacks' non-dated logs are never pruned.
+
+- 7849639: Lossless descriptor round-trip: keep `starter` and remote-only `api` slots
+
+  Two fixes in the same guard class as the earlier remote-only auth attachment drop:
+
+  - The child's authoring-only `starter` level survives the save-path round-trip (`bos plugin add/remove`, `bos config registry use` no longer silently delete it from `bos.app.ts`); resolved configs still strip it, and JSON parents' starter _block_ metadata is untouched. (#565)
+  - A remote-only `app.api` entry (authored `variables`/`secrets`, no local workspace) survives `configInputToDescriptor` instead of being dropped — the `slot()` helper required `development` for all three slots; only host/ui are path-strict. (#566)
+
+- 4322bbe: Framework-package self-typecheck lands in CI (`typecheck:packages`) — the app-unit typecheck (`bos typecheck`) never covered `packages/*`, and the unguarded drift had gone red: real src errors fixed in everything-dev (Effect error-channel widens in db ops/dev flow/ops/init flow, the missing `formatUnknownError` import, `runtimeMapStrict` typed on the plain codegen wrapper, `BosConfigInput` accepted by `stripLocalDevelopmentTargets`), and service-layer test-hook files in every-plugin (missing vitest imports, `constructTree` resolver signatures, `.ts`-extension script imports now covered by the self-typecheck tsconfig).
+- 733b663: Children are tiered by Railway token scope; the pinned-child repoint becomes an opt-in advanced behavior. Railway authorizes CLI verbs by token scope: a project-scoped `RAILWAY_TOKEN` covers deploy commands (`redeploy`) but not the `serviceConnect` mutation behind `railway service source connect` — so every child deploy since rc.21 failed at the pin with "Unauthorized" _after_ the config published (citynode.app, 2026-10-24, #598). The child railway leg now degrades cleanly by what the repo holds: a project token gets a plain `redeploy --from-source` — and when the platform pin resolves without the workspace token, the leg prints a drift notice (the service source follows the pin only under the token that can repoint it, so post-`bos upgrade` drift is loud, not silent); a workspace-scoped `RAILWAY_API_TOKEN` + `RAILWAY_PROJECT_ID` / `RAILWAY_ENVIRONMENT_ID` opts into the pin-following repoint+redeploy (the project token is dropped from the railway subshell, since the CLI prefers `RAILWAY_TOKEN` when both are set — including set-but-empty GitHub passthroughs). Omitting the token entirely stays publish-only (the leg soft-skips). A project-scoped child token is the default posture: workspace tokens mutate any project in the workspace, so they are never the default child credential. The root tier is unchanged — it never repoints and keeps the advanced image-setting train (image → digest handover → smoke → Railway pin). `consumer-deploy.yml` and `consumer-staging.yml` pass the workspace token and targeting vars through (staging with staging-specific overrides); the reusable composite action `.github/actions/install-playwright` carries the probe-gated browser install for child CIs (also adopted by the parent's own browser suites). Interim to #526/ADR 0035 — the reconciler dissolves the child leg and the per-child token entirely.
+- a71ac28: Root template peer dep normalized to `catalog:` — drift-alarm parity (#545)
+
+  The root `package.json` template byte carried `peerDependencies.typescript: "^7.0.2"` (a literal), while the upgrade drift alarm flags any non-`catalog:` ref for an inherited-catalog package — every rc.18+ child's `bos upgrade --check` went red with zero real deltas. The template now uses `catalog:`, and a template↔alarm parity unit test guards the invariant: a dependency field naming a catalog-managed package must use the `catalog:` protocol (or a `workspace:` ref). Children self-heal on their next upgrade when the root migration writes the corrected bytes.
+
+- Updated dependencies [47d39ed]
+- Updated dependencies [4322bbe]
+- Updated dependencies [b3d6bec]
+- Updated dependencies [38fb0a2]
+  - better-near-auth@2.0.0-rc.5
+  - every-plugin@3.0.0-rc.14
+
 ## 2.0.0-rc.21
 
 ### Patch Changes
