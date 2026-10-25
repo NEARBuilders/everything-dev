@@ -237,7 +237,7 @@ function stripLocalTargetsFromEntry(entry: Record<string, unknown>): Record<stri
  * hands a child a `local:` ref. The runtime's production fallback
  * (`resolveDevelopmentTarget`) resolves the slot from its published URL.
  */
-export function stripLocalDevelopmentTargets<T extends Record<string, unknown>>(config: T): T {
+export function stripLocalDevelopmentTargets<T extends object>(config: T): T {
   const out = { ...config } as Record<string, unknown>;
   const app = out.app as Record<string, Record<string, unknown>> | undefined;
   if (app && typeof app === "object") {

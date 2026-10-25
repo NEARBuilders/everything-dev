@@ -362,8 +362,9 @@ export class InitFlowService extends Context.Service<
               const initConfig = await timePhase(timings, "resolve config", () =>
                 openResolution({ cwd: targetDir }).catch((error: unknown) => {
                   flowWarn(
-                    "[init] Skipping config resolution — the child has no node_modules yet; `bos dev` resolves after `pnpm install`.",
-                    error instanceof Error ? error.message : error,
+                    `[init] Skipping config resolution — the child has no node_modules yet; \`bos dev\` resolves after \`pnpm install\` (${
+                      error instanceof Error ? error.message : String(error)
+                    })`,
                   );
                   return null;
                 }),
@@ -429,7 +430,7 @@ export class InitFlowService extends Context.Service<
               error: error instanceof Error ? error.message : "Unknown error",
             };
           },
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
     }),
   );
 }

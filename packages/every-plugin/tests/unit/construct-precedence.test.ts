@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { constructTree } from "../../src/ui/manifest/construct";
+import { type ConstructPluginRef, constructTree } from "../../src/ui/manifest/construct";
 import type { PluginManifest, RouteRecord } from "../../src/ui/manifest/manifest-schema";
 import type { RouteConfigModule, RouteOptionsBundle } from "../../src/ui/manifest/route-config";
 
@@ -33,7 +33,7 @@ const mountLayout = (id: string, mount: string): RouteRecord =>
 function plugin(ref: { key: string; mfName: string }, manifest: PluginManifest) {
   return {
     ref,
-    resolve: async () => ({
+    resolve: async (_ref: ConstructPluginRef) => ({
       key: ref.key,
       manifest,
       routeConfig: routeConfigOf(manifest),
@@ -221,7 +221,7 @@ describe("constructTree core-over-plugin precedence (ADR 0010 decision #1)", () 
       { key: "auth", mfName: "auth-ui" },
       manifestOf("auth", [mountLayout("_public", "public")]),
     );
-    const resolveFor = (ref: { key: string }) =>
+    const resolveFor = (ref: ConstructPluginRef) =>
       ref.key === "ui" ? core.resolve(ref) : auth.resolve(ref);
 
     const first = await constructTree({

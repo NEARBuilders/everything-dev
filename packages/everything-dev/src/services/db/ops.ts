@@ -40,7 +40,7 @@ export class DbOpsService extends Context.Service<
               section: "",
               error: error instanceof Error ? error.message : "Unknown error",
             }),
-          }),
+          }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
 
         doctor: (plugin) =>
           Effect.tryPromise({
@@ -68,7 +68,7 @@ export class DbOpsService extends Context.Service<
               missingTables: [] as string[],
               error: error instanceof Error ? error.message : "Unknown error",
             }),
-          }),
+          }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
 
         repair: (plugin, mode) =>
           Effect.tryPromise({
@@ -89,7 +89,7 @@ export class DbOpsService extends Context.Service<
               diagnosis: null,
               error: error instanceof Error ? error.message : "Unknown error",
             }),
-          }),
+          }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
       });
     }),
   );

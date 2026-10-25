@@ -15,6 +15,7 @@ import { SessionStore } from "../services/auth/session-store";
 import { SiteClient, type SiteClientShape } from "../services/auth/site-client";
 import type { ResolutionSession } from "../services/resolution/session";
 import { ResolutionSessionService } from "../services/resolution/session";
+import { formatUnknownError } from "../utils/errors";
 import { getNetworkIdForAccount } from "../utils/network";
 import { colors } from "../utils/theme";
 import type { BosBuilder } from "./shared";

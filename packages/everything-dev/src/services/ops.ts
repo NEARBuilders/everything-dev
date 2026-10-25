@@ -57,7 +57,7 @@ export class OpsService extends Context.Service<
             envFile: "missing" as const,
             error: error instanceof Error ? error.message : "Unknown error",
           }),
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
 
       logs: (input, configDir) =>
         Effect.tryPromise({
@@ -85,7 +85,7 @@ export class OpsService extends Context.Service<
                 : "Failed to read logs",
             ],
           }),
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
 
       kill: (input) =>
         Effect.tryPromise({
@@ -168,7 +168,7 @@ export class OpsService extends Context.Service<
             skipped: [],
             error: error instanceof Error ? error.message : "Unknown error",
           }),
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
     }),
   );
 }
