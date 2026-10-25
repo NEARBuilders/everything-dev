@@ -324,6 +324,8 @@ The host loads UI and API at runtime from URLs in the authored config (`bos.app.
 
 Authored configuration lives in `bos.app.ts` (committed) — the canonical form, preferred over a legacy `bos.config.json` when both exist. The resolved config materializes at `.bos/bos.resolved-config.json` (gitignored, never committed). The UI reads `window.__RUNTIME_CONFIG__` to get account, gateway, API base URL, etc. The host uses the same config to wire Module Federation remotes, auth, plugins, and SSR.
 
+**What a `local:` target means across `extends` boundaries (#584):** a `development: "local:<path>"` ref is workspace-relative — it resolves only in the repo that declares the workspace. The authoring surface keeps it (that repo's own `bos dev` needs it); the published payload strips it (publish canonicalization), so `extends` never hands a child a `local:` ref — children resolve the slot from its published URL, no dev override required.
+
 Use these helpers from `@/app`:
 - `getAppName()` — active runtime title (falls back to account)
 - `getAccount()` — NEAR account from config

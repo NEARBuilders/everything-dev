@@ -17,7 +17,7 @@ import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/
 import { generateCodeArtifacts } from "../codegen/artifacts";
 import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKey } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
-import { mergeAuthoredOverPublished } from "../resolution/merge";
+import { mergeAuthoredOverPublished, stripLocalDevelopmentTargets } from "../resolution/merge";
 import {
   type BuildTargetsDeps,
   type BuildTargetsInput,
@@ -734,6 +734,15 @@ export async function runPublishTrain(
   }
   if (isStaging) {
     publishPayload = { ...publishPayload, domain: gateway };
+  }
+  // Publish canonicalization (#584): the published payload never carries
+  // `local:` development targets — workspace-relative refs are meaningless
+  // across an extends boundary, and children inheriting one cannot spawn it.
+  // The authored surface keeps them for the parent's own dev; children fall
+  // back to the slot's published URL. Rollback payloads are already
+  // canonical — republished verbatim.
+  if (input.exactPayload !== true) {
+    publishPayload = stripLocalDevelopmentTargets(publishPayload);
   }
 
   const pinVerification = await verifyRollbackSnapshot(publishPayload);

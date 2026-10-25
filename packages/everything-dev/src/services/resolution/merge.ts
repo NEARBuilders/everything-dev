@@ -210,3 +210,53 @@ export function mergeAuthoredOverPublished(
 }
 
 export { bosConfigMerger };
+
+const isLocalRef = (value: unknown): boolean =>
+  typeof value === "string" && value.startsWith("local:");
+
+/** A config entry (app slot or plugin attachment) with its workspace-relative
+ * `local:` development targets removed — sub-slot `ui` included. */
+function stripLocalTargetsFromEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...entry };
+  if (isLocalRef(next.development)) delete next.development;
+  const ui = next.ui as Record<string, unknown> | undefined;
+  if (ui && typeof ui === "object" && isLocalRef(ui.development)) {
+    const strippedUi = { ...ui };
+    delete strippedUi.development;
+    next.ui = strippedUi;
+  }
+  return next;
+}
+
+/**
+ * Publish canonicalization (#584): a `local:` development target is
+ * workspace-relative and meaningful only in the repo that declares the
+ * workspace — a child inheriting one cannot spawn it. The authoring surface
+ * (the parent's own `bos.app.ts`) keeps them for the parent's own dev; the
+ * published payload carries only consumable targets, so `extends` never
+ * hands a child a `local:` ref. The runtime's production fallback
+ * (`resolveDevelopmentTarget`) resolves the slot from its published URL.
+ */
+export function stripLocalDevelopmentTargets<T extends Record<string, unknown>>(config: T): T {
+  const out = { ...config } as Record<string, unknown>;
+  const app = out.app as Record<string, Record<string, unknown>> | undefined;
+  if (app && typeof app === "object") {
+    const nextApp: Record<string, unknown> = { ...app };
+    for (const key of ["host", "ui", "api", "auth"] as const) {
+      const entry = app[key];
+      if (entry && typeof entry === "object") nextApp[key] = stripLocalTargetsFromEntry(entry);
+    }
+    out.app = nextApp;
+  }
+  const plugins = out.plugins as Record<string, unknown> | undefined;
+  if (plugins && typeof plugins === "object") {
+    const nextPlugins: Record<string, unknown> = { ...plugins };
+    for (const [id, raw] of Object.entries(plugins)) {
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        nextPlugins[id] = stripLocalTargetsFromEntry(raw as Record<string, unknown>);
+      }
+    }
+    out.plugins = nextPlugins;
+  }
+  return out as T;
+}
