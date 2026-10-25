@@ -93,10 +93,30 @@ export async function upgradeTemplate(
     },
   );
 
+  // The version delta that drives the whole migration phase, derived from
+  // durable state — nothing version-shaped rides across the re-exec boundary:
+  // the authored platform pin still holds the release the tree is aligned to
+  // (applyPlatformPin stamps the new one at the top of the migration phase),
+  // while the upgrade source resolves the manifest *ignoring* that pin. So
+  // `pin !== manifest` is the pending-delta fact — identical in the parent
+  // and in the re-exec'd child, where packages compare new-installed vs
+  // new-catalog and cannot self-diff. An absent pin also counts as a delta
+  // (a tree never pinned to a release needs the migration phase).
+  const manifestVersion = parentSource.platform.manifest.frameworkVersion;
+  const pinDelta =
+    parentSource.authoredPin === undefined || parentSource.authoredPin !== manifestVersion;
+
   const hasFrameworkUpdates = packages.some((p) => p.from !== p.to && p.from !== undefined);
   const hasCatalogUpdates = catalogVersionUpdates.some((u) => u.from !== undefined);
+  // An aligned pin with matching packages is the only "nothing to do" state:
+  // a pin that lags (or is absent) means pending migration work even when the
+  // packages already sit on the release — the half-upgraded-tree repair case.
   const hasUpdates =
-    hasFrameworkUpdates || hasCatalogUpdates || hasCatalogRefRewrites || hasAuthCoreRefRewrites;
+    hasFrameworkUpdates ||
+    hasCatalogUpdates ||
+    hasCatalogRefRewrites ||
+    hasAuthCoreRefRewrites ||
+    pinDelta;
 
   if (options.dryRun) {
     let changelogUrl: string | undefined;
@@ -129,17 +149,7 @@ export async function upgradeTemplate(
     };
   }
 
-  // The version delta that drives the whole migration phase. In the re-exec'd
-  // child, packages compare new-installed vs new-catalog (no delta), so the
-  // pre-upgrade version must ride the `--from` flag across the boundary;
-  // `--migrations-only` without `--from` is a deliberate true no-op.
-  const targetMainVersion = packages.find((p) => p.name === "everything-dev")?.to;
-  const versionDelta =
-    options.migrationsOnly && !options.from
-      ? false
-      : options.from !== undefined && targetMainVersion !== undefined
-        ? options.from !== targetMainVersion
-        : hasFrameworkUpdates;
+  const versionDelta = pinDelta || hasFrameworkUpdates;
 
   if (options.migrationsOnly) {
     return await runMigrationPhase(projectDir, options, parentSource, { versionDelta });
@@ -200,16 +210,16 @@ export async function upgradeTemplate(
   }
 
   // If we installed new framework packages, re-exec from the new package so migrations
-  // run with the latest code instead of the old cached modules.
+  // run with the latest code instead of the old cached modules. The migration-phase
+  // delta is derived from the authored platform pin vs the resolved manifest (see
+  // above) — the child reads the same durable state, so nothing version-shaped
+  // is passed here.
   if (needsInstall && hasFrameworkUpdates) {
     const bosPath = join(workspaceDirOf(projectDir), "node_modules", ".bin", "bos");
-    const prevMainPkg = packages.find((p) => p.name === "everything-dev");
     const childArgs = [
       "upgrade",
       "--migrations-only",
       "--no-install",
-      "--from",
-      prevMainPkg?.from ?? "unknown",
       ...(options.noSync ? ["--no-sync"] : []),
       ...(options.force ? ["--force"] : []),
       "--json",

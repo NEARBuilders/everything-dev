@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { findCommandDescriptor } from "../../src/cli/catalog";
+import { parseCommandInput } from "../../src/cli/parse";
 import { upgradeTemplate } from "../../src/cli/upgrade";
 import * as platformManifestModule from "../../src/services/platform/manifest";
 import * as initSourceModule from "../../src/services/resolution/init-source";
@@ -124,28 +126,8 @@ function mockSyncTemplate(result?: Partial<Record<string, unknown>>) {
 }
 
 describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
-  it("same framework version → framework-owned files are never reconciled", async () => {
+  it("same framework version with the pin stamped → framework-owned files are never reconciled", async () => {
     const syncTemplateSpy = mockSyncTemplate();
-    const projectDir = makeProjectDir({
-      "everything-dev": "^2.0.0",
-      "every-plugin": "^2.0.0",
-    });
-
-    const result = await upgradeTemplate(projectDir, {
-      dryRun: false,
-      noInstall: true,
-      noSync: false,
-    });
-
-    expect(result.status).toBe("upgraded");
-    expect(result.sync).toBeUndefined();
-    // the platform pin is stamped (or kept) even without a version delta
-    expect(result.migrated).toContain("bos.config.json");
-    expect(syncTemplateSpy).not.toHaveBeenCalled();
-  });
-
-  it("same framework version with the pin already stamped → nothing migrated", async () => {
-    mockSyncTemplate();
     const projectDir = makeProjectDir(
       {
         "everything-dev": "^2.0.0",
@@ -161,8 +143,34 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
     });
 
     expect(result.status).toBe("upgraded");
-    // the pin is already current — only the package migration may move
+    expect(result.sync).toBeUndefined();
+    // the platform pin is already current — only the package migration may move
     expect(result.migrated).not.toContain("bos.config.json");
+    expect(syncTemplateSpy).not.toHaveBeenCalled();
+  });
+
+  it("unpinned tree → the migration phase reconciles and stamps the pin", async () => {
+    const syncTemplateSpy = mockSyncTemplate();
+    const projectDir = makeProjectDir({
+      "everything-dev": "^2.0.0",
+      "every-plugin": "^2.0.0",
+    });
+
+    const result = await upgradeTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      noSync: false,
+    });
+
+    expect(result.status).toBe("upgraded");
+    // no pin on disk — the tree never recorded the release it sits on, so the
+    // migration phase runs (the delta is derived, not passed); the parent
+    // preflights the template sync first, the child reconciles
+    expect(result.sync).toBeDefined();
+    expect(syncTemplateSpy).toHaveBeenCalledTimes(2);
+    expect(syncTemplateSpy.mock.calls[0]?.[1]?.dryRun).toBe(true);
+    expect(syncTemplateSpy.mock.calls[1]?.[1]?.dryRun).toBe(false);
+    expect(result.migrated).toContain("bos.config.json");
   });
 
   it("framework version change → preflight dry-run then the re-exec'd migration reconciles", async () => {
@@ -195,11 +203,11 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
     expect(syncTemplateSpy).toHaveBeenCalledTimes(1);
     expect(syncTemplateSpy.mock.calls[0]?.[1]?.dryRun).toBe(true);
     // Phase 1 installed, so the migration phase re-execs from the new
-    // package, carrying `--from` across the boundary
+    // package. The delta is derived from the pin-vs-manifest durable state —
+    // no version-shaped flag crosses the boundary (`--from` is the v1-train
+    // selector only).
     const childArgs = vi.mocked(spawnSync).mock.calls[0]?.[1] ?? [];
-    expect(childArgs).toContain("--from");
-    expect(childArgs).toContain("^2.0.0");
-    expect(childArgs).toContain("--migrations-only");
+    expect(childArgs).toEqual(["upgrade", "--migrations-only", "--no-install", "--json"]);
   });
 
   it("preflight conflict aborts before any package applies", async () => {
@@ -260,12 +268,13 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
     expect(result.status).toBe("upgraded");
     // no preflight; the reconciling sync runs in the re-exec'd child
     expect(syncTemplateSpy).not.toHaveBeenCalled();
-    // --force rides the re-exec boundary
+    // --force rides the re-exec boundary; no version flag does
     const childArgs = vi.mocked(spawnSync).mock.calls[0]?.[1] ?? [];
     expect(childArgs).toContain("--force");
+    expect(childArgs).not.toContain("--from");
   });
 
-  it("--migrations-only without --from is a deliberate no-op (no sync)", async () => {
+  it("--migrations-only completes pending work when the pin lags", async () => {
     vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
       makeManifest("3.0.0", {
         "everything-dev": "^3.0.0",
@@ -274,9 +283,41 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
     );
     const syncTemplateSpy = mockSyncTemplate();
     const projectDir = makeProjectDir({
-      "everything-dev": "^2.0.0",
+      "everything-dev": "^3.0.0",
       "every-plugin": "^2.0.0",
     });
+
+    const result = await upgradeTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      noSync: false,
+      migrationsOnly: true,
+    });
+
+    expect(result.status).toBe("upgraded");
+    // packages already sit on the release; the pin is absent — the derived
+    // delta drives the pending migration (the half-upgraded-tree repair)
+    expect(result.sync).toBeDefined();
+    expect(syncTemplateSpy).toHaveBeenCalledTimes(1);
+    expect(syncTemplateSpy.mock.calls[0]?.[1]?.dryRun).toBe(false);
+    expect(vi.mocked(spawnSync)).not.toHaveBeenCalled();
+  });
+
+  it("--migrations-only on an aligned tree stays a true no-op (no sync)", async () => {
+    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
+      makeManifest("3.0.0", {
+        "everything-dev": "^3.0.0",
+        "every-plugin": "^2.0.0",
+      }) as never,
+    );
+    const syncTemplateSpy = mockSyncTemplate();
+    const projectDir = makeProjectDir(
+      {
+        "everything-dev": "^3.0.0",
+        "every-plugin": "^2.0.0",
+      },
+      "3.0.0",
+    );
 
     const result = await upgradeTemplate(projectDir, {
       dryRun: false,
@@ -289,5 +330,28 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
     expect(result.sync).toBeUndefined();
     expect(syncTemplateSpy).not.toHaveBeenCalled();
     expect(vi.mocked(spawnSync)).not.toHaveBeenCalled();
+  });
+
+  it("the re-exec'd child args parse through the real CLI parser (the #505 regression)", () => {
+    const args = ["upgrade", "--migrations-only", "--no-install", "--json"];
+    const found = findCommandDescriptor(args);
+    if (!found) throw new Error("upgrade command missing from the CLI catalog");
+    const input = parseCommandInput(found.descriptor, args.slice(found.consumed)) as Record<
+      string,
+      unknown
+    >;
+    expect(input).toMatchObject({ migrationsOnly: true, noInstall: true, json: true });
+
+    // The regression the old re-exec shipped: it carried the pre-upgrade
+    // framework version through `--from` — the same flag the v1 train
+    // narrowed to enum(["v1"]) — and the child crashed parsing it
+    // (invalid_value on from). Unless the v1 selector changes shape, a
+    // version string must stay off that flag.
+    const withFrom = ["upgrade", "--migrations-only", "--from", "^2.0.0"];
+    const fromFound = findCommandDescriptor(withFrom);
+    if (!fromFound) throw new Error("upgrade command missing from the CLI catalog");
+    expect(() =>
+      parseCommandInput(fromFound.descriptor, withFrom.slice(fromFound.consumed)),
+    ).toThrow();
   });
 });
