@@ -177,8 +177,8 @@ catalogs:
       specifier: ^0.4.5
       version: 0.4.6
     '@hot-labs/near-connect':
-      specifier: elliotBraem/near-connect#v0.12.0-fork.2
-      version: https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940
+      specifier: elliotBraem/near-connect#v0.12.0-fork.3
+      version: https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418
     '@libsql/client':
       specifier: 0.17.0
       version: 0.17.0
@@ -694,7 +694,7 @@ importers:
         version: 1.5.4
       near-kit:
         specifier: ^0.20.2
-        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940)
+        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418)
       react:
         specifier: 19.2.9
         version: 19.2.9
@@ -713,7 +713,7 @@ importers:
         version: 2.31.1(@types/node@25.9.9)
       '@hot-labs/near-connect':
         specifier: 'catalog:'
-        version: https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940
+        version: https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418
       '@tanstack/intent':
         specifier: 'catalog:'
         version: 0.3.8
@@ -906,7 +906,7 @@ importers:
         version: 13.0.6
       near-kit:
         specifier: 'catalog:'
-        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940)
+        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418)
       pg:
         specifier: 'catalog:'
         version: 8.23.1
@@ -1375,7 +1375,7 @@ importers:
         version: 30.1.2(@noble/hashes@2.4.0)
       near-kit:
         specifier: 'catalog:'
-        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940)
+        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418)
       shadcn:
         specifier: ^4.21.0
         version: 4.21.1(typescript@7.0.2)
@@ -1481,7 +1481,7 @@ importers:
         version: 4.0.0-rc.117
       near-kit:
         specifier: 'catalog:'
-        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940)
+        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418)
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1621,7 +1621,7 @@ importers:
         version: 5.3.0
       '@hot-labs/near-connect':
         specifier: 'catalog:'
-        version: https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940
+        version: https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418
       '@lingui/core':
         specifier: 'catalog:'
         version: 5.9.0
@@ -1702,10 +1702,10 @@ importers:
         version: 5.1.16
       near-kit:
         specifier: 'catalog:'
-        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940)
+        version: 0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418)
       near-social-js:
         specifier: ^2.0.4
-        version: 2.0.4(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940)
+        version: 2.0.4(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418)
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.9(react@19.2.9))(react@19.2.9)
@@ -3094,9 +3094,9 @@ packages:
     peerDependencies:
       hono: ^4
 
-  '@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940':
-    resolution: {gitHosted: true, integrity: sha512-zj2W3a8zRvxb7I3EUEIjm88POV8ZUjDWiBRsyt16ChjVzjVPKvv/MoQXtGac4itYa2s737s7/3Li8Gb+94Cw4A==, tarball: https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940}
-    version: 0.12.0
+  '@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418':
+    resolution: {gitHosted: true, integrity: sha512-aCYp2EPf+Y+Wv/oy3WCI82q+D8VcbAI6sf5Au+7PDnS/ptpD3wF0KAg3bRzkG6Xl2CHSY0w5jsWtPT6w/Gbx8w==, tarball: https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418}
+    version: 0.12.0-fork.3
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -10328,7 +10328,7 @@ snapshots:
     dependencies:
       hono: 4.13.13
 
-  '@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940': {}
+  '@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418': {}
 
   '@img/colour@1.1.0': {}
 
@@ -14531,7 +14531,7 @@ snapshots:
 
   nanostores@1.5.4: {}
 
-  near-kit@0.10.0(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940):
+  near-kit@0.10.0(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418):
     dependencies:
       '@napi-rs/keyring': 1.3.0
       '@noble/curves': 2.4.0
@@ -14543,9 +14543,9 @@ snapshots:
       tar: 7.5.22
       zod: 4.6.5
     optionalDependencies:
-      '@hot-labs/near-connect': https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940
+      '@hot-labs/near-connect': https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418
 
-  near-kit@0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940):
+  near-kit@0.20.2(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418):
     dependencies:
       '@napi-rs/keyring': 1.3.0
       '@noble/curves': 2.4.0
@@ -14558,12 +14558,12 @@ snapshots:
       tar: 7.5.22
       zod: 4.6.5
     optionalDependencies:
-      '@hot-labs/near-connect': https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940
+      '@hot-labs/near-connect': https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418
 
-  near-social-js@2.0.4(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940):
+  near-social-js@2.0.4(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418):
     dependencies:
       bignumber.js: 9.3.1
-      near-kit: 0.10.0(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/382e6a60f9cae8a6c82cc5c0abd2eaae2b73a940)
+      near-kit: 0.10.0(@hot-labs/near-connect@https://codeload.github.com/elliotBraem/near-connect/tar.gz/83355f19408cd98c03b9fa823f9e52cd03929418)
     transitivePeerDependencies:
       - '@hot-labs/near-connect'
       - '@near-wallet-selector/core'
