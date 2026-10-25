@@ -1,0 +1,88 @@
+name: 'Install Playwright'
+description: >-
+  Cached browser install with probe-gated system deps. Requires pnpm on PATH
+  (pnpm/action-setup + node setup) and playwright in the project's deps.
+  Browser download is cached by the lockfile hash; system deps are probed
+  first (`install-deps --dry-run` — no apt-get update, no network) and the
+  bounded real install only fires when a non-font package is missing — the
+  pattern that killed the 2026-10-23 CI apt hangs. Reusable for child repos:
+  `uses: NEARBuilders/everything-dev/.github/actions/install-playwright@<ref>`
+  from their own CI jobs.
+inputs:
+  browser:
+    description: 'Playwright browser to install'
+    required: false
+    default: 'chromium'
+  lockfile:
+    description: 'Lockfile path (from the workspace root) for the cache key'
+    required: false
+    default: 'pnpm-lock.yaml'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Compute browser cache key
+      id: key
+      shell: bash
+      run: |
+        hash="$(sha256sum '${{ inputs.lockfile }}' | cut -d' ' -f1)"
+        echo "key=playwright-${{ runner.os }}-${hash}" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: playwright-cache
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ steps.key.outputs.key }}
+
+    # Browser download only — system deps are probed separately below, so the
+    # miss path no longer pays `--with-deps` (and its unconditional apt-get).
+    - name: Install Playwright browser
+      if: steps.playwright-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        for attempt in 1 2 3; do
+          echo "attempt $attempt"
+          timeout 240 pnpm exec playwright install ${{ inputs.browser }} && exit 0
+          echo "install attempt $attempt failed — retrying"
+        done
+        exit 1
+
+    # apt hangs have killed runs at the job timeout (2026-10-23, three runs
+    # stuck in install-deps): `install-deps` runs `apt-get update` even when
+    # every package is already present, so every job paid — and could hang
+    # on — the network. Probe first with `install-deps --dry-run`, a local
+    # `apt-get install -s` simulation (no update, no network, no root), and
+    # only run the bounded real install when a non-font package is missing.
+    # Fonts are exempt: launch validation never checks them and suites assert
+    # DOM text, not rendered glyphs. A failed probe (no package list, e.g.
+    # stale apt lists) degrades to the real install.
+    - name: Check Playwright system deps
+      id: pw-deps
+      shell: bash
+      run: |
+        output=$(pnpm exec playwright install-deps ${{ inputs.browser }} --dry-run 2>&1) && code=0 || code=$?
+        echo "$output"
+        if [ "$code" -eq 0 ]; then
+          echo "needed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        missing=$(printf '%s\n' "$output" | awk '/^Missing system dependencies/{flag=1; next} flag && NF{print $1}')
+        non_fonts=$(printf '%s\n' "$missing" | grep -Ev '^x?fonts-' || true)
+        if [ -n "$missing" ] && [ -z "$non_fonts" ]; then
+          echo "fonts-only system-dep gap — skipping apt: $missing"
+          echo "needed=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Install Playwright system deps
+      if: steps.pw-deps.outputs.needed == 'true'
+      shell: bash
+      run: |
+        for attempt in 1 2 3; do
+          echo "attempt $attempt"
+          timeout 240 pnpm exec playwright install-deps ${{ inputs.browser }} && exit 0
+          echo "install-deps attempt $attempt failed — retrying"
+        done
+        exit 1
