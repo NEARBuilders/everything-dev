@@ -324,9 +324,9 @@ export async function buildAndPushImage(input: {
   configDir: string;
   verbose?: boolean;
   /** Release-conditional tags (#571): version + floating tags only on the
-   * release leg — non-release deploys push `sha-<short>` only, so version
-   * image tags are append-only (the property pinned children's digest
-   * derivation depends on). */
+   * release leg — non-release (or unverifiable) deploys push `sha-<short>`
+   * only, so version image tags are append-only (the property pinned
+   * children's digest derivation depends on). */
   release?: boolean;
 }): Promise<ImageDeployResult> {
   const shaResult = await run("git", ["rev-parse", "--short=7", "HEAD"], {
@@ -350,7 +350,7 @@ export async function buildAndPushImage(input: {
 
   const version = readFrameworkVersion(input.configDir);
   const computed = computeImageTags({ shortSha, version });
-  const releaseLeg = input.release !== false;
+  const releaseLeg = input.release === true;
   const { tags: pushTags, pushLatest, pushRc } = conditionImageTags(computed, releaseLeg);
   const latestHoldReason = releaseLeg
     ? computed.latestHoldReason

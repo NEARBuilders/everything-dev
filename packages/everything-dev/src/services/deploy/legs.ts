@@ -13,7 +13,6 @@ import {
   resolveImageRef,
   resolveRegistryDigest,
 } from "./image";
-import { detectOwedWork, owedWorkDrift } from "./owed";
 import { deriveImageRefFromPlatformManifest } from "./platform-manifest";
 import { rollbackToPreviousSnapshot } from "./rollback-flow";
 import { runSmoke } from "./smoke";
@@ -274,6 +273,9 @@ export interface PostPublishLegsInput {
    * image pin resolves from (ADR 0034). */
   localConfig?: Record<string, unknown>;
   repository?: string;
+  /** The train's release decision (#571/#573): version + floating image
+   * tags move on the release deploy only. */
+  release?: boolean;
 }
 
 export interface PostPublishLegsOutcome {
@@ -294,7 +296,6 @@ export interface PostPublishLegsDeps {
   repointServiceSource: typeof repointServiceSource;
   resolveChildImagePin: typeof resolveChildImagePin;
   rollbackToPreviousSnapshot: typeof rollbackToPreviousSnapshot;
-  detectOwedWork: typeof detectOwedWork;
 }
 
 export const realPostPublishLegsDeps: PostPublishLegsDeps = {
@@ -305,7 +306,6 @@ export const realPostPublishLegsDeps: PostPublishLegsDeps = {
   repointServiceSource,
   resolveChildImagePin,
   rollbackToPreviousSnapshot,
-  detectOwedWork,
 };
 
 export async function runPostPublishLegs(
@@ -391,44 +391,16 @@ export async function runPostPublishLegs(
     }
     case "build": {
       console.log();
-      // Release-conditional image tags (#571): owed work from live state
-      // decides the release leg. Root tier only — children never release.
-      // Unverifiable (detection failed) reads as non-release: version tags
-      // must never move on a maybe — the next train re-detects the owed work.
-      let releaseLeg: boolean | undefined;
-      if (tier === "root") {
-        releaseLeg = false;
-        try {
-          const owed = await deps.detectOwedWork({
-            configDir: input.sessionRoot,
-            account: input.account,
-            gateway: input.domain,
-          });
-          const drift = owedWorkDrift(owed);
-          if (drift) {
-            legs.image = { status: "failed", detail: drift };
-            console.log(colors.yellow(`  ${drift}`));
-            return { legs, failure: `Config published but ${drift}` };
-          }
-          releaseLeg = owed.release;
-          console.log(
-            owed.release
-              ? colors.cyan(
-                  `  Release leg: npm${owed.npmOwed ? "" : " not"} owed, manifest${owed.manifestOwed ? "" : " not"} owed — version tags move`,
-                )
-              : colors.dim("  No release work owed — sha tag only"),
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          console.log(colors.yellow(`  Owed-work detection failed (${message}) — sha tag only`));
-        }
-      }
       try {
+        // Release-conditional image tags (#571/#573): the release decision is
+        // made once in the train (the single pointer read) and threaded here
+        // — root tier only; children never release. Unverifiable reads as
+        // non-release: version tags must never move on a maybe.
         const imageResult = await deps.buildAndPushImage({
           image: plan.image.image,
           configDir: input.sessionRoot,
           verbose: input.verbose,
-          release: releaseLeg,
+          release: tier === "root" && input.release,
         });
         image = imageResult.image;
         imageDigest = imageResult.digest;

@@ -20,6 +20,7 @@ export type TrainErrorKind =
   | "memory-backend"
   | "config-write"
   | "pin-verification"
+  | "platform-manifest"
   | "platform-truth"
   | "sign"
   | "submit"
@@ -35,6 +36,9 @@ export interface PublishTrainOk {
   deployResults?: WorkspaceDeployResult[];
   fingerprint?: string;
   slotPins?: Record<string, string>;
+  /** The release classifier's decision (#571/#573) — threads to the image
+   * leg so version tags move on the release deploy only. */
+  releaseLeg?: boolean;
 }
 
 /** The wire shape the train's caller sees on terminal failure. */

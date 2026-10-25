@@ -214,8 +214,14 @@ export async function fetchConfigHistory(opts: {
   gatewayId: string;
   registry?: string;
   limit?: number;
+  /** An exact key under `apps/<account>/<gateway>/` — defaults to the
+   * registry config key. The platform pointer's history feeds the rollback
+   * pointer restore (#573). */
+  keyPath?: string;
 }): Promise<ConfigHistoryEntry[]> {
-  const key = encodeURIComponent(getRegistryConfigKey(opts.accountId, opts.gatewayId));
+  const key = encodeURIComponent(
+    opts.keyPath ?? getRegistryConfigKey(opts.accountId, opts.gatewayId),
+  );
   const limit = Math.max(1, Math.min(opts.limit ?? 20, FASTKV_HISTORY_MAX_LIMIT));
   const url = `${getFastKvBaseUrlForAccount(opts.accountId)}/v0/history/${encodeURIComponent(getRegistryNamespaceForAccount(opts.accountId, opts.registry))}/${encodeURIComponent(opts.accountId)}/${key}?limit=${limit}`;
   const payload = await fetchJson<FastKvHistoryResponse>(url);

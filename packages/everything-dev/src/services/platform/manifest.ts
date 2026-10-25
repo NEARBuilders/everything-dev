@@ -68,6 +68,18 @@ export function getPlatformManifestKey(accountId: string, gatewayId: string): st
   return `apps/${accountId}/${gatewayId}/platform.json`;
 }
 
+/** The immutable per-release slot (#573): one key per released framework
+ * version, written once, never mutated — a divergent republish is a burned
+ * version and fails loud. `platform.json` remains the moving pointer; slot-
+ * first resolution (#574) reads slots directly. */
+export function getPlatformVersionSlotKey(
+  accountId: string,
+  gatewayId: string,
+  version: string,
+): string {
+  return `apps/${accountId}/${gatewayId}/platform-versions/${version}.json`;
+}
+
 /**
  * The template-source file set a release inventory hashes: the ownership
  * inventory's static paths, the agent-sync globs, and the per-plugin template

@@ -194,7 +194,7 @@ describe("buildAndPushImage", () => {
       return ok();
     });
 
-    const result = await buildAndPushImage({ image: "ghcr.io/acme/app", configDir });
+    const result = await buildAndPushImage({ image: "ghcr.io/acme/app", configDir, release: true });
 
     expect(result).toEqual({
       image: "ghcr.io/acme/app",
@@ -227,6 +227,37 @@ describe("buildAndPushImage", () => {
     ]);
   });
 
+  it("a non-release deploy builds and pushes the sha tag only (#571)", async () => {
+    writeWorkspaceVersion("2.0.0-rc.0");
+    runMock.mockImplementation(async (cmd: string, args: string[]) => {
+      if (cmd === "git") return ok("cf2ab4d13");
+      if (cmd === "docker" && args[0] === "build") return undefined;
+      if (cmd === "docker" && args[0] === "push") {
+        return ok(
+          "The push refers to repository [ghcr.io/x/y]\nsha: digest: sha256:beef00 size: 1571",
+        );
+      }
+      return ok();
+    });
+
+    const result = await buildAndPushImage({
+      image: "ghcr.io/acme/app",
+      configDir,
+      release: false,
+    });
+
+    expect(result).toEqual({
+      image: "ghcr.io/acme/app",
+      tag: "sha-cf2ab4d13",
+      tags: ["sha-cf2ab4d13"],
+      latestPushed: false,
+      rcPushed: false,
+      digest: "sha256:beef00",
+    });
+    const pushes = runMock.mock.calls.filter((c) => c[0] === "docker" && c[1][0] === "push");
+    expect(pushes.map((c) => c[1][1])).toEqual(["ghcr.io/acme/app:sha-cf2ab4d13"]);
+  });
+
   it("holds latest, pushes the exact tag, and pushes rc for a prerelease workspace version", async () => {
     writeWorkspaceVersion("2.0.0-rc.0");
     runMock.mockImplementation(async (cmd: string, args: string[]) => {
@@ -238,7 +269,7 @@ describe("buildAndPushImage", () => {
       return ok();
     });
 
-    const result = await buildAndPushImage({ image: "ghcr.io/acme/app", configDir });
+    const result = await buildAndPushImage({ image: "ghcr.io/acme/app", configDir, release: true });
 
     expect(result).toEqual({
       image: "ghcr.io/acme/app",
@@ -285,7 +316,7 @@ describe("buildAndPushImage", () => {
       return ok();
     });
 
-    const result = await buildAndPushImage({ image: "ghcr.io/acme/app", configDir });
+    const result = await buildAndPushImage({ image: "ghcr.io/acme/app", configDir, release: true });
 
     expect(result).toEqual({
       image: "ghcr.io/acme/app",

@@ -539,6 +539,10 @@ describe("publishToFastKv preflight ordering", () => {
     rmSync(join(configDir, "bos.config.json"));
     writeFileSync(join(configDir, "bos.app.ts"), "export default {};");
     setupDeployTrain();
+    // order-independence: the submit mock is cleared (implementations leak
+    // across clearAllMocks) — set it explicitly instead of relying on a
+    // previous test having done so
+    submitRegistryWriteMock.mockResolvedValue({ success: true, txHash: "tx-1" });
     const merged = applyDeployResults(bosConfig as unknown as Record<string, unknown>, [
       hostDeployEntry,
     ]);
