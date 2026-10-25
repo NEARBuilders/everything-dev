@@ -304,6 +304,7 @@ export function registerUpgrade(builder: BosBuilder) {
                 ? [".bos/generated/runtime-map.json"]
                 : []),
               ...(runtime.ui?.source === "local" &&
+              runtime.ui.localPath &&
               existsSync(join(runtime.ui.localPath, "src/lib/runtime-map.gen.ts"))
                 ? ["ui/src/lib/runtime-map.gen.ts"]
                 : []),

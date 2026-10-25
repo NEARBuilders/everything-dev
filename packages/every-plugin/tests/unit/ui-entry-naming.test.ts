@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import type { EnvironmentConfig } from "@rsbuild/core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEV_ENTRY_FILENAME,
   DEV_SERVER_ENTRY_FILENAME,
@@ -124,9 +125,10 @@ describe("TanStackRouterRspack route-tree output (#548)", () => {
 
   beforeEach(() => vi.mocked(TanStackRouterRspack).mockClear());
 
-  function routerPluginCalls(env: unknown): unknown[] {
+  function routerPluginCalls(env: EnvironmentConfig | undefined): unknown[] {
     const cfg = { plugins: [] as unknown[] };
-    env?.tools?.rspack?.(cfg as Record<string, unknown>);
+    const plugin = env?.tools?.rspack;
+    if (typeof plugin === "function") (plugin as (cfg: unknown) => void)(cfg);
     return vi.mocked(TanStackRouterRspack).mock.calls.map((call) => call[0]);
   }
 
@@ -137,7 +139,8 @@ describe("TanStackRouterRspack route-tree output (#548)", () => {
     });
     const calls = routerPluginCalls(config.environments?.web);
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.generatedRouteTree).toBe(
+    const webCall = calls[0] as { generatedRouteTree?: string } | undefined;
+    expect(webCall?.generatedRouteTree).toBe(
       join("/workspace/plugins/auth-ui", "src/routeTree.gen.ts"),
     );
   });
@@ -146,7 +149,8 @@ describe("TanStackRouterRspack route-tree output (#548)", () => {
     const config = createUiRsbuildConfig(baseOptions);
     const calls = routerPluginCalls(config.environments?.node);
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.generatedRouteTree).toBe(
+    const nodeCall = calls[0] as { generatedRouteTree?: string } | undefined;
+    expect(nodeCall?.generatedRouteTree).toBe(
       "./node_modules/.cache/manifest-compose/routeTree.node.gen.ts",
     );
   });

@@ -42,6 +42,13 @@ export class DevFlowService extends Context.Service<
                 }),
               DevPreflightFailed: (error) =>
                 Effect.succeed({ failed: `Infra preflight failed: ${error.messages.join("; ")}` }),
+              InfraError: (error) => Effect.succeed({ failed: `${error.phase}: ${error.message}` }),
+              DevStepError: (error) =>
+                Effect.succeed({
+                  failed: `${error.phase} failed: ${
+                    error.cause instanceof Error ? error.cause.message : String(error.cause)
+                  }`,
+                }),
             }),
           );
 

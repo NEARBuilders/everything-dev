@@ -272,7 +272,7 @@ const STARTER_SIMPLE_EXCLUSIONS = [
  */
 export function buildStarterRouteExclusions(
   level: StarterLevel,
-  parentConfig: { starter?: ParentStarterConfig } | null | undefined,
+  parentConfig: { starter?: ParentStarterConfig | StarterLevel } | null | undefined,
 ): string[] {
   const excluded = new Set<string>(STARTER_PRODUCT_EXCLUSIONS);
   if (level === "simple") {
@@ -280,7 +280,7 @@ export function buildStarterRouteExclusions(
   }
 
   const starter = parentConfig?.starter;
-  if (starter) {
+  if (starter && typeof starter === "object") {
     for (const entry of starter.exclude ?? []) excluded.add(entry);
     const levelConfig = starter.levels?.[level];
     if (levelConfig) {

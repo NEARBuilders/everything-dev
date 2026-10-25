@@ -1,4 +1,5 @@
 import { createPluginRuntime } from "every-plugin";
+import { afterAll, describe, expect, it } from "vitest";
 import { defaultMissingSecretWarnings } from "../../src/runtime/errors";
 import { WarningsPlugin } from "../fixtures/warnings-plugin/src/index";
 
@@ -17,9 +18,9 @@ describe("defaultMissingSecretWarnings", () => {
     );
 
     expect(warnings).toHaveLength(1);
-    expect(warnings[0].pluginKey).toBe("auth");
-    expect(warnings[0].message).toContain("GITHUB_CLIENT_SECRET");
-    expect(warnings[0].message).not.toContain("GOOGLE_CLIENT_SECRET");
+    expect(warnings[0]?.pluginKey).toBe("auth");
+    expect(warnings[0]?.message).toContain("GITHUB_CLIENT_SECRET");
+    expect(warnings[0]?.message).not.toContain("GOOGLE_CLIENT_SECRET");
   });
 
   it("excludes *_DATABASE_URL keys (fallback, or a real failure not a warning)", () => {
@@ -30,8 +31,8 @@ describe("defaultMissingSecretWarnings", () => {
     );
 
     expect(warnings).toHaveLength(1);
-    expect(warnings[0].message).toContain("TEMPLATE_API_KEY");
-    expect(warnings[0].message).not.toContain("TEMPLATE_DATABASE_URL");
+    expect(warnings[0]?.message).toContain("TEMPLATE_API_KEY");
+    expect(warnings[0]?.message).not.toContain("TEMPLATE_DATABASE_URL");
   });
 
   it("returns nothing when all declared secrets resolved", () => {
@@ -90,7 +91,7 @@ describe("plugin warnings channel", () => {
     });
 
     expect(result.initialized.warnings).toHaveLength(1);
-    expect(result.initialized.warnings[0].pluginKey).toBe("warnings-plugin");
-    expect(result.initialized.warnings[0].message).toContain("boom");
+    expect(result.initialized.warnings[0]?.pluginKey).toBe("warnings-plugin");
+    expect(result.initialized.warnings[0]?.message).toContain("boom");
   });
 });

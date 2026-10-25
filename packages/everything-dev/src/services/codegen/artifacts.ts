@@ -100,20 +100,22 @@ export function uiManifestTargets(
   return targets;
 }
 
+export interface GenerateCodeArtifactsOptions {
+  env?: BosEnv;
+  extendsChain?: string[];
+  runtimeConfig?: RuntimeConfig;
+  forceRouteTree?: boolean;
+  /** Strict runtime-map degradation (#594): an unresolvable remote manifest
+   * fails the run instead of shrinking the map. `bos types gen` sets this —
+   * dev/build/train paths degrade to a warning (a flaky remote must not
+   * block a boot). */
+  runtimeMapStrict?: boolean;
+}
+
 export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(function* (
   configDir: string,
   config: BosConfig,
-  opts?: {
-    env?: BosEnv;
-    extendsChain?: string[];
-    runtimeConfig?: RuntimeConfig;
-    forceRouteTree?: boolean;
-    /** Strict runtime-map degradation (#594): an unresolvable remote manifest
-     * fails the run instead of shrinking the map. `bos types gen` sets this —
-     * dev/build/train paths degrade to a warning (a flaky remote must not
-     * block a boot). */
-    runtimeMapStrict?: boolean;
-  },
+  opts?: GenerateCodeArtifactsOptions,
 ): Effect.fn.Return<
   (GeneratedArtifacts & { contractStatus: ContractBridgeStatus[] }) | null,
   ArtifactGenError
@@ -192,12 +194,7 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
 export async function generateCodeArtifacts(
   configDir: string,
   config: BosConfig,
-  opts?: {
-    env?: BosEnv;
-    extendsChain?: string[];
-    runtimeConfig?: RuntimeConfig;
-    forceRouteTree?: boolean;
-  },
+  opts?: GenerateCodeArtifactsOptions,
 ): Promise<(GeneratedArtifacts & { contractStatus: ContractBridgeStatus[] }) | null> {
   return Effect.runPromise(generateCodeArtifactsEffect(configDir, config, opts));
 }
