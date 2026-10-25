@@ -396,7 +396,10 @@ function describeBackend(
       name,
       source: "remote",
       location: remote,
-      pluginManifestUrl: pluginManifestUrlFor(remote),
+      // the host ships no plugin manifest asset (it is not an every-plugin
+      // module) — probing it 404s on every real host and, in strict mode,
+      // fails types gen in every scaffolded child
+      ...(kind !== "host" ? { pluginManifestUrl: pluginManifestUrlFor(remote) } : {}),
       ...(pin ? { pin } : {}),
       ...(slot.integrity ? { integrity: slot.integrity } : {}),
       ...(dependsOn ? { dependsOn } : {}),

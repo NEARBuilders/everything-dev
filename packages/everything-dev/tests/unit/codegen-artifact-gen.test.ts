@@ -98,14 +98,12 @@ function fixtureRuntime(tempDir: string, opts?: { withPluginUiRoutes?: boolean }
   } as unknown as RuntimeConfig;
 }
 
-function stubCdn(): void {
+function stubCdn(requested: string[] = []): void {
   vi.stubGlobal("fetch", (async (url: string | URL) => {
     const href = url.toString();
+    requested.push(href);
     if (href === `${CDN}/ui/manifest.gen.json`) {
       return { ok: true, json: async () => coreUiManifest };
-    }
-    if (href === `${CDN}/host/plugin.manifest.json`) {
-      return { ok: true, json: async () => pluginManifestAsset("2.0.0-rc.21", "sha256-host") };
     }
     if (href === `${CDN}/auth/plugin.manifest.json`) {
       return { ok: true, json: async () => pluginManifestAsset("2.0.0-rc.8", "sha256-auth") };
@@ -151,7 +149,8 @@ describe("generateCodeArtifactsEffect — strict types gen on a fresh checkout",
   it("generates a folder-form plugin ui's manifest and a complete map (pre-fix: failed UNRESOLVED)", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "artifact-gen-fresh-"));
     const runtime = fixtureRuntime(tempDir);
-    stubCdn();
+    const requested: string[] = [];
+    stubCdn(requested);
 
     const result = await Effect.runPromise(
       generateCodeArtifactsEffect(tempDir, { platform: null } as never, {
@@ -170,6 +169,26 @@ describe("generateCodeArtifactsEffect — strict types gen on a fresh checkout",
     const map = JSON.parse(readFileSync(join(tempDir, ".bos/generated/runtime-map.json"), "utf8"));
     expect(map.unresolved).toEqual([]);
     expect(map.routes.some((route: { owner: string }) => route.owner === "ai")).toBe(true);
+  });
+
+  it("a remote host is inventoried source-level — never probed for a plugin manifest (pre-fix: strict fail on the 404)", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "artifact-gen-host-"));
+    const runtime = fixtureRuntime(tempDir);
+    const requested: string[] = [];
+    stubCdn(requested);
+
+    await Effect.runPromise(
+      generateCodeArtifactsEffect(tempDir, { platform: null } as never, {
+        runtimeConfig: runtime,
+        runtimeMapStrict: true,
+      }),
+    );
+
+    expect(requested).not.toContain(`${CDN}/host/plugin.manifest.json`);
+    const map = JSON.parse(readFileSync(join(tempDir, ".bos/generated/runtime-map.json"), "utf8"));
+    const host = map.backends.find((b: { key: string }) => b.key === "host");
+    expect(host).toMatchObject({ kind: "host", source: "remote", location: `${CDN}/host/` });
+    expect(host.pluginVersion).toBeUndefined();
   });
 });
 
