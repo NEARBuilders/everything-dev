@@ -66,6 +66,32 @@ describe("API key handlers", () => {
       expect(result.key).toBeDefined();
       expect(result.key).toMatch(/^org_/);
     });
+
+    it("mints no upload scope through the typed route (#336)", async () => {
+      const user = await createTestUser(services.services);
+      const org = await createTestOrg(services.services, user.userId);
+      const handlers = createTestHandlers(services.services);
+
+      const userKey = await handlers.apiKeys.createApiKey({
+        input: { name: "Plain Key" },
+        context: { reqHeaders: user.reqHeaders },
+      });
+      const orgKey = await handlers.apiKeys.createApiKey({
+        input: { name: "Org Key", organizationId: org.id },
+        context: { reqHeaders: user.reqHeaders },
+      });
+
+      for (const created of [userKey, orgKey]) {
+        expect(created.metadata ?? null).toBeNull();
+        expect(created.permissions ?? null).toBeNull();
+        const verified = await handlers.apiKeys.verifyApiKey({
+          input: { key: created.key, permissions: { bundles: ["write"] } },
+          context: { reqHeaders: {} },
+        });
+        expect(verified.valid).toBe(false);
+        expect(verified.error?.code).toBe("KEY_MISSING_PERMISSIONS");
+      }
+    });
   });
 
   describe("verifyApiKey", () => {

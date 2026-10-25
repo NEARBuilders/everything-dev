@@ -38,8 +38,6 @@ export class ApiKeysService extends Context.Service<
         name?: string;
         prefix?: string;
         expiresIn?: number;
-        permissions?: Record<string, string[]>;
-        metadata?: unknown;
         organizationId?: string;
         configId?: string;
         rateLimit?: ApiKeyRateLimitInput;
@@ -60,8 +58,6 @@ export class ApiKeysService extends Context.Service<
         id: string;
         name?: string;
         enabled?: boolean;
-        permissions?: Record<string, string[]> | null;
-        metadata?: unknown;
         expiresIn?: number | null;
         organizationId?: string;
         configId?: string;
@@ -116,8 +112,6 @@ export const buildApiKeysService = ({ auth, db }: { auth: Auth; db: Db }) =>
             name: input.name,
             prefix: input.prefix,
             expiresIn: input.expiresIn,
-            permissions: input.permissions,
-            metadata: input.metadata,
             organizationId: input.organizationId,
             rateLimitEnabled: input.rateLimit?.enabled,
             rateLimitMax: input.rateLimit?.max,
@@ -165,8 +159,6 @@ export const buildApiKeysService = ({ auth, db }: { auth: Auth; db: Db }) =>
             keyId: input.id,
             name: input.name,
             enabled: input.enabled,
-            permissions: input.permissions,
-            metadata: input.metadata,
             expiresIn: input.expiresIn,
             rateLimitEnabled: input.rateLimit?.enabled,
             rateLimitMax: input.rateLimit?.max,
