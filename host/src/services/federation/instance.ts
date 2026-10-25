@@ -118,9 +118,7 @@ export class CompositionRuntime extends Context.Service<
         return instance;
       };
 
-      const ensureRemotes = (
-        remotes: { name: string; entry: string }[],
-      ): CompositionSession => {
+      const ensureRemotes = (remotes: { name: string; entry: string }[]): CompositionSession => {
         if (!instance) {
           createGeneration(new Map(remotes.map((remote) => [remote.name, remote.entry])));
           return { mf: instance!, generation };

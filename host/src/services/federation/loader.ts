@@ -13,7 +13,7 @@ import type { RouterModule } from "../../types";
 import { mark } from "../../utils/effect-run";
 import type { RuntimeConfig } from "../config";
 import { ExposeModuleMissing, FederationError } from "../errors";
-import { type CompositionSession, CompositionRuntime } from "./instance";
+import { CompositionRuntime, type CompositionSession } from "./instance";
 
 const EXPOSE_CACHE_TTL = "5 minutes";
 const NEGATIVE_CACHE_TTL = "10 seconds";
@@ -82,7 +82,9 @@ export class FederationLoader extends Context.Service<
       entryUrl: string;
       integrity?: string;
     }) => Effect.Effect<void, FederationError>;
-    readonly loadExpose: <T>(params: ExposeLoadParams & { session: CompositionSession }) => Effect.Effect<T, FederationError>;
+    readonly loadExpose: <T>(
+      params: ExposeLoadParams & { session: CompositionSession },
+    ) => Effect.Effect<T, FederationError>;
     readonly loadRouterModule: (
       params: RouterLoadParams & { session: CompositionSession },
     ) => Effect.Effect<RouterModule, FederationError>;
@@ -403,7 +405,8 @@ export const loadRouterModule = Effect.fn("loadRouterModule")(
       session,
     });
   },
-  (effect, config: RuntimeConfig, _localEntry?: EntrySlot, _session?: CompositionSession) =>    effect.pipe(
+  (effect, config: RuntimeConfig, _localEntry?: EntrySlot, _session?: CompositionSession) =>
+    effect.pipe(
       Effect.timeout("30 seconds"),
       Effect.catch((error: unknown) => {
         // the production error shape: the remote coordinates are the config's

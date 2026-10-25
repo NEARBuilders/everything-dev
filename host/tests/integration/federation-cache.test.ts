@@ -22,11 +22,17 @@ vi.mock("everything-dev/integrity", () => ({
   verifySriForUrl: verifySriForUrlMock,
 }));
 
-const { loadCoreUiRouteConfig, loadRouterModule, loadUiComposeModule, loadUiRouteConfig } =
-  await import("../../src/services/federation/loader");
+const {
+  loadCoreUiRouteConfig,
+  loadRouterModule,
+  loadUiComposeModule,
+  loadUiRouteConfig,
+  FederationLoader,
+} = await import("../../src/services/federation/loader");
 
 const { FederationLifecycle } = await import("../../src/services/federation/lifecycle");
 
+import type { CompositionSession } from "../../src/services/federation/instance";
 import type { FederationLoader as FederationLoaderTag } from "../../src/services/federation/loader";
 
 let lifecycle: ManagedRuntime.ManagedRuntime<FederationLoaderTag, never> | undefined;
@@ -45,6 +51,18 @@ const runLoaded = <A, E>(effect: Effect.Effect<A, E, FederationLoaderTag>): Prom
     effect as Effect.Effect<A, E, never>,
   );
 };
+
+/** Open a composition session for the "ui" remote at one entry URL — the
+ * load-API entry point the compose flow uses. */
+const openSession = async (entryUrl: string): Promise<CompositionSession> => {
+  if (!lifecycle) throw new Error("federation lifecycle not started");
+  const loader = await lifecycle.runPromise(FederationLoader);
+  return loader.ensureSession([{ name: "ui", entry: entryUrl }]);
+};
+
+/** A session that never touches the MF instance — for loads that must fail
+ * before any session use (missing SSR entry URL). */
+const deadSession: CompositionSession = { mf: null as never, generation: 0 };
 
 afterEach(async () => {
   await disposeLifecycle?.();
@@ -101,13 +119,23 @@ describe("loadRouterModule cache", () => {
     };
     loadRemoteMock.mockResolvedValueOnce(routerOne).mockResolvedValueOnce(routerTwo);
 
+    const firstSession = await openSession(
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
+    );
     const first = await runLoaded(
       loadRouterModule(
         createRuntimeConfig({
           ssrIntegrity: "sha384-ssr-a",
           ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
         }),
+        undefined,
+        firstSession,
       ),
+    );
+    // A changed entry retires the generation — a fresh instance carries the
+    // new coordinates; the old generation's cached module can never serve.
+    const secondSession = await openSession(
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
     );
     const second = await runLoaded(
       loadRouterModule(
@@ -115,19 +143,20 @@ describe("loadRouterModule cache", () => {
           ssrIntegrity: "sha384-ssr-b",
           ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
         }),
+        undefined,
+        secondSession,
       ),
     );
 
     expect(first).toBe(routerOne.default);
     expect(second).toBe(routerTwo.default);
-    expect(createInstanceMock).toHaveBeenCalledTimes(1);
-    expect(registerRemotesMock).toHaveBeenCalledWith([
-      {
-        name: "ui",
-        entry: "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
-        alias: "ui",
-      },
-    ]);
+    expect(createInstanceMock).toHaveBeenCalledTimes(2);
+    const secondInstance = createInstanceMock.mock.calls[1]?.[0] as
+      | { remotes?: Array<{ entry?: string }> }
+      | undefined;
+    expect(secondInstance?.remotes?.[0]?.entry).toBe(
+      "https://cdn.example.com/ui-ssr/remoteEntry.server.bbb.js",
+    );
     expect(verifySriForUrlMock).toHaveBeenNthCalledWith(
       1,
       "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
@@ -152,13 +181,16 @@ describe("loadRouterModule cache", () => {
       ssrIntegrity: "sha384-ssr-a",
       ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
     });
-    const first = await runLoaded(loadRouterModule(config));
+    const session = await openSession("https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js");
+    const first = await runLoaded(loadRouterModule(config, undefined, session));
     const second = await runLoaded(
       loadRouterModule(
         createRuntimeConfig({
           ssrIntegrity: "sha384-ssr-a",
           ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
         }),
+        undefined,
+        session,
       ),
     );
 
@@ -171,7 +203,9 @@ describe("loadRouterModule cache", () => {
   it("fails loudly for local ui without an SSR entry — source composition owns that path", async () => {
     const localConfig = createRuntimeConfig({ source: "local" });
     (localConfig.ui as { ssrUrl?: string }).ssrUrl = undefined;
-    await expect(runLoaded(loadRouterModule(localConfig))).rejects.toThrow(/no SSR entry URL/);
+    await expect(runLoaded(loadRouterModule(localConfig, undefined, deadSession))).rejects.toThrow(
+      /no SSR entry URL/,
+    );
     expect(createInstanceMock).not.toHaveBeenCalled();
   });
 
@@ -184,11 +218,14 @@ describe("loadRouterModule cache", () => {
     };
     loadRemoteMock.mockResolvedValueOnce(routerOne).mockResolvedValueOnce(routerTwo);
 
+    const session = await openSession("https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js");
     const first = await runLoaded(
       loadRouterModule(
         createRuntimeConfig({
           ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
         }),
+        undefined,
+        session,
       ),
     );
     const second = await runLoaded(
@@ -196,6 +233,8 @@ describe("loadRouterModule cache", () => {
         createRuntimeConfig({
           ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
         }),
+        undefined,
+        session,
       ),
     );
 
@@ -216,10 +255,15 @@ describe("loadRouterModule cache", () => {
       ssrIntegrity: "sha384-ssr-a",
       ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
     });
-    await runLoaded(loadRouterModule(config));
-    await runLoaded(loadRouterModule({ ...config }));
+    const session = await openSession("https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js");
+    await runLoaded(loadRouterModule(config, undefined, session));
+    await runLoaded(loadRouterModule({ ...config }, undefined, session));
     await runLoaded(
-      loadRouterModule({ ...config, account: "other.near" } as unknown as RuntimeConfig),
+      loadRouterModule(
+        { ...config, account: "other.near" } as unknown as RuntimeConfig,
+        undefined,
+        session,
+      ),
     );
 
     expect(createInstanceMock).toHaveBeenCalledTimes(1);
@@ -234,13 +278,14 @@ describe("loadRouterModule cache", () => {
       ssrIntegrity: "sha384-ssr-a",
       ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
     });
+    const session = await openSession("https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js");
 
-    await expect(runLoaded(loadRouterModule(config))).rejects.toThrow();
+    await expect(runLoaded(loadRouterModule(config, undefined, session))).rejects.toThrow();
 
     const callsAfterFirstFailure = loadRemoteMock.mock.calls.length;
     expect(callsAfterFirstFailure).toBeGreaterThan(0);
 
-    await expect(runLoaded(loadRouterModule(config))).rejects.toThrow();
+    await expect(runLoaded(loadRouterModule(config, undefined, session))).rejects.toThrow();
 
     expect(loadRemoteMock.mock.calls.length).toBe(callsAfterFirstFailure);
     expect(createInstanceMock).toHaveBeenCalledTimes(1);
@@ -256,13 +301,16 @@ describe("loadRouterModule cache", () => {
       ssrIntegrity: "sha384-ssr-a",
       ssrEntryUrl: "https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js",
     });
+    const session = await openSession("https://cdn.example.com/ui-ssr/remoteEntry.server.aaa.js");
 
     verifySriForUrlMock.mockRejectedValueOnce(new Error("integrity mismatch"));
-    await expect(runLoaded(loadRouterModule(config))).rejects.toThrow(/integrity mismatch/);
+    await expect(runLoaded(loadRouterModule(config, undefined, session))).rejects.toThrow(
+      /integrity mismatch/,
+    );
     expect(loadRemoteMock).not.toHaveBeenCalled();
 
     verifySriForUrlMock.mockResolvedValue(undefined);
-    const second = await runLoaded(loadRouterModule(config));
+    const second = await runLoaded(loadRouterModule(config, undefined, session));
 
     expect(second).toBe(router.default);
     expect(verifySriForUrlMock).toHaveBeenCalledTimes(2);
@@ -295,8 +343,9 @@ describe("ui expose loads (routeConfig / compose)", () => {
     const routeConfig = { routeConfigLoaders: {} };
     loadRemoteMock.mockResolvedValue(routeConfig);
 
+    const session = await openSession("http://localhost:4113/remoteEntry.server.js");
     const loaded = await runLoaded(
-      loadUiRouteConfig(uiEntry({ ssrUrl: "http://localhost:4113" }), "development"),
+      loadUiRouteConfig(uiEntry({ ssrUrl: "http://localhost:4113" }), "development", session),
     );
 
     expect(loaded).toBe(routeConfig);
@@ -314,8 +363,9 @@ describe("ui expose loads (routeConfig / compose)", () => {
     const composeModule = { constructTree: vi.fn() };
     loadRemoteMock.mockResolvedValue(composeModule);
 
+    const session = await openSession("http://localhost:4113/remoteEntry.server.js");
     const loaded = await runLoaded(
-      loadUiComposeModule(uiEntry({ ssrUrl: "http://localhost:4113" }), "development"),
+      loadUiComposeModule(uiEntry({ ssrUrl: "http://localhost:4113" }), "development", session),
     );
 
     expect(loaded).toBe(composeModule);
@@ -324,7 +374,9 @@ describe("ui expose loads (routeConfig / compose)", () => {
 
   it("rejects a ui surface without an SSR entry URL with an actionable error", async () => {
     await expect(
-      runLoaded(loadUiRouteConfig(uiEntry({ localPath: "/x/plugins/y" }), "development")),
+      runLoaded(
+        loadUiRouteConfig(uiEntry({ localPath: "/x/plugins/y" }), "development", deadSession),
+      ),
     ).rejects.toThrow(/no SSR entry URL/);
     expect(createInstanceMock).not.toHaveBeenCalled();
   });
@@ -332,11 +384,12 @@ describe("ui expose loads (routeConfig / compose)", () => {
   it("rejects a routeConfig expose that is missing routeConfigLoaders, for plugin and core ui", async () => {
     loadRemoteMock.mockResolvedValue({ meta: true });
     const entry = uiEntry({ ssrUrl: "http://localhost:4113" });
+    const session = await openSession("http://localhost:4113/remoteEntry.server.js");
 
-    await expect(runLoaded(loadUiRouteConfig(entry, "development"))).rejects.toThrow(
+    await expect(runLoaded(loadUiRouteConfig(entry, "development", session))).rejects.toThrow(
       /routeConfigLoaders/,
     );
-    await expect(runLoaded(loadCoreUiRouteConfig(entry, "development"))).rejects.toThrow(
+    await expect(runLoaded(loadCoreUiRouteConfig(entry, "development", session))).rejects.toThrow(
       /routeConfigLoaders/,
     );
   });

@@ -35,15 +35,19 @@ import type { RouterModule } from "../types";
 import { mark } from "../utils/effect-run";
 import type { RuntimeConfig } from "./config";
 import { UiComposeError } from "./errors";
-import { FederationContainers, resolveLocalRoot, waitForLocalContainer } from "./federation/containers";
+import {
+  FederationContainers,
+  resolveLocalRoot,
+  waitForLocalContainer,
+} from "./federation/containers";
 import type { CompositionSession } from "./federation/instance";
 import {
   FederationLoader,
-  requireSsrEntryUrl,
   loadCoreUiRouteConfig,
   loadRouterModule,
   loadUiComposeModule,
   loadUiRouteConfig,
+  requireSsrEntryUrl,
 } from "./federation/loader";
 import { enforceCacheLimit } from "./serving-caches";
 
