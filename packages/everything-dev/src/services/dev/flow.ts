@@ -14,14 +14,11 @@ const bootstrapLayers = Layer.mergeAll(ProjectEnvLive, PortAllocatorLive);
 export class DevFlowService extends Context.Service<
   DevFlowService,
   {
-    dev: (
-      session: ResolutionSession | null,
-      input: DevOptions,
-    ) => Effect.Effect<DevResult, unknown>;
+    dev: (session: ResolutionSession | null, input: DevOptions) => Effect.Effect<DevResult, never>;
     start: (
       session: ResolutionSession | null,
       input: StartOptions,
-    ) => Effect.Effect<StartResult, unknown>;
+    ) => Effect.Effect<StartResult, never>;
   }
 >()("bos/DevFlowService") {
   static Live = Layer.succeed(

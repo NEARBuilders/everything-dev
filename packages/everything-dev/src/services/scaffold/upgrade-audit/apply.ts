@@ -27,11 +27,9 @@ export const apply = (
 
     const report = yield* audit(projectDir);
     if (report.manifest.blockerCount > 0) {
-      return yield* Effect.fail(
-        new GateBlocked({
-          findings: report.findings.filter((f) => f.severity === "blocker"),
-        }),
-      );
+      return yield* new GateBlocked({
+        findings: report.findings.filter((f) => f.severity === "blocker"),
+      });
     }
 
     const rewrites = yield* scanImports(projectDir);

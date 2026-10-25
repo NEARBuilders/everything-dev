@@ -5,12 +5,12 @@ import { DatabaseBindings, DrizzleKit } from "../../db/index";
 export class DbOpsService extends Context.Service<
   DbOpsService,
   {
-    studio: (plugin: string) => Effect.Effect<DbStudioResult, unknown>;
-    doctor: (plugin: string) => Effect.Effect<DbDoctorResult, unknown>;
+    studio: (plugin: string) => Effect.Effect<DbStudioResult, never>;
+    doctor: (plugin: string) => Effect.Effect<DbDoctorResult, never>;
     repair: (
       plugin: string,
       mode: "history-reset" | "recreate",
-    ) => Effect.Effect<DbRepairResult, unknown>;
+    ) => Effect.Effect<DbRepairResult, never>;
   }
 >()("bos/DbOpsService") {
   static Live = Layer.effect(

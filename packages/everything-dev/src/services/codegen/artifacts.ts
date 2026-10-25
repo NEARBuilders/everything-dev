@@ -6,6 +6,7 @@ import { CORE_UI_PLUGIN_KEY } from "every-plugin/ui/manifest";
 import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { writeResolvedConfig } from "../../config";
 import type { BosConfig, RuntimeConfig } from "../../types";
+import { formatUnknownError } from "../../utils/errors";
 import type { BosEnv } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
 import { type ContractBridgeStatus, syncApiContractBridge } from "./api-contract";
@@ -27,7 +28,7 @@ export class ArtifactGenError extends Schema.TaggedError<ArtifactGenError>()("Ar
           ? this.cause.message
           : this.cause === undefined
             ? ""
-            : String(this.cause);
+            : formatUnknownError(this.cause);
     } catch {
       // some Error subclasses (Effect's YieldableError) delete toString —
       // a non-serializable cause must not break rendering the message

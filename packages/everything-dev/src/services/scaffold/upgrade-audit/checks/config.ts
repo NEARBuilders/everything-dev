@@ -1,5 +1,11 @@
 import { Effect } from "effect";
-import { Finding, KNOWN_APP_SLOT_KEYS, KNOWN_CONFIG_KEYS, KNOWN_PLUGIN_KEYS } from "../domain";
+import {
+  AuditStepError,
+  Finding,
+  KNOWN_APP_SLOT_KEYS,
+  KNOWN_CONFIG_KEYS,
+  KNOWN_PLUGIN_KEYS,
+} from "../domain";
 import { fileExists, readText } from "../fs";
 
 interface BosConfig {
@@ -11,10 +17,15 @@ interface BosConfig {
   readonly [key: string]: unknown;
 }
 
-const parseJson = (source: string): Effect.Effect<BosConfig, Error> =>
+const parseJson = (source: string): Effect.Effect<BosConfig, AuditStepError> =>
   Effect.try({
     try: () => JSON.parse(source) as BosConfig,
-    catch: (error) => new Error(`bos.config.json is not valid JSON: ${String(error)}`),
+    catch: (error) =>
+      new AuditStepError({
+        step: "config",
+        message: "bos.config.json is not valid JSON",
+        cause: error,
+      }),
   });
 
 const checkAppSlot = (slotPath: string, slot: unknown): Finding[] => {

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
-import { Context, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import { MISSING_CONFIG_MESSAGE } from "../config";
 import type {
   PluginAddResult,
@@ -9,6 +9,7 @@ import type {
   PluginRemoveResult,
 } from "../contract";
 import type { BosConfig } from "../types";
+import { formatUnknownError } from "../utils/errors";
 import { saveBosConfig } from "../utils/save-config";
 import { generateCodeArtifacts } from "./codegen/artifacts";
 import { DeployTrainService } from "./deploy/train";
@@ -16,22 +17,33 @@ import { fetchRemotePluginManifest } from "./registry/fastkv";
 import { openResolution, type ResolutionSession } from "./resolution/session";
 import { getPluginRef } from "./workspace/build-train";
 
+export class PluginAdminError extends Data.TaggedError("PluginAdminError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+const persisted = <A>(thunk: () => Promise<A>): Effect.Effect<A, PluginAdminError> =>
+  Effect.tryPromise({
+    try: thunk,
+    catch: (cause) => new PluginAdminError({ message: formatUnknownError(cause), cause }),
+  });
+
 export class PluginAdminService extends Context.Service<
   PluginAdminService,
   {
     add: (
       session: ResolutionSession | null,
       input: { source: string; as?: string | undefined; production?: string | undefined },
-    ) => Effect.Effect<PluginAddResult, unknown>;
+    ) => Effect.Effect<PluginAddResult, PluginAdminError>;
     remove: (
       session: ResolutionSession | null,
       input: { key: string },
-    ) => Effect.Effect<PluginRemoveResult, unknown>;
+    ) => Effect.Effect<PluginRemoveResult, PluginAdminError>;
     list: (session: ResolutionSession | null) => Effect.Effect<PluginListResult["plugins"], never>;
     publish: (
       session: ResolutionSession | null,
       input: { key: string },
-    ) => Effect.Effect<PluginPublishResult, unknown>;
+    ) => Effect.Effect<PluginPublishResult, PluginAdminError>;
   }
 >()("bos/PluginAdminService") {
   static Live = Layer.effect(
@@ -93,19 +105,18 @@ export class PluginAdminService extends Context.Service<
                   : authoredExisting && typeof authoredExisting === "object"
                     ? (authoredExisting as Record<string, unknown>)
                     : {};
-              yield* Effect.tryPromise(() =>
+              yield* persisted(() =>
                 saveBosConfig(session.root, {
                   ...authored,
                   plugins: {
                     ...authored.plugins,
                     [key]: applyEntryDelta(authoredBase),
                   },
-                }),
-              );
+                }));
             } else {
-              yield* Effect.tryPromise(() => saveBosConfig(session.root, nextConfig));
+              yield* persisted(() => saveBosConfig(session.root, nextConfig));
             }
-            yield* Effect.tryPromise(async () => {
+            yield* persisted(async () => {
               await generateCodeArtifacts(session.root, nextConfig);
             });
 
@@ -165,16 +176,15 @@ export class PluginAdminService extends Context.Service<
               } else {
                 delete authoredPlugins[input.key];
               }
-              yield* Effect.tryPromise(() =>
+              yield* persisted(() =>
                 saveBosConfig(session.root, {
                   ...authored,
                   plugins: Object.keys(authoredPlugins).length > 0 ? authoredPlugins : undefined,
-                }),
-              );
+                }));
             } else {
-              yield* Effect.tryPromise(() => saveBosConfig(session.root, nextConfig));
+              yield* persisted(() => saveBosConfig(session.root, nextConfig));
             }
-            yield* Effect.tryPromise(async () => {
+            yield* persisted(async () => {
               await generateCodeArtifacts(session.root, nextConfig);
             });
 
@@ -237,10 +247,9 @@ export class PluginAdminService extends Context.Service<
             }
 
             const nextSession =
-              (yield* Effect.tryPromise({
-                try: () => openResolution({ cwd: session.root }),
-                catch: () => null,
-              })) ?? session;
+              (yield* Effect.promise(() =>
+                openResolution({ cwd: session.root }).catch(() => null),
+              )) ?? session;
             const production = (
               nextSession.config?.plugins?.[input.key] as
                 | {
@@ -250,18 +259,16 @@ export class PluginAdminService extends Context.Service<
             )?.production;
 
             const manifest = production
-              ? yield* Effect.tryPromise({
-                  try: () => fetchRemotePluginManifest(production),
-                  catch: () => null,
-                })
+              ? yield* Effect.promise(() => fetchRemotePluginManifest(production).catch(() => null))
               : null;
             const nextConfig = nextSession.config;
             if (production && nextConfig) {
-              yield* Effect.tryPromise({
-                try: async () => {
+              yield* Effect.promise(async () => {
+                try {
                   await generateCodeArtifacts(session.root, nextConfig);
-                },
-                catch: () => undefined,
+                } catch {
+                  return null;
+                }
               });
             }
 

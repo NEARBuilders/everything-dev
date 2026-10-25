@@ -1,6 +1,6 @@
 import { platform } from "node:os";
 import { BOS_CLI_CLIENT_ID } from "better-near-auth";
-import { Context, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import { execa } from "execa";
 import { formatUnknownError } from "../../utils/errors";
 import type { CustodyWalletRecord } from "./session";
@@ -183,6 +183,11 @@ export async function startDeviceLogin(
 
 /** The device login as a Context.Service tag (ticket #423) — the login
  * handler yields it; tests provide fake site clients. */
+export class DeviceLoginError extends Data.TaggedError("DeviceLoginError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
 export class DeviceLoginService extends Context.Service<
   DeviceLoginService,
   {
@@ -200,8 +205,7 @@ export class DeviceLoginService extends Context.Service<
         start: (opts) =>
           Effect.tryPromise({
             try: () => startDeviceLogin(opts, client),
-            catch: (cause) =>
-              cause instanceof Error ? cause : new Error(formatUnknownError(cause)),
+            catch: (cause) => new DeviceLoginError({ message: formatUnknownError(cause), cause }),
           }),
       });
     }),

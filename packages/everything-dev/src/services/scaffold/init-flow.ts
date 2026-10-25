@@ -48,6 +48,10 @@ export async function fetchInitParent(
   return { parentConfig, parentPluginKeys };
 }
 
+function flowWarn(message: string): void {
+  console.warn(message);
+}
+
 function normalizeExtendsRef(extendsInput: string | undefined, fallback: string): string {
   if (!extendsInput) return fallback;
   return extendsInput.startsWith("bos://") ? extendsInput : `bos://${extendsInput}`;
@@ -56,7 +60,7 @@ function normalizeExtendsRef(extendsInput: string | undefined, fallback: string)
 export class InitFlowService extends Context.Service<
   InitFlowService,
   {
-    run: (input: InitOptions) => Effect.Effect<InitResult, unknown>;
+    run: (input: InitOptions) => Effect.Effect<InitResult, never>;
   }
 >()("bos/InitFlowService") {
   static Live = Layer.succeed(
@@ -103,7 +107,7 @@ export class InitFlowService extends Context.Service<
               parentConfig = parent.parentConfig;
               parentPluginKeys = parent.parentPluginKeys;
             } catch (e) {
-              console.warn(
+              flowWarn(
                 `[init] Failed to fetch parent config from ${extendsAccount}/${extendsGateway}: ${
                   e instanceof Error ? e.message : String(e)
                 }`,
@@ -169,7 +173,7 @@ export class InitFlowService extends Context.Service<
                 }),
               );
               if (!chainManifest) {
-                console.warn(
+                flowWarn(
                   `[init] No platform release manifest resolves behind ${extendsRef} — publish one or scaffold with --source`,
                 );
                 return {
@@ -357,7 +361,7 @@ export class InitFlowService extends Context.Service<
 
               const initConfig = await timePhase(timings, "resolve config", () =>
                 openResolution({ cwd: targetDir }).catch((error: unknown) => {
-                  console.warn(
+                  flowWarn(
                     "[init] Skipping config resolution — the child has no node_modules yet; `bos dev` resolves after `pnpm install`.",
                     error instanceof Error ? error.message : error,
                   );

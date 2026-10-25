@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { registerProcesses } from "../../src/handlers/processes";
 import type { BosBuilder } from "../../src/handlers/shared";
 import type { PidEntry } from "../../src/services/processes/registry";
-import { ProcessesService } from "../../src/services/processes/service";
+import { ProcessesRegistryError, ProcessesService } from "../../src/services/processes/service";
 
 let registryDir: string | null = null;
 
@@ -43,11 +43,12 @@ function contextWith(service: ProcessesService): Context.Context<ProcessesServic
 
 function psEffect(
   context: Context.Context<ProcessesService>,
-): Effect.Effect<unknown, unknown, never> {
+): Effect.Effect<{ status: string; entries: unknown[]; error?: string }, never, never> {
   const builder = {
     ps: {
       // Mirrors @orpc/experimental-effect's middlewareGen: run the generator,
       // then provide the effect context from the oRPC call context.
+      // eslint-disable effecttsgo/any-unknown-in-error-context -- test harness mirrors @orpc middlewareGen interop
       effect: (fn: (opts: unknown) => Generator) => (opts: unknown) => {
         const effect = Effect.gen(() => fn(opts));
         return effect.pipe(Effect.provide(context));
@@ -55,7 +56,9 @@ function psEffect(
     },
   } as unknown as BosBuilder;
   const router = registerProcesses(builder) as {
-    ps: (opts: unknown) => Effect.Effect<unknown, unknown, never>;
+    ps: (
+      opts: unknown,
+    ) => Effect.Effect<{ status: string; entries: unknown[]; error?: string }, never, never>;
   };
   return router.ps({ context: { "effect/context": context } });
 }
@@ -63,7 +66,7 @@ function psEffect(
 describe("ps handler", () => {
   it("maps a service failure to the error result shape, not a throw", async () => {
     const failing = ProcessesService.of({
-      list: () => Effect.fail(new Error("registry exploded")),
+      list: Effect.fail(new ProcessesRegistryError({ message: "registry exploded" })),
     });
 
     const result = (await Effect.runPromise(psEffect(contextWith(failing)))) as {
@@ -83,7 +86,7 @@ describe("ProcessesService.Live", () => {
 
     const program = Effect.gen(function* () {
       const processes = yield* ProcessesService;
-      return yield* processes.list();
+      return yield* processes.list;
     }).pipe(Effect.provide(ProcessesService.Live));
 
     const entries = await Effect.runPromise(program);
@@ -95,7 +98,7 @@ describe("ProcessesService.Live", () => {
 
     const program = Effect.gen(function* () {
       const processes = yield* ProcessesService;
-      return yield* processes.list();
+      return yield* processes.list;
     }).pipe(Effect.provide(ProcessesService.Live));
 
     const entries = await Effect.runPromise(program);

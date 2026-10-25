@@ -51,7 +51,7 @@ function parseCatalog(yaml: string): Record<string, string> {
   const entries: Record<string, string> = {};
   let inCatalog = false;
   for (const line of yaml.split("\n")) {
-    if (/^catalog:/.test(line)) {
+    if (line.startsWith("catalog:")) {
       inCatalog = true;
       continue;
     }

@@ -60,7 +60,7 @@ export async function fetchLiveConfig(input: {
   account: string;
   domain: string;
   registry?: string;
-}): Promise<unknown | undefined> {
+}): Promise<unknown> {
   try {
     return await fetchBosConfigFromFastKv<unknown>(
       `bos://${input.account}/${input.domain}`,

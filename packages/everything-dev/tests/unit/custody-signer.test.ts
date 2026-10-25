@@ -5,6 +5,9 @@ let getBalanceImpl: () => Promise<{ balance: string; token: string; account_id: 
 let callImpl: () => Promise<unknown>;
 
 vi.mock("@outlayer/sdk", () => {
+  // KEEP: the mock must mirror the real SDK's native-Error exceptions — the
+  // signer's instanceof guards read error.code identity, not Effect tags.
+  // eslint-disable-next-line effecttsgo/extends-native-error
   class OutlayerError extends Error {
     code: string;
     status: number;

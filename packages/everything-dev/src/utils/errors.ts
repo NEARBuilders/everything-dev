@@ -35,5 +35,5 @@ export function formatUnknownError(error: unknown): string {
     }
     return Object.prototype.toString.call(error);
   }
-  return String(error);
+  return Object.prototype.toString.call(error);
 }
