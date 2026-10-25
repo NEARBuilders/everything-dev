@@ -571,9 +571,7 @@ describe("runPostPublishLegs", () => {
     const deps = {
       ...baseDeps(),
       runSmoke: vi.fn().mockResolvedValue({ ok: false, image: "x", error: "boot exited" }),
-      rollbackToPreviousSnapshot: vi
-        .fn()
-        .mockResolvedValue({ ok: true, blockHeight: 221569616 }),
+      rollbackToPreviousSnapshot: vi.fn().mockResolvedValue({ ok: true, blockHeight: 221569616 }),
     };
 
     const outcome = await runPostPublishLegs(

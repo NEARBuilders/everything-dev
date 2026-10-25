@@ -29,9 +29,7 @@ vi.mock("@hot-labs/near-connect", () => ({
 }));
 
 vi.mock("near-kit", () => ({
-  Near: class MockNear {
-    constructor(_args?: unknown) {}
-  },
+  Near: class MockNear {},
   fromNearConnect: vi.fn(() => ({})),
 }));
 

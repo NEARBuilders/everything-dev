@@ -51,7 +51,8 @@ const resolvedConfig = {
       ui: {
         name: "_everything_dev_auth_plugin",
         development: "local:plugins/auth/ui",
-        production: "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/auth-ui/",
+        production:
+          "https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/auth-ui/",
         pin: { manifest: "versions/69fab2be8064da4b.json", integrity: "sha384-14fk6yR8" },
       },
       pin: { manifest: "versions/3a2b87c163e265a0.json", integrity: "sha384-0k+YJ4YM" },
@@ -72,7 +73,9 @@ describe("canonicalized publish payload round-trips the publish schema (#611 x H
   it("the canonicalized payload parses — the stripped app.host.development cannot fail the boot gate", () => {
     const canonical = stripLocalDevelopmentTargets(structuredClone(resolvedConfig)) as unknown;
 
-    expect((canonical as { app: { host: { development?: string } } }).app.host.development).toBeUndefined();
+    expect(
+      (canonical as { app: { host: { development?: string } } }).app.host.development,
+    ).toBeUndefined();
 
     const parsed = BosConfigSchema.parse(canonical);
     expect(parsed.app.host.production).toContain("everything.dev/host/");
