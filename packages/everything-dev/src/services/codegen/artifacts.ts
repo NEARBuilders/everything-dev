@@ -9,6 +9,7 @@ import type { BosConfig, RuntimeConfig } from "../../types";
 import type { BosEnv } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
 import { type ContractBridgeStatus, syncApiContractBridge } from "./api-contract";
+import { generateRuntimeMapEffect } from "./runtime-map";
 
 export class ArtifactGenError extends Schema.TaggedError<ArtifactGenError>()("ArtifactGenError", {
   phase: Schema.String,
@@ -79,6 +80,11 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
     extendsChain?: string[];
     runtimeConfig?: RuntimeConfig;
     forceRouteTree?: boolean;
+    /** Strict runtime-map degradation (#594): an unresolvable remote manifest
+     * fails the run instead of shrinking the map. `bos types gen` sets this —
+     * dev/build/train paths degrade to a warning (a flaky remote must not
+     * block a boot). */
+    runtimeMapStrict?: boolean;
   },
 ): Effect.fn.Return<
   (GeneratedArtifacts & { contractStatus: ContractBridgeStatus[] }) | null,
@@ -124,6 +130,27 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
         new ArtifactGenError({ phase: `generate ui manifest (${target.pluginName})`, cause }),
     });
   }
+
+  // The composition inspector (#591/#594): the generated effective route
+  // tree — local manifests were just refreshed above; remote ones fetch from
+  // the published `<ui>/manifest.gen.json`. Strict mode (`bos types gen`)
+  // fails the run on an unresolvable map so typecheck catches an upstream
+  // rename; dev/build/train paths warn and continue (a flaky remote must
+  // not block a boot — the runtime load fails loudly on its own).
+  yield* generateRuntimeMapEffect(configDir, runtimeConfig, {
+    strict: opts?.runtimeMapStrict === true,
+    env,
+  }).pipe(
+    Effect.catch((error) => {
+      if (opts?.runtimeMapStrict === true) {
+        return Effect.fail(new ArtifactGenError({ phase: "generate runtime map", cause: error }));
+      }
+      console.warn(
+        `[runtime-map] generation failed — continuing: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return Effect.succeed(null);
+    }),
+  );
 
   return {
     resolvedConfigPath: env ? join(configDir, ".bos/bos.resolved-config.json") : undefined,

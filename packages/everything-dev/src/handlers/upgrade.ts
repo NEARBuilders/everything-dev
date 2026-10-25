@@ -227,6 +227,10 @@ export function registerUpgrade(builder: BosBuilder) {
             extendsChain: [...refreshed.chain],
             runtimeConfig: runtime,
             forceRouteTree: true,
+            // bos types gen is the strict runtime-map gate (#594): an
+            // unresolvable remote manifest fails the run so typecheck
+            // catches an upstream rename instead of shrinking the map
+            runtimeMapStrict: true,
           });
 
           const hasLocalApiWorkspace = existsSync(join(projectDir, "api", "src"));
