@@ -28,6 +28,7 @@ import {
 import { checkUiCompositionCompat } from "../../src/services/federation/service";
 import {
   checkPlatformCompat,
+  getPlatformVersionSlotKey,
   type PlatformReleaseManifest,
   PlatformReleaseManifestSchema,
   resolvePlatformManifest,
@@ -48,11 +49,14 @@ const registry = new Map<string, unknown>();
 let rootDir: string;
 let childDir: string;
 
-/** The fake FastKV: parent-config fetch + platform-manifest fetch. */
+/** The fake FastKV: parent-config fetch + platform-manifest fetch + the
+ * immutable version-slot fetch (#574). */
 const fetchParent = async (account: string, gateway: string) =>
   (registry.get(`apps/${account}/${gateway}/bos.config.json`) as Record<string, unknown>) ?? null;
 const fetchManifest = async (account: string, gateway: string) =>
   (registry.get(`apps/${account}/${gateway}/platform.json`) as PlatformReleaseManifest) ?? null;
+const fetchSlot = async (account: string, gateway: string, version: string) =>
+  registry.get(`apps/${account}/${gateway}/platform-versions/${version}.json`) ?? null;
 
 function frameworkRootFixture(version: string, reactVersion: string): string {
   const dir = mkdtempSync(join(tmpdir(), "platform-e2e-root-"));
@@ -111,7 +115,13 @@ function publishRootRelease(previousVersion?: string): PlatformReleaseManifest {
     ...(previousVersion ? { previousFrameworkVersion: previousVersion } : {}),
   });
   expect(entry).not.toBeNull();
+  // the real train's atomic write carries BOTH keys (#573): the immutable
+  // version slot + the pointer flip
   registry.set(entry!.key, JSON.parse(entry!.value));
+  registry.set(
+    getPlatformVersionSlotKey(ROOT_ACCOUNT, ROOT_GATEWAY, entry!.manifest.frameworkVersion),
+    JSON.parse(entry!.value),
+  );
   registry.set(CONFIG_KEY, {
     repository: "https://github.com/NEARBuilders/everything-dev",
   });
@@ -169,6 +179,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
       localConfig: readChildConfig(),
       fetchManifest,
       fetchParent,
+      fetchSlot,
     });
     expect(derived).toEqual({ image: PLATFORM_IMAGE_REF, tag: "v2.0.0-rc.1" });
 
@@ -177,6 +188,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
       localConfig: readChildConfig(),
       fetchManifest,
       fetchParent,
+      fetchSlot,
     }))!;
     expect(resolved.fromCache).toBe(false);
     expect(resolved.source).toEqual({ account: ROOT_ACCOUNT, gateway: ROOT_GATEWAY });
@@ -199,49 +211,50 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     expect(violations[0]).toContain("the release manifest pins 19.2.4");
   });
 
-  it("R2 — the root publishes vB; the pinned child still resolves vA through the fresh cache", async () => {
+  it("R2 — the root publishes vB; the pinned child still resolves vA from the immutable slot (#574)", async () => {
     writeFileSync(
       join(rootDir, "packages", "everything-dev", "package.json"),
       `${JSON.stringify({ name: "everything-dev", version: "2.0.0-rc.2" })}\n`,
     );
     publishRootRelease("2.0.0-rc.1");
 
+    // the pointer flipped to vB, but the child's vA pin resolves from the
+    // immutable version slot — no cache needed, no stale-pin grace
     const pinned = await resolvePlatformManifest({
       configDir: childDir,
       localConfig: readChildConfig(),
       fetchManifest,
       fetchParent,
+      fetchSlot,
     });
     expect(pinned).not.toBeNull();
     expect(pinned!.manifest.frameworkVersion).toBe("2.0.0-rc.1");
-    expect(pinned!.fromCache).toBe(true);
+    expect(pinned!.provenance).toBe("slot");
+    expect(pinned!.fromCache).toBe(false);
   });
 
-  it("stale fail-loud — the pin unresolvable once the cache is deleted (issue #546 decision: assert as-is)", async () => {
+  it("stale fail-loud — a pin whose slot was never published fails with the actionable error (#568 class)", async () => {
     const cacheFile = join(childDir, ".bos", "platform-manifest.json");
-    expect(existsSync(cacheFile)).toBe(true);
-    rmSync(cacheFile);
+    if (existsSync(cacheFile)) rmSync(cacheFile);
 
+    // a version whose manifest leg never published a slot — the release
+    // deploy must be re-run (the old "pin not found, publish or clear the
+    // pin" dead path is gone)
     await expect(
       resolvePlatformManifest({
         configDir: childDir,
-        localConfig: readChildConfig(),
+        localConfig: { ...readChildConfig(), platform: "2.0.0-rc.99" },
         fetchManifest,
         fetchParent,
+        fetchSlot,
       }),
-    ).rejects.toThrow(/platform pin 2\.0\.0-rc\.1 not found in the extends chain/);
+    ).rejects.toThrow(/never published/);
   });
 
-  it("stale fail-loud — a fresh cache is refused past the TTL", async () => {
+  it("the cache is an offline aid, not stale-pin grace — an expired cache is irrelevant when the slot resolves", async () => {
     const cacheFile = join(childDir, ".bos", "platform-manifest.json");
-    const cache: {
-      schemaVersion: 1;
-      kind: "everything-dev/platform-manifest-cache";
-      resolvedAt: string;
-      source: { account: string; gateway: string };
-      manifest: PlatformReleaseManifest;
-    } = {
-      schemaVersion: 1,
+    const cache = {
+      schemaVersion: 1 as const,
       kind: "everything-dev/platform-manifest-cache",
       resolvedAt: new Date().toISOString(),
       source: { account: ROOT_ACCOUNT, gateway: ROOT_GATEWAY },
@@ -256,25 +269,38 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
         templateInventory: [],
         compat: { minChild: "2.0.0-rc.1" },
       }),
+      provenance: "slot" as const,
     };
     writeFileSync(cacheFile, `${JSON.stringify(cache)}\n`);
 
+    // past the TTL, pinned resolution ignores the cache entirely — the
+    // immutable slot serves the pin (permanent resolution)
     await expect(
       resolvePlatformManifest({
         configDir: childDir,
         localConfig: readChildConfig(),
         fetchManifest,
         fetchParent,
+        fetchSlot,
         now: () => Date.now() + 25 * 60 * 60_000,
       }),
-    ).rejects.toThrow(/platform pin 2\.0\.0-rc\.1 not found/);
+    ).resolves.toMatchObject({
+      provenance: "slot",
+      fromCache: false,
+      manifest: { frameworkVersion: "2.0.0-rc.1" },
+    });
 
+    // inside the TTL with the slot reads failing (offline dev), the cache
+    // stands in
     await expect(
       resolvePlatformManifest({
         configDir: childDir,
         localConfig: readChildConfig(),
         fetchManifest,
         fetchParent,
+        fetchSlot: async () => {
+          throw new Error("registry unreachable");
+        },
         now: () => Date.now() + 23 * 60 * 60_000,
       }),
     ).resolves.toMatchObject({ fromCache: true, manifest: { frameworkVersion: "2.0.0-rc.1" } });
@@ -405,6 +431,7 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
         localConfig,
         fetchManifest,
         fetchParent,
+        fetchSlot,
       });
     } catch {
       const latest = await resolvePlatformManifest({
@@ -412,6 +439,7 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
         localConfig: { ...localConfig, platform: undefined },
         fetchManifest,
         fetchParent,
+        fetchSlot,
       });
       resolved = latest;
       const pinned = typeof localConfig.platform === "string" ? localConfig.platform : undefined;

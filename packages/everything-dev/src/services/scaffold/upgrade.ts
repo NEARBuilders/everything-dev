@@ -121,6 +121,7 @@ export async function upgradeTemplate(
         resolved: parentSource.platform.manifest.frameworkVersion,
         source: `bos://${parentSource.platform.source.account}/${parentSource.platform.source.gateway}`,
         fromCache: parentSource.platform.fromCache,
+        provenance: parentSource.platform.provenance,
       },
       updatesAvailable: hasUpdates,
       timings,

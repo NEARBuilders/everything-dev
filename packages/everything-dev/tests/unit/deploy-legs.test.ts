@@ -325,7 +325,7 @@ describe("resolveChildImagePin", () => {
         localConfig: { extends: "bos://acct/gateway", platform: "9.9.9" },
         fetchManifest: async () => manifest as never,
       }),
-    ).rejects.toThrow(/platform pin 9\.9\.9 not found/);
+    ).rejects.toThrow(/platform pin 9\.9\.9.*never published/s);
   });
 });
 

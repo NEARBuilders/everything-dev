@@ -339,7 +339,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
       return;
     }
     console.log(
-      `  ${colors.dim("Platform")}  ${colors.green(result.version ?? "?")}  ${colors.dim(`(${result.source}${result.fromCache ? ", cached" : ""})`)}`,
+      `  ${colors.dim("Platform")}  ${colors.green(result.version ?? "?")}  ${colors.dim(`(${[result.provenance, result.source, result.fromCache ? "cached" : undefined].filter(Boolean).join(", ")})`)}`,
     );
     if (result.compat) {
       for (const v of result.compat.violations) {

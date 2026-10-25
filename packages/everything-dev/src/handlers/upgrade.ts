@@ -641,6 +641,7 @@ export function registerUpgrade(builder: BosBuilder) {
             version: resolved.manifest.frameworkVersion,
             source: `bos://${resolved.source.account}/${resolved.source.gateway}`,
             fromCache: resolved.fromCache,
+            provenance: resolved.provenance,
           };
           if (!input.check) {
             return base;
