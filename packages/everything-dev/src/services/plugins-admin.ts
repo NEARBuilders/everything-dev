@@ -112,7 +112,8 @@ export class PluginAdminService extends Context.Service<
                     ...authored.plugins,
                     [key]: applyEntryDelta(authoredBase),
                   },
-                }));
+                }),
+              );
             } else {
               yield* persisted(() => saveBosConfig(session.root, nextConfig));
             }
@@ -180,7 +181,8 @@ export class PluginAdminService extends Context.Service<
                 saveBosConfig(session.root, {
                   ...authored,
                   plugins: Object.keys(authoredPlugins).length > 0 ? authoredPlugins : undefined,
-                }));
+                }),
+              );
             } else {
               yield* persisted(() => saveBosConfig(session.root, nextConfig));
             }
