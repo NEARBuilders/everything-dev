@@ -7,6 +7,7 @@ import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "../..
 import type { WorkspaceDeployResult } from "../../contract";
 import { openResolution } from "../../services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
+import { BosConfigSchema } from "../../types";
 import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
@@ -743,6 +744,25 @@ export async function runPublishTrain(
   // canonical — republished verbatim.
   if (input.exactPayload !== true) {
     publishPayload = stripLocalDevelopmentTargets(publishPayload);
+  }
+
+  // Every runtime boot validates the fetched payload with BosConfigSchema
+  // (resolvePublishedConfig) — this catches canonicalization/schema drift at
+  // preflight instead of failing the post-publish smoke and rolling back.
+  const schemaCheck = BosConfigSchema.safeParse(publishPayload);
+  if (!schemaCheck.success) {
+    const detail = schemaCheck.error.issues
+      .slice(0, 5)
+      .map((issue) => `    ${issue.path.join(".")}: ${issue.message}`)
+      .join("\n");
+    throw new PublishTrainError({
+      kind: "preflight",
+      registryUrl,
+      built,
+      skipped,
+      deployResults,
+      error: `Canonicalized publish payload fails BosConfigSchema — booting it would fail everywhere:\n${detail}`,
+    });
   }
 
   const pinVerification = await verifyRollbackSnapshot(publishPayload);
