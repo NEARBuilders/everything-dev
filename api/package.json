@@ -28,6 +28,7 @@
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "every-plugin": "workspace:^",
+    "near-kit": "catalog:",
     "pg": "catalog:",
     "zod": "catalog:"
   },

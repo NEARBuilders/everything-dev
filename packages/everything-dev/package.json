@@ -108,6 +108,24 @@
       "import": "./dist/services/registry/fingerprint.mjs",
       "require": "./dist/services/registry/fingerprint.cjs"
     },
+    "./deploy/rollback": {
+      "development": {
+        "types": "./src/services/deploy/rollback.ts",
+        "import": "./src/services/deploy/rollback.ts"
+      },
+      "types": "./dist/services/deploy/rollback.d.mts",
+      "import": "./dist/services/deploy/rollback.mjs",
+      "require": "./dist/services/deploy/rollback.cjs"
+    },
+    "./auth/near-signer": {
+      "development": {
+        "types": "./src/services/auth/near-signer.ts",
+        "import": "./src/services/auth/near-signer.ts"
+      },
+      "types": "./dist/services/auth/near-signer.d.mts",
+      "import": "./dist/services/auth/near-signer.mjs",
+      "require": "./dist/services/auth/near-signer.cjs"
+    },
     "./version-manifest-resolve": {
       "development": {
         "types": "./src/services/deploy/version-manifest.ts",
