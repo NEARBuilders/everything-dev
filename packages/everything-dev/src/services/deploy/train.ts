@@ -39,9 +39,13 @@ import { applyDeployResults, type DeployResultEntry } from "./integrity";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
   composePlatformManifestPublishEntry,
+  getPlatformManifestKey,
+  getPlatformVersionSlotKey,
   type PlatformManifestPublishEntry,
   platformTruthViolations,
 } from "./platform-manifest";
+import { computeOwedWork } from "./owed";
+import { readFrameworkVersion } from "./image";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
 import { type DeployTrainRender, DeployTrainRenderService } from "./render";
 import { verifyRollbackSnapshot } from "./rollback";
@@ -219,6 +223,11 @@ export interface DeployTrainInput {
    * config-only guard. Rollbacks use this: the payload is the previous
    * snapshot, already assembled. */
   exactPayload?: boolean;
+  /** Rollback-only pointer restore (#573): a smoke-failed release rolls the
+   * config AND the platform pointer back in the same atomic write. Ignored
+   * unless `exactPayload` — normal deploys cannot smuggle manifest writes
+   * past the release gate. */
+  restorePlatformPointer?: { key: string; value: string };
 }
 
 /**
@@ -755,39 +764,70 @@ export async function runPublishTrain(
     [registryKey]: JSON.stringify(publishPayload),
   };
   const manifestKey = `apps/${account}/${gateway}/manifests/${publishedAt.replace(/[:.]/g, "-")}.json`;
-  // ADR 0034: the platform release manifest rides the same atomic write —
-  // framework-rooted production build trains only (children and config-only
-  // publishes publish nothing). The compat floor is the previous release; a
-  // registry *failure* (vs an absent slot) skips this deploy's manifest —
-  // a silently-widened or silently-tightened floor would publish a wrong
-  // compat window — and the next deploy lands it.
+  // ADR 0034 + #573: the platform release manifest rides the same atomic
+  // write as the config. The truth gate (shared-singleton cross-check) runs
+  // on every production build deploy — but only the **release leg** writes
+  // keys: the immutable `platform-versions/<version>` slot plus the
+  // `platform.json` pointer flip. Non-release deploys write no manifest
+  // keys at all. The preflight npm gate guarantees npm is published before
+  // the build (npmOwed is impossible in-train until #575 moves the npm leg
+  // in), so the release classifier is the pointer alone — and its read MUST
+  // succeed: an unknown state must never silently classify a release as
+  // non-release (the skip path is deleted, #573). Satellites keep
+  // independent npm releases and are not gating for the platform; the
+  // manifest records the composition as smoke-tested at the release SHA.
+  // A release that cannot complete cleanly burns its counter — never reuse
+  // a version.
   let platformManifest: PlatformManifestPublishEntry | null = null;
   if (!isStaging && input.build) {
+    let pointer: { frameworkVersion?: string } | null;
     try {
-      const previous = await fetchRegistryKey<{ frameworkVersion?: string }>(
+      pointer = await fetchRegistryKey<{ frameworkVersion?: string }>(
         account,
         gateway,
         "platform.json",
       );
-      platformManifest = composePlatformManifestPublishEntry({
-        configDir,
-        account,
-        gateway,
-        previousFrameworkVersion: previous?.frameworkVersion,
-        gitSha,
-      });
     } catch (error) {
-      console.warn(
-        `  platform manifest skipped this deploy — the previous release could not be read: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new PublishTrainError({
+        kind: "platform-manifest",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        error:
+          `could not read the published platform release — the release classifier and ` +
+          `the compat floor must never be guessed: ${error instanceof Error ? error.message : String(error)}`,
+      });
     }
-    // The truth gate (#546): the manifest is composed from the release
-    // catalog; a workspace whose installed shared versions drifted from the
-    // catalog (stale install, misaligned bump) would publish a manifest that
-    // lies about the uploaded bytes — the exact republish that breaks
-    // pinned children. Refuses loudly instead.
-    if (platformManifest) {
-      const violations = platformTruthViolations(platformManifest.manifest, sharedByWorkspace);
+    const owed = computeOwedWork({
+      pointer: pointer
+        ? { state: "present", frameworkVersion: pointer.frameworkVersion }
+        : { state: "absent" },
+      localFrameworkVersion: readFrameworkVersion(configDir),
+    });
+    const releaseLeg = owed.release;
+    console.log(
+      releaseLeg
+        ? colors.cyan(
+            `  Release leg: the platform pointer (${owed.detail.pointerFrameworkVersion ?? "unset"}) trails the repo (${owed.detail.localFrameworkVersion}) — the release manifest moves`,
+          )
+        : colors.dim("  No release work owed — the platform manifest stays put"),
+    );
+
+    const composed = composePlatformManifestPublishEntry({
+      configDir,
+      account,
+      gateway,
+      previousFrameworkVersion: pointer?.frameworkVersion,
+      gitSha,
+    });
+    // The truth gate (#546, extended by #573): runs on EVERY production
+    // deploy against the composed release manifest — a workspace whose
+    // installed shared versions drifted from the catalog (stale install,
+    // misaligned bump) would publish bundles that lie about the compat
+    // window. Refuses loudly until the next rc realigns them.
+    if (composed) {
+      const violations = platformTruthViolations(composed.manifest, sharedByWorkspace);
       if (violations.length > 0) {
         throw new PublishTrainError({
           kind: "platform-truth",
@@ -799,6 +839,44 @@ export async function runPublishTrain(
             `platform manifest does not match the uploaded bundles:\n` +
             violations.map((line) => `    ${line}`).join("\n"),
         });
+      }
+      if (releaseLeg) {
+        const frameworkVersion = composed.manifest.frameworkVersion;
+        const slotRelKey = `platform-versions/${frameworkVersion}.json`;
+        const slotKey = getPlatformVersionSlotKey(account, gateway, frameworkVersion);
+        let existingSlot: unknown;
+        try {
+          existingSlot = await fetchRegistryKey<unknown>(account, gateway, slotRelKey);
+        } catch (error) {
+          throw new PublishTrainError({
+            kind: "platform-manifest",
+            registryUrl,
+            built,
+            skipped,
+            deployResults,
+            error: `the release leg could not verify the version slot's immutability (${slotKey}): ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+        if (existingSlot !== null) {
+          const existingValue =
+            typeof existingSlot === "string" ? existingSlot : JSON.stringify(existingSlot);
+          if (existingValue !== composed.value) {
+            throw new PublishTrainError({
+              kind: "platform-manifest",
+              registryUrl,
+              built,
+              skipped,
+              deployResults,
+              error: `version ${frameworkVersion} is burned — the immutable slot ${slotKey} already holds different bytes. Bump the version and cut a fresh release; never reuse a burned one.`,
+            });
+          }
+          console.log(
+            colors.dim(
+              `  version slot ${frameworkVersion} already holds identical bytes — idempotent republish`,
+            ),
+          );
+        }
+        platformManifest = { ...composed, key: slotKey };
       }
     }
   }
@@ -813,12 +891,19 @@ export async function runPublishTrain(
           platformManifest: {
             file: platformManifest.key,
             integrity: platformManifest.integrity,
+            version: platformManifest.manifest.frameworkVersion,
+            pointer: getPlatformManifestKey(account, gateway),
           },
         }
       : {}),
   });
   if (platformManifest) {
+    // One atomic write (#573): the immutable version slot + the pointer flip.
     registryEntries[platformManifest.key] = platformManifest.value;
+    registryEntries[getPlatformManifestKey(account, gateway)] = platformManifest.value;
+  }
+  if (input.exactPayload && input.restorePlatformPointer) {
+    registryEntries[input.restorePlatformPointer.key] = input.restorePlatformPointer.value;
   }
 
   render?.publish?.({
@@ -968,6 +1053,7 @@ export async function runPublishTrain(
       skipped,
       deployResults,
       publishConfig: publishPayload,
+      releaseLeg: platformManifest !== null,
     };
   } catch (error) {
     if (error instanceof PublishTrainError) throw error;

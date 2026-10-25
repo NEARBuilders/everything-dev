@@ -14,8 +14,16 @@
  */
 
 import { fetchRegistryKeyOrNull } from "../registry/fastkv";
-import { readFrameworkVersion } from "./image";
 import { findUnpublishedFrameworkPackages } from "./preflight";
+import { readFrameworkVersion } from "./image";
+
+/** Tri-state pointer read: `present` (a completed release cycle exists),
+ * `absent` (read succeeded, no slot — a first release), or `unknown` (the
+ * read itself failed). */
+export interface PointerRead {
+  state: "absent" | "present" | "unknown";
+  frameworkVersion?: string;
+}
 
 export interface OwedWorkDetail {
   /** Publishable workspaces whose version npm does not serve yet. */
@@ -35,6 +43,45 @@ export interface OwedWork {
   detail: OwedWorkDetail;
 }
 
+export type UnpublishedPackage = { name: string; version: string };
+
+/**
+ * The pure decision core — no I/O. `pointer` is tri-state; `unpublished` is
+ * optional (the npm leg is not consulted everywhere: the deploy train's
+ * preflight npm gate already hard-fails unpublished versions before the
+ * build, so in-train the release classifier is the pointer alone).
+ */
+export function computeOwedWork(input: {
+  pointer: PointerRead;
+  localFrameworkVersion?: string;
+  unpublished?: UnpublishedPackage[];
+}): OwedWork {
+  const unpublished = input.unpublished ?? [];
+  const npmOwed = unpublished.length > 0;
+  const { pointer, localFrameworkVersion } = input;
+  const manifestOwed =
+    pointer.state === "unknown"
+      ? false
+      : pointer.state === "absent"
+        ? Boolean(localFrameworkVersion)
+        : Boolean(
+            localFrameworkVersion &&
+              pointer.frameworkVersion !== undefined &&
+              compareVersions(pointer.frameworkVersion, localFrameworkVersion) < 0,
+          );
+  return {
+    npmOwed,
+    manifestOwed,
+    release: npmOwed || manifestOwed,
+    detail: {
+      unpublished,
+      ...(localFrameworkVersion ? { localFrameworkVersion } : {}),
+      ...(pointer.frameworkVersion ? { pointerFrameworkVersion: pointer.frameworkVersion } : {}),
+      pointerExists: pointer.state === "present",
+    },
+  };
+}
+
 export interface OwedWorkDeps {
   npmPublished?: typeof findUnpublishedFrameworkPackages;
   fetchPointer?: (
@@ -43,6 +90,9 @@ export interface OwedWorkDeps {
   ) => Promise<{ frameworkVersion?: string } | null>;
 }
 
+/** The full I/O detection (npm + FastKV) — the workflow-level owed-work step.
+ * The deploy train uses `computeOwedWork` directly on its own single pointer
+ * read instead (one read, no duplicates). */
 export async function detectOwedWork(
   input: { configDir: string; account?: string; gateway?: string },
   deps: OwedWorkDeps = {},
@@ -51,7 +101,7 @@ export async function detectOwedWork(
   const fetchPointer =
     deps.fetchPointer ?? ((a: string, g: string) => fetchRegistryKeyOrNull(a, g, "platform.json"));
 
-  let unpublished: Array<{ name: string; version: string }> = [];
+  let unpublished: UnpublishedPackage[] = [];
   try {
     unpublished = await npmPublished(input.configDir);
   } catch {
@@ -59,41 +109,19 @@ export async function detectOwedWork(
   }
   const localFrameworkVersion = readFrameworkVersion(input.configDir);
 
-  let pointerFrameworkVersion: string | undefined;
-  let pointerState: "absent" | "present" | "unknown" = "unknown";
+  let pointer: PointerRead = { state: "unknown" };
   if (input.account && input.gateway) {
     try {
-      const pointer = await fetchPointer(input.account, input.gateway);
-      pointerState = pointer ? "present" : "absent";
-      if (pointer) pointerFrameworkVersion = pointer.frameworkVersion;
+      const value = await fetchPointer(input.account, input.gateway);
+      pointer = value
+        ? { state: "present", frameworkVersion: value.frameworkVersion }
+        : { state: "absent" };
     } catch {
       // registry unreachable — unverifiable is not owed; never block the train
     }
   }
 
-  const npmOwed = unpublished.length > 0;
-  const manifestOwed =
-    pointerState === "unknown"
-      ? false
-      : pointerState === "absent"
-        ? Boolean(localFrameworkVersion)
-        : Boolean(
-            localFrameworkVersion &&
-              pointerFrameworkVersion !== undefined &&
-              compareVersions(pointerFrameworkVersion, localFrameworkVersion) < 0,
-          );
-
-  return {
-    npmOwed,
-    manifestOwed,
-    release: npmOwed || manifestOwed,
-    detail: {
-      unpublished,
-      ...(localFrameworkVersion ? { localFrameworkVersion } : {}),
-      ...(pointerFrameworkVersion ? { pointerFrameworkVersion } : {}),
-      pointerExists: pointerState === "present",
-    },
-  };
+  return computeOwedWork({ pointer, localFrameworkVersion, unpublished });
 }
 
 /**
