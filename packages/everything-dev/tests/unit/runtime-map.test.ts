@@ -1,6 +1,6 @@
+import type { PluginManifest } from "every-plugin/ui/manifest";
 import { describe, expect, it } from "vitest";
 import { composeRuntimeMap, type MapSource } from "../../src/services/codegen/runtime-map";
-import type { PluginManifest } from "every-plugin/ui/manifest";
 
 function source(
   key: string,
@@ -26,7 +26,12 @@ describe("composeRuntimeMap — the static model of constructTree (#594)", () =>
       ]),
       source("votes", [
         { id: "_authenticated", type: "layout", mount: "authenticated" },
-        { id: "_authenticated/vote-feed", type: "route", path: "/votes", parentId: "_authenticated" },
+        {
+          id: "_authenticated/vote-feed",
+          type: "route",
+          path: "/votes",
+          parentId: "_authenticated",
+        },
       ]),
     ]);
     expect(map.mounts).toEqual([
@@ -65,8 +70,8 @@ describe("composeRuntimeMap — the static model of constructTree (#594)", () =>
   });
 
   it("a route outside any mount throws", () => {
-    expect(() => composeRuntimeMap([source("votes", [{ id: "orphan", type: "route", path: "/x" }])])).toThrow(
-      /must live under a mount/,
-    );
+    expect(() =>
+      composeRuntimeMap([source("votes", [{ id: "orphan", type: "route", path: "/x" }])]),
+    ).toThrow(/must live under a mount/);
   });
 });

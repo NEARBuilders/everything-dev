@@ -105,10 +105,12 @@ interface SourceDescriptor {
 }
 
 function describeSlot(
-  root: string,
+  _root: string,
   key: string,
   kind: SourceDescriptor["kind"],
-  slot: { url?: string; localPath?: string; source?: string; pin?: { manifest?: string } } | undefined,
+  slot:
+    | { url?: string; localPath?: string; source?: string; pin?: { manifest?: string } }
+    | undefined,
   unresolved: UnresolvedSource[],
 ): SourceDescriptor | null {
   if (!slot) return null;
@@ -165,7 +167,9 @@ function validateManifest(source: SourceDescriptor, manifest: PluginManifest): v
  * Static model of every-plugin's `constructTree` precedence: core ui first,
  * then sources by key; core wins route/mount claims, peer collisions throw.
  */
-export function composeRuntimeMap(sources: Array<SourceDescriptor & { manifest: PluginManifest }>): ComposedRuntimeMap {
+export function composeRuntimeMap(
+  sources: Array<SourceDescriptor & { manifest: PluginManifest }>,
+): ComposedRuntimeMap {
   const ordered = [
     ...sources.filter((source) => source.key === CORE_UI_KEY),
     ...sources
@@ -492,8 +496,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
   // The TS emission requires a local core ui workspace; a remote-only core
   // ui skips it with a note.
   let tsPath: string | undefined;
-  const uiLocalPath =
-    runtimeConfig.ui?.source === "local" ? runtimeConfig.ui.localPath : undefined;
+  const uiLocalPath = runtimeConfig.ui?.source === "local" ? runtimeConfig.ui.localPath : undefined;
   if (uiLocalPath && existsSync(join(uiLocalPath, "src"))) {
     tsPath = join(uiLocalPath, "src/lib/runtime-map.gen.ts");
     mkdirSync(dirname(tsPath), { recursive: true });
@@ -507,7 +510,9 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
   for (const entry of unresolved) {
     console.warn(`[runtime-map] unresolved ${entry.key}: ${entry.reason}`);
   }
-  console.log(`[runtime-map] wrote ${jsonPath}${tsPath ? ` + ${tsPath}` : " (no local core ui — ts emission skipped)"}`);
+  console.log(
+    `[runtime-map] wrote ${jsonPath}${tsPath ? ` + ${tsPath}` : " (no local core ui — ts emission skipped)"}`,
+  );
 
   return {
     routeCount: map.routes.length,
