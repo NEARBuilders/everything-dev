@@ -17,7 +17,7 @@ import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/
 import { generateCodeArtifacts } from "../codegen/artifacts";
 import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKey } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
-import { mergeAuthoredOverPublished } from "../resolution/merge";
+import { mergeAuthoredOverPublished, stripLocalDevelopmentTargets } from "../resolution/merge";
 import {
   type BuildTargetsDeps,
   type BuildTargetsInput,
@@ -35,11 +35,16 @@ import {
 } from "./diff";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
 import { formatNearError } from "./format";
+import { readFrameworkVersion } from "./image";
 import { applyDeployResults, type DeployResultEntry } from "./integrity";
+import { computeOwedWork } from "./owed";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
   composePlatformManifestPublishEntry,
+  getPlatformManifestKey,
+  getPlatformVersionSlotKey,
   type PlatformManifestPublishEntry,
+  platformTruthViolations,
 } from "./platform-manifest";
 import { type PublishPreflightPlan, preflightPublish } from "./preflight";
 import { type DeployTrainRender, DeployTrainRenderService } from "./render";
@@ -218,6 +223,11 @@ export interface DeployTrainInput {
    * config-only guard. Rollbacks use this: the payload is the previous
    * snapshot, already assembled. */
   exactPayload?: boolean;
+  /** Rollback-only pointer restore (#573): a smoke-failed release rolls the
+   * config AND the platform pointer back in the same atomic write. Ignored
+   * unless `exactPayload` — normal deploys cannot smuggle manifest writes
+   * past the release gate. */
+  restorePlatformPointer?: { key: string; value: string };
 }
 
 /**
@@ -331,13 +341,18 @@ export async function runPublishTrain(
   const uploadOneWorkspace = async (
     key: string,
     rawConfig: BosConfigInput,
-  ): Promise<{ entries: DeployResultEntry[]; detail: UploadUnitDetail }> => {
+  ): Promise<{
+    entries: DeployResultEntry[];
+    detail: UploadUnitDetail;
+    shared: Record<string, Record<string, string>>;
+  }> => {
     const startedAt = Date.now();
     const ws = resolveWorkspaceTarget(key, bosConfig, runtimeConfig, configDir);
     if (!ws)
       return {
         entries: [],
         detail: { base: "", uploaded: 0, skipped: 0, durationMs: 0, notes: [] },
+        shared: {},
       };
 
     const outcome = await uploadWorkspaceBundle({
@@ -391,6 +406,7 @@ export async function runPublishTrain(
     // Folder-form plugin ui: the workspace build also produces <plugin>/ui/dist
     // (web remoteEntry + ssr container) — upload it as its own bundle key and
     // pin <slot>.<key>.ui.* so the host can compose the ui surface in production.
+    let uiOutcomeShared: Record<string, string> | undefined;
     if (hasFolderFormUi(ws.path)) {
       const uiDistDir = join(ws.path, "ui", "dist");
       const uiSlot = ws.kind === "app" ? "app" : "plugins";
@@ -438,6 +454,7 @@ export async function runPublishTrain(
         uiIntegrity = uiOutcome.entryIntegrity;
         uiSsrIntegrity = uiOutcome.ssrEntryIntegrity;
         uiPin = uiOutcome.pin;
+        uiOutcomeShared = uiOutcome.shared;
       } else {
         console.log(
           `    ${colors.green(icons.ok)} ${padRight(`${key}-ui`, 28)} → ${urlOrigin}/bundles/${account}/${gateway}/${key}-ui/`,
@@ -468,6 +485,10 @@ export async function runPublishTrain(
         durationMs: Date.now() - startedAt,
         notes: outcome.detail.notes,
       },
+      shared: {
+        ...(outcome.shared ? { [key]: outcome.shared } : {}),
+        ...(uiOutcomeShared ? { [`${key}-ui`]: uiOutcomeShared } : {}),
+      },
     };
   };
 
@@ -480,6 +501,9 @@ export async function runPublishTrain(
   interface UploadUnitResult {
     entries: DeployResultEntry[];
     detail: UploadUnitDetail;
+    /** Shared-singleton versions per uploaded bundle key (#546) — the truth
+     * gate cross-checks these against the platform release manifest. */
+    shared: Record<string, Record<string, string>>;
   }
   const uploaded = new Map<string, Promise<UploadUnitResult>>();
   // Rejections stay in the map until the drain's allSettled — deleting would
@@ -639,9 +663,13 @@ export async function runPublishTrain(
         Promise.resolve({
           entries: [],
           detail: { base: "", uploaded: 0, skipped: 0, durationMs: 0, notes: [] },
+          shared: {},
         }),
     ),
   );
+  // Shared-singleton versions per uploaded bundle key (#546) — the truth gate
+  // consumes this before the platform manifest rides the atomic publish.
+  const sharedByWorkspace = new Map<string, Record<string, string>>();
 
   const uploadFailures = settled
     .map((result, index) =>
@@ -656,6 +684,9 @@ export async function runPublishTrain(
     const key = deployTargets[index];
     if (result.status === "fulfilled") {
       platformEntries.push(...result.value.entries);
+      for (const [bundleKey, shared] of Object.entries(result.value.shared)) {
+        sharedByWorkspace.set(bundleKey, shared);
+      }
       render?.uploadOutcome?.({
         key,
         ok: true,
@@ -704,6 +735,15 @@ export async function runPublishTrain(
   if (isStaging) {
     publishPayload = { ...publishPayload, domain: gateway };
   }
+  // Publish canonicalization (#584): the published payload never carries
+  // `local:` development targets — workspace-relative refs are meaningless
+  // across an extends boundary, and children inheriting one cannot spawn it.
+  // The authored surface keeps them for the parent's own dev; children fall
+  // back to the slot's published URL. Rollback payloads are already
+  // canonical — republished verbatim.
+  if (input.exactPayload !== true) {
+    publishPayload = stripLocalDevelopmentTargets(publishPayload);
+  }
 
   const pinVerification = await verifyRollbackSnapshot(publishPayload);
   if (pinVerification.verifiable && !pinVerification.ok) {
@@ -733,31 +773,120 @@ export async function runPublishTrain(
     [registryKey]: JSON.stringify(publishPayload),
   };
   const manifestKey = `apps/${account}/${gateway}/manifests/${publishedAt.replace(/[:.]/g, "-")}.json`;
-  // ADR 0034: the platform release manifest rides the same atomic write —
-  // framework-rooted production build trains only (children and config-only
-  // publishes publish nothing). The compat floor is the previous release; a
-  // registry *failure* (vs an absent slot) skips this deploy's manifest —
-  // a silently-widened or silently-tightened floor would publish a wrong
-  // compat window — and the next deploy lands it.
+  // ADR 0034 + #573: the platform release manifest rides the same atomic
+  // write as the config. The truth gate (shared-singleton cross-check) runs
+  // on every production build deploy — but only the **release leg** writes
+  // keys: the immutable `platform-versions/<version>` slot plus the
+  // `platform.json` pointer flip. Non-release deploys write no manifest
+  // keys at all. The preflight npm gate guarantees npm is published before
+  // the build (npmOwed is impossible in-train until #575 moves the npm leg
+  // in), so the release classifier is the pointer alone — and its read MUST
+  // succeed: an unknown state must never silently classify a release as
+  // non-release (the skip path is deleted, #573). Satellites keep
+  // independent npm releases and are not gating for the platform; the
+  // manifest records the composition as smoke-tested at the release SHA.
+  // A release that cannot complete cleanly burns its counter — never reuse
+  // a version.
   let platformManifest: PlatformManifestPublishEntry | null = null;
   if (!isStaging && input.build) {
+    let pointer: { frameworkVersion?: string } | null;
     try {
-      const previous = await fetchRegistryKey<{ frameworkVersion?: string }>(
+      pointer = await fetchRegistryKey<{ frameworkVersion?: string }>(
         account,
         gateway,
         "platform.json",
       );
-      platformManifest = composePlatformManifestPublishEntry({
-        configDir,
-        account,
-        gateway,
-        previousFrameworkVersion: previous?.frameworkVersion,
-        gitSha,
-      });
     } catch (error) {
-      console.warn(
-        `  platform manifest skipped this deploy — the previous release could not be read: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw new PublishTrainError({
+        kind: "platform-manifest",
+        registryUrl,
+        built,
+        skipped,
+        deployResults,
+        error:
+          `could not read the published platform release — the release classifier and ` +
+          `the compat floor must never be guessed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+    const owed = computeOwedWork({
+      pointer: pointer
+        ? { state: "present", frameworkVersion: pointer.frameworkVersion }
+        : { state: "absent" },
+      localFrameworkVersion: readFrameworkVersion(configDir),
+    });
+    const releaseLeg = owed.release;
+    console.log(
+      releaseLeg
+        ? colors.cyan(
+            `  Release leg: the platform pointer (${owed.detail.pointerFrameworkVersion ?? "unset"}) trails the repo (${owed.detail.localFrameworkVersion}) — the release manifest moves`,
+          )
+        : colors.dim("  No release work owed — the platform manifest stays put"),
+    );
+
+    const composed = composePlatformManifestPublishEntry({
+      configDir,
+      account,
+      gateway,
+      previousFrameworkVersion: pointer?.frameworkVersion,
+      gitSha,
+    });
+    // The truth gate (#546, extended by #573): runs on EVERY production
+    // deploy against the composed release manifest — a workspace whose
+    // installed shared versions drifted from the catalog (stale install,
+    // misaligned bump) would publish bundles that lie about the compat
+    // window. Refuses loudly until the next rc realigns them.
+    if (composed) {
+      const violations = platformTruthViolations(composed.manifest, sharedByWorkspace);
+      if (violations.length > 0) {
+        throw new PublishTrainError({
+          kind: "platform-truth",
+          registryUrl,
+          built,
+          skipped,
+          deployResults,
+          error:
+            `platform manifest does not match the uploaded bundles:\n` +
+            violations.map((line) => `    ${line}`).join("\n"),
+        });
+      }
+      if (releaseLeg) {
+        const frameworkVersion = composed.manifest.frameworkVersion;
+        const slotRelKey = `platform-versions/${frameworkVersion}.json`;
+        const slotKey = getPlatformVersionSlotKey(account, gateway, frameworkVersion);
+        let existingSlot: unknown;
+        try {
+          existingSlot = await fetchRegistryKey<unknown>(account, gateway, slotRelKey);
+        } catch (error) {
+          throw new PublishTrainError({
+            kind: "platform-manifest",
+            registryUrl,
+            built,
+            skipped,
+            deployResults,
+            error: `the release leg could not verify the version slot's immutability (${slotKey}): ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+        if (existingSlot !== null) {
+          const existingValue =
+            typeof existingSlot === "string" ? existingSlot : JSON.stringify(existingSlot);
+          if (existingValue !== composed.value) {
+            throw new PublishTrainError({
+              kind: "platform-manifest",
+              registryUrl,
+              built,
+              skipped,
+              deployResults,
+              error: `version ${frameworkVersion} is burned — the immutable slot ${slotKey} already holds different bytes. Bump the version and cut a fresh release; never reuse a burned one.`,
+            });
+          }
+          console.log(
+            colors.dim(
+              `  version slot ${frameworkVersion} already holds identical bytes — idempotent republish`,
+            ),
+          );
+        }
+        platformManifest = { ...composed, key: slotKey };
+      }
     }
   }
   registryEntries[manifestKey] = JSON.stringify({
@@ -771,12 +900,19 @@ export async function runPublishTrain(
           platformManifest: {
             file: platformManifest.key,
             integrity: platformManifest.integrity,
+            version: platformManifest.manifest.frameworkVersion,
+            pointer: getPlatformManifestKey(account, gateway),
           },
         }
       : {}),
   });
   if (platformManifest) {
+    // One atomic write (#573): the immutable version slot + the pointer flip.
     registryEntries[platformManifest.key] = platformManifest.value;
+    registryEntries[getPlatformManifestKey(account, gateway)] = platformManifest.value;
+  }
+  if (input.exactPayload && input.restorePlatformPointer) {
+    registryEntries[input.restorePlatformPointer.key] = input.restorePlatformPointer.value;
   }
 
   render?.publish?.({
@@ -926,6 +1062,7 @@ export async function runPublishTrain(
       skipped,
       deployResults,
       publishConfig: publishPayload,
+      releaseLeg: platformManifest !== null,
     };
   } catch (error) {
     if (error instanceof PublishTrainError) throw error;

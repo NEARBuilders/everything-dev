@@ -11,6 +11,7 @@ import { registerKeys } from "../../src/handlers/keys";
 import { registerOps } from "../../src/handlers/ops";
 import { registerPlugins } from "../../src/handlers/plugins";
 import { registerProcesses } from "../../src/handlers/processes";
+import { registerSecrets } from "../../src/handlers/secrets";
 import type { BosBuilder } from "../../src/handlers/shared";
 import { registerSmoke } from "../../src/handlers/smoke";
 import { registerUpgrade } from "../../src/handlers/upgrade";
@@ -24,6 +25,7 @@ const registerFns = [
   registerDeploy,
   registerSmoke,
   registerKeys,
+  registerSecrets,
   registerProcesses,
   registerInit,
   registerImport,

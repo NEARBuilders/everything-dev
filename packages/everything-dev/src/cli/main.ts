@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import process from "node:process";
 import { Data, Effect, Exit } from "effect";
 import { findConfigPath } from "../config";
+import { secretsRenderers } from "../handlers/secrets";
 import bosPlugin from "../plugin";
 import { createPluginRuntime } from "../sdk";
 import { installBundleFetchFromEnv } from "../services/resolution/resolver";
@@ -39,6 +40,7 @@ const renderers = {
   ...lifecycleRenderers,
   ...publishRenderers,
   ...scaffoldRenderers,
+  ...secretsRenderers,
 };
 
 const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({

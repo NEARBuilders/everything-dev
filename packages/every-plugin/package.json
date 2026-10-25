@@ -1,6 +1,6 @@
 {
   "name": "every-plugin",
-  "version": "3.0.0-rc.10",
+  "version": "3.0.0-rc.13",
   "type": "module",
   "publishConfig": {
     "access": "public"

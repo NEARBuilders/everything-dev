@@ -14,6 +14,7 @@ const expectedSharedKeys = [
   "everything-dev/ui/i18n",
   "react",
   "react-dom",
+  "sonner",
 ];
 
 describe("createUiSharedDeps", () => {
@@ -70,6 +71,17 @@ describe("createUiSharedDeps", () => {
     expect(provider.react?.import).toBeUndefined();
     expect(consumer.react?.import).toBe(false);
     expect(consumer.react).toMatchObject({ singleton: true, eager: false, strictVersion: true });
+  });
+
+  it("keeps a bundled fallback copy for the tolerant sonner share", () => {
+    const consumer = createUiSharedDeps({ role: "consumer" });
+    expect(consumer.sonner?.import).toBeUndefined();
+    expect(consumer.sonner).toMatchObject({
+      singleton: true,
+      strictVersion: false,
+      requiredVersion: false,
+      eager: false,
+    });
   });
 });
 

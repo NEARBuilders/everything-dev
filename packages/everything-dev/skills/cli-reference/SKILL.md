@@ -101,7 +101,7 @@ Upgrade a child behind a pinned parent to the parent's latest platform release, 
 ```bash
 bos upgrade
 bos upgrade --dry-run       # preview version bumps
-bos upgrade --check         # CI drift alarm (ADR 0034): exit 1 when updates are available
+bos upgrade --check         # Manual drift alarm (ADR 0034): exit 1 when updates are available, prints what drifted
 bos upgrade --no-sync       # only upgrade packages, skip the template sync
 bos upgrade --force         # accept the template, back up conflicting local edits, continue
 ```
@@ -147,7 +147,7 @@ bos platform manifest          # print the resolved manifest + its source
 bos platform manifest --check  # also run the compat gate; exit 1 on violations
 ```
 
-Resolution order: the in-image manifest first (the booted host self-describes from the release bytes it runs on), registry resolution through the extends chain otherwise (`.bos/platform-manifest.json` is the offline cache). `--check` verifies the workspace's strict-singleton pins against the manifest's `sharedDeps` and the framework version against the release's compat floor — the same check the deploy smoke gate runs. Status is `absent` (no manifest resolves — pre-0034 behavior applies) or `fail` (unresolvable/error) with diagnostics.
+Resolution order: the in-image manifest first (the booted host self-describes from the release bytes it runs on), registry resolution through the extends chain otherwise (`.bos/platform-manifest.json` is the offline cache, 24h TTL). `--check` verifies the workspace's strict-singleton pins against the manifest's `sharedDeps` and the framework version against the release's compat floor — the same check the deploy smoke gate runs. When the authored pin names a release the chain no longer serves (a root republish overwrote the slot — #546), the report fails with a **drift** field instead of the raw pin error: `parent platform is <published> (published at bos://…), you pinned <pinned> — run \`bos upgrade\` to realign`. Status is `absent` (no manifest resolves — pre-0034 behavior applies) or `fail` (unresolvable/error) with diagnostics.
 
 ## Publishing
 
@@ -211,20 +211,20 @@ bos logout         # revoke the API key (best-effort) + delete the handle and ex
 
 Sessions/keys expire (90 days by default); re-login is non-destructive. → [`talk-to-the-app`](.) skill for the authentication model and MCP access.
 
-### `bos key generate`
+### `bos secrets set` / `list` / `remove`
 
-Generate a publish access key (NEAR function-call key) scoped to the FastKV registry contract.
-If existing publish keys are found on the account, you will be prompted — the prompt defaults to **keeping** them.
+The deploy console's secrets vault — sealed runtime secrets keyed by `(account, gateway, name)`, sealed at rest with the proven sealed-box cipher under a per-runtime KEK (HKDF of the platform root secret, runtime-scoped salt). Values are never echoed back — `list` shows names + set/missing status against the declared config only.
 
-**Flags:** `--allowance <amount>` (default: `1NEAR`) `--[no-]remove-old-keys` (default: ask on a TTY, keep when non-interactive)
+**Flags:** `<name>` (positional) `--value <val>` (omit: hidden TTY prompt) `--site <url>` (override vault site) · remove: `--yes` (skip confirmation)
 
 ```bash
-bos key generate                        # generate key with default allowance
-bos key generate --allowance 2NEAR      # custom allowance
-bos key generate --remove-old-keys      # also remove existing publish key(s) without prompting
+bos secrets set AI_API_KEY      # hidden prompt → sealed into the vault
+bos secrets set AI_API_KEY --value sk-...   # non-interactive
+bos secrets list                # names + set/missing/undeclared, never values
+bos secrets remove AI_API_KEY   # confirmation prompt (skip with --yes)
 ```
 
-Outputs the public key, private key, and registry contract address. The generated key can only call the set and get methods on the BOS registry contract — it cannot transfer funds or call other contracts.
+The vault is per-deployment: rows go to whichever deployment answers at the credential's site, keyed by the authored config's runtime identity. Reserved names: `BOS_*` and `PORT` (the platform composes them into instance env). → plan 055 for the delivery model (reconciler assembles resolved values into `identityEnv`; ticket 13 swaps the KEK source).
 
 ## Plugins
 
@@ -291,7 +291,9 @@ bos types gen --dry-run           # preview without writing files
 bos types gen --remote-plugins auth,registry   # fetch contract types remotely
 ```
 
-Generated files: `api-types.gen.ts`, `auth-types.gen.ts` (ui, api, host), `plugins-types.gen.ts`. Uses `local:` sources in dev and production URLs in production mode.
+Generated files: `api-types.gen.ts`, `auth-types.gen.ts` (ui, api, host), `plugins-types.gen.ts`, plus the **runtime map** — `.bos/generated/runtime-map.json` + `ui/src/lib/runtime-map.gen.ts` (the composition inventory: ui sources, backends incl. host/api/auth/plugins — remote ones carry the composed plugin version + contract hash — mounts, owned routes, shadowed claims). Route/service ownership questions ("who owns /settings?", "which auth-plugin version is composing?") are answered from the runtime map — see `docs/agents/runtime-map.md`; never by grepping `node_modules`. Uses `local:` sources in dev and production URLs in production mode.
+
+**Runtime-map degradation:** strict in `bos types gen` — an unresolvable remote manifest fails the run so typecheck catches upstream renames; dev/build/train boots warn and continue. `BOS_MAP_ALLOW_UNRESOLVED=1` forces offline tolerance; `BOS_MAP_FETCH_TIMEOUT_MS` tunes the fetch timeout.
 
 ### `bos db studio`
 
@@ -313,6 +315,6 @@ Requires the `DATABASE_URL` secret to be set on the target plugin. Uses the plug
 
 **"Which command deploys?"** `pnpm run deploy` (the full train: preflight → build → upload → publish → image). Config-only is `bos publish`; one plugin is `bos plugin publish <key>`.
 
-**"What release am I on?"** `bos platform manifest` — the resolved platform release manifest and its source; `--check` adds the compat gate. `bos upgrade --check` is the CI drift alarm against the latest release.
+**"What release am I on?"** `bos platform manifest` — the resolved platform release manifest and its source; `--check` adds the compat gate. `bos upgrade --check` is the manual drift alarm against the latest release.
 
 **"What is running right now?"** `bos ps` for tracked dev processes, `bos status` for health and versions, `ls .bos/logs/` for per-service logs.

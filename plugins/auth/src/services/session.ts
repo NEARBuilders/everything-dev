@@ -3,6 +3,7 @@ import { Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
+import { isPersonalOrganization } from "../personal-organization";
 import type { PermissionRegistry, PluginServices } from "../service-types";
 import {
   getActiveOrganizationId,
@@ -394,7 +395,7 @@ export const buildSessionService = ({
                 id: activeMembership.id,
                 role: activeMembership.role,
               },
-              isPersonal: org.slug === user.id,
+              isPersonal: isPersonalOrganization(org, user.id),
               hasOrganization: true,
               teams,
               activeTeamId: teams.some((team) => team.id === sessionTeamId) ? sessionTeamId : null,

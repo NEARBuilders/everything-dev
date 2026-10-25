@@ -7,7 +7,7 @@ import (
 )
 
 // testEnvKeys are the variables the dev stack must inherit from .env.test so
-// the stack never touches the dev databases (regression-env.mjs convention:
+// the stack uses the regression auth secret (regression-env.mjs convention:
 // exported vars outrank .env via the CLI's shell-env tier).
 var requiredTestEnvKeys = []string{"BETTER_AUTH_SECRET"}
 
@@ -41,8 +41,9 @@ func parseDotenvFile(path string) (map[string]string, error) {
 }
 
 // childEnv builds the spawned CLI's environment: the test runner's env, minus
-// any key we override, plus the overrides (.env.test's DB URLs and secret, the
-// port-derived origins, and the ephemeral-run guards).
+// any key we override, plus the overrides (the neutralized substrate URLs,
+// .env.test's secret, the port-derived origins, and the ephemeral-run
+// guards).
 func childEnv(overrides map[string]string) []string {
 	base := os.Environ()
 	filtered := base[:0:0]
@@ -59,17 +60,25 @@ func childEnv(overrides map[string]string) []string {
 	return filtered
 }
 
-// envOverridesFromDotenv picks the stack-relevant subset of a dotenv file:
-// every *_DATABASE_URL, plus the explicitly required keys.
-func envOverridesFromDotenv(values map[string]string) map[string]string {
+// envOverridesFromDotenv builds the framework's env overrides: every
+// substrate URL key seen in .env.test or a developer's local .env is exported
+// EMPTY. The CLI's dotenv load never overrides existing keys, so the empty
+// export wins over both files; the infra planner treats an empty URL as
+// not-supplied (zero-config dev), so no conventional database URLs are
+// generated, the preflight has nothing to probe, compose stays down, and each
+// stack boots on its own ephemeral pglite (plugin.dev.ts's `|| pglite`
+// fallback). Required keys pass through with their .env.test values.
+func envOverridesFromDotenv(testEnv, devEnv map[string]string) map[string]string {
 	overrides := map[string]string{}
-	for key, value := range values {
-		if strings.HasSuffix(key, "_DATABASE_URL") {
-			overrides[key] = value
+	for _, values := range []map[string]string{testEnv, devEnv} {
+		for key := range values {
+			if strings.HasSuffix(key, "_DATABASE_URL") || strings.HasSuffix(key, "_REDIS_URL") {
+				overrides[key] = ""
+			}
 		}
 	}
 	for _, key := range requiredTestEnvKeys {
-		if value, ok := values[key]; ok {
+		if value, ok := testEnv[key]; ok {
 			overrides[key] = value
 		}
 	}

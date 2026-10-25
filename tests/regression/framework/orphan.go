@@ -26,6 +26,7 @@ func StartWrappedStack(t *testing.T, basePort int, registryPath string) *Stack {
 	pidFile := filepath.Join(t.TempDir(), "wrapped.pid")
 
 	cmd := exec.Command("node", append([]string{wrapper, pidFile, "node"}, tsxArgs(args)...)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Dir = repoRoot
 	cmd.Env = env
 	cmd.Stdout = logFile
@@ -53,7 +54,7 @@ func StartWrappedStack(t *testing.T, basePort int, registryPath string) *Stack {
 	}()
 
 	stack.wrappedPid = awaitWrappedPid(t, pidFile)
-	waitForReady(t, stack)
+	t.Logf("stack %d: wrapped CLI pid %d", basePort, stack.wrappedPid)
 	stack.awaitRegistryEntry()
 	return stack
 }
@@ -81,6 +82,7 @@ func awaitWrappedPid(t *testing.T, pidFile string) int {
 // dead pnpm chain leaves it.
 func (s *Stack) KillWrapper() {
 	s.t.Helper()
+	s.t.Logf("stack %d: SIGKILL wrapper pid %d", s.basePort, s.cmd.Process.Pid)
 	if err := syscall.Kill(s.cmd.Process.Pid, syscall.SIGKILL); err != nil {
 		s.t.Fatalf("killing wrapper: %v", err)
 	}

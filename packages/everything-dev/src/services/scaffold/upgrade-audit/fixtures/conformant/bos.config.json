@@ -1,0 +1,13 @@
+{
+  "extends": "bos://dev.everything.near/dev.everything.dev",
+  "account": "example.near",
+  "domain": "example.dev",
+  "title": "Example",
+  "description": "Fixture",
+  "repository": "https://github.com/example/example",
+  "app": {
+    "ui": { "development": "local:ui" },
+    "api": { "development": "local:api" }
+  },
+  "plugins": {}
+}

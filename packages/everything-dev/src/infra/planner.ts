@@ -241,7 +241,10 @@ function allocateServices(
   );
 }
 
-function allocateDatabases(runtimeConfig: RuntimeConfig): Effect.Effect<
+function allocateDatabases(
+  runtimeConfig: RuntimeConfig,
+  operatorEnv: Record<string, string>,
+): Effect.Effect<
   {
     dbs: DatabasePlan[];
     redisPlans: RedisPlan[];
@@ -254,12 +257,31 @@ function allocateDatabases(runtimeConfig: RuntimeConfig): Effect.Effect<
     const allSecrets = groups.flatMap((group) => group.secrets);
     const allocator = yield* PortAllocator;
 
-    const conventionalDatabases = buildConventionalDatabases(allSecrets);
-    const conventionalRedis = buildConventionalRedis(allSecrets);
+    // Zero-config dev (plan 055 ticket 11): database/redis URLs are opt-in.
+    // When the operator supplies none (shell or .env), nothing conventional is
+    // generated — consumers fall back to their own boot-schema defaults
+    // (ephemeral pglite) and the compose preflight has nothing to probe, so it
+    // is skipped entirely. A partial supply generates only the missing
+    // conventional URLs (compose serves both databases, same as before).
+    const operatorSubstrateKeys = Object.keys(operatorEnv).filter(
+      (key) =>
+        (key.endsWith("_DATABASE_URL") || key.endsWith("_REDIS_URL")) && operatorEnv[key] !== "",
+    );
+    if (operatorSubstrateKeys.length === 0) {
+      return { dbs: [], redisPlans: [] };
+    }
+
+    const pendingDatabases = buildConventionalDatabases(allSecrets).filter(
+      (db) => !operatorEnv[db.secret],
+    );
+    const pendingRedis = buildConventionalRedis(allSecrets).filter((r) => !operatorEnv[r.secret]);
+    if (pendingDatabases.length === 0 && pendingRedis.length === 0) {
+      return { dbs: [], redisPlans: [] };
+    }
 
     const dbs: DatabasePlan[] = [];
     const allocatedByDesired = new Map<number, number>();
-    for (const db of conventionalDatabases) {
+    for (const db of pendingDatabases) {
       let port: number;
       if (allocatedByDesired.has(db.port)) {
         port = allocatedByDesired.get(db.port)!;
@@ -277,7 +299,7 @@ function allocateDatabases(runtimeConfig: RuntimeConfig): Effect.Effect<
     }
 
     const redisPlans: RedisPlan[] = [];
-    for (const r of conventionalRedis) {
+    for (const r of pendingRedis) {
       const port = yield* allocator.pickAvailable(r.port);
       redisPlans.push({
         secret: r.secret,
@@ -469,7 +491,7 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
       Object.values(plugins).some((p) => p?.source === "local" || p?.ui?.source === "local");
 
     const { dbs, redisPlans } = hasLocalServices
-      ? yield* allocateDatabases(input.bosConfig)
+      ? yield* allocateDatabases(input.bosConfig, input.operatorEnv ?? {})
       : { dbs: [], redisPlans: [] };
 
     const resolvedPorts: ResolvedPorts = { ...svcPorts };

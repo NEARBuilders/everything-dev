@@ -1,4 +1,5 @@
 import { type BosConfigInput, BosConfigSchema, type RuntimeConfig } from "../../types";
+import { getPlatformManifestKey } from "../platform/manifest";
 import {
   type ConfigHistoryEntry,
   fetchBosConfigFromFastKv,
@@ -81,7 +82,7 @@ export function isSnapshotLive(targetValue: unknown, liveValue: unknown): boolea
 export async function publishRollbackSnapshot(
   targetValue: unknown,
   input: RollbackSnapshotInput,
-  opts?: { skipVerify?: boolean },
+  opts?: { skipVerify?: boolean; restorePlatformPointer?: { key: string; value: string } },
 ): Promise<RollbackSnapshotOutcome> {
   if (!opts?.skipVerify) {
     const verification = await verifyRollbackSnapshot(targetValue as BosConfigInput);
@@ -112,6 +113,9 @@ export async function publishRollbackSnapshot(
     wallet: input.wallet ?? false,
     registry: input.registry,
     exactPayload: true,
+    ...(opts?.restorePlatformPointer
+      ? { restorePlatformPointer: opts.restorePlatformPointer }
+      : {}),
   });
   if (result.status === "dry-run") {
     return { ok: true, registryUrl: result.registryUrl, dryRun: true };
@@ -126,9 +130,39 @@ export async function publishRollbackSnapshot(
   return { ok: true, registryUrl: result.registryUrl, txHash: result.txHash };
 }
 
+/** The platform-pointer restore for a rollback (#573): the pointer's own
+ * history[1] is the pre-release manifest — the same "previous entry" logic
+ * the config rollback uses. Best-effort: a failed lookup returns undefined
+ * and the drift alarm (#571's cross-check) catches any residue loudly. */
+export async function resolvePointerRestore(
+  account: string,
+  domain: string,
+  registry?: string,
+): Promise<{ key: string; value: string } | undefined> {
+  try {
+    const pointerHistory = await fetchConfigHistory({
+      accountId: account,
+      gatewayId: domain,
+      registry,
+      limit: 5,
+      keyPath: "platform.json",
+    });
+    const previousPointer = pointerHistory[1];
+    if (!previousPointer) return undefined;
+    return {
+      key: getPlatformManifestKey(account, domain),
+      value: JSON.stringify(previousPointer.value),
+    };
+  } catch {
+    console.warn("  platform pointer restore unavailable — the drift alarm will catch any residue");
+    return undefined;
+  }
+}
+
 /** The post-publish smoke failure protocol (ADR 0021): roll the registry
  * config back to the previous snapshot — a red boot gate must never leave a
- * new config live against an old image. */
+ * new config live against an old image. #573: the platform pointer rolls
+ * back in the same atomic write. */
 export async function rollbackToPreviousSnapshot(input: RollbackSnapshotInput): Promise<{
   ok: boolean;
   txHash?: string;
@@ -161,7 +195,18 @@ export async function rollbackToPreviousSnapshot(input: RollbackSnapshotInput): 
     };
   }
 
-  const result = await publishRollbackSnapshot(previous.value, input);
+  // The pointer restore mirrors the config rollback: the pointer's history[1]
+  // is the pre-release manifest. Best-effort — a failed restore leaves the
+  // drift alarm to catch the residue loudly.
+  const restorePlatformPointer = await resolvePointerRestore(
+    input.account,
+    input.domain,
+    input.registry,
+  );
+
+  const result = await publishRollbackSnapshot(previous.value, input, {
+    restorePlatformPointer,
+  });
   if (result.ok) {
     return {
       ok: true,

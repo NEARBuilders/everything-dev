@@ -9,11 +9,33 @@ import type { BosConfig, RuntimeConfig } from "../../types";
 import type { BosEnv } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
 import { type ContractBridgeStatus, syncApiContractBridge } from "./api-contract";
+import { generateRuntimeMapEffect } from "./runtime-map";
 
 export class ArtifactGenError extends Schema.TaggedError<ArtifactGenError>()("ArtifactGenError", {
   phase: Schema.String,
   cause: Schema.optional(Schema.Unknown),
-}) {}
+}) {
+  // TaggedError carries no message field, so `error.message` serializes as ""
+  // down every `error instanceof Error ? error.message` wire (CI output
+  // included). Render the phase + cause instead — a generation failure must
+  // always name what failed.
+  override get message(): string {
+    let detail: string;
+    try {
+      detail =
+        this.cause instanceof Error
+          ? this.cause.message
+          : this.cause === undefined
+            ? ""
+            : String(this.cause);
+    } catch {
+      // some Error subclasses (Effect's YieldableError) delete toString —
+      // a non-serializable cause must not break rendering the message
+      detail = "non-serializable cause";
+    }
+    return `artifact generation failed (${this.phase})${detail ? `: ${detail}` : ""}`;
+  }
+}
 
 interface GeneratedArtifacts {
   resolvedConfigPath?: string;
@@ -26,7 +48,7 @@ interface UiManifestTarget {
   emitRouteTree: boolean;
 }
 
-function uiManifestTargets(
+export function uiManifestTargets(
   runtimeConfig: RuntimeConfig,
   forceRouteTree?: boolean,
 ): UiManifestTarget[] {
@@ -64,7 +86,13 @@ function uiManifestTargets(
   }
   for (const [key, plugin] of Object.entries(runtimeConfig.plugins ?? {})) {
     const uiPath = plugin.ui?.localPath;
-    if (plugin.ui?.source === "local" && uiPath && existsSync(join(uiPath, "rsbuild.config.ts"))) {
+    // Folder-form plugin uis (no committed rsbuild.config.ts) are still
+    // manifest targets: generateUiManifest needs only src/routes, and on a
+    // fresh checkout no manifest.gen.json exists until something generates
+    // it — gating on the rsbuild config left those uis ungenerated, so a
+    // strict types gen failed the run on a source typegen itself should
+    // have produced (the #558 class; same reason auth-ui is unconditional).
+    if (plugin.ui?.source === "local" && uiPath && existsSync(join(uiPath, "src/routes"))) {
       targets.push({ workspaceRoot: uiPath, pluginName: key, emitRouteTree: false });
     }
   }
@@ -79,6 +107,11 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
     extendsChain?: string[];
     runtimeConfig?: RuntimeConfig;
     forceRouteTree?: boolean;
+    /** Strict runtime-map degradation (#594): an unresolvable remote manifest
+     * fails the run instead of shrinking the map. `bos types gen` sets this —
+     * dev/build/train paths degrade to a warning (a flaky remote must not
+     * block a boot). */
+    runtimeMapStrict?: boolean;
   },
 ): Effect.fn.Return<
   (GeneratedArtifacts & { contractStatus: ContractBridgeStatus[] }) | null,
@@ -124,6 +157,29 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
         new ArtifactGenError({ phase: `generate ui manifest (${target.pluginName})`, cause }),
     });
   }
+
+  // The composition inspector (#591/#594): the generated effective route
+  // tree — local manifests were just refreshed above; remote ones fetch from
+  // the published `<ui>/manifest.gen.json`. Strict mode (`bos types gen`)
+  // fails the run on an unresolvable map so typecheck catches an upstream
+  // rename; dev/build/train paths warn and continue (a flaky remote must
+  // not block a boot — the runtime load fails loudly on its own).
+  yield* generateRuntimeMapEffect(configDir, runtimeConfig, {
+    strict: opts?.runtimeMapStrict === true,
+    env,
+    platform: config.platform ?? null,
+    ...(opts?.extendsChain ? { extendsChain: opts.extendsChain } : {}),
+  }).pipe(
+    Effect.catch((error) => {
+      if (opts?.runtimeMapStrict === true) {
+        return Effect.fail(new ArtifactGenError({ phase: "generate runtime map", cause: error }));
+      }
+      console.warn(
+        `[runtime-map] generation failed — continuing: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return Effect.succeed(null);
+    }),
+  );
 
   return {
     resolvedConfigPath: env ? join(configDir, ".bos/bos.resolved-config.json") : undefined,

@@ -239,8 +239,10 @@ This document provides operational guidance for AI agents working in the parent 
 pnpm install
 pnpm run dev
 
-# bos dev creates .env from .env.example on first run (with a generated BETTER_AUTH_SECRET)
-# and auto-starts docker compose when the DB preflight finds local Postgres down.
+# Zero-config: no .env needed — plugins boot on ephemeral pglite, compose stays down,
+# and BETTER_AUTH_SECRET is generated per-run (dev-only, not persisted).
+# Opt into persistent compose Postgres by setting the *_DATABASE_URL URLs in .env
+# (copy .env.example); the DB preflight then probes them and auto-starts compose.
 # Or combined: pnpm run dev:postgres  ==  docker compose up -d --wait && pnpm run dev
 
 # Pin individual service ports (explicitly-passed flags are pinned; unset services derive from the base; only explicit choices persist in .bos/infra-state.json — see ADR 0012)
@@ -277,13 +279,13 @@ Two resolution rules keep this safe (ADR 0018): **bundler-configuration code res
 ```bash
 bos sync                 # Pull updates from published config/template state (release-scoped — ADR 0034)
 bos upgrade              # Check for new versions, update, then sync
-bos upgrade --check      # CI drift alarm: exit 1 when the platform pin is behind the latest release
+bos upgrade --check      # Manual drift alarm: exit 1 when updates are available (prints what drifted)
 bos platform manifest    # Show the resolved platform release manifest (--check adds the compat gate)
 bos publish              # Re-publish the resolved config to FastKV (config-only; authored hand-edits merge over what's live)
 bos deploy               # Deploy train: preflight → build → upload bundles → publish config + platform manifest → image (pre-pushed digest or local docker build) → post-publish smoke (--smoke) → Railway
 ```
 
-**Platform release manifest (ADR 0034):** one pin per framework release — child configs record `platform: "<framework-version>"` in the authored config and everything else derives from the resolved manifest (published to FastKV at `apps/<root-account>/<root-gateway>/platform.json` and staged in-image): the upgrade catalog, the image ref (`ref@v<version>` + registry digest at deploy time, never hand-pinned), the sync source (the release tag, not `main` HEAD), and the compat contract (`bos platform manifest --check`, the deploy smoke gate, and `bos mf check`). Field absent → latest manifest via the extends chain. `ci.image` is removed — a deploy fails fast when an authored config sets it (children pin via `platform`; the root derives its image from `repository`).
+**Platform release manifest (ADR 0034):** one pin per framework release — child configs record `platform: "<framework-version>"` in the authored config and everything else derives from the resolved manifest (published to FastKV at `apps/<root-account>/<root-gateway>/platform.json` and staged in-image): the upgrade catalog, the image ref (`ref@v<version>` + registry digest at deploy time, never hand-pinned), the sync source (the release tag, not `main` HEAD), and the compat contract (`bos platform manifest --check`, the deploy smoke gate, and `bos mf check`). Field absent → latest manifest via the extends chain. `ci.image` is removed — a deploy fails fast when an authored config sets it (children pin via `platform`; the root derives its image from `repository`). **Pin lifecycle (#546):** a root republish overwrites the `platform.json` slot — a stale child pin resolves only while the fresh `.bos/platform-manifest.json` cache (24h TTL) stands in, then fails loud (`platform pin <version> not found`); the repair is `bos upgrade` (re-pins to the latest release). The singletons are policed at every plane: each uploaded bundle's version manifest records the shared-singleton versions its build embedded (`shared`), the publish train's truth gate refuses to publish a build that disagrees with the release manifest, and the host boot guard raises `SharedSingletonSkewError` (mirrored by `bos mf check`'s UI gate) when composed slots disagree — the named error replacing the federation runtime's cryptic `__webpack_modules__` negotiation failure. The lifecycle is exercised end-to-end by `packages/everything-dev/tests/integration/platform-upgrade-e2e.test.ts`.
 
 **Check Status:**
 ```bash
@@ -321,6 +323,8 @@ The host loads UI and API at runtime from URLs in the authored config (`bos.app.
 ### Runtime Config
 
 Authored configuration lives in `bos.app.ts` (committed) — the canonical form, preferred over a legacy `bos.config.json` when both exist. The resolved config materializes at `.bos/bos.resolved-config.json` (gitignored, never committed). The UI reads `window.__RUNTIME_CONFIG__` to get account, gateway, API base URL, etc. The host uses the same config to wire Module Federation remotes, auth, plugins, and SSR.
+
+**What a `local:` target means across `extends` boundaries (#584):** a `development: "local:<path>"` ref is workspace-relative — it resolves only in the repo that declares the workspace. The authoring surface keeps it (that repo's own `bos dev` needs it); the published payload strips it (publish canonicalization), so `extends` never hands a child a `local:` ref — children resolve the slot from its published URL, no dev override required.
 
 Use these helpers from `@/app`:
 - `getAppName()` — active runtime title (falls back to account)
@@ -415,6 +419,8 @@ The files carrying the `FRAMEWORK-OWNED` header (build configs, lib plumbing, `d
 
 **Editing them is allowed.** When the work needs it, edit a framework-owned file in this repo, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next sync will quietly clobber. (This repo *is* the framework home: changes here land via PR + changeset and flow outward to children through the same sync.)
 
+When the need is a **bug**, a **missing capability**, or a **pattern improvement**, follow [`docs/agents/change-placement.md`](docs/agents/change-placement.md) — including its first rule: sync-owned files are a contribution channel, not a fence. A human-facing diagram tour of the whole runtime lives in [`docs/agents/how-it-fits.md`](docs/agents/how-it-fits.md); `/teach` builds lessons from it.
+
 ### Style Requirements
 - Use semantic Tailwind classes: `bg-background`, `text-foreground`, `text-muted-foreground`
 - No hardcoded colors like `bg-blue-600`
@@ -422,6 +428,8 @@ The files carrying the `FRAMEWORK-OWNED` header (build configs, lib plumbing, `d
 - Component file naming: lowercase kebab-case (`data-table.tsx`, `user-profile.tsx`)
 - File/directory naming: kebab-case for all files and directories
 - Follow existing patterns in neighboring files
+
+Review-time rules — the write-once goal, type-safety patterns, the workaround protocol, and the comment `KEEP`/`TODO` conventions — are in [`docs/agents/coding-standards.md`](docs/agents/coding-standards.md).
 
 ### Adding API Endpoints
 App-level routes live in the slim `api/` plugin shell; feature routes live in
@@ -471,7 +479,7 @@ The API plugin receives typed entries for all other plugins via `createPlugin.wi
 
 **Two-phase loading**: The host loads non-API plugins first (Phase 1), creates a `pluginsClient` map, then loads the API with that map injected (Phase 2). The host is generic — no plugin-specific code.
 
-**Generated types**: `api/src/lib/plugins-types.gen.ts`, `api/src/lib/auth-types.gen.ts`, `ui/src/lib/api-types.gen.ts`, and `ui/src/lib/auth-types.gen.ts` are generated by `bos types gen` from the authored config (`bos.app.ts`, or a legacy `bos.config.json`). These files are gitignored and auto-regenerated by `bos typecheck` (which generates before type-checking), `bos dev`, `bos build`, and `bos pluginAdd`/`pluginRemove` — `pnpm run typecheck` is self-sufficient, no separate generation step needed.
+**Generated types**: `api/src/lib/plugins-types.gen.ts`, `api/src/lib/auth-types.gen.ts`, `ui/src/lib/api-types.gen.ts`, and `ui/src/lib/auth-types.gen.ts` are generated by `bos types gen` from the authored config (`bos.app.ts`, or a legacy `bos.config.json`). The same run emits the **runtime map** — `.bos/generated/runtime-map.json` + `ui/src/lib/runtime-map.gen.ts` (the composition inventory: ui sources, backends incl. host/api/auth/plugins with remote versions + contract hashes, mounts, owned routes, shadowed claims). These files are gitignored and auto-regenerated by `bos typecheck` (which generates before type-checking), `bos dev`, `bos build`, and `bos pluginAdd`/`pluginRemove` — `pnpm run typecheck` is self-sufficient, no separate generation step needed. Route/service ownership questions ("who owns /settings?", "which auth-plugin version is composing?") are answered from the runtime map and `docs/agents/runtime-map.md` — never by grepping `node_modules`; where a change should land is `docs/agents/change-placement.md`.
 
 Plugin types resolve in two ways:
 - `local:plugins/<name>` → reads `src/contract.ts` directly from disk
@@ -492,9 +500,13 @@ This repo is the parent platform, not a generated child project.
 ## Changesets
 
 **When to add a changeset:**
-- Any user-facing change (features, fixes, deprecations)
+- Any user-facing change (features, fixes, deprecations) to the publishable framework packages (`packages/*`)
 - Breaking changes
 - Skip for: docs-only changes, internal refactors, test-only changes
+
+**Release-capture rule (#572):** a changeset written against `everything-dev` means "cut a release including everything merged so far" — it is the release lever, not a per-package changelog entry. Small changes ride continuous deploys and are swept up by the next release. Private workspaces (`host`, `ui`, `api`, `plugins/*`) are changesets-ignored and never version; a CI guard rejects changesets naming only private workspaces.
+
+**Children have no changesets.** The child release.yml template is gone, `bos init` scaffolds no `.changeset/` and no `version`/`release` scripts, and existing children's copies are unowned — delete at will on the next upgrade (their `changeset`/`version`/`release` scripts are removed by the root migration). The deploy pipeline is content-addressed end to end, so child package versions feed nothing mechanically.
 
 **Release flow:**
 - CI is the validation workflow. On successful push to `main`, the Deploy workflow triggers automatically via `workflow_run` and checks out the exact SHA CI validated.
@@ -523,6 +535,9 @@ Host tests specifically use vitest via the workspace script:
 pnpm --filter host test    # NODE_ENV=production vitest run
 ```
 Always use `pnpm run test` / `pnpm --filter host test` — never a bare `vitest` without the workspace's NODE_ENV pin.
+
+When to write a test, which layer, what the parent framework covers vs what
+this repo must cover: [`docs/agents/testing.md`](docs/agents/testing.md).
 
 ### Test value rules
 
@@ -638,7 +653,7 @@ To switch to `RelayerExplicitConfig`, replace the rich-object shape with `relaye
 
 ### Shared Singleton Trust Model
 
-Module Federation shares React, TanStack Query, and TanStack Router as singletons across remotes. A compromise of these packages affects all remotes simultaneously. Defense:
+Module Federation shares React, TanStack Query, TanStack Router, and Sonner as singletons across remotes (ADR 0037 — the Toaster lives in the core ui, so remotes must resolve the same sonner instance for their `toast()` calls to render). A compromise of these packages affects all remotes simultaneously. Defense:
 
 - **Catalog pinning** — versions are locked in root `package.json` catalogs. Bump versions deliberately, not reactively.
 - **Renovate `minimumReleaseAge`** — 3 days general, 5 days for `@tanstack/*`. Malicious versions detected within hours are blocked from auto-merge.

@@ -15,6 +15,7 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AuthPanel } from "@/components/auth-panel";
+import { ErrorDetail } from "@/components/error-detail";
 import { Button } from "@/components/ui/button";
 import { FieldSeparator } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
@@ -22,6 +23,7 @@ import type { LoginTranslator } from "@/i18n/catalogs";
 import { LoginLanguageSelector } from "@/i18n/language-selector";
 import { LoginI18nProvider, useLoginTranslation } from "@/i18n/runtime";
 import { markAddEmailPromptPending } from "@/lib/add-email-prompt";
+import { siteErrorMessage } from "@/lib/site-error";
 import { useIsDesktop } from "@/lib/use-client";
 import { useNetworkId } from "@/lib/use-network-id";
 import { PairPanel } from "../-pair-panel";
@@ -82,20 +84,27 @@ export const Route = createFileRoute("/_public/login/")({
   component: LoginPage,
 });
 
-type AuthError = { code?: string; message?: string } | Error;
+type AuthError = { code?: string; message?: string; detail?: string; status?: number } | Error;
 
-function handleError(error: AuthError, t: LoginTranslator) {
-  const code = "code" in error ? error.code : undefined;
-  if (code === "UNAUTHORIZED_NONCE_REPLAY") toast.error(t("auth.login.error.used"));
-  else if (code === "UNAUTHORIZED_INVALID_SIGNATURE") {
-    toast.error(t("auth.login.error.signature"));
-  } else if (code === "SIGNER_NOT_AVAILABLE") {
-    toast.error(t("auth.login.error.walletUnavailable"));
-  } else if (code === "RECIPIENT_MISMATCH") {
-    toast.error(t("auth.login.error.configuration"));
-  } else if (code === "UNAUTHORIZED_INVALID_NONCE") {
-    toast.error(t("auth.login.error.expired"));
-  } else toast.error(t("auth.login.error.generic"));
+type ErrorState = { message: string; detail: string | null };
+
+function signInError(error: AuthError, t: LoginTranslator): ErrorState {
+  const code = typeof error === "object" && "code" in error ? error.code : undefined;
+  if (code === "UNAUTHORIZED_NONCE_REPLAY")
+    return { message: t("auth.login.error.used"), detail: null };
+  if (code === "UNAUTHORIZED_INVALID_SIGNATURE") {
+    return { message: t("auth.login.error.signature"), detail: null };
+  }
+  if (code === "SIGNER_NOT_AVAILABLE") {
+    return { message: t("auth.login.error.walletUnavailable"), detail: null };
+  }
+  if (code === "RECIPIENT_MISMATCH") {
+    return { message: t("auth.login.error.configuration"), detail: null };
+  }
+  if (code === "UNAUTHORIZED_INVALID_NONCE") {
+    return { message: t("auth.login.error.expired"), detail: null };
+  }
+  return siteErrorMessage(error, t("auth.login.error.generic"));
 }
 
 function LoginPage() {
@@ -123,6 +132,7 @@ function LoginPageContent() {
   const [detectedAccount, setDetectedAccount] = useState<string | null>(null);
   const [passkeyMissing, setPasskeyMissing] = useState(false);
   const [unsupported, setUnsupported] = useState(false);
+  const [error, setError] = useState<ErrorState | null>(null);
 
   useEffect(() => {
     void auth.near.detectNearAccount().then((result: { accountId?: string | null } | null) => {
@@ -131,6 +141,7 @@ function LoginPageContent() {
   }, [auth.near]);
 
   const handleSuccess = async (message: string) => {
+    setError(null);
     toast.success(message);
     await refreshSessionCache(auth, queryClient);
     await navigate({ href: redirectTo, replace: true });
@@ -147,16 +158,16 @@ function LoginPageContent() {
             setPending(null);
             await handleSuccess(t("auth.login.success.near"));
           },
-          onError: (error: { code?: string; message?: string }) => {
+          onError: (error) => {
             setPending(null);
-            handleError(error, t);
+            setError(signInError(error, t));
           },
         },
         referralCode ? { headers: { "x-referral-code": referralCode } } : undefined,
       );
     } catch {
       setPending(null);
-      toast.error(t("auth.login.error.nearConnect"));
+      setError({ message: t("auth.login.error.nearConnect"), detail: null });
     }
   };
 
@@ -171,7 +182,12 @@ function LoginPageContent() {
       },
       onError: (error) => {
         setPending(null);
-        if (!isPasskeyCeremonyAborted(error)) setPasskeyMissing(true);
+        if (isPasskeyCeremonyAborted(error)) return;
+        if (error.status !== undefined) {
+          setError(siteErrorMessage(error, t("auth.login.error.passkey")));
+          return;
+        }
+        if (!isUnsupportedAuthenticatorError(error)) setPasskeyMissing(true);
       },
     });
   };
@@ -190,9 +206,15 @@ function LoginPageContent() {
       onError: (error) => {
         setPending(null);
         if (isUnsupportedAuthenticatorError(error)) setUnsupported(true);
-        else if (!isPasskeyCeremonyAborted(error)) toast.error(error.message);
+        else if (!isPasskeyCeremonyAborted(error))
+          setError(siteErrorMessage(error, t("auth.login.error.generic")));
       },
     });
+  };
+
+  const switchView = (next: View) => {
+    setError(null);
+    setView(next);
   };
 
   const referralChip = referralCode ? (
@@ -247,7 +269,7 @@ function LoginPageContent() {
         titleTestId="login.heading"
         description={t("auth.login.phone.subtitle")}
       >
-        <PairPanel redirect={redirectTo} onClose={() => setView("sign-in")} />
+        <PairPanel redirect={redirectTo} onClose={() => switchView("sign-in")} />
       </AuthPanel>
     );
   }
@@ -271,7 +293,7 @@ function LoginPageContent() {
               type="button"
               variant="link"
               size="sm"
-              onClick={() => setView("sign-in")}
+              onClick={() => switchView("sign-in")}
               data-testid="login.signin-link"
             >
               {t("auth.login.signIn")}
@@ -304,6 +326,13 @@ function LoginPageContent() {
               {nearButton}
             </div>
           )}
+          {error && (
+            <ErrorDetail
+              message={error.message}
+              detail={error.detail}
+              testId="login.create-error"
+            />
+          )}
         </div>
       </AuthPanel>
     );
@@ -322,7 +351,7 @@ function LoginPageContent() {
             type="button"
             variant="link"
             size="sm"
-            onClick={() => setView("create")}
+            onClick={() => switchView("create")}
             data-testid="login.create-account-link"
           >
             {t("auth.login.create.link")}
@@ -362,6 +391,9 @@ function LoginPageContent() {
               : t("auth.login.passkey.missingMobile")}
           </p>
         )}
+        {error && (
+          <ErrorDetail message={error.message} detail={error.detail} testId="login.error" />
+        )}
       </div>
       <FieldSeparator>{t("auth.login.separator")}</FieldSeparator>
       <div className="flex flex-col gap-3">
@@ -372,7 +404,7 @@ function LoginPageContent() {
             variant="ghost"
             size="lg"
             className="w-full"
-            onClick={() => setView("phone")}
+            onClick={() => switchView("phone")}
             disabled={pending !== null}
             data-testid="login.device-button"
           >

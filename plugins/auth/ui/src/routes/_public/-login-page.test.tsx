@@ -9,6 +9,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Route as LoginRoute } from "./login/index";
 
@@ -19,6 +20,7 @@ const harness = vi.hoisted(() => ({
   deviceCode: vi.fn(),
   deviceToken: vi.fn(),
   cancelPasskeyCeremony: vi.fn(),
+  signInNear: vi.fn(),
 }));
 
 vi.mock("everything-dev/ui/auth", () => ({
@@ -33,6 +35,7 @@ vi.mock("everything-dev/ui/auth", () => ({
   getDeviceLinkClientId: () => "test-client",
   useAuthClient: () => ({
     near: { detectNearAccount: async () => null },
+    signIn: { near: harness.signInNear },
     device: { code: harness.deviceCode, token: harness.deviceToken },
   }),
 }));
@@ -245,5 +248,74 @@ describe("login page", () => {
 
     expect((await screen.findByTestId("login.heading")).textContent).toBe("Sign in to continue");
     expect(screen.queryByTestId("device.user-code")).toBeNull();
+  });
+
+  it("reports a server failure inline with the server detail collapsed", async () => {
+    harness.signInNear.mockImplementation(
+      async (callbacks?: {
+        onSuccess?: () => void;
+        onError?: (error: { message?: string; detail?: string; status?: number }) => void;
+      }) => {
+        callbacks?.onError?.({
+          message: "The API is currently unavailable.",
+          detail: "Plugin auth failed: shared dependency version skew",
+          status: 503,
+        });
+      },
+    );
+    renderLogin();
+
+    fireEvent.click(await screen.findByTestId("near.signin-button"));
+
+    expect(await screen.findByTestId("login.error").then((el) => el.textContent)).toBe(
+      "The API is currently unavailable.",
+    );
+    fireEvent.click(screen.getByTestId("login.error.detail-toggle"));
+    expect(screen.getByTestId("login.error.detail").textContent).toBe(
+      "Plugin auth failed: shared dependency version skew",
+    );
+    expect(screen.queryByTestId("login.no-passkey-hint")).toBeNull();
+  });
+
+  it("does not duplicate a sign-in failure into a toast", async () => {
+    harness.signInNear.mockImplementation(
+      async (callbacks?: {
+        onSuccess?: () => void;
+        onError?: (error: { message?: string; status?: number }) => void;
+      }) => {
+        callbacks?.onError?.({ message: "The API is currently unavailable.", status: 503 });
+      },
+    );
+    renderLogin();
+
+    fireEvent.click(await screen.findByTestId("near.signin-button"));
+
+    expect(await screen.findByTestId("login.error")).toBeTruthy();
+    expect(vi.mocked(toast.error).mock.calls.filter((call) => call[0] !== undefined)).toHaveLength(
+      0,
+    );
+  });
+
+  it("reports a passkey server failure inline instead of claiming no passkey", async () => {
+    harness.signInWithPasskey.mockImplementation(
+      async (
+        _auth: unknown,
+        options?: {
+          onError?: (error: Error & { message?: string; status?: number }) => void;
+        },
+      ) => {
+        options?.onError?.(
+          Object.assign(new Error("The API is currently unavailable."), { status: 503 }),
+        );
+      },
+    );
+    renderLogin();
+
+    fireEvent.click(await screen.findByTestId("login.passkey-button"));
+
+    expect(await screen.findByTestId("login.error").then((el) => el.textContent)).toBe(
+      "The API is currently unavailable.",
+    );
+    expect(screen.queryByTestId("login.no-passkey-hint")).toBeNull();
   });
 });

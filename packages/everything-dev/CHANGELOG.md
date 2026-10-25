@@ -1,5 +1,75 @@
 # everything-dev
 
+## 2.0.0-rc.21
+
+### Patch Changes
+
+- 50ebfad: Share sonner across the ui graph (tolerant singleton) and surface server errors at the right sites
+
+  The mounted Toaster lives in the core ui's sonner instance; plugin remotes bundled private copies, so every `toast()` fired from plugin ui code — 16 call sites in the auth plugin alone, plus `plugins/ai` — was invisible in production. `sonner` now joins `UI_SHARED_DEPS` as a tolerant singleton: remotes resolve the core's instance (toasts render), keep a bundled fallback copy, and waive `requiredVersion`, so old-provider/new-remote mixes degrade to today's behavior instead of failing a share negotiation (zod's critical:false precedent; the boot gate only checks effect-critical names). The version pins move to the pnpm catalog (`sonner: 2.0.8`) for lockstep. Recorded in ADR 0037.
+
+  Alongside, the login surfaces stop swallowing server errors:
+
+  - the login page renders sign-in failures inline (one concise line + collapsed "Details" disclosure with the server detail) instead of toasting into the void or claiming "no passkey on this device" for a 503; a failed session load during an API outage gets a login-branded `errorComponent` with a retry instead of the document-wide root error
+  - the device pairing/approve/verify pages append the server detail under their existing error lines
+  - the CLI's device login unwraps the `Effect.tryPromise` wrapper (the cause of the cryptic "An error occurred in Effect.tryPromise" output), carries the host 503 `detail` in its "could not start" message, and `parseSiteErrorDetail` now extracts the host's `detail`/`detailFull` fields
+
+- Updated dependencies [50ebfad]
+  - every-plugin@3.0.0-rc.13
+
+## 2.0.0-rc.20
+
+### Minor Changes
+
+- 0afe2a5: The interactive dev renderer emits a machine-readable raw-mode-ready pin (`\x1b]bos;ready\x07`) once stdin raw mode is enabled and the key handler is attached. Regression harnesses driving the TUI under a pty can wait on that pin instead of guessing a settle window after the alt-screen mount — typed bytes (`q`, Ctrl-C) are guaranteed to reach the key path when it appears.
+- b9f96a7: Secrets vault v1: sealed runtime secrets behind the existing env resolution (plan 055 ticket 09).
+
+  - `bos secrets set NAME` (hidden TTY prompt), `bos secrets list` (names + set/missing status against the declared config — never values), `bos secrets remove NAME`.
+  - The api shell gains a per-deployment vault: `runtime_secrets` table (migration auto-applies on boot), routes at `/api/rpc/secrets/*` and `/api/secrets/*` (session or `x-api-key` auth), values sealed with the proven `createSealedBox` cipher under a per-runtime KEK (HKDF of the platform root secret with a runtime-scoped salt — no new env var, no key ceremony).
+  - Reserved-name contract: `BOS_*` and `PORT` are refused — the platform composes them into instance env (`identityEnv`), and operator secrets must never collide with the composed identity. Rules live in the new `everything-dev/hosting/secrets` subpath (store, CLI, and the delivery helper share one source).
+  - `SecretsStore.resolve` (unseal) exists at the service level for the reconciler's delivery leg but is deliberately not exposed as a route — the delivery credential is ticket 08's design decision.
+  - Dev-restart caveat: with zero-config dev's per-run root secret, stored secrets cannot be opened after a restart; resolution fails loudly with a re-set message. Deployed runtimes with a persisted root secret are unaffected.
+  - The stale `bos key generate` section is removed from the cli-reference skill (command was retired in the RC path consolidation).
+
+- c673102: `bos upgrade --from v1`: adopt the v2-upgrade audit tooling upstream (fixes #455). Audits a v1 child app for upgrade readiness (hardline mount-conformance gate, config surface, legacy imports) and applies the deterministic v2 transforms (authored descriptor, bun→pnpm catalog migration, consumerized refs, import rewrites, obsolete-file deletion, plugin dep declarations). State-aware: a tree with an authored `bos.app.ts` exits "already upgraded · v2" instead of reporting the v1-state blocker. Adds re-runnable post-upgrade maintenance steps via `--maintain port-route-guards|db-topology|i18n-seam|compose-seam`, bundles the `v1-to-v2-upgrade` intent skill, and emits `.bos/v2-upgrade-manifest.json` on audit.
+- 38c91dd: Zero-config dev: `bos dev` with no `.env` boots the full stack on ephemeral pglite — no compose, no ceremony.
+
+  - `bos dev` no longer creates `.env` from `.env.example`. When no `*_DATABASE_URL`/`*_REDIS_URL` is supplied (shell or `.env`), nothing conventional is generated: plugins fall back to their boot-schema pglite defaults, the DB preflight has nothing to probe, and compose stays down. `BETTER_AUTH_SECRET` is generated per-run (dev-only, not persisted — the boot log says so).
+  - The generated `.env.example` leaves substrate URLs empty with an opt-in hint; `.env` present with the URLs set → today's behavior exactly (preflight probes them, compose auto-starts).
+  - `plugins/auth` gains the same pglite default the other boot schemas already had (`AUTH_DATABASE_URL`), so auth boots without a URL in dev too.
+  - `bos start` warns when no database URL is set — in production that means ephemeral pglite and data will not survive restarts.
+
+### Patch Changes
+
+- 99e260e: Stop rewriting the authored `bos.app.ts` during sync/upgrade: template sync no
+  longer runs `personalizeConfig` in sync mode (it only wrote back the child's own
+  values while re-serializing the file — dropping hand formatting, comments, and
+  remote-only attachments like a published `auth` block), and the upgrade's
+  platform-pin stamp is now a surgical line edit that replaces only the
+  `platform: "…"` property, failing loud with the version to set by hand when no
+  safe anchor exists instead of re-serializing. Explicit composition commands
+  (`bos plugin add/remove`, `bos config registry use`) keep re-serializing, but
+  the descriptor round-trip no longer drops a remote-only `auth` attachment (no
+  local path) — previously the whole auth block with its variables was silently
+  deleted. `bos upgrade --check` now prints what drifted (platform, package and
+  catalog deltas) before exiting, and the `platform-drift` job was removed from
+  the reusable `consumer-ci` workflow — the drift alarm is manual only and never
+  a merge blocker.
+- 6b58155: Platform compat never lies (issue #546): workspace version manifests now record the shared-singleton versions each build embedded (`shared`), slot resolution stamps them onto UI slots, and the host's SSR composition guard refuses to load a split module graph with a named sources-and-versions error instead of the federation runtime's cryptic negotiation error. `bos mf check` gains a UI composition gate (sibling UI slots cross-checked), `bos platform manifest --check` reports pin drift as "parent platform is X, you pinned Y", deploy builds stamp `MF_BUILD_VERSION` so `buildInfo.buildVersion` advertises the true platform release, and the publish train refuses when uploaded bundles disagree with the release manifest's pins (stale install).
+- 642c806: Fix the deploy train's platform-manifest truth gate falsely rejecting deploys when a shared-singleton catalog pin is range-shaped: `every-plugin: ^3.0.0-rc.11` in the workspace catalog was compared string-for-string against the exact version recorded in each uploaded bundle's version manifest (`3.0.0-rc.11`), flagging every plugin workspace with "a stale install publishes a manifest that lies about the uploaded bytes" even though the install was current. The gate now compares semantically via the same `satisfiesConstraint` helper the boot-side compat gate uses — exact pins must match exactly, range pins must be satisfied by the built version (#563 follow-up).
+- Updated dependencies [6b58155]
+  - every-plugin@3.0.0-rc.12
+
+## 2.0.0-rc.19
+
+### Patch Changes
+
+- ee17b09: - `bos types gen` now generates manifest/route-tree artifacts for a local auth attachment's ui (`auth.ui`), keeping artifact generation hermetic for any child with a local plugin UI override. Fixes everything-dev#549
+  - The dev session now spawns a `plugin-ui:<id>` unit for a local ui override whose plugin backend is remote (e.g. a remote auth server with a local `auth.ui` workspace), so the host's SSR container becomes ready instead of timing out after 120 s. Fixes everything-dev#557
+  - The host compose now fails loud when a declared local ui source has no usable manifest or an identity mismatch, instead of silently dropping the slot with a warning. Remote sources keep their warn-and-drop isolation. Ships via the platform runtime image. Fixes everything-dev#556
+- Updated dependencies [ee17b09]
+  - every-plugin@3.0.0-rc.11
+
 ## 2.0.0-rc.18
 
 ### Major Changes

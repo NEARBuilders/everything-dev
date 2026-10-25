@@ -86,3 +86,50 @@ describe("dev-logs per-session filenames", () => {
     expect(text).not.toContain("older session line");
   });
 });
+
+describe("dated log pruning (#596)", () => {
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  // 25h + 3h*n: older than the live-session skip window, younger than the
+  // 7d max-age — so the keep-20 rule is what governs, deterministically.
+  const oldDate = (n: number) => new Date(Date.now() - (25 + 3 * n) * 60 * 60 * 1000);
+  const datedName = (n: number) =>
+    `dev-2026-10-${String(10 + n).padStart(2, "0")}T00-00-00-${n}.log`;
+  const datedLogShape = (name: string) =>
+    /^dev-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d+\.log$/.test(name);
+
+  it("prunes dated logs beyond the retention window, protecting live sessions", async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "dev-logs-"));
+    const logsDir = join(tempDir, ".bos", "logs");
+    const { utimesSync, writeFileSync, mkdirSync } = await import("node:fs");
+    mkdirSync(logsDir, { recursive: true });
+
+    for (let n = 0; n < 25; n++) {
+      const file = join(logsDir, datedName(n));
+      writeFileSync(file, `#${n}\n`);
+      utimesSync(file, oldDate(n), oldDate(n));
+    }
+    const staleLatest = join(logsDir, "dev-latest-99999.log");
+    writeFileSync(staleLatest, "#stale\n");
+    utimesSync(staleLatest, oldDate(30), oldDate(30));
+    // protected: a live session's dated log (recent mtime), the canonical
+    // dev-latest.log, and the regression stacks' non-dated logs
+    const live = join(logsDir, datedName(80));
+    writeFileSync(live, "#live\n");
+    writeFileSync(join(logsDir, "dev-latest.log"), "#canonical\n");
+    writeFileSync(join(logsDir, "regression-dev-ssr.log"), "#regression\n");
+
+    await createDevLogger(tempDir, "pruning boot");
+
+    const files = readdirSync(logsDir);
+    // 26 prunable (25 dated + stale pid-latest) minus the 6 oldest, plus the
+    // boot's own fresh dated log
+    expect(files.filter((f) => datedLogShape(f)).length).toBe(22);
+    expect(files).not.toContain("dev-latest-99999.log");
+    expect(files).toContain(datedName(80));
+    expect(files).toContain("dev-latest.log");
+    expect(files).toContain("regression-dev-ssr.log");
+  });
+});

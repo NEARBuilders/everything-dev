@@ -1,8 +1,8 @@
 name: CI
 
 # Thin wrapper — the shared implementation lives in the base runtime repo
-# (NEARBuilders/everything-dev): lint/typecheck/test plus the platform drift
-# alarm all run inside the pinned reusable call. The @main ref here is the
+# (NEARBuilders/everything-dev): lint/typecheck/test all run inside the
+# pinned reusable call. The @main ref here is the
 # reusable-wrapper pointer only — `bos sync` re-points it to the release tag
 # (ADR 0034) — and the child's framework surface is pinned via `platform`,
 # moving exclusively through `bos upgrade`. Extra, repo-specific jobs belong
@@ -33,7 +33,7 @@ jobs:
     secrets: inherit
 
   # Child-owned CI entry point (#538): the reusable call covers lint,
-  # typecheck, test, and the platform drift alarm; everything else lives in
+  # typecheck, and test; everything else lives in
   # ci-child.yml — replace its placeholder with this repo's own jobs. It runs
   # in parallel with the reusable call (no `needs` between them).
   child-ci:

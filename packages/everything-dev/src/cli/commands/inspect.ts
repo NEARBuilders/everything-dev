@@ -276,6 +276,16 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
         }`,
       );
     }
+    if (result.ui) {
+      for (const slot of result.ui.slots) {
+        const tag = slot.ok ? colors.green("OK  ") : colors.error("FAIL");
+        console.log(
+          `  ${colors.dim(`ui:${slot.slot}`.padEnd(10))} ${tag} ${slot.url}${
+            slot.reason ? `  ↳ ${slot.reason}` : ""
+          }`,
+        );
+      }
+    }
     if (result.platform) {
       for (const v of result.platform.violations) {
         console.log(`  ${colors.dim("platform".padEnd(10))} ${colors.error("FAIL")} ${v.message}`);
@@ -305,6 +315,15 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     console.log();
     if (result.status === "fail") {
       console.error(`[CLI] ${result.error || "platform manifest resolution failed"}`);
+      if (result.drift) {
+        console.log();
+        console.log(
+          colors.error(
+            `  parent platform is ${result.drift.published} (published), you pinned ${result.drift.pinned} — run \`bos upgrade\` to realign`,
+          ),
+        );
+      }
+      console.log();
       process.exit(1);
     }
     if (result.status === "absent") {
@@ -320,7 +339,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
       return;
     }
     console.log(
-      `  ${colors.dim("Platform")}  ${colors.green(result.version ?? "?")}  ${colors.dim(`(${result.source}${result.fromCache ? ", cached" : ""})`)}`,
+      `  ${colors.dim("Platform")}  ${colors.green(result.version ?? "?")}  ${colors.dim(`(${[result.provenance, result.source, result.fromCache ? "cached" : undefined].filter(Boolean).join(", ")})`)}`,
     );
     if (result.compat) {
       for (const v of result.compat.violations) {

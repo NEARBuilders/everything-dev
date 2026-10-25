@@ -75,6 +75,14 @@ export const BuildEntryReportSchema = z.object({
   entry: z.string().min(1),
   browserManifest: z.string().min(1).optional(),
   css: z.string().min(1).optional(),
+  /**
+   * Shared-singleton `name → version` this build embedded — resolved from the
+   * building workspace's node_modules at config time and stamped by both the
+   * rspack and rsbuild build paths. The deploy leg records it into the
+   * workspace's version manifest, so a slot's pin carries shared-dep
+   * semantics and consumers can detect a build skew before loading (#546).
+   */
+  shared: z.record(z.string(), z.string()).optional(),
 });
 export type BuildEntryReport = z.infer<typeof BuildEntryReportSchema>;
 

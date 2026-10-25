@@ -63,7 +63,7 @@ export function registerKeys(builder: BosBuilder) {
         .pipe(
           Effect.catchIf(
             () => true,
-            (error: Error) => Effect.succeed({ startFailed: error.message } as const),
+            (error: Error) => Effect.succeed({ startFailed: formatUnknownError(error) } as const),
           ),
         );
       if ("startFailed" in login) {
@@ -87,7 +87,6 @@ export function registerKeys(builder: BosBuilder) {
       return yield* Effect.tryPromise({
         try: async () => {
           const approval = await login.waitForApproval();
-
           if (!approval.apiKey) {
             return {
               status: "error" as const,

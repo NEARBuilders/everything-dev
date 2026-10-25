@@ -4,11 +4,13 @@ import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import { sessionQueryOptions, useAuthClient } from "everything-dev/ui/auth";
 import { useEffect, useRef, useState } from "react";
 import { AuthPanel } from "@/components/auth-panel";
+import { ErrorDetail } from "@/components/error-detail";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { LoginI18nProvider, useLoginTranslation } from "@/i18n/runtime";
+import { siteErrorMessage } from "@/lib/site-error";
 import { devicePairingHref, validateDevicePairingSearch } from "./-pairing-search";
 import { sanitizeUserCode } from "./-user-code";
 
@@ -34,7 +36,7 @@ function DeviceVerifyContent() {
   const { data: session } = useQuery(sessionQueryOptions(auth));
   const { user_code, pubKey, contract, account, network, source, custody } = Route.useSearch();
   const [code, setCode] = useState(user_code ?? "");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; detail: string | null } | null>(null);
   const [claiming, setClaiming] = useState(false);
   const claimedCodeRef = useRef<string | null>(null);
 
@@ -48,7 +50,7 @@ function DeviceVerifyContent() {
       .then(({ data, error: claimError }) => {
         if (claimError || !data) {
           setClaiming(false);
-          setError(t("auth.device.verify.claimFailed"));
+          setError(siteErrorMessage(claimError, t("auth.device.verify.claimFailed")));
           return;
         }
         void navigate({
@@ -56,9 +58,9 @@ function DeviceVerifyContent() {
           search: { user_code, pubKey, contract, account, network, source, custody },
         });
       })
-      .catch(() => {
+      .catch((requestError: unknown) => {
         setClaiming(false);
-        setError(t("auth.device.verify.connection"));
+        setError(siteErrorMessage(requestError, t("auth.device.verify.connection")));
       });
   }, [
     session?.user,
@@ -80,7 +82,7 @@ function DeviceVerifyContent() {
     setError(null);
     const cleaned = sanitizeUserCode(code);
     if (!cleaned) {
-      setError(t("auth.device.verify.invalidCode"));
+      setError({ message: t("auth.device.verify.invalidCode"), detail: null });
       return;
     }
     claimedCodeRef.current = null;
@@ -155,9 +157,7 @@ function DeviceVerifyContent() {
       )}
 
       {error && (
-        <p className="text-center text-sm text-destructive" data-testid="device.verify-error">
-          {error}
-        </p>
+        <ErrorDetail message={error.message} detail={error.detail} testId="device.verify-error" />
       )}
 
       {claiming && (

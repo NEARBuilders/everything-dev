@@ -48,6 +48,10 @@ _Avoid_: version manifest (that's the per-workspace deploy pin), plugin manifest
 The child's single authored `platform: "<framework-version>"` field in `bos.app.ts` — everything else (catalog entries, the deploy-time image ref `ref@v<version>` with its registry digest, the release-scoped sync source, compat verification) derives from the resolved manifest, so no hand-correlated pin pairs remain. Exact in v1: no ranges; absent means latest via extends. The old `ci.image` hand-pin is removed — a deploy fails fast on it.
 _Avoid_: platform version (ambiguous with the manifest's own `frameworkVersion`), image pin (the digest is derived, not authored), version bump
 
+**Runtime map**:
+The generated composition inventory (ADR 0034-adjacent, #591/#594) — every `bos types gen` run composes the ui sources (core, auth-ui, plugin UIs) with core-wins precedence and emits `.bos/generated/runtime-map.json` + `ui/src/lib/runtime-map.gen.ts`: mounts, every route with its owner and full path, shadowed claims, and the backend inventory (host, api, the auth server, plugin backends — remote ones carry the composed plugin version + contract hash from their published `plugin.manifest.json`). A static model of `constructTree`, kept honest by a parity test against the real engine. The first lookup for route/service ownership and local-vs-upstream classification (`docs/agents/runtime-map.md`); never grep `node_modules`.
+_Avoid_: version manifest (that's the per-workspace deploy pin), plugin manifest (the per-plugin bundle metadata), route manifest (the per-ui-source input the map is composed from), composition report
+
 **Pin plane**:
 One of the three independently-pinned byte sources a booting runtime consumes — **image** (the digest-pinned universal image), **config** (on-chain FastKV, account-key signed, atomic), **bundles** (CDN bytes whose sha384 SRI is recorded inside the on-chain config). The security model (ADR 0036): each plane's bytes verify against pins recorded in a *different* plane, so compromising any single plane is insufficient. Speed asymmetry is part of the model — config moves fast (atomic publish, minutes), image moves slow (rare smoke-gated rebuilds).
 _Avoid_: trust layer, security layer (nothing is layered — the planes are peers), integrity plane (integrity is one pin among three)
@@ -165,3 +169,11 @@ _Avoid_: relay, agent, deploy trigger
 **Fleet**:
 The set of runtime instances the platform hosts on its own managed substrate — the root pair, own-instance children, and sandbox leases.
 _Avoid_: cluster (carries Kubernetes connotations we rejected), infra (too broad)
+
+**Secrets vault**:
+The per-deployment store of sealed runtime secrets in the api shell — keyed `(account, gateway, name)`, sealed with the proven sealed-box cipher under a per-runtime KEK. Values are never echoed back; each deployment keeps its own vault (a single global one would be a trust disaster).
+_Avoid_: KMS (implies an external service), .env (the vault's whole point is not needing one), secret manager
+
+**KEK** (key-encryption key):
+The per-runtime AES key that seals a runtime's secrets — HKDF'd from the platform root secret (`BETTER_AUTH_SECRET`) with a runtime-scoped salt. Its source is a swappable sub-seam: the custody-TEE swap (ticket 13) changes where the KEK comes from without touching the schema, CLI, or config declarations.
+_Avoid_: root key (that's the platform secret the KEK derives from), master key

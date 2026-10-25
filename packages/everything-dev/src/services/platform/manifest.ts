@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Context, Layer } from "effect";
 import {
   SHARED_DEP_SPECS,
   type SharedDependencyConfig,
@@ -20,7 +21,7 @@ import { glob } from "glob";
 import { z } from "zod";
 import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
 import { satisfiesConstraint } from "../federation/service";
-import { fetchRegistryKeyOrNull } from "../registry/fastkv";
+import { fetchRegistryKey, fetchRegistryKeyOrNull } from "../registry/fastkv";
 import { fetchParentConfig } from "../resolution/init-source";
 import { AGENT_SYNC_GLOBS, FRAMEWORK_OWNED_SYNC_FILES } from "../scaffold/ownership";
 
@@ -65,6 +66,18 @@ export interface TemplateInventoryEntry {
 
 export function getPlatformManifestKey(accountId: string, gatewayId: string): string {
   return `apps/${accountId}/${gatewayId}/platform.json`;
+}
+
+/** The immutable per-release slot (#573): one key per released framework
+ * version, written once, never mutated — a divergent republish is a burned
+ * version and fails loud. `platform.json` remains the moving pointer; slot-
+ * first resolution (#574) reads slots directly. */
+export function getPlatformVersionSlotKey(
+  accountId: string,
+  gatewayId: string,
+  version: string,
+): string {
+  return `apps/${accountId}/${gatewayId}/platform-versions/${version}.json`;
 }
 
 /**
@@ -297,6 +310,10 @@ export interface ResolvedPlatformManifest {
   manifest: PlatformReleaseManifest;
   source: { account: string; gateway: string };
   fromCache: boolean;
+  /** Where the resolved bytes came from (#574): an immutable version slot
+   * (an exact pin's target) or the moving `platform.json` pointer (unpinned
+   * "latest" resolution). */
+  provenance: "slot" | "pointer";
 }
 
 export interface PlatformManifestCache {
@@ -305,16 +322,19 @@ export interface PlatformManifestCache {
   resolvedAt: string;
   source: { account: string; gateway: string };
   manifest: PlatformReleaseManifest;
+  provenance?: "slot" | "pointer";
 }
 
 /**
  * How long a cached resolution may stand in for a live fetch. The cache
- * exists for offline dev; without a freshness bound a registry outage (or a
- * stale cache written before the parent's latest publish) silently serves a
- * months-old release manifest — pins derive from it and the mismatch can
- * take an hour to diagnose. Past the TTL the cache is refused: pin-less
- * resolution degrades to "no manifest", pinned resolution fails loud with
- * the pin-not-found error.
+ * exists for offline dev ONLY (#574) — never stale-pin grace: slot-first
+ * resolution makes old pins resolvable forever from immutable slots, so a
+ * cache can no longer be the reason a pin resolves. Without a freshness
+ * bound a registry outage (or a cache written before the parent's latest
+ * publish) silently serves a months-old release manifest — pins derive
+ * from it and the mismatch can take an hour to diagnose. Past the TTL the
+ * cache is refused: pin-less resolution degrades to "no manifest"; pinned
+ * resolution fails loud with the slot key named.
  */
 export const PLATFORM_MANIFEST_CACHE_TTL_MS = 24 * 60 * 60_000;
 
@@ -322,6 +342,9 @@ export interface ResolvePlatformManifestOptions {
   configDir: string;
   localConfig: Record<string, unknown>;
   fetchManifest?: (account: string, gateway: string) => Promise<PlatformReleaseManifest | null>;
+  /** The immutable version-slot read (#574) — an exact pin's target. Throws
+   * on read failure (distinct from a clean absent-slot null). */
+  fetchSlot?: (account: string, gateway: string, version: string) => Promise<unknown>;
   fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
   cacheRead?: () => PlatformManifestCache | null;
   cacheWrite?: (cached: PlatformManifestCache) => void;
@@ -382,6 +405,17 @@ function defaultFetchManifest(
   })();
 }
 
+function defaultFetchSlot(
+  account: string,
+  gateway: string,
+  version: string,
+): Promise<unknown | null> {
+  // NOT the OrNull variant: a read failure must stay distinguishable from a
+  // clean absent-slot — the resolver fails loud with the slot key on a
+  // failure and treats null as absence.
+  return fetchRegistryKey<unknown>(account, gateway, `platform-versions/${version}.json`);
+}
+
 function defaultFetchParent(
   account: string,
   gateway: string,
@@ -391,39 +425,91 @@ function defaultFetchParent(
     .catch(() => null);
 }
 
+export interface ExtendsChainNode {
+  account: string;
+  gateway: string;
+}
+
+export interface ExtendsChainWalk {
+  /** child → root, nearest first — `chain[0]` is the local extends target */
+  chain: ExtendsChainNode[];
+  /** the most rootward `repository` seen — parent configs override the child's */
+  repository?: string;
+  /** set when the walk revisits a node — a pathological extends chain */
+  circularAt?: string;
+}
+
+/**
+ * The ONE extends-chain walk (child → root via FastKV parent configs): both
+ * `resolvePlatformManifest` and the upgrade source resolution used to carry
+ * their own `fetchParentConfig` loops; this is the shared implementation.
+ * A fetch failure (throw or null) stops the walk — the chain gathered so far
+ * is still returned.
+ */
+export async function walkExtendsChain(input: {
+  localConfig: Record<string, unknown>;
+  localRepository?: string;
+  fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
+}): Promise<ExtendsChainWalk> {
+  const fetchParent = input.fetchParent ?? defaultFetchParent;
+  const chain: ExtendsChainNode[] = [];
+  let repository = input.localRepository;
+
+  const startsRef = getExtendsRef(input.localConfig);
+  let cursor: ExtendsChainNode | null =
+    typeof startsRef === "string" && startsRef.startsWith("bos://")
+      ? (parseBosRef(startsRef) ?? null)
+      : null;
+  const visited = new Set<string>();
+  let circularAt: string | undefined;
+
+  while (cursor) {
+    const ref = `bos://${cursor.account}/${cursor.gateway}`;
+    if (visited.has(ref)) {
+      circularAt = ref;
+      break;
+    }
+    visited.add(ref);
+    chain.push(cursor);
+
+    const parentConfig = await fetchParent(cursor.account, cursor.gateway);
+    if (!parentConfig) break;
+    if (typeof parentConfig.repository === "string" && parentConfig.repository) {
+      repository = parentConfig.repository;
+    }
+    const nextRef = getExtendsRef(parentConfig);
+    cursor =
+      typeof nextRef === "string" && nextRef.startsWith("bos://")
+        ? (parseBosRef(nextRef) ?? null)
+        : null;
+  }
+
+  return {
+    chain,
+    ...(repository !== undefined ? { repository } : {}),
+    ...(circularAt ? { circularAt } : {}),
+  };
+}
+
 export async function resolvePlatformManifest(
   opts: ResolvePlatformManifestOptions,
 ): Promise<ResolvedPlatformManifest | null> {
   const fetchManifest =
     opts.fetchManifest ?? ((a: string, g: string) => defaultFetchManifest(a, g));
-  const fetchParent = opts.fetchParent ?? defaultFetchParent;
+  const fetchSlot =
+    opts.fetchSlot ?? ((a: string, g: string, v: string) => defaultFetchSlot(a, g, v));
   const cacheRead = opts.cacheRead ?? (() => defaultCacheRead(opts.configDir));
   const cacheWrite = opts.cacheWrite ?? ((cached) => defaultCacheWrite(opts.configDir, cached));
 
-  // Walk the extends chain child → root, mirroring upgrade's chain walk.
-  const chain: Array<{ account: string; gateway: string }> = [];
-  const visited = new Set<string>();
-  let cursor: { account: string; gateway: string } | null = null;
-  const extendsRef = getExtendsRef(opts.localConfig);
-  if (typeof extendsRef === "string" && extendsRef.startsWith("bos://")) {
-    const parsed = parseBosRef(extendsRef);
-    if (parsed) cursor = { account: parsed.account, gateway: parsed.gateway };
-  }
-  while (cursor && !visited.has(`bos://${cursor.account}/${cursor.gateway}`)) {
-    visited.add(`bos://${cursor.account}/${cursor.gateway}`);
-    chain.push(cursor);
-    const parentConfig = await fetchParent(cursor.account, cursor.gateway);
-    if (!parentConfig) break;
-    const nextRef = getExtendsRef(parentConfig);
-    if (typeof nextRef !== "string" || !nextRef.startsWith("bos://")) break;
-    const parsed = parseBosRef(nextRef);
-    if (!parsed) break;
-    cursor = { account: parsed.account, gateway: parsed.gateway };
-  }
+  const { chain } = await walkExtendsChain({
+    localConfig: opts.localConfig,
+    ...(opts.fetchParent ? { fetchParent: opts.fetchParent } : {}),
+  });
 
   const writeCache = (
     manifest: PlatformReleaseManifest,
     source: { account: string; gateway: string },
+    provenance: "slot" | "pointer",
   ) => {
     const cached: PlatformManifestCache = {
       schemaVersion: 1,
@@ -431,29 +517,100 @@ export async function resolvePlatformManifest(
       resolvedAt: new Date().toISOString(),
       source,
       manifest,
+      provenance,
     };
     cacheWrite(cached);
-    return { manifest, source, fromCache: false };
+    return { manifest, source, fromCache: false, provenance };
   };
 
   const pin = typeof opts.localConfig.platform === "string" ? opts.localConfig.platform : undefined;
 
+  // Slot-first pin resolution (#574): an exact pin targets the immutable
+  // `platform-versions/<pin>.json` slot, scanning the extends chain — a root
+  // release never strands a child pin, because slots are immutable and the
+  // pointer only moves forward (the #546 stale-pin class is dead). The
+  // pointer serves only unpinned ("latest") resolution.
+  if (pin) {
+    for (const node of chain) {
+      const slotKey = getPlatformVersionSlotKey(node.account, node.gateway, pin);
+      let raw: unknown;
+      try {
+        raw = await fetchSlot(node.account, node.gateway, pin);
+      } catch (error) {
+        // Slot read failure: the offline cache may stand in (an offline-dev
+        // aid, not stale-pin grace — same pin match required) — otherwise
+        // fail with the slot key named.
+        const cached = cacheRead();
+        if (cached && cached.manifest.frameworkVersion === pin && isFresh(cached, opts)) {
+          return {
+            manifest: cached.manifest,
+            source: cached.source,
+            fromCache: true,
+            provenance: cached.provenance ?? "slot",
+          };
+        }
+        throw new Error(
+          `platform pin ${pin}: the version slot read failed (${slotKey}): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (raw) {
+        const manifest = PlatformReleaseManifestSchema.parse(raw);
+        return writeCache(manifest, node, "slot");
+      }
+    }
+    // Slot miss across the chain — the pin names a release whose manifest
+    // leg never published (the npm-version-exists / manifest-not-published
+    // race, #568). The old "pin not found, publish the release or clear the
+    // pin" dead path is gone: slots are immutable, so this state means the
+    // release deploy must be re-run.
+    throw new Error(
+      `platform pin ${pin}: no version slot in the extends chain` +
+        `${chain.length > 0 ? ` (${chain.map((n) => `bos://${n.account}/${n.gateway}`).join(" → ")})` : ""} — ` +
+        `the release's manifest leg never published it; re-run the release deploy (or \`bos upgrade\` to re-pin)`,
+    );
+  }
+
   for (const node of chain) {
     const manifest = await fetchManifest(node.account, node.gateway);
     if (!manifest) continue;
-    if (!pin) return writeCache(manifest, node);
-    if (manifest.frameworkVersion === pin) return writeCache(manifest, node);
+    return writeCache(manifest, node, "pointer");
   }
 
   const cached = cacheRead();
-  if (cached && (!pin || cached.manifest.frameworkVersion === pin) && isFresh(cached, opts)) {
-    return { manifest: cached.manifest, source: cached.source, fromCache: true };
-  }
-
-  if (pin) {
-    throw new Error(
-      `platform pin ${pin} not found in the extends chain${chain.length > 0 ? ` (${chain.map((n) => `bos://${n.account}/${n.gateway}`).join(" → ")})` : ""} — publish the release or clear the pin`,
-    );
+  if (cached && isFresh(cached, opts)) {
+    return {
+      manifest: cached.manifest,
+      source: cached.source,
+      fromCache: true,
+      provenance: cached.provenance ?? "pointer",
+    };
   }
   return null;
+}
+
+/**
+ * The platform release manifest as a Context.Service: the same "module is
+ * the implementation, the tag is the seam" shape as FastKVRegistryService —
+ * CLI handlers `yield*` the tag; pure and standalone callers keep using the
+ * plain functions. Tests provide `Layer.succeed` fakes instead of module
+ * mocks.
+ */
+export class PlatformManifestService extends Context.Service<
+  PlatformManifestService,
+  {
+    resolvePlatformManifest: typeof resolvePlatformManifest;
+    composePlatformReleaseManifest: typeof composePlatformReleaseManifest;
+    checkPlatformCompat: typeof checkPlatformCompat;
+    readInImagePlatformManifest: typeof readInImagePlatformManifest;
+  }
+>()("everything-dev/platform/manifest") {
+  static readonly Live = Layer.succeed(
+    this,
+    this.of({
+      resolvePlatformManifest,
+      composePlatformReleaseManifest,
+      checkPlatformCompat,
+      readInImagePlatformManifest,
+    }),
+  );
 }

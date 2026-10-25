@@ -99,6 +99,8 @@ bos types gen   # Regenerate ui/src/lib/api-types.gen.ts and api/src/lib/plugins
 
 **Source of truth:** the authored config (`bos.app.ts`). If a plugin is listed there, its routes appear on `ApiContract`. If removed, TypeScript catches stale usage.
 
+**The runtime map** (same generation run): `.bos/generated/runtime-map.json` + `ui/src/lib/runtime-map.gen.ts` — the composition inventory answering "who owns this screen?" and "who serves this runtime?" without grepping `node_modules`: ui sources, backends (host/api/auth/plugins — remote ones carry the composed plugin version + contract hash), mounts, owned routes, shadowed claims. Route-ownership and change-placement workflows live in `docs/agents/runtime-map.md`.
+
 **After hand-editing the authored config:** Run `bos types gen` or restart `bos dev` to pick up changes.
 
 ## Runtime Config Loading

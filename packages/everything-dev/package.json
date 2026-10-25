@@ -1,6 +1,6 @@
 {
   "name": "everything-dev",
-  "version": "2.0.0-rc.18",
+  "version": "2.0.0-rc.21",
   "type": "module",
   "engines": {
     "node": ">=20.11"
@@ -80,6 +80,15 @@
       "types": "./dist/services/hosting/docker.d.mts",
       "import": "./dist/services/hosting/docker.mjs",
       "require": "./dist/services/hosting/docker.cjs"
+    },
+    "./hosting/secrets": {
+      "development": {
+        "types": "./src/services/hosting/secrets.ts",
+        "import": "./src/services/hosting/secrets.ts"
+      },
+      "types": "./dist/services/hosting/secrets.d.mts",
+      "import": "./dist/services/hosting/secrets.mjs",
+      "require": "./dist/services/hosting/secrets.cjs"
     },
     "./bundle-cache": {
       "development": {

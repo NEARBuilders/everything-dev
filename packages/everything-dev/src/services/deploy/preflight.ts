@@ -232,7 +232,7 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
       return fail(
         `Framework package(s) ${listing} are not published to npm yet — deploys must not ship ` +
           "bundles ahead of the registry (child scaffolds and update checks read these versions). " +
-          "Re-run the Release workflow (or `pnpm run release`) first.",
+          "The release train publishes npm itself; re-run the deploy once the Release workflow completes.",
       );
     }
 

@@ -1,6 +1,5 @@
 ---
 "everything-dev": patch
-"host": patch
 ---
 
 Deploy folder-form plugin uis and harden SSR composition against ui-less remotes.

@@ -45,6 +45,13 @@ jobs:
       # (`bos login --key --env staging`) — otherwise the production key matches.
       BOS_STORAGE_API_KEY: ${{ secrets.BOS_STAGING_STORAGE_API_KEY || secrets.BOS_STORAGE_API_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      # Same token-scope rule as consumer-deploy.yml: the child repoint
+      # (`service source connect`) needs a workspace-scoped RAILWAY_API_TOKEN
+      # plus project/environment targeting vars — set for staging separately
+      # if the staging service lives in a different Railway project.
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_STAGING_API_TOKEN || secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_STAGING_PROJECT_ID || vars.RAILWAY_PROJECT_ID }}
+      RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_STAGING_ENVIRONMENT_ID || vars.RAILWAY_ENVIRONMENT_ID }}
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)

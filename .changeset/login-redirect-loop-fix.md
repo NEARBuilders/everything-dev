@@ -1,7 +1,5 @@
 ---
-"@everything-dev/auth-plugin": patch
 "everything-dev": patch
-"ui": patch
 ---
 
 Post-sign-in redirect loop fix ("Too many redirects" after a successful login). The login page navigated to the redirect target before the refreshed session landed in the query cache, and the authed route guards read that cache via `ensureQueryData`, which returns a stale value immediately — so the guard bounced the just-signed-in user back to `/login`, the login route bounced them forward again, and the two guards ping-ponged past TanStack Router's 20-redirect limit into a root-boundary "Application error". Three fixes:

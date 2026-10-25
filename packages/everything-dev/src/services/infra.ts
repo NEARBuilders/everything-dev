@@ -194,6 +194,13 @@ function defaultSecretValue(
     return "http://localhost:3000";
   }
 
+  // Zero-config dev (plan 055 ticket 11): substrate URLs are opt-in — the
+  // example renders them empty so the consumers' pglite boot defaults apply;
+  // the operator sets a postgres:// URL to demand compose Postgres.
+  if (options.forExample) {
+    return "";
+  }
+
   return databases.get(secret)?.url ?? redisConfigs.get(secret)?.url ?? "";
 }
 
@@ -244,6 +251,16 @@ function renderEnvFile(
   for (const group of rendered) {
     lines.push(`# ${group.section}`);
     for (const secret of group.secrets) {
+      if (
+        options.forExample &&
+        (secret.endsWith("_DATABASE_URL") || secret.endsWith("_REDIS_URL"))
+      ) {
+        lines.push(
+          secret.endsWith("_REDIS_URL")
+            ? "# Leave empty for dev defaults; set a redis:// URL to opt into a real Redis."
+            : "# Leave empty to run dev on ephemeral pglite; set a postgres:// URL to opt into compose Postgres.",
+        );
+      }
       lines.push(`${secret}=${defaultSecretValue(secret, databaseMap, redisMap, options)}`);
     }
     lines.push("");

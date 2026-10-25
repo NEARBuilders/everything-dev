@@ -1,5 +1,4 @@
 ---
-"@everything-dev/auth-plugin": patch
 "better-near-auth": patch
 "every-plugin": patch
 ---

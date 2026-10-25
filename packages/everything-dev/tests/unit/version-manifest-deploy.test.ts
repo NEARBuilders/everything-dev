@@ -90,4 +90,40 @@ describe("composeWorkspaceVersionManifest", () => {
     expect(manifest.source).toBeUndefined();
     expect(manifest.gitSha).toBeUndefined();
   });
+
+  it("threads the build report's shared record into the manifest and the version hash (#546)", () => {
+    const base = composeWorkspaceVersionManifest({
+      report: { entry: "remoteEntry.83ba437f70018e7d.js" },
+      integrityMap: { "remoteEntry.83ba437f70018e7d.js": "sha384-entry" },
+    });
+    const manifest = composeWorkspaceVersionManifest({
+      report: {
+        entry: "remoteEntry.83ba437f70018e7d.js",
+        shared: { react: "19.2.9", "react-dom": "19.2.9" },
+      },
+      integrityMap: { "remoteEntry.83ba437f70018e7d.js": "sha384-entry" },
+    });
+    expect(manifest.shared).toEqual({ react: "19.2.9", "react-dom": "19.2.9" });
+    expect(manifest.version).not.toBe(base.version);
+  });
+
+  it("falls back to the ssr report's shared record when the web report has none", () => {
+    const manifest = composeWorkspaceVersionManifest({
+      report: { entry: "remoteEntry.83ba437f70018e7d.js" },
+      ssrReport: { entry: "remoteEntry.server.153cffaa67fea40a.js", shared: { react: "19.2.4" } },
+      integrityMap: {
+        "remoteEntry.83ba437f70018e7d.js": "sha384-entry",
+        "ssr/remoteEntry.server.153cffaa67fea40a.js": "sha384-ssr",
+      },
+    });
+    expect(manifest.shared).toEqual({ react: "19.2.4" });
+  });
+
+  it("omits shared when neither report carries one — builds predating the field stay valid", () => {
+    const manifest = composeWorkspaceVersionManifest({
+      report: { entry: "remoteEntry.83ba437f70018e7d.js" },
+      integrityMap: { "remoteEntry.83ba437f70018e7d.js": "sha384-entry" },
+    });
+    expect(manifest.shared).toBeUndefined();
+  });
 });

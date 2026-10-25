@@ -38,3 +38,18 @@ The operator's direction from the design session: stop treating hosting as per-c
 - The console, reconciler, and rollback unit are developed against the Docker substrate with real containers in CI; production swaps to Railway, then Fly, without touching them.
 - We take on uptime ownership only where we choose it (the destination substrate is managed; the escape hatches are not). Patching/uptime of the managed substrate stays with the provider.
 - Future seams, recorded not built: per-sandbox billing/quotas (deliberately deferred); multi-region fleet placement beyond the root pair; a substrate-agnostic log query layer if Axiom ever needs swapping.
+
+## Addendum (2026-10-24): interim child Railway semantics until the reconciler lands
+
+The child Railway leg's first real-world failure (citynode.app, 2026-10-24 — #598) surfaced a Railway constraint this ADR can absorb into its own resolution: **Railway authorizes CLI verbs by token scope**. A project-scoped `RAILWAY_TOKEN` (scoped to one environment, deploy commands only) cannot run `service source connect` — the `serviceConnect` mutation needs workspace scope (`RAILWAY_API_TOKEN`). The rc.21 pinned-child repoint assumed otherwise, so child deploys failed at the pin with "Unauthorized" *after* the config published — the same publish-mutated/repoint-failed class this ADR opens with, now understood to be structural, not a token-validity accident.
+
+Until the reconciler implements the target state ("the reconciler makes publish the deploy"), children run tiered semantics (shipped via #599):
+
+| Child credential | Railway leg behavior |
+|---|---|
+| none | publish-only: the leg soft-skips, deploy exits green; the running deployment keeps its boot-time config until something restarts it (the reconciler's job) |
+| project-scoped `RAILWAY_TOKEN` (the default child credential — smallest scope) | plain `redeploy --from-source` reload — the freshly published config is picked up because the runtime boots identity-driven from FastKV; when a platform pin resolves, a drift notice prints: the service source follows the pin only under the workspace token, so post-`bos upgrade` drift is loud, not silent |
+| workspace-scoped `RAILWAY_API_TOKEN` + targeting vars (opt-in) | pin-following repoint + redeploy — the advanced behavior, opt-in because a workspace token can mutate *any* project in the workspace and must never be the default per-child credential |
+
+The root runtime is unchanged and remains the advanced image-setting train (image job → digest handover → post-publish smoke → Railway pinned to the digest); it never repoints. This table is deliberately the last form of the child leg: the reconciler dissolves every row — the child's deploy action becomes publishing its config, per-child tokens retire.
+

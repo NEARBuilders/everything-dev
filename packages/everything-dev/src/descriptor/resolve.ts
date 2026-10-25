@@ -89,6 +89,7 @@ export function toConfigInput(descriptor: AppDescriptor): BosConfigInput {
       "testnet",
       "platform",
       "staging",
+      "starter",
       "ci",
       "cdn",
       "publish",
@@ -101,13 +102,14 @@ export function toConfigInput(descriptor: AppDescriptor): BosConfigInput {
     if (development) app.host = { development, ...pick(descriptor.host, ["secrets"]) };
   }
   if (descriptor.api) {
+    // Remote-only api entries (authored variables/secrets, no workspace) are
+    // meaningful and must round-trip — the development guard here silently
+    // deleted the whole slot on re-serialization (#566).
     const development = devRef(descriptor.api);
-    if (development) {
-      app.api = {
-        development,
-        ...pick(descriptor.api, ["proxy", "variables", "secrets", "routes", "shared", "dependsOn"]),
-      };
-    }
+    app.api = {
+      ...(development ? { development } : {}),
+      ...pick(descriptor.api, ["proxy", "variables", "secrets", "routes", "shared", "dependsOn"]),
+    };
   }
   if (descriptor.ui) {
     const development = devRef(descriptor.ui);
@@ -191,6 +193,10 @@ export function resolveApp(
 
   const resolved = { ...merged } as Record<string, unknown>;
   delete resolved.extends;
+  // Authoring-only: the descriptor's starter level never enters resolved
+  // configs (the schema strips it by design) — but `toConfigInput` now carries
+  // it losslessly for re-serialization (#565).
+  delete resolved.starter;
   applyDeployMap(resolved, deployMap[name]);
   return resolved as BosConfigInput;
 }
@@ -219,7 +225,13 @@ export function applyDevOverlay(
   resolved: BosConfigInput,
   overlay: Partial<AppDescriptor>,
 ): BosConfigInput {
-  return mergeBosConfigWithExtends(resolved, toConfigInput(overlay as AppDescriptor));
+  const merged = mergeBosConfigWithExtends(resolved, toConfigInput(overlay as AppDescriptor));
+  // The overlay is dev-only, but it may carry the authoring-only starter
+  // level — never let it bleed into the resolved shape (JSON parents' starter
+  // *block* is parent-publish metadata and survives; only the string level is
+  // authoring-only).
+  if (typeof merged.starter === "string") delete merged.starter;
+  return merged;
 }
 
 /** Resolve every app in the registry. */
@@ -266,8 +278,18 @@ export function configInputToDescriptor(input: BosConfigInput): AppDescriptor {
   const app = (input.app ?? {}) as Record<string, Record<string, unknown>>;
   const slot = (key: "host" | "ui" | "api"): Record<string, unknown> | undefined => {
     const entry = app[key];
-    if (!entry?.development) return undefined;
-    const out: Record<string, unknown> = { path: stripLocal(entry.development as string) };
+    if (!entry) return undefined;
+    // host/ui are path-strict — a pathless entry there is meaningless. api
+    // carries authored variables/secrets and is meaningful remote-only (#566):
+    // the same guard class that dropped remote-only auth attachments.
+    if (!entry.development && key !== "api") return undefined;
+    const out: Record<string, unknown> = {};
+    const localPath = stripLocal(entry.development as string | undefined);
+    if (localPath !== undefined) {
+      out.path = localPath;
+    } else if (entry.development !== undefined) {
+      out.development = entry.development;
+    }
     for (const field of ATTACHMENT_FIELDS) {
       if (field === "name") continue;
       if (entry[field] !== undefined) out[field] = entry[field];
@@ -280,7 +302,10 @@ export function configInputToDescriptor(input: BosConfigInput): AppDescriptor {
   }
 
   const auth = app.auth;
-  if (auth?.development) descriptor.auth = entryToAttachment("auth", auth);
+  // No `development` guard: a remote-only auth attachment (published plugin
+  // with variables/secrets, no local path) must round-trip like the plugins
+  // loop below — dropping it deleted authored auth config.
+  if (auth) descriptor.auth = entryToAttachment("auth", auth);
 
   const plugins: Record<string, unknown> = {};
   for (const [key, raw] of Object.entries((input.plugins ?? {}) as Record<string, unknown>)) {

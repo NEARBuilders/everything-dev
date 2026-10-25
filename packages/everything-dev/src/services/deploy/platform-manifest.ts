@@ -6,10 +6,12 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { satisfiesConstraint } from "../federation/service";
 import {
   composePlatformReleaseManifest,
   computeTemplateInventory,
   getPlatformManifestKey,
+  getPlatformVersionSlotKey,
   type PlatformReleaseManifest,
   resolvePlatformManifest,
   serializePlatformReleaseManifest,
@@ -17,6 +19,8 @@ import {
 import { readWorkspaceCatalog } from "../workspace/catalog";
 import { readFrameworkVersion } from "./image";
 import { computeSriHash } from "./integrity";
+
+export { getPlatformManifestKey, getPlatformVersionSlotKey };
 
 /** The universal image (ADR 0020/0021) — the release manifest's image ref. */
 export const PLATFORM_IMAGE_REF = "ghcr.io/nearbuilders/everything-dev";
@@ -81,21 +85,59 @@ export interface DerivedImageRef {
 }
 
 /**
+ * The truth gate (#546): every uploaded workspace's version manifest declares
+ * the shared-singleton versions its build embedded; the release manifest pins
+ * the same names from the release catalog. A version that appears in both but
+ * disagrees means the workspace's install drifted from the catalog — the
+ * manifest would lie about the uploaded bytes and pinned children would boot
+ * a skewed composition. Pin shapes mirror `checkPlatformCompat`'s semantics
+ * (via `satisfiesConstraint`): an exact pin must match exactly, a range pin
+ * must be satisfied by the built version — the catalog pinning every-plugin
+ * as `^X` while bundles record the exact resolved version is not a violation.
+ * Returns human-readable violations; empty = clean.
+ */
+export function platformTruthViolations(
+  manifest: PlatformReleaseManifest,
+  sharedByWorkspace: Map<string, Record<string, string> | undefined>,
+): string[] {
+  const violations: string[] = [];
+  for (const [workspace, shared] of sharedByWorkspace) {
+    if (!shared) continue;
+    for (const [name, version] of Object.entries(shared)) {
+      const pin = manifest.sharedDeps[name];
+      if (pin && !satisfiesConstraint(version, pin.version)) {
+        violations.push(
+          `${workspace} was built against ${name}@${version}, the release manifest pins ${pin.version} — ` +
+            `a stale install publishes a manifest that lies about the uploaded bytes; ` +
+            `run pnpm install and redeploy`,
+        );
+      }
+    }
+  }
+  return violations;
+}
+
+/**
  * The derived-pin seam for image refs (ADR 0034 pt 2): when the platform
  * manifest resolves, a runtime's image ref derives as `ref@v<version>` —
  * never hand-pinned. Digest resolution rides the registry and arrives as
  * `digest` when the caller can fetch it; the deploy preflight consumer is
- * follow-up work (plan 054 T4).
+ * `resolveChildImagePin` (`services/deploy/legs.ts`), which resolves the
+ * tag's digest and repoints the Railway service source.
  */
 export async function deriveImageRefFromPlatformManifest(opts: {
   configDir: string;
   localConfig: Record<string, unknown>;
   fetchManifest?: (account: string, gateway: string) => Promise<PlatformReleaseManifest | null>;
+  fetchSlot?: (account: string, gateway: string, version: string) => Promise<unknown>;
+  fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
 }): Promise<DerivedImageRef | null> {
   const resolved = await resolvePlatformManifest({
     configDir: opts.configDir,
     localConfig: opts.localConfig,
     fetchManifest: opts.fetchManifest,
+    ...(opts.fetchSlot ? { fetchSlot: opts.fetchSlot } : {}),
+    ...(opts.fetchParent ? { fetchParent: opts.fetchParent } : {}),
   });
   if (!resolved) return null;
   const tag = resolved.manifest.image.tags[0];

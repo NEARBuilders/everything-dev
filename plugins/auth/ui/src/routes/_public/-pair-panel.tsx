@@ -5,12 +5,14 @@ import { getDeviceLinkClientId, refreshSessionCache, useAuthClient } from "every
 import QRCode from "qrcode";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ErrorDetail } from "@/components/error-detail";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import type { LoginMessageId } from "@/i18n/catalogs";
 import { useLoginTranslation } from "@/i18n/runtime";
 import { offerPasskeyOnThisDevice } from "@/lib/passkey-offer";
+import { extractSiteError } from "@/lib/site-error";
 
 const DEVICE_LINK_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
@@ -31,6 +33,7 @@ export function PairPanel({ redirect, onClose }: { redirect: string; onClose: ()
   const [link, setLink] = useState<DeviceLink | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState<LoginMessageId | null>(null);
+  const [failureDetail, setFailureDetail] = useState<string | null>(null);
   const [claimed, setClaimed] = useState(false);
   const canceledRef = useRef(false);
 
@@ -42,6 +45,7 @@ export function PairPanel({ redirect, onClose }: { redirect: string; onClose: ()
       .then(({ data, error }: { data: Record<string, unknown> | null; error: unknown }) => {
         if (!active) return;
         if (error || !data) {
+          setFailureDetail(extractSiteError(error).detail);
           setFailed("auth.login.pair.startFailed");
           return;
         }
@@ -90,6 +94,7 @@ export function PairPanel({ redirect, onClose }: { redirect: string; onClose: ()
           body: { token, client_id: getDeviceLinkClientId() },
         });
         if (claim.error) {
+          setFailureDetail(extractSiteError(claim.error).detail);
           setFailed("auth.login.pair.completeFailed");
           return;
         }
@@ -138,9 +143,7 @@ export function PairPanel({ redirect, onClose }: { redirect: string; onClose: ()
         </span>
       </div>
       {failed ? (
-        <p className="text-center text-sm text-destructive" data-testid="device.error">
-          {t(failed)}
-        </p>
+        <ErrorDetail message={t(failed)} detail={failureDetail} testId="device.error" />
       ) : (
         <p
           className="flex items-center gap-2 text-sm text-muted-foreground"

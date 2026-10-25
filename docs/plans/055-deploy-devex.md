@@ -42,6 +42,14 @@ After the first deploy there are no questions, only the URL.
 
 RC cut (decided 2026-10-21): a name-keyed store in the api shell, values sealed with `createSealedBox` under a per-runtime KEK sealed by the platform root key. Honest boundary: the platform can technically read hosted-tier secrets — the substrate is already ours. The **custody ceremony is cut from RC**; the KEK source is a swappable sub-seam — the custody-TEE swap (parked ticket 13) changes the KEK origin without touching schema, CLI, or config declarations. Delivery: reconciler assembles resolved values into `identityEnv`; host resolution unchanged.
 
+Built as scoped (ticket 09):
+- **Per-runtime KEK** = `createSealedBox(salt: "everything-dev-runtime-secrets/<account>/<gateway>", secret: BETTER_AUTH_SECRET)` — the platform root HKDF'd with a runtime-scoped salt; no new env var, no key ceremony. The api shell declares `BETTER_AUTH_SECRET` (schema-required — fail loud).
+- **Reserved-key contract**: `bos secrets set` refuses `BOS_*` and `PORT` — identityEnv is a *composed* surface; operator secrets must never collide with platform identity/ports/provisioned DB URLs. Rules live in `everything-dev/hosting/secrets` (one source for store, CLI, and delivery).
+- **Vault = instance-bearing tiers only.** Two refusals: BYO-account ("this tier supplies its own env") and shared-host/UI-only ("no instance to deliver env to; custom API requires the instance tier"). v1 enforces the name rules server-side; the tier refusals land with the tenant/bindings surface (ticket 14) — until then the CLI refuses a target runtime that isn't the declared config itself or a child of the credential's site.
+- **Values are one column** (`base64url(iv).base64url(ciphertext)`), never echoed by `list`, never readable from the CLI. `resolve` (unseal) exists at the service level for delivery but is deliberately NOT exposed as a route in v1 — the reconciler's delivery credential is ticket 08's design problem.
+- **Dev-restart caveat** (zero-config dev's per-run root secret): stored secrets can't be opened after a restart without a persisted root — `resolve` fails loudly with "re-set it"; `list` keeps showing the row. Deployed runtimes (persistent root secret) are unaffected.
+- **North star (not RC)**: instance-pull delivery — instances fetch their own secrets at boot from a source they authenticate to directly, taking the platform out of the plaintext path. Recorded here as the design direction the delivery seam should not foreclose. Ticket 13's concrete shape: an OutLayer WASI "KMS" agent holding a `PROTECTED_*`-generated key (never visible even to its owner); the api shell calls seal/open over `POST /call/{owner}/kms` — a **key-custody upgrade** (KEK survives root-secret rotation, never sits in platform memory), not platform-blindness: the reconciler can invoke open, so delivery still transits the platform.
+
 ### First deploy: shared-host tier only, publish is go-live
 
 A `*.<root>` shared-host tenant rides the root's stack end to end — no instance, no DB. Magic preflight asks exactly one class of question (declared-but-unset secrets the platform cannot invent — paste-or-skip), generates everything else (`BETTER_AUTH_SECRET` crypto-random into the store — no prompt, no `.env`), then the normal train → the live URL. Neon/own-instance provisioning is deploy-console Phase 2.
@@ -64,6 +72,19 @@ The complaint that motivated the cutthroat pass — "maintaining too much of all
 | 06 | Doc/string drift (`bos sync` phantom, stale legacy-filename strings, `--status-list`/`--list-only` deprecation) | trivial |
 
 Sequenced nuke: the **CLI Railway leg** (full surface mapped in the review) dies after the reconciler (console ticket 08) + Railway adapter (ticket 05) cover root and children — never before. Welded later: dev/start boot-stack unification, signing-mode dispatch — real consolidation, too hot to touch mid-RC.
+
+## Reconciler v1 (ticket 08, built 2026-10-22)
+
+Lives in the api shell (`api/src/lib/reconciler.ts`) — the one place that already holds all three services in-process:
+
+- **Delivery credential = in-process access.** The reconciler is platform-internal code; `SecretsStore.resolve` is consumed directly as a service, no route, no new credential surface. An auth-gated plaintext HTTP door (any credentialed user reads any runtime's secrets) was the rejected alternative.
+- **Watch list** comes from the api plugin's `variables.hosting.reconciler` (`watch: [{ account, gateway, instance?, image? }]`, `pollIntervalMs` clamped to ≥1s, default 15s). Empty watch list (the default) → the reconciler service reports `enabled: false` and the docker adapter is never imported — no alchemy requirement for children.
+- **Decision function** (`decideReconcile`): first observation of a running instance records the baseline without deploying (booting the reconciler must not restart the fleet); a stopped instance at boot converges immediately; afterwards, fingerprint change → converge, unchanged → no-op — with one self-healing exception: a mid-life *stopped* instance is restarted on its existing pin (cheap inspect per tick).
+- **Convergence** resolves the image from the platform-manifest pin in force at the deploy (joined by block height — the same join the history rows use), falls back to the watch entry's explicit `image`; no pin resolvable → drift, loudly, no deploy. `identityEnv` = identity keys + provisioned DB URLs + vault secrets via `withSecrets` (platform keys always win).
+- **Per-runtime databases** (the ticket-09 design note): decided **database-per-runtime** (ADR 0035 already fixes durable Postgres on Neon, "instances are cattle"); the minimal call is implemented — when the platform's own `API_DATABASE_URL` is postgres, converge provisions `runtime_<slug>_api` + `runtime_<slug>_auth` (deterministic sanitized slug + digest) and rides both URLs into `identityEnv`; pglite platform → no provisioning (in-image pglite, the zero-config default). Lifecycle on runtime deletion: recorded for the console's instance-delete surface, not built (no delete surface exists). The two URL names joined the reserved secret names so vault values can never shadow them.
+- **Drift state**: in-memory per namespace (`drift.reason`/`at`, cleared on the next successful tick), surfaced via `POST /hosting/reconciler/status` — the durable drift marker (ticket 06's UI) consumes this route.
+- **Loop**: `Layer.effectDiscard(loop.pipe(Effect.forkScoped))` — the fiber lives with the plugin's lifecycle scope.
+- **Demo recorded**: `api/tests/reconciler-docker.test.ts` — fake FastKV history (injected fetch seam) + real Docker adapter + real pglite-backed vault; publish v2 (new fingerprint + new platform pin + new vault secret) → next tick recreates the container on the new pin with the secret delivered, no manual action. Manual replay needs only `bos.dev.ts` overriding the api variables' watch list.
 
 ## Tickets
 

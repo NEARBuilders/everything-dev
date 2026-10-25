@@ -164,7 +164,7 @@ describe("getContext handler", () => {
     expect(result.permissions!.apiKey).toContain("create");
   });
 
-  it("returns null permissions for a session user without an active org", async () => {
+  it("grants fresh sessions the personal org's owner permissions", async () => {
     const user = await createTestUser(services.services);
     await createTestOrg(services.services, user.userId, { name: "Inactive Org" });
 
@@ -174,7 +174,8 @@ describe("getContext handler", () => {
     });
 
     expect(result.authMethod).toBe("session");
-    expect(result.permissions).toBeNull();
+    expect(result.organization.activeOrganizationId).toBe(user.personalOrgId);
+    expect(result.permissions).not.toBeNull();
   });
 
   it("returns the API key's declared permissions for key principals", async () => {

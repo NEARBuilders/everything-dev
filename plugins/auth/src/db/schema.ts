@@ -29,6 +29,8 @@ export const user = pgTable("user", {
   phoneNumber: text("phone_number").unique(),
   phoneNumberVerified: boolean("phone_number_verified"),
   locale: text("locale"),
+  lastActiveOrganizationId: text("last_active_organization_id"),
+  lastActiveTeamId: text("last_active_team_id"),
 });
 
 export const session = pgTable(
