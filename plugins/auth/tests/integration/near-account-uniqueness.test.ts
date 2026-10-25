@@ -40,7 +40,7 @@ describe("nearAccount (accountId, network) uniqueness", () => {
     const { services } = await createTestServices();
     const alice = await createTestUser(services, { name: "Alice" });
     const bob = await createTestUser(services, { name: "Bob" });
-    const context = (await services.auth.$context) as AuthContext;
+    const context = (await services.auth.$context) as unknown as AuthContext;
     const { x, y } = generateP256();
     const credentialPublicKey = base64.encode(coseForP256(x, y));
 
