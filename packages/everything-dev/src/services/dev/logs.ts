@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const ESC = "\x1b";
@@ -392,11 +392,53 @@ export function formatLogLine(entry: LogEntry): string {
   return [`${head}${first}`, ...rest.map((line) => `${pad}${line}`)].join("\n");
 }
 
+const DATED_LOG_RE = /^dev-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d+\.log$/;
+const LATEST_PID_RE = /^dev-latest-\d+\.log$/;
+
+/** Dated session logs beyond the newest KEEP are pruned each boot, as is
+ * anything older than MAX_AGE — bounded sediment, never unbounded growth. */
+const PRUNE_KEEP = 20;
+const PRUNE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Files touched within this window are never pruned — a concurrent live
+ * session may still be appending to its dated log. */
+const PRUNE_SKIP_MS = 24 * 60 * 60 * 1000;
+
+export async function pruneDatedLogs(dir: string): Promise<void> {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  const prunable: Array<{ name: string; mtimeMs: number }> = [];
+  for (const name of names) {
+    if (!DATED_LOG_RE.test(name) && !LATEST_PID_RE.test(name)) continue;
+    try {
+      const mtimeMs = statSync(join(dir, name)).mtimeMs;
+      if (now - mtimeMs > PRUNE_SKIP_MS) prunable.push({ name, mtimeMs });
+    } catch {
+      // vanished concurrently — nothing to prune
+    }
+  }
+  prunable.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  const victims = new Set(
+    prunable.slice(0, Math.max(0, prunable.length - PRUNE_KEEP)).map((c) => c.name),
+  );
+  for (const { name, mtimeMs } of prunable) {
+    if (now - mtimeMs > PRUNE_MAX_AGE_MS) victims.add(name);
+  }
+  for (const name of victims) {
+    await unlink(join(dir, name)).catch(() => {});
+  }
+}
+
 export async function createDevLogger(configDir: string, description: string): Promise<DevLogger> {
   const dir = getLogsDir(configDir);
   if (!existsSync(dir)) {
     await mkdir(dir, { recursive: true });
   }
+  await pruneDatedLogs(dir);
 
   const now = new Date();
   const ts = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
