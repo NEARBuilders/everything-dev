@@ -349,7 +349,9 @@ export interface BosConfigInput {
   ci?: CiConfig;
   cdn?: CdnConfig;
   rolledBackFrom?: string;
-  starter?: ParentStarterConfig;
+  /** Parent-published starter-pruning metadata — or the child's own
+   * authoring-only starter level (descriptor `starter`, #565). */
+  starter?: ParentStarterConfig | StarterLevel;
 }
 
 export const RailwayCiSchema = z.object({
@@ -399,7 +401,7 @@ export const BosConfigSchema = z.object({
   ci: CiConfigSchema.optional(),
   cdn: CdnConfigSchema.optional(),
   rolledBackFrom: z.string().optional(),
-  starter: ParentStarterConfigSchema.optional(),
+  starter: z.union([ParentStarterConfigSchema, StarterLevelSchema]).optional(),
   plugins: z.record(PluginKeySchema, z.union([z.string(), BosPluginRefSchema])).optional(),
   app: z.object({
     host: HostConfigSchema,
