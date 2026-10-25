@@ -10,19 +10,12 @@ import (
 	"everything.dev/regression/http/internal/regtest"
 )
 
-// TestUiChurnSwap is the module-swap money test (epic #473, ticket #469):
+// TestUiChurnSwap is the module-swap money test (epic #473, tickets #469/#471):
 // churn the ui source, dev-shape rebuild it while the dev:ssr stack keeps
-// running, and verify the next compose re-loads the fresh container and the
-// app keeps serving a consistent SSR tree — no error shells, no mixed-version
-// failure classes.
-//
-// Known gap pinned as content-agnostic (do not assert which generation
-// renders): the host re-registers the remote and loads the fresh container
-// (the container version mark advances), but route modules currently keep
-// executing stale bytes until the stack restarts — the MF runtime reuses the
-// already-initialized container for the remote name. The fix lands with the
-// seam refactor; when it does, assert the new marker appears in the SSR HTML
-// here.
+// running, and verify the hot swap end to end — the next compose re-loads the
+// fresh container AND the new generation's bytes actually render (the churn
+// marker appears in the SSR HTML), with the tree staying consistent
+// throughout: no error shells, no mixed-version failure classes.
 func TestUiChurnSwap(t *testing.T) {
 	if os.Getenv("BOS_FIXTURE_CHURN") != "1" {
 		t.Skip("fixture-churn acceptance — run with BOS_FIXTURE_CHURN=1 (pnpm run test:regression:http:churn:dev)")
@@ -54,36 +47,27 @@ func TestUiChurnSwap(t *testing.T) {
 	regtest.DevShapeRebuildUi(t)
 
 	// Poll past the manifest TTL (30s) + margin: the next compose must pick
-	// up the new container version and keep serving a consistent tree.
+	// up the new container version, re-render the tree from the fresh
+	// container's bytes, and keep serving a consistent tree throughout.
 	deadline := time.Now().Add(75 * time.Second)
-	containerAdvanced := false
+	swapped := false
 	for time.Now().Before(deadline) {
-		assertSSRHealthy(t, client, "post-churn")
-		for version := range regtest.ContainerVersionsSince(t, logs, offsets) {
-			if !before[version] {
-				containerAdvanced = true
-			}
-		}
-		if containerAdvanced {
+		body := assertSSRHealthy(t, client, "post-churn")
+		if strings.Contains(body, marker) {
+			swapped = true
 			break
 		}
 		time.Sleep(3 * time.Second)
 	}
-	if !containerAdvanced {
-		t.Fatalf("container version never advanced after churn — the host did not re-load the ui container (marks in %s)", strings.Join(logs, ", "))
+	if !swapped {
+		t.Fatalf("churn marker %q never rendered — the hot swap did not propagate to the served tree (marks in %s)", marker, strings.Join(logs, ", "))
 	}
-
-	// The marker string itself must NOT leak as a failure mode: whether the
-	// new generation renders (known gap — it does not yet) or the stale one
-	// does, the page stays a healthy SSR tree. assertSSRHealthy already
-	// covered that on every poll; nothing else to assert here.
-	_ = marker
 }
 
 // assertSSRHealthy pins the consistency invariants on one /about response:
 // 200, real SSR (data-everything-ssr), Server-Timing, and none of the failure
-// shells or mixed-version error classes.
-func assertSSRHealthy(t *testing.T, client *http.Client, phase string) {
+// shells or mixed-version error classes. Returns the body for content checks.
+func assertSSRHealthy(t *testing.T, client *http.Client, phase string) string {
 	t.Helper()
 	status, headers, body := regtest.GetRaw(t, client, baseURL+"/about")
 	if status != 200 {
@@ -106,4 +90,5 @@ func assertSSRHealthy(t *testing.T, client *http.Client, phase string) {
 			t.Fatalf("[%s] SSR tree not consistent: response contains %q\nBody: %s", phase, forbidden, snippet)
 		}
 	}
+	return body
 }

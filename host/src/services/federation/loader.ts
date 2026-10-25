@@ -13,7 +13,7 @@ import type { RouterModule } from "../../types";
 import { mark } from "../../utils/effect-run";
 import type { RuntimeConfig } from "../config";
 import { ExposeModuleMissing, FederationError } from "../errors";
-import { CompositionRuntime } from "./instance";
+import { type CompositionSession, CompositionRuntime } from "./instance";
 
 const EXPOSE_CACHE_TTL = "5 minutes";
 const NEGATIVE_CACHE_TTL = "10 seconds";
@@ -45,12 +45,16 @@ interface ExposeLoadParams {
 
 interface RouterLoadParams extends ExposeLoadParams {}
 
+interface CachedLoad {
+  readonly session: CompositionSession;
+  readonly params: ExposeLoadParams;
+}
+
 /**
- * TTL-capped, retry-bounded, negative-cached expose loads served through the
- * SHARED composition instance so core Router and plugin trees negotiate
- * singletons (react, react-dom, @tanstack/*) in one share scope.
+ * TTL-capped, retry-bounded, negative-cached expose loads executed through a
+ * compose-pinned generation session.
  *
- * Invariants (epic #473, ticket #470):
+ * Invariants (epic #473, tickets #470/#478):
  *
  * 1. Integrity is verified before every expose load that carries one —
  *    verified entries cache 5 minutes; a FAILED verification is not
@@ -58,23 +62,29 @@ interface RouterLoadParams extends ExposeLoadParams {}
  * 2. Successful loads cache 5 minutes; a FAILED load negative-caches 10
  *    seconds so a downed remote is probed once per window, not once per
  *    request. In-flight lookups are shared.
- * 3. An entry-URL change (integrity bump, hot reload) bypasses the runtime's
- *    module cache — no mixed-version composed tree.
+ * 3. Cache keys carry the composition generation: a retired generation's
+ *    cached modules can never serve into a newer generation's tree (mixed
+ *    generations mix React copies — "Invalid hook call"). A generation swap
+ *    re-loads everything through the fresh instance; capacity eviction reaps
+ *    the dead keys.
  * 4. Every outbound fetch carries a deadline; a wedged remote rejects into
  *    the caller's error path instead of suspending the request forever.
  */
 export class FederationLoader extends Context.Service<
   FederationLoader,
   {
+    /** Open (or join) the composition session for one compose's desired
+     * remote entry set — see `CompositionRuntime.ensureRemotes`. */
+    readonly ensureSession: (remotes: { name: string; entry: string }[]) => CompositionSession;
     readonly verifyIntegrity: (params: {
       remoteName: string;
       remoteUrl?: string;
       entryUrl: string;
       integrity?: string;
     }) => Effect.Effect<void, FederationError>;
-    readonly loadExpose: <T>(params: ExposeLoadParams) => Effect.Effect<T, FederationError>;
+    readonly loadExpose: <T>(params: ExposeLoadParams & { session: CompositionSession }) => Effect.Effect<T, FederationError>;
     readonly loadRouterModule: (
-      params: RouterLoadParams,
+      params: RouterLoadParams & { session: CompositionSession },
     ) => Effect.Effect<RouterModule, FederationError>;
   }
 >()("host/services/federation/FederationLoader") {
@@ -106,11 +116,11 @@ export class FederationLoader extends Context.Service<
         },
       );
 
-      const exposeParams = new Map<string, ExposeLoadParams>();
+      const exposeParams = new Map<string, CachedLoad>();
       const exposeCache = yield* Cache.makeWith<string, unknown, FederationError>(
         (key) => {
-          const params = exposeParams.get(key);
-          if (!params) {
+          const cached = exposeParams.get(key);
+          if (!cached) {
             return Effect.fail(
               new FederationError({
                 remoteName: key,
@@ -118,7 +128,7 @@ export class FederationLoader extends Context.Service<
               }),
             );
           }
-          return loadExposeLookup(runtime, params);
+          return loadExposeLookup(runtime, cached);
         },
         {
           capacity: MAX_EXPOSE_CACHE_SIZE,
@@ -126,11 +136,11 @@ export class FederationLoader extends Context.Service<
         },
       );
 
-      const routerParams = new Map<string, RouterLoadParams>();
+      const routerParams = new Map<string, CachedLoad>();
       const routerCache = yield* Cache.makeWith<string, RouterModule, FederationError>(
         (key) => {
-          const params = routerParams.get(key);
-          if (!params) {
+          const cached = routerParams.get(key);
+          if (!cached) {
             return Effect.fail(
               new FederationError({
                 remoteName: key,
@@ -138,7 +148,7 @@ export class FederationLoader extends Context.Service<
               }),
             );
           }
-          return loadExposeLookup(runtime, params);
+          return loadExposeLookup(runtime, cached) as Effect.Effect<RouterModule, FederationError>;
         },
         {
           capacity: MAX_ROUTER_MODULE_CACHE_SIZE,
@@ -165,64 +175,73 @@ export class FederationLoader extends Context.Service<
         );
       };
 
-      const loadExpose = <T>(params: ExposeLoadParams): Effect.Effect<T, FederationError> => {
-        const cacheKey = exposeCacheKey(params);
-        exposeParams.set(cacheKey, params);
+      const loadExpose = <T>(
+        params: ExposeLoadParams & { session: CompositionSession },
+      ): Effect.Effect<T, FederationError> => {
+        const cacheKey = exposeCacheKey(params.session.generation, params);
+        exposeParams.set(cacheKey, { session: params.session, params });
         return Cache.get(exposeCache, cacheKey) as unknown as Effect.Effect<T, FederationError>;
       };
 
       const loadRouterModule = (
-        params: RouterLoadParams,
+        params: RouterLoadParams & { session: CompositionSession },
       ): Effect.Effect<RouterModule, FederationError> => {
-        const cacheKey = `${params.remoteName}::${params.entryUrl}::${params.expose}`;
         if (params.bypassModuleCache) {
           // Local dev / no-integrity loads skip the cache entirely — every
-          // request re-executes the expose through a fresh container
-          // (hot-reload support). No throwaway per-call map: nothing cached.
-          return loadExposeLookup<RouterModule>(runtime, params);
+          // request re-executes the expose (hot-reload support) inside the
+          // session's generation. No throwaway per-call map: nothing cached.
+          return loadExposeLookup<RouterModule>(runtime, {
+            session: params.session,
+            params,
+          });
         }
-        routerParams.set(cacheKey, params);
+        const cacheKey = exposeCacheKey(params.session.generation, params);
+        routerParams.set(cacheKey, { session: params.session, params });
         return Cache.get(routerCache, cacheKey);
       };
 
-      return FederationLoader.of({ verifyIntegrity, loadExpose, loadRouterModule });
+      return FederationLoader.of({
+        ensureSession: (remotes) => runtime.ensureRemotes(remotes),
+        verifyIntegrity,
+        loadExpose,
+        loadRouterModule,
+      });
     }),
   ).pipe(Layer.provide(CompositionRuntime.layer));
 }
 
-const exposeCacheKey = (params: ExposeLoadParams) =>
-  `${params.remoteName}::${params.entryUrl}::${params.expose}`;
+const exposeCacheKey = (generation: number, params: ExposeLoadParams) =>
+  `${generation}::${params.remoteName}::${params.entryUrl}::${params.expose}`;
 
 /**
- * One expose load through the shared composition instance: register/re-register
- * the remote (entry-change ⇒ bypass the runtime's module cache), serialized
- * share-scope init, retry-bounded load, unwrap per the expose's contract.
+ * One expose load through the compose-pinned session: serialized share-scope
+ * init, retry-bounded load, unwrap per the expose's contract. The session's
+ * instance already carries this remote at this entry — reconciliation
+ * happened when the compose opened its session.
  */
 const loadExposeLookup = <T>(
   runtime: CompositionRuntime["Service"],
-  params: ExposeLoadParams,
+  cached: CachedLoad,
 ): Effect.Effect<T, FederationError> =>
   Effect.gen(function* () {
+    const { session, params } = cached;
     const { remoteName, entryUrl, expose, unwrapDefault, bypassModuleCache } = params;
-    const mf = runtime.ensureRemote({ name: remoteName, entry: entryUrl });
-    const entryChanged = runtime.entryChanged({ name: remoteName, entry: entryUrl });
-    if (bypassModuleCache || entryChanged) {
-      runtime.bypassModuleCache(remoteName);
+    if (bypassModuleCache) {
+      runtime.bypassModuleCache(session, remoteName);
     }
-    runtime.markLoaded({ name: remoteName, entry: entryUrl });
 
     const startedAt = yield* Clock.currentTimeMillis;
-    yield* runtime.initializeShareScope(mf);
+    yield* runtime.initializeShareScope(session.mf);
     const result = yield* Effect.tryPromise({
-      try: () => mf.loadRemote<any>(expose, { from: "build" }),
+      try: () => session.mf.loadRemote<any>(expose, { from: "build" }),
       catch: (cause) => new FederationError({ remoteName, remoteUrl: entryUrl, cause }),
     }).pipe(Effect.timeout("30 seconds"));
     yield* Effect.logDebug("expose load").pipe(
       Effect.annotateLogs({
         remote: remoteName,
         expose,
+        generation: session.generation,
         bypassModuleCache,
-        entryChanged,
         durationMs: (yield* Clock.currentTimeMillis) - startedAt,
       }),
     );
@@ -239,8 +258,8 @@ const loadExposeLookup = <T>(
       error instanceof FederationError
         ? error
         : new FederationError({
-            remoteName: params.remoteName,
-            remoteUrl: params.entryUrl,
+            remoteName: cached.params.remoteName,
+            remoteUrl: cached.params.entryUrl,
             cause: error,
           }),
     ),
@@ -252,7 +271,11 @@ function hasRouteConfigLoaders(
   return Boolean(module?.routeConfigLoaders && typeof module.routeConfigLoaders === "object");
 }
 
-function requireSsrEntryUrl(entry: EntrySlot, env: BosEnv): string {
+/** The SSR container entry URL for an entry slot — versioned (dev buster /
+ * pin-derived) so a rebuilt container is a NEW entry, the generation-swap
+ * trigger. Exported for composeUi to assemble the compose's full desired
+ * remote set before any load executes. */
+export function requireSsrEntryUrl(entry: EntrySlot, env: BosEnv): string {
   const ssr = entryUrls(entry, env).ssr;
   if (!ssr) {
     throw new FederationError({
@@ -273,8 +296,9 @@ const loadUiExpose = Effect.fn("loadUiExpose")(
     expose: string;
     unwrapDefault: boolean;
     timeoutLabel: string;
+    session: CompositionSession;
   }) {
-    const { entry, env, expose, unwrapDefault } = params;
+    const { entry, env, expose, unwrapDefault, session } = params;
     const loader = yield* FederationLoader;
     const entryUrl = requireSsrEntryUrl(entry, env);
     yield* loader.verifyIntegrity({
@@ -289,6 +313,7 @@ const loadUiExpose = Effect.fn("loadUiExpose")(
       expose: `${entry.name}/${expose.replace(/^\.\//, "")}`,
       unwrapDefault,
       bypassModuleCache: false,
+      session,
     });
   },
   (effect, params) =>
@@ -306,6 +331,7 @@ const loadUiExpose = Effect.fn("loadUiExpose")(
 export const loadUiRouteConfig = Effect.fn("loadUiRouteConfig")(function* (
   entry: EntrySlot,
   env: BosEnv,
+  session: CompositionSession,
 ) {
   const module = yield* loadUiExpose<RouteConfigModule>({
     entry,
@@ -313,6 +339,7 @@ export const loadUiRouteConfig = Effect.fn("loadUiRouteConfig")(function* (
     expose: UI_EXPOSES.routeConfig,
     unwrapDefault: false,
     timeoutLabel: "Ui routeConfig",
+    session,
   });
   if (hasRouteConfigLoaders(module)) return module;
   return yield* new FederationError({
@@ -332,6 +359,7 @@ export interface ComposeModule {
 export const loadUiComposeModule = Effect.fn("loadUiComposeModule")(function* (
   entry: EntrySlot,
   env: BosEnv,
+  session: CompositionSession,
 ) {
   return yield* loadUiExpose<ComposeModule>({
     entry,
@@ -339,6 +367,7 @@ export const loadUiComposeModule = Effect.fn("loadUiComposeModule")(function* (
     expose: UI_EXPOSES.compose,
     unwrapDefault: false,
     timeoutLabel: "Ui compose",
+    session,
   });
 });
 
@@ -346,7 +375,11 @@ export const loadUiComposeModule = Effect.fn("loadUiComposeModule")(function* (
 export const loadCoreUiRouteConfig = loadUiRouteConfig;
 
 export const loadRouterModule = Effect.fn("loadRouterModule")(
-  function* (config: RuntimeConfig, localEntry?: EntrySlot) {
+  function* (
+    config: RuntimeConfig,
+    localEntry: EntrySlot | undefined,
+    session: CompositionSession,
+  ) {
     const loader = yield* FederationLoader;
     const useCache = config.ui.source !== "local" && Boolean(config.ui.ssrIntegrity) && !localEntry;
     const ssrEntryUrl = requireSsrEntryUrl(localEntry ?? config.ui, config.env);
@@ -367,10 +400,10 @@ export const loadRouterModule = Effect.fn("loadRouterModule")(
       expose: `${config.ui.name}/Router`,
       unwrapDefault: true,
       bypassModuleCache: !useCache,
+      session,
     });
   },
-  (effect, config: RuntimeConfig, _localEntry?: EntrySlot) =>
-    effect.pipe(
+  (effect, config: RuntimeConfig, _localEntry?: EntrySlot, _session?: CompositionSession) =>    effect.pipe(
       Effect.timeout("30 seconds"),
       Effect.catch((error: unknown) => {
         // the production error shape: the remote coordinates are the config's
