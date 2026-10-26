@@ -1,12 +1,13 @@
-import { type BosConfigInput, BosConfigSchema, type RuntimeConfig } from "../../types";
+import type { BosConfigInput, RuntimeConfig } from "../../types";
 import { getPlatformManifestKey } from "../platform/manifest";
 import {
   type ConfigHistoryEntry,
   fetchBosConfigFromFastKv,
   fetchConfigHistory,
 } from "../registry/fastkv";
+import { verifyBootPayload } from "../resolution/boot-check";
 import { buildRollbackPayload, verifyRollbackSnapshot } from "./rollback";
-import { publishToFastKv } from "./train";
+import { type DeployTrainInput, publishToFastKv } from "./train";
 
 /**
  * The shared rollback flow (ticket #422): the post-publish smoke failure
@@ -95,12 +96,37 @@ export async function publishRollbackSnapshot(
     }
   }
 
-  const payload = buildRollbackPayload(
-    BosConfigSchema.parse(targetValue),
-    new Date().toISOString(),
+  // The boot verdict is never skippable — skipVerify only stands down the
+  // pin/byte verification (the rollback command vets bytes itself before
+  // passing it), and no other vetting covers boot-ability.
+  const bootCheck = await verifyBootPayload(
+    targetValue,
+    { account: input.account, gateway: input.domain },
+    { ...(input.registry ? { registry: input.registry } : {}) },
   );
+  if (!bootCheck.ok) {
+    const detail = bootCheck.issues
+      .map((issue) => `${issue.path ? `${issue.path}: ` : ""}${issue.message}`)
+      .join("; ");
+    const chainNote =
+      bootCheck.chain.length > 0 ? ` (extends chain: ${bootCheck.chain.join(" -> ")})` : "";
+    return {
+      ok: false,
+      registryUrl: "",
+      error: `rollback refused — the target snapshot would not boot${chainNote}: ${detail}`,
+    };
+  }
+
+  // Stamp the raw snapshot verbatim — the historical parse here was both a
+  // crash (host-less child snapshots have no app.host of their own) and
+  // lossy (Zod's strip mode dropped keys the schema didn't know); a
+  // rollback's whole value proposition is byte-faithful republication.
+  const payload = buildRollbackPayload(targetValue as BosConfigInput, new Date().toISOString());
   const result = await publishToFastKv({
-    bosConfig: payload,
+    // The declared input type is the parsed BosConfig; the runtime payload is
+    // the raw snapshot — the same declared-vs-runtime split the train's
+    // exactPayload branch documents (train.ts exactPayload).
+    bosConfig: payload as unknown as DeployTrainInput["bosConfig"],
     runtimeConfig: input.runtimeConfig,
     configDir: input.configDir,
     env: input.env,

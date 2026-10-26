@@ -588,7 +588,7 @@ describe("publishToFastKv preflight ordering", () => {
     expect(written.app.host.production).toBe("https://host-v2.example");
   });
 
-  it("aborts at preflight when the canonicalized payload fails BosConfigSchema — before any registry write", async () => {
+  it("aborts at preflight when the canonicalized payload would not boot — before any registry write", async () => {
     process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
     process.env.BOS_STORAGE_API_KEY = "api_ci_key";
     process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
@@ -601,7 +601,7 @@ describe("publishToFastKv preflight ordering", () => {
     const result = await publishToFastKv({ ...baseInput, configDir, packages: "all" });
 
     expect(result.status).toBe("error");
-    expect(result.error).toContain("fails BosConfigSchema");
+    expect(result.error).toContain("fails a consumer boot");
     expect(result.error).toContain("app.api");
     expect(submitRegistryWriteMock).not.toHaveBeenCalled();
   });

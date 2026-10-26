@@ -5,9 +5,9 @@ import { Context, Effect, Layer, Option } from "effect";
 import { hasFolderFormUi } from "every-plugin/build/ui";
 import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "../../config";
 import type { WorkspaceDeployResult } from "../../contract";
+import { verifyBootPayload } from "../../services/resolution/boot-check";
 import { openResolution } from "../../services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
-import { BosConfigSchema } from "../../types";
 import { run } from "../../utils/run";
 import { padRight } from "../../utils/string";
 import { colors, icons } from "../../utils/theme";
@@ -746,22 +746,33 @@ export async function runPublishTrain(
     publishPayload = stripLocalDevelopmentTargets(publishPayload);
   }
 
-  // Every runtime boot validates the fetched payload with BosConfigSchema
-  // (resolvePublishedConfig) — this catches canonicalization/schema drift at
-  // preflight instead of failing the post-publish smoke and rolling back.
-  const schemaCheck = BosConfigSchema.safeParse(publishPayload);
-  if (!schemaCheck.success) {
-    const detail = schemaCheck.error.issues
+  // Every runtime boot validates the extends-merged config with
+  // BosConfigSchema (resolvePublishedConfig) — a leaf payload is only the
+  // boot input when it carries no extends ref. The check re-runs the boot's
+  // own walk-merge-parse with this payload as the leaf, catching
+  // canonicalization/schema drift AND extends-chain breakage at preflight
+  // instead of failing the post-publish smoke and rolling back.
+  const bootCheck = await verifyBootPayload(
+    publishPayload,
+    { account, gateway },
+    {
+      ...(input.registry ? { registry: input.registry } : {}),
+    },
+  );
+  if (!bootCheck.ok) {
+    const detail = bootCheck.issues
       .slice(0, 5)
-      .map((issue) => `    ${issue.path.join(".")}: ${issue.message}`)
+      .map((issue) => `    ${issue.path ? `${issue.path}: ` : ""}${issue.message}`)
       .join("\n");
+    const chainNote =
+      bootCheck.chain.length > 0 ? ` (extends chain: ${bootCheck.chain.join(" -> ")})` : "";
     throw new PublishTrainError({
       kind: "preflight",
       registryUrl,
       built,
       skipped,
       deployResults,
-      error: `Canonicalized publish payload fails BosConfigSchema — booting it would fail everywhere:\n${detail}`,
+      error: `Canonicalized publish payload fails a consumer boot${chainNote} — booting it would fail everywhere:\n${detail}`,
     });
   }
 
