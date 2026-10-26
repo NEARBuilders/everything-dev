@@ -336,7 +336,7 @@ Use these helpers from `@/app`:
 Important: fixed-core tenant runtime composition now lives primarily in:
 - `host/src/services/tenant-runtime.ts`
 - `host/src/program.ts`
-- `host/src/services/federation.server.ts`
+- `host/src/services/federation/`
 
 Tenant model:
 - `extends` is the lineage edge between runtimes

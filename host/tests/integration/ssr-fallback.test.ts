@@ -9,9 +9,9 @@ const loadUiRouteConfigMock = vi.fn();
 const loadRouterModuleMock = vi.fn();
 const resolveRequestRuntimeMock = vi.fn();
 
-vi.mock("../../src/services/federation.server", async () => {
-  const actual = await vi.importActual<typeof import("../../src/services/federation.server")>(
-    "../../src/services/federation.server",
+vi.mock("../../src/services/federation/loader", async () => {
+  const actual = await vi.importActual<typeof import("../../src/services/federation/loader")>(
+    "../../src/services/federation/loader",
   );
   return {
     ...actual,
@@ -300,6 +300,29 @@ describe("SSR fallback paths", () => {
 
       const secondResponse = await fetch(`${baseUrl}/`);
       expect(secondResponse.status).toBe(200);
+    });
+  });
+
+  describe("SSR timing surface", () => {
+    it("SSR success responses carry the compose/render/total Server-Timing header", async () => {
+      mockCompositionSucceeds();
+      clearComposeFixtureCache();
+
+      const response = await fetch(`${baseUrl}/`);
+      expect(response.status).toBe(200);
+
+      const header = response.headers.get("server-timing");
+      expect(header).toBeTruthy();
+      const metrics = Object.fromEntries(
+        (header ?? "").split(",").map((part) => {
+          const [name, dur] = part.trim().split(";dur=");
+          return [name.trim(), Number(dur)];
+        }),
+      );
+      expect(Number.isFinite(metrics.compose)).toBe(true);
+      expect(Number.isFinite(metrics.render)).toBe(true);
+      expect(Number.isFinite(metrics.total)).toBe(true);
+      expect(metrics.total).toBeGreaterThanOrEqual(metrics.compose + metrics.render - 0.5);
     });
   });
 

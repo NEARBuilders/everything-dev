@@ -1,4 +1,6 @@
 import { Clock, DateTime, Deferred, Effect, Exit, Layer } from "effect";
+import { createBootMetricsCollector } from "../../boot-metrics";
+import type { PhaseTiming } from "../../contract";
 import { getProcessEnv } from "../../env/process-env";
 import { ShellEnvLive } from "../../env/project-env";
 import { ownerOfPort } from "../../infra/port-ownership";
@@ -100,11 +102,17 @@ export interface DevSessionDeps {
   ppid?: () => number;
 }
 
+export interface DevSessionBootContext {
+  mode: "dev" | "start";
+  phases: PhaseTiming[];
+}
+
 export const runDevSession = (
   configDir: string,
   orchestrator: AppOrchestrator,
   onSessionReady?: (handle: DevSessionHandle) => void,
   deps: DevSessionDeps = {},
+  bootContext: DevSessionBootContext = { mode: "dev", phases: [] },
 ) =>
   Effect.gen(function* () {
     adoptOrphanedChildren(configDir);
@@ -327,8 +335,16 @@ export const runDevSession = (
       }),
     );
 
+    const bootMetrics = createBootMetricsCollector({
+      configDir,
+      mode: bootContext.mode,
+      services,
+      phases: bootContext.phases,
+    });
+
     const callbacks: ProcessCallbacks = {
       onStatus: (name, status, message) => {
+        bootMetrics.recordStatus(name, status, message);
         // An error-status flip is the failure boundary — the failure message
         // logged just before it is still held in the pipeline's pending
         // multi-line buffer (events complete one line late). Drain it now so
@@ -453,6 +469,8 @@ export const runDevSession = (
       });
     }
 
+    bootMetrics.write();
+
     yield* Deferred.await(shutdown);
   });
 
@@ -474,9 +492,15 @@ const runApp = (
   process.on("SIGTERM", () => trigger("graceful"));
 
   const program = Effect.scoped(
-    runDevSession(configDir, data.orchestrator, (sessionHandle) => {
-      handle = sessionHandle;
-    }),
+    runDevSession(
+      configDir,
+      data.orchestrator,
+      (sessionHandle) => {
+        handle = sessionHandle;
+      },
+      {},
+      data.boot ?? { mode: "dev", phases: [] },
+    ),
   ).pipe(
     Effect.provide(
       Layer.mergeAll(
@@ -513,6 +537,8 @@ export interface DevSessionData {
   /** The generated infra env tier — required so a start session can never silently run with an empty tier. */
   envGenerated: Record<string, string>;
   shellEnv: Record<string, string>;
+  /** Boot metrics context (SSR instrumentation, #468) — mode + CLI bootstrap phases. */
+  boot?: DevSessionBootContext;
 }
 
 export interface StartSummary {

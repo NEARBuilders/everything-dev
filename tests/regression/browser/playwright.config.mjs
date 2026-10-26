@@ -79,6 +79,7 @@ export default defineConfig({
         "specs/dev-ssr-hydration.spec.ts",
         "specs/csr-compose.spec.ts",
         "specs/auth-redirect.spec.ts",
+        "specs/ssr-first-paint.spec.ts",
       ],
     },
     {

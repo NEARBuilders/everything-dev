@@ -26,12 +26,13 @@ const _runWithProgress = async <T>(
 const mountSession = async (
   projectDir: string | undefined,
   session: DevSessionData,
+  boot?: DevSessionData["boot"],
 ): Promise<void> => {
   const [{ devApp }, { DevRendererCliLive }] = await Promise.all([
     import("../../services/dev/session"),
     import("../render/dev-render"),
   ]);
-  devApp(projectDir ?? process.cwd(), session, DevRendererCliLive);
+  devApp(projectDir ?? process.cwd(), { ...session, boot }, DevRendererCliLive);
 };
 
 export const runDev = async (ctx: CommandContext): Promise<void> => {
@@ -80,7 +81,10 @@ export const runDev = async (ctx: CommandContext): Promise<void> => {
   const session = result.session;
   void outdatedWarning;
   if (session) {
-    await mountSession(projectDir, session);
+    await mountSession(projectDir, session, {
+      mode: "dev",
+      phases: result.timings?.map((phase) => ({ ...phase })) ?? [],
+    });
   }
   return;
 };
@@ -129,7 +133,7 @@ export const runStart = async (ctx: CommandContext): Promise<void> => {
     if (summary) {
       printStartSummary(summary);
     }
-    await mountSession(projectDir, session);
+    await mountSession(projectDir, session, { mode: "start", phases: [] });
   }
   return;
 };

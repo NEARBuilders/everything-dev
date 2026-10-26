@@ -59,6 +59,11 @@ func WaitForReady(f fatalf, proc *Process) {
 		}
 
 		log.Printf("Ready after %v", time.Since(start).Round(time.Millisecond))
+		RecordReady(&ReadyMeasurement{
+			Mode:       string(mode),
+			ElapsedMs:  time.Since(start).Round(time.Millisecond).Milliseconds(),
+			BootRunner: "regtest.WaitForReady",
+		})
 		return
 	}
 

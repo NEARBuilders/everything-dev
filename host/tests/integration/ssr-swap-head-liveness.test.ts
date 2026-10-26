@@ -6,6 +6,7 @@ import { patchManifestFetchForSsrPublicPath } from "everything-dev/federation";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";
+import { FederationLifecycle } from "../../src/services/federation/lifecycle";
 import { RuntimeSnapshot } from "../../src/services/runtime-snapshot";
 import { adoptPublishedPointer } from "../../src/services/snapshot-coordinator";
 import { createSsrRender } from "../../src/services/ssr-render";
@@ -113,9 +114,9 @@ const { loadUiComposeModuleMock, loadCoreUiRouteConfigMock, loadRouterModuleMock
   }),
 );
 
-vi.mock("../../src/services/federation.server", async () => {
-  const actual = await vi.importActual<typeof import("../../src/services/federation.server")>(
-    "../../src/services/federation.server",
+vi.mock("../../src/services/federation/loader", async () => {
+  const actual = await vi.importActual<typeof import("../../src/services/federation/loader")>(
+    "../../src/services/federation/loader",
   );
   return {
     ...actual,
@@ -227,6 +228,7 @@ describe("SSR head liveness across a serving swap (full host pipeline)", () => {
 
     const snapshotLayer = RuntimeSnapshot.layer().pipe(
       Layer.provide(Layer.succeed(ConfigService, genConfig(serverA.baseUrl))),
+      Layer.provideMerge(FederationLifecycle.layer),
     );
 
     const program = Effect.gen(function* () {
