@@ -3,7 +3,7 @@ import { Readable } from "node:stream";
 import { Data, Deferred, Effect, Option, Ref, Schedule, Schema, Stream } from "effect";
 import { ShellEnv } from "../../env/project-env";
 import type { RuntimeConfig } from "../../types";
-import { fetchRaw } from "../../utils/http-client";
+import { fetchWithRetryEff } from "../../utils/http-client";
 import { loadRemoteModule, registerRemote } from "../federation/service";
 import { readInImagePlatformManifest } from "../platform/manifest";
 import { stripAnsi } from "./logs";
@@ -89,11 +89,14 @@ export interface ProcessState {
   uiPort?: number;
 }
 
+// Effect-native probe — no nested Effect.runPromise: fetchRaw's promise
+// bridge intermittently wedges when awaited from inside a running fiber
+// (the readiness fork), stalling the whole boot until the 90s deadline.
 const probeHttpOk = (url: string, timeoutMs = 400) =>
-  Effect.tryPromise({
-    try: () => fetchRaw(url, undefined, timeoutMs).then((res) => res.ok),
-    catch: () => false,
-  });
+  fetchWithRetryEff(url, { timeout: timeoutMs, retries: 0 }).pipe(
+    Effect.map((response) => response.ok),
+    Effect.orElseSucceed(() => false),
+  );
 
 const LOCAL_PROBE_DEADLINE_MS = 90_000;
 
@@ -252,47 +255,55 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
     // silent fallback to remoteEntry.js turned any transient hiccup (a CDN
     // 403 challenge, a timeout) into a guaranteed loadRemote failure with no
     // named cause.
-    const entryUrl = yield* Effect.tryPromise({
-      try: async () => {
-        let res: Response;
-        try {
-          res = await fetchRaw(manifestUrl, undefined, MANIFEST_FETCH_DEADLINE);
-        } catch (e) {
-          throw new OrchestratorError({
-            operation: "fetch host manifest",
-            detail: `${manifestUrl} — ${e instanceof Error ? e.message : String(e)}`,
-            cause: e,
-          });
-        }
-        if (!res.ok) {
-          throw new OrchestratorError({
+    const entryUrl = yield* fetchWithRetryEff(manifestUrl, {
+      timeout: MANIFEST_FETCH_DEADLINE,
+      retries: 0,
+    }).pipe(
+      Effect.filterOrFail(
+        (res) => res.ok,
+        (res) =>
+          new OrchestratorError({
             operation: "fetch host manifest",
             detail: `${manifestUrl} — HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
-          });
-        }
-        const json = (await res.json()) as Record<string, unknown>;
-        if (
-          !json ||
-          typeof json !== "object" ||
-          !("metaData" in json) ||
-          !("exposes" in json) ||
-          !("shared" in json)
-        ) {
-          throw new OrchestratorError({
+          }),
+      ),
+      Effect.flatMap((res) =>
+        Effect.tryPromise({
+          try: () => res.json() as Promise<Record<string, unknown>>,
+          catch: (cause) =>
+            new OrchestratorError({
+              operation: "fetch host manifest",
+              detail: `${manifestUrl} — ${cause instanceof Error ? cause.message : String(cause)}`,
+              cause,
+            }),
+        }),
+      ),
+      Effect.filterOrFail(
+        (json) =>
+          !!json &&
+          typeof json === "object" &&
+          "metaData" in json &&
+          "exposes" in json &&
+          "shared" in json,
+        () =>
+          new OrchestratorError({
             operation: "fetch host manifest",
             detail: `${manifestUrl} — not a Module Federation manifest (missing metaData/exposes/shared)`,
-          });
-        }
-        return manifestUrl;
-      },
-      catch: (cause) =>
+          }),
+      ),
+      Effect.map(() => manifestUrl),
+      Effect.mapError((cause) =>
         cause instanceof OrchestratorError
           ? cause
           : new OrchestratorError({
               operation: "fetch host manifest",
-              detail: `${manifestUrl} — ${String(cause)}`,
+              detail: `${manifestUrl} — ${
+                cause instanceof Error && cause.message ? cause.message : String(cause)
+              }`,
+              cause,
             }),
-    });
+      ),
+    );
 
     yield* Effect.promise(() => registerRemote({ name: "host", entry: entryUrl }));
     callbacks.onLog(descriptor.key, `Loading host from ${entryUrl}...`);

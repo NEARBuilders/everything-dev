@@ -65,6 +65,10 @@ type Stack struct {
 	cmd          *exec.Cmd
 	repoRoot     string
 	registryPath string
+	// configDir is the cwd the CLI runs in (its config-resolution anchor and
+	// the registry entry's configDir). Full stacks: repoRoot. Confined
+	// stacks: the death-contract fixture dir.
+	configDir    string
 	basePort     int
 	wrappedPid   int
 
@@ -105,14 +109,30 @@ func findRepoRoot(t *testing.T) string {
 	}
 }
 
+// fixtureDir is the death-contract fixture's config dir: a minimal authored
+// config (tests/regression/fixtures/death-contract) whose five services are
+// fake node servers (30MB each, ready in ~1s) — the whole process-death
+// topology (CLI → detached group-leader children → watcher grandchildren)
+// boots to a registry entry in ~4s instead of the full stack's 60–120s.
+// One full-stack boot (the real rspack/rsbuild watcher shape) stays in the
+// suite as the safety net; everything else runs confined.
+func fixtureDir(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(findRepoRoot(t), "tests", "regression", "fixtures", "death-contract")
+}
+
 // devInvocation assembles the real `bos dev` invocation shared by the direct
 // and wrapped launch paths: the tsx cli.ts argv, the layered env
 // (.env.test's secret — DB URLs are deliberately NOT passed: each stack runs
 // on its own ephemeral pglite per the zero-config default), the port-derived
-// origins, the ephemeral-run guards, the repo root, and the run's log file.
-func devInvocation(t *testing.T, basePort int, registryPath string, interactive bool) ([]string, []string, string, *os.File) {
+// origins, the ephemeral-run guards, the config dir the CLI anchors on
+// (empty → repo root), and the run's log file.
+func devInvocation(t *testing.T, basePort int, registryPath string, interactive bool, configDir string) ([]string, []string, string, *os.File) {
 	t.Helper()
 	repoRoot := findRepoRoot(t)
+	if configDir == "" {
+		configDir = repoRoot
+	}
 
 	dotenv, err := parseDotenvFile(filepath.Join(repoRoot, ".env.test"))
 	if err != nil {
@@ -161,11 +181,21 @@ func tsxArgs(args []string) []string {
 	return append([]string{"--import", "tsx", "--conditions=development"}, args...)
 }
 
+// firstOrEmpty returns the first variadic element, or the empty string — the
+// optional configDir argument's nil value ("repo root").
+func firstOrEmpty(values []string) string {
+	if len(values) > 0 {
+		return values[0]
+	}
+	return ""
+}
+
 // buildDevCommand assembles a real `bos dev` CLI invocation from source
 // (node --import tsx cli.ts — the parent's own dev-script form) on an explicit
 // port block, with the test env layered on top. interactive=false passes
 // --no-interactive (signal-driven teardown tests); interactive=true leaves
-// the TUI to mount under the caller's pty.
+// the TUI to mount under the caller's pty. configDir is the CLI's cwd
+// (empty → repo root; the death-contract fixture dir for confined stacks).
 //
 // Setpgid puts every spawned stack in its own process group: a stray
 // group-targeted kill (`kill(-pgid)`) can then never cross between the test
@@ -173,27 +203,29 @@ func tsxArgs(args []string) []string {
 // (Setpgid without setsid/setctty — the TUI only needs stdin/stdout on a
 // tty; hardened runners deny the setsid fork with EPERM, which the launcher
 // turns into a skip).
-func buildDevCommand(t *testing.T, basePort int, registryPath string, interactive bool) (*exec.Cmd, *os.File, string) {
+func buildDevCommand(t *testing.T, basePort int, registryPath string, interactive bool, configDir string) (*exec.Cmd, *os.File, string) {
 	t.Helper()
-	args, env, repoRoot, logFile := devInvocation(t, basePort, registryPath, interactive)
+	args, env, repoRoot, logFile := devInvocation(t, basePort, registryPath, interactive, configDir)
 
 	cmd := exec.Command("node", tsxArgs(args)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Dir = repoRoot
+	cmd.Dir = configDir
 	cmd.Env = env
 	return cmd, logFile, repoRoot
 }
 
 // StartStack boots a real `bos dev` session from source (tsx cli.ts) on an
-// explicit port block, waits for the host to answer /health, then waits for
-// the registry to carry the session's full childPids map. registryPath is
-// caller-owned: tests that boot multiple stacks pass the SAME path (like the
-// real shared registry) so adoption scenarios can observe a predecessor's
-// dead entries.
-func StartStack(t *testing.T, basePort int, registryPath string) *Stack {
+// explicit port block, waits for the registry to carry the session's full
+// childPids map (the suite's single readiness definition — see
+// awaitRegistryEntry), and returns the handle. registryPath is caller-owned:
+// tests that boot multiple stacks pass the SAME path (like the real shared
+// registry) so adoption scenarios can observe a predecessor's dead entries.
+// An optional configDir confines the stack to the death-contract fixture
+// (fake services); empty boots the full stack from the repo root.
+func StartStack(t *testing.T, basePort int, registryPath string, configDir ...string) *Stack {
 	t.Helper()
 
-	cmd, logFile, repoRoot := buildDevCommand(t, basePort, registryPath, false)
+	cmd, logFile, repoRoot := buildDevCommand(t, basePort, registryPath, false, firstOrEmpty(configDir))
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 
@@ -202,8 +234,12 @@ func StartStack(t *testing.T, basePort int, registryPath string) *Stack {
 		cmd:          cmd,
 		repoRoot:     repoRoot,
 		registryPath: registryPath,
+		configDir:    firstOrEmpty(configDir),
 		basePort:     basePort,
 		exited:       make(chan struct{}, 1),
+	}
+	if stack.configDir == "" {
+		stack.configDir = repoRoot
 	}
 	if startErr := cmd.Start(); startErr != nil {
 		t.Fatalf("starting bos dev (port block %d): %v", basePort, startErr)
@@ -329,15 +365,16 @@ func (s *Stack) logTail(n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// RunBosKill invokes `bos kill` in the repo root, sharing the stack's
-// registry override so it acts on the test session's entry.
+// RunBosKill invokes `bos kill` in the stack's config dir (the cwd anchor of
+// kill's config-dir scoping), sharing the stack's registry override so it
+// acts on the test session's entry.
 func (s *Stack) RunBosKill(extraArgs ...string) {
 	s.t.Helper()
 	s.t.Logf("stack %d: bos kill %s starting", s.basePort, strings.Join(extraArgs, " "))
 	cliPath := filepath.Join(s.repoRoot, "packages", "everything-dev", "src", "cli.ts")
 	cmd := exec.Command("node", append([]string{"--import", "tsx", "--conditions=development", cliPath, "kill"}, extraArgs...)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Dir = s.repoRoot
+	cmd.Dir = s.configDir
 	base := os.Environ()
 	filtered := base[:0:0]
 	for _, entry := range base {
@@ -354,8 +391,7 @@ func (s *Stack) RunBosKill(extraArgs ...string) {
 	s.t.Logf("bos kill output: %s", tailString(string(out), 20))
 }
 
-func exitCodeOf(cmd *exec.Cmd, err error) int {
-	if err == nil {
+func exitCodeOf(cmd *exec.Cmd, err error) int {	if err == nil {
 		return 0
 	}
 	if exitErr, ok := err.(*exec.ExitError); ok {

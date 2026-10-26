@@ -9,7 +9,7 @@ import (
 // external-kill path users actually hit when a session misbehaves. Scoped
 // (registry filtered by config dir) and `--all` (across all directories) take
 // down the CLI, every service child, and every watcher, then clean the
-// registry.
+// registry. Both run on the confined death-contract fixture.
 func TestBosKillReapsLiveSession(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -25,7 +25,7 @@ func TestBosKillReapsLiveSession(t *testing.T) {
 			acquireStackSlot(t)
 			defer releaseStackSlot()
 
-			stack := StartStack(t, tc.block, filepath.Join(t.TempDir(), "pids.json"))
+			stack := StartStack(t, tc.block, filepath.Join(t.TempDir(), "pids.json"), fixtureDir(t))
 			pids := stack.SnapshotPids()
 			if len(pids) < 2 {
 				t.Fatalf("expected at least 2 processes in the kill snapshot (children + watchers), got %d", len(pids))

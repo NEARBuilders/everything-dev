@@ -1,0 +1,1 @@
+../../../../packages/everything-dev/tests/fixtures/fake-service.mjs

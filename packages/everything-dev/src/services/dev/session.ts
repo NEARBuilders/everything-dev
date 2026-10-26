@@ -1,4 +1,4 @@
-import { Clock, DateTime, Deferred, Effect, Exit, Layer } from "effect";
+import { Clock, DateTime, Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { getProcessEnv } from "../../env/process-env";
 import { ShellEnvLive } from "../../env/project-env";
 import { ownerOfPort } from "../../infra/port-ownership";
@@ -235,16 +235,22 @@ export const runDevSession = (
     };
 
     let gracefulCount = 0;
-    let forceTimer: ReturnType<typeof setTimeout> | null = null;
-    const armForce = () => {
-      if (forceTimer) clearTimeout(forceTimer);
-      forceTimer = setTimeout(force, forceTimeoutMs);
-      forceTimer.unref?.();
-    };
-    const disarmForce = () => {
-      if (forceTimer) clearTimeout(forceTimer);
-      forceTimer = null;
-    };
+    let forceFiber: Fiber.Fiber<void, never> | null = null;
+    const armForce = Effect.gen(function* () {
+      const existing = forceFiber;
+      forceFiber = null;
+      if (existing) yield* Fiber.interrupt(existing);
+      // forkDetach: the backstop must survive the scope's close — forkScoped
+      // inside a finalizer attaches to the closing scope and dies with it.
+      forceFiber = yield* Effect.forkDetach(
+        Effect.sleep(forceTimeoutMs).pipe(Effect.andThen(Effect.sync(force))),
+      );
+    });
+    const disarmForce = Effect.gen(function* () {
+      const existing = forceFiber;
+      forceFiber = null;
+      if (existing) yield* Fiber.interrupt(existing);
+    });
 
     const sessionHandle: DevSessionHandle = {
       shutdown: (mode) => {
@@ -259,17 +265,17 @@ export const runDevSession = (
         }
         restoreView();
         console.log("\n[Dev] Shutting down...");
-        armForce();
+        void Effect.runPromiseWith(effectContext)(armForce);
         void Effect.runPromiseWith(effectContext)(Deferred.succeed(shutdown, undefined));
       },
     };
     handleRef = sessionHandle;
 
-    yield* Effect.addFinalizer(() => Effect.sync(disarmForce));
+    yield* Effect.addFinalizer(() => disarmForce);
 
     yield* Effect.addFinalizer(() =>
       Effect.gen(function* () {
-        armForce();
+        yield* armForce;
 
         yield* Effect.forEach(spawned, (h) => h.kill.pipe(Effect.ignore), {
           concurrency: "unbounded",
