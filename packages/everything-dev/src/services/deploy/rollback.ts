@@ -126,9 +126,9 @@ export function summarizeSlotPins(config: BosConfigInput): string {
   return pinned.length > 0 ? pinned.join(" ") : "no version pins (pre-pin snapshot)";
 }
 
-export function buildRollbackPayload<T extends Record<string, unknown>>(
+export function buildRollbackPayload<T extends object>(
   targetConfig: T,
   rolledBackFrom: string,
-): T {
-  return { ...targetConfig, rolledBackFrom } as T;
+): T & { rolledBackFrom: string } {
+  return { ...targetConfig, rolledBackFrom };
 }

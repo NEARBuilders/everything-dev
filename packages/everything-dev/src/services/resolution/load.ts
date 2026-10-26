@@ -287,6 +287,11 @@ export function defaultConfigEnv(): BosEnv {
   return process.env.NODE_ENV === "production" ? "production" : "development";
 }
 
+/** The env every published-config consumer boot resolves under —
+ * resolvePublishedConfig walks and parses with this pinned. The pre-publish
+ * boot-check (resolution/boot-check.ts) and the boot must move in lockstep. */
+export const PUBLISHED_CONFIG_ENV: BosEnv = "production";
+
 export function getEntryAssociatedUi(
   entry: Partial<BosPluginRef>,
 ): Record<string, unknown> | undefined {
