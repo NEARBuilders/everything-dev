@@ -259,15 +259,13 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
       timeout: MANIFEST_FETCH_DEADLINE,
       retries: 0,
     }).pipe(
-      Effect.flatMap((res) =>
-        res.ok
-          ? Effect.succeed(res)
-          : Effect.fail(
-              new OrchestratorError({
-                operation: "fetch host manifest",
-                detail: `${manifestUrl} — HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
-              }),
-            ),
+      Effect.filterOrFail(
+        (res) => res.ok,
+        (res) =>
+          new OrchestratorError({
+            operation: "fetch host manifest",
+            detail: `${manifestUrl} — HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`,
+          }),
       ),
       Effect.flatMap((res) =>
         Effect.tryPromise({
@@ -280,20 +278,20 @@ const spawnRemoteHost = (descriptor: ServiceDescriptor, callbacks: ProcessCallba
             }),
         }),
       ),
-      Effect.flatMap((json) =>
-        !json ||
-        typeof json !== "object" ||
-        !("metaData" in json) ||
-        !("exposes" in json) ||
-        !("shared" in json)
-          ? Effect.fail(
-              new OrchestratorError({
-                operation: "fetch host manifest",
-                detail: `${manifestUrl} — not a Module Federation manifest (missing metaData/exposes/shared)`,
-              }),
-            )
-          : Effect.succeed(manifestUrl),
+      Effect.filterOrFail(
+        (json) =>
+          !!json &&
+          typeof json === "object" &&
+          "metaData" in json &&
+          "exposes" in json &&
+          "shared" in json,
+        () =>
+          new OrchestratorError({
+            operation: "fetch host manifest",
+            detail: `${manifestUrl} — not a Module Federation manifest (missing metaData/exposes/shared)`,
+          }),
       ),
+      Effect.map(() => manifestUrl),
       Effect.mapError((cause) =>
         cause instanceof OrchestratorError
           ? cause
