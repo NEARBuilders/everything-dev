@@ -25,7 +25,7 @@ func TestHardKillThenBosKillReapsOrphans(t *testing.T) {
 	defer releaseStackSlot()
 
 	registry := filepath.Join(t.TempDir(), "pids.json")
-	stack := StartStack(t, blockHardKill, registry)
+	stack := StartStack(t, blockHardKill, registry, fixtureDir(t))
 	pids := stack.SnapshotPids()
 
 	stack.Signal(syscall.SIGKILL)
@@ -47,13 +47,13 @@ func TestNextBootAdoptsOrphans(t *testing.T) {
 	defer releaseStackSlot()
 
 	registry := filepath.Join(t.TempDir(), "pids.json")
-	stack := StartStack(t, blockNextBootFirst, registry)
+	stack := StartStack(t, blockNextBootFirst, registry, fixtureDir(t))
 	pids := stack.SnapshotPids()
 
 	stack.Signal(syscall.SIGKILL)
 	stack.WaitExit(128 + int(syscall.SIGKILL))
 
-	next := StartStack(t, blockNextBootAdopt, registry)
+	next := StartStack(t, blockNextBootAdopt, registry, fixtureDir(t))
 	defer next.Reap()
 
 	AssertAllDead(t, pids, deadRetryWindow)

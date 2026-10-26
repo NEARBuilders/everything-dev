@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 // "watcher" grandchild (sleep) that inherits this process's process group —
 // the minimal real shape the process-death contract exercises: group-leader
 // child + grandchild, both of which must die on group-targeted teardown.
-const port = Number(process.argv[2]);
+const port = Number(process.argv[2] || process.env.PORT);
 if (!Number.isInteger(port) || port <= 0) {
   console.error("usage: node fake-service.mjs <port> [--ignore-term]");
   process.exit(1);

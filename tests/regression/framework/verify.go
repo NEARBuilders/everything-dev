@@ -263,7 +263,7 @@ func AssertNoRepoSurvivors(t *testing.T, repoRoot string, ownBasePort int, ownRe
 				continue
 			}
 			if !strings.Contains(line, "rspack") && !strings.Contains(line, "rsbuild") &&
-				!strings.Contains(line, "cli.ts dev") {
+				!strings.Contains(line, "cli.ts dev") && !strings.Contains(line, "fake-service") {
 				continue
 			}
 			fields := strings.Fields(line)

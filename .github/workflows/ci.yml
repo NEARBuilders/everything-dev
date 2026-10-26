@@ -690,17 +690,19 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [detect-changes, lint-and-typecheck]
     if: needs.detect-changes.outputs.regression-framework == 'true'
-    # Serial (one stack slot): this suite is the only one that boots several
-    # full dev stacks concurrently; on a 4-core/16GB hosted runner that boot
-    # wave exhausts RAM (240-450MB free observed), the pty tests fail under
-    # contention, and the saturated runner is torn down mid-job ("The runner
-    # has received a shutdown signal"). One stack fits easily (~2GB).
-    timeout-minutes: 35
+    # Two stack slots: every test but one boots the confined death-contract
+    # fixture (~100MB of fake node services); the single full-stack boot
+    # (sigterm) adds ~2GB. Two concurrent boots — full + confined — fit a
+    # 4-core/16GB runner with room to spare. (The suite once ran serial at
+    # slots=1 because three concurrent FULL stacks exhausted RAM —
+    # 240-450MB free observed — and the saturated runner was torn down
+    # mid-job; the confined fixture removed that class.)
+    timeout-minutes: 12
     env:
       CI: true
       BETTER_AUTH_SECRET: regression-test-secret-do-not-use-in-production
       BOS_TEARDOWN_ADOPTION: "1"
-      BOS_FRAMEWORK_STACK_SLOTS: "1"
+      BOS_FRAMEWORK_STACK_SLOTS: "2"
       BOS_FRAMEWORK_READY_TIMEOUT_MINUTES: "4"
     steps:
       - name: Checkout repository
@@ -772,6 +774,7 @@ jobs:
           name: regression-framework-artifacts
           path: |
             .bos/logs/**
+            tests/regression/fixtures/death-contract/.bos/logs/**
             resource-watchdog.log
 
   # dev:* = the dev server, smoke-only (ADR 0009). One job runs both projects

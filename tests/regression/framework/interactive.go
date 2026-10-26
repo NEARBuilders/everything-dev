@@ -44,10 +44,12 @@ type InteractiveStack struct {
 // StartInteractiveStack boots the same stack as StartStack but without
 // --no-interactive and under a pty, so the TUI is live. Pty output is teed
 // into the framework-<port>.log the other tests read their tails from.
-func StartInteractiveStack(t *testing.T, basePort int, registryPath string) *InteractiveStack {
+// An optional configDir confines the stack to the death-contract fixture
+// (empty → repo root).
+func StartInteractiveStack(t *testing.T, basePort int, registryPath string, configDir ...string) *InteractiveStack {
 	t.Helper()
 
-	cmd, logFile, repoRoot := buildDevCommand(t, basePort, registryPath, true)
+	cmd, logFile, repoRoot := buildDevCommand(t, basePort, registryPath, true, firstOrEmpty(configDir))
 
 	stack := &InteractiveStack{
 		Stack: &Stack{
@@ -55,11 +57,15 @@ func StartInteractiveStack(t *testing.T, basePort int, registryPath string) *Int
 			cmd:          cmd,
 			repoRoot:     repoRoot,
 			registryPath: registryPath,
+			configDir:    firstOrEmpty(configDir),
 			basePort:     basePort,
 			exited:       make(chan struct{}, 1),
 		},
 		mounted: make(chan struct{}, 1),
 		ready:   make(chan struct{}, 1),
+	}
+	if stack.configDir == "" {
+		stack.configDir = repoRoot
 	}
 
 	master, startErr := pty.StartWithAttrs(cmd, &pty.Winsize{Rows: tuiPtyRows, Cols: tuiPtyCols}, &syscall.SysProcAttr{Setpgid: true})
