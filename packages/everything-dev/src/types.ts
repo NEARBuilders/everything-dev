@@ -100,7 +100,8 @@ export const ComposableAppEntrySchema = z.object({
   routes: z.array(z.string()).optional(),
   shared: SharedDepMapSchema.optional(),
   connectSrc: z.array(z.string()).optional(),
-  ui: PluginUiConfigSchema.optional(),
+  /** `false` opts a consumer out of the ui the extended provider attaches */
+  ui: z.union([PluginUiConfigSchema, z.literal(false)]).optional(),
   pin: SlotPinSchema.optional(),
 });
 export type ComposableAppEntry = z.infer<typeof ComposableAppEntrySchema>;

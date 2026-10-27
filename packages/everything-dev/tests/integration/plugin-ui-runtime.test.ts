@@ -95,6 +95,65 @@ describe("plugin UI runtime config", () => {
     expect(runtime.plugins?.apps.ui?.source).toBe("local");
   });
 
+  function writeProviderWithAppUi(baseDir: string): string {
+    const providerConfigPath = join(baseDir, "providers/nostr.bos.config.json");
+    writeJson(providerConfigPath, {
+      app: {
+        ui: {
+          name: "ui",
+          production: "https://provider-ui.test.dev",
+        },
+      },
+      plugins: {
+        nostr: {
+          name: "nostr",
+          production: "https://nostr.test.dev",
+        },
+      },
+    });
+    return providerConfigPath;
+  }
+
+  it("attaches the extended provider's app.ui to the plugin by default", async () => {
+    const baseDir = makeProjectDir();
+    const providerConfigPath = writeProviderWithAppUi(baseDir);
+
+    const config = makeBosConfig({
+      plugins: {
+        nostr: { extends: `${providerConfigPath}#plugins.nostr` } as any,
+      },
+    });
+
+    const pluginRuntime = await buildRuntimePluginsForConfig(
+      config,
+      baseDir,
+      "production" as BosEnv,
+    );
+
+    expect(pluginRuntime?.nostr.url).toBe("https://nostr.test.dev");
+    expect(pluginRuntime?.nostr.ui?.url).toBe("https://provider-ui.test.dev");
+  });
+
+  it("drops the attached provider ui when the consumer sets ui: false (#636)", async () => {
+    const baseDir = makeProjectDir();
+    const providerConfigPath = writeProviderWithAppUi(baseDir);
+
+    const config = makeBosConfig({
+      plugins: {
+        nostr: { extends: `${providerConfigPath}#plugins.nostr`, ui: false } as any,
+      },
+    });
+
+    const pluginRuntime = await buildRuntimePluginsForConfig(
+      config,
+      baseDir,
+      "production" as BosEnv,
+    );
+
+    expect(pluginRuntime?.nostr.url).toBe("https://nostr.test.dev");
+    expect(pluginRuntime?.nostr.ui).toBeUndefined();
+  });
+
   it("resolves targeted extends paths strictly", async () => {
     const baseDir = makeProjectDir();
     const providerConfigPath = join(baseDir, "providers/example.bos.config.json");
