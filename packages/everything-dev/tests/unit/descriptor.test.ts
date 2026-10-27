@@ -69,6 +69,24 @@ describe("descriptor constructors", () => {
       extends: "bos://dev.everything.near/votes",
     });
   });
+
+  it("keeps a plugin's ui: false opt-out through the authored↔config round-trip (#636)", () => {
+    const app = App({
+      name: "consumer",
+      plugins: {
+        nostr: {
+          extends: "bos://provider.near/provider.dev#plugins.nostr",
+          ui: false,
+        },
+      },
+    });
+    const input = toConfigInput(app);
+    expect(input.plugins?.nostr).toEqual({
+      extends: "bos://provider.near/provider.dev#plugins.nostr",
+      ui: false,
+    });
+    expect(configInputToDescriptor(input).plugins?.nostr?.ui).toBe(false);
+  });
 });
 
 describe("resolveApp", () => {

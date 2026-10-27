@@ -31,15 +31,20 @@ export const AttachmentRefSchema = DevelopmentRefSchema.extend({
   connectSrc: z.array(z.string()).optional(),
   dependsOn: z.array(z.string()).optional(),
   version: z.string().optional(),
+  /** `false` opts out of the ui the extended provider attaches */
   ui: z
-    .object({
-      name: z.string().optional(),
-      path: z.string().optional(),
-      development: z.string().optional(),
-      integrity: z.string().optional(),
-      pin: SlotPinSchema.optional(),
-    })
-    .strict()
+    .union([
+      z
+        .object({
+          name: z.string().optional(),
+          path: z.string().optional(),
+          development: z.string().optional(),
+          integrity: z.string().optional(),
+          pin: SlotPinSchema.optional(),
+        })
+        .strict(),
+      z.literal(false),
+    ])
     .optional(),
 });
 export type AttachmentRef = z.infer<typeof AttachmentRefSchema>;

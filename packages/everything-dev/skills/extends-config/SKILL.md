@@ -70,6 +70,15 @@ Set a plugin to `null` to explicitly remove an inherited plugin:
 }
 ```
 
+### Plugin UI Opt-Out
+
+A plugin entry that extends another app (`extends: "bos://acct/app#plugins.<id>"`) also attaches that app's `app.ui` as the plugin's ui. Set `ui: false` on the entry to take only the plugin and drop the attached ui:
+```ts
+plugins: {
+  nostr: { extends: "bos://nearbuilding.near/nostr.nearbuilders.org#plugins.nostr", ui: false },
+}
+```
+
 ## Fixed-Core Tenant Mode
 
 For shared-host tenant setups, `extends` is both the config inheritance mechanism and the lineage edge between runtimes.
@@ -210,6 +219,8 @@ From `packages/everything-dev/src/services/resolution/merge.ts`:
 ## The tasks you will actually be given
 
 **"Remove a plugin I inherited."** Set it to `null` in the authored config's `plugins` — the null sentinel deletes it from the merged result. Deleting the entry entirely just inherits the parent's.
+
+**"Use another app's plugin without its website."** Set `ui: false` on the `plugins.<id>` entry — the extended app's `app.ui` is otherwise attached as the plugin ui and loaded on every page.
 
 **"Different parent for staging."** Object-form `extends` keyed by env (`development` / `staging` / `production`); the fallback chain is requested env → `production` → first defined value.
 

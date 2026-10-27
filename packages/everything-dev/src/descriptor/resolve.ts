@@ -60,20 +60,22 @@ function attachmentToEntry(attachment: AttachmentRef): Record<string, unknown> {
     ...(attachment.extends ? { extends: attachment.extends } : {}),
     ...(development ? { development } : {}),
     ...pick(attachment, [...ATTACHMENT_FIELDS]),
-    ...(attachment.ui
-      ? {
-          ui: {
-            ...(attachment.ui.name ? { name: attachment.ui.name } : {}),
-            ...(attachment.ui.path
-              ? { development: `local:${attachment.ui.path}` }
-              : attachment.ui.development
-                ? { development: attachment.ui.development }
-                : {}),
-            ...(attachment.ui.integrity ? { integrity: attachment.ui.integrity } : {}),
-            ...(attachment.ui.pin ? { pin: attachment.ui.pin } : {}),
-          },
-        }
-      : {}),
+    ...(attachment.ui === false
+      ? { ui: false }
+      : attachment.ui
+        ? {
+            ui: {
+              ...(attachment.ui.name ? { name: attachment.ui.name } : {}),
+              ...(attachment.ui.path
+                ? { development: `local:${attachment.ui.path}` }
+                : attachment.ui.development
+                  ? { development: attachment.ui.development }
+                  : {}),
+              ...(attachment.ui.integrity ? { integrity: attachment.ui.integrity } : {}),
+              ...(attachment.ui.pin ? { pin: attachment.ui.pin } : {}),
+            },
+          }
+        : {}),
   };
 }
 
@@ -335,8 +337,10 @@ function entryToAttachment(key: string, entry: Record<string, unknown>): Record<
     if (field === "name") continue;
     if (entry[field] !== undefined) out[field] = entry[field];
   }
-  const ui = entry.ui as Record<string, unknown> | undefined;
-  if (ui && typeof ui === "object") {
+  const ui = entry.ui as Record<string, unknown> | false | undefined;
+  if (ui === false) {
+    out.ui = false;
+  } else if (ui && typeof ui === "object") {
     const uiPath = stripLocal(ui.development as string | undefined);
     out.ui = {
       ...(typeof ui.name === "string" ? { name: ui.name } : {}),
