@@ -71,7 +71,7 @@ catalog:
   react-dom: 19.2.9
   sirv: 3.0.2
   sonner: 2.0.8
-  typescript: ^7.0.2
+  typescript: 7.0.2
   vitest: ^4.1.8
   yaml: 2.9.0
   zod: 4.6.5
