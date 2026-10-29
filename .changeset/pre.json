@@ -23,6 +23,7 @@
     "api-client-rate-limit-retry",
     "api-middleware-framework-home",
     "api-public-schema-topology",
+    "app-only-slot-stamping",
     "artifact-control-plugin",
     "atomic-deploys-phase-a",
     "atomic-deploys-phase-a2",
