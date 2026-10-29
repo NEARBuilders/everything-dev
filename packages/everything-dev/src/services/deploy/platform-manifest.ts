@@ -6,7 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { satisfiesConstraint } from "../federation/service";
+import { satisfiesConstraint } from "../../utils/semver";
 import {
   composePlatformReleaseManifest,
   computeTemplateInventory,

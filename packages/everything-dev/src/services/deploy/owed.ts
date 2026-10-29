@@ -13,6 +13,7 @@
  * record — is drift and fails the train loudly (#568's silent-skip class).
  */
 
+import { compareSemver as compareVersions } from "../../utils/semver";
 import { fetchRegistryKeyOrNull } from "../registry/fastkv";
 import { readFrameworkVersion } from "./image";
 import { findUnpublishedFrameworkPackages } from "./preflight";
@@ -140,37 +141,4 @@ export function owedWorkDrift(owed: OwedWork): string | undefined {
     ? `the platform-manifest pointer (${owed.detail.pointerFrameworkVersion ?? "unset"}) trails the repo (${owed.detail.localFrameworkVersion ?? "unknown"})`
     : `the platform-manifest pointer is current (${owed.detail.pointerFrameworkVersion})`;
   return `release-state drift: ${npmSide}, but ${manifestSide} — the last release half-landed; reconcile before deploying`;
-}
-
-/** Prerelease-aware semver ordering ("2.0.0-rc.9" < "2.0.0-rc.10" < "2.0.0").
- * Unparseable versions order as equal (no owed-work decision from noise). */
-export function compareVersions(a: string, b: string): number {
-  const parse = (v: string): { core: number[]; pre: string[] } | null => {
-    const match = /^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/.exec(v.trim());
-    if (!match) return null;
-    return {
-      core: [Number(match[1]), Number(match[2]), Number(match[3])],
-      pre: match[4] ? match[4].split(".") : [],
-    };
-  };
-  const pa = parse(a);
-  const pb = parse(b);
-  if (!pa || !pb) return 0;
-  for (let i = 0; i < 3; i++) {
-    if (pa.core[i] !== pb.core[i]) return pa.core[i]! < pb.core[i]! ? -1 : 1;
-  }
-  // a release outranks its prereleases; prerelease identifiers compare
-  // numeric-when-numeric
-  if (pa.pre.length === 0 && pb.pre.length > 0) return 1;
-  if (pa.pre.length > 0 && pb.pre.length === 0) return -1;
-  for (let i = 0; i < Math.min(pa.pre.length, pb.pre.length); i++) {
-    const x = pa.pre[i]!;
-    const y = pb.pre[i]!;
-    if (x === y) continue;
-    const xn = /^\d+$/.test(x);
-    const yn = /^\d+$/.test(y);
-    if (xn && yn) return Number(x) < Number(y) ? -1 : 1;
-    return x < y ? -1 : 1;
-  }
-  return pa.pre.length - pb.pre.length;
 }

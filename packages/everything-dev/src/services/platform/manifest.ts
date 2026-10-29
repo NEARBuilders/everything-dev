@@ -20,7 +20,7 @@ import {
 import { glob } from "glob";
 import { z } from "zod";
 import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
-import { satisfiesConstraint } from "../federation/service";
+import { compareSemver, satisfiesConstraint } from "../../utils/semver";
 import { fetchRegistryKey, fetchRegistryKeyOrNull } from "../registry/fastkv";
 import { fetchParentConfig } from "../resolution/init-source";
 import { AGENT_SYNC_GLOBS, FRAMEWORK_OWNED_SYNC_FILES } from "../scaffold/ownership";
@@ -215,15 +215,6 @@ function parseSemver(
     patch: Number(match[3]),
     ...(match[4] ? { prerelease: match[4] } : {}),
   };
-}
-
-function compareSemver(a: string, b: string): number {
-  const left = parseSemver(a);
-  const right = parseSemver(b);
-  if (!left || !right) return a === b ? 0 : a < b ? -1 : 1;
-  if (left.major !== right.major) return left.major - right.major;
-  if (left.minor !== right.minor) return left.minor - right.minor;
-  return left.patch - right.patch;
 }
 
 export interface PlatformCompatSubject {

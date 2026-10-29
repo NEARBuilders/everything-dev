@@ -452,8 +452,13 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
       platformVersion: drift!.pinned,
       catalog: { react: "19.2.4", effect: "4.0.0-rc.112" },
     });
-    expect(violations).toHaveLength(1);
-    expect(violations[0]).toMatchObject({ kind: "shared-dep", name: "react" });
-    expect(violations[0]!.message).toContain("the release pins 19.3.0");
+    // rc-aware compat (plan 057): the pinned child 2.0.0-rc.1 now also fails
+    // the release's 2.0.0-rc.2 compat floor — the old comparator could not
+    // order prereleases and let this pass silently.
+    expect(violations).toHaveLength(2);
+    const skew = violations.find((v) => v.kind === "shared-dep");
+    expect(skew).toMatchObject({ kind: "shared-dep", name: "react" });
+    expect(skew!.message).toContain("the release pins 19.3.0");
+    expect(violations.some((v) => v.kind === "minChild")).toBe(true);
   });
 });

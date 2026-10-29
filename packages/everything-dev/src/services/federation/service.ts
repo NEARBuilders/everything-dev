@@ -4,6 +4,7 @@ import { setGlobalFederationInstance } from "@module-federation/runtime-core";
 import { isEffectCriticalSharedDep } from "every-plugin/build/rspack";
 import type { BosConfig, BosPluginRef } from "../../types";
 import { fetchRaw } from "../../utils/http-client";
+import { satisfiesConstraint } from "../../utils/semver";
 import { computeSriHash, type IntegrityRegistry } from "../deploy/integrity";
 import { readBundleCache, writeBundleCache } from "../registry/bundle-cache";
 
@@ -190,44 +191,6 @@ export interface FederationCompatReport {
   hostReachable: boolean;
   hostReason?: string;
   remotes: FederationCompatRemote[];
-}
-
-function parseSemver(v: unknown): { major: number; minor: number; patch: number } | null {
-  const m = typeof v === "string" ? /^(\d+)\.(\d+)\.(\d+)/.exec(v) : null;
-  return m ? { major: +m[1]!, minor: +m[2]!, patch: +m[3]! } : null;
-}
-
-export function satisfiesConstraint(version: string, constraint: string): boolean {
-  const trimmed = constraint.trim();
-  if (!trimmed) return true;
-  if (!["^", "~", ">", "<", "=", "x"].some((c) => trimmed.startsWith(c))) {
-    return version === trimmed;
-  }
-  const m = /^\s*\^\s*(\d+)\.(\d+)\.(\d+)/.exec(trimmed);
-  if (!m) return true;
-  const v = parseSemver(version);
-  if (!v) return false;
-  if (v.major !== +m[1]!) return false;
-  if (v.minor < +m[2]! || (v.minor === +m[2]! && v.patch < +m[3]!)) return false;
-  const constraintPrerelease = trimmed.match(/-([0-9A-Za-z.-]+)/);
-  const versionPrerelease = /-([0-9A-Za-z.-]+)\s*$/.exec(version);
-  if (constraintPrerelease) {
-    if (!versionPrerelease) return false;
-    const cPre = constraintPrerelease[1]!.split(".");
-    const vPre = versionPrerelease[1]!.split(".");
-    for (let i = 0; i < Math.max(cPre.length, vPre.length); i += 1) {
-      const c = cPre[i] ?? "0";
-      const p = vPre[i] ?? "0";
-      if (c === p) continue;
-      const cNum = /^\d+$/.test(c) ? +c : null;
-      const pNum = /^\d+$/.test(p) ? +p : null;
-      if (cNum !== null && pNum !== null) return cNum < pNum;
-      return cNum === null ? c.localeCompare(p) < 0 : false;
-    }
-    return true;
-  }
-  if (versionPrerelease) return false;
-  return true;
 }
 
 function manifestUrl(remoteUrl: string): string {

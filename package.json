@@ -2,7 +2,7 @@
   "name": "monorepo",
   "private": true,
   "scripts": {
-    "prepare": "test -d repos/effect/.git || git clone --depth 1 --branch effect@4.0.0-rc.117 https://github.com/Effect-TS/effect.git repos/effect; effect-tsgo patch --oxlint",
+    "prepare": "node --import tsx scripts/check-effect-pin.ts && (test -d repos/effect/.git || git clone --depth 1 --branch effect@4.0.0-rc.117 https://github.com/Effect-TS/effect.git repos/effect; effect-tsgo patch --oxlint)",
     "init": "pnpm run db:migrate",
     "dev": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts dev",
     "dev:ui": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts dev --api remote",
