@@ -39,7 +39,10 @@ import {
   PlatformReleaseManifestSchema,
   resolvePlatformManifest,
 } from "../../src/services/platform/manifest";
-import { resolveBootShape } from "../../src/services/resolution/boot-check";
+import {
+  resolveBootShape,
+  verifyResolvedBootShape,
+} from "../../src/services/resolution/boot-check";
 import { applyPlatformPin } from "../../src/services/scaffold/upgrade-migration";
 import {
   type ExtendedRootSourceOptions,
@@ -534,6 +537,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     );
     const authPin = pinFor("/auth/", `versions/auth-${version}.json`, shared);
     const authUiPin = pinFor("/auth-ui/", `versions/auth-ui-${version}.json`, shared);
+    const parentUi = { production: `${base}/auth-ui/`, pin: authUiPin, name: "auth" };
     const entry = composePlatformManifestPublishEntry({
       configDir: rootDir,
       account: ACCOUNT,
@@ -544,7 +548,18 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
           auth: {
             production: `${base}/auth/`,
             pin: authPin,
-            ui: { production: `${base}/auth-ui/`, pin: authUiPin },
+            ui: parentUi,
+          },
+        },
+        plugins: {
+          votes: {
+            production: `${base}/votes/`,
+            pin: pinFor("/votes/", `versions/votes-${version}.json`, shared),
+            ui: {
+              production: `${base}/votes-ui/`,
+              pin: pinFor("/votes-ui/", `versions/votes-ui-${version}.json`, shared),
+              name: "votes-ui",
+            },
           },
         },
       },
@@ -556,10 +571,13 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       account: ACCOUNT,
       domain: GATEWAY,
       app: {
+        host: { production: `${base}/host/` },
+        ui: { production: `${base}/ui/` },
+        api: { production: `${base}/api/` },
         auth: {
           production: `${base}/auth/`,
           pin: authPin,
-          ui: { production: `${base}/auth-ui/`, pin: authUiPin },
+          ui: parentUi,
         },
       },
     });
@@ -567,12 +585,19 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
   }
 
   /** The deploy train's payload assembly, compressed: authored config, the
-   * train-applied own-ui pin, optional stamps, one boot walk, then the gate. */
+   * train-applied own-ui pin, optional stamps, one boot walk, the boot-check
+   * schema parse of the merged shape, then the gate. */
   async function simulateDeploy(
     authoredConfig: Record<string, unknown>,
     ownUiPin: { manifest: string; integrity: string },
     stamps: boolean,
-  ): Promise<{ ok: boolean; violations: string[]; merged: Record<string, unknown> }> {
+  ): Promise<{
+    ok: boolean;
+    violations: string[];
+    merged: Record<string, unknown>;
+    stamped: string[];
+    bootOk: boolean;
+  }> {
     const resolvedRelease = await resolveReleaseManifestForDeploy({
       configDir: childDir,
       authoredConfig,
@@ -582,14 +607,16 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     const app = payload.app as Record<string, Record<string, unknown>>;
     app.ui.production = `${base}/child-ui/`;
     app.ui.pin = ownUiPin;
+    let stamped: string[] = [];
     if (stamps && resolvedRelease?.slots) {
-      stampInheritedSlotsFromRelease({
+      stamped = stampInheritedSlotsFromRelease({
         payload,
         authoredConfig,
         manifest: resolvedRelease,
-      });
+      }).stamped;
     }
     const bootShape = await resolveBootShape(payload, CHILD_SLOT, { io: registryIo });
+    const bootCheck = verifyResolvedBootShape(payload, bootShape);
     const gate = await runCompositionGate({
       configDir: childDir,
       authoredConfig,
@@ -601,6 +628,8 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       ok: gate.ok,
       violations: gate.violations,
       merged: bootShape.config as Record<string, unknown>,
+      stamped,
+      bootOk: bootCheck.ok,
     };
   }
 
@@ -655,8 +684,9 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       domain: "child.example",
       platform: "2.0.0-rc.1",
       app: { ui: { development: "local:ui" } },
+      plugins: { feedback: { extends: `bos://${ACCOUNT}/${GATEWAY}/votes` } },
     };
-    const { ok, violations, merged } = await simulateDeploy(
+    const { ok, violations, merged, stamped, bootOk } = await simulateDeploy(
       authoredConfig,
       {
         manifest: "versions/fedcba0987654321.json",
@@ -664,11 +694,18 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       },
       true,
     );
+    expect(bootOk).toBe(true);
     expect(violations).toEqual([]);
 
+    // the release records the parent's plugin slots too — the child's own
+    // declared plugin set owns that domain, so none of them stamp
+    expect(stamped).toEqual(["app.auth", "app.auth.ui"]);
     const app = merged.app as Record<string, Record<string, Record<string, string>>>;
     expect(app.auth.pin.manifest).toBe("versions/auth-2.0.0-rc.1.json");
     expect(app.auth.ui.pin.manifest).toBe("versions/auth-ui-2.0.0-rc.1.json");
+    expect(merged.plugins).toEqual({
+      feedback: { extends: `bos://${ACCOUNT}/${GATEWAY}/votes` },
+    });
     expect(ok).toBe(true);
   });
 
@@ -679,8 +716,9 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       domain: "child.example",
       platform: "2.0.0-rc.1",
       app: { ui: { development: "local:ui" } },
+      plugins: { feedback: { extends: `bos://${ACCOUNT}/${GATEWAY}/votes` } },
     };
-    const { ok, violations } = await simulateDeploy(
+    const { ok, violations, bootOk } = await simulateDeploy(
       authoredConfig,
       {
         manifest: "versions/fedcba0987654321.json",
@@ -688,6 +726,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       },
       false,
     );
+    expect(bootOk).toBe(true);
     expect(ok).toBe(false);
     const combined = violations.join("\n");
     expect(combined).toContain("Shared singleton");

@@ -176,7 +176,7 @@ describe("stampInheritedSlotsFromRelease", () => {
     expect(outcome.stamped).toEqual([]);
   });
 
-  it("a plugin authored without a ui key stamps its computed ui slot", () => {
+  it("a plugin authored without a ui key still owns the plugin domain — no stamps", () => {
     const authored = {
       plugins: { votes: { extends: "bos://root.near/root" } },
     };
@@ -194,7 +194,49 @@ describe("stampInheritedSlotsFromRelease", () => {
         },
       }),
     });
-    expect(outcome.stamped).toEqual(["plugins.votes.ui"]);
+    expect(outcome.stamped).toEqual([]);
+  });
+
+  it("never stamps plugin slots — a child's declared plugin set owns the whole domain (the rc.26 incident)", () => {
+    const authored = {
+      account: "feedback.near",
+      app: { ui: { production: "https://feedback.test/ui/" } },
+      plugins: {
+        legion: { extends: "bos://root.near/root" },
+        storage: { extends: "bos://root.near/root" },
+      },
+    };
+    const payload = structuredClone(authored);
+    const outcome = stampInheritedSlotsFromRelease({
+      payload,
+      authoredConfig: authored,
+      manifest: manifestWithSlots({
+        "app.auth": {
+          base: authBase,
+          pin: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth" },
+        },
+        "app.auth.ui": {
+          base: authUiBase,
+          pin: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth-ui" },
+        },
+        "plugins.ai": {
+          base: "https://cdn.test/ai/",
+          pin: { manifest: "ai.json", integrity: "sha384-ai" },
+        },
+        "plugins.ai.ui": {
+          base: "https://cdn.test/ai-ui/",
+          pin: { manifest: "ai-ui.json", integrity: "sha384-ai-ui" },
+        },
+        "plugins.votes": {
+          base: "https://cdn.test/votes/",
+          pin: { manifest: "votes.json", integrity: "sha384-votes" },
+        },
+      }),
+    });
+    expect(outcome.stamped).toEqual(["app.auth", "app.auth.ui"]);
+    // the child's plugin set is exactly what it declared — the parent's
+    // plugins must not appear (and never schema-invalidated ui stamps)
+    expect(payload.plugins).toEqual(authored.plugins);
   });
 });
 
