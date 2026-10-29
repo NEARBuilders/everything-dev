@@ -78,6 +78,64 @@ export interface BootCheckOptions {
   io?: ResolutionIo;
 }
 
+export interface ResolvedBootShape {
+  /** The parent refs walked (leaf excluded), in walk order — nearest parent
+   *  first; empty for root payloads. */
+  chain: readonly string[];
+  /** The extends-merged (child-wins) shape — a structured clone, safe to
+   *  hand to callers that may mutate it (the defu merge reuses input
+   *  subtrees). Root payloads clone the payload itself. */
+  config: BosConfigInput;
+}
+
+function extendsRefOf(payload: unknown): string | undefined {
+  return payload !== null && typeof payload === "object" && (payload as BosConfigInput).extends
+    ? resolveExtendsRef((payload as BosConfigInput).extends, PUBLISHED_CONFIG_ENV)
+    : undefined;
+}
+
+/**
+ * The boot walk itself, exposed so consumers beside `verifyBootPayload` can
+ * gate on the merged shape (the deploy train's composition gate) instead of
+ * re-walking under their own walker. Throws on chain failure; the caller
+ * decides how to report it.
+ */
+export async function resolveBootShape(
+  payload: unknown,
+  slot: { account: string; gateway: string },
+  opts: BootCheckOptions = {},
+): Promise<ResolvedBootShape> {
+  if (payload === null || typeof payload !== "object") {
+    throw new Error("payload is not a config object");
+  }
+  const input = payload as BosConfigInput;
+  if (!extendsRefOf(input)) {
+    return { chain: [], config: structuredClone(input) };
+  }
+  const walked = await walkExtendsChain(`bos://${slot.account}/${slot.gateway}`, {
+    env: PUBLISHED_CONFIG_ENV,
+    ...(opts.registry ? { registry: opts.registry } : {}),
+    ...(opts.io ? { io: opts.io } : {}),
+    seedConfig: structuredClone(input),
+    visit: async () => {},
+  });
+  return { chain: walked.chain.slice(1), config: structuredClone(walked.config) };
+}
+
+/** Verify a payload against a shape the caller already walked with
+ * `resolveBootShape` for this exact payload — the pure half of
+ * `verifyBootPayload`, so a shared walk cannot drift from its verification. */
+export function verifyResolvedBootShape(
+  payload: unknown,
+  shape: ResolvedBootShape,
+): BootCheckReport {
+  const extendsRef = extendsRefOf(payload);
+  if (!extendsRef) {
+    return { chain: [], ...parseShape(payload as object, payload, false) };
+  }
+  return { chain: shape.chain, ...parseShape(payload as object, shape.config, true) };
+}
+
 export async function verifyBootPayload(
   payload: unknown,
   slot: { account: string; gateway: string },
@@ -97,24 +155,8 @@ export async function verifyBootPayload(
       chain: [],
     };
   }
-  const input = payload as BosConfigInput;
-  const extendsRef = input.extends
-    ? resolveExtendsRef(input.extends, PUBLISHED_CONFIG_ENV)
-    : undefined;
-
-  if (!extendsRef) {
-    return { chain: [], ...parseShape(input, input, false) };
-  }
-
   try {
-    const walked = await walkExtendsChain(`bos://${slot.account}/${slot.gateway}`, {
-      env: PUBLISHED_CONFIG_ENV,
-      ...(opts.registry ? { registry: opts.registry } : {}),
-      ...(opts.io ? { io: opts.io } : {}),
-      seedConfig: structuredClone(input),
-      visit: async () => {},
-    });
-    return { chain: walked.chain.slice(1), ...parseShape(input, walked.config, true) };
+    return verifyResolvedBootShape(payload, await resolveBootShape(payload, slot, opts));
   } catch (error) {
     if (!(error instanceof Error)) throw error;
     return {
@@ -123,7 +165,7 @@ export async function verifyBootPayload(
       issues: [
         {
           code: "chain",
-          path: extendsRef,
+          path: extendsRefOf(payload) ?? "",
           origin: "parent",
           message: chainFailureMessage(error),
         },

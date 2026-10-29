@@ -153,7 +153,7 @@ describe("verifyRollbackSnapshot", () => {
 
     expect(report.ok).toBe(false);
     expect(report.slots).toHaveLength(2);
-    expect(report.slots.map((s) => s.slot).sort()).toEqual(["app.ui", "auth"]);
+    expect(report.slots.map((s) => s.slot).sort()).toEqual(["app.ui", "plugins.auth"]);
   });
 });
 

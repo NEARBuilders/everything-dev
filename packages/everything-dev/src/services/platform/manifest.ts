@@ -56,8 +56,36 @@ export const PlatformReleaseManifestSchema = z.object({
     }),
   ),
   compat: z.object({ minChild: z.string().min(1) }),
+  /**
+   * The release's own slot-pin map (ADR 0034 amendment — release-scoped
+   * extends inheritance): each entry records the immutable version-manifest
+   * pointer the release published for a config slot (dotted config path, e.g.
+   * `app.auth`, `app.auth.ui`, `plugins.votes.ui`) — the son of the store, so
+   * children pinned to this release can re-point inherited slots at THESE
+   * bytes instead of the parent's live config whenever the parent publishes.
+   * Optional: releases composed before the field carry no slots, and old
+   * readers strip unknown keys.
+   */
+  slots: z
+    .record(
+      z.string(),
+      z.object({
+        base: z.string().min(1),
+        pin: z.object({
+          manifest: z.string().min(1),
+          integrity: z.string().min(1),
+        }),
+      }),
+    )
+    .optional(),
 });
 export type PlatformReleaseManifest = z.infer<typeof PlatformReleaseManifestSchema>;
+
+/** One recorded release slot (see {@link PlatformReleaseManifestSchema.slots}). */
+export interface ReleaseSlotRecord {
+  base: string;
+  pin: { manifest: string; integrity: string };
+}
 
 export interface TemplateInventoryEntry {
   path: string;
@@ -144,6 +172,10 @@ export interface ComposePlatformReleaseManifestInputs {
   catalog: Record<string, string>;
   templateInventory: TemplateInventoryEntry[];
   compatMinChild: string;
+  /** The release's own slot-pin map — sorted here so identical payloads
+   * compose identical manifest bytes across machines (the burned-version
+   * guard compares serialized bytes). */
+  slots?: Record<string, ReleaseSlotRecord>;
 }
 
 export function composePlatformReleaseManifest(
@@ -160,6 +192,9 @@ export function composePlatformReleaseManifest(
         `v${semver.major}.${semver.minor}.${semver.patch}${semver.prerelease ? `-${semver.prerelease}` : ""}`,
       ]
     : [];
+  const slots = inputs.slots
+    ? Object.fromEntries(Object.entries(inputs.slots).sort(([a], [b]) => (a < b ? -1 : 1)))
+    : undefined;
   return PlatformReleaseManifestSchema.parse({
     schemaVersion: 1,
     kind: "everything-dev/platform-manifest",
@@ -171,6 +206,7 @@ export function composePlatformReleaseManifest(
     sharedDeps: composeSharedDepsFromCatalog(inputs.catalog),
     templateInventory: inputs.templateInventory,
     compat: { minChild: inputs.compatMinChild },
+    ...(slots ? { slots } : {}),
   });
 }
 
