@@ -13,6 +13,7 @@ import {
   getPlatformManifestKey,
   getPlatformVersionSlotKey,
   type PlatformReleaseManifest,
+  type ReleaseSlotRecord,
   resolvePlatformManifest,
   serializePlatformReleaseManifest,
 } from "../platform/manifest";
@@ -24,6 +25,61 @@ export { getPlatformManifestKey, getPlatformVersionSlotKey };
 
 /** The universal image (ADR 0020/0021) — the release manifest's image ref. */
 export const PLATFORM_IMAGE_REF = "ghcr.io/nearbuilders/everything-dev";
+
+export interface ReleaseSlotRef extends ReleaseSlotRecord {
+  slot: string;
+}
+
+/**
+ * The release's pinned slots: every config slot (dotted config path, keyed by
+ * the same shape the release-slot stamping writes back — `app.auth`,
+ * `app.auth.ui`, `plugins.votes.ui`, …) with a production URL and an
+ * immutable version-manifest pin in the release's publish payload. The
+ * release leg records them in the release manifest so pinned children can
+ * re-point inherited slots at these bytes.
+ */
+export function collectReleaseSlotPins(config: Record<string, unknown>): ReleaseSlotRef[] {
+  const slots: ReleaseSlotRef[] = [];
+
+  const push = (slot: string, entry: unknown): void => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
+    const ref = entry as Record<string, unknown>;
+    const base = typeof ref.production === "string" ? ref.production : undefined;
+    const pin = ref.pin as { manifest?: unknown; integrity?: unknown } | undefined;
+    const manifest = typeof pin?.manifest === "string" ? pin.manifest : undefined;
+    const integrity = typeof pin?.integrity === "string" ? pin.integrity : undefined;
+    if (base && manifest && integrity) {
+      slots.push({ slot, base, pin: { manifest, integrity } });
+    }
+  };
+
+  const app = config.app as Record<string, Record<string, unknown>> | undefined;
+  if (app && typeof app === "object") {
+    for (const [key, entry] of Object.entries(app)) {
+      push(`app.${key}`, entry);
+      const ui = (entry as { ui?: unknown } | undefined)?.ui;
+      if (ui) push(`app.${key}.ui`, ui);
+    }
+  }
+  const plugins = config.plugins as Record<string, unknown> | undefined;
+  if (plugins && typeof plugins === "object") {
+    for (const [key, entry] of Object.entries(plugins)) {
+      push(`plugins.${key}`, entry);
+      if (typeof entry === "object" && entry !== null) {
+        const ui = (entry as { ui?: unknown }).ui;
+        if (ui) push(`plugins.${key}.ui`, ui);
+      }
+    }
+  }
+  return slots;
+}
+
+/** The `Record<slot, ReleaseSlotRecord>` shape the manifest schema stores. */
+export function releaseSlotMap(config: Record<string, unknown>): Record<string, ReleaseSlotRecord> {
+  return Object.fromEntries(
+    collectReleaseSlotPins(config).map(({ slot, base, pin }) => [slot, { base, pin }]),
+  );
+}
 
 function readWorkspacePackageVersion(configDir: string, name: string): string | undefined {
   try {
@@ -55,6 +111,9 @@ export function composePlatformManifestPublishEntry(opts: {
   /** The deploy's repo HEAD — the serving build's identity on the wire. */
   gitSha?: string;
   imageRef?: string;
+  /** The release's own publish payload — its pinned slots ride the manifest
+   * (ADR 0034 amendment: release-scoped extends inheritance). */
+  publishPayload?: Record<string, unknown>;
 }): PlatformManifestPublishEntry | null {
   const frameworkVersion = readFrameworkVersion(opts.configDir);
   const everyPluginVersion = readEveryPluginVersion(opts.configDir);
@@ -68,6 +127,7 @@ export function composePlatformManifestPublishEntry(opts: {
     catalog: readWorkspaceCatalog(opts.configDir),
     templateInventory: computeTemplateInventory(opts.configDir),
     compatMinChild: opts.previousFrameworkVersion ?? frameworkVersion,
+    ...(opts.publishPayload ? { slots: releaseSlotMap(opts.publishPayload) } : {}),
   });
   const value = serializePlatformReleaseManifest(manifest);
   return {

@@ -78,58 +78,88 @@ export interface BootCheckOptions {
   io?: ResolutionIo;
 }
 
-export async function verifyBootPayload(
+export interface ResolvedBootShape {
+  /** The parent refs walked (leaf excluded), in walk order — nearest parent
+   *  first; empty for root payloads. */
+  chain: readonly string[];
+  /** The extends-merged (child-wins) shape — a structured clone, safe to
+   *  hand to callers that may mutate it (the defu merge reuses input
+   *  subtrees). Root payloads clone the payload itself. */
+  config: BosConfigInput;
+}
+
+/**
+ * The boot walk itself, exposed so consumers beside `verifyBootPayload` can
+ * gate on the merged shape (the deploy train's composition gate) instead of
+ * re-walking under their own walker. Throws on chain failure; the caller
+ * decides how to report it.
+ */
+export async function resolveBootShape(
   payload: unknown,
   slot: { account: string; gateway: string },
   opts: BootCheckOptions = {},
-): Promise<BootCheckReport> {
+): Promise<ResolvedBootShape> {
   if (payload === null || typeof payload !== "object") {
-    return {
-      ok: false,
-      issues: [
-        {
-          code: "schema",
-          path: "",
-          origin: "payload",
-          message: "payload is not a config object",
-        },
-      ],
-      chain: [],
-    };
+    throw new Error("payload is not a config object");
   }
   const input = payload as BosConfigInput;
   const extendsRef = input.extends
     ? resolveExtendsRef(input.extends, PUBLISHED_CONFIG_ENV)
     : undefined;
+  if (!extendsRef) {
+    return { chain: [], config: structuredClone(input) };
+  }
+  const walked = await walkExtendsChain(`bos://${slot.account}/${slot.gateway}`, {
+    env: PUBLISHED_CONFIG_ENV,
+    ...(opts.registry ? { registry: opts.registry } : {}),
+    ...(opts.io ? { io: opts.io } : {}),
+    seedConfig: structuredClone(input),
+    visit: async () => {},
+  });
+  return { chain: walked.chain.slice(1), config: structuredClone(walked.config) };
+}
+
+export async function verifyBootPayload(
+  payload: unknown,
+  slot: { account: string; gateway: string },
+  opts: BootCheckOptions = {},
+  /** The caller may hand over a shape it already walked (the deploy train's
+   * composition gate shares one walk with this check) — it must be the
+   * result of `resolveBootShape` for this exact payload. */
+  preResolved?: ResolvedBootShape,
+): Promise<BootCheckReport> {
+  const extendsRef =
+    payload !== null && typeof payload === "object" && (payload as BosConfigInput).extends
+      ? resolveExtendsRef((payload as BosConfigInput).extends, PUBLISHED_CONFIG_ENV)
+      : undefined;
 
   if (!extendsRef) {
-    return { chain: [], ...parseShape(input, input, false) };
+    return { chain: [], ...parseShape(payload as object, payload, false) };
   }
 
-  try {
-    const walked = await walkExtendsChain(`bos://${slot.account}/${slot.gateway}`, {
-      env: PUBLISHED_CONFIG_ENV,
-      ...(opts.registry ? { registry: opts.registry } : {}),
-      ...(opts.io ? { io: opts.io } : {}),
-      seedConfig: structuredClone(input),
-      visit: async () => {},
-    });
-    return { chain: walked.chain.slice(1), ...parseShape(input, walked.config, true) };
-  } catch (error) {
-    if (!(error instanceof Error)) throw error;
-    return {
-      ok: false,
-      chain: [],
-      issues: [
-        {
-          code: "chain",
-          path: extendsRef,
-          origin: "parent",
-          message: chainFailureMessage(error),
-        },
-      ],
-    };
+  let shape: ResolvedBootShape;
+  if (preResolved) {
+    shape = preResolved;
+  } else {
+    try {
+      shape = await resolveBootShape(payload, slot, opts);
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      return {
+        ok: false,
+        chain: [],
+        issues: [
+          {
+            code: "chain",
+            path: extendsRef,
+            origin: "parent",
+            message: chainFailureMessage(error),
+          },
+        ],
+      };
+    }
   }
+  return { chain: shape.chain, ...parseShape(payload as object, shape.config, true) };
 }
 
 /** Parse a shape with BosConfigSchema and map the outcome onto a report —

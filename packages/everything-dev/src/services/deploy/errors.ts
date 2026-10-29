@@ -19,6 +19,7 @@ export type TrainErrorKind =
   | "missing-manifest"
   | "memory-backend"
   | "config-write"
+  | "composition"
   | "pin-verification"
   | "platform-manifest"
   | "platform-truth"

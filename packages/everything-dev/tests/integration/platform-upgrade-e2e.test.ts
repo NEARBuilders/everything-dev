@@ -20,6 +20,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  resolveReleaseManifestForDeploy,
+  runCompositionGate,
+  stampInheritedSlotsFromRelease,
+} from "../../src/services/deploy/composition";
+import { computeManifestSri } from "../../src/services/deploy/manifest-verify";
+import {
   composePlatformManifestPublishEntry,
   deriveImageRefFromPlatformManifest,
   PLATFORM_IMAGE_REF,
@@ -33,6 +39,7 @@ import {
   PlatformReleaseManifestSchema,
   resolvePlatformManifest,
 } from "../../src/services/platform/manifest";
+import { resolveBootShape } from "../../src/services/resolution/boot-check";
 import { applyPlatformPin } from "../../src/services/scaffold/upgrade-migration";
 import {
   type ExtendedRootSourceOptions,
@@ -460,5 +467,250 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
     expect(skew).toMatchObject({ kind: "shared-dep", name: "react" });
     expect(skew!.message).toContain("the release pins 19.3.0");
     expect(violations.some((v) => v.kind === "minChild")).toBe(true);
+  });
+});
+
+/**
+ * Release-scoped extends inheritance (ADR 0034 amendment) — the incident
+ * replay on the deploy train's composition plane:
+ *
+ *   The root publishes rc.1 (its release manifest records the auth slot
+ *   pins), then rc.2 whose LIVE config moves the inherited auth slots to
+ *   react 19.3.0. A child pinned rc.1 — its own ui built against react
+ *   19.2.4 — deploys: the train stamps app.auth/app.auth.ui from the rc.1
+ *   release's slots map, the extends-merged shape composes rc.1 auth against
+ *   rc.1 ui, and the composition gate is green. The same deploy WITHOUT the
+ *   stamps (a pre-slots release) composes live rc.2 auth against rc.1 ui —
+ *   the #546 skew — and the gate blocks publish with the remediation named.
+ */
+describe("release-scoped inheritance — a pinned child deploy survives the root's newer publish", () => {
+  const ACCOUNT = "root.near";
+  const GATEWAY = "root";
+  const CHILD_SLOT = { account: "child.near", gateway: "child.example" };
+  const liveConfigKey = `apps/${ACCOUNT}/${GATEWAY}/bos.config.json`;
+
+  const authRc1Shared = { "everything-dev/ui/auth": "2.0.0-rc.1", react: "19.2.4" };
+  const authRc2Shared = { "everything-dev/ui/auth": "2.0.0-rc.2", react: "19.3.0" };
+  const childUiShared = { react: "19.2.4" };
+
+  let server: Server;
+  let base: string;
+  let routes: Record<string, string>;
+  let rootDir: string;
+  let childDir: string;
+
+  const versionManifestText = (shared: Record<string, string>): string =>
+    JSON.stringify({
+      version: "0123456789abcdef",
+      entry: "remoteEntry.js",
+      entryIntegrity: "sha384-AAAAAA",
+      shared,
+    });
+
+  const pinFor = (slotBase: string, file: string, shared: Record<string, string>) => {
+    const text = versionManifestText(shared);
+    routes[`${base}${slotBase}${file}`] = text;
+    return { manifest: file, integrity: computeManifestSri(text) };
+  };
+
+  const registryIo = {
+    fetchBosConfig: async (bosUrl: string) => {
+      const [account, gateway] = bosUrl.replace(/^bos:\/\//, "").split("/");
+      const entry = registry.get(`apps/${account}/${gateway}/bos.config.json`);
+      if (!entry) throw new Error(`No config found for ${bosUrl}`);
+      return entry;
+    },
+    readFileOrNull: async () => null,
+    importModule: async () => {
+      throw new Error("importModule must not be reached");
+    },
+  };
+
+  /** The root's release compose: the release manifest records its slot pins,
+   * and the live parent config carries the same pins — the moving pointer the
+   * incident trips over. Each release's live auth slots carry that release's
+   * shared-singleton versions (rc.1: react 19.2.4; rc.2: 19.3.0). */
+  function publishRootRelease(
+    version: string,
+    previousVersion: string | undefined,
+    shared: Record<string, string>,
+  ): PlatformReleaseManifest {
+    writeFileSync(
+      join(rootDir, "packages", "everything-dev", "package.json"),
+      `${JSON.stringify({ name: "everything-dev", version })}\n`,
+    );
+    const authPin = pinFor("/auth/", `versions/auth-${version}.json`, shared);
+    const authUiPin = pinFor("/auth-ui/", `versions/auth-ui-${version}.json`, shared);
+    const entry = composePlatformManifestPublishEntry({
+      configDir: rootDir,
+      account: ACCOUNT,
+      gateway: GATEWAY,
+      ...(previousVersion ? { previousFrameworkVersion: previousVersion } : {}),
+      publishPayload: {
+        app: {
+          auth: {
+            production: `${base}/auth/`,
+            pin: authPin,
+            ui: { production: `${base}/auth-ui/`, pin: authUiPin },
+          },
+        },
+      },
+    });
+    expect(entry).not.toBeNull();
+    registry.set(entry!.key, JSON.parse(entry!.value));
+    registry.set(getPlatformVersionSlotKey(ACCOUNT, GATEWAY, version), JSON.parse(entry!.value));
+    registry.set(liveConfigKey, {
+      account: ACCOUNT,
+      domain: GATEWAY,
+      app: {
+        auth: {
+          production: `${base}/auth/`,
+          pin: authPin,
+          ui: { production: `${base}/auth-ui/`, pin: authUiPin },
+        },
+      },
+    });
+    return entry!.manifest;
+  }
+
+  /** The deploy train's payload assembly, compressed: authored config, the
+   * train-applied own-ui pin, optional stamps, one boot walk, then the gate. */
+  async function simulateDeploy(
+    authoredConfig: Record<string, unknown>,
+    ownUiPin: { manifest: string; integrity: string },
+    stamps: boolean,
+  ): Promise<{ ok: boolean; violations: string[]; merged: Record<string, unknown> }> {
+    const resolvedRelease = await resolveReleaseManifestForDeploy({
+      configDir: childDir,
+      authoredConfig,
+      resolveOptions: { fetchManifest, fetchParent, fetchSlot },
+    });
+    const payload = structuredClone(authoredConfig);
+    const app = payload.app as Record<string, Record<string, unknown>>;
+    app.ui.production = `${base}/child-ui/`;
+    app.ui.pin = ownUiPin;
+    if (stamps && resolvedRelease?.manifest.slots) {
+      stampInheritedSlotsFromRelease({
+        payload,
+        authoredConfig,
+        manifest: resolvedRelease.manifest,
+      });
+    }
+    const bootShape = await resolveBootShape(payload, CHILD_SLOT, { io: registryIo });
+    const gate = await runCompositionGate({
+      configDir: childDir,
+      authoredConfig,
+      resolvedShape: bootShape.config as Record<string, unknown>,
+      resolvedRelease,
+      fetchImpl: (async (input: Parameters<typeof fetch>[0]) => {
+        const text = routes[String(input)];
+        if (!text) {
+          return { ok: false, status: 404, text: async () => "" } as unknown as Response;
+        }
+        return { ok: true, status: 200, text: async () => text } as unknown as Response;
+      }) as typeof fetch,
+    });
+    return {
+      ok: gate.ok,
+      violations: gate.violations,
+      merged: bootShape.config as Record<string, unknown>,
+    };
+  }
+
+  beforeAll(async () => {
+    routes = {};
+    server = createServer((req, res) => {
+      const text = routes[req.url ?? ""];
+      res.writeHead(text !== undefined ? 200 : 404, { "content-type": "application/json" });
+      res.end(text ?? "");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("no server address");
+    base = `http://127.0.0.1:${address.port}`;
+
+    routes[`${base}/child-ui/versions/fedcba0987654321.json`] = versionManifestText(childUiShared);
+
+    rootDir = frameworkRootFixture("2.0.0-rc.1", "19.2.4");
+    childDir = childFixture("2.0.0-rc.1");
+    writeFileSync(
+      join(childDir, "package.json"),
+      `${JSON.stringify({ name: "child", dependencies: { "everything-dev": "2.0.0-rc.1" } })}\n`,
+    );
+    writeFileSync(
+      join(childDir, "pnpm-workspace.yaml"),
+      [
+        "packages:",
+        "  - ui",
+        "",
+        "catalog:",
+        '  react: "19.2.4"',
+        '  effect: "4.0.0-rc.112"',
+        "",
+      ].join("\n"),
+    );
+
+    publishRootRelease("2.0.0-rc.1", undefined, authRc1Shared);
+    // the parent moves on: rc.2's live config serves react 19.3.0 auth bundles
+    publishRootRelease("2.0.0-rc.2", "2.0.0-rc.1", authRc2Shared);
+  });
+
+  afterAll(() => {
+    server.close();
+    for (const dir of tempDirs.splice(-2)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("the child deploy stamps inherited auth slots from its pinned release — the composition gate is green", async () => {
+    const authoredConfig = {
+      extends: `bos://${ACCOUNT}/${GATEWAY}`,
+      account: "child.near",
+      domain: "child.example",
+      platform: "2.0.0-rc.1",
+      app: { ui: { development: "local:ui" } },
+    };
+    const { ok, violations, merged } = await simulateDeploy(
+      authoredConfig,
+      {
+        manifest: "versions/fedcba0987654321.json",
+        integrity: computeManifestSri(versionManifestText(childUiShared)),
+      },
+      true,
+    );
+    expect(violations).toEqual([]);
+
+    // the merged shape re-pointed the inherited auth slots at the rc.1
+    // release — NOT the parent's live rc.2 pins
+    const app = merged.app as Record<string, Record<string, Record<string, string>>>;
+    expect(app.auth.pin.manifest).toBe("versions/auth-2.0.0-rc.1.json");
+    expect(app.auth.ui.pin.manifest).toBe("versions/auth-ui-2.0.0-rc.1.json");
+    expect(ok).toBe(true);
+  });
+
+  it("without the stamps (a pre-slots release) the deploy gate blocks with the #546 skew and the remediation", async () => {
+    const authoredConfig = {
+      extends: `bos://${ACCOUNT}/${GATEWAY}`,
+      account: "child.near",
+      domain: "child.example",
+      platform: "2.0.0-rc.1",
+      app: { ui: { development: "local:ui" } },
+    };
+    const { ok, violations } = await simulateDeploy(
+      authoredConfig,
+      {
+        manifest: "versions/fedcba0987654321.json",
+        integrity: computeManifestSri(versionManifestText(childUiShared)),
+      },
+      false,
+    );
+    // the stamps were skipped: the merged shape keeps the live rc.2 auth
+    // against the child's own rc.1 ui — the incident
+    expect(ok).toBe(false);
+    const combined = violations.join("\n");
+    expect(combined).toContain("Shared singleton");
+    expect(combined).toContain("19.2.4");
+    expect(combined).toContain("19.3.0");
+    expect(combined).toContain("bos upgrade");
   });
 });

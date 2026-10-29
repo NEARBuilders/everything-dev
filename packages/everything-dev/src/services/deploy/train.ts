@@ -5,7 +5,11 @@ import { Context, Effect, Layer, Option } from "effect";
 import { hasFolderFormUi } from "every-plugin/build/ui";
 import { findConfigPath, isAppDescriptorPath, resolveUiRuntimeName } from "../../config";
 import type { WorkspaceDeployResult } from "../../contract";
-import { verifyBootPayload } from "../../services/resolution/boot-check";
+import {
+  type ResolvedBootShape,
+  resolveBootShape,
+  verifyBootPayload,
+} from "../../services/resolution/boot-check";
 import { openResolution } from "../../services/resolution/session";
 import type { BosConfig, BosConfigInput, RuntimeConfig } from "../../types";
 import { run } from "../../utils/run";
@@ -27,6 +31,12 @@ import {
   buildWorkspaceTargets,
   resolveWorkspaceTarget,
 } from "../workspace/build-train";
+import {
+  type ResolvedReleaseManifest,
+  resolveReleaseManifestForDeploy,
+  runCompositionGate,
+  stampInheritedSlotsFromRelease,
+} from "./composition";
 import { BundleStorage, RegistryStore, type RegistryStoreShape } from "./deps";
 import {
   type PreviousPin,
@@ -746,18 +756,67 @@ export async function runPublishTrain(
     publishPayload = stripLocalDevelopmentTargets(publishPayload);
   }
 
+  // Release-scoped extends inheritance (ADR 0034 amendment): every remote
+  // slot the authored config does not declare is a base-runtime slot, and its
+  // bytes re-point at the authored platform pin's release — the parent's
+  // live config pointer can move (a root rc.N+1 publish) without skewing a
+  // pinned child's composition. Resolution failures warn and continue
+  // unpinned; the composition gate below still cross-checks the bytes.
+  let resolvedRelease: ResolvedReleaseManifest | null = null;
+  if (input.exactPayload !== true) {
+    try {
+      resolvedRelease = await resolveReleaseManifestForDeploy({
+        configDir,
+        authoredConfig: publishRawConfig as Record<string, unknown>,
+      });
+      if (resolvedRelease) {
+        const stamped = stampInheritedSlotsFromRelease({
+          payload: publishPayload as Record<string, unknown>,
+          authoredConfig: publishRawConfig as Record<string, unknown>,
+          manifest: resolvedRelease.manifest,
+        });
+        if (stamped.stamped.length > 0) {
+          console.log(
+            colors.dim(
+              `  Release-scoped slots (${resolvedRelease.manifest.frameworkVersion}): stamped ${stamped.stamped.join(", ")}`,
+            ),
+          );
+        }
+      }
+    } catch (error) {
+      console.log(
+        colors.dim(
+          `  Note: release-manifest resolution failed — continuing without release-scoped slots: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
+  }
+
   // Every runtime boot validates the extends-merged config with
   // BosConfigSchema (resolvePublishedConfig) — a leaf payload is only the
   // boot input when it carries no extends ref. The check re-runs the boot's
   // own walk-merge-parse with this payload as the leaf, catching
   // canonicalization/schema drift AND extends-chain breakage at preflight
   // instead of failing the post-publish smoke and rolling back.
+  let bootShape: ResolvedBootShape | undefined;
+  try {
+    bootShape = await resolveBootShape(
+      publishPayload,
+      { account, gateway },
+      {
+        ...(input.registry ? { registry: input.registry } : {}),
+      },
+    );
+  } catch {
+    // verifyBootPayload re-walks and reports the chain failure as issues
+  }
   const bootCheck = await verifyBootPayload(
     publishPayload,
     { account, gateway },
     {
       ...(input.registry ? { registry: input.registry } : {}),
     },
+    bootShape,
   );
   if (!bootCheck.ok) {
     const detail = bootCheck.issues
@@ -792,6 +851,33 @@ export async function runPublishTrain(
       skipped,
       deployResults,
       error: `Publish blocked — pinned slot bytes missing or SRI mismatched:\n${failures}`,
+    });
+  }
+
+  // Layer 1 — the composition gate (deploy-time mirror of the host's boot
+  // guard, #546): the extends-merged shape must cross-agree on shared
+  // singletons before anything publishes; a pinned child additionally checks
+  // its platform compat against its own release. Skew here is a red CI with
+  // the remediation named — never a degraded production boot.
+  const compositionGate = await runCompositionGate({
+    configDir,
+    authoredConfig: publishRawConfig as Record<string, unknown>,
+    resolvedShape: (bootShape ? bootShape.config : { ...publishPayload }) as Record<
+      string,
+      unknown
+    >,
+    resolvedRelease,
+  });
+  if (!compositionGate.ok) {
+    throw new PublishTrainError({
+      kind: "composition",
+      registryUrl,
+      built,
+      skipped,
+      deployResults,
+      error:
+        `Publish blocked — a consumer boot would refuse this composition:\n` +
+        compositionGate.violations.map((line) => `    ${line}`).join("\n"),
     });
   }
 
@@ -860,6 +946,7 @@ export async function runPublishTrain(
       gateway,
       previousFrameworkVersion: pointer?.frameworkVersion,
       gitSha,
+      publishPayload: publishPayload as Record<string, unknown>,
     });
     // The truth gate (#546, extended by #573): runs on EVERY production
     // deploy against the composed release manifest — a workspace whose
