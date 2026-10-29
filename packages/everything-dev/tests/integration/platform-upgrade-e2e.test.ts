@@ -45,6 +45,7 @@ import {
   type ExtendedRootSourceOptions,
   readExtendedRootSource,
 } from "../../src/services/scaffold/upgrade-source";
+import { versionManifestFetcher, versionManifestText } from "../helpers/version-manifests";
 
 const ROOT_ACCOUNT = "dev.everything.near";
 const ROOT_GATEWAY = "everything.dev";
@@ -499,14 +500,6 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
   let rootDir: string;
   let childDir: string;
 
-  const versionManifestText = (shared: Record<string, string>): string =>
-    JSON.stringify({
-      version: "0123456789abcdef",
-      entry: "remoteEntry.js",
-      entryIntegrity: "sha384-AAAAAA",
-      shared,
-    });
-
   const pinFor = (slotBase: string, file: string, shared: Record<string, string>) => {
     const text = versionManifestText(shared);
     routes[`${base}${slotBase}${file}`] = text;
@@ -589,11 +582,11 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     const app = payload.app as Record<string, Record<string, unknown>>;
     app.ui.production = `${base}/child-ui/`;
     app.ui.pin = ownUiPin;
-    if (stamps && resolvedRelease?.manifest.slots) {
+    if (stamps && resolvedRelease?.slots) {
       stampInheritedSlotsFromRelease({
         payload,
         authoredConfig,
-        manifest: resolvedRelease.manifest,
+        manifest: resolvedRelease,
       });
     }
     const bootShape = await resolveBootShape(payload, CHILD_SLOT, { io: registryIo });
@@ -602,13 +595,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       authoredConfig,
       resolvedShape: bootShape.config as Record<string, unknown>,
       resolvedRelease,
-      fetchImpl: (async (input: Parameters<typeof fetch>[0]) => {
-        const text = routes[String(input)];
-        if (!text) {
-          return { ok: false, status: 404, text: async () => "" } as unknown as Response;
-        }
-        return { ok: true, status: 200, text: async () => text } as unknown as Response;
-      }) as typeof fetch,
+      fetchImpl: versionManifestFetcher(routes),
     });
     return {
       ok: gate.ok,
@@ -651,7 +638,6 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     );
 
     publishRootRelease("2.0.0-rc.1", undefined, authRc1Shared);
-    // the parent moves on: rc.2's live config serves react 19.3.0 auth bundles
     publishRootRelease("2.0.0-rc.2", "2.0.0-rc.1", authRc2Shared);
   });
 
@@ -680,8 +666,6 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     );
     expect(violations).toEqual([]);
 
-    // the merged shape re-pointed the inherited auth slots at the rc.1
-    // release — NOT the parent's live rc.2 pins
     const app = merged.app as Record<string, Record<string, Record<string, string>>>;
     expect(app.auth.pin.manifest).toBe("versions/auth-2.0.0-rc.1.json");
     expect(app.auth.ui.pin.manifest).toBe("versions/auth-ui-2.0.0-rc.1.json");
@@ -704,8 +688,6 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       },
       false,
     );
-    // the stamps were skipped: the merged shape keeps the live rc.2 auth
-    // against the child's own rc.1 ui — the incident
     expect(ok).toBe(false);
     const combined = violations.join("\n");
     expect(combined).toContain("Shared singleton");

@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { satisfiesConstraint } from "../../utils/semver";
+import { walkConfigSlots } from "../config-slots";
 import {
   composePlatformReleaseManifest,
   computeTemplateInventory,
@@ -32,7 +33,7 @@ export interface ReleaseSlotRef extends ReleaseSlotRecord {
 
 /**
  * The release's pinned slots: every config slot (dotted config path, keyed by
- * the same shape the release-slot stamping writes back — `app.auth`,
+ * the same path shape the release-slot stamping writes back — `app.auth`,
  * `app.auth.ui`, `plugins.votes.ui`, …) with a production URL and an
  * immutable version-manifest pin in the release's publish payload. The
  * release leg records them in the release manifest so pinned children can
@@ -40,37 +41,16 @@ export interface ReleaseSlotRef extends ReleaseSlotRecord {
  */
 export function collectReleaseSlotPins(config: Record<string, unknown>): ReleaseSlotRef[] {
   const slots: ReleaseSlotRef[] = [];
-
-  const push = (slot: string, entry: unknown): void => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
-    const ref = entry as Record<string, unknown>;
-    const base = typeof ref.production === "string" ? ref.production : undefined;
-    const pin = ref.pin as { manifest?: unknown; integrity?: unknown } | undefined;
+  walkConfigSlots(config, ({ slot, entry }) => {
+    if (typeof entry !== "object" || entry === null) return;
+    const base = typeof entry.production === "string" ? entry.production : undefined;
+    const pin = entry.pin as { manifest?: unknown; integrity?: unknown } | undefined;
     const manifest = typeof pin?.manifest === "string" ? pin.manifest : undefined;
     const integrity = typeof pin?.integrity === "string" ? pin.integrity : undefined;
     if (base && manifest && integrity) {
       slots.push({ slot, base, pin: { manifest, integrity } });
     }
-  };
-
-  const app = config.app as Record<string, Record<string, unknown>> | undefined;
-  if (app && typeof app === "object") {
-    for (const [key, entry] of Object.entries(app)) {
-      push(`app.${key}`, entry);
-      const ui = (entry as { ui?: unknown } | undefined)?.ui;
-      if (ui) push(`app.${key}.ui`, ui);
-    }
-  }
-  const plugins = config.plugins as Record<string, unknown> | undefined;
-  if (plugins && typeof plugins === "object") {
-    for (const [key, entry] of Object.entries(plugins)) {
-      push(`plugins.${key}`, entry);
-      if (typeof entry === "object" && entry !== null) {
-        const ui = (entry as { ui?: unknown }).ui;
-        if (ui) push(`plugins.${key}.ui`, ui);
-      }
-    }
-  }
+  });
   return slots;
 }
 

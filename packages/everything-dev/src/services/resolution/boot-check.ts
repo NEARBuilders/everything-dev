@@ -88,6 +88,12 @@ export interface ResolvedBootShape {
   config: BosConfigInput;
 }
 
+function extendsRefOf(payload: unknown): string | undefined {
+  return payload !== null && typeof payload === "object" && (payload as BosConfigInput).extends
+    ? resolveExtendsRef((payload as BosConfigInput).extends, PUBLISHED_CONFIG_ENV)
+    : undefined;
+}
+
 /**
  * The boot walk itself, exposed so consumers beside `verifyBootPayload` can
  * gate on the merged shape (the deploy train's composition gate) instead of
@@ -103,10 +109,7 @@ export async function resolveBootShape(
     throw new Error("payload is not a config object");
   }
   const input = payload as BosConfigInput;
-  const extendsRef = input.extends
-    ? resolveExtendsRef(input.extends, PUBLISHED_CONFIG_ENV)
-    : undefined;
-  if (!extendsRef) {
+  if (!extendsRefOf(input)) {
     return { chain: [], config: structuredClone(input) };
   }
   const walked = await walkExtendsChain(`bos://${slot.account}/${slot.gateway}`, {
@@ -119,47 +122,56 @@ export async function resolveBootShape(
   return { chain: walked.chain.slice(1), config: structuredClone(walked.config) };
 }
 
+/** Verify a payload against a shape the caller already walked with
+ * `resolveBootShape` for this exact payload — the pure half of
+ * `verifyBootPayload`, so a shared walk cannot drift from its verification. */
+export function verifyResolvedBootShape(
+  payload: unknown,
+  shape: ResolvedBootShape,
+): BootCheckReport {
+  const extendsRef = extendsRefOf(payload);
+  if (!extendsRef) {
+    return { chain: [], ...parseShape(payload as object, payload, false) };
+  }
+  return { chain: shape.chain, ...parseShape(payload as object, shape.config, true) };
+}
+
 export async function verifyBootPayload(
   payload: unknown,
   slot: { account: string; gateway: string },
   opts: BootCheckOptions = {},
-  /** The caller may hand over a shape it already walked (the deploy train's
-   * composition gate shares one walk with this check) — it must be the
-   * result of `resolveBootShape` for this exact payload. */
-  preResolved?: ResolvedBootShape,
 ): Promise<BootCheckReport> {
-  const extendsRef =
-    payload !== null && typeof payload === "object" && (payload as BosConfigInput).extends
-      ? resolveExtendsRef((payload as BosConfigInput).extends, PUBLISHED_CONFIG_ENV)
-      : undefined;
-
-  if (!extendsRef) {
-    return { chain: [], ...parseShape(payload as object, payload, false) };
+  if (payload === null || typeof payload !== "object") {
+    return {
+      ok: false,
+      issues: [
+        {
+          code: "schema",
+          path: "",
+          origin: "payload",
+          message: "payload is not a config object",
+        },
+      ],
+      chain: [],
+    };
   }
-
-  let shape: ResolvedBootShape;
-  if (preResolved) {
-    shape = preResolved;
-  } else {
-    try {
-      shape = await resolveBootShape(payload, slot, opts);
-    } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      return {
-        ok: false,
-        chain: [],
-        issues: [
-          {
-            code: "chain",
-            path: extendsRef,
-            origin: "parent",
-            message: chainFailureMessage(error),
-          },
-        ],
-      };
-    }
+  try {
+    return verifyResolvedBootShape(payload, await resolveBootShape(payload, slot, opts));
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return {
+      ok: false,
+      chain: [],
+      issues: [
+        {
+          code: "chain",
+          path: extendsRefOf(payload) ?? "",
+          origin: "parent",
+          message: chainFailureMessage(error),
+        },
+      ],
+    };
   }
-  return { chain: shape.chain, ...parseShape(payload as object, shape.config, true) };
 }
 
 /** Parse a shape with BosConfigSchema and map the outcome onto a report —

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { walkConfigSlots } from "../../src/services/config-slots";
 import {
   authoredSlotPaths,
   compositionSkewViolations,
@@ -15,6 +16,7 @@ import {
   type PlatformReleaseManifest,
   PlatformReleaseManifestSchema,
 } from "../../src/services/platform/manifest";
+import { versionManifestFetcher, versionManifestText } from "../helpers/version-manifests";
 
 /**
  * The composition plane (ADR 0034 amendment — release-scoped extends
@@ -25,25 +27,6 @@ import {
 
 const authBase = "https://cdn.test/bundles/root.near/root/auth/";
 const authUiBase = "https://cdn.test/bundles/root.near/root/auth-ui/";
-
-function uiVersionManifest(shared: Record<string, string>): string {
-  return JSON.stringify({
-    version: "fedcba0987654321",
-    entry: "remoteEntry.js",
-    entryIntegrity: "sha384-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
-    shared,
-  });
-}
-
-function versionManifestFetcher(routes: Record<string, string>): typeof fetch {
-  return (async (input: Parameters<typeof fetch>[0]) => {
-    const text = routes[String(input)];
-    if (!text) {
-      return { ok: false, status: 404, text: async () => "" } as unknown as Response;
-    }
-    return { ok: true, status: 200, text: async () => text } as unknown as Response;
-  }) as typeof fetch;
-}
 
 function manifestWithSlots(slots: unknown): PlatformReleaseManifest {
   return PlatformReleaseManifestSchema.parse({
@@ -70,6 +53,26 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
   clearSlotVersionCache();
+});
+
+describe("walkConfigSlots", () => {
+  it("visits canonical dotted paths, ui:false opt-outs, and bare plugin refs", () => {
+    const seen: Array<{ slot: string; entry: unknown; isPluginRef: boolean }> = [];
+    walkConfigSlots(
+      {
+        app: { ui: { x: 1 }, auth: { ui: false }, title: "not-an-entry" },
+        plugins: { votes: { y: 1 }, legacy: "bos://parent/p" },
+      },
+      (slot) => seen.push({ ...slot }),
+    );
+    expect(seen).toEqual([
+      { slot: "app.ui", entry: { x: 1 }, isPluginRef: false },
+      { slot: "app.auth", entry: { ui: false }, isPluginRef: false },
+      { slot: "app.auth.ui", entry: false, isPluginRef: false },
+      { slot: "plugins.votes", entry: { y: 1 }, isPluginRef: false },
+      { slot: "plugins.legacy", entry: "bos://parent/p", isPluginRef: true },
+    ]);
+  });
 });
 
 describe("stampInheritedSlotsFromRelease", () => {
@@ -153,12 +156,12 @@ describe("stampInheritedSlotsFromRelease", () => {
   });
 
   it("a ui:false opt-out owns the plugin and ui slots — no stamp resurrects the surface", () => {
-    const payload: Record<string, unknown> = {
+    const authored = {
       plugins: { votes: { extends: "bos://root.near/root", ui: false } },
     };
     const outcome = stampInheritedSlotsFromRelease({
-      payload,
-      authoredConfig: { plugins: { votes: { extends: "bos://root.near/root", ui: false } } },
+      payload: structuredClone(authored),
+      authoredConfig: authored,
       manifest: manifestWithSlots({
         "plugins.votes": {
           base: "https://cdn.test/votes/",
@@ -174,12 +177,12 @@ describe("stampInheritedSlotsFromRelease", () => {
   });
 
   it("a plugin authored without a ui key stamps its computed ui slot", () => {
-    const payload: Record<string, unknown> = {
+    const authored = {
       plugins: { votes: { extends: "bos://root.near/root" } },
     };
     const outcome = stampInheritedSlotsFromRelease({
-      payload,
-      authoredConfig: { plugins: { votes: { extends: "bos://root.near/root" } } },
+      payload: structuredClone(authored),
+      authoredConfig: authored,
       manifest: manifestWithSlots({
         "plugins.votes": {
           base: "https://cdn.test/votes/",
@@ -199,34 +202,30 @@ describe("authoredSlotPaths", () => {
   it("counts app entries with their ui, and string plugin refs as fully owned", () => {
     const paths = authoredSlotPaths({
       app: { ui: { x: 1 }, host: { ui: {} }, api: { ui: false } },
-      plugins: { votes: { y: 1 }, legacy: "bos://parent/p", detached: { ui: false } },
+      plugins: { votes: { y: 1 }, legacy: "bos://parent/p" },
     });
     expect(paths.has("app.ui")).toBe(true);
     expect(paths.has("app.ui.ui")).toBe(false);
     expect(paths.has("app.host")).toBe(true);
     expect(paths.has("app.api")).toBe(true);
-    // a ui:false opt-out is an authored decision — the slot is owned
     expect(paths.has("app.api.ui")).toBe(true);
     expect(paths.has("plugins.votes")).toBe(true);
-    // no ui key in the authored entry — the extends chain owns the ui slot
     expect(paths.has("plugins.votes.ui")).toBe(false);
     expect(paths.has("plugins.legacy")).toBe(true);
     expect(paths.has("plugins.legacy.ui")).toBe(true);
-    expect(paths.has("plugins.detached")).toBe(true);
-    expect(paths.has("plugins.detached.ui")).toBe(true);
   });
 });
 
 describe("compositionSkewViolations", () => {
-  const uiText = uiVersionManifest({
+  const uiText = versionManifestText({
     react: "19.2.9",
     "everything-dev/ui/auth": "2.0.0-rc.24",
   });
-  const authUiSkewedText = uiVersionManifest({
+  const authUiSkewedText = versionManifestText({
     react: "19.2.9",
     "everything-dev/ui/auth": "2.0.0-rc.25",
   });
-  const authUiAgreeText = uiVersionManifest({
+  const authUiAgreeText = versionManifestText({
     react: "19.2.9",
     "everything-dev/ui/auth": "2.0.0-rc.24",
   });
@@ -253,23 +252,14 @@ describe("compositionSkewViolations", () => {
     };
   }
 
-  const verifiedAuthUiPin = {
-    manifest: "versions/0123456789abcdef.json",
-    integrity: computeManifestSri(authUiSkewedText),
-  };
-  const brokenAuthUiPin = {
-    manifest: "versions/0123456789abcdef.json",
-    integrity: "sha384-not-the-served-bytes",
-  };
-
   it("flags the skew the incident class produces — the host boot guard's mirror", async () => {
-    const merged = mergedWithUiSlots(verifiedAuthUiPin.integrity);
+    const merged = mergedWithUiSlots(computeManifestSri(authUiSkewedText));
     const fetcher = versionManifestFetcher({
       "https://cdn.test/bundles/child.near/ui/versions/fedcba0987654321.json": uiText,
       [`${authUiBase}versions/0123456789abcdef.json`]: authUiSkewedText,
     });
 
-    const violations = await compositionSkewViolations(merged, fetcher);
+    const violations = await compositionSkewViolations(merged, { fetchImpl: fetcher });
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain('Shared singleton "everything-dev/ui/auth"');
     expect(violations[0]).toContain("2.0.0-rc.24");
@@ -277,14 +267,29 @@ describe("compositionSkewViolations", () => {
     expect(violations[0]).toContain("bos upgrade");
   });
 
-  it("an unresolvable source pin is skipped, not guessed", async () => {
-    const merged = mergedWithUiSlots(brokenAuthUiPin.integrity);
+  it("a pin the leaf verification proved servable is skipped on a transient fetch failure", async () => {
+    const merged = mergedWithUiSlots(computeManifestSri(authUiSkewedText));
     const fetcher = versionManifestFetcher({
       "https://cdn.test/bundles/child.near/ui/versions/fedcba0987654321.json": uiText,
-      [`${authUiBase}versions/0123456789abcdef.json`]: authUiSkewedText,
     });
 
-    expect(await compositionSkewViolations(merged, fetcher)).toEqual([]);
+    const violations = await compositionSkewViolations(merged, {
+      fetchImpl: fetcher,
+      verifiedSlots: new Set(["app.auth.ui"]),
+    });
+    expect(violations).toEqual([]);
+  });
+
+  it("an unresolvable inherited pin (outside the verified set) is a violation, not a silent skip", async () => {
+    const merged = mergedWithUiSlots(computeManifestSri(authUiSkewedText));
+    const fetcher = versionManifestFetcher({
+      "https://cdn.test/bundles/child.near/ui/versions/fedcba0987654321.json": uiText,
+    });
+
+    const violations = await compositionSkewViolations(merged, { fetchImpl: fetcher });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain('Pinned UI slot "app.auth.ui" version manifest does not serve');
+    expect(violations[0]).toContain("redeploy the bundle");
   });
 
   it("silent when all sources agree", async () => {
@@ -293,7 +298,7 @@ describe("compositionSkewViolations", () => {
       "https://cdn.test/bundles/child.near/ui/versions/fedcba0987654321.json": uiText,
       [`${authUiBase}versions/0123456789abcdef.json`]: authUiAgreeText,
     });
-    expect(await compositionSkewViolations(merged, fetcher)).toEqual([]);
+    expect(await compositionSkewViolations(merged, { fetchImpl: fetcher })).toEqual([]);
   });
 
   it("ignores non-UI slots entirely", async () => {
@@ -305,7 +310,9 @@ describe("compositionSkewViolations", () => {
         },
       },
     };
-    expect(await compositionSkewViolations(merged, versionManifestFetcher({}))).toEqual([]);
+    expect(
+      await compositionSkewViolations(merged, { fetchImpl: versionManifestFetcher({}) }),
+    ).toEqual([]);
   });
 });
 
@@ -332,7 +339,7 @@ describe("runCompositionGate — compat leg", () => {
       configDir,
       authoredConfig: { platform: "2.0.0-rc.24" },
       resolvedShape: {},
-      resolvedRelease: { manifest: manifestWithSlots(undefined) },
+      resolvedRelease: manifestWithSlots(undefined),
     });
     expect(report.ok).toBe(true);
   });
@@ -343,7 +350,7 @@ describe("runCompositionGate — compat leg", () => {
       configDir,
       authoredConfig: { platform: "2.0.0-rc.24" },
       resolvedShape: {},
-      resolvedRelease: { manifest: manifestWithSlots(undefined) },
+      resolvedRelease: manifestWithSlots(undefined),
     });
     expect(report.ok).toBe(false);
     const combined = report.violations.join("\n");
@@ -357,7 +364,7 @@ describe("runCompositionGate — compat leg", () => {
       configDir,
       authoredConfig: {},
       resolvedShape: {},
-      resolvedRelease: { manifest: manifestWithSlots(undefined) },
+      resolvedRelease: manifestWithSlots(undefined),
     });
     expect(report.ok).toBe(true);
   });

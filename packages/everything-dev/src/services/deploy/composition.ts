@@ -1,4 +1,5 @@
 import type { BosConfigInput } from "../../types";
+import { ensureObjectContainers, walkConfigSlots } from "../config-slots";
 import { readInstalledFrameworkVersion } from "../framework-version";
 import {
   checkPlatformCompat,
@@ -29,58 +30,38 @@ import { resolveSlotVersion } from "./version-manifest";
  * parent's live pointer at every consumer boot.
  */
 
-export interface ResolvedReleaseManifest {
-  manifest: PlatformReleaseManifest;
-}
-
 /**
  * Resolve the release manifest for a deploy: the authored `platform` pin via
- * slot-first resolution (children), otherwise the latest pointer (root runtimes).
- * Returns null when no manifest is published; null is a normal state for
- * children pinned to pre-manifest releases. Resolution failures surface — the
- * caller warns and continues unpinned (the composition gate still cross-checks
- * the actual resolved bytes).
+ * slot-first resolution (children), otherwise the latest pointer (root
+ * runtimes). Returns null when no manifest is published — a normal state for
+ * children pinned to pre-manifest releases. Resolution failures surface; the
+ * caller warns and continues unpinned (the composition gate still
+ * cross-checks the actual resolved bytes).
  */
 export async function resolveReleaseManifestForDeploy(input: {
   configDir: string;
   authoredConfig: Record<string, unknown>;
   /** test/registry seam — threaded to the platform-manifest resolution */
   resolveOptions?: Partial<ResolvePlatformManifestOptions>;
-}): Promise<ResolvedReleaseManifest | null> {
+}): Promise<PlatformReleaseManifest | null> {
   const resolved = await resolvePlatformManifest({
     configDir: input.configDir,
     localConfig: input.authoredConfig,
     ...input.resolveOptions,
   });
-  return resolved ? { manifest: resolved.manifest } : null;
+  return resolved?.manifest ?? null;
 }
 
-/** Authored slot paths: every remote slot the leaf itself declares (extracted or null). */
+/** Authored slot paths: every slot the leaf itself declares. */
 export function authoredSlotPaths(config: Record<string, unknown>): Set<string> {
   const paths = new Set<string>();
-  const app = config.app;
-  if (isPlainObject(app)) {
-    for (const [key, entry] of Object.entries(app)) {
-      if (isPlainObject(entry)) {
-        paths.add(`app.${key}`);
-        if ("ui" in (entry as object)) paths.add(`app.${key}.ui`);
-      }
-    }
-  }
-  const plugins = config.plugins;
-  if (isPlainObject(plugins)) {
-    for (const [id, entry] of Object.entries(plugins)) {
-      if (typeof entry === "string" && entry.length > 0) {
-        paths.add(`plugins.${id}`);
-        paths.add(`plugins.${id}.ui`);
-        continue;
-      }
-      if (isPlainObject(entry)) {
-        paths.add(`plugins.${id}`);
-        if ("ui" in (entry as object)) paths.add(`plugins.${id}.ui`);
-      }
-    }
-  }
+  walkConfigSlots(config, ({ slot, isPluginRef }) => {
+    paths.add(slot);
+    // KEEP: a bare-string plugin ref (`extends: "bos://…"`) owns its whole
+    // surface — composed resolution derives its ui from the extended config,
+    // so the ownership set must include it independently of the `ui` key.
+    if (isPluginRef) paths.add(`${slot}.ui`);
+  });
   return paths;
 }
 
@@ -90,12 +71,12 @@ export interface StampOutcome {
 }
 
 /**
- * Layer 2 — stamp inherited slots: for every slot in the release manifest's
- * `slots` map that the authored config does not declare, write the release's
- * recorded production URL + pin into the payload. Child-wins deep merge then
- * shadows the parent's live config pointer at every consumer boot, so the
- * child composes exactly the bytes its pinned release published. Slots the
- * child authors stay untouched, and a manifest without `slots` (pre-amendment
+ * Stamp inherited slots: for every slot in the release manifest's `slots` map
+ * that the authored config does not declare, write the release's recorded
+ * production URL + pin into the payload. Child-wins deep merge then shadows
+ * the parent's live config pointer at every consumer boot, so the child
+ * composes exactly the bytes its pinned release published. Slots the child
+ * authors stay untouched, and a manifest without `slots` (pre-amendment
  * releases) stamps nothing — the composition gate covers those children.
  */
 export function stampInheritedSlotsFromRelease(input: {
@@ -115,7 +96,8 @@ export function stampInheritedSlotsFromRelease(input: {
   return { stamped };
 }
 
-/** Write `{ production, pin }` for one dotted slot path, creating containers. */
+/** Write `{ production, pin }` for one dotted slot path (2–3 segments),
+ * merging into an existing entry rather than replacing it. */
 function stampSlotRecord(
   payload: Record<string, unknown>,
   slotPath: string,
@@ -123,18 +105,9 @@ function stampSlotRecord(
 ): void {
   const segments = slotPath.split(".");
   if ((segments.length !== 2 && segments.length !== 3) || !segments[1]) return;
-  let container: Record<string, unknown> = payload;
-  for (const segment of segments.slice(0, -1)) {
-    const next = container[segment];
-    if (!isPlainObject(next)) {
-      const created: Record<string, unknown> = {};
-      container[segment] = created;
-      container = created;
-    } else {
-      container = next;
-    }
-  }
   const leaf = segments[segments.length - 1];
+  const container = ensureObjectContainers(payload, segments.slice(0, -1));
+  if (!leaf) return;
   const existing = container[leaf];
   const entry: Record<string, unknown> = isPlainObject(existing) ? { ...existing } : {};
   entry.production = record.base;
@@ -147,38 +120,53 @@ export interface CompositionGateReport {
   violations: string[];
 }
 
-/**
- * Layer 1 — the deploy-train composition gate: cross-compare the shared-single
- * versions of every pinned UI slot in the extends-merged shape (the deploy's
- * mirror of the host's boot guard, #546), plus — for authored platform pins —
- * the ADR 0034 compat check of the child against its own release. Runs after
- * pin verification, before publish.
- */
-export async function runCompositionGate(input: {
+export interface CompositionGateInput {
   configDir: string;
   authoredConfig: Record<string, unknown>;
   resolvedShape: Record<string, unknown>;
-  resolvedRelease: ResolvedReleaseManifest | null;
+  resolvedRelease: PlatformReleaseManifest | null;
+  /**
+   * The slot names the leaf-payload pin verification leg proved servable;
+   * an unresolvable merged-shape pin outside this set is reported as a
+   * violation instead of skipped-silently (inherited pins are not covered
+   * by that leg).
+   */
+  verifiedSlots?: ReadonlySet<string>;
   /** test seam — threaded to the version-manifest fetch */
   fetchImpl?: typeof fetch;
-}): Promise<CompositionGateReport> {
+}
+
+/**
+ * The deploy-train composition gate: cross-compare the shared-singleton
+ * versions of every pinned UI slot in the extends-merged shape (the boot
+ * guard's mirror, #546), plus — for authored platform pins — the ADR 0034
+ * compat check of the child against its own release. Runs after pin
+ * verification, before publish.
+ */
+export async function runCompositionGate(
+  input: CompositionGateInput,
+): Promise<CompositionGateReport> {
   const violations: string[] = [
-    ...(await compositionSkewViolations(input.resolvedShape, input.fetchImpl)),
+    ...(await compositionSkewViolations(input.resolvedShape, {
+      ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+      ...(input.verifiedSlots ? { verifiedSlots: input.verifiedSlots } : {}),
+    })),
   ];
   if (typeof input.authoredConfig.platform === "string" && input.resolvedRelease) {
-    violations.push(...platformCompatViolations(input.resolvedRelease.manifest, input.configDir));
+    violations.push(...platformCompatViolations(input.resolvedRelease, input.configDir));
   }
   return { ok: violations.length === 0, violations };
 }
 
 /**
- * Cross-compare each pinned UI slot's embedded shared-singleton versions.
- * Slots whose pin does not resolve are skipped — the pin/SRI verification
- * already refused broken pins this train.
+ * Cross-compare each pinned UI slot's embedded shared-singleton versions. An
+ * unresolvable pin the pin/SRI verification leg already proved servable is
+ * skipped (transient fetch failure); any unresolvable pin outside that set is
+ * reported — the boot's version-manifest derivation would refuse it anyway.
  */
 export async function compositionSkewViolations(
   merged: Record<string, unknown>,
-  fetchImpl?: typeof fetch,
+  opts: { fetchImpl?: typeof fetch; verifiedSlots?: ReadonlySet<string> } = {},
 ): Promise<string[]> {
   const uiSlots = collectSlotPinRefs(merged as BosConfigInput).filter(
     (ref) => ref.slot === "app.ui" || ref.slot.endsWith(".ui"),
@@ -194,16 +182,20 @@ export async function compositionSkewViolations(
         const resolved = await resolveSlotVersion({
           base,
           pin,
-          ...(fetchImpl ? { fetchImpl } : {}),
+          ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
         });
         for (const [name, version] of Object.entries(resolved.sharedVersions ?? {})) {
           const uses = versionsByName.get(name) ?? [];
           uses.push({ slot, version });
           versionsByName.set(name, uses);
         }
-      } catch {
-        // a pin that cannot resolve is either already rejected by the pin
-        // verification leg or not a UI-skew concern — skip
+      } catch (error) {
+        if (opts.verifiedSlots?.has(slot)) return;
+        const reason = error instanceof Error ? error.message : String(error);
+        violations.push(
+          `Pinned UI slot "${slot}" version manifest does not serve at its production URL (${reason}) — ` +
+            `a consumer boot cannot derive its shared singletons; investigate the storage origin or redeploy the bundle.`,
+        );
       }
     }),
   );
