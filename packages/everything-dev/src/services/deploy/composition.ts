@@ -71,12 +71,12 @@ export interface StampOutcome {
 }
 
 /**
- * Stamp inherited slots: for every slot in the release manifest's `slots` map
- * that the authored config does not declare, write the release's recorded
- * production URL + pin into the payload. Child-wins deep merge then shadows
- * the parent's live config pointer at every consumer boot, so the child
- * composes exactly the bytes its pinned release published. Slots the child
- * authors stay untouched, and a manifest without `slots` (pre-amendment
+ * Stamp inherited slots: for every `app.*` slot in the release manifest's
+ * `slots` map that the authored config does not declare, write the release's
+ * recorded production URL + pin into the payload. Child-wins deep merge then
+ * shadows the parent's live config pointer at every consumer boot, so the
+ * child composes exactly the bytes its pinned release published. Slots the
+ * child authors stay untouched, and a manifest without `slots` (pre-amendment
  * releases) stamps nothing — the composition gate covers those children.
  */
 export function stampInheritedSlotsFromRelease(input: {
@@ -89,6 +89,14 @@ export function stampInheritedSlotsFromRelease(input: {
   const stamped: string[] = [];
 
   for (const [slotPath, record] of Object.entries(slots)) {
+    // KEEP: only app.* slots are stampable — a child's declared `plugins`
+    // object owns the whole plugin domain in one wholesale replace
+    // (mergeBosConfigWithExtends), so stamping parent plugin slots would
+    // both expand the child's composed plugin set and produce
+    // schema-invalid entries (the stamped ui record alone carries no
+    // required `name`; the wholesale replace never fills it — the
+    // feedback.nearbuilders.org rc.26 incident).
+    if (!/^app\.[^.]+(\.ui)?$/.test(slotPath)) continue;
     if (authored.has(slotPath)) continue;
     stampSlotRecord(input.payload, slotPath, record);
     stamped.push(slotPath);
