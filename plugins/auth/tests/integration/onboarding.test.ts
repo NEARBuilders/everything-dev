@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../../src/db/schema";
+import { MEMBERSHIP_ENDED_ACTION } from "../../src/onboard-config";
 import {
   addTestMember,
   createTestHandlers,
@@ -290,7 +291,11 @@ describe("onboarding handlers", () => {
         input: { code: code.code },
         context: { reqHeaders: newcomer.reqHeaders },
       }),
-    ).rejects.toThrow(/no longer a member/i);
+    ).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: expect.stringMatching(/no longer a member/i),
+      data: { action: MEMBERSHIP_ENDED_ACTION },
+    });
 
     const member = await services.services.db.query.member.findFirst({
       where: and(

@@ -55,6 +55,12 @@ It runs inside the **everything-plugin** framework (oRPC + Effect) and is design
 | `siwn.relayer.testnet.accountId` | `string` | — | Optional testnet relayer account ID |
 | `siwn.subAccount.mainnet.parentAccount` | `string` | — | Optional mainnet sub-account parent |
 | `siwn.subAccount.testnet.parentAccount` | `string` | — | Optional testnet sub-account parent |
+| `onboard.links.next` | `{ href, label? } \| false` | `/build`, "Get build prompts" | First link on the onboard joined screen; `false` hides it |
+| `onboard.links.home` | `{ href, label? }` | `/dashboard`, "Go to Home" | Last link on the onboard joined screen |
+| `onboard.links.explore` | `{ href, label? }` | `/explore`, "Explore communities" | Link on the onboard error and status panels |
+| `onboard.community.url` | `string` | — | App path returning `{ name?, href?, channels?: [{ label, url }] }` for the joined organization; renders "Visit {community}" and channel links |
+
+`onboard` hrefs must be app paths (`/…`) or `https://` URLs. `links.next`, `links.home` and `community.url` replace `{organizationId}` with the joined organization's ID. A failed or invalid `community.url` response shows nothing extra.
 
 ### Plugin Secrets
 

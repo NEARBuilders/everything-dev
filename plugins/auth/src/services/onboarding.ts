@@ -22,7 +22,7 @@ import {
   CodeRevoked,
   EventEnded,
   EventTeamCreateFailed,
-  NotOrgMember,
+  MembershipEnded,
   OrgFull,
   OrgRequiresApproval,
   PlatformAdminRequired,
@@ -486,7 +486,7 @@ export const buildOnboardingService = ({
           }),
         );
         if (!membership) {
-          return yield* new NotOrgMember({
+          return yield* new MembershipEnded({
             message: "You are no longer a member of this organization",
           });
         }
