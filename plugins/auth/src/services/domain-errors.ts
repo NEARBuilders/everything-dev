@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import { Data, Effect, Schema } from "effect";
+import { MEMBERSHIP_ENDED_ACTION } from "../onboard-config";
 
 export class AuthApiError extends Data.TaggedError("AuthApiError")<{
   code: string;
@@ -78,6 +79,10 @@ export class TeamUpdateFailed extends Schema.TaggedError<TeamUpdateFailed>()("Te
 }) {}
 
 export class NotOrgMember extends Schema.TaggedError<NotOrgMember>()("NotOrgMember", {
+  message: Schema.String,
+}) {}
+
+export class MembershipEnded extends Schema.TaggedError<MembershipEnded>()("MembershipEnded", {
   message: Schema.String,
 }) {}
 
@@ -187,6 +192,7 @@ const FAILURE_TAGS = new Set([
   "TeamNotFound",
   "TeamUpdateFailed",
   "NotOrgMember",
+  "MembershipEnded",
   "NotOrganizer",
   "PlatformAdminRequired",
   "EventEnded",
@@ -230,6 +236,7 @@ export type AuthFailure =
   | TeamNotFound
   | TeamUpdateFailed
   | NotOrgMember
+  | MembershipEnded
   | NotOrganizer
   | PlatformAdminRequired
   | EventEnded
@@ -306,6 +313,11 @@ export function toTransportError(error: AuthFailure): ORPCError<string, unknown>
       return new ORPCError("INTERNAL_SERVER_ERROR", { message: error.message });
     case "NotOrgMember":
       return new ORPCError("FORBIDDEN", { message: error.message, data: {} });
+    case "MembershipEnded":
+      return new ORPCError("FORBIDDEN", {
+        message: error.message,
+        data: { action: MEMBERSHIP_ENDED_ACTION },
+      });
     case "NotOrganizer":
       return new ORPCError("FORBIDDEN", {
         message: error.message,
