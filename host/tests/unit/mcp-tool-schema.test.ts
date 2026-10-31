@@ -52,4 +52,17 @@ describe("buildToolInputSchema", () => {
       required: ["name"],
     });
   });
+
+  it("names the missing component when a ref cannot be resolved", () => {
+    const operation = {
+      parameters: [],
+      requestBody: {
+        content: { "application/json": { schema: { $ref: "#/components/schemas/Gone" } } },
+      },
+    };
+
+    expect(() => buildToolInputSchema(operation as any, {})).toThrow(
+      /not present in the OpenAPI spec.*Gone/,
+    );
+  });
 });

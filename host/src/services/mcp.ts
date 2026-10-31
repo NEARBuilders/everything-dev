@@ -90,6 +90,12 @@ export function buildToolInputSchema(
     defs[name] = componentSchemas[name];
     collectComponentRefs(componentSchemas[name], referenced);
   }
+  const missing = [...referenced].filter((name) => !(name in componentSchemas));
+  if (missing.length > 0) {
+    throw new Error(
+      `references component schema(s) not present in the OpenAPI spec: ${missing.join(", ")}`,
+    );
+  }
 
   return {
     type: "object",
