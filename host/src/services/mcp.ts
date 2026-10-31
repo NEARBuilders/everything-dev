@@ -26,6 +26,85 @@ export function isMcpRequestAuthorized(context: AuthPluginContext): boolean {
   return context.isAuthenticated === true;
 }
 
+const COMPONENT_REF_PREFIX = "#/components/schemas/";
+
+function collectComponentRefs(value: unknown, names: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectComponentRefs(item, names);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "$ref" && typeof child === "string" && child.startsWith(COMPONENT_REF_PREFIX)) {
+      names.add(child.slice(COMPONENT_REF_PREFIX.length));
+    } else {
+      collectComponentRefs(child, names);
+    }
+  }
+}
+
+function rewriteComponentRefs(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(rewriteComponentRefs);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) =>
+      key === "$ref" && typeof child === "string" && child.startsWith(COMPONENT_REF_PREFIX)
+        ? [key, `#/$defs/${child.slice(COMPONENT_REF_PREFIX.length)}`]
+        : [key, rewriteComponentRefs(child)],
+    ),
+  );
+}
+
+export function buildToolInputSchema(
+  operation: any,
+  componentSchemas: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+
+  for (const param of operation.parameters ?? []) {
+    properties[param.name] = param.schema ?? { type: "string" };
+    if (param.required) required.push(param.name);
+  }
+
+  const bodySchema = operation.requestBody?.content?.["application/json"]?.schema;
+  if (bodySchema) {
+    if (bodySchema.type === "object" && bodySchema.properties) {
+      for (const [key, value] of Object.entries(bodySchema.properties)) {
+        properties[key] = value;
+      }
+      if (Array.isArray(bodySchema.required)) {
+        required.push(...bodySchema.required);
+      }
+    } else {
+      properties.body = bodySchema;
+      required.push("body");
+    }
+  }
+
+  const referenced = new Set<string>();
+  collectComponentRefs(properties, referenced);
+  const defs: Record<string, unknown> = {};
+  for (const name of referenced) {
+    if (!(name in componentSchemas)) continue;
+    defs[name] = componentSchemas[name];
+    collectComponentRefs(componentSchemas[name], referenced);
+  }
+  const missing = [...referenced].filter((name) => !(name in componentSchemas));
+  if (missing.length > 0) {
+    throw new Error(
+      `references component schema(s) not present in the OpenAPI spec: ${missing.join(", ")}`,
+    );
+  }
+
+  return {
+    type: "object",
+    properties: rewriteComponentRefs(properties),
+    ...(required.length > 0 ? { required } : {}),
+    ...(Object.keys(defs).length > 0 ? { $defs: rewriteComponentRefs(defs) } : {}),
+  };
+}
+
 export function closeMcpServer(): Promise<void> {
   if (!mcpTransport) return Promise.resolve();
   const t = mcpTransport;
@@ -64,6 +143,7 @@ export async function mountMcpRoute(
 
   const registeredTools = new Set<string>();
   const paths = (spec as any).paths ?? {};
+  const componentSchemas = (spec as any).components?.schemas ?? {};
 
   for (const [path, methods] of Object.entries(paths)) {
     for (const [method, operation] of Object.entries(methods as Record<string, any>)) {
@@ -80,6 +160,14 @@ export async function mountMcpRoute(
         logger.warn(`[MCP] Skipping duplicate tool "${operationId}"`);
         continue;
       }
+      let inputSchema: any;
+      try {
+        inputSchema = fromJsonSchema(buildToolInputSchema(operation, componentSchemas) as any);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`[MCP] Skipping tool "${operationId}": ${message}`);
+        continue;
+      }
       registeredTools.add(operationId);
 
       const methodUpper = method.toUpperCase();
@@ -92,42 +180,13 @@ export async function mountMcpRoute(
         .filter((p: any) => p.in === "query")
         .map((p: any) => p.name as string);
 
-      const properties: Record<string, unknown> = {};
-      const required: string[] = [];
-
-      for (const param of parameters) {
-        properties[param.name] = param.schema ?? { type: "string" };
-        if (param.required) required.push(param.name);
-      }
-
-      const bodySchema = operation.requestBody?.content?.["application/json"]?.schema;
-      if (bodySchema) {
-        if (bodySchema.type === "object" && bodySchema.properties) {
-          for (const [key, value] of Object.entries(bodySchema.properties)) {
-            properties[key] = value;
-          }
-          if (Array.isArray(bodySchema.required)) {
-            required.push(...bodySchema.required);
-          }
-        } else {
-          properties.body = bodySchema;
-          required.push("body");
-        }
-      }
-
-      const inputSchema = {
-        type: "object" as const,
-        properties,
-        ...(required.length > 0 ? { required } : {}),
-      };
-
       const description = operation.description ?? operation.summary ?? `${methodUpper} ${path}`;
 
       server.registerTool(
         operationId,
         {
           description,
-          inputSchema: fromJsonSchema(inputSchema as any) as any,
+          inputSchema,
         },
         async (args: Record<string, unknown>) => {
           const store = mcpRequestStorage.getStore();
