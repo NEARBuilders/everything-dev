@@ -20,7 +20,7 @@ export function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
-async function deriveAesKey(secret: string): Promise<CryptoKey> {
+async function deriveAesKey(secret: string, salt = "better-near-auth-relayer"): Promise<CryptoKey> {
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -32,7 +32,7 @@ async function deriveAesKey(secret: string): Promise<CryptoKey> {
     {
       name: "HKDF",
       hash: "SHA-256",
-      salt: new TextEncoder().encode("better-near-auth-relayer"),
+      salt: new TextEncoder().encode(salt),
       info: new Uint8Array(0),
     },
     keyMaterial,
@@ -45,8 +45,9 @@ async function deriveAesKey(secret: string): Promise<CryptoKey> {
 export async function encryptPrivateKey(
   privateKey: Uint8Array,
   secret: string,
+  salt?: string,
 ): Promise<{ encrypted: string; iv: string }> {
-  const aesKey = await deriveAesKey(secret);
+  const aesKey = await deriveAesKey(secret, salt);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
@@ -63,8 +64,9 @@ export async function decryptPrivateKey(
   encrypted: string,
   iv: string,
   secret: string,
+  salt?: string,
 ): Promise<Uint8Array> {
-  const aesKey = await deriveAesKey(secret);
+  const aesKey = await deriveAesKey(secret, salt);
   const decrypted = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: base64ToBytes(iv) as Uint8Array<ArrayBuffer> },
     aesKey,
