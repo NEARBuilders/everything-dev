@@ -1,5 +1,4 @@
 import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { pluginMigrationSlug } from "./core";
 
@@ -211,7 +210,8 @@ export async function createDatabaseDriver<TSchema extends Record<string, unknow
     const rawDir = url === ":memory:" ? ":memory:" : url.replace("pglite:", "");
     const dataDir = rawDir.endsWith("/:memory:") || rawDir === ":memory:" ? "memory://" : rawDir;
     if (dataDir !== "memory://") {
-      mkdirSync(dirname(dataDir), { recursive: true });
+      // PGlite mkdirs only the leaf component — the whole prefix must exist.
+      mkdirSync(dataDir, { recursive: true });
     }
     const pglite = new PGlite(dataDir);
     if (namespace) {

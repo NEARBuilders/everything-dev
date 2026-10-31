@@ -1,7 +1,6 @@
 import * as p from "@clack/prompts";
 import type { InitOptions, InitResult, OverrideSection } from "../../contract";
 import { fetchInitParent } from "../../handlers/init";
-import { runDockerComposeUp } from "../../infra/docker";
 import { type ProgressEvent, pluginEvents } from "../../services/dev/progress";
 import { colors } from "../../utils/theme";
 import { exitCodeFor } from "../exit-codes";
@@ -143,25 +142,6 @@ export const runInit = async (ctx: CommandContext): Promise<void> => {
     console.log(colors.dim("    pnpm run dev"));
   }
   console.log();
-
-  if (initInput.noInteractive !== true && !initInput.noInstall && result.targetDir) {
-    const shouldStartDocker = await p.confirm({
-      message: "Run docker compose up -d --wait?",
-      initialValue: true,
-    });
-
-    if (shouldStartDocker === true) {
-      const dockerSpinner = p.spinner();
-      dockerSpinner.start("Starting Docker services");
-      const compose = await runDockerComposeUp(result.targetDir);
-      if (compose.ok) {
-        dockerSpinner.stop("Docker services ready");
-      } else {
-        dockerSpinner.stop("Docker services not started");
-        p.log.warn(`docker compose up -d --wait failed${compose.tail ? `:\n${compose.tail}` : ""}`);
-      }
-    }
-  }
 
   return;
 };

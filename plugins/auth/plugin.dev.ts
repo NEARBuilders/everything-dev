@@ -149,7 +149,7 @@ export default {
       },
     },
     secrets: {
-      AUTH_DATABASE_URL: process.env.AUTH_DATABASE_URL || "pglite:.bos/auth/:memory:",
+      AUTH_DATABASE_URL: process.env.AUTH_DATABASE_URL || "pglite:.bos/db",
       BETTER_AUTH_SECRET:
         process.env.BETTER_AUTH_SECRET || "dev-only-secret-do-not-use-in-production",
       GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET,

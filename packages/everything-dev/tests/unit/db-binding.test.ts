@@ -2,11 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bindingEnv, resolveDatabaseUrl, workspaceIdentityFromWorkspaceDir } from "../../src/db";
-
-const DRIZZLE_KIT_STUDIO_ARGV = ["node", "/repo/node_modules/drizzle-kit/bin.cjs", "studio"];
-const DRIZZLE_KIT_GENERATE_ARGV = ["node", "/repo/node_modules/drizzle-kit/bin.cjs", "generate"];
-const NON_DRIZZLE_KIT_ARGV = ["node", "/repo/scripts/build.ts"];
+import {
+  bindingEnv,
+  drizzleCredentialsFor,
+  resolveDatabaseUrl,
+  workspaceIdentityFromWorkspaceDir,
+} from "../../src/db";
 
 function makeWorkspace(): { workspaceDir: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "everything-dev-binding-"));
@@ -26,7 +27,6 @@ describe("resolveDatabaseUrl", () => {
       const identity = workspaceIdentity(workspaceDir);
       const url = resolveDatabaseUrl(identity, {
         env: { WIDGETS_DATABASE_URL: "postgres://direct:value@localhost:5432/x" },
-        argv: DRIZZLE_KIT_STUDIO_ARGV,
       });
       expect(url).toBe("postgres://direct:value@localhost:5432/x");
     } finally {
@@ -48,53 +48,37 @@ describe("resolveDatabaseUrl", () => {
     );
     try {
       const identity = workspaceIdentity(workspaceDir);
-      const url = resolveDatabaseUrl(identity, {
-        env: {},
-        argv: DRIZZLE_KIT_STUDIO_ARGV,
-      });
+      const url = resolveDatabaseUrl(identity, { env: {} });
       expect(url).toBe("postgres://envfile:value@localhost:5432/widgets_db");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("throws a loud error naming the secret when a DB-requiring command has no URL", () => {
+  it("defaults to the persistent pglite data dir when no URL is configured", () => {
     const { workspaceDir, cleanup } = makeWorkspace();
     try {
       const identity = workspaceIdentity(workspaceDir);
-      expect(() =>
-        resolveDatabaseUrl(identity, { env: {}, argv: DRIZZLE_KIT_STUDIO_ARGV }),
-      ).toThrow(/WIDGETS_DATABASE_URL/);
-      expect(() =>
-        resolveDatabaseUrl(identity, { env: {}, argv: DRIZZLE_KIT_STUDIO_ARGV }),
-      ).toThrow(/drizzle-kit studio/);
+      expect(resolveDatabaseUrl(identity, { env: {} })).toBe("pglite:.bos/db");
     } finally {
       cleanup();
     }
   });
+});
 
-  it("returns a pglite placeholder for generate (never connects)", () => {
-    const { workspaceDir, cleanup } = makeWorkspace();
-    try {
-      const identity = workspaceIdentity(workspaceDir);
-      expect(resolveDatabaseUrl(identity, { env: {}, argv: DRIZZLE_KIT_GENERATE_ARGV })).toBe(
-        "pglite:.bos/widgets/:memory:",
-      );
-    } finally {
-      cleanup();
-    }
+describe("drizzleCredentialsFor", () => {
+  it("selects the pglite dialect and data-dir driver tag for pglite URLs", () => {
+    expect(drizzleCredentialsFor("pglite:.bos/db")).toEqual({
+      dialect: "pglite",
+      dbCredentials: { driver: "pglite", url: ".bos/db" },
+    });
   });
 
-  it("returns a pglite placeholder outside drizzle-kit invocations", () => {
-    const { workspaceDir, cleanup } = makeWorkspace();
-    try {
-      const identity = workspaceIdentity(workspaceDir);
-      expect(resolveDatabaseUrl(identity, { env: {}, argv: NON_DRIZZLE_KIT_ARGV })).toBe(
-        "pglite:.bos/widgets/:memory:",
-      );
-    } finally {
-      cleanup();
-    }
+  it("selects the postgresql dialect with a plain DSN otherwise", () => {
+    expect(drizzleCredentialsFor("postgres://u:p@localhost:5432/db")).toEqual({
+      dialect: "postgresql",
+      dbCredentials: { url: "postgres://u:p@localhost:5432/db" },
+    });
   });
 });
 

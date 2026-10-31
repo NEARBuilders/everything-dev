@@ -223,30 +223,11 @@ describe("buildLaunchSpec", () => {
 });
 
 describe("buildEnvGenerated", () => {
-  it("populates CORS_ORIGIN and DB URLs", () => {
-    const env = buildEnvGenerated(
-      stubResolvedPorts({ host: 8080 }),
-      [
-        {
-          secret: "API_DATABASE_URL",
-          slug: "api",
-          port: 5432,
-          dbName: "api",
-          url: "postgres://u:p@localhost:5432/api",
-        },
-      ],
-      [
-        {
-          secret: "REDIS_URL",
-          slug: "cache",
-          port: 6379,
-          url: "redis://localhost:6379/0",
-        },
-      ],
-    );
+  it("populates only the generated-origin origins (CORS_ORIGIN/BASE_URL)", () => {
+    const env = buildEnvGenerated(stubResolvedPorts({ host: 8080 }));
     expect(env.CORS_ORIGIN).toBe("http://localhost:8080");
-    expect(env.API_DATABASE_URL).toBe("postgres://u:p@localhost:5432/api");
-    expect(env.REDIS_URL).toBe("redis://localhost:6379/0");
+    expect(env.BASE_URL).toBe("http://localhost:8080");
+    expect(Object.keys(env)).toEqual(["CORS_ORIGIN", "BASE_URL"]);
   });
 });
 
@@ -460,7 +441,7 @@ describe("planInfra zero-config substrate (plan 055 ticket 11)", () => {
     expect(plan.envGenerated.CORS_ORIGIN).toBeDefined();
   });
 
-  it("partial operator supply generates only the missing conventional URL", async () => {
+  it("partial operator supply generates nothing conventional — substrate URLs are operator-owned", async () => {
     const plan = await Effect.runPromise(
       planInfra({
         configDir: tempDir,
@@ -472,7 +453,10 @@ describe("planInfra zero-config substrate (plan 055 ticket 11)", () => {
       }).pipe(Effect.provide(Layer.mergeAll(PortAllocatorLive))),
     );
 
-    expect(plan.envGenerated.API_DATABASE_URL).toBeUndefined();
-    expect(plan.envGenerated.AUTH_DATABASE_URL).toContain("5433/auth_db");
+    expect(Object.keys(plan.envGenerated)).toEqual(
+      expect.arrayContaining(["CORS_ORIGIN", "BASE_URL"]),
+    );
+    expect(Object.keys(plan.envGenerated)).not.toContain("API_DATABASE_URL");
+    expect(Object.keys(plan.envGenerated)).not.toContain("AUTH_DATABASE_URL");
   });
 });

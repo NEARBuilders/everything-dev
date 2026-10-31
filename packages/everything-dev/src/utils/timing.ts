@@ -36,7 +36,6 @@ const PHASE_LABELS: Record<string, string> = {
   "generate types": "Generating types...",
   "generate migrations": "Generating database migrations...",
   "generate code artifacts": "Generating code artifacts...",
-  "docker compose up": "Starting Docker services...",
 };
 
 function phaseLabel(name: string): string {

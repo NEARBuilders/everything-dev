@@ -286,12 +286,6 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      # The post-publish smoke boots the runtime image identity-driven; its
-      # boot surface needs the compose test databases (the smoke-container
-      # idiom: host.docker.internal:5434/5435).
-      - name: Start test databases
-        run: docker compose up -d --wait postgres-api-test postgres-auth-test
-
       - name: Deploy (preflight → build → upload → publish → smoke → Railway pin)
         timeout-minutes: 55
         # One command runs the deploy train (ADR 0020/0021, image leg split

@@ -6,13 +6,7 @@ import {
   buildDescription,
   isAuthMirrorPluginEntry,
 } from "../services/dev/service-descriptor";
-import {
-  buildConventionalDatabases,
-  buildConventionalRedis,
-  getSecretGroups,
-  loadPortState,
-  savePortState,
-} from "../services/infra";
+import { loadPortState, savePortState } from "../services/infra";
 import type { RuntimeConfig } from "../types";
 import { shouldPersistPortState } from "./materializer";
 import { ownerOfPort } from "./port-ownership";
@@ -20,10 +14,8 @@ import { PortAllocator, type PortBlockEntry } from "./ports";
 import type {
   ClaimRecord,
   CliPorts,
-  DatabasePlan,
   InfraInput,
   InfraPlan,
-  RedisPlan,
   ResolvedPorts,
   RuntimeLaunchSpec,
   ServiceDescriptorPlan,
@@ -31,9 +23,6 @@ import type {
 import { InfraError } from "./types";
 
 const DEFAULT_HOST_PORT = 3000;
-
-const POSTGRES_USER = "everythingdev";
-const POSTGRES_PASSWORD = "everythingdev";
 
 export function workspaceKey(configDir: string): string {
   const hash = createHash("sha256").update(resolve(configDir)).digest("hex");
@@ -241,87 +230,6 @@ function allocateServices(
   );
 }
 
-function allocateDatabases(
-  runtimeConfig: RuntimeConfig,
-  operatorEnv: Record<string, string>,
-): Effect.Effect<
-  {
-    dbs: DatabasePlan[];
-    redisPlans: RedisPlan[];
-  },
-  InfraError,
-  PortAllocator
-> {
-  return Effect.gen(function* () {
-    const groups = getSecretGroups(runtimeConfig);
-    const allSecrets = groups.flatMap((group) => group.secrets);
-    const allocator = yield* PortAllocator;
-
-    // Zero-config dev (plan 055 ticket 11): database/redis URLs are opt-in.
-    // When the operator supplies none (shell or .env), nothing conventional is
-    // generated — consumers fall back to their own boot-schema defaults
-    // (ephemeral pglite) and the compose preflight has nothing to probe, so it
-    // is skipped entirely. A partial supply generates only the missing
-    // conventional URLs (compose serves both databases, same as before).
-    const operatorSubstrateKeys = Object.keys(operatorEnv).filter(
-      (key) =>
-        (key.endsWith("_DATABASE_URL") || key.endsWith("_REDIS_URL")) && operatorEnv[key] !== "",
-    );
-    if (operatorSubstrateKeys.length === 0) {
-      return { dbs: [], redisPlans: [] };
-    }
-
-    const pendingDatabases = buildConventionalDatabases(allSecrets).filter(
-      (db) => !operatorEnv[db.secret],
-    );
-    const pendingRedis = buildConventionalRedis(allSecrets).filter((r) => !operatorEnv[r.secret]);
-    if (pendingDatabases.length === 0 && pendingRedis.length === 0) {
-      return { dbs: [], redisPlans: [] };
-    }
-
-    const dbs: DatabasePlan[] = [];
-    const allocatedByDesired = new Map<number, number>();
-    for (const db of pendingDatabases) {
-      let port: number;
-      if (allocatedByDesired.has(db.port)) {
-        port = allocatedByDesired.get(db.port)!;
-      } else {
-        port = yield* allocator.pickAvailable(db.port);
-        allocatedByDesired.set(db.port, port);
-      }
-      dbs.push({
-        secret: db.secret,
-        slug: db.slug,
-        port,
-        dbName: db.databaseName,
-        url: `postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${port}/${db.databaseName}`,
-      });
-    }
-
-    const redisPlans: RedisPlan[] = [];
-    for (const r of pendingRedis) {
-      const port = yield* allocator.pickAvailable(r.port);
-      redisPlans.push({
-        secret: r.secret,
-        slug: r.slug,
-        port,
-        url: `redis://localhost:${port}`,
-      });
-    }
-
-    return { dbs, redisPlans };
-  }).pipe(
-    Effect.mapError(
-      (portErr) =>
-        new InfraError({
-          phase: "allocate-databases",
-          message: `Database port allocation failed: ${String(portErr)}`,
-          cause: portErr,
-        }),
-    ),
-  );
-}
-
 export function buildServiceDescriptors(
   runtimeConfig: RuntimeConfig,
   resolvedPorts: ResolvedPorts,
@@ -432,11 +340,7 @@ export function buildLaunchSpec(
   };
 }
 
-export function buildEnvGenerated(
-  resolvedPorts: ResolvedPorts,
-  dbs: DatabasePlan[],
-  redisPlans: RedisPlan[],
-): Record<string, string> {
+export function buildEnvGenerated(resolvedPorts: ResolvedPorts): Record<string, string> {
   const env: Record<string, string> = {};
 
   if (resolvedPorts.host) {
@@ -444,13 +348,6 @@ export function buildEnvGenerated(
     // The host origin for plugins that derive absolute URLs from it (e.g. the
     // auth plugin's Better Auth baseURL — email links, passkey RP id).
     env.BASE_URL = `http://localhost:${resolvedPorts.host}`;
-  }
-
-  for (const db of dbs) {
-    env[db.secret] = db.url;
-  }
-  for (const r of redisPlans) {
-    env[r.secret] = r.url;
   }
 
   return env;
@@ -477,23 +374,8 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
       ui: input.bosConfig.ui?.source,
     });
 
-    // DB/Redis port probes only matter for services that will actually spawn
-    // locally — their generated URLs are consumed exclusively by local spawn
-    // env (composeSpawnEnv). When every source is remote (start mode, ADR
-    // 0009), nothing binds those ports and the probes are wasted work in the
-    // container boot path — and a probe against an occupied port (the staged
-    // dist servers) can drift the whole plan (the #363 failure class).
-    const hasLocalServices =
-      input.bosConfig.host?.source === "local" ||
-      input.bosConfig.api?.source === "local" ||
-      input.bosConfig.auth?.source === "local" ||
-      input.bosConfig.ui?.source === "local" ||
-      Object.values(plugins).some((p) => p?.source === "local" || p?.ui?.source === "local");
-
-    const { dbs, redisPlans } = hasLocalServices
-      ? yield* allocateDatabases(input.bosConfig, input.operatorEnv ?? {})
-      : { dbs: [], redisPlans: [] };
-
+    // DB/Redis port conventions are gone (PGlite is the only local database —
+    // no ports); nothing to allocate or probe for substrate URLs.
     const resolvedPorts: ResolvedPorts = { ...svcPorts };
 
     // Write merged state once after all allocations succeed
@@ -590,7 +472,7 @@ export function planInfra(input: InfraInput): Effect.Effect<InfraPlan, InfraErro
     const serviceDescriptors = buildServiceDescriptors(assignedRuntimeConfig, resolvedPorts);
 
     const launch = buildLaunchSpec(input.bosConfig, resolvedPorts);
-    const envGenerated = buildEnvGenerated(resolvedPorts, dbs, redisPlans);
+    const envGenerated = buildEnvGenerated(resolvedPorts);
 
     const packages = serviceDescriptors.map((d) => d.key);
     const descriptionMap = new Map(serviceDescriptors.map((d) => [d.key, d]));

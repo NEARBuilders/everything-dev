@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Data, Effect } from "effect";
 import type { DevOptions, PhaseTiming } from "../../contract";
+import { migrateLegacyComposeState } from "../../env/legacy-databases";
 import { getProcessEnv, operatorEnvRecord, setProcessEnv } from "../../env/process-env";
 import {
   captureShellEnv,
@@ -8,12 +9,6 @@ import {
   ProjectEnv,
   type ProjectEnvService,
 } from "../../env/project-env";
-import {
-  detectAutoStartContext,
-  isDockerAvailable,
-  runDockerComposeUp,
-  shouldAutoStartDocker,
-} from "../../infra/docker";
 import { materializeViaLayer } from "../../infra/materializer";
 import { planInfra } from "../../infra/planner";
 import { preflightLocalInfra } from "../../infra/preflight";
@@ -248,6 +243,18 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
         ),
       );
 
+    const legacy = yield* migrateLegacyComposeState(session.root);
+    for (const { key, to } of legacy.databaseUrlDrift) {
+      yield* Effect.logInfo(
+        `[env] ${key} migrated from the retired compose-era Postgres convention → ${to}`,
+      );
+    }
+    if (legacy.composeRelocated) {
+      yield* Effect.logInfo(
+        `[env] scaffold-era docker-compose.yml relocated to .bos/compose-retired — local databases are the persistent .bos/db PGlite now`,
+      );
+    }
+
     const needsEphemeralSecret =
       !("BETTER_AUTH_SECRET" in operatorEnv) || operatorEnv.BETTER_AUTH_SECRET === "";
     const mergedEnv = yield* Effect.sync(() => {
@@ -266,32 +273,7 @@ export const devBootstrap = (deps: BootstrapDeps, input: DevOptions, timings: Ph
         if (key === "BASE_URL" || key === "CORS_ORIGIN") setProcessEnv(key, value);
       }
     });
-    let preflightFailures = yield* preflightLocalInfra(plan.envGenerated, mergedEnv);
-    if (
-      preflightFailures.length > 0 &&
-      shouldAutoStartDocker(preflightFailures, {
-        ...detectAutoStartContext(session.root),
-        dockerAvailable: yield* Effect.promise(isDockerAvailable),
-      })
-    ) {
-      const compose = yield* step(timings, "docker compose up", () =>
-        runDockerComposeUp(session.root),
-      );
-      if (compose.ok) {
-        preflightFailures = yield* preflightLocalInfra(plan.envGenerated, mergedEnv);
-      } else {
-        preflightFailures = [
-          ...preflightFailures,
-          {
-            secret: "docker-compose",
-            host: "localhost",
-            port: 0,
-            error: `docker compose up -d --wait failed${compose.tail ? `:\n${compose.tail}` : ""}`,
-            tcpReachable: false,
-          },
-        ];
-      }
-    }
+    const preflightFailures = yield* preflightLocalInfra(plan.envGenerated, mergedEnv);
     if (preflightFailures.length > 0) {
       return yield* new DevPreflightFailed({ messages: preflightFailures.map((f) => f.error) });
     }
