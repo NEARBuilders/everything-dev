@@ -1,5 +1,12 @@
 # everything-dev
 
+## 2.0.0-rc.28
+
+### Patch Changes
+
+- 024e9c7: Release-scoped slot stamping no longer skips a slot the child only configures. A child that sets `auth: { variables, secrets }` (or a remote-only `api: { variables, secrets }`) had that slot counted as authored, so the deploy train left it unpinned and the auth server (or api) kept following the parent's live config pointer — under a host and auth UI pinned to the child's release. A slot now counts as authored only when it names a code source (`production`, `development`, `pin`, `extends`, `proxy`, a bare plugin ref, or `ui: false`); configuration-only entries get the release's `production` + `pin` stamped with their `variables`/`secrets` kept. Affected children pick this up on their next deploy after upgrading.
+- 2f72431: Auth plugin onboard page: a rescan by someone who has left the community now says they're no longer a member instead of "You're in". The page checks a fresh organization list against the redeemed organization ID, clears a stale active organization, and shows a retryable error if the check fails. The redeem's refusal for a member who left now carries `data.action: "rejoin-organization"`. Child apps can configure the joined screen through the `onboard` auth variable: `links.next`/`links.home` (with an `{organizationId}` placeholder) and `links.explore` for the success and error panels (defaults stay `/build`, `/dashboard`, `/explore`; `next: false` hides the build link), plus `community.url`, an app endpoint that returns the joined community's page and channels for a "Visit {community}" button and channel links.
+
 ## 2.0.0-rc.27
 
 ### Patch Changes
