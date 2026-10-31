@@ -371,7 +371,7 @@ export class InitFlowService extends Context.Service<
               );
               const initRuntime = initConfig?.runtime;
               if (initRuntime) {
-                await timePhase(timings, "generate env/docker", async () => {
+                await timePhase(timings, "generate env", async () => {
                   await materializeViaLayer(targetDir, initRuntime);
                 });
               }

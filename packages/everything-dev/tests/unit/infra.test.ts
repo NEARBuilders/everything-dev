@@ -86,10 +86,10 @@ describe("generated env templates", () => {
     expect(envExample).toContain("# app.api");
     expect(envExample).toContain("# app.auth");
     // Substrate URLs are opt-in: the example renders them empty with a hint,
-    // so a fresh `bos dev` with no .env runs on ephemeral pglite.
+    // so a fresh `bos dev` with no .env picks the persistent .bos/db default.
     expect(envExample).not.toContain("postgres://everythingdev");
     expect(envExample).toContain(
-      "# Leave empty to run dev on ephemeral pglite; set a postgres:// URL to opt into compose Postgres.",
+      "# Leave empty for the persistent local PGlite default (.bos/db); set a postgres:// URL for production or shared access.",
     );
     expect(envExample).toContain("BETTER_AUTH_SECRET=");
     expect(envExample).toContain("# plugins.example");
@@ -100,7 +100,7 @@ describe("generated env templates", () => {
     expect(existsSync(join(dir, "docker-compose.yml"))).toBe(false);
   });
 
-  it("writes a committed .env.test with isolated test database URLs", async () => {
+  it("writes a committed .env.test with in-memory pglite test database URLs", async () => {
     const dir = mkdtempSync(join(tmpdir(), "bos-env-test-"));
     tempDirs.push(dir);
 
@@ -108,18 +108,12 @@ describe("generated env templates", () => {
     const envTest = readFileSync(join(dir, ".env.test"), "utf-8");
 
     expect(envTest).toContain("# app.api");
-    expect(envTest).toContain(
-      "API_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5434/api_test_db",
-    );
+    expect(envTest).toContain("API_DATABASE_URL=pglite::memory:");
     expect(envTest).toContain("# app.auth");
-    expect(envTest).toContain(
-      "AUTH_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5435/auth_test_db",
-    );
+    expect(envTest).toContain("AUTH_DATABASE_URL=pglite::memory:");
     expect(envTest).toContain("BETTER_AUTH_SECRET=regression-test-secret-do-not-use-in-production");
     expect(envTest).toContain("# plugins.example");
-    expect(envTest).toContain(
-      "EXAMPLE_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5434/api_test_db",
-    );
+    expect(envTest).toContain("EXAMPLE_DATABASE_URL=pglite::memory:");
     expect(envTest).not.toContain("CORS_ORIGIN=");
     expect(envTest).not.toContain("PAYMENT_API_URL=");
   });

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Boots the regression stack (dev/prod/backcompat) with the test environment
-// from .env.test so regression runs never touch dev databases or dev ports.
+// from .env.test (in-memory pglite) so regression runs never touch dev data
+// or dev ports.
 import { spawn } from "node:child_process";
 import { mkdirSync, openSync } from "node:fs";
 import net from "node:net";
@@ -55,7 +56,7 @@ async function waitForDatabases(dbUrls) {
     if (attempt === PROBE_RETRIES) {
       throw new Error(
         `test databases not reachable: ${missing.join(", ")}. ` +
-          "Start them with `pnpm run test:db:up` (docker compose postgres-*-test services).",
+          "Set each *_DATABASE_URL to a reachable postgres:// URL (or leave .env.test on the in-memory pglite default).",
       );
     }
     log(`waiting for test databases (${missing.join(", ")})...`);

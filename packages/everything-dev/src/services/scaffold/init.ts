@@ -184,7 +184,6 @@ export function buildInitPatterns(
 
   if (has("ui")) patterns.push("ui/**");
   if (has("api")) patterns.push(API_TEMPLATE_PATTERN);
-  if (has("api") || has("host")) patterns.push(COMPOSE_TEMPLATE_PATTERN);
   if (has("host")) patterns.push("host/**");
   if (has("plugins")) {
     for (const plugin of plugins ?? []) {
@@ -199,15 +198,8 @@ export function buildInitPatterns(
 /** api-override children get the slim generic shell, never the parent's domain API. */
 const API_TEMPLATE_PATTERN = ".github/templates/api/**";
 
-/** Child-sized compose (api + api-test databases) for local compute overrides. */
-const COMPOSE_TEMPLATE_PATTERN = ".github/templates/docker-compose.yml";
-
 export function isApiTemplatePath(filePath: string): boolean {
   return filePath.startsWith(".github/templates/api/");
-}
-
-export function isComposeTemplatePath(filePath: string): boolean {
-  return filePath === COMPOSE_TEMPLATE_PATTERN;
 }
 
 export function buildPluginRouteExclusions(
@@ -303,9 +295,6 @@ export function sourcePathToDestinationPath(filePath: string): string {
   if (isApiTemplatePath(filePath)) {
     return filePath.replace(/^\.github\/templates\/api\//, "api/");
   }
-  if (isComposeTemplatePath(filePath)) {
-    return "docker-compose.yml";
-  }
   return filePath.startsWith(".github/templates/")
     ? filePath.replace(/^\.github\/templates\//, ".github/")
     : filePath;
@@ -370,11 +359,6 @@ export async function copyFilteredFiles(
   if (!options.overrides.includes("api")) {
     for (const match of allFiles) {
       if (isApiTemplatePath(match)) allFiles.delete(match);
-    }
-  }
-  if (!options.overrides.includes("api") && !options.overrides.includes("host")) {
-    for (const match of allFiles) {
-      if (isComposeTemplatePath(match)) allFiles.delete(match);
     }
   }
 
@@ -566,12 +550,6 @@ export function buildChildRootScripts(sections: {
 
   // Scripts key off the child's own override selection (what it runs locally),
   // not off resolved-config secrets — a ui-only child gets none of these.
-  if (sections.api || sections.host) {
-    scripts["dev:postgres"] = "docker compose up -d --wait && pnpm run dev";
-    scripts["dev:postgres:down"] = "docker compose down";
-    scripts["dev:postgres:reset"] = "docker compose down -v && docker compose up -d --wait";
-  }
-
   if (sections.ui) {
     scripts["dev:ui"] = "bos dev --ui local --api remote";
   }
@@ -949,9 +927,6 @@ export async function personalizeConfig(
       "test:api",
       "test:integration",
       "test:e2e",
-      "dev:postgres",
-      "dev:postgres:down",
-      "dev:postgres:reset",
       "dev:ui",
       "dev:api",
     ]) {
@@ -1385,11 +1360,6 @@ export async function writeInitSnapshot(
       if (isApiTemplatePath(match)) allFiles.delete(match);
     }
   }
-  if (!options.overrides.includes("api") && !options.overrides.includes("host")) {
-    for (const match of allFiles) {
-      if (isComposeTemplatePath(match)) allFiles.delete(match);
-    }
-  }
 
   const fileHashes: Record<string, string> = {};
   for (const filePath of allFiles) {
@@ -1439,7 +1409,6 @@ export async function generateDatabaseMigrations(destination: string): Promise<v
 
 const COMMAND_TIMEOUTS: Record<string, number> = {
   pnpm: 5 * 60_000,
-  docker: 5 * 60_000,
   node_modules: 2 * 60_000,
   tar: 60_000,
 };
@@ -1551,7 +1520,7 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
 ### Starting Development
 1. \`pnpm install\`
 2. \`pnpm run dev\`
-3. \`bos dev\` creates \`.env\` on first run and starts local Postgres via docker compose when it is down`);
+3. \`bos dev\` creates \`.env\` on first run; local data is a persistent PGlite data dir (\`.bos/db\`), no docker involved`);
 
   parts.push(`### Debugging Issues
 
@@ -1776,7 +1745,6 @@ function generateGitignore(): string {
 dist/
 .env
 .bos/
-docker-compose.yml
 *.gen.ts
 *.gen.tsx
 `;

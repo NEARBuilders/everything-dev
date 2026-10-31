@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +6,11 @@ import { buildInitPatterns, copyFilteredFiles } from "../../src/cli/init";
 
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
 
+/**
+ * ADR 0038: local databases are the persistent PGlite data dirs — the
+ * compose-era infra delivery is retired. `bos init` must never emit a
+ * docker-compose.yml for any child shape.
+ */
 async function scaffold(overrides: Array<"ui" | "api" | "host" | "plugins">): Promise<string> {
   const projectDir = mkdtempSync(join(tmpdir(), "bos-init-compose-"));
   const patterns = buildInitPatterns(overrides, overrides.includes("plugins") ? ["template"] : []);
@@ -18,7 +23,7 @@ async function scaffold(overrides: Array<"ui" | "api" | "host" | "plugins">): Pr
   return projectDir;
 }
 
-describe("init docker-compose delivery", () => {
+describe("init never delivers docker-compose (ADR 0038)", () => {
   const tempDirs: string[] = [];
 
   afterEach(() => {
@@ -30,21 +35,19 @@ describe("init docker-compose delivery", () => {
     }
   });
 
-  it("api-override children get the 2-service child compose", async () => {
+  it("api-override children get no compose", async () => {
     const projectDir = await scaffold(["ui", "api"]);
     tempDirs.push(projectDir);
 
-    const compose = readFileSync(join(projectDir, "docker-compose.yml"), "utf-8");
-    expect(compose).toContain("postgres-api:");
-    expect(compose).toContain("postgres-api-test:");
-    expect(compose).not.toContain("postgres-auth");
+    expect(existsSync(join(projectDir, "docker-compose.yml"))).toBe(false);
   });
 
-  it("children overriding host get the compose too", async () => {
+  it("children overriding host get no compose either", async () => {
     const projectDir = await scaffold(["host"]);
     tempDirs.push(projectDir);
 
-    expect(existsSync(join(projectDir, "docker-compose.yml"))).toBe(true);
+    expect(existsSync(join(projectDir, "docker-compose.yml"))).toBe(false);
+    expect(existsSync(join(projectDir, ".github", "docker-compose.yml"))).toBe(false);
   });
 
   it("children without local compute get no compose", async () => {

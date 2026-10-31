@@ -27,7 +27,7 @@ export interface PreflightFailure {
   host: string;
   port: number;
   error: string;
-  /** True when the target port accepted a TCP connection (so docker compose cannot fix this failure). */
+  /** True when the target port accepted a TCP connection (so this is not a missing local server). */
   tcpReachable: boolean;
 }
 
@@ -143,8 +143,8 @@ export function preflightLocalInfra(
           const appDb =
             target.secret === "API_DATABASE_URL" || target.secret === "AUTH_DATABASE_URL";
           const pluginContext = appDb
-            ? " Run `docker compose up -d --wait` to start local Postgres."
-            : ` The plugin for ${target.secret} runs inside the local host process, so this DB must be reachable. Run \`docker compose up -d --wait\` to start local Postgres.`;
+            ? " Point it at a postgres:// URL you control (local persistence needs no server — clear the URL to fall back to the persistent .bos/db PGlite)."
+            : ` The plugin for ${target.secret} runs inside the local host process, so this DB must be reachable. Point it at a postgres:// URL you control or clear the URL to fall back to the persistent .bos/db PGlite.`;
           if (tcpOk) {
             return {
               secret: target.secret,

@@ -117,8 +117,8 @@ The plugin itself does **not** read `process.env`. The host passes all configura
 The plugin uses PostgreSQL via `pg` in production and `@electric-sql/pglite` for local development and tests. `pg` is externalized in the Module Federation bundle and must be provided by the host at runtime.
 
 ```bash
-# Local development (zero-config, no Docker needed)
-AUTH_DATABASE_URL=pglite:./auth-local.db
+# Local development (zero-config, no Docker needed — persistent PGlite data dir)
+AUTH_DATABASE_URL=pglite:.bos/db
 
 # Production (Railway, etc.)
 AUTH_DATABASE_URL=postgres://user:pass@host:5432/dbname
@@ -218,7 +218,7 @@ export default {
         },
       },
       secrets: {
-        AUTH_DATABASE_URL: "pglite:./.local/auth.db",
+        AUTH_DATABASE_URL: "pglite:.bos/db",
         BETTER_AUTH_SECRET: "dev-only-secret",
       },
   } satisfies PluginConfigInput<typeof Plugin>,

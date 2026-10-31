@@ -343,8 +343,8 @@ One ~15-line file, scaffolded once and owned by the plugin (ADR 0033): the plugi
 
 ```ts
 // everything-dev/db's databaseLayer supports:
-//   "pglite:.bos/your-plugin/:memory:" — in-memory PGlite (dev)
-//   "pglite:.bos/your-plugin/data"      — persistent PGlite (dev)
+//   "pglite:.bos/db"                    — persistent PGlite data dir (local default, ADR 0038)
+//   "pglite::memory:"                   — in-memory PGlite (tests, throwaway)
 //   "<postgres connection string>"      — real PostgreSQL (prod)
 // namespace: true (default) scopes into plugin_<slug>; false keeps the
 // public schema (api shell) or the dedicated database (auth)
@@ -367,10 +367,10 @@ Migrations run inside `DatabaseLive`'s scoped layer. The critical rule is to **b
 Each plugin manages its own database or schema. Connection strings are passed via secrets (`YOURPLUGIN_DATABASE_URL`). The convention:
 
 ```
-YOURPLUGIN_DATABASE_URL=pglite:.bos/your-plugin/:memory:
+YOURPLUGIN_DATABASE_URL=pglite:.bos/db
 ```
 
-In production, set this to a real PostgreSQL connection string in the host's environment.
+In production, set this to a real PostgreSQL connection string in the host's environment. (Local plugins without an explicit URL fall back to `API_DATABASE_URL` — the two-database contract — so the default above matters mainly for standalone plugin dev.)
 
 ## Calling Other Plugins
 

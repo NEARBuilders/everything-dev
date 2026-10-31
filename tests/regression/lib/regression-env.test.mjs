@@ -78,12 +78,38 @@ void test("ambient test settings reach the stack when no test file exists", () =
   assert.equal(stack.env.BETTER_AUTH_SECRET, env.BETTER_AUTH_SECRET);
 });
 
-void test("dev database rejection does not reveal credentials", () => {
+void test("dev secret rejection does not reveal credentials", () => {
   const repoRoot = fixture();
   assert.throws(
     () => computeRegressionEnv({ repoRoot, env: {} }),
-    (error) => error.message.includes("dev database") && !error.message.includes("private"),
+    (error) => error.message.startsWith("refusing to run") && !error.message.includes("private"),
   );
+});
+
+void test("dev pglite data dir rejection names the secret and never reveals data", () => {
+  const repoRoot = fixture();
+  writeFileSync(
+    join(repoRoot, ".env"),
+    "API_DATABASE_URL=pglite:.bos/db\nBETTER_AUTH_SECRET=private-dev\n",
+  );
+  assert.throws(
+    () => computeRegressionEnv({ repoRoot, env: {} }),
+    (error) =>
+      error.message.includes("API_DATABASE_URL") &&
+      error.message.includes("dev database") &&
+      !error.message.includes("private-dev"),
+  );
+});
+
+void test("in-memory pglite and external postgres URLs are accepted test targets", () => {
+  const repoRoot = fixture();
+  writeFileSync(
+    join(repoRoot, ".env.test"),
+    "API_DATABASE_URL=pglite::memory:\nBETTER_AUTH_SECRET=test-secret\n",
+  );
+  const config = computeRegressionEnv({ repoRoot, env: {} });
+  assert.equal(config.dbUrls.API_DATABASE_URL, "pglite::memory:");
+  assert.equal(config.dbUrls.AUTH_DATABASE_URL, "pglite::memory:");
 });
 
 void test("invalid modes fail before starting a stack", () => {

@@ -4,9 +4,6 @@ import { dirname, join } from "node:path";
 import type { RuntimeConfig } from "../types";
 import { frameworkOwnedHeaderComment } from "./scaffold/ownership";
 
-const POSTGRES_USER = "everythingdev";
-const POSTGRES_PASSWORD = "everythingdev";
-const AUTH_DATABASE_SECRET = "AUTH_DATABASE_URL";
 const HOST_SECRET = "CORS_ORIGIN";
 const REDIS_PORT = 6379;
 const TEST_AUTH_SECRET = "regression-test-secret-do-not-use-in-production";
@@ -16,21 +13,18 @@ const VESTIGIAL_SECRETS = new Set([
 ]);
 
 /**
- * Fixed local-development database conventions. The committed
- * docker-compose.yml provisions exactly these services/ports — nothing is
- * derived from runtime config. Every non-auth `*_DATABASE_URL` secret shares
- * the api database (schema-isolated per plugin); auth gets its own.
+ * Local development conventions. Databases default to a persistent,
+ * file-backed PGlite data dir per workspace process (`.bos/db`) — no ports,
+ * no docker. Operators point a secret at a `postgres://` URL to demand a
+ * shared server. The two-database split (auth separate from everything
+ * else) survives independent of compose.
  */
-const DEV_API_DB_PORT = 5432;
-const DEV_AUTH_DB_PORT = 5433;
-const TEST_API_DB_PORT = 5434;
-const TEST_AUTH_DB_PORT = 5435;
+export const PGLITE_DEV_DATABASE_URL = "pglite:.bos/db";
+export const PGLITE_TEST_DATABASE_URL = "pglite::memory:";
 
 export interface DatabaseConvention {
   secret: string;
   slug: string;
-  port: number;
-  databaseName: string;
   url: string;
 }
 
@@ -99,8 +93,8 @@ function normalizeRedisSlug(secret: string): string {
   return secret.replace(/_REDIS_URL$/, "").toLowerCase();
 }
 
-function databaseUrl(port: number, databaseName: string): string {
-  return `postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${port}/${databaseName}`;
+function databaseUrl(): string {
+  return PGLITE_DEV_DATABASE_URL;
 }
 
 export function buildConventionalDatabases(secrets: string[]): DatabaseConvention[] {
@@ -112,10 +106,7 @@ export function buildConventionalDatabases(secrets: string[]): DatabaseConventio
     .sort((a, b) => normalizeDatabaseSlug(a).localeCompare(normalizeDatabaseSlug(b)))
     .map((secret) => {
       const slug = normalizeDatabaseSlug(secret);
-      const isAuth = secret === AUTH_DATABASE_SECRET;
-      const port = isAuth ? DEV_AUTH_DB_PORT : DEV_API_DB_PORT;
-      const databaseName = isAuth ? "auth_db" : "api_db";
-      return { secret, slug, port, databaseName, url: databaseUrl(port, databaseName) };
+      return { secret, slug, url: databaseUrl() };
     });
 }
 
@@ -132,11 +123,8 @@ export function buildConventionalRedis(secrets: string[]): RedisConvention[] {
     }));
 }
 
-function testDatabaseUrl(secret: string): string {
-  const isAuth = secret === AUTH_DATABASE_SECRET;
-  const port = isAuth ? TEST_AUTH_DB_PORT : TEST_API_DB_PORT;
-  const databaseName = isAuth ? "auth_test_db" : "api_test_db";
-  return databaseUrl(port, databaseName);
+function testDatabaseUrl(): string {
+  return PGLITE_TEST_DATABASE_URL;
 }
 
 export function getSecretGroups(runtimeConfig: RuntimeConfig): SecretGroup[] {
@@ -195,8 +183,9 @@ function defaultSecretValue(
   }
 
   // Zero-config dev (plan 055 ticket 11): substrate URLs are opt-in — the
-  // example renders them empty so the consumers' pglite boot defaults apply;
-  // the operator sets a postgres:// URL to demand compose Postgres.
+  // example renders them empty so the consumers' persistent pglite boot
+  // defaults apply; the operator sets a postgres:// URL for production or
+  // shared access.
   if (options.forExample) {
     return "";
   }
@@ -258,7 +247,7 @@ function renderEnvFile(
         lines.push(
           secret.endsWith("_REDIS_URL")
             ? "# Leave empty for dev defaults; set a redis:// URL to opt into a real Redis."
-            : "# Leave empty to run dev on ephemeral pglite; set a postgres:// URL to opt into compose Postgres.",
+            : "# Leave empty for the persistent local PGlite default (.bos/db); set a postgres:// URL for production or shared access.",
         );
       }
       lines.push(`${secret}=${defaultSecretValue(secret, databaseMap, redisMap, options)}`);
@@ -274,7 +263,7 @@ export { renderEnvFile };
 function renderEnvTestFile(groups: SecretGroup[]): string {
   const lines: string[] = [
     "# Generated test environment — loaded by test suites instead of .env",
-    "# Test databases run on dedicated *-test docker-compose services",
+    "# Test databases run on in-memory pglite — no docker involved",
     "",
   ];
 
@@ -284,7 +273,7 @@ function renderEnvTestFile(groups: SecretGroup[]): string {
       if (secret === "BETTER_AUTH_SECRET") {
         entries.push(`${secret}=${TEST_AUTH_SECRET}`);
       } else if (secret.endsWith("_DATABASE_URL")) {
-        entries.push(`${secret}=${testDatabaseUrl(secret)}`);
+        entries.push(`${secret}=${testDatabaseUrl()}`);
       }
     }
     if (entries.length > 0) {

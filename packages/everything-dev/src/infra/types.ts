@@ -57,25 +57,9 @@ export interface ServiceDescriptorPlan {
   localPath?: string;
 }
 
-export interface DatabasePlan {
-  secret: string;
-  slug: string;
-  port: number;
-  dbName: string;
-  url: string;
-}
-
-export interface RedisPlan {
-  secret: string;
-  slug: string;
-  port: number;
-  url: string;
-}
-
 export type InfraPhase =
   | "resolve-config"
   | "allocate-services"
-  | "allocate-databases"
   | "claim"
   | "materialize-env"
   | "launch";

@@ -68,8 +68,10 @@ export default createPlugin.withPlugins<PluginsClient>()({
     TEMPLATE_API_KEY: z.string().min(1, "TEMPLATE_API_KEY is required").default("template-dev-key"),
     TEMPLATE_DATABASE_URL: z
       .string()
-      .default("pglite:.bos/_template/:memory:")
-      .describe("Database connection string. Use pglite: for local, postgres:// for production."),
+      .default("pglite:.bos/db")
+      .describe(
+        "Database connection string. pglite: is a persistent local data dir (.bos/db); postgres:// for production or shared access.",
+      ),
   }),
 
   context: ContextSchema,

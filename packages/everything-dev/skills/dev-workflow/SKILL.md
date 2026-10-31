@@ -213,7 +213,7 @@ Process tracking uses `~/.cache/everything-dev/pids.json` (global, atomic writes
 
 | word | do |
 |---|---|
-| `Infra preflight failed: …` | the DB preflight probes localhost ports and auto-runs `docker compose up -d --wait` when every failure is a down local service — if it still fails, start Postgres (`pnpm run dev:postgres`) and read the failure messages |
+| `Infra preflight failed: …` | the preflight probes only operator-configured `postgres://`/`redis://` URLs (pglite defaults need no probe) — point the failing `*_DATABASE_URL` at a reachable URL, or clear it to fall back to the persistent `.bos/db` PGlite |
 | `PortAllocationError` on an explicit port | the pinned port is occupied and allocation fails loudly — free it or pick another; it never silently moves an explicit choice |
 | `+100` port-shift notice at startup | expected drift: the preferred block was busy, holders are named in the notice, nothing is persisted — restarts re-try the preferred base |
 | service stuck in `starting` | probe its readiness path directly (e.g. `curl http://localhost:3003/remoteEntry.js`) and read `.bos/logs/<service>.log` |

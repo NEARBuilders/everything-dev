@@ -3,10 +3,10 @@ name: Mirror base images
 # Docker Hub and ECR Public both rate-limit GitHub-hosted runners' shared
 # egress IPs (Docker Hub 504s motivated the ECR move; ECR then throttled with
 # `toomanyrequests: Data limit exceeded`, killing jobs before setup). The
-# org's GHCR mirror is the pull source for the three library base images;
+# org's GHCR mirror is the pull source for the library base images;
 # this workflow refreshes it from upstream. Renovate tracks the mirrors and
 # PRs the digest bumps. New GHCR packages land private — flip them public in
-# package settings once (local dev docker compose pulls them unauthenticated).
+# package settings once.
 
 on:
   workflow_dispatch:
@@ -27,9 +27,6 @@ jobs:
           - source: public.ecr.aws/docker/library/node:24-alpine
             fallback: docker.io/library/node:24-alpine
             target: ghcr.io/nearbuilders/mirror-node:24-alpine
-          - source: public.ecr.aws/docker/library/postgres:17-alpine
-            fallback: docker.io/library/postgres:17-alpine
-            target: ghcr.io/nearbuilders/mirror-postgres:17-alpine
           - source: public.ecr.aws/docker/library/redis:7-alpine
             fallback: docker.io/library/redis:7-alpine
             target: ghcr.io/nearbuilders/mirror-redis:7-alpine
