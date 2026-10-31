@@ -1,6 +1,6 @@
 import { createInstance, getInstance } from "@module-federation/enhanced/runtime";
 import { setGlobalFederationInstance } from "@module-federation/runtime-core";
-import { Config, Context, Data, Effect, Layer, Option, Redacted } from "effect";
+import { Cause, Config, Context, Data, Effect, Layer, Option, Redacted } from "effect";
 import { createPluginRuntime } from "every-plugin";
 import type { PluginLoadFailureInfo, PluginWarningInfo } from "every-plugin/errors";
 import {
@@ -29,7 +29,7 @@ import { originMatches } from "../utils/origin-match";
 import { ConfigService, readCorsOrigins } from "./config";
 import { PluginError } from "./errors";
 
-class PluginBootstrapError extends Data.TaggedError("PluginBootstrapError")<{
+export class PluginBootstrapError extends Data.TaggedError("PluginBootstrapError")<{
   pluginKey: string;
   pluginUrl?: string;
   stage: "load" | "init" | "db-preflight" | "db-migration";
@@ -420,15 +420,38 @@ const logBootstrapError = Effect.fn("logBootstrapError")(function* (err: PluginB
   }
 });
 
+/**
+ * Normalize any per-plugin failure — a typed `PluginBootstrapError`, a foreign
+ * typed failure (config reads, auth origin derivation), or a thrown defect —
+ * into the `PluginBootstrapError` the load loop records. A typed
+ * `PluginBootstrapError` passes through unchanged so stage attribution and
+ * failure classification are preserved.
+ */
+export function pluginFailureCause(
+  entry: { key: string; config: { url?: string } },
+  cause: Cause.Cause<unknown>,
+): PluginBootstrapError {
+  const fail = cause.reasons.find(Cause.isFailReason);
+  if (fail?.error instanceof PluginBootstrapError) return fail.error;
+  return new PluginBootstrapError({
+    pluginKey: entry.key,
+    pluginUrl: entry.config?.url ?? "unknown",
+    stage: "init",
+    execution: "local-host-process",
+    cause: Cause.squash(cause),
+  });
+}
+
 const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (params: {
   runtime: any;
   entry: RuntimePluginEntry;
   integrityRegistry: IntegrityRegistry;
   env: BosEnv;
+  config: RuntimeConfig;
+  corsOrigins: string[];
   pluginsClient?: Record<string, unknown>;
-  baseVariables?: Record<string, unknown>;
 }) {
-  const { runtime, entry, integrityRegistry, env, pluginsClient, baseVariables } = params;
+  const { runtime, entry, integrityRegistry, env, config, corsOrigins, pluginsClient } = params;
   if (entry.config.integrity) {
     integrityRegistry.registerEntry(entry.config.url, entry.config.integrity);
   }
@@ -443,8 +466,22 @@ const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (para
       : "API_DATABASE_URL"
     : pluginDbSecretKey;
 
-  const variables: Record<string, unknown> = { ...baseVariables, ...entry.config.variables };
-  const secrets = yield* resolveSecretsWithDatabaseFallback(entry.config.secrets ?? []);
+  const variables: Record<string, unknown> = {
+    ...(entry.key === "auth" ? yield* buildAuthBaseVariables(config, corsOrigins) : undefined),
+    ...entry.config.variables,
+  };
+  const secrets = yield* resolveSecretsWithDatabaseFallback(entry.config.secrets ?? []).pipe(
+    Effect.mapError(
+      (cause) =>
+        new PluginBootstrapError({
+          pluginKey: entry.key,
+          pluginUrl: entry.config.url,
+          stage: "init",
+          execution: "local-host-process",
+          cause,
+        }),
+    ),
+  );
   const dbSecret = secretKey
     ? secrets[secretKey]
       ? Redacted.make(secrets[secretKey])
@@ -631,6 +668,26 @@ export const initializePlugins = Effect.fn("initializePlugins")(
     let authClient: ((ctx?: unknown) => unknown) | null = null;
     let baseApi: HostPluginEntry | null = null;
 
+    const recordPluginFailure = Effect.fn("recordPluginFailure")(function* (
+      err: PluginBootstrapError,
+    ) {
+      yield* logBootstrapError(err);
+      errors.push(err.message);
+      failures.push({
+        pluginKey: err.pluginKey,
+        pluginUrl: err.pluginUrl,
+        operation: err.operation,
+        kind: err.classification.kind,
+        retryable: err.classification.retryable,
+        message: err.message,
+        suggestion: err.classification.suggestion,
+        dbSecret: err.dbSecret,
+        dbUrlMasked: err.dbUrlMasked,
+      });
+      pluginsClient[err.pluginKey] = failedPluginsClientEntry(err.message);
+      return null;
+    });
+
     for (const key of loadableEntries) {
       const entry = entryMap.get(key)!;
       const node = dag.nodes.get(key)!;
@@ -661,11 +718,6 @@ export const initializePlugins = Effect.fn("initializePlugins")(
         }
       }
 
-      let baseVariables: Record<string, unknown> | undefined;
-      if (node.kind === "auth") {
-        baseVariables = yield* buildAuthBaseVariables(config, corsOrigins);
-      }
-
       yield* Effect.logInfo(`[Plugins][${key}] Loading (${entry.config.name})`);
 
       const result = yield* loadPluginEntryEffect({
@@ -673,29 +725,13 @@ export const initializePlugins = Effect.fn("initializePlugins")(
         entry,
         integrityRegistry,
         env: config.env,
+        config,
+        corsOrigins,
         pluginsClient: Object.keys(nodePluginsClient).length > 0 ? nodePluginsClient : undefined,
-        baseVariables,
       }).pipe(
-        Effect.catchTag("PluginBootstrapError", (err: PluginBootstrapError) =>
-          Effect.gen(function* () {
-            yield* logBootstrapError(err);
-            errors.push(err.message);
-            failures.push({
-              pluginKey: err.pluginKey,
-              pluginUrl: err.pluginUrl,
-              operation: err.operation,
-              kind: err.classification.kind,
-              retryable: err.classification.retryable,
-              message: err.message,
-              suggestion: err.classification.suggestion,
-              dbSecret: err.dbSecret,
-              dbUrlMasked: err.dbUrlMasked,
-            });
-            if (node.kind === "plugin") {
-              pluginsClient[key] = failedPluginsClientEntry(err.message);
-            }
-            return null;
-          }),
+        Effect.catchCauseIf(
+          (cause) => !Cause.hasInterruptsOnly(cause),
+          (cause) => recordPluginFailure(pluginFailureCause(entry, cause)),
         ),
       );
 
