@@ -722,7 +722,7 @@ export function writeGeneratedFiles(opts: {
         continue;
       for (const genName of ["plugins-client.gen.ts", "auth-types.gen.ts"]) {
         const genPath = join(pluginsRoot, entry.name, "src", "lib", genName);
-        if (existsSync(genPath)) rmSync(genPath);
+        if (existsSync(genPath)) rmSync(genPath, { force: true });
       }
     }
   }

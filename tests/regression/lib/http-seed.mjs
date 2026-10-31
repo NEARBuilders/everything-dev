@@ -67,7 +67,7 @@ function entryFromSetCookie(line, baseUrl) {
  * specs consume via `injectCookies`.
  */
 
-class CookieJar {
+export class CookieJar {
   constructor(baseUrl) {
     this.baseUrl = baseUrl;
     this.entries = new Map();
@@ -95,7 +95,7 @@ class CookieJar {
   }
 }
 
-async function postBetterAuth(baseUrl, path, { jar, body, headers } = {}) {
+export async function postBetterAuth(baseUrl, path, { jar, body, headers } = {}) {
   const response = await fetch(`${baseUrl}/api/auth/${path}`, {
     method: "POST",
     headers: {
@@ -114,7 +114,7 @@ async function postBetterAuth(baseUrl, path, { jar, body, headers } = {}) {
   return text ? JSON.parse(text) : {};
 }
 
-async function postRpc(env, procedure, body, extraHeaders = {}) {
+export async function postRpc(env, procedure, body, extraHeaders = {}) {
   const response = await fetch(`${env.baseUrl}/api/rpc/${procedure}`, {
     method: "POST",
     headers: {
@@ -133,7 +133,7 @@ async function postRpc(env, procedure, body, extraHeaders = {}) {
   return response.json();
 }
 
-async function getSessionBetterAuth(baseUrl, jar) {
+export async function getSessionBetterAuth(baseUrl, jar) {
   const response = await fetch(`${baseUrl}/api/auth/get-session`, {
     headers: {
       origin: originOf(baseUrl),
@@ -148,7 +148,7 @@ async function getSessionBetterAuth(baseUrl, jar) {
   return response.json();
 }
 
-async function newAnonymousSession(env, name) {
+export async function newAnonymousSession(env, name) {
   const jar = new CookieJar(env.baseUrl);
   await postBetterAuth(env.baseUrl, "sign-in/anonymous", { jar });
   await postBetterAuth(env.baseUrl, "update-user", {
@@ -158,7 +158,7 @@ async function newAnonymousSession(env, name) {
   return jar;
 }
 
-async function createOrganization(env, jar, name) {
+export async function createOrganization(env, jar, name) {
   const result = await postBetterAuth(env.baseUrl, "organization/create", {
     jar,
     body: { name, slug: name },
