@@ -117,9 +117,13 @@ function of (child code, pinned release):
    does record survive every later root publish.
 2. **The deploy train stamps inherited slots from that map.** Before the
    boot-check walk, every remote slot the leaf does *not* author (present in
-   the release's `slots` map, absent from the authored config) is re-pointed at
+   the release's `slots` map, not authored by the leaf) is re-pointed at
    the release's recorded production URL + pin — child-wins over the parent's
-   live pointer at every consumer boot. Slots the child authors stay untouched;
+   live pointer at every consumer boot. A slot is authored only when its entry
+   names a code source (`production`, `development`, `pin`, `extends`, `proxy`,
+   a bare plugin ref, or `ui: false`); an entry carrying only configuration
+   (`variables`, `secrets`, …) is still stamped, its configuration kept
+   (amended 2026-11-01, #679). Slots the child authors stay untouched;
    a no-`slots` manifest stamps nothing; rollback payloads are canonical and
    skip stamping.
 

@@ -119,6 +119,91 @@ describe("stampInheritedSlotsFromRelease", () => {
     expect(app.ui.pin).toEqual({ manifest: "mine.json", integrity: "sha384-mine" });
   });
 
+  it("stamps a configured-only slot (variables/secrets, no code source) and keeps its configuration", () => {
+    const authored = {
+      account: "child.near",
+      app: {
+        ui: { development: "local:ui" },
+        api: { development: "local:api", variables: { a: 1 } },
+        auth: {
+          variables: { siwn: { recipients: { mainnet: "child.sputnik-dao.near" } } },
+          secrets: ["BETTER_AUTH_SECRET"],
+        },
+      },
+    };
+    const payload = structuredClone(authored) as Record<string, unknown>;
+    const outcome = stampInheritedSlotsFromRelease({
+      payload,
+      authoredConfig: authored,
+      manifest: manifestWithSlots({
+        "app.api": {
+          base: "https://cdn.test/api/",
+          pin: { manifest: "api.json", integrity: "sha384-api" },
+        },
+        "app.auth": {
+          base: authBase,
+          pin: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth" },
+        },
+        "app.auth.ui": {
+          base: authUiBase,
+          pin: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth-ui" },
+        },
+        "app.ui": {
+          base: "https://cdn.test/ui/",
+          pin: { manifest: "ui.json", integrity: "sha384-ui" },
+        },
+      }),
+    });
+
+    const app = payload.app as Record<string, Record<string, unknown>>;
+    expect(outcome.stamped).toEqual(["app.auth", "app.auth.ui"]);
+    expect(app.auth).toEqual({
+      variables: { siwn: { recipients: { mainnet: "child.sputnik-dao.near" } } },
+      secrets: ["BETTER_AUTH_SECRET"],
+      production: authBase,
+      pin: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth" },
+      ui: {
+        production: authUiBase,
+        pin: { manifest: "versions/0123456789abcdef.json", integrity: "sha384-auth-ui" },
+      },
+    });
+    expect(app.ui).toEqual({ development: "local:ui" });
+    expect(app.api).toEqual({ development: "local:api", variables: { a: 1 } });
+  });
+
+  it("stamps a remote-only api (variables/secrets, no workspace) but not a proxied one", () => {
+    const apiSlot = {
+      "app.api": {
+        base: "https://cdn.test/api/",
+        pin: { manifest: "api.json", integrity: "sha384-api" },
+      },
+    };
+    const remoteOnly = { app: { api: { variables: { a: 1 }, secrets: ["S"] } } };
+    const remotePayload = structuredClone(remoteOnly) as Record<string, unknown>;
+    expect(
+      stampInheritedSlotsFromRelease({
+        payload: remotePayload,
+        authoredConfig: remoteOnly,
+        manifest: manifestWithSlots(apiSlot),
+      }).stamped,
+    ).toEqual(["app.api"]);
+    expect((remotePayload.app as Record<string, unknown>).api).toEqual({
+      variables: { a: 1 },
+      secrets: ["S"],
+      production: "https://cdn.test/api/",
+      pin: { manifest: "api.json", integrity: "sha384-api" },
+    });
+
+    const proxied = { app: { api: { proxy: "https://api.child.test", variables: { a: 1 } } } };
+    expect(
+      stampInheritedSlotsFromRelease({
+        payload: structuredClone(proxied),
+        authoredConfig: proxied,
+        manifest: manifestWithSlots(apiSlot),
+      }).stamped,
+    ).toEqual([]);
+  });
+
   it("stamps nothing when the release carries no slots map (pre-amendment releases)", () => {
     const payload: Record<string, unknown> = { account: "child.near" };
     const outcome = stampInheritedSlotsFromRelease({
@@ -243,18 +328,39 @@ describe("stampInheritedSlotsFromRelease", () => {
 describe("authoredSlotPaths", () => {
   it("counts app entries with their ui, and string plugin refs as fully owned", () => {
     const paths = authoredSlotPaths({
-      app: { ui: { x: 1 }, host: { ui: {} }, api: { ui: false } },
-      plugins: { votes: { y: 1 }, legacy: "bos://parent/p" },
+      app: {
+        ui: { development: "local:ui" },
+        host: { production: "https://child.test/host/", ui: { name: "h" } },
+        api: { proxy: "https://api.child.test", ui: false },
+      },
+      plugins: { votes: { extends: "bos://parent/p" }, legacy: "bos://parent/p" },
     });
     expect(paths.has("app.ui")).toBe(true);
     expect(paths.has("app.ui.ui")).toBe(false);
     expect(paths.has("app.host")).toBe(true);
+    expect(paths.has("app.host.ui")).toBe(false);
     expect(paths.has("app.api")).toBe(true);
     expect(paths.has("app.api.ui")).toBe(true);
     expect(paths.has("plugins.votes")).toBe(true);
     expect(paths.has("plugins.votes.ui")).toBe(false);
     expect(paths.has("plugins.legacy")).toBe(true);
     expect(paths.has("plugins.legacy.ui")).toBe(true);
+  });
+
+  it("an entry that only configures an inherited slot does not author it", () => {
+    const paths = authoredSlotPaths({
+      app: {
+        auth: {
+          variables: { a: 1 },
+          secrets: ["S"],
+          ui: { pin: { manifest: "m", integrity: "i" } },
+        },
+        api: { variables: { a: 1 } },
+      },
+    });
+    expect(paths.has("app.auth")).toBe(false);
+    expect(paths.has("app.auth.ui")).toBe(true);
+    expect(paths.has("app.api")).toBe(false);
   });
 });
 
