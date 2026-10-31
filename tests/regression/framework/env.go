@@ -65,7 +65,8 @@ func childEnv(overrides map[string]string) []string {
 // EMPTY. The CLI's dotenv load never overrides existing keys, so the empty
 // export wins over both files; the infra planner treats an empty URL as
 // not-supplied (zero-config dev), so no conventional database URLs are
-// generated, the preflight has nothing to probe, compose stays down, and each
+// generated, the preflight has nothing to probe, no infra is materialized,
+// and each
 // stack boots on its own ephemeral pglite (plugin.dev.ts's `|| pglite`
 // fallback). Required keys pass through with their .env.test values.
 func envOverridesFromDotenv(testEnv, devEnv map[string]string) map[string]string {

@@ -161,6 +161,7 @@ export default {
       RESEND_API_KEY: process.env.RESEND_API_KEY,
       NEAR_RELAYER_PRIVATE_KEY_MAINNET: process.env.NEAR_RELAYER_PRIVATE_KEY_MAINNET,
       NEAR_RELAYER_PRIVATE_KEY_TESTNET: process.env.NEAR_RELAYER_PRIVATE_KEY_TESTNET,
+      AUTH_BOOTSTRAP_ADMIN_API_KEY: process.env.AUTH_BOOTSTRAP_ADMIN_API_KEY,
     },
   } satisfies PluginConfigInput<typeof Plugin>,
 };

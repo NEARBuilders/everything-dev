@@ -6,6 +6,12 @@ import { parse } from "dotenv";
 
 const DEFAULT_BASE_URL = "http://localhost:4100";
 const DEFAULT_BETTER_AUTH_SECRET = "regression-test-secret-do-not-use-in-production";
+/**
+ * ≥ 64 chars because @better-auth/api-key rejects presented keys shorter than
+ * the config's `defaultKeyLength` (64) before verification even runs.
+ */
+const DEFAULT_BOOTSTRAP_ADMIN_API_KEY =
+  "regression-bootstrap-admin-api-key-0123456789abcdef0123456789abcdef0123456789";
 /** The developer's persistent dev data dir default (per workspace process). */
 const DEV_PGLITE_URL = "pglite:.bos/db";
 const TEST_DATABASE_DEFAULT = "pglite::memory:";
@@ -146,6 +152,10 @@ export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
         "or set REGRESSION_ALLOW_DEV_DB=1 to override deliberately.",
     );
   }
+  const bootstrapAdminKey =
+    testEnv.AUTH_BOOTSTRAP_ADMIN_API_KEY ??
+    env.AUTH_BOOTSTRAP_ADMIN_API_KEY ??
+    DEFAULT_BOOTSTRAP_ADMIN_API_KEY;
   const parsedBase = new URL(baseUrl);
   const basePort = Number(parsedBase.port) || (parsedBase.protocol === "https:" ? 443 : 80);
   const localPluginCount = Object.values(config.plugins ?? {}).filter(
@@ -156,7 +166,15 @@ export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
     stalePorts.push(basePort + 10 + i);
   }
 
-  return { repoRoot: root, baseUrl, basePort, dbUrls, authSecret, stalePorts };
+  return {
+    repoRoot: root,
+    baseUrl,
+    basePort,
+    dbUrls,
+    authSecret,
+    bootstrapAdminKey,
+    stalePorts,
+  };
 }
 
 export function regressionStackOptions(config, mode, env = process.env) {
@@ -226,6 +244,10 @@ export function regressionStackOptions(config, mode, env = process.env) {
       ...env,
       ...config.dbUrls,
       BETTER_AUTH_SECRET: config.authSecret,
+      // Boot seams the HTTP seeding helpers rely on (ADR 0038 addendum):
+      // the auth plugin instance(s) ensure a platform admin + API key so
+      // fixture helpers seed through the admin routes instead of the DB.
+      AUTH_BOOTSTRAP_ADMIN_API_KEY: config.bootstrapAdminKey,
       ...(mode === "dev:ssr" || mode === "backcompat" ? { BETTER_AUTH_URL: config.baseUrl } : {}),
       // The auth plugin's dev config derives its Better Auth baseURL from
       // BASE_URL — without it the instance falls back to localhost:3000 and
@@ -255,6 +277,7 @@ if (isDirectRun) {
             baseUrl: result.baseUrl,
             dbUrls: result.dbUrls,
             authSecret: result.authSecret,
+            bootstrapAdminKey: result.bootstrapAdminKey,
             stalePorts: result.stalePorts,
           },
           null,

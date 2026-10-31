@@ -1409,7 +1409,6 @@ export async function generateDatabaseMigrations(destination: string): Promise<v
 
 const COMMAND_TIMEOUTS: Record<string, number> = {
   pnpm: 5 * 60_000,
-  docker: 5 * 60_000,
   node_modules: 2 * 60_000,
   tar: 60_000,
 };

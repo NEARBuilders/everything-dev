@@ -66,6 +66,18 @@ retired entirely (dev and test).**
   `test:db:reset` scripts, no compose template in `bos init`, no preflight
   auto-start. ADR 0012's port-block model now governs only the booted
   services (host/api/auth/ui/plugins), which was always its actual concern.
+- **Regression fixtures seed through the API, not the DB.** With in-memory
+  pglite the stack's database lives inside its own process — no out-of-process
+  client can reach it. The direct-DB test helpers (`auth-test-instance`,
+  `migrate-test-db`, the Go approve step) are replaced by HTTP seeding
+  (`tests/regression/lib/http-seed.mjs`): anonymous sign-in mints sessions,
+  Better Auth routes create orgs, and admin actions run through the existing
+  `reviewOrganization` / `adminSetRole` routes using a boot-time bootstrap
+  admin API key (`AUTH_BOOTSTRAP_ADMIN_API_KEY`, dev/test-only — the auth
+  plugin ensures a platform admin + API key from that secret; never set in
+  production). Cookie artifacts (`cookies.json`, `admin-cookies.json`,
+  `logout-cookies.json`) keep the same locations, captured as Playwright
+  cookie snaps from the sign-in responses.
 
 ## References
 

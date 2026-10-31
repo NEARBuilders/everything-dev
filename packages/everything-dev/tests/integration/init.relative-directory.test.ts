@@ -91,24 +91,18 @@ describe("bos init - relative directory", () => {
 
     expect(existsSync(join(targetDir, "bos.config.json"))).toBe(true);
     expect(existsSync(join(targetDir, ".env.example"))).toBe(true);
-    expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(true);
+    expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false);
 
     const envExample = readFileSync(join(targetDir, ".env.example"), "utf-8");
-    const dockerCompose = readFileSync(join(targetDir, "docker-compose.yml"), "utf-8");
 
     // Auth env materializes when the auth workspace is present in the child
     // (composed inits); the ui/api-only scaffold carries the api + host vars.
     // Substrate URLs render empty with an opt-in hint (plan 055 ticket 11).
     expect(envExample).toContain("API_DATABASE_URL=");
     expect(envExample).toContain(
-      "# Leave empty to run dev on ephemeral pglite; set a postgres:// URL to opt into compose Postgres.",
+      "# Leave empty for the persistent local PGlite default (.bos/db); set a postgres:// URL for production or shared access.",
     );
     expect(envExample).toContain("CORS_ORIGIN=http://localhost:3000");
     expect(envExample).not.toContain("PROJECTS_DATABASE_URL=");
-
-    expect(dockerCompose).toContain("postgres-api:");
-    expect(dockerCompose).toContain("postgres-api-test:");
-    expect(dockerCompose).not.toContain("postgres-auth:");
-    expect(dockerCompose).not.toContain("postgres-example:");
   }, 60_000);
 });

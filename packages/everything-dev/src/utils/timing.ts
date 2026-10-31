@@ -30,7 +30,7 @@ const PHASE_LABELS: Record<string, string> = {
   "personalize config": "Personalizing config...",
   "write snapshot": "Writing snapshot...",
   "resolve config": "Resolving config...",
-  "generate env/docker": "Generating environment config...",
+  "generate env": "Generating environment config...",
   "create env file": "Creating .env file...",
   "install dependencies": "Installing dependencies...",
   "generate types": "Generating types...",

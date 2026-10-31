@@ -163,6 +163,13 @@ export const authSecretsSchema = z.object({
   NEAR_RELAYER_PRIVATE_KEY_MAINNET: z.string().optional(),
   NEAR_RELAYER_PRIVATE_KEY_TESTNET: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
+  AUTH_BOOTSTRAP_ADMIN_API_KEY: z
+    .string()
+    .optional()
+    .describe(
+      "Dev/test-only: boot the instance with a platform admin + API key carrying this exact secret, " +
+        "so regression fixtures can seed through the admin routes. Never set in production.",
+    ),
 });
 
 export type AuthPluginVariables = z.infer<typeof authVariablesSchema>;

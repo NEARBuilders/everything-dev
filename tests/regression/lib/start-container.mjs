@@ -42,6 +42,14 @@ const run = (cmd, args, options = {}) =>
 const waitForDatabases = async () => {
   const deadline = Date.now() + 60_000;
   for (const url of Object.values(regressionEnv.dbUrls)) {
+    // PGlite URLs (`.bos/db` data dirs, `:memory:`) are in-process — the
+    // container's services boot their own database, nothing to probe here.
+    try {
+      const protocol = new URL(url).protocol;
+      if (protocol !== "postgres:" && protocol !== "postgresql:") continue;
+    } catch {
+      // malformed URL — the stack will surface it
+    }
     const parsed = new URL(url);
     let reachable = false;
     while (Date.now() < deadline && !reachable) {
@@ -61,8 +69,9 @@ const waitForDatabases = async () => {
   }
 };
 
-// The test databases live on the runner; the container reaches them through
-// the docker host gateway.
+// Postgres URLs pointed at the runner reach the container through the docker
+// host gateway; pglite URLs pass through untouched (the container boots its
+// own in-process database).
 const containerDbUrls = Object.fromEntries(
   Object.entries(regressionEnv.dbUrls).map(([key, url]) => [
     key,
@@ -73,6 +82,9 @@ const containerDbUrls = Object.fromEntries(
 const childEnv = {
   ...containerDbUrls,
   BETTER_AUTH_SECRET: regressionEnv.authSecret,
+  // The auth plugin's boot-time seeding seam — the HTTP helpers approve orgs
+  // and set roles through the admin routes (ADR 0038 addendum).
+  AUTH_BOOTSTRAP_ADMIN_API_KEY: regressionEnv.bootstrapAdminKey,
   BASE_URL: regressionEnv.baseUrl,
   CORS_ORIGIN: regressionEnv.baseUrl,
   REGRESSION_VARIANT: variant,

@@ -1,9 +1,11 @@
+import { eq } from "drizzle-orm";
 import { Context, Effect } from "effect";
-import { attemptAuth } from "../attempts";
+import { attemptAuth, attemptDb } from "../attempts";
 import type { InferInput, InferOutput } from "../contract";
+import * as schema from "../db/schema";
 import { toAdminSession, toAdminUser } from "../serializers";
 import type { PluginServices } from "../service-types";
-import type { AuthFailure } from "./domain-errors";
+import { type AuthFailure, DbError } from "./domain-errors";
 
 type Auth = PluginServices["auth"];
 
@@ -59,7 +61,15 @@ export class AdminUsersService extends Context.Service<
   }
 >()("auth/AdminUsersService") {}
 
-export const buildAdminUsersService = ({ auth }: { auth: Auth }) =>
+export const buildAdminUsersService = ({
+  auth,
+  db,
+  apiKeyHeaders,
+}: {
+  auth: Auth;
+  db: PluginServices["db"];
+  apiKeyHeaders: string[];
+}) =>
   AdminUsersService.of({
     listUsers: (headers, input) =>
       attemptAuth(() =>
@@ -84,10 +94,30 @@ export const buildAdminUsersService = ({ auth }: { auth: Auth }) =>
         Effect.map(toAdminUser),
       ),
 
-    setRole: (headers, userId, role) =>
-      attemptAuth(() => auth.api.setRole({ headers, body: { userId, role } })).pipe(
-        Effect.map((result) => toAdminUser(result.user)),
-      ),
+    setRole: (headers, userId, role) => {
+      // better-auth's admin endpoints read sessions authoritatively from the
+      // server session store and null out the api-key hook's hydration, so
+      // they can never authorize an API-key caller (UNAUTHORIZED 401). For
+      // API-key callers the typed requireAdmin guard has already verified
+      // the caller's admin role — perform the update directly.
+      const apiKeyCaller = apiKeyHeaders.some((name) => Boolean(headers.get(name.toLowerCase())));
+      if (!apiKeyCaller) {
+        return attemptAuth(() => auth.api.setRole({ headers, body: { userId, role } })).pipe(
+          Effect.map((result) => toAdminUser(result.user)),
+        );
+      }
+      return attemptDb(async () => {
+        const [updated] = await db
+          .update(schema.user)
+          .set({ role })
+          .where(eq(schema.user.id, userId))
+          .returning();
+        if (!updated) {
+          throw new DbError({ message: `admin set role: user not found: ${userId}` });
+        }
+        return updated;
+      }).pipe(Effect.map(toAdminUser));
+    },
 
     banUser: (headers, input) =>
       attemptAuth(() =>
