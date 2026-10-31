@@ -1,5 +1,5 @@
 import type { BosConfigInput } from "../../types";
-import { ensureObjectContainers, walkConfigSlots } from "../config-slots";
+import { type ConfigSlot, ensureObjectContainers, walkConfigSlots } from "../config-slots";
 import { readInstalledFrameworkVersion } from "../framework-version";
 import {
   checkPlatformCompat,
@@ -52,11 +52,25 @@ export async function resolveReleaseManifestForDeploy(input: {
   return resolved?.manifest ?? null;
 }
 
-/** Authored slot paths: every slot the leaf itself declares. */
+/** Keys that name where a slot's code comes from — owning the slot's bytes. */
+const SLOT_SOURCE_KEYS = ["production", "development", "pin", "extends", "proxy"] as const;
+
+/**
+ * A slot is authored when its entry names a code source (or opts out with
+ * `ui: false` / owns it via a bare plugin ref). An entry that only configures
+ * an inherited slot — `variables`, `secrets`, `routes`, … — does not own its
+ * bytes, so the release still pins them.
+ */
+function declaresSlotSource(entry: ConfigSlot["entry"]): boolean {
+  if (entry === false || typeof entry === "string") return true;
+  return SLOT_SOURCE_KEYS.some((key) => entry[key] !== undefined);
+}
+
+/** Authored slot paths: every slot whose code source the leaf itself declares. */
 export function authoredSlotPaths(config: Record<string, unknown>): Set<string> {
   const paths = new Set<string>();
-  walkConfigSlots(config, ({ slot, isPluginRef }) => {
-    paths.add(slot);
+  walkConfigSlots(config, ({ slot, entry, isPluginRef }) => {
+    if (declaresSlotSource(entry)) paths.add(slot);
     // KEEP: a bare-string plugin ref (`extends: "bos://…"`) owns its whole
     // surface — composed resolution derives its ui from the extended config,
     // so the ownership set must include it independently of the `ui` key.
@@ -72,7 +86,8 @@ export interface StampOutcome {
 
 /**
  * Stamp inherited slots: for every `app.*` slot in the release manifest's
- * `slots` map that the authored config does not declare, write the release's
+ * `slots` map that the authored config does not author (see
+ * `authoredSlotPaths` — configuring a slot is not authoring it), write the release's
  * recorded production URL + pin into the payload. Child-wins deep merge then
  * shadows the parent's live config pointer at every consumer boot, so the
  * child composes exactly the bytes its pinned release published. Slots the
