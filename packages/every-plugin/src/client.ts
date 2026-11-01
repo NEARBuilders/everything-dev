@@ -33,7 +33,7 @@ async function fetchWithRateLimitRetry(
   return response;
 }
 
-function mergeHeaders(base: Headers, overrides?: HeadersInit): Headers {
+function mergeHeaders(base: Headers, overrides?: RequestInit["headers"]): Headers {
   const merged = new Headers(base);
   new Headers(overrides).forEach((value, key) => {
     merged.set(key, value);
