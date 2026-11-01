@@ -194,7 +194,9 @@ export const VoteServiceLive = Layer.effect(
   VoteService,
   Effect.gen(function* () {
     const db = yield* DatabaseTag;
-    const publisher = new MemoryPublisher<VoteEvents>({ resume: { enabled: true, seconds: 120 } });
+    const publisher = new MemoryPublisher<VoteEvents>({
+      resume: { enabled: true, ttl: 120 * 1000 },
+    });
     const methods = createVoteMethods(db, publisher);
     return { ...methods, publisher };
   }),

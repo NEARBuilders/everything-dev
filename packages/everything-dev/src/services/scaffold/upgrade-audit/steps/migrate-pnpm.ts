@@ -1,70 +1,93 @@
 import { Effect } from "effect";
+import {
+  CATALOG_PINNED_OVERRIDE_KEYS,
+  frameworkReleaseAgeExcludes,
+  PNPM_PACKAGE_MANAGER,
+} from "../../../workspace/catalog-overrides";
 import { listFiles, readText, removePath, writeText } from "../fs";
 import type { StepResult } from "./author-config";
 
-const V2_CATALOG: Readonly<Record<string, string>> = {
-  "everything-dev": "^2.0.0-rc.14",
-  "every-plugin": "^3.0.0-rc.9",
-  "better-near-auth": "^2.0.0-rc.2",
-  effect: "4.0.0-rc.117",
-  zod: "4.6.5",
-  "better-auth": "1.7.7",
-  "@better-auth/api-key": "1.7.7",
-  "@better-auth/passkey": "1.7.7",
-  "@better-auth/core": "1.7.7",
-  "@orpc/contract": "2.0.0-beta.35",
-  "@orpc/server": "2.0.0-beta.35",
-  "@orpc/client": "2.0.0-beta.35",
-  "@orpc/zod": "2.0.0-beta.35",
-  "@orpc/openapi": "2.0.0-beta.35",
-  "@orpc/tanstack-query": "2.0.0-beta.35",
-  "@orpc/publisher": "2.0.0-beta.35",
-  "@orpc/experimental-effect": "2.0.0-beta.35",
-  "@tanstack/react-query": "5.104.5",
-  "@tanstack/react-query-devtools": "^5.104.5",
-  "@tanstack/react-router": "1.170.45",
-  "@tanstack/react-router-devtools": "1.167.2",
-  "@tanstack/router-generator": "1.167.45",
-  "@tanstack/router-plugin": "1.168.47",
-  "@tanstack/react-devtools": "^0.10.13",
-  "@tanstack/react-table": "^9.3.1",
-  "near-kit": "^0.20.2",
-  "@module-federation/enhanced": "^2.9.2",
-  "@module-federation/node": "^2.7.52",
-  "@module-federation/rsbuild-plugin": "^2.9.2",
-  "@module-federation/runtime-core": "^2.9.2",
-  "@module-federation/runtime": "^2.9.2",
-  "@module-federation/runtime-tools": "^2.9.2",
-  "@module-federation/sdk": "^2.9.2",
-  "@module-federation/dts-plugin": "^2.9.2",
-  "@rspack/core": "2.2.9",
-  "@rspack/cli": "2.2.9",
-  "@rsbuild/core": "2.2.14",
-  "@rsbuild/plugin-react": "2.1.1",
-  typescript: "^7.0.2",
-};
-
-const MINIMUM_RELEASE_AGE_EXCLUDE = [
-  "better-near-auth@2.0.0-rc.0 || 2.0.0-rc.1 || 2.0.0-rc.2",
-  "every-plugin@3.0.0-rc.4 || 3.0.0-rc.5 || 3.0.0-rc.6 || 3.0.0-rc.7 || 3.0.0-rc.8 || 3.0.0-rc.9",
-  "everything-dev@2.0.0-rc.7 || 2.0.0-rc.8 || 2.0.0-rc.9 || 2.0.0-rc.10 || 2.0.0-rc.11 || 2.0.0-rc.12 || 2.0.0-rc.13 || 2.0.0-rc.14",
-];
-
-const PNPM_PACKAGE_MANAGER = "pnpm@12.10.1";
-
 /**
- * Transitive dedupe pins. @tanstack/react-router-devtools drags in a
- * different @tanstack/router-core than @tanstack/react-router resolves, so
- * everything-dev's dist (which imports the hoisted core) disagrees with the
- * app-typed RouterCore — every AppRouterFactory assignment fails with
- * missing `routeBranchCache`/`resolvePathWithBase`/`getRouteBranch`, and the
- * stale react-router variant breaks `bos types gen` at import time
- * (`isPlainArray` no longer exported). Force one core/router pair
- * everywhere; bump in lockstep with the react-router catalog pin.
+ * Catalog baseline for the v1→v2 migration — v1 leftovers must lose to
+ * these rows. This is a verbatim copy of the parent `pnpm-workspace.yaml`
+ * catalog: drift here regresses a migrated child's catalog (#650), which is
+ * why tests/unit/catalog-lockstep.test.ts asserts row-for-row equality in
+ * both directions.
  */
-const TRANSITIVE_OVERRIDES: Readonly<Record<string, string>> = {
-  "@tanstack/router-core": "1.171.38",
-  "@tanstack/react-router": "1.170.45",
+export const V2_CATALOG: Readonly<Record<string, string>> = {
+  "@better-auth/api-key": "1.7.14",
+  "@better-auth/core": "1.7.14",
+  "@better-auth/passkey": "1.7.14",
+  "@better-fetch/fetch": "1.3.3",
+  "@electric-sql/pglite": "^0.4.5",
+  "@effect/platform-node": "4.0.0-rc.117",
+  "@effect/platform-node-shared": "4.0.0-rc.117",
+  "@hot-labs/near-connect": "elliotBraem/near-connect#v0.12.0-fork.3",
+  "@libsql/client": "0.17.0",
+  "@lingui/core": "5.9.0",
+  "@lingui/message-utils": "5.9.0",
+  "@lingui/react": "5.9.0",
+  "@modelcontextprotocol/server": "2.0.0-beta.5",
+  "@module-federation/dts-plugin": "^2.9.0",
+  "@module-federation/enhanced": "^2.9.0",
+  "@module-federation/node": "^2.7.50",
+  "@module-federation/rsbuild-plugin": "^2.9.0",
+  "@module-federation/runtime": "^2.9.0",
+  "@module-federation/runtime-core": "^2.9.0",
+  "@module-federation/runtime-tools": "^2.9.0",
+  "@module-federation/sdk": "^2.9.0",
+  "@opentelemetry/api": "^1.9.0",
+  "@orpc/client": "2.0.0-beta.45",
+  "@orpc/contract": "2.0.0-beta.45",
+  "@orpc/experimental-effect": "2.0.0-beta.45",
+  "@orpc/openapi": "2.0.0-beta.45",
+  "@orpc/publisher": "2.0.0-beta.45",
+  "@orpc/server": "2.0.0-beta.45",
+  "@orpc/tanstack-query": "2.0.0-beta.45",
+  "@orpc/zod": "2.0.0-beta.45",
+  "@outlayer/sdk": "0.1.0-alpha.4",
+  "@rsbuild/core": "2.2.8",
+  "@rsbuild/plugin-react": "2.1.0",
+  "@rspack/cli": "2.2.6",
+  "@rspack/core": "2.2.8",
+  "@scure/base": "^2.2.0",
+  "@simplewebauthn/browser": "^13.3.0",
+  "@tanstack/ai": "0.61.0",
+  "@tanstack/ai-openai": "0.24.1",
+  "@tanstack/ai-react": "0.29.1",
+  "@tanstack/intent": "^0.3.5",
+  "@tanstack/react-devtools": "^0.10.1",
+  "@tanstack/react-form": "^1.29.1",
+  "@tanstack/react-query": "5.102.8",
+  "@tanstack/react-query-devtools": "^5.102.8",
+  "@tanstack/react-router": "1.170.46",
+  "@tanstack/react-router-devtools": "1.167.2",
+  "@tanstack/react-table": "^9.2.4",
+  "@tanstack/router-core": "1.171.39",
+  "@tanstack/router-generator": "1.167.46",
+  "@tanstack/router-plugin": "1.168.48",
+  "@types/node": "^25.0.3",
+  "@types/pg": "^8.11.6",
+  "@types/react": "^19.2.7",
+  "@types/react-dom": "^19.2.3",
+  aws4fetch: "^1.0.20",
+  "better-auth": "1.7.14",
+  "better-near-auth": "^2.0.0-rc.5",
+  "drizzle-kit": "^0.31.8",
+  "drizzle-orm": "^0.45.1",
+  effect: "4.0.0-rc.117",
+  "every-plugin": "^3.0.0-rc.14",
+  "everything-dev": "^2.0.0-rc.27",
+  "near-kit": "^0.20.2",
+  pg: "^8.12.0",
+  react: "19.2.9",
+  "react-dom": "19.2.9",
+  sirv: "3.0.2",
+  sonner: "2.0.8",
+  typescript: "7.0.2",
+  vitest: "^4.1.8",
+  yaml: "2.9.0",
+  zod: "4.6.5",
 };
 
 const YAML_PLAIN_VALUE_RE = /^[A-Za-z0-9^~][A-Za-z0-9.^~*+\-/]*$/;
@@ -88,6 +111,11 @@ interface WorkspaceYamlInput {
 
 const renderWorkspaceYaml = (input: WorkspaceYamlInput): string => {
   const catalogEntries = Object.entries(input.catalog).map(([key, value]) => [key, value] as const);
+  const catalog = Object.fromEntries(catalogEntries);
+  const overrideEntries = CATALOG_PINNED_OVERRIDE_KEYS.filter((key) => catalog[key]).map(
+    (key) => [key, catalog[key]] as const,
+  );
+  const releaseAgeExcludes = frameworkReleaseAgeExcludes(catalog);
   const lines = [
     "packages:",
     ...input.packages.map((pkg) => `  - ${yamlScalar(pkg)}`),
@@ -98,17 +126,24 @@ const renderWorkspaceYaml = (input: WorkspaceYamlInput): string => {
     "  protobufjs: true",
     "  '@openapitools/openapi-generator-cli': true",
     "",
-    "overrides:",
-    ...Object.entries(TRANSITIVE_OVERRIDES).map(
-      ([key, value]) => `  ${yamlMap([[key, value]], "").trimStart()}`,
-    ),
-    "",
+    ...(overrideEntries.length > 0
+      ? [
+          "overrides:",
+          ...overrideEntries.map(([key, value]) => `  ${yamlMap([[key, value]], "").trimStart()}`),
+          "",
+        ]
+      : []),
     "catalog:",
     yamlMap(catalogEntries, "  "),
     "",
-    "minimumReleaseAgeExclude:",
-    ...MINIMUM_RELEASE_AGE_EXCLUDE.map((entry) => `  - ${yamlScalar(entry)}`),
-    "",
+    ...(releaseAgeExcludes.length > 0
+      ? [
+          "minimumReleaseAgeExcludePrune: true",
+          "minimumReleaseAgeExclude:",
+          ...releaseAgeExcludes.map((entry) => `  - ${yamlScalar(entry)}`),
+          "",
+        ]
+      : []),
   ];
   return lines.join("\n");
 };

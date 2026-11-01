@@ -9,6 +9,7 @@ import {
 } from "../../../src/services/scaffold/upgrade-audit/steps/apply-manifest";
 import { authorConfig } from "../../../src/services/scaffold/upgrade-audit/steps/author-config";
 import { migratePnpm } from "../../../src/services/scaffold/upgrade-audit/steps/migrate-pnpm";
+import { PNPM_PACKAGE_MANAGER } from "../../../src/services/workspace/catalog-overrides";
 
 let projectDir: string;
 
@@ -60,20 +61,27 @@ describe("migratePnpm", () => {
   it("writes pnpm-workspace.yaml with packages, catalog, and RC pins", async () => {
     await run(migratePnpm(projectDir, false));
     const yaml = await readFile(join(projectDir, "pnpm-workspace.yaml"), "utf-8");
-    expect(yaml).toContain("everything-dev: ^2.0.0-rc.14");
-    expect(yaml).toContain("every-plugin: ^3.0.0-rc.9");
-    expect(yaml).toContain("better-near-auth: ^2.0.0-rc.2");
+    // framework rows: V2_CATALOG wins over the v1 leftovers the fixture ships
+    expect(yaml).toContain("everything-dev: ^2.0.0-rc.27");
+    expect(yaml).toContain("every-plugin: ^3.0.0-rc.14");
+    expect(yaml).toContain("better-near-auth: ^2.0.0-rc.5");
+    // ecosystem rows: V2_CATALOG wins over v1 leftovers
+    expect(yaml).toContain("better-auth: 1.7.14");
     expect(yaml).toContain("overrides:");
-    expect(yaml).toContain("@tanstack/router-core");
+    expect(yaml).toContain('"@tanstack/router-core": 1.171.39');
     expect(yaml).toContain("- api");
     expect(yaml).toContain("- plugins/*");
-    expect(yaml).toContain("minimumReleaseAgeExclude:");
+    // release-age posture: derived from the catalog's framework rows, pruned
+    expect(yaml).toContain("minimumReleaseAgeExcludePrune: true");
+    expect(yaml).toContain('- "everything-dev@^2.0.0-rc.27"');
+    expect(yaml).toContain('- "every-plugin@^3.0.0-rc.14"');
+    expect(yaml).not.toContain("2.0.0-rc.14 ||");
   });
 
   it("rewrites scripts to pnpm with failure propagation", async () => {
     await run(migratePnpm(projectDir, false));
     const pkg = JSON.parse(await readFile(join(projectDir, "package.json"), "utf-8"));
-    expect(pkg.packageManager).toContain("pnpm@12.10.1");
+    expect(pkg.packageManager).toBe(PNPM_PACKAGE_MANAGER);
     expect(pkg.scripts.typecheck).toContain("pnpm --dir ui run typecheck || exit 1");
     expect(pkg.scripts.typecheck).toContain("pnpm run types:gen");
   });

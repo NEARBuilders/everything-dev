@@ -6,10 +6,13 @@ packages:
   - packages/*
   - apps/*
 catalog:
-  "@better-auth/api-key": 1.7.7
-  "@better-auth/core": 1.7.7
-  "@better-auth/passkey": 1.7.7
+  "@better-auth/api-key": 1.7.14
+  "@better-auth/core": 1.7.14
+  "@better-auth/passkey": 1.7.14
+  "@better-fetch/fetch": 1.3.3
   "@electric-sql/pglite": ^0.4.5
+  "@effect/platform-node": 4.0.0-rc.117
+  "@effect/platform-node-shared": 4.0.0-rc.117
   "@hot-labs/near-connect": elliotBraem/near-connect#v0.12.0-fork.3
   "@libsql/client": 0.17.0
   "@lingui/core": 5.9.0
@@ -25,14 +28,14 @@ catalog:
   "@module-federation/runtime-tools": ^2.9.0
   "@module-federation/sdk": ^2.9.0
   "@opentelemetry/api": ^1.9.0
-  "@orpc/client": 2.0.0-beta.35
-  "@orpc/contract": 2.0.0-beta.35
-  "@orpc/experimental-effect": 2.0.0-beta.35
-  "@orpc/openapi": 2.0.0-beta.35
-  "@orpc/publisher": 2.0.0-beta.35
-  "@orpc/server": 2.0.0-beta.35
-  "@orpc/tanstack-query": 2.0.0-beta.35
-  "@orpc/zod": 2.0.0-beta.35
+  "@orpc/client": 2.0.0-beta.45
+  "@orpc/contract": 2.0.0-beta.45
+  "@orpc/experimental-effect": 2.0.0-beta.45
+  "@orpc/openapi": 2.0.0-beta.45
+  "@orpc/publisher": 2.0.0-beta.45
+  "@orpc/server": 2.0.0-beta.45
+  "@orpc/tanstack-query": 2.0.0-beta.45
+  "@orpc/zod": 2.0.0-beta.45
   "@outlayer/sdk": 0.1.0-alpha.4
   "@rsbuild/core": 2.2.8
   "@rsbuild/plugin-react": 2.1.0
@@ -48,17 +51,18 @@ catalog:
   "@tanstack/react-form": ^1.29.1
   "@tanstack/react-query": 5.102.8
   "@tanstack/react-query-devtools": ^5.102.8
-  "@tanstack/react-router": 1.170.32
-  "@tanstack/react-router-devtools": 1.167.1
+  "@tanstack/react-router": 1.170.46
+  "@tanstack/react-router-devtools": 1.167.2
   "@tanstack/react-table": ^9.2.4
-  "@tanstack/router-generator": 1.167.33
-  "@tanstack/router-plugin": 1.168.35
+  "@tanstack/router-core": 1.171.39
+  "@tanstack/router-generator": 1.167.46
+  "@tanstack/router-plugin": 1.168.48
   "@types/node": ^25.0.3
   "@types/pg": ^8.11.6
   "@types/react": ^19.2.7
   "@types/react-dom": ^19.2.3
   aws4fetch: ^1.0.20
-  better-auth: 1.7.7
+  better-auth: 1.7.14
   better-near-auth: ^2.0.0-rc.5
   drizzle-kit: ^0.31.8
   drizzle-orm: ^0.45.1
@@ -79,10 +83,15 @@ nodeLinker: hoisted
 linkWorkspacePackages: true
 ignoreScripts: true
 overrides:
-  "@better-fetch/fetch": 1.3.2
-  "@effect/platform-node": 4.0.0-rc.117
-  "@effect/platform-node-shared": 4.0.0-rc.117
-  "@rspack/core": 2.2.8
-  better-auth: 1.7.7
-  react: 19.2.9
-  react-dom: 19.2.9
+  "@better-auth/api-key": "catalog:"
+  "@better-auth/core": "catalog:"
+  "@better-auth/passkey": "catalog:"
+  "@better-fetch/fetch": "catalog:"
+  "@effect/platform-node": "catalog:"
+  "@effect/platform-node-shared": "catalog:"
+  "@rspack/core": "catalog:"
+  "@tanstack/react-router": "catalog:"
+  "@tanstack/router-core": "catalog:"
+  better-auth: "catalog:"
+  react: "catalog:"
+  react-dom: "catalog:"
