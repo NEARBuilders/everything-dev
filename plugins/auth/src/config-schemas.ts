@@ -144,6 +144,20 @@ export const authVariablesSchema = z.object({
     })
     .optional(),
   onboard: onboardConfigSchema.optional(),
+  rateLimit: z
+    .object({
+      enabled: z.boolean().optional(),
+      window: z.number().int().positive().optional(),
+      max: z.number().int().positive().optional(),
+      storage: z.enum(["memory", "database"]).optional(),
+    })
+    .optional(),
+  ipAddress: z
+    .object({
+      ipAddressHeaders: z.array(z.string()).optional(),
+      trustedProxies: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 
 export const authSecretsSchema = z.object({

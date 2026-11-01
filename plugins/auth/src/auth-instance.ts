@@ -16,7 +16,12 @@ import {
 import { createAccessControl } from "better-auth/plugins/access";
 import { DEFAULT_DEVICE_LINK_CLIENT_ID, type SIWNPluginOptions, siwn } from "better-near-auth";
 import { eq, gt } from "drizzle-orm";
-import type { AuthConfig, AuthPermissionStatements } from "./auth-config";
+import type {
+  AuthConfig,
+  AuthIpAddressConfig,
+  AuthPermissionStatements,
+  AuthRateLimitConfig,
+} from "./auth-config";
 import { custody } from "./custody";
 import type { Database as AuthDatabase } from "./db/layer";
 import * as schema from "./db/schema";
@@ -116,6 +121,35 @@ export function resolvePasskeyRelyingPartyOptions(
     .map(normalizeOrigin);
 
   return { rpID, rpName, origin: [...new Set([origin, ...gatewayOrigins])] };
+}
+
+/**
+ * Maps the authored rateLimit variables to better-auth's option shape,
+ * passing only the fields the deployment set — absent fields fall through to
+ * better-auth's own defaults (#688).
+ */
+export function compactRateLimit(
+  rateLimit: AuthRateLimitConfig | undefined,
+): { rateLimit: Record<string, unknown> } | Record<string, never> {
+  if (!rateLimit) return {};
+  const mapped = Object.fromEntries(
+    Object.entries({
+      enabled: rateLimit.enabled,
+      window: rateLimit.window,
+      max: rateLimit.max,
+      storage: rateLimit.storage,
+    }).filter(([, value]) => value !== undefined),
+  );
+  return Object.keys(mapped).length > 0 ? { rateLimit: mapped } : {};
+}
+
+export function compactIpAddress(
+  ipAddress: AuthIpAddressConfig | undefined,
+): { ipAddressHeaders: string[] } & { trustedProxies?: string[] } {
+  return {
+    ipAddressHeaders: ipAddress?.ipAddressHeaders ?? ["x-forwarded-for"],
+    ...(ipAddress?.trustedProxies?.length ? { trustedProxies: ipAddress.trustedProxies } : {}),
+  };
 }
 
 export function buildSiwnOptions(config: AuthConfig): Parameters<typeof siwn>[0] {
@@ -266,10 +300,12 @@ export function createAuthInstance(
     // better-auth's core limiter defaults to enabled in production with a
     // single shared per-path bucket when no client IP is resolvable — the
     // regression container's whole /api/auth/* traffic shares one bucket and
-    // trips it within seconds. Test environments opt out explicitly.
+    // trips it within seconds. Test environments opt out explicitly; authored
+    // config (#688) tunes window/max/storage for the deployment. Absent config
+    // leaves better-auth's own defaults.
     ...(process.env.BETTER_AUTH_RATE_LIMIT_DISABLED === "1"
       ? { rateLimit: { enabled: false } }
-      : {}),
+      : compactRateLimit(config.rateLimit)),
     socialProviders,
     plugins: [
       siwn(siwnOptions),
@@ -543,12 +579,16 @@ export function createAuthInstance(
       },
       // Behind a reverse proxy (Railway, and most PaaS ingress) the socket
       // address is the proxy's, so Better Auth cannot resolve the client IP
-      // and rate limiting collapses into one shared per-path bucket. Trust
-      // the standard forwarded header; deployments without a proxy are
-      // unaffected (the header is absent and the fallback applies).
-      ipAddress: {
-        ipAddressHeaders: ["x-forwarded-for"],
-      },
+      // and rate limiting collapses into one shared per-path bucket. Better
+      // Auth refuses comma-separated forwarded chains from untrusted proxies,
+      // so an appending chain (Cloudflare + Railway) still fails to resolve —
+      // deployments name a single trusted header (e.g. cf-connecting-ip) or
+      // list their proxies in trustedProxies (#688, trust boundary #338).
+      // The default trusts the standard forwarded header; deployments without
+      // a proxy are unaffected (the header is absent and the fallback applies).
+      // The default trusts the standard forwarded header; deployments without
+      // a proxy are unaffected (the header is absent and the fallback applies).
+      ipAddress: compactIpAddress(config.ipAddress),
     },
   });
   authRef = auth;

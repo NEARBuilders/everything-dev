@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -93,6 +94,18 @@ export const verification = pgTable(
   },
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 );
+
+/**
+ * Better Auth's rate-limit buckets for `rateLimit.storage: "database"`
+ * (#688) — the multi-replica option, since in-memory buckets are per
+ * instance. Shape is better-auth's: `lastRequest` is a ms timestamp the
+ * limiter reads back as number or bigint.
+ */
+export const rateLimit = pgTable("rate_limit", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
 
 export const nearAccount = pgTable(
   "near_account",

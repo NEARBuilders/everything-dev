@@ -200,6 +200,8 @@ export function normalizeAuthConfig(
     organizationMembershipLimit: variables.organizationMembershipLimit,
     trustedOrigins,
     isProduction: process.env.NODE_ENV === "production",
+    rateLimit: variables.rateLimit,
+    ipAddress: variables.ipAddress,
     socialProviders: {
       github: {
         clientId: variables.socialProviders?.github?.clientId,

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { compactIpAddress, compactRateLimit } from "../../src/auth-instance";
 import {
   buildRelayerConfig,
   buildSubAccountConfig,
@@ -8,7 +9,7 @@ import {
   validatePermissionGrants,
 } from "../../src/config";
 import type { AuthPluginSecrets, AuthPluginVariables } from "../../src/config-schemas";
-import { permissionsSchema } from "../../src/config-schemas";
+import { authVariablesSchema, permissionsSchema } from "../../src/config-schemas";
 import { TEST_PERMISSIONS } from "../helpers";
 
 const baseSecrets: AuthPluginSecrets = {
@@ -279,6 +280,56 @@ describe("normalizeAuthConfig", () => {
     process.env.NODE_ENV = "test";
   });
 
+  it("accepts a valid rateLimit + ipAddress variables block (#688)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      rateLimit: { enabled: true, window: 60, max: 500, storage: "database" },
+      ipAddress: { ipAddressHeaders: ["cf-connecting-ip"], trustedProxies: ["192.0.2.10"] },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects an unknown rateLimit storage (#688)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      rateLimit: { storage: "secondary-storage" },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects non-positive rateLimit window/max (#688)", () => {
+    const parsed = authVariablesSchema.safeParse({
+      ...baseVariables,
+      rateLimit: { window: 0, max: -1 },
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("compacts the rateLimit mapping to better-auth's option shape — absent fields fall through", () => {
+    expect(compactRateLimit(undefined)).toEqual({});
+    expect(compactRateLimit({})).toEqual({});
+    expect(compactRateLimit({ enabled: true, window: 60, max: 500, storage: "database" })).toEqual({
+      rateLimit: { enabled: true, window: 60, max: 500, storage: "database" },
+    });
+    expect(compactRateLimit({ storage: "database" })).toEqual({
+      rateLimit: { storage: "database" },
+    });
+  });
+
+  it("compacts the ipAddress mapping — default header, opt-in trusted proxies (#338)", () => {
+    expect(compactIpAddress(undefined)).toEqual({ ipAddressHeaders: ["x-forwarded-for"] });
+    expect(compactIpAddress({ ipAddressHeaders: ["cf-connecting-ip"] })).toEqual({
+      ipAddressHeaders: ["cf-connecting-ip"],
+    });
+    expect(
+      compactIpAddress({ ipAddressHeaders: ["x-real-ip"], trustedProxies: ["192.0.2.10"] }),
+    ).toEqual({ ipAddressHeaders: ["x-real-ip"], trustedProxies: ["192.0.2.10"] });
+    // an empty trustedProxies list is not an opt-in
+    expect(compactIpAddress({ ipAddressHeaders: ["x-real-ip"], trustedProxies: [] })).toEqual({
+      ipAddressHeaders: ["x-real-ip"],
+    });
+  });
+
   it("produces a valid auth config with required fields", () => {
     const { authConfig, apiKeyHeaders } = normalizeAuthConfig(baseVariables, baseSecrets);
     expect(authConfig.secret).toBe("test-secret");
@@ -294,6 +345,45 @@ describe("normalizeAuthConfig", () => {
       baseSecrets,
     );
     expect(authConfig.organizationMembershipLimit).toBe(1000);
+  });
+
+  it("carries the rateLimit variables through (#688)", () => {
+    const { authConfig } = normalizeAuthConfig(
+      {
+        ...baseVariables,
+        rateLimit: { enabled: true, window: 60, max: 500, storage: "database" },
+      },
+      baseSecrets,
+    );
+    expect(authConfig.rateLimit).toEqual({
+      enabled: true,
+      window: 60,
+      max: 500,
+      storage: "database",
+    });
+  });
+
+  it("carries the ipAddress variables through (#688)", () => {
+    const { authConfig } = normalizeAuthConfig(
+      {
+        ...baseVariables,
+        ipAddress: {
+          ipAddressHeaders: ["cf-connecting-ip"],
+          trustedProxies: ["192.0.2.10", "10.0.0.0/24"],
+        },
+      },
+      baseSecrets,
+    );
+    expect(authConfig.ipAddress).toEqual({
+      ipAddressHeaders: ["cf-connecting-ip"],
+      trustedProxies: ["192.0.2.10", "10.0.0.0/24"],
+    });
+  });
+
+  it("leaves rateLimit and ipAddress absent when unconfigured", () => {
+    const { authConfig } = normalizeAuthConfig(baseVariables, baseSecrets);
+    expect(authConfig.rateLimit).toBeUndefined();
+    expect(authConfig.ipAddress).toBeUndefined();
   });
 
   it("serves mainnet for a mainnet runtime account", () => {

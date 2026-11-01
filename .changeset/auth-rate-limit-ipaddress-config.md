@@ -1,0 +1,5 @@
+---
+"everything-dev": patch
+---
+
+Auth plugin surfaces rate-limit and client-IP configuration (#688). New authored variables under `auth.variables`: `rateLimit: { enabled, window (seconds), max, storage: "memory" | "database" }` and `ipAddress: { ipAddressHeaders, trustedProxies }`. A new `rate_limit` table backs `storage: "database"` — the multi-replica option, since in-memory buckets are per instance (migration applied on boot). `trustedProxies` is strictly opt-in: Better Auth walks the forwarded chain right-to-left and takes the first untrusted address, so list your proxies' own addresses, never a range that also covers clients (#338). Deployments behind appending proxies (Cloudflare + Railway) should name a single trusted header (`cf-connecting-ip`, `x-real-ip`) — the default `x-forwarded-for` cannot resolve a client IP through an untrusted comma-chain, which is why the boot WARN fell back to a shared per-path bucket. Absent configuration leaves Better Auth's defaults unchanged; `BETTER_AUTH_RATE_LIMIT_DISABLED=1` still wins.
