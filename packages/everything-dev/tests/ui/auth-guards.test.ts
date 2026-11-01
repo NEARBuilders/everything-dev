@@ -62,12 +62,13 @@ describe("requireSession", () => {
     expect(result.auth.isAuthenticated).toBe(true);
   });
 
-  it("fetches when the host resolved no session instead of trusting a freshly-seeded null (#527)", async () => {
+  it("fetches when the host could not resolve (undefined) instead of redirecting on nothing (#527)", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    // The SSR root route's beforeLoad hands every null host-side resolution to
-    // the cache — the guard must still run the real fetch (a valid cookie was
-    // resolving 307s because the seeded null was fresh).
-    resolveSessionFromCache(queryClient, null);
+    // Tri-state (#689): undefined means the host's in-process resolution did
+    // not answer (no auth plugin, or it failed) — the cache stays empty and
+    // the guard runs the real fetch. A valid cookie resolving 307s because a
+    // seeded null was fresh was the original #527; unresolved is never seeded.
+    resolveSessionFromCache(queryClient, undefined);
     const authClient = createAuthClientMock([signedInSession]);
 
     const result = await requireSession({
@@ -77,6 +78,31 @@ describe("requireSession", () => {
 
     expect(result.auth.isAuthenticated).toBe(true);
     expect(authClient.getSession).toHaveBeenCalled();
+  });
+
+  it("redirects without fetching when the host authoritatively resolved signed-out", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Tri-state (#689): the host's in-process getContext succeeded with no
+    // session — an authoritative sign-out. Re-fetching through the edge would
+    // re-ask the same plugin the same question; the seeded null redirects.
+    resolveSessionFromCache(queryClient, null);
+    const authClient = createAuthClientMock([signedInSession]);
+
+    let thrown: unknown;
+    try {
+      await requireSession({
+        context: createContext(queryClient, authClient),
+        location: { href: "/dashboard" },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeDefined();
+    expect((thrown as { options: { href?: string } }).options.href).toBe(
+      "/login?redirect=%2Fdashboard",
+    );
+    expect(authClient.getSession).not.toHaveBeenCalled();
   });
 
   it("redirects to /login with the current href when no session resolves", async () => {

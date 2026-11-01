@@ -205,7 +205,12 @@ export function createSsrRender(deps: SsrRenderDeps) {
       });
 
       const result = await ssrRouterModule.renderToStream(request, {
-        session: ctx.session ? { session: ctx.session, user: ctx.user } : null,
+        session:
+          ctx.session === undefined
+            ? undefined
+            : ctx.session
+              ? { session: ctx.session, user: ctx.user }
+              : null,
         basepath: runtimeConfig.runtime?.runtimeBasePath,
         runtimeConfig,
         apiClient: ssrApiClient,

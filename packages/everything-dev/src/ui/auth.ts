@@ -260,18 +260,34 @@ export function sessionQueryOptions(authClient: AuthClient) {
   return {
     queryKey: sessionQueryKey,
     queryFn: async () => {
-      const { data: session, error } = await authClient.getSession({
-        query: { disableCookieCache: true },
-      });
-      if (error) {
-        const record = error as { message?: string; detail?: string; detailFull?: string };
-        throw Object.assign(new Error(record.message || "Unable to load your session"), {
-          detail: [record.detail, record.detailFull].find(
-            (value) => typeof value === "string" && value.trim() !== "",
-          ),
+      try {
+        const { data: session, error } = await authClient.getSession({
+          query: { disableCookieCache: true },
         });
+        if (error) {
+          const record = error as { message?: string; detail?: string; detailFull?: string };
+          throw Object.assign(new Error(record.message || "Unable to load your session"), {
+            detail: [record.detail, record.detailFull].find(
+              (value) => typeof value === "string" && value.trim() !== "",
+            ),
+          });
+        }
+        return session ?? null;
+      } catch (error) {
+        // SSR degrade, don't 500 (#689): the session read shares the
+        // visitor's page render — an edge-blocked or failing auth call must
+        // render the page signed-out, not fail the whole document. The
+        // client surface keeps throwing so the UI can surface auth outages.
+        if (typeof window === "undefined") {
+          console.warn(
+            `[Session] SSR session fetch failed — rendering signed-out: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          return null;
+        }
+        throw error;
       }
-      return session ?? null;
     },
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
@@ -287,14 +303,19 @@ export async function refreshSessionCache(
 
 /**
  * Resolves the session for the root route: the query cache wins (it is kept
- * authoritative by the single sessionQueryOptions read path), and a populated
- * router-context session — the host's SSR resolution — seeds an empty cache so
- * the dehydrated state carries it to the client.
+ * authoritative by the single sessionQueryOptions read path), and the
+ * router-context session — the host's once-per-request in-process resolution —
+ * seeds an empty cache so the dehydrated state carries it to the client.
  *
- * A null context session is "the host did not resolve one", not a verified
- * sign-out: seeding it handed requireSession a freshly-cached null and the
- * guard 307'd to /login without ever running the fetch (#527). The explicit
- * signed-out entry still wins — clearAuthenticatedQueries writes it itself.
+ * The context session is tri-state: populated (resolved sign-in), null
+ * (authoritative sign-out — the host's getContext succeeded with no session),
+ * undefined (unresolved — no auth plugin, or resolution failed). Seeding
+ * follows that: both populated and authoritative-null write the cache; only
+ * undefined leaves it empty so the guard's fetch still runs. Seeding an
+ * ambiguous null was #527 — a host that could not resolve handed requireSession
+ * a freshly-cached null and the guard 307'd to /login without ever running the
+ * fetch. The explicit signed-out entry still wins — clearAuthenticatedQueries
+ * writes it itself.
  */
 export function resolveSessionFromCache<T>(
   queryClient: QueryClient | undefined,
@@ -305,7 +326,7 @@ export function resolveSessionFromCache<T>(
   const cachedSession = queryClient.getQueryData<T | null>(sessionQueryKey);
   if (cachedSession !== undefined) return cachedSession;
 
-  if (contextSession !== null && contextSession !== undefined) {
+  if (contextSession !== undefined) {
     queryClient.setQueryData(sessionQueryKey, contextSession);
   }
   return contextSession;

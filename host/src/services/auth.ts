@@ -109,9 +109,11 @@ export function createSessionMiddleware(plugins: PluginResult) {
     });
 
     if (!authClientFactory) {
+      // Tri-state: undefined means "unresolved" — no auth plugin is loaded, so
+      // downstream must not treat this as a verified sign-out.
       c.set("authContext", null);
-      c.set("user", null);
-      c.set("session", null);
+      c.set("user", undefined);
+      c.set("session", undefined);
       await next();
       return;
     }
@@ -122,15 +124,19 @@ export function createSessionMiddleware(plugins: PluginResult) {
       }) as AuthClient;
       const contextResult = await authClient.getContext();
       c.set("authContext", contextResult);
+      // Success (with or without a session) is authoritative: a null session
+      // here is a resolved sign-out, not a gap.
       c.set("user", contextResult.user ?? null);
       c.set("session", contextResult.session ?? null);
     } catch (error) {
       console.warn(
         `[Auth] Session resolution failed: ${error instanceof Error ? error.message : String(error)}`,
       );
+      // Resolution failed — the session state is unknown. Downstream (the SSR
+      // query seeding) distinguishes this from the authoritative null above.
       c.set("authContext", null);
-      c.set("user", null);
-      c.set("session", null);
+      c.set("user", undefined);
+      c.set("session", undefined);
     }
 
     await next();

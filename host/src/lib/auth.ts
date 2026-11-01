@@ -14,8 +14,11 @@ export interface AuthClient {
 
 export interface AuthVariables {
   authContext: AuthRequestContext | null;
-  user: AuthUser | null;
-  session: AuthContextSession | null;
+  user: AuthUser | null | undefined;
+  /** Tri-state: populated = resolved sign-in; null = authoritative sign-out
+   * (the auth plugin's getContext succeeded with no session); undefined =
+   * unresolved (no auth plugin, or resolution failed). */
+  session: AuthContextSession | null | undefined;
   reqHeaders: Headers;
   getRawBody: () => Promise<string>;
 }
