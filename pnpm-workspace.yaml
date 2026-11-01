@@ -19,14 +19,14 @@ catalog:
   "@lingui/message-utils": 5.9.0
   "@lingui/react": 5.9.0
   "@modelcontextprotocol/server": 2.0.0-beta.5
-  "@module-federation/dts-plugin": ^2.9.0
-  "@module-federation/enhanced": ^2.9.0
-  "@module-federation/node": ^2.7.50
-  "@module-federation/rsbuild-plugin": ^2.9.0
-  "@module-federation/runtime": ^2.9.0
-  "@module-federation/runtime-core": ^2.9.0
-  "@module-federation/runtime-tools": ^2.9.0
-  "@module-federation/sdk": ^2.9.0
+  "@module-federation/dts-plugin": ^2.9.2
+  "@module-federation/enhanced": ^2.9.2
+  "@module-federation/node": ^2.7.52
+  "@module-federation/rsbuild-plugin": ^2.9.2
+  "@module-federation/runtime": ^2.9.2
+  "@module-federation/runtime-core": ^2.9.2
+  "@module-federation/runtime-tools": ^2.9.2
+  "@module-federation/sdk": ^2.9.2
   "@opentelemetry/api": ^1.9.0
   "@orpc/client": 2.0.0-beta.45
   "@orpc/contract": 2.0.0-beta.45
@@ -46,14 +46,14 @@ catalog:
   "@tanstack/ai": 0.61.0
   "@tanstack/ai-openai": 0.24.1
   "@tanstack/ai-react": 0.29.1
-  "@tanstack/intent": ^0.3.5
-  "@tanstack/react-devtools": ^0.10.1
-  "@tanstack/react-form": ^1.29.1
-  "@tanstack/react-query": 5.102.8
-  "@tanstack/react-query-devtools": ^5.102.8
+  "@tanstack/intent": ^0.5.6
+  "@tanstack/react-devtools": ^0.10.13
+  "@tanstack/react-form": ^1.33.5
+  "@tanstack/react-query": 5.104.5
+  "@tanstack/react-query-devtools": ^5.104.5
   "@tanstack/react-router": 1.170.46
   "@tanstack/react-router-devtools": 1.167.2
-  "@tanstack/react-table": ^9.2.4
+  "@tanstack/react-table": ^9.3.1
   "@tanstack/router-core": 1.171.39
   "@tanstack/router-generator": 1.167.46
   "@tanstack/router-plugin": 1.168.48
@@ -64,8 +64,8 @@ catalog:
   aws4fetch: ^1.0.20
   better-auth: 1.7.14
   better-near-auth: ^2.0.0-rc.5
-  drizzle-kit: ^0.31.8
-  drizzle-orm: ^0.45.1
+  drizzle-kit: ^0.31.11
+  drizzle-orm: ^0.45.4
   effect: 4.0.0-rc.117
   every-plugin: ^3.0.0-rc.14
   everything-dev: ^2.0.0-rc.27
@@ -77,8 +77,8 @@ catalog:
   sonner: 2.0.8
   typescript: 7.0.2
   vitest: ^4.1.8
-  yaml: 2.9.0
-  zod: 4.6.5
+  yaml: 2.9.1
+  zod: 4.6.7
 nodeLinker: hoisted
 linkWorkspacePackages: true
 ignoreScripts: true
