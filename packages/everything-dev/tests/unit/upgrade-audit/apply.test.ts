@@ -73,8 +73,8 @@ describe("migratePnpm", () => {
     expect(yaml).toContain("- plugins/*");
     // release-age posture: derived from the catalog's framework rows, pruned
     expect(yaml).toContain("minimumReleaseAgeExcludePrune: true");
-    expect(yaml).toContain('- "everything-dev@^2.0.0-rc.27"');
-    expect(yaml).toContain('- "every-plugin@^3.0.0-rc.14"');
+    expect(yaml).toContain('- "everything-dev@2.0.0-rc.27"');
+    expect(yaml).toContain('- "every-plugin@3.0.0-rc.14"');
     expect(yaml).not.toContain("2.0.0-rc.14 ||");
   });
 

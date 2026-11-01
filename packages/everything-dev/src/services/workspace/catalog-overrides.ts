@@ -49,10 +49,30 @@ export interface WorkspaceYamlDoc {
   [key: string]: unknown;
 }
 
+const EXACT_VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * pnpm's minimumReleaseAgeExclude accepts exact versions only — a range like
+ * `everything-dev@^2.0.0-rc.27` is a hard config error ("Use exact versions
+ * only") that fails every install. The catalog's framework rows are ranges;
+ * strip the operator. A specifier that doesn't reduce to an exact version is
+ * skipped rather than emitted invalid.
+ */
+export function exactReleaseAgeExclude(name: string, specifier: string): string | undefined {
+  const exact = specifier
+    .trim()
+    .replace(/^[~^=]+/, "")
+    .trim();
+  return EXACT_VERSION_RE.test(exact) ? `${name}@${exact}` : undefined;
+}
+
 export function frameworkReleaseAgeExcludes(catalog: Record<string, string>): string[] {
-  return FRAMEWORK_EXCLUDE_PACKAGES.filter((name) => Boolean(catalog[name])).map(
-    (name) => `${name}@${catalog[name]}`,
-  );
+  return FRAMEWORK_EXCLUDE_PACKAGES.flatMap((name) => {
+    const specifier = catalog[name];
+    if (!specifier) return [];
+    const entry = exactReleaseAgeExclude(name, specifier);
+    return entry ? [entry] : [];
+  });
 }
 
 /**

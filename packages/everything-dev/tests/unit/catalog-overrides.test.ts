@@ -39,7 +39,7 @@ describe("reconcileWorkspacePosture", () => {
       minimumReleaseAgeExclude: ["everything-dev@2.0.0-rc.7 || 2.0.0-rc.8", "left-pad@1.0.0"],
     };
     expect(reconcileWorkspacePosture(doc)).toBe(true);
-    expect(doc.minimumReleaseAgeExclude).toEqual(["everything-dev@^2.0.0-rc.27", "left-pad@1.0.0"]);
+    expect(doc.minimumReleaseAgeExclude).toEqual(["everything-dev@2.0.0-rc.27", "left-pad@1.0.0"]);
     expect(doc.minimumReleaseAgeExcludePrune).toBe(true);
   });
 
@@ -47,7 +47,7 @@ describe("reconcileWorkspacePosture", () => {
     const doc: WorkspaceYamlDoc = {
       catalog: { "everything-dev": "^2.0.0-rc.27" },
       overrides: {},
-      minimumReleaseAgeExclude: ["everything-dev@^2.0.0-rc.27"],
+      minimumReleaseAgeExclude: ["everything-dev@2.0.0-rc.27"],
       minimumReleaseAgeExcludePrune: true,
     };
     // overrides: an empty row set stays empty; nothing to reconcile
@@ -113,7 +113,7 @@ describe("reconcileWorkspaceYamlFile", () => {
     expect(yaml).toContain("1.170.46");
     expect(yaml).not.toContain("1.170.32");
     expect(yaml).toContain("minimumReleaseAgeExcludePrune: true");
-    expect(yaml).toContain("everything-dev@^2.0.0-rc.27");
+    expect(yaml).toContain("everything-dev@2.0.0-rc.27");
   });
 
   it("is a no-op without pnpm-workspace.yaml", () => {
