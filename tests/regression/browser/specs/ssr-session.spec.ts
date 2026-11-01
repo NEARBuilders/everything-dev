@@ -26,12 +26,9 @@ test.describe("SSR session resolution (#689)", () => {
     // the SSR HTML must never carry the session-failure error (#689's 500
     // mode), and the client must not refetch a session it was handed.
     expect(await page.content()).not.toContain("Unable to load your session");
-    // dev:ssr proves the strict invariant: the seeded cache reaches the client
-    // and no get-session call fires at all. In start:ssr the built bundle's
-    // hydration makes exactly one client-side fetch — the tri-state-correct
-    // unresolved→fetch path, bounded and not the failure mode — so there the
-    // guarantee is "at most one", pending threading the seeded session through
-    // the start-mode hydration payload.
+    // Strict zero get-session calls in dev:ssr (the seeded cache reaches the
+    // client); in start:ssr the guarantee is "at most one" — the unresolved
+    // hydration fetch is tri-state-correct, pending hydration-payload threading.
     if (test.info().project.name === "dev:ssr") {
       expect(getSessionCalls).toBe(0);
     } else {
