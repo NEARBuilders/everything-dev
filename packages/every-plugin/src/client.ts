@@ -33,6 +33,14 @@ async function fetchWithRateLimitRetry(
   return response;
 }
 
+function mergeHeaders(base: Headers, overrides?: RequestInit["headers"]): Headers {
+  const merged = new Headers(base);
+  new Headers(overrides).forEach((value, key) => {
+    merged.set(key, value);
+  });
+  return merged;
+}
+
 function createRpcLink(config: RpcClientConfig, headers?: Headers) {
   return new RPCLink({
     origin: config.hostUrl,
@@ -71,9 +79,7 @@ function createRpcLink(config: RpcClientConfig, headers?: Headers) {
       return fetchWithRateLimitRetry(fetchUrl, {
         ...options,
         credentials: "include",
-        headers: headers
-          ? { ...Object.fromEntries(headers), ...(options?.headers as Record<string, string>) }
-          : options?.headers,
+        headers: headers ? mergeHeaders(headers, options?.headers) : options?.headers,
       });
     },
   });
