@@ -11,7 +11,7 @@ export default {
     },
     secrets: {
       TEMPLATE_API_KEY: process.env.TEMPLATE_API_KEY || "dev-key-12345",
-      TEMPLATE_DATABASE_URL: process.env.TEMPLATE_DATABASE_URL || "pglite:.bos/_template/:memory:",
+      TEMPLATE_DATABASE_URL: process.env.TEMPLATE_DATABASE_URL || "pglite:.bos/db",
     },
   } satisfies PluginConfigInput<typeof Plugin>,
 };

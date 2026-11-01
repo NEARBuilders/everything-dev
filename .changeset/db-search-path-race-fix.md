@@ -1,8 +1,5 @@
 ---
-"api": patch
-"host": patch
 "everything-dev": patch
-"@every-plugin/template": patch
 ---
 
 Fix host crash after login caused by a pg-pool search_path race.

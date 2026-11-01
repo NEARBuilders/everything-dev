@@ -117,6 +117,7 @@ describe("planArtifactCopies", () => {
       entryBase: "remoteEntry",
       contents: { "mf-manifest.json": manifestContent, "style.css": cssContent },
     });
+    if (!plan) throw new Error("expected a copy plan");
 
     expect(plan.copies).toEqual([
       {
@@ -138,6 +139,7 @@ describe("planArtifactCopies", () => {
       entryBase: "remoteEntry.server",
       contents: {},
     });
+    if (!plan) throw new Error("expected a copy plan");
     expect(plan.copies).toEqual([]);
     expect(plan.report).toEqual({ entry: "remoteEntry.server.9d2e1a3b5c7d9021.js" });
   });

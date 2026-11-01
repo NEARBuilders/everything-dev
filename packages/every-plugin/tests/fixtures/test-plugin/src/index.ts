@@ -1,3 +1,4 @@
+/* eslint-disable require-yield */
 import { MemoryPublisher } from "@orpc/publisher/memory";
 import { ORPCError } from "@orpc/server";
 import { Clock, Context, Data, Effect, Layer } from "effect";

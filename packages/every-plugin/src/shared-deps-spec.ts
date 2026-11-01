@@ -16,8 +16,11 @@
  *   runtime/services/shared-identity.ts relies on it.
  * - ui: shared by the core ui provider and ui remotes (react, react-dom,
  *   @orpc/client, @orpc/contract, TanStack, lingui, the everything-dev
- *   session/i18n subpath modules). All strict singletons; consumers add
- *   `import: false`.
+ *   session/i18n subpath modules). Strict singletons; consumers add
+ *   `import: false`. Tolerant outliers (`critical: false` — sonner today)
+ *   keep a bundled fallback copy in consumers and waive requiredVersion, so
+ *   an old provider / new remote mix degrades to per-remote copies instead
+ *   of failing a share negotiation.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -113,6 +116,17 @@ export const UI_SHARED_DEPS = [
     singleton: true,
     critical: true,
     resolution: "subpath",
+  },
+  // Tolerant singleton: the mounted Toaster lives in the core ui's sonner
+  // instance, so plugins must resolve the same module for their toast() calls
+  // to render. critical:false keeps a bundled fallback copy in remotes — a
+  // share negotiation against an old provider degrades to per-remote copies
+  // instead of failing the import.
+  {
+    name: "sonner",
+    singleton: true,
+    critical: false,
+    resolution: "package",
   },
 ] as const satisfies readonly SharedDependencySpec[];
 
@@ -373,12 +387,15 @@ export interface UiSharedDepEntry {
   strictVersion: boolean;
   eager: false;
   shareScope: "default";
-  /** consumer role only: no bundled fallback copy — the provider provides */
+  /** critical entries in consumer role only: no bundled fallback copy — the
+   * provider provides; tolerant entries keep their own bundled copy so a
+   * share negotiation against an old provider still imports */
   import?: false;
 }
 
 export interface UiSharedDepsOptions {
-  /** explicit core-shell parity opt-out; default is the strict singleton */
+  /** explicit core-shell parity opt-out for critical entries; default is the
+   * strict singleton. Tolerant (`critical: false`) entries are never strict. */
   strictVersion?: boolean;
   role?: "provider" | "consumer";
   workspaceRoot?: string;
@@ -393,7 +410,7 @@ export function createUiSharedDeps(
       workspaceRoot: options.workspaceRoot,
       resolution: spec.resolution === "subpath" ? "subpath" : "package",
     });
-    const strict = options.strictVersion !== false;
+    const strict = spec.critical !== false && options.strictVersion !== false;
     deps[spec.name] = {
       version,
       requiredVersion: strict ? version : false,
@@ -401,7 +418,7 @@ export function createUiSharedDeps(
       strictVersion: strict,
       eager: false,
       shareScope: "default",
-      ...(options.role === "consumer" ? { import: false as const } : {}),
+      ...(options.role === "consumer" && strict ? { import: false as const } : {}),
     };
   }
   return deps;
@@ -475,4 +492,28 @@ export function mergeSharedMaps(
     }
   }
   return merged;
+}
+
+export interface SharedVersionRecordEntry {
+  version: string;
+  singleton?: boolean;
+}
+
+/**
+ * The `name → version` record of a build's shared-singleton map, for the
+ * build report (and from there the version manifest's `shared` field) —
+ * #546: a slot's pin must carry shared-dep semantics so consumers can detect
+ * a build skew before loading. Singletons only — non-singletons never take
+ * part in the negotiation a skew breaks.
+ */
+export function sharedVersionRecord(
+  shared: Record<string, SharedVersionRecordEntry>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, config] of Object.entries(shared)) {
+    if (config.singleton !== false && config.version) {
+      out[name] = config.version;
+    }
+  }
+  return out;
 }

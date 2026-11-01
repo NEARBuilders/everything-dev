@@ -123,6 +123,7 @@ const runtimeLayer = (options: DockerHostingOptions) =>
   ).pipe(Layer.provideMerge(platformLayer));
 
 const dockerServiceLayer = (options: DockerHostingOptions) =>
+  // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- alchemy's Docker.providers types its layer R as any
   Docker.providers().pipe(
     Layer.provide(
       Layer.succeed(Stack, {
@@ -202,6 +203,7 @@ export const dockerHostingAdapterLayer = (options: DockerHostingOptions = {}) =>
           const stack = Alchemy.Stack(
             stackName(descriptor.instance),
             {
+              // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- alchemy's Docker.providers types its layer R as any
               providers: Docker.providers(),
               state: State.localState(),
             },
@@ -328,6 +330,7 @@ export const dockerHostingAdapterLayer = (options: DockerHostingOptions = {}) =>
       return HostingAdapter.of({ deploy: deployDescriptor, current, restart, stop });
     }),
   ).pipe(
+    // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- alchemy's Docker.providers types its layer R as any
     Layer.provide(dockerServiceLayer(options)),
     Layer.provide(runtimeLayer(options)),
   ) as Layer.Layer<HostingAdapter>;

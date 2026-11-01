@@ -28,6 +28,7 @@ describe("remote self-name resolution", () => {
     expect(loaded.ctor).toBeDefined();
 
     const instance = await pluginRuntime.instantiatePlugin("aliased-plugin", loaded);
-    expect(instance.plugin.id).toBe("aliased-plugin");
+    const pluginRecord = instance.plugin as { id: string };
+    expect(pluginRecord.id).toBe("aliased-plugin");
   });
 });

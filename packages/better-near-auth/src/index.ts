@@ -35,6 +35,7 @@ import {
   verifyPasskeyNep413Signature,
 } from "./passkey.js";
 import {
+  isUniqueViolation,
   linkPasskeyWalletFromCredential,
   passkeyWalletFromCredential,
 } from "./passkey-wallet-link.js";
@@ -130,6 +131,7 @@ async function verifySignedMessage(
   signedMessage: { publicKey: string; signature: string },
   payload: Nep413Payload,
   near: Near,
+  relyingParty?: { rpID: string; origins: string[] },
 ): Promise<boolean> {
   if (isDeterministicAccountId(accountId)) {
     return verifyPasskeyNep413Signature({
@@ -139,6 +141,7 @@ async function verifySignedMessage(
       message: payload.message,
       recipient: payload.recipient,
       nonce: payload.nonce,
+      relyingParty,
     });
   }
   const verify = (candidate: Nep413Payload) =>
@@ -656,6 +659,9 @@ export interface SIWNPluginOptions {
   };
   subAccount?: SubAccountConfig | DualNetworkConfig<SubAccountConfig>;
   passkeyWalletNetwork?: PasskeyWalletNetwork;
+  /** WebAuthn relying party the sandbox passkey credentials are bound to —
+   * passed through to NEP-413 verification (rpIdHash + origin checks). */
+  passkeyWalletRelyingParty?: { rpID: string; origins: string[] };
 }
 
 export const siwn = (options: SIWNPluginOptions) => {
@@ -901,6 +907,7 @@ export const siwn = (options: SIWNPluginOptions) => {
               signedMessage,
               { message, recipient, nonce: nonceBytes, callbackUrl },
               near,
+              options.passkeyWalletRelyingParty,
             );
 
             if (!isValid) {
@@ -957,17 +964,27 @@ export const siwn = (options: SIWNPluginOptions) => {
               ],
             });
 
-            await ctx.context.adapter.create({
-              model: "nearAccount",
-              data: {
-                userId: session.user.id,
-                accountId,
-                network,
-                publicKey: publicKey,
-                isPrimary: !existingPrimaryAccount,
-                createdAt: new Date(),
-              },
-            });
+            try {
+              await ctx.context.adapter.create({
+                model: "nearAccount",
+                data: {
+                  userId: session.user.id,
+                  accountId,
+                  network,
+                  publicKey: publicKey,
+                  isPrimary: !existingPrimaryAccount,
+                  createdAt: new Date(),
+                },
+              });
+            } catch (error) {
+              if (isUniqueViolation(error)) {
+                throw new APIError("BAD_REQUEST", {
+                  message: "This NEAR account is already linked to another user",
+                  status: 400,
+                });
+              }
+              throw error;
+            }
 
             await ctx.context.internalAdapter.createAccount({
               userId: session.user.id,
@@ -1042,16 +1059,6 @@ export const siwn = (options: SIWNPluginOptions) => {
           }
 
           const nonceHash = await hashNonce(nonceBytes);
-          const existingNonce = await ctx.context.internalAdapter.findVerificationValue(
-            `siwn-nonce:${nonceHash}`,
-          );
-          if (existingNonce) {
-            throw new APIError("UNAUTHORIZED", {
-              message: "Unauthorized: Nonce already used (replay attack detected)",
-              status: 401,
-              code: "UNAUTHORIZED_NONCE_REPLAY",
-            });
-          }
 
           const signer = passkeys.find((passkey) => {
             const wallet = passkeyWalletFromCredential(passkey.publicKey, network);
@@ -1064,6 +1071,7 @@ export const siwn = (options: SIWNPluginOptions) => {
                 message,
                 recipient,
                 nonce: nonceBytes,
+                relyingParty: options.passkeyWalletRelyingParty,
               })
             );
           });
@@ -1075,11 +1083,18 @@ export const siwn = (options: SIWNPluginOptions) => {
             });
           }
 
-          await ctx.context.internalAdapter.createVerificationValue({
+          const reserved = await ctx.context.internalAdapter.reserveVerificationValue({
             identifier: `siwn-nonce:${nonceHash}`,
             value: "used",
             expiresAt: new Date(Date.now() + 15 * 60 * 1000),
           });
+          if (!reserved) {
+            throw new APIError("UNAUTHORIZED", {
+              message: "Unauthorized: Nonce already used (replay attack detected)",
+              status: 401,
+              code: "UNAUTHORIZED_NONCE_REPLAY",
+            });
+          }
 
           const link = await linkPasskeyWalletFromCredential(ctx.context, {
             userId: session.user.id,
@@ -1381,6 +1396,7 @@ export const siwn = (options: SIWNPluginOptions) => {
               signedMessage,
               { message, recipient, nonce: nonceBytes, callbackUrl },
               near,
+              options.passkeyWalletRelyingParty,
             );
 
             if (!isValid) {
@@ -1401,23 +1417,18 @@ export const siwn = (options: SIWNPluginOptions) => {
 
             const nonceHash = await hashNonce(nonceBytes);
 
-            const existingNonce = await ctx.context.internalAdapter.findVerificationValue(
-              `siwn-nonce:${nonceHash}`,
-            );
-
-            if (existingNonce) {
+            const reserved = await ctx.context.internalAdapter.reserveVerificationValue({
+              identifier: `siwn-nonce:${nonceHash}`,
+              value: "used",
+              expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            });
+            if (!reserved) {
               throw new APIError("UNAUTHORIZED", {
                 message: "Unauthorized: Nonce already used (replay attack detected)",
                 status: 401,
                 code: "UNAUTHORIZED_NONCE_REPLAY",
               });
             }
-
-            await ctx.context.internalAdapter.createVerificationValue({
-              identifier: `siwn-nonce:${nonceHash}`,
-              value: "used",
-              expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-            });
 
             if (!options.requireFullAccessKey && !isDeterministicAccountId(accountId)) {
               const validateKey =

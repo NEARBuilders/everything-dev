@@ -17,16 +17,21 @@ const orphanExitDeadline = 30 * time.Second
 // StartWrappedStack boots `bos dev` through a throwaway wrapper process —
 // the CLI is a grandchild, exactly the shape a real wrapper/pnpm chain
 // produces. Killing the wrapper (SIGKILL, no signal handlers run) reparents
-// the CLI and arms the orphan watchdog.
-func StartWrappedStack(t *testing.T, basePort int, registryPath string) *Stack {
+// the CLI and arms the orphan watchdog. An optional configDir confines the
+// stack to the death-contract fixture (empty → repo root).
+func StartWrappedStack(t *testing.T, basePort int, registryPath string, configDir ...string) *Stack {
 	t.Helper()
 
-	args, env, repoRoot, logFile := devInvocation(t, basePort, registryPath, false)
+	args, env, repoRoot, logFile := devInvocation(t, basePort, registryPath, false, firstOrEmpty(configDir))
 	wrapper := filepath.Join(repoRoot, "tests", "regression", "lib", "orphan-wrapper.mjs")
 	pidFile := filepath.Join(t.TempDir(), "wrapped.pid")
 
 	cmd := exec.Command("node", append([]string{wrapper, pidFile, "node"}, tsxArgs(args)...)...)
-	cmd.Dir = repoRoot
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Dir = firstOrEmpty(configDir)
+	if cmd.Dir == "" {
+		cmd.Dir = repoRoot
+	}
 	cmd.Env = env
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -36,6 +41,7 @@ func StartWrappedStack(t *testing.T, basePort int, registryPath string) *Stack {
 		cmd:          cmd,
 		repoRoot:     repoRoot,
 		registryPath: registryPath,
+		configDir:    cmd.Dir,
 		basePort:     basePort,
 		exited:       make(chan struct{}, 1),
 	}
@@ -53,7 +59,7 @@ func StartWrappedStack(t *testing.T, basePort int, registryPath string) *Stack {
 	}()
 
 	stack.wrappedPid = awaitWrappedPid(t, pidFile)
-	waitForReady(t, stack)
+	t.Logf("stack %d: wrapped CLI pid %d", basePort, stack.wrappedPid)
 	stack.awaitRegistryEntry()
 	return stack
 }
@@ -81,6 +87,7 @@ func awaitWrappedPid(t *testing.T, pidFile string) int {
 // dead pnpm chain leaves it.
 func (s *Stack) KillWrapper() {
 	s.t.Helper()
+	s.t.Logf("stack %d: SIGKILL wrapper pid %d", s.basePort, s.cmd.Process.Pid)
 	if err := syscall.Kill(s.cmd.Process.Pid, syscall.SIGKILL); err != nil {
 		s.t.Fatalf("killing wrapper: %v", err)
 	}

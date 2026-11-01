@@ -1,7 +1,8 @@
 import { platform } from "node:os";
 import { BOS_CLI_CLIENT_ID } from "better-near-auth";
-import { Context, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import { execa } from "execa";
+import { formatUnknownError } from "../../utils/errors";
 import type { CustodyWalletRecord } from "./session";
 import {
   parseSiteErrorDetail,
@@ -110,8 +111,10 @@ export async function startDeviceLogin(
 
   const codeResponse = await client.authPost(siteUrl, "/device/code", { client_id: clientId });
   if (codeResponse.status >= 400) {
+    const detail = parseSiteErrorDetail(codeResponse.status, codeResponse.json);
     throw new Error(
-      `Device login could not start (${codeResponse.status}) — is ${siteUrl} running the platform auth plugin?`,
+      `Device login could not start (${codeResponse.status})` +
+        `${detail ? `: ${detail}` : ` — is ${siteUrl} running the platform auth plugin?`}`,
     );
   }
   const code = codeResponse.json as DeviceCodeResponse;
@@ -180,6 +183,11 @@ export async function startDeviceLogin(
 
 /** The device login as a Context.Service tag (ticket #423) — the login
  * handler yields it; tests provide fake site clients. */
+export class DeviceLoginError extends Data.TaggedError("DeviceLoginError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
 export class DeviceLoginService extends Context.Service<
   DeviceLoginService,
   {
@@ -191,7 +199,14 @@ export class DeviceLoginService extends Context.Service<
     Effect.gen(function* () {
       const client = yield* SiteClient;
       return DeviceLoginService.of({
-        start: (opts) => Effect.tryPromise(() => startDeviceLogin(opts, client)),
+        // Without a catch, Effect.tryPromise wraps every rejection in
+        // UnknownError("An error occurred in Effect.tryPromise") and the
+        // handler's error.message loses the real cause — unwrap it here.
+        start: (opts) =>
+          Effect.tryPromise({
+            try: () => startDeviceLogin(opts, client),
+            catch: (cause) => new DeviceLoginError({ message: formatUnknownError(cause), cause }),
+          }),
       });
     }),
   );

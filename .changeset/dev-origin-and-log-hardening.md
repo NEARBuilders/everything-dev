@@ -1,6 +1,5 @@
 ---
 "everything-dev": patch
-"host": patch
 ---
 
 Dev-stack origin/precedence fixes, log ergonomics, and composed-SSR hardening.

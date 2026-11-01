@@ -404,6 +404,7 @@ async function deriveVersionManifestFields(
     ui.ssrEntryUrl = r.ssrEntryUrl;
     ui.ssrIntegrity = r.ssrIntegrity ?? ui.ssrIntegrity;
     ui.manifestIntegrity = r.files?.[MANIFEST_FILENAME] ?? ui.manifestIntegrity;
+    ui.sharedVersions = r.sharedVersions;
   };
 
   await derive("app.host", config.app.host, result.host, (r) => {

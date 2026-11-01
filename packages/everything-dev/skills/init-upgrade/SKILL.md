@@ -156,7 +156,7 @@ Children are **pinned snapshots** (ADR 0034): init derives the child's `platform
 ```bash
 bos upgrade              # Re-pin to the parent's latest release + reconcile the template
 bos upgrade --dry-run    # Preview version bumps
-bos upgrade --check      # CI drift alarm (ADR 0034): exit 1 when updates are available
+bos upgrade --check      # Manual drift alarm (ADR 0034): exit 1 when updates are available
 ```
 
 ### Flow
@@ -208,7 +208,8 @@ Rules:
 - The pin is **exact** — no ranges. Resolution picks one manifest.
 - Field absent → latest manifest found via the `extends` chain (nearest wins). Offline, the cached `.bos/platform-manifest.json` (gitignored) resolves.
 - An explicit pin the chain cannot satisfy **fails loud** — publish the release or clear the pin.
-- Inspect what resolves: `bos platform manifest` (the booted host self-describes from the in-image copy). `--check` runs the compat gate against the local workspace and exits 1 on violations.
+- **Pin lifecycle (#546):** the `platform.json` slot is a pointer — a root republish overwrites it. A stale child pin resolves only while the fresh cache (24h TTL) stands in, then fails loud (`platform pin <version> not found in the extends chain`). The repair is exactly this command: `bos upgrade` re-pins to the latest release. Deleting `.bos/platform-manifest.json` defeats the cache when diagnosing.
+- Inspect what resolves: `bos platform manifest` (the booted host self-describes from the in-image copy). `--check` runs the compat gate against the local workspace and exits 1 on violations — it also reports pin drift as "parent platform is X (published), you pinned Y" instead of the raw pin error.
 - `bos init` without `--source` stamps the pin from the resolved manifest; a local-template init (source dir) leaves the pin off — the next `bos upgrade` stamps it from whatever release then resolves.
 
 What the upgrade reconciles from the parent template:
@@ -221,7 +222,32 @@ What stays local:
 
 ### extends handling
 
-Upgrade reads the `extends` field (string or object form) of the authored `bos.app.ts` to find the parent. For object extends, uses the `production` URL to locate the template source.
+Both sync and upgrade read the `extends` field (string or object form) of the authored `bos.app.ts` to find the parent. For object extends, uses the `production` URL to locate the template source.
+
+## bos upgrade
+
+Bumps `everything-dev` and `every-plugin` across all workspaces:
+
+```bash
+bos upgrade              # Check for new versions, update, then sync
+bos upgrade --dry-run    # Preview without making changes
+```
+
+> **v1 trees:** upgrading a pre-v2 child app onto the v2 train is a separate
+> flow — see the `v1-to-v2-upgrade` skill (`bos upgrade --from v1 --audit`).
+
+### Flow
+1. Check npm registry for latest versions of `everything-dev` and `every-plugin`
+2. Update root `package.json` workspaces.catalog
+3. Update all workspace `package.json` to use `catalog:` references
+4. `pnpm install` + `bos types gen`
+5. Run `bos sync` to pull template updates matching new version
+6. Rewrite legacy UI imports (e.g., `from "@/auth"` → `from "@/app"`)
+7. Remove obsolete files
+
+### Package ref strategy
+
+Workspace packages use `catalog:` refs so a single version bump in root catalog propagates everywhere. Skips `workspace:*` and `file:` refs.
 
 ## bos import
 

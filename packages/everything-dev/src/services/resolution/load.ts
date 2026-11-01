@@ -287,9 +287,15 @@ export function defaultConfigEnv(): BosEnv {
   return process.env.NODE_ENV === "production" ? "production" : "development";
 }
 
+/** The env every published-config consumer boot resolves under —
+ * resolvePublishedConfig walks and parses with this pinned. The pre-publish
+ * boot-check (resolution/boot-check.ts) and the boot must move in lockstep. */
+export const PUBLISHED_CONFIG_ENV: BosEnv = "production";
+
 export function getEntryAssociatedUi(
   entry: Partial<BosPluginRef>,
 ): Record<string, unknown> | undefined {
+  if (entry.ui === false) return undefined;
   const flat = isPlainObject(entry.ui) ? (entry.ui as Record<string, unknown>) : undefined;
   const nested = (() => {
     if (!isPlainObject(entry.app)) return undefined;
@@ -574,7 +580,10 @@ export async function resolveComposableReference(
   }
 
   resolvedEntry = mergeComposableEntries(resolvedEntry, sourceOverrides);
-  associatedUi = mergeAssociatedUi(associatedUi, getEntryAssociatedUi(sourceOverrides));
+  associatedUi =
+    source.ui === false
+      ? undefined
+      : mergeAssociatedUi(associatedUi, getEntryAssociatedUi(sourceOverrides));
 
   if (extendsError && !allowLocalPaths && !hasUsableLocalDevelopment) {
     throw extendsError;

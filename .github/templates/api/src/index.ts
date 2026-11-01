@@ -12,8 +12,10 @@ export default createPlugin({
   secrets: z.object({
     API_DATABASE_URL: z
       .string()
-      .default("pglite:.bos/api/:memory:")
-      .describe("Database connection string. Use pglite: for local, postgres:// for production."),
+      .default("pglite:.bos/db")
+      .describe(
+        "Database connection string. pglite: is a persistent local data dir (.bos/db); postgres:// for production or shared access.",
+      ),
   }),
 
   context: ContextSchema,

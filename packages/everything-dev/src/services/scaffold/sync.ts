@@ -16,7 +16,6 @@ import {
   buildChildAgentsMd,
   buildChildRootScripts,
   extractSkillsBlock,
-  personalizeConfig,
   releaseRefCandidates,
   resolveSourceDir,
   runPnpmInstall,
@@ -704,8 +703,6 @@ export async function syncTemplate(
       conflicted.push(destPath);
     }
 
-    const account = (localConfig.account as string) || extendsAccount;
-    const domain = (localConfig.domain as string) || extendsGateway;
     const overrides: Array<"ui" | "api" | "host" | "plugins"> = [];
     if (withUi) overrides.push("ui");
     if (withApi) overrides.push("api");
@@ -755,17 +752,11 @@ export async function syncTemplate(
       }
     }
 
-    await personalizeConfig(projectDir, {
-      extendsAccount,
-      extendsGateway,
-      account,
-      domain,
-      overrides,
-      plugins: childPlugins,
-      workspaceOpts: { sourceDir },
-      mode: "sync",
-      existingConfig: localConfig,
-    });
+    // The authored config is never rewritten by sync: in sync mode
+    // personalizeConfig only wrote back the child's own values while
+    // re-serializing the whole file (dropping hand formatting, comments, and
+    // remote-only attachments). The child's extends/account/domain come from
+    // its own config read above, so there is nothing to personalize.
 
     await syncResolvedSharedDeps({
       configDir: projectDir,

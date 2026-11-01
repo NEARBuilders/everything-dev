@@ -1,6 +1,5 @@
 ---
 "better-near-auth": minor
-"@everything-dev/auth-plugin": minor
 ---
 
 Session gas keys (NEP-611) are the primary gasless write path, and the legacy sub-account relayer-FCAK config is removed.

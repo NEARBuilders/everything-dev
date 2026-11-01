@@ -72,7 +72,7 @@ describe("bos init — structure", () => {
     expect(existsSync(join(testDir, ".github", "workflows", "deploy.yml"))).toBe(true);
     expect(existsSync(join(testDir, ".github", "renovate.json"))).toBe(false);
     expect(existsSync(join(testDir, ".github", "workflows", "packages-release.yml"))).toBe(false);
-    expect(existsSync(join(testDir, ".github", "workflows", "release.yml"))).toBe(true);
+    expect(existsSync(join(testDir, ".github", "workflows", "release.yml"))).toBe(false);
     expect(existsSync(join(testDir, ".github", "workflows", "staging.yml"))).toBe(true);
     expect(existsSync(join(testDir, "CONTRIBUTING.md"))).toBe(true);
     expect(existsSync(join(testDir, "api/src/contract.ts"))).toBe(true);
@@ -87,7 +87,8 @@ describe("bos init — structure", () => {
     expect(existsSync(join(testDir, "plans"))).toBe(false);
     expect(existsSync(join(testDir, ".agent"))).toBe(false);
     expect(existsSync(join(testDir, ".opencode"))).toBe(false);
-    expect(existsSync(join(testDir, ".changeset"))).toBe(true);
+    // #572: children have no changesets — no scaffold, no version/release scripts
+    expect(existsSync(join(testDir, ".changeset"))).toBe(false);
   });
 
   it("copies selected plugin directories when plugins override is active", async () => {
@@ -183,7 +184,10 @@ describe("bos init — structure", () => {
     expect(rootPkg.private).toBe(true);
     expect(rootPkg.module).toBeUndefined();
     expect(rootPkg.peerDependencies).toBeUndefined();
-    expect(rootPkg.scripts?.version).toBe("changeset version");
+    // #572: children have no changesets — no version/release/changeset scripts
+    expect(rootPkg.scripts?.version).toBeUndefined();
+    expect(rootPkg.scripts?.release).toBeUndefined();
+    expect(rootPkg.scripts?.changeset).toBeUndefined();
     expect(rootPkg.scripts?.["sync-catalog"]).toBeUndefined();
     expect(rootCatalog?.["everything-dev"]).toBe(MANIFEST_SPEC.rootCatalog["everything-dev"]);
     expect(rootCatalog?.["every-plugin"]).toBe(MANIFEST_SPEC.rootCatalog["every-plugin"]);
@@ -317,5 +321,18 @@ describe("bos init — structure", () => {
     expect(agentsMd).toContain("Never use bun");
     expect(agentsMd).not.toMatch(/\bbun (install|run|x)\b/);
     expect(agentsMd).toContain("Docker Desktop");
+  });
+
+  it("generated AGENTS.md links the promoted agent docs (#597)", () => {
+    const agentsMd = buildChildAgentsMd("", { overrides: ["ui", "api", "host"] });
+
+    expect(agentsMd).toContain(
+      "[`docs/agents/coding-standards.md`](docs/agents/coding-standards.md)",
+    );
+    expect(agentsMd).toContain(
+      "[`docs/agents/change-placement.md`](docs/agents/change-placement.md)",
+    );
+    expect(agentsMd).toContain("[`docs/agents/how-it-fits.md`](docs/agents/how-it-fits.md)");
+    expect(agentsMd).toContain("[`docs/agents/testing.md`](docs/agents/testing.md)");
   });
 });

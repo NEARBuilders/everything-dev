@@ -162,8 +162,6 @@ export const INIT_ROOT_PATTERNS = [
   ".agents/skills/**",
   "skills-lock.json",
   "docs/agents/**",
-  ".changeset/config.json",
-  ".changeset/README.md",
   "README.md",
   "CONTRIBUTING.md",
   ".github/templates/**",
@@ -186,7 +184,6 @@ export function buildInitPatterns(
 
   if (has("ui")) patterns.push("ui/**");
   if (has("api")) patterns.push(API_TEMPLATE_PATTERN);
-  if (has("api") || has("host")) patterns.push(COMPOSE_TEMPLATE_PATTERN);
   if (has("host")) patterns.push("host/**");
   if (has("plugins")) {
     for (const plugin of plugins ?? []) {
@@ -201,15 +198,8 @@ export function buildInitPatterns(
 /** api-override children get the slim generic shell, never the parent's domain API. */
 const API_TEMPLATE_PATTERN = ".github/templates/api/**";
 
-/** Child-sized compose (api + api-test databases) for local compute overrides. */
-const COMPOSE_TEMPLATE_PATTERN = ".github/templates/docker-compose.yml";
-
 export function isApiTemplatePath(filePath: string): boolean {
   return filePath.startsWith(".github/templates/api/");
-}
-
-export function isComposeTemplatePath(filePath: string): boolean {
-  return filePath === COMPOSE_TEMPLATE_PATTERN;
 }
 
 export function buildPluginRouteExclusions(
@@ -274,7 +264,7 @@ const STARTER_SIMPLE_EXCLUSIONS = [
  */
 export function buildStarterRouteExclusions(
   level: StarterLevel,
-  parentConfig: { starter?: ParentStarterConfig } | null | undefined,
+  parentConfig: { starter?: ParentStarterConfig | StarterLevel } | null | undefined,
 ): string[] {
   const excluded = new Set<string>(STARTER_PRODUCT_EXCLUSIONS);
   if (level === "simple") {
@@ -282,7 +272,7 @@ export function buildStarterRouteExclusions(
   }
 
   const starter = parentConfig?.starter;
-  if (starter) {
+  if (starter && typeof starter === "object") {
     for (const entry of starter.exclude ?? []) excluded.add(entry);
     const levelConfig = starter.levels?.[level];
     if (levelConfig) {
@@ -304,9 +294,6 @@ function extractPluginRoutes(entry: unknown): string[] | undefined {
 export function sourcePathToDestinationPath(filePath: string): string {
   if (isApiTemplatePath(filePath)) {
     return filePath.replace(/^\.github\/templates\/api\//, "api/");
-  }
-  if (isComposeTemplatePath(filePath)) {
-    return "docker-compose.yml";
   }
   return filePath.startsWith(".github/templates/")
     ? filePath.replace(/^\.github\/templates\//, ".github/")
@@ -372,11 +359,6 @@ export async function copyFilteredFiles(
   if (!options.overrides.includes("api")) {
     for (const match of allFiles) {
       if (isApiTemplatePath(match)) allFiles.delete(match);
-    }
-  }
-  if (!options.overrides.includes("api") && !options.overrides.includes("host")) {
-    for (const match of allFiles) {
-      if (isComposeTemplatePath(match)) allFiles.delete(match);
     }
   }
 
@@ -533,9 +515,6 @@ export function buildChildRootScripts(sections: {
     "lint:fix": "biome check --write .",
     format: "biome format --write .",
     "format:check": "biome format .",
-    changeset: "changeset",
-    version: "changeset version",
-    release: "echo 'Packages versioned - app release handled by workflow'",
     "types:gen": "bos types gen",
     bos: "bos",
   };
@@ -571,12 +550,6 @@ export function buildChildRootScripts(sections: {
 
   // Scripts key off the child's own override selection (what it runs locally),
   // not off resolved-config secrets — a ui-only child gets none of these.
-  if (sections.api || sections.host) {
-    scripts["dev:postgres"] = "docker compose up -d --wait && pnpm run dev";
-    scripts["dev:postgres:down"] = "docker compose down";
-    scripts["dev:postgres:reset"] = "docker compose down -v && docker compose up -d --wait";
-  }
-
   if (sections.ui) {
     scripts["dev:ui"] = "bos dev --ui local --api remote";
   }
@@ -940,6 +913,10 @@ export async function personalizeConfig(
       "init",
       "prepare",
       "sync-catalog",
+      // #572: children have no changesets — the release lever is root-only
+      "changeset",
+      "version",
+      "release",
       "db:push",
       "db:studio",
       "db:doctor",
@@ -950,9 +927,6 @@ export async function personalizeConfig(
       "test:api",
       "test:integration",
       "test:e2e",
-      "dev:postgres",
-      "dev:postgres:down",
-      "dev:postgres:reset",
       "dev:ui",
       "dev:api",
     ]) {
@@ -1354,8 +1328,8 @@ async function resolveWorkspaceRefs(
 
 export async function writeInitSnapshot(
   destination: string,
-  extendsAccount: string,
-  extendsGateway: string,
+  _extendsAccount: string,
+  _extendsGateway: string,
   sourceDir: string,
   patterns: string[],
   options: {
@@ -1384,11 +1358,6 @@ export async function writeInitSnapshot(
   if (!options.overrides.includes("api")) {
     for (const match of allFiles) {
       if (isApiTemplatePath(match)) allFiles.delete(match);
-    }
-  }
-  if (!options.overrides.includes("api") && !options.overrides.includes("host")) {
-    for (const match of allFiles) {
-      if (isComposeTemplatePath(match)) allFiles.delete(match);
     }
   }
 
@@ -1440,7 +1409,6 @@ export async function generateDatabaseMigrations(destination: string): Promise<v
 
 const COMMAND_TIMEOUTS: Record<string, number> = {
   pnpm: 5 * 60_000,
-  docker: 5 * 60_000,
   node_modules: 2 * 60_000,
   tar: 60_000,
 };
@@ -1552,7 +1520,7 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
 ### Starting Development
 1. \`pnpm install\`
 2. \`pnpm run dev\`
-3. \`bos dev\` creates \`.env\` on first run and starts local Postgres via docker compose when it is down`);
+3. \`bos dev\` creates \`.env\` on first run; local data is a persistent PGlite data dir (\`.bos/db\`), no docker involved`);
 
   parts.push(`### Debugging Issues
 
@@ -1590,13 +1558,17 @@ You don't need to wait for a PR to merge and run through CI/CD. Publish your own
 - No hardcoded colors like \`bg-blue-600\`
 - No code comments in implementation
 - Component file naming: lowercase kebab-case (\`data-table.tsx\`, \`user-profile.tsx\`)
-- Follow existing patterns in neighboring files`);
+- Follow existing patterns in neighboring files
+
+Review-time rules — the write-once goal, type-safety patterns, the workaround protocol, and the comment \`KEEP\`/\`TODO\` conventions — are in [\`docs/agents/coding-standards.md\`](docs/agents/coding-standards.md).`);
 
   parts.push(`### Framework-owned files and the upstream-change protocol (ADR 0032)
 
 The files carrying the \`FRAMEWORK-OWNED\` header (build configs, db/lib plumbing, workflows) are reconciled from the parent template by \`bos upgrade\`: template wins on the next upgrade, local copies are backed up under \`.bos/sync-backup/\`, and **same-version upgrades never touch them** (only the framework version change reconciles them).
 
-**Editing them is allowed.** When the work needs it, edit a framework-owned file, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next upgrade will quietly clobber.`);
+**Editing them is allowed.** When the work needs it, edit a framework-owned file, keep the build/typecheck/tests green — then **file an accompanying issue at https://github.com/NEARBuilders/everything-dev/issues** describing the change so it gets implemented in the framework and shipped in package versions. A local edit without an upstream issue is an undocumented fork that the next upgrade will quietly clobber.
+
+When the need is a **bug**, a **missing capability**, or a **pattern improvement**, follow [\`docs/agents/change-placement.md\`](docs/agents/change-placement.md) — including its first rule: sync-owned files are a contribution channel, not a fence. A human-facing diagram tour of the whole runtime lives in [\`docs/agents/how-it-fits.md\`](docs/agents/how-it-fits.md); \`/teach\` builds lessons from it.`);
 
   if (has("api")) {
     parts.push(`### Adding API Endpoints
@@ -1638,7 +1610,10 @@ If you hand-edit \`bos.app.ts\`, run \`bos types gen\` or restart \`bos dev\` to
 **Before committing:**
 \`\`\`bash
 ${testCommands.join("\n")}
-\`\`\``);
+\`\`\`
+
+When to write a test, which layer, what the parent framework covers vs what
+this repo must cover: [\`docs/agents/testing.md\`](docs/agents/testing.md).`);
   }
 
   parts.push(`## Common Patterns
@@ -1770,7 +1745,6 @@ function generateGitignore(): string {
 dist/
 .env
 .bos/
-docker-compose.yml
 *.gen.ts
 *.gen.tsx
 `;

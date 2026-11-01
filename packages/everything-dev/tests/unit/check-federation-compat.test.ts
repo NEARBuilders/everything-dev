@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkFederationCompat } from "../../src/services/federation/service";
+import {
+  checkFederationCompat,
+  checkUiCompositionCompat,
+} from "../../src/services/federation/service";
 import type { BosConfig } from "../../src/types";
 
 const HOST_URL = "https://host.example";
@@ -56,7 +59,7 @@ function bosConfig(overrides?: Partial<BosConfig>): BosConfig {
     account: "x",
     app: {
       host: { development: "local:host", production: HOST_URL },
-      ui: { production: "https://ui.example" },
+      ui: { development: "local:ui" },
       api: { development: "local:api", production: API_URL },
       auth: { development: "local:plugins/auth", production: AUTH_URL },
     },
@@ -311,18 +314,95 @@ describe("checkFederationCompat", () => {
     expect(report.ok).toBe(true);
     expect(report.remotes).toEqual([]);
   });
+});
 
-  it("does not include ui slot in remotes (browser-loaded, not host-side federation)", async () => {
+describe("checkUiCompositionCompat", () => {
+  const UI_MANIFEST = {
+    metaData: { pluginVersion: "2.8.2" },
+    shared: [
+      { name: "react", version: "19.2.4", requiredVersion: "19.2.4", singleton: true },
+      { name: "@orpc/client", version: "1.14.3", requiredVersion: "1.14.3", singleton: true },
+    ],
+  };
+
+  it("accepts sibling UI slots that agree on every named singleton", async () => {
     mockManifests([
-      [/host\.example/, HOST_MANIFEST],
-      [/api\.example/, manifest("2.8.2")],
-      [/auth\.example/, manifest("2.8.2")],
-      [/apps\.example/, manifest("2.8.2")],
+      [/ui\.example/, UI_MANIFEST],
+      [/votes\.example/, UI_MANIFEST],
     ]);
+    const cfg = bosConfig();
+    (cfg.app as any).ui = { production: "https://ui.example" };
+    (cfg.plugins as any).votes = {
+      production: "https://api.votes.example",
+      ui: { production: "https://votes.example" },
+    };
 
-    const report = await checkFederationCompat(bosConfig(), { timeoutMs: 5_000 });
+    const report = await checkUiCompositionCompat(cfg, { timeoutMs: 5_000 });
 
-    expect(report.remotes.map((r) => r.role)).not.toContain("ui");
-    expect(report.remotes.map((r) => r.role).toSorted()).toEqual(["api", "apps", "auth"]);
+    expect(report.ok).toBe(true);
+    expect(report.slots.map((s) => s.slot).toSorted()).toEqual(["app.ui", "plugins.votes.ui"]);
+  });
+
+  it("names the slots and versions of a react singleton skew — the #546 shape", async () => {
+    mockManifests([
+      [/ui\.example/, UI_MANIFEST],
+      [
+        /votes\.example/,
+        {
+          metaData: { pluginVersion: "2.8.2" },
+          shared: [
+            { name: "react", version: "19.2.9", requiredVersion: "19.2.9", singleton: true },
+          ],
+        },
+      ],
+    ]);
+    const cfg = bosConfig();
+    (cfg.app as any).ui = { production: "https://ui.example" };
+    (cfg.plugins as any).votes = {
+      production: "https://api.votes.example",
+      ui: { production: "https://votes.example" },
+    };
+
+    const report = await checkUiCompositionCompat(cfg, { timeoutMs: 5_000 });
+
+    expect(report.ok).toBe(false);
+    for (const slot of report.slots) {
+      expect(slot.ok).toBe(false);
+      expect(slot.reason).toContain("react is app.ui=19.2.4, plugins.votes.ui=19.2.9");
+    }
+  });
+
+  it("fetches the resolved slot's hashed browser manifest when present", async () => {
+    const fetched: string[] = [];
+    mockManifests([
+      [/mf-manifest\.aaaabbbb\.json/, UI_MANIFEST],
+      [/ui\.example/, UI_MANIFEST],
+    ]);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      fetched.push(url);
+      return originalFetch(input);
+    }) as unknown as typeof globalThis.fetch;
+    try {
+      const cfg = bosConfig();
+      (cfg.app as any).ui = {
+        production: "https://ui.example",
+        browserManifestUrl: "https://ui.example/mf-manifest.aaaabbbb.json",
+      };
+
+      await checkUiCompositionCompat(cfg, { timeoutMs: 5_000 });
+
+      expect(fetched).toContain("https://ui.example/mf-manifest.aaaabbbb.json");
+      expect(fetched).not.toContain("https://ui.example/mf-manifest.json");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("returns ok with no slots when the config carries no UI slots", async () => {
+    const report = await checkUiCompositionCompat(bosConfig());
+    expect(report.ok).toBe(true);
+    expect(report.slots).toEqual([]);
   });
 });

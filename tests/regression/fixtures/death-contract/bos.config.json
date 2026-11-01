@@ -1,0 +1,13 @@
+{
+  "account": "death-contract.test",
+  "title": "Death Contract Fixture",
+  "app": {
+    "host": { "name": "death-host", "development": "local:./host" },
+    "ui": { "name": "death-ui", "development": "local:./ui" },
+    "api": { "name": "death-api", "development": "local:./api" }
+  },
+  "plugins": {
+    "fakea": { "name": "death-fake-a", "development": "local:./plugins/fake-a" },
+    "fakeb": { "name": "death-fake-b", "development": "local:./plugins/fake-b" }
+  }
+}

@@ -214,14 +214,12 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
   const envPairs: Record<string, string> = {
     BOS_ACCOUNT: options.account ?? process.env.SMOKE_BOS_ACCOUNT ?? "dev.everything.near",
     BOS_GATEWAY: options.gateway ?? process.env.SMOKE_BOS_GATEWAY ?? "everything.dev",
+    // Boot-gate only: the container's own persistent-by-path PGlite default
+    // (in-container fs) is enough — no external postgres involved.
     API_DATABASE_URL:
-      options.apiDatabaseUrl ??
-      process.env.SMOKE_API_DATABASE_URL ??
-      "postgres://everythingdev:everythingdev@host.docker.internal:5434/api_test_db",
+      options.apiDatabaseUrl ?? process.env.SMOKE_API_DATABASE_URL ?? "pglite:.bos/db",
     AUTH_DATABASE_URL:
-      options.authDatabaseUrl ??
-      process.env.SMOKE_AUTH_DATABASE_URL ??
-      "postgres://everythingdev:everythingdev@host.docker.internal:5435/auth_test_db",
+      options.authDatabaseUrl ?? process.env.SMOKE_AUTH_DATABASE_URL ?? "pglite:.bos/db",
     BETTER_AUTH_SECRET:
       options.authSecret ??
       process.env.SMOKE_BETTER_AUTH_SECRET ??
@@ -235,7 +233,6 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
     container,
     "-p",
     `${port}:${port}`,
-    "--add-host=host.docker.internal:host-gateway",
     ...Object.entries(envPairs).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
     image,
   ]);

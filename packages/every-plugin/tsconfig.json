@@ -3,6 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": ".",
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./src/*"],
       "every-plugin": ["./src/index.ts"],
@@ -14,7 +15,7 @@
     }
   },
   "files": ["tests/types.d.ts"],
-  "include": ["src/**/*", "tests/**/*", "package.json"],
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "tsdown-entries.ts", "package.json"],
   "exclude": [
     "node_modules",
     "dist",

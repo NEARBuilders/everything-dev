@@ -39,6 +39,7 @@ After `bos publish --deploy`:
 2. Pipeline state (production URLs, integrity) goes to FastKV. For legacy JSON-form projects, `bos.config.json` is also updated locally; for the authored `bos.app.ts` form, nothing is written back — the authoring surface never holds pipeline state
 3. Config is published to the FastKV registry at `{account}/bos/gateways/{gateway}/bos.config.json`
 4. On a full deploy train (production build with upload — config-only publishes and staging skip this), the **platform release manifest** (ADR 0034) rides the same atomic write as a third `registryEntries` key at `apps/<account>/<gateway>/platform.json`, with its own SRI recorded in the per-deploy audit manifest. A registry failure reading the previous release skips the manifest for that deploy — a silently-wrong compat window is never published; the next deploy lands it.
+5. On the same train, the **truth gate** (#546) cross-checks every uploaded workspace's version manifest — which records the shared-singleton versions the build actually embedded — against the release manifest's `sharedDeps`. A workspace built against a stale install publishes a manifest that lies about its bytes; the gate refuses the publish (`platform-truth` failure) and tells you to `pnpm install` and redeploy.
 
 The `--network` flag controls the NEAR network (mainnet by default). With `--network testnet`, publishes go to the NEAR testnet chain under the testnet account specified in config.
 
@@ -106,10 +107,10 @@ Bump `every-plugin` and `everything-dev` across all workspaces:
 ```bash
 bos upgrade              # Check for new versions, update, then sync
 bos upgrade --dry-run    # Preview without making changes
-bos upgrade --check      # CI drift alarm (ADR 0034): dry-run + exit 1 when updates are available
+bos upgrade --check      # Manual drift alarm (ADR 0034): dry-run + exit 1 when updates are available
 ```
 
-When a platform release manifest resolves, its catalog is the version source (one registry read — no parent-repo tarball walk). `--check` diffs the recorded `platform` pin against the latest published manifest and exits 1 when updates are available; child CI runs it as the `platform-drift` job inside the pinned `consumer-ci` reusable call.
+When a platform release manifest resolves, its catalog is the version source (one registry read — no parent-repo tarball walk). `--check` diffs the recorded `platform` pin against the latest published manifest and exits 1 when updates are available, printing what drifted. Note the pointer-slot semantics (#546): a root republish overwrites `platform.json`, so a stale pin only resolves through the fresh 24h `.bos/platform-manifest.json` cache before failing loud — `bos upgrade` is always the repair.
 
 `bos upgrade` updates **all workspace `package.json`s**, not just root. Also updates `peerDependencies` and `workspaces.catalog`. Correctly skips `workspace:*` and `catalog:` references.
 
@@ -225,6 +226,7 @@ The check fetches `<host>/mf-manifest.json` and every `<plugin>/mf-manifest.json
 
 - `metaData.pluginVersion` matches the host's
 - every `shared[]` dep the host requires (`requiredVersion: ^X.Y.Z`) is provided by the plugin at a compatible version
+- **UI slots agree on strict singletons (#546)** — the UI composition gate (`checkUiCompositionCompat`) cross-checks the core-UI remote against plugin-UI remotes; a slot pair reporting different versions of a strict singleton fails with a `shared singleton skew across UI slots: <name> is <slot>=<ver>, <slot>=<ver>` reason. This is the mirror of the host boot guard, which raises `SharedSingletonSkewError` at SSR composition for the same skew.
 
 If `bos mf check` fails for one plugin, redeploy only that plugin from this repo:
 

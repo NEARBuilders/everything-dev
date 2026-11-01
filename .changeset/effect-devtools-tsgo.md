@@ -2,7 +2,6 @@
 "every-plugin": major
 "better-near-auth": major
 "everything-dev": minor
-"@everything-dev/auth-plugin": major
 ---
 
 Adopt the Effect DevTools toolchain: native TypeScript 7 (`@effect/tsgo`) with the Effect language-service plugin, and Oxlint with type-aware Effect rules.

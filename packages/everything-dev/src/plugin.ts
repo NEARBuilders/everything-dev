@@ -18,6 +18,7 @@ import { registerKeys } from "./handlers/keys";
 import { registerOps } from "./handlers/ops";
 import { registerPlugins } from "./handlers/plugins";
 import { registerProcesses } from "./handlers/processes";
+import { registerSecrets } from "./handlers/secrets";
 import { registerSmoke } from "./handlers/smoke";
 import { registerUpgrade } from "./handlers/upgrade";
 import { createPlugin, z } from "./sdk";
@@ -31,6 +32,7 @@ import { DeployTrainRenderService } from "./services/deploy/render";
 import { DeployTrainService } from "./services/deploy/train";
 import { DevFlowService } from "./services/dev/flow";
 import { OpsService } from "./services/ops";
+import { PlatformManifestService } from "./services/platform/manifest";
 import { PluginAdminService } from "./services/plugins-admin";
 import { ProcessesService } from "./services/processes/service";
 import { openResolution, ResolutionSessionService } from "./services/resolution/session";
@@ -121,6 +123,7 @@ export default createPlugin({
         PluginAdminService.Live.pipe(Layer.provide(deployTrainLayer)),
         DevFlowService.Live,
         InitFlowService.Live,
+        PlatformManifestService.Live,
       );
     }),
   createRouter: (builder) => ({
@@ -131,6 +134,7 @@ export default createPlugin({
     ...registerDeploy(builder),
     ...registerSmoke(builder),
     ...registerKeys(builder),
+    ...registerSecrets(builder),
     ...registerProcesses(builder),
     ...registerInit(builder),
     ...registerImport(builder),

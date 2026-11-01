@@ -57,6 +57,9 @@ export const englishLoginMessages = {
   "auth.login.error.passkey": "Passkey sign-in failed",
   "auth.login.error.disconnect": "Failed to disconnect wallet",
   "auth.login.error.nearConnect": "Failed to connect your NEAR wallet",
+  "auth.error.details": "Details",
+  "auth.error.pageFailed": "The sign-in page could not load.",
+  "auth.error.retry": "Try again",
   "auth.login.pair.startFailed": "Could not start device pairing",
   "auth.login.pair.completeFailed": "Failed to complete sign-in",
   "auth.login.pair.success": "Signed in",
@@ -115,6 +118,15 @@ export const englishLoginMessages = {
   "auth.device.approve.key": "Approve key",
   "auth.device.approve.approve": "Approve",
   "auth.device.approve.deny": "Deny",
+  "auth.onboard.verifying": "Checking your membership…",
+  "auth.onboard.left.title": "No longer a member",
+  "auth.onboard.left.description":
+    "You’re no longer a member of this community. Ask an organizer for a new code or an invitation.",
+  "auth.onboard.verifyFailed.title": "Couldn’t check your membership",
+  "auth.onboard.verifyFailed.description":
+    "We couldn’t confirm your membership. Check your connection and try again.",
+  "auth.onboard.visit": "Visit {community}",
+  "auth.onboard.channels": "{community} channels",
 } as const;
 
 export type LoginMessageId = keyof typeof englishLoginMessages;
@@ -165,6 +177,9 @@ const spanishLoginMessages = {
   "auth.login.error.passkey": "No se pudo iniciar sesión con la clave de acceso",
   "auth.login.error.disconnect": "No se pudo desconectar la billetera",
   "auth.login.error.nearConnect": "No se pudo conectar tu billetera NEAR",
+  "auth.error.details": "Detalles",
+  "auth.error.pageFailed": "No se pudo cargar la página de inicio de sesión.",
+  "auth.error.retry": "Reintentar",
   "auth.login.pair.startFailed": "No se pudo iniciar la vinculación del dispositivo",
   "auth.login.pair.completeFailed": "No se pudo completar el inicio de sesión",
   "auth.login.pair.success": "Sesión iniciada",
@@ -226,6 +241,15 @@ const spanishLoginMessages = {
   "auth.device.approve.key": "Aprobar clave",
   "auth.device.approve.approve": "Aprobar",
   "auth.device.approve.deny": "Rechazar",
+  "auth.onboard.verifying": "Comprobando tu membresía…",
+  "auth.onboard.left.title": "Ya no eres miembro",
+  "auth.onboard.left.description":
+    "Ya no eres miembro de esta comunidad. Pide a un organizador un código nuevo o una invitación.",
+  "auth.onboard.verifyFailed.title": "No pudimos comprobar tu membresía",
+  "auth.onboard.verifyFailed.description":
+    "No pudimos confirmar tu membresía. Revisa tu conexión e inténtalo de nuevo.",
+  "auth.onboard.visit": "Visitar {community}",
+  "auth.onboard.channels": "Canales de {community}",
 } satisfies Record<LoginMessageId, string>;
 
 const frenchLoginMessages = {
@@ -272,6 +296,9 @@ const frenchLoginMessages = {
   "auth.login.error.passkey": "Échec de la connexion avec la clé d’accès",
   "auth.login.error.disconnect": "Impossible de déconnecter le portefeuille",
   "auth.login.error.nearConnect": "Impossible de connecter votre portefeuille NEAR",
+  "auth.error.details": "Détails",
+  "auth.error.pageFailed": "Impossible de charger la page de connexion.",
+  "auth.error.retry": "Réessayer",
   "auth.login.pair.startFailed": "Impossible de démarrer l’association de l’appareil",
   "auth.login.pair.completeFailed": "Impossible de terminer la connexion",
   "auth.login.pair.success": "Connecté",
@@ -333,6 +360,15 @@ const frenchLoginMessages = {
   "auth.device.approve.key": "Approuver la clé",
   "auth.device.approve.approve": "Approuver",
   "auth.device.approve.deny": "Refuser",
+  "auth.onboard.verifying": "Vérification de votre adhésion…",
+  "auth.onboard.left.title": "Vous n’êtes plus membre",
+  "auth.onboard.left.description":
+    "Vous n’êtes plus membre de cette communauté. Demandez un nouveau code ou une invitation à un organisateur.",
+  "auth.onboard.verifyFailed.title": "Impossible de vérifier votre adhésion",
+  "auth.onboard.verifyFailed.description":
+    "Nous n’avons pas pu confirmer votre adhésion. Vérifiez votre connexion et réessayez.",
+  "auth.onboard.visit": "Visiter {community}",
+  "auth.onboard.channels": "Canaux de {community}",
 } satisfies Record<LoginMessageId, string>;
 
 const chineseLoginMessages = {
@@ -375,6 +411,9 @@ const chineseLoginMessages = {
   "auth.login.error.passkey": "使用通行密钥登录失败",
   "auth.login.error.disconnect": "无法断开钱包连接",
   "auth.login.error.nearConnect": "无法连接你的 NEAR 钱包",
+  "auth.error.details": "详情",
+  "auth.error.pageFailed": "无法加载登录页面。",
+  "auth.error.retry": "重试",
   "auth.login.pair.startFailed": "无法开始设备配对",
   "auth.login.pair.completeFailed": "无法完成登录",
   "auth.login.pair.success": "已登录",
@@ -429,6 +468,13 @@ const chineseLoginMessages = {
   "auth.device.approve.key": "批准密钥",
   "auth.device.approve.approve": "批准",
   "auth.device.approve.deny": "拒绝",
+  "auth.onboard.verifying": "正在确认你的成员身份…",
+  "auth.onboard.left.title": "你已不再是成员",
+  "auth.onboard.left.description": "你已不再是这个社区的成员。请向组织者索取新的邀请码或邀请。",
+  "auth.onboard.verifyFailed.title": "无法确认你的成员身份",
+  "auth.onboard.verifyFailed.description": "我们无法确认你的成员身份。请检查网络连接后重试。",
+  "auth.onboard.visit": "访问 {community}",
+  "auth.onboard.channels": "{community} 的频道",
 } satisfies Record<LoginMessageId, string>;
 
 const translatedLoginMessages: Record<LoginLocale, Partial<Record<LoginMessageId, string>>> = {

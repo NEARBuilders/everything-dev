@@ -27,10 +27,14 @@ vi.mock("../../src/services/deploy/rollback", async (importOriginal) => {
 
 vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/services/registry/fastkv")>();
+  // the registry serves canonical payloads — local: dev targets stripped
+  // (#584); the fixtures here are published-shape
+  const canonical = async (...args: Parameters<typeof fetchBosConfigFromFastKvMock>) =>
+    stripLocalDevelopmentTargets(await fetchBosConfigFromFastKvMock(...args));
   return {
     ...actual,
-    fetchBosConfigFromFastKv: fetchBosConfigFromFastKvMock,
-    fetchPublishedConfigFromFastKv: fetchBosConfigFromFastKvMock,
+    fetchBosConfigFromFastKv: canonical,
+    fetchPublishedConfigFromFastKv: canonical,
   };
 });
 
@@ -53,6 +57,7 @@ vi.mock("../../src/services/workspace/build-train", async (importOriginal) => {
 });
 
 import { publishToFastKv } from "../../src/services/deploy/train";
+import { stripLocalDevelopmentTargets } from "../../src/services/resolution/merge";
 
 const bosConfig = {
   account: "dev.everything.near",

@@ -9,7 +9,7 @@ export default {
   config: {
     variables: {},
     secrets: {
-      VOTES_DATABASE_URL: process.env.VOTES_DATABASE_URL || "pglite:.bos/votes/:memory:",
+      VOTES_DATABASE_URL: process.env.VOTES_DATABASE_URL || "pglite:.bos/db",
     },
   } satisfies PluginConfigInput<typeof Plugin>,
 };

@@ -14,13 +14,13 @@ New here? Get onboarded and plugged in:
 ## Quick Setup
 
 ```bash
-bun install               # Install dependencies
-bun run dev               # Start development (host mode auto-detected)
+pnpm install               # Install dependencies
+pnpm run dev               # Start development (host mode auto-detected)
 ```
 
-That's it — on first run `bos dev` creates `.env` from `.env.example` (with a generated `BETTER_AUTH_SECRET`), and if local Postgres is down it starts it for you via `docker compose up -d --wait`. Docker must be installed and running.
+That's it — no Postgres, no Docker. On first run `bos dev` creates `.env` from `.env.example` (with a generated `BETTER_AUTH_SECRET`); every local database is a persistent PGlite data dir under `.bos/db` (ADR 0038). Set a `postgres://` URL in `.env` only when you need production-style or shared server access.
 
-`bun run dev:postgres` starts the databases explicitly; `dev:postgres:down` / `dev:postgres:reset` manage them. `bun db:migrate` is optional — the API and plugins auto-apply migrations on boot.
+`pnpm run db:migrate` is optional — the API and plugins auto-apply migrations on boot.
 
 Visit http://localhost:3003 (UI), http://localhost:3001 (API), and http://localhost:3002 (Auth).
 
@@ -128,7 +128,7 @@ We use [Changesets](https://github.com/changesets/changesets) for versioning.
 
 **Create a changeset:**
 ```bash
-bun run changeset
+pnpm run changeset
 # Follow prompts to select packages and write description
 ```
 
@@ -151,9 +151,9 @@ Added new endpoint for user profiles
 
 1. **Before creating PR:**
    ```bash
-   bun run test    # Run all tests
-   bun typecheck   # Type check all packages
-   bun lint        # Run linting
+   pnpm run test    # Run all tests
+   pnpm run typecheck   # Type check all packages
+   pnpm run lint        # Run linting
    ```
 
 2. **Create PR from your fork:**
@@ -178,8 +178,8 @@ Added new endpoint for user profiles
 2. **Clone** your fork locally
 3. **Create** a feature branch: `git checkout -b feature/amazing-feature`
 4. **Make** your changes
-5. **Test** thoroughly: `bun run test` and `bun typecheck`
-6. **Add changeset** if needed: `bun run changeset`
+5. **Test** thoroughly: `pnpm run test` and `pnpm run typecheck`
+6. **Add changeset** if needed: `pnpm run changeset`
 7. **Commit** using [Semantic Commits](https://gist.github.com/joshbuchea/6f47e86d2510bce28f8e7f42ae84c716)
 8. **Push** to your fork: `git push origin feature/amazing-feature`
 9. **Open** a Pull Request to the main repository
@@ -198,9 +198,9 @@ Added new endpoint for user profiles
 We use [Biome](https://biomejs.dev/) for linting and formatting:
 
 ```bash
-bun lint        # Check linting
-bun lint:fix    # Fix auto-fixable issues
-bun format      # Format code
+pnpm run lint        # Check linting
+pnpm run lint --fix    # Fix auto-fixable issues
+pnpm run format      # Format code
 ```
 
 ## Reporting Issues

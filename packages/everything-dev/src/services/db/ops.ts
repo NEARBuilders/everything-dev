@@ -5,12 +5,12 @@ import { DatabaseBindings, DrizzleKit } from "../../db/index";
 export class DbOpsService extends Context.Service<
   DbOpsService,
   {
-    studio: (plugin: string) => Effect.Effect<DbStudioResult, unknown>;
-    doctor: (plugin: string) => Effect.Effect<DbDoctorResult, unknown>;
+    studio: (plugin: string) => Effect.Effect<DbStudioResult, never>;
+    doctor: (plugin: string) => Effect.Effect<DbDoctorResult, never>;
     repair: (
       plugin: string,
       mode: "history-reset" | "recreate",
-    ) => Effect.Effect<DbRepairResult, unknown>;
+    ) => Effect.Effect<DbRepairResult, never>;
   }
 >()("bos/DbOpsService") {
   static Live = Layer.effect(
@@ -40,7 +40,7 @@ export class DbOpsService extends Context.Service<
               section: "",
               error: error instanceof Error ? error.message : "Unknown error",
             }),
-          }),
+          }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
 
         doctor: (plugin) =>
           Effect.tryPromise({
@@ -68,7 +68,7 @@ export class DbOpsService extends Context.Service<
               missingTables: [] as string[],
               error: error instanceof Error ? error.message : "Unknown error",
             }),
-          }),
+          }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
 
         repair: (plugin, mode) =>
           Effect.tryPromise({
@@ -89,7 +89,7 @@ export class DbOpsService extends Context.Service<
               diagnosis: null,
               error: error instanceof Error ? error.message : "Unknown error",
             }),
-          }),
+          }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
       });
     }),
   );

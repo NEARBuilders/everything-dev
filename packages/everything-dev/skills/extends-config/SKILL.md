@@ -39,12 +39,12 @@ The root-level `platform` field pins the framework release this runtime tracks:
 { "platform": "2.0.0-rc.14" }
 ```
 
-- **Exact string in v1 — no ranges.** Resolution picks exactly one platform release manifest (the root's published `platform.json`); a pin that no published manifest satisfies fails loud.
+- **Exact string in v1 — no ranges.** Resolution picks exactly one platform release manifest (the root's published `platform.json`); a pin that no published manifest satisfies fails loud. The slot is a **pointer**: a root republish overwrites it, so a stale pin survives only while the fresh `.bos/platform-manifest.json` cache (24h TTL) stands in — past that, resolution fails loud and `bos upgrade` (the re-pin pathway) is the repair (#546).
 - **Absent → latest via the extends chain** (nearest ancestor publishing a manifest wins). Sync/upgrade resolve it explicitly — they read the authored config, not just the merged result.
 - It is a scalar for merge purposes: child overrides parent, parent inherited when child omits.
 - The field is on sync's managed-key list, so it survives template personalization.
 - Everything else derives from the resolved manifest: the upgrade catalog, the image ref (`ref@v<version>`), the release-scoped sync source, and the compat contract. Offline dev caches the resolved manifest at `.bos/platform-manifest.json` (gitignored memo).
-- Inspect with `bos platform manifest` (`--check` adds the compat gate); `bos upgrade --check` is the CI drift alarm against the latest release.
+- Inspect with `bos platform manifest` (`--check` adds the compat gate); `bos upgrade --check` is the manual drift alarm against the latest release.
 
 ## Deep Merge Semantics
 
@@ -67,6 +67,15 @@ Set a plugin to `null` to explicitly remove an inherited plugin:
   "plugins": {
     "template": null
   }
+}
+```
+
+### Plugin UI Opt-Out
+
+A plugin entry that extends another app (`extends: "bos://acct/app#plugins.<id>"`) also attaches that app's `app.ui` as the plugin's ui. Set `ui: false` on the entry to take only the plugin and drop the attached ui:
+```ts
+plugins: {
+  nostr: { extends: "bos://nearbuilding.near/nostr.nearbuilders.org#plugins.nostr", ui: false },
 }
 ```
 
@@ -210,6 +219,8 @@ From `packages/everything-dev/src/services/resolution/merge.ts`:
 ## The tasks you will actually be given
 
 **"Remove a plugin I inherited."** Set it to `null` in the authored config's `plugins` — the null sentinel deletes it from the merged result. Deleting the entry entirely just inherits the parent's.
+
+**"Use another app's plugin without its website."** Set `ui: false` on the `plugins.<id>` entry — the extended app's `app.ui` is otherwise attached as the plugin ui and loaded on every page.
 
 **"Different parent for staging."** Object-form `extends` keyed by env (`development` / `staging` / `production`); the fallback chain is requested env → `production` → first defined value.
 

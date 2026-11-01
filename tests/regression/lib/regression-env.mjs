@@ -5,9 +5,16 @@ import { fileURLToPath } from "node:url";
 import { parse } from "dotenv";
 
 const DEFAULT_BASE_URL = "http://localhost:4100";
-const DEFAULT_PG_USER = "everythingdev";
-const DEFAULT_PG_PASSWORD = "everythingdev";
 const DEFAULT_BETTER_AUTH_SECRET = "regression-test-secret-do-not-use-in-production";
+/**
+ * ≥ 64 chars because @better-auth/api-key rejects presented keys shorter than
+ * the config's `defaultKeyLength` (64) before verification even runs.
+ */
+const DEFAULT_BOOTSTRAP_ADMIN_API_KEY =
+  "regression-bootstrap-admin-api-key-0123456789abcdef0123456789abcdef0123456789";
+/** The developer's persistent dev data dir default (per workspace process). */
+const DEV_PGLITE_URL = "pglite:.bos/db";
+const TEST_DATABASE_DEFAULT = "pglite::memory:";
 
 export function findRepoRoot(startDir = process.cwd()) {
   let current = path.resolve(startDir);
@@ -87,11 +94,26 @@ function databaseSecrets(config) {
   }
   return secrets;
 }
-function defaultDevDatabaseUrl(secret, pgUser, pgPassword, pgHost) {
-  const isAuth = secret === "AUTH_DATABASE_URL";
-  const port = isAuth ? 5433 : 5432;
-  const databaseName = isAuth ? "auth_db" : "api_db";
-  return `postgres://${pgUser}:${pgPassword}@${pgHost}:${port}/${databaseName}`;
+/**
+ * The compose-era local convention (`postgres://everythingdev:…@localhost:{5432,5433}/…`
+ * — plus drift ports the old allocator wrote into .env). Refused so regression
+ * can never reach a developer's dev data.
+ */
+function legacyDevDatabaseUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") return false;
+    if (parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") return false;
+    if (parsed.username !== "everythingdev" || parsed.password !== "everythingdev") return false;
+    const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+    return databaseName === "api_db" || databaseName === "auth_db";
+  } catch {
+    return false;
+  }
+}
+
+function isDevDatabaseUrl(url) {
+  return url === DEV_PGLITE_URL || legacyDevDatabaseUrl(url);
 }
 
 export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
@@ -102,21 +124,14 @@ export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
   const testEnv = readDotEnv(root, ".env.test");
   const allowDevDb = env.REGRESSION_ALLOW_DEV_DB === "1";
 
-  const pgUser = env.REGRESSION_PG_USER ?? fileEnv.REGRESSION_PG_USER ?? DEFAULT_PG_USER;
-  const pgPassword =
-    env.REGRESSION_PG_PASSWORD ?? fileEnv.REGRESSION_PG_PASSWORD ?? DEFAULT_PG_PASSWORD;
-  const pgHost = env.REGRESSION_PG_HOST ?? fileEnv.REGRESSION_PG_HOST ?? "127.0.0.1";
-
   const dbUrls = {};
   for (const secret of databaseSecrets(config)) {
-    const devUrl = fileEnv[secret] ?? defaultDevDatabaseUrl(secret, pgUser, pgPassword, pgHost);
-    const resolved = testEnv[secret] ?? env[secret] ?? fileEnv[secret] ?? devUrl;
-    if (!allowDevDb && resolved === devUrl) {
+    const resolved = testEnv[secret] ?? env[secret] ?? fileEnv[secret] ?? TEST_DATABASE_DEFAULT;
+    if (!allowDevDb && isDevDatabaseUrl(resolved)) {
       throw new Error(
-        `refusing to run: ${secret} resolves to the dev database. ` +
-          "Regression tests must stay isolated from dev databases. " +
-          "Restore the generated .env.test (run `pnpm run bos dev` to regenerate), " +
-          "or start the test databases with `pnpm run test:db:up`, " +
+        `refusing to run: ${secret} resolves to the dev database (${resolved}). ` +
+          "Regression tests must stay isolated from dev data. " +
+          "Restore the generated .env.test (in-memory pglite — run `pnpm run bos dev` to regenerate), " +
           "or set REGRESSION_ALLOW_DEV_DB=1 to override deliberately.",
       );
     }
@@ -137,6 +152,10 @@ export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
         "or set REGRESSION_ALLOW_DEV_DB=1 to override deliberately.",
     );
   }
+  const bootstrapAdminKey =
+    testEnv.AUTH_BOOTSTRAP_ADMIN_API_KEY ??
+    env.AUTH_BOOTSTRAP_ADMIN_API_KEY ??
+    DEFAULT_BOOTSTRAP_ADMIN_API_KEY;
   const parsedBase = new URL(baseUrl);
   const basePort = Number(parsedBase.port) || (parsedBase.protocol === "https:" ? 443 : 80);
   const localPluginCount = Object.values(config.plugins ?? {}).filter(
@@ -147,7 +166,15 @@ export function computeRegressionEnv({ repoRoot, env = process.env } = {}) {
     stalePorts.push(basePort + 10 + i);
   }
 
-  return { repoRoot: root, baseUrl, basePort, dbUrls, authSecret, stalePorts };
+  return {
+    repoRoot: root,
+    baseUrl,
+    basePort,
+    dbUrls,
+    authSecret,
+    bootstrapAdminKey,
+    stalePorts,
+  };
 }
 
 export function regressionStackOptions(config, mode, env = process.env) {
@@ -217,6 +244,10 @@ export function regressionStackOptions(config, mode, env = process.env) {
       ...env,
       ...config.dbUrls,
       BETTER_AUTH_SECRET: config.authSecret,
+      // Boot seams the HTTP seeding helpers rely on (ADR 0038 addendum):
+      // the auth plugin instance(s) ensure a platform admin + API key so
+      // fixture helpers seed through the admin routes instead of the DB.
+      AUTH_BOOTSTRAP_ADMIN_API_KEY: config.bootstrapAdminKey,
       ...(mode === "dev:ssr" || mode === "backcompat" ? { BETTER_AUTH_URL: config.baseUrl } : {}),
       // The auth plugin's dev config derives its Better Auth baseURL from
       // BASE_URL — without it the instance falls back to localhost:3000 and
@@ -246,6 +277,7 @@ if (isDirectRun) {
             baseUrl: result.baseUrl,
             dbUrls: result.dbUrls,
             authSecret: result.authSecret,
+            bootstrapAdminKey: result.bootstrapAdminKey,
             stalePorts: result.stalePorts,
           },
           null,

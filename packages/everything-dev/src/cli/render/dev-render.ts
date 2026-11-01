@@ -447,6 +447,7 @@ export function createDevRenderer(
     }
   };
 
+  let rawModeOn = false;
   try {
     rawCapable.setRawMode?.(true);
     // Bun's TTY stdin never enters flowing mode from a bare `data` listener
@@ -454,10 +455,17 @@ export function createDevRenderer(
     // session would be unquittable from its own terminal. resume() starts the
     // stream (a no-op if already flowing).
     rawCapable.resume?.();
+    rawModeOn = true;
   } catch {
     // raw mode unavailable: key handling is inert; shutdown stays reachable via SIGTERM and bos kill
   }
   rawCapable.on("data", onKey);
+  if (rawModeOn) {
+    // Machine-readable pin for regression harnesses: raw mode is on and the
+    // key handler is attached, so typed bytes now reach the key path — no
+    // ISIG race for senders waiting on the alt-screen mount alone.
+    output.write("\x1b]bos;ready\x07");
+  }
 
   let restored = false;
   handle.unmount = () => {

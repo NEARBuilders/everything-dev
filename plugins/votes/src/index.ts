@@ -11,7 +11,7 @@ export default createPlugin({
   variables: z.object({}),
 
   secrets: z.object({
-    VOTES_DATABASE_URL: z.string().default("pglite:.bos/votes/:memory:"),
+    VOTES_DATABASE_URL: z.string().default("pglite:.bos/db"),
   }),
 
   context: ContextSchema,

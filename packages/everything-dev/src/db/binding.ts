@@ -4,30 +4,6 @@ import { parse as parseDotenv } from "dotenv";
 import type { WorkspaceIdentity } from "./identity";
 
 /**
- * drizzle-kit subcommands that open a database connection. For everything
- * else (generate, check) the connection string is parsed but never used, so a
- * placeholder is safe.
- */
-const DB_REQUIRING_COMMANDS: ReadonlySet<string> = new Set([
-  "push",
-  "pull",
-  "migrate",
-  "studio",
-  "up",
-]);
-
-/**
- * Whether the current process is a drizzle-kit invocation whose command needs
- * a live database. Mirrors drizzle-kit's CLI layout: `drizzle-kit <command> …`.
- */
-export function requiresDatabaseConnection(argv: readonly string[] = process.argv): boolean {
-  const isDrizzleKit = typeof argv[1] === "string" && argv[1].includes("drizzle-kit");
-  if (!isDrizzleKit) return false;
-  const command = argv[2];
-  return typeof command === "string" && DB_REQUIRING_COMMANDS.has(command);
-}
-
-/**
  * Materialize the environment a spawned tool needs to reach the binding's
  * database: the canonical secret name mapped to the resolved URL. The process
  * that resolves bindings (the CLI composition root) pushes this into spawned
@@ -35,6 +11,31 @@ export function requiresDatabaseConnection(argv: readonly string[] = process.arg
  */
 export function bindingEnv(binding: { secretName: string; url: string }): Record<string, string> {
   return { [binding.secretName]: binding.url };
+}
+
+/**
+ * The zero-config local database: a persistent, file-backed PGlite data dir
+ * resolved per workspace process (`.bos/db` relative to the workspace cwd).
+ * No ports, no docker — concurrent projects never collide.
+ */
+export const PGLITE_DEFAULT_URL = "pglite:.bos/db";
+
+/**
+ * drizzle-kit dialect options for a resolved database URL: `pglite:` URLs use
+ * the `pglite` dialect with a `driver`-tagged data-dir path; anything else is
+ * a regular postgres DSN.
+ */
+export function drizzleCredentialsFor(url: string): {
+  dialect: "postgresql" | "pglite";
+  dbCredentials: { url: string; driver?: "pglite" };
+} {
+  if (url.startsWith("pglite:")) {
+    return {
+      dialect: "pglite",
+      dbCredentials: { driver: "pglite", url: url.replace("pglite:", "") },
+    };
+  }
+  return { dialect: "postgresql", dbCredentials: { url } };
 }
 
 function findEnvFile(startDir: string | undefined): string | undefined {
@@ -58,22 +59,20 @@ function findEnvFile(startDir: string | undefined): string | undefined {
  *   2. the canonical secret in the nearest `.env` walked up from the
  *      workspace directory (existing environment wins — values are not
  *      overridden, matching dotenv semantics)
- *   3. loud failure when the drizzle-kit command needs a database
- *   4. an in-memory pglite placeholder for commands that never connect
- *      (generate, check) and for non-drizzle-kit consumers
+ *   3. the persistent local default (`PGLITE_DEFAULT_URL`) — valid for
+ *      connecting commands too, so `pnpm run db:migrate`/`db:studio` work
+ *      zero-config against the workspace's `.bos/db` data dir
  *
- * This replaces the previous silent `pglite:` fallback that masked missing
- * configuration as cryptic driver errors downstream.
+ * drizzle-kit commands the default works for are unaffected; non-drizzle-kit
+ * consumers get the same persistent default.
  */
 export function resolveDatabaseUrl(
   identity: WorkspaceIdentity,
   options: {
     env?: Record<string, string | undefined>;
-    argv?: readonly string[];
   } = {},
 ): string {
   const env = options.env ?? process.env;
-  const argv = options.argv ?? process.argv;
 
   const direct = env[identity.secretName];
   if (direct) return direct;
@@ -85,17 +84,9 @@ export function resolveDatabaseUrl(
       const fromFile = parsed[identity.secretName];
       if (fromFile) return fromFile;
     } catch {
-      // unreadable .env — fall through to loud failure / placeholder
+      // unreadable .env — fall through to the default
     }
   }
 
-  if (requiresDatabaseConnection(argv)) {
-    throw new Error(
-      `Missing ${identity.secretName} for workspace "${identity.slug}" — ` +
-        `required for "drizzle-kit ${argv[2]}". ` +
-        `Add ${identity.secretName} to your .env (see .env.example) or run via \`bos db\`.`,
-    );
-  }
-
-  return `pglite:.bos/${identity.slug}/:memory:`;
+  return PGLITE_DEFAULT_URL;
 }

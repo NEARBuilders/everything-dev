@@ -233,11 +233,12 @@ describe("resolveRailwayStep", () => {
     });
   });
 
-  it("repoints-and-redeploys for a pinned child — the service source follows the pin", () => {
+  it("repoints-and-redeploys for a pinned child that carries a workspace token — the service source follows the pin", () => {
     expect(
       resolveRailwayStep({
         tier: "child",
-        token: "token",
+        token: "workspace-token",
+        workspaceToken: "workspace-token",
         service: "app",
         pinnedDigest: digest64,
         childPin: pin,
@@ -249,17 +250,80 @@ describe("resolveRailwayStep", () => {
     });
   });
 
-  it("redeploys in either tier when a digest pins the image", () => {
-    for (const tier of ["root", "child"] as const) {
-      expect(
-        resolveRailwayStep({
-          tier,
-          token: "token",
-          service: "app",
-          pinnedDigest: digest64,
-        }).action,
-      ).toBe("redeploy");
-    }
+  it("downgrades a pinned child with only a project token to a plain redeploy with the drift notice", () => {
+    const step = resolveRailwayStep({
+      tier: "child",
+      token: "project-token",
+      service: "app",
+      pinnedDigest: digest64,
+      childPin: pin,
+    });
+    expect(step).toMatchObject({ action: "redeploy", service: "app" });
+    expect(step.action === "redeploy" && step.notice).toContain("service source connect");
+    expect(step.action === "redeploy" && step.notice).toContain("RAILWAY_API_TOKEN");
+  });
+
+  it("a float child with only a project token redeploys without a notice", () => {
+    const step = resolveRailwayStep({
+      tier: "child",
+      token: "project-token",
+      service: "app",
+    });
+    expect(step).toEqual({ action: "redeploy", service: "app" });
+  });
+
+  it("redeploys for a child even when a digest pins the image (the project-token default)", () => {
+    expect(
+      resolveRailwayStep({
+        tier: "child",
+        token: "token",
+        service: "app",
+        pinnedDigest: digest64,
+      }).action,
+    ).toBe("redeploy");
+  });
+
+  it("repoints-and-redeploys for a root with a workspace token — the source follows the smoked digest, not the floating ref", () => {
+    expect(
+      resolveRailwayStep({
+        tier: "root",
+        token: "workspace-token",
+        workspaceToken: "workspace-token",
+        service: "app",
+        pinnedDigest: digest64,
+        image: imageRef.image,
+      }),
+    ).toEqual({
+      action: "repoint-and-redeploy",
+      service: "app",
+      image: `${imageRef.image}@${digest64}`,
+    });
+  });
+
+  it("downgrades a root with only a project token to a plain redeploy with the floating-ref notice", () => {
+    const step = resolveRailwayStep({
+      tier: "root",
+      token: "project-token",
+      service: "app",
+      pinnedDigest: digest64,
+      image: imageRef.image,
+    });
+    expect(step).toMatchObject({ action: "redeploy", service: "app" });
+    expect(step.action === "redeploy" && step.notice).toContain("RAILWAY_API_TOKEN");
+    expect(step.action === "redeploy" && step.notice).toContain("floating");
+  });
+
+  it("a root repoint requires both the image and the digest — project-token-only keeps the plain redeploy", () => {
+    expect(
+      resolveRailwayStep({
+        tier: "root",
+        token: "workspace-token",
+        workspaceToken: "workspace-token",
+        service: "app",
+        pinnedDigest: digest64,
+        image: undefined,
+      }).action,
+    ).toBe("redeploy");
   });
 });
 
@@ -302,7 +366,7 @@ describe("resolveChildImagePin", () => {
         localConfig: { extends: "bos://acct/gateway", platform: "9.9.9" },
         fetchManifest: async () => manifest as never,
       }),
-    ).rejects.toThrow(/platform pin 9\.9\.9 not found/);
+    ).rejects.toThrow(/platform pin 9\.9\.9.*never published/s);
   });
 });
 
@@ -324,12 +388,19 @@ describe("runPostPublishLegs", () => {
       repointServiceSource: vi.fn().mockResolvedValue(undefined),
       resolveChildImagePin: vi.fn().mockResolvedValue(undefined),
       rollbackToPreviousSnapshot: vi.fn(),
+      detectOwedWork: vi.fn().mockResolvedValue({
+        npmOwed: false,
+        manifestOwed: false,
+        release: false,
+        detail: { unpublished: [], pointerExists: false },
+      }),
     };
   }
 
-  it("pinned child: pins the manifest ref, boots the digest, repoints the service before the redeploy", async () => {
+  it("pinned child with a workspace token: pins the manifest ref, boots the digest, repoints the service before the redeploy", async () => {
     sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-pin-"));
-    vi.stubEnv("RAILWAY_TOKEN", "token");
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    vi.stubEnv("RAILWAY_API_TOKEN", "workspace-token");
     vi.stubEnv("BOS_IMAGE", "");
     const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
 
@@ -448,5 +519,161 @@ describe("runPostPublishLegs", () => {
       expect.objectContaining({ image: `ghcr.io/nearbuilders/everything-dev@${digest64}` }),
     );
     expect(deps.deployImageToRailway).toHaveBeenCalled();
+  });
+
+  it("root with a workspace token: repoints the service source to the smoked digest before the redeploy", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-root-ws-"));
+    writeFileSync(join(sessionRoot, "Dockerfile"), "FROM scratch");
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    vi.stubEnv("RAILWAY_API_TOKEN", "workspace-token");
+    vi.stubEnv("BOS_IMAGE", "");
+    const deps = baseDeps();
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: true,
+        imageDigestInput: digest64,
+        railwayService: "app",
+        runtimeConfig: null,
+        account: "acct",
+        domain: "gw",
+        repository: "https://github.com/NEARBuilders/everything-dev",
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toBeUndefined();
+    expect(deps.runSmoke).toHaveBeenCalledWith(
+      expect.objectContaining({ image: `ghcr.io/nearbuilders/everything-dev@${digest64}` }),
+    );
+    expect(deps.repointServiceSource).toHaveBeenCalledWith({
+      service: "app",
+      image: `ghcr.io/nearbuilders/everything-dev@${digest64}`,
+      configDir: sessionRoot,
+    });
+    expect(deps.deployImageToRailway).toHaveBeenCalledWith({
+      service: "app",
+      configDir: sessionRoot,
+    });
+    expect(outcome.legs.railway?.detail).toBe(
+      `pinned ghcr.io/nearbuilders/everything-dev@${digest64}, redeployed app`,
+    );
+  });
+
+  it("root: a red smoke returns before the Railway leg — no repoint, no redeploy", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-root-smoke-fail-"));
+    writeFileSync(join(sessionRoot, "Dockerfile"), "FROM scratch");
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    vi.stubEnv("RAILWAY_API_TOKEN", "workspace-token");
+    vi.stubEnv("BOS_IMAGE", "");
+    const deps = {
+      ...baseDeps(),
+      runSmoke: vi.fn().mockResolvedValue({ ok: false, image: "x", error: "boot exited" }),
+      rollbackToPreviousSnapshot: vi.fn().mockResolvedValue({ ok: true, blockHeight: 221569616 }),
+    };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: true,
+        imageDigestInput: digest64,
+        railwayService: "app",
+        runtimeConfig: null,
+        account: "acct",
+        domain: "gw",
+        repository: "https://github.com/NEARBuilders/everything-dev",
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toContain("Post-publish smoke failed");
+    expect(deps.rollbackToPreviousSnapshot).toHaveBeenCalled();
+    expect(deps.repointServiceSource).not.toHaveBeenCalled();
+    expect(deps.deployImageToRailway).not.toHaveBeenCalled();
+    expect(outcome.legs.railway).toBeUndefined();
+  });
+
+  it("workspace token: owns the leg when set — the project token is dropped, the pin still repoints", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-ws-"));
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    vi.stubEnv("RAILWAY_API_TOKEN", "workspace-token");
+    vi.stubEnv("BOS_IMAGE", "");
+    const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: false,
+        railwayService: "app",
+        runtimeConfig: null,
+        localConfig: { extends: "bos://acct/gateway" },
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toBeUndefined();
+    expect(deps.repointServiceSource).toHaveBeenCalledWith({
+      service: "app",
+      image: `${pin.image}:${pin.tag}`,
+      configDir: sessionRoot,
+    });
+    expect(process.env.RAILWAY_TOKEN).toBeUndefined();
+  });
+
+  it("workspace token with a set-but-empty project token (GitHub absent-secret shape) still repoints", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-ws-empty-"));
+    vi.stubEnv("RAILWAY_TOKEN", "");
+    vi.stubEnv("RAILWAY_API_TOKEN", "workspace-token");
+    vi.stubEnv("BOS_IMAGE", "");
+    const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: false,
+        railwayService: "app",
+        runtimeConfig: null,
+        localConfig: { extends: "bos://acct/gateway" },
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toBeUndefined();
+    expect(deps.repointServiceSource).toHaveBeenCalled();
+    expect(process.env.RAILWAY_TOKEN).toBeUndefined();
+  });
+
+  it("pinned child with a project token: redeploy-only — no repoint attempted despite the pin", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-tier-"));
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    vi.stubEnv("RAILWAY_API_TOKEN", "");
+    vi.stubEnv("BOS_IMAGE", "");
+    const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: false,
+        railwayService: "app",
+        runtimeConfig: null,
+        localConfig: { extends: "bos://acct/gateway" },
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toBeUndefined();
+    expect(deps.repointServiceSource).not.toHaveBeenCalled();
+    expect(deps.deployImageToRailway).toHaveBeenCalledWith({
+      service: "app",
+      configDir: sessionRoot,
+    });
+    expect(outcome.legs.railway?.status).toBe("ok");
+    expect(outcome.legs.railway?.detail).toBe(`redeployed app`);
   });
 });

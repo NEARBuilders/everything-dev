@@ -1,7 +1,5 @@
 ---
-"api": minor
 "everything-dev": minor
-"@everything-dev/upload-app": minor
 ---
 
 Move artifact-control out of `api`/`host` ownership and into a dedicated plugin package. The shared artifact-control client/server helpers remain in `everything-dev`, and the plugin now owns the `/api/storage/bundles` route and its runtime wiring.

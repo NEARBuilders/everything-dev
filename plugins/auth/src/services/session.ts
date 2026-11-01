@@ -1,8 +1,9 @@
 import { and, asc, eq } from "drizzle-orm";
-import { Context, Effect } from "effect";
+import { Clock, Context, Effect } from "effect";
 import { attemptAuth, attemptDb } from "../attempts";
 import type { InferOutput } from "../contract";
 import * as schema from "../db/schema";
+import { isPersonalOrganization } from "../personal-organization";
 import type { PermissionRegistry, PluginServices } from "../service-types";
 import {
   getActiveOrganizationId,
@@ -18,6 +19,11 @@ type Auth = PluginServices["auth"];
 type Db = PluginServices["db"];
 
 type PreResolvedSession = NonNullable<InferOutput<"getContext">["session"]>;
+
+const healthStamp = (millis: number) => ({
+  status: "ok" as const,
+  timestamp: new Date(millis).toISOString(),
+});
 
 async function listMemberTeams(
   db: Db,
@@ -49,7 +55,7 @@ async function listMemberTeams(
 export class SessionService extends Context.Service<
   SessionService,
   {
-    health: () => Effect.Effect<{ status: "ok"; timestamp: string }, never>;
+    health: Effect.Effect<{ status: "ok"; timestamp: string }, never>;
     getSession: (headers: Headers) => Effect.Effect<InferOutput<"getSession">, AuthFailure>;
     getContext: (
       headers: Headers,
@@ -70,11 +76,7 @@ export const buildSessionService = ({
   registry: PermissionRegistry;
 }) =>
   SessionService.of({
-    health: () =>
-      Effect.succeed({
-        status: "ok" as const,
-        timestamp: new Date().toISOString(),
-      }),
+    health: Effect.map(Clock.currentTimeMillis, healthStamp),
 
     getSession: (headers) =>
       attemptAuth(() => auth.api.getSession({ headers })).pipe(
@@ -394,7 +396,7 @@ export const buildSessionService = ({
                 id: activeMembership.id,
                 role: activeMembership.role,
               },
-              isPersonal: org.slug === user.id,
+              isPersonal: isPersonalOrganization(org, user.id),
               hasOrganization: true,
               teams,
               activeTeamId: teams.some((team) => team.id === sessionTeamId) ? sessionTeamId : null,

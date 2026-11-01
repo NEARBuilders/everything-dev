@@ -1,6 +1,4 @@
 ---
-"ui": minor
-"@everything-dev/auth-plugin": minor
 "everything-dev": minor
 ---
 

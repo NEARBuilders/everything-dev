@@ -5,6 +5,7 @@ import { OpenAPIReferenceHandlerPlugin } from "@orpc/openapi/plugins";
 import { RPCHandler } from "@orpc/server/fetch";
 import { ZodToJsonSchemaConverter } from "@orpc/zod";
 import { createPlugin, createPluginRuntime } from "every-plugin";
+import type { DirectModuleHostHandler } from "every-plugin/dev-host";
 import { startDirectModuleHost } from "every-plugin/dev-host";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -44,14 +45,14 @@ describe("direct module host", () => {
       port: 0,
       effectContext: () => plugin.initialized.effectContext,
       handlers: {
-        rpc: new RPCHandler(plugin.router),
+        rpc: new RPCHandler(plugin.router) as DirectModuleHostHandler,
         api: new OpenAPIHandler(plugin.router, {
           plugins: [
             new OpenAPIReferenceHandlerPlugin({
               spec: () => generator.generate(plugin.router, { version: "3.1.1" }),
             }),
           ],
-        }),
+        }) as DirectModuleHostHandler,
       },
     });
 

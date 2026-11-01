@@ -16,16 +16,16 @@ import { computeDeployedVersionStatus, type DeployedVersionStatus } from "./vers
 export class OpsService extends Context.Service<
   OpsService,
   {
-    status: (session: ResolutionSession | null) => Effect.Effect<StatusResult, unknown>;
+    status: (session: ResolutionSession | null) => Effect.Effect<StatusResult, never>;
     logs: (
       input: { tail?: number | undefined; service?: string | undefined },
       configDir: string,
-    ) => Effect.Effect<LogsResult, unknown>;
+    ) => Effect.Effect<LogsResult, never>;
     kill: (input: {
       all?: boolean | undefined;
       configDir?: string | undefined;
       signal?: "SIGTERM" | "SIGKILL" | undefined;
-    }) => Effect.Effect<KillResult, unknown>;
+    }) => Effect.Effect<KillResult, never>;
   }
 >()("bos/OpsService") {
   static Live = Layer.succeed(
@@ -57,7 +57,7 @@ export class OpsService extends Context.Service<
             envFile: "missing" as const,
             error: error instanceof Error ? error.message : "Unknown error",
           }),
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
 
       logs: (input, configDir) =>
         Effect.tryPromise({
@@ -85,7 +85,7 @@ export class OpsService extends Context.Service<
                 : "Failed to read logs",
             ],
           }),
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
 
       kill: (input) =>
         Effect.tryPromise({
@@ -168,7 +168,7 @@ export class OpsService extends Context.Service<
             skipped: [],
             error: error instanceof Error ? error.message : "Unknown error",
           }),
-        }),
+        }).pipe(Effect.catch((failure) => Effect.succeed(failure))),
     }),
   );
 }

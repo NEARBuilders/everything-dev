@@ -32,11 +32,11 @@ describe("preflight credentialed URL parsing", () => {
     expect(failures).toEqual([]);
   });
 
-  it("gives API/AUTH failures the docker-compose hint", async () => {
+  it("gives API/AUTH failures the persistent-pglite fallback hint", async () => {
     const env = { API_DATABASE_URL: "postgres://u:p@localhost:59998/api_db" };
     const failures = await Effect.runPromise(preflightLocalInfra(env));
     expect(failures.length).toBe(1);
-    expect(failures[0]?.error).toContain("docker compose up -d --wait");
+    expect(failures[0]?.error).toContain("persistent .bos/db PGlite");
     expect(failures[0]?.tcpReachable).toBe(false);
   }, 20000);
 });

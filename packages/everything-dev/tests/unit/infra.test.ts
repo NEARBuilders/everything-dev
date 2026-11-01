@@ -70,27 +70,26 @@ describe("generated env templates", () => {
     }
   });
 
-  it("writes env example with conventional database URLs from runtime secrets", async () => {
+  it("writes env example with substrate URLs empty for zero-config dev (plan 055 ticket 11)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "bos-infra-"));
     tempDirs.push(dir);
 
     await materialize(dir, buildRuntimeConfig());
     const envExample = readFileSync(join(dir, ".env.example"), "utf-8");
 
-    expect(envExample).toContain("API_DATABASE_URL");
-    expect(envExample).toContain("AUTH_DATABASE_URL");
-    expect(envExample).not.toContain("EXAMPLE_DATABASE_URL");
-    expect(envExample).toContain("PAYMENT_API_URL");
+    expect(envExample).toContain("API_DATABASE_URL=");
+    expect(envExample).toContain("AUTH_DATABASE_URL=");
+    expect(envExample).toContain("PAYMENT_API_URL=");
 
     expect(envExample).toContain("# app.host");
     expect(envExample).toContain("CORS_ORIGIN=http://localhost:3000");
     expect(envExample).toContain("# app.api");
-    expect(envExample).toContain(
-      "API_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5432/api_db",
-    );
     expect(envExample).toContain("# app.auth");
+    // Substrate URLs are opt-in: the example renders them empty with a hint,
+    // so a fresh `bos dev` with no .env picks the persistent .bos/db default.
+    expect(envExample).not.toContain("postgres://everythingdev");
     expect(envExample).toContain(
-      "AUTH_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5433/auth_db",
+      "# Leave empty for the persistent local PGlite default (.bos/db); set a postgres:// URL for production or shared access.",
     );
     expect(envExample).toContain("BETTER_AUTH_SECRET=");
     expect(envExample).toContain("# plugins.example");
@@ -101,7 +100,7 @@ describe("generated env templates", () => {
     expect(existsSync(join(dir, "docker-compose.yml"))).toBe(false);
   });
 
-  it("writes a committed .env.test with isolated test database URLs", async () => {
+  it("writes a committed .env.test with in-memory pglite test database URLs", async () => {
     const dir = mkdtempSync(join(tmpdir(), "bos-env-test-"));
     tempDirs.push(dir);
 
@@ -109,18 +108,12 @@ describe("generated env templates", () => {
     const envTest = readFileSync(join(dir, ".env.test"), "utf-8");
 
     expect(envTest).toContain("# app.api");
-    expect(envTest).toContain(
-      "API_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5434/api_test_db",
-    );
+    expect(envTest).toContain("API_DATABASE_URL=pglite::memory:");
     expect(envTest).toContain("# app.auth");
-    expect(envTest).toContain(
-      "AUTH_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5435/auth_test_db",
-    );
+    expect(envTest).toContain("AUTH_DATABASE_URL=pglite::memory:");
     expect(envTest).toContain("BETTER_AUTH_SECRET=regression-test-secret-do-not-use-in-production");
     expect(envTest).toContain("# plugins.example");
-    expect(envTest).toContain(
-      "EXAMPLE_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5434/api_test_db",
-    );
+    expect(envTest).toContain("EXAMPLE_DATABASE_URL=pglite::memory:");
     expect(envTest).not.toContain("CORS_ORIGIN=");
     expect(envTest).not.toContain("PAYMENT_API_URL=");
   });
@@ -146,10 +139,13 @@ describe("generated env templates", () => {
     const envExample = readFileSync(join(dir, ".env.example"), "utf-8");
 
     expect(envExample).toContain("# plugins.cache");
-    expect(envExample).toContain("CACHE_REDIS_URL=redis://localhost:6379");
+    expect(envExample).toContain("CACHE_REDIS_URL=");
+    expect(envExample).toContain(
+      "# Leave empty for dev defaults; set a redis:// URL to opt into a real Redis.",
+    );
   });
 
-  it("creates .env with generated auth secret and preserves other defaults", async () => {
+  it("creates .env from the example with a generated auth secret and empty substrate URLs", async () => {
     const dir = mkdtempSync(join(tmpdir(), "bos-env-"));
     tempDirs.push(dir);
 
@@ -158,12 +154,9 @@ describe("generated env templates", () => {
 
     const env = readFileSync(join(dir, ".env"), "utf-8");
 
-    expect(env).toContain(
-      "API_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5432/api_db",
-    );
-    expect(env).toContain(
-      "AUTH_DATABASE_URL=postgres://everythingdev:everythingdev@localhost:5433/auth_db",
-    );
+    expect(env).toContain("API_DATABASE_URL=");
+    expect(env).toContain("AUTH_DATABASE_URL=");
+    expect(env).not.toContain("postgres://everythingdev");
     expect(env).not.toContain("EXAMPLE_DATABASE_URL");
     expect(env).toContain("PAYMENT_API_URL=");
     expect(env).toContain("CORS_ORIGIN=http://localhost:3000");

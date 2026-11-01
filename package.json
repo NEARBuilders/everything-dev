@@ -2,7 +2,7 @@
   "name": "monorepo",
   "private": true,
   "scripts": {
-    "prepare": "test -d repos/effect/.git || git clone --depth 1 --branch effect@4.0.0-rc.117 https://github.com/Effect-TS/effect.git repos/effect; effect-tsgo patch --oxlint",
+    "prepare": "node --import tsx scripts/check-effect-pin.ts && (test -d repos/effect/.git || git clone --depth 1 --branch effect@4.0.0-rc.117 https://github.com/Effect-TS/effect.git repos/effect; effect-tsgo patch --oxlint)",
     "init": "pnpm run db:migrate",
     "dev": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts dev",
     "dev:ui": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts dev --api remote",
@@ -14,7 +14,8 @@
     "infra:plan": "cd infra && pnpm exec alchemy plan",
     "publish": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts publish",
     "bos": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts",
-    "typecheck": "BOS_NO_BANNER=1 pnpm run bos typecheck",
+    "typecheck": "BOS_NO_BANNER=1 pnpm run bos typecheck && pnpm run typecheck:packages",
+    "typecheck:packages": "pnpm --filter everything-dev --filter every-plugin --filter better-near-auth run typecheck",
     "lint": "biome check . && pnpm run lint:effect",
     "lint:effect": "oxlint --type-aware --ignore-pattern=repos .",
     "lint:fix": "biome check --write .",
@@ -35,7 +36,7 @@
     "db:generate": "pnpm --filter api exec drizzle-kit generate",
     "db:migrate": "pnpm --filter api exec drizzle-kit migrate",
     "test": "pnpm run test:ui && pnpm run test:api && pnpm run test:e2e && pnpm run test:framework",
-    "test:framework": "pnpm --filter everything-dev test && pnpm --filter every-plugin test",
+    "test:framework": "pnpm --filter everything-dev test && pnpm --filter every-plugin test && pnpm --filter better-near-auth test",
     "test:ui": "pnpm --filter ui test",
     "test:api": "pnpm --filter api test",
     "test:integration": "pnpm --filter api test tests/integration",
@@ -51,17 +52,12 @@
     "test:regression:http:dev": "REGRESSION_MODE=dev:ssr sh -lc 'cd tests/regression/http && go test ./... -count=1 -v -timeout 10m'",
     "test:regression:http:start": "REGRESSION_MODE=start:ssr sh -lc 'cd tests/regression/http && go test ./... -count=1 -v -timeout 10m'",
     "test:regression:http:backcompat": "REGRESSION_MODE=backcompat sh -lc 'cd tests/regression/http && go test ./... -count=1 -v -timeout 10m'",
-    "test:regression:framework": "cd tests/regression/framework && go test ./... -count=1 -v -timeout 15m",
+    "test:regression:framework": "cd tests/regression/framework && go test ./... -count=1 -v -timeout 30m",
     "regression:dev:ssr": "node tests/regression/lib/start-stack.mjs dev:ssr",
     "regression:dev:csr": "node tests/regression/lib/start-stack.mjs dev:csr",
     "regression:start:ssr": "node tests/regression/lib/start-container.mjs ssr",
     "regression:start:csr": "node tests/regression/lib/start-container.mjs csr",
     "regression:backcompat": "node tests/regression/lib/start-stack.mjs backcompat",
-    "test:db:up": "docker compose up -d --wait postgres-api-test postgres-auth-test",
-    "test:db:reset": "docker compose rm -fsv postgres-api-test postgres-auth-test && docker compose up -d --wait postgres-api-test postgres-auth-test",
-    "dev:postgres": "docker compose up -d --wait && pnpm run dev",
-    "dev:postgres:down": "docker compose down",
-    "dev:postgres:reset": "docker compose down -v && docker compose up -d --wait",
     "test:regression:browser": "pnpm run test:regression:browser:dev:ssr && pnpm run test:regression:browser:dev:csr && pnpm run test:regression:browser:start:ssr && pnpm run test:regression:browser:start:csr && pnpm run test:regression:browser:backcompat",
     "test:regression:http": "pnpm run test:regression:http:dev && pnpm run test:regression:http:start && pnpm run test:regression:http:backcompat",
     "test:regression:dev:ssr": "pnpm run test:regression:http:dev && pnpm run test:regression:browser:dev:ssr",
@@ -93,7 +89,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "typescript": "^7.0.2"
+    "typescript": "catalog:"
   },
   "dependencies": {
     "@better-auth/api-key": "catalog:",

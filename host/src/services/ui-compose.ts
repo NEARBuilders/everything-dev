@@ -63,7 +63,7 @@ export interface ComposedUi {
   clientPayload: ComposePayload;
 }
 
-interface UiSource {
+export interface UiSource {
   key: string;
   mfName: string;
   remote?: EntrySlot;
@@ -79,6 +79,11 @@ interface UiSource {
   browserManifestUrl?: string;
   /** client-side web entry (browser remoteEntry.js) */
   webEntry?: string;
+  /** Shared-singleton `name → version` the pinned build embedded (#546) —
+   * cross-compared across the composition before any remote loads, so a
+   * platform skew fails with a named error instead of the federation
+   * runtime's cryptic singleton negotiation error. */
+  sharedVersions?: Record<string, string>;
 }
 
 /**
@@ -115,6 +120,7 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
       manifestIntegrity: config.ui.manifestIntegrity,
       browserManifestUrl: coreUrls.browserManifest,
       webEntry: coreUrls.web,
+      sharedVersions: config.ui.sharedVersions,
     },
   ];
   for (const [id, plugin] of Object.entries(config.plugins ?? {})) {
@@ -144,6 +150,7 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
       manifestIntegrity: ui.manifestIntegrity,
       browserManifestUrl: urls.browserManifest,
       webEntry: urls.web,
+      sharedVersions: ui.sharedVersions,
     });
   }
   return sources.sort((a, b) => a.key.localeCompare(b.key));
@@ -263,6 +270,60 @@ const loadManifest = Effect.fn("loadManifest")(function* (
 interface ComposableSource {
   source: UiSource;
   manifest: PluginManifest;
+}
+
+export class SharedSingletonSkewError extends Data.TaggedError("SharedSingletonSkewError")<{
+  readonly name: string;
+  readonly versionA: string;
+  readonly sourceA: string;
+  readonly versionB: string;
+  readonly sourceB: string;
+}> {
+  get message() {
+    return (
+      `Shared singleton "${this.name}" skew across UI sources: "${this.sourceA}" was built against ` +
+      `${this.versionA}, "${this.sourceB}" against ${this.versionB} — the composition refuses to load ` +
+      `a split module graph. Redeploy the older bundle: \`bos upgrade\` realigns the platform pin, ` +
+      `\`bos deploy\` rebuilds against it (issue #546).`
+    );
+  }
+}
+
+/**
+ * The composition's shared-singleton consistency guard (#546): every UI
+ * source's version manifest declares the singleton versions its build
+ * embedded; any singleton named by two or more sources at different versions
+ * would throw the federation runtime's cryptic negotiation error mid-load —
+ * this names the sources and versions instead. Sources without a record
+ * (local dev sources, builds predating the field) are skipped.
+ */
+export function sharedSingletonSkew(
+  composable: ComposableSource[],
+): SharedSingletonSkewError | null {
+  const byName = new Map<string, Array<{ source: string; version: string }>>();
+  for (const { source, manifest } of composable) {
+    const shared = source.sharedVersions;
+    if (!shared || manifest.name !== source.key) continue;
+    for (const [name, version] of Object.entries(shared)) {
+      const uses = byName.get(name) ?? [];
+      uses.push({ source: source.key, version });
+      byName.set(name, uses);
+    }
+  }
+  for (const [name, uses] of byName) {
+    const first = uses[0]!;
+    const diverged = uses.find((use) => use.version !== first.version);
+    if (diverged) {
+      return new SharedSingletonSkewError({
+        name,
+        versionA: first.version,
+        sourceA: first.source,
+        versionB: diverged.version,
+        sourceB: diverged.source,
+      });
+    }
+  }
+  return null;
 }
 
 /**
@@ -395,6 +456,8 @@ export const composeUi = Effect.fn("composeUi")(function* (
 ) {
   const sources = uiSources(config);
   const composable = yield* resolveComposableSources(sources, cache);
+  const skew = sharedSingletonSkew(composable);
+  if (skew) return yield* skew;
   const corePair = composable.find(({ source }) => source.key === CORE_UI_KEY)!;
   const core = corePair.source;
 
@@ -532,6 +595,8 @@ export const composeClientPayload = Effect.fn("composeClientPayload")(function* 
   const sources = uiSources(config);
   if (sources.every((source) => source.key === CORE_UI_KEY)) return undefined;
   const composable = yield* resolveComposableSources(sources, cache);
+  const skew = sharedSingletonSkew(composable);
+  if (skew) return yield* skew;
   const digest = yield* digestOfSources(composable);
   return { digest, clientPayload: clientPayloadOf(composable, digest) };
 });

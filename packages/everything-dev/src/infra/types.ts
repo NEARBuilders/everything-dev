@@ -57,25 +57,9 @@ export interface ServiceDescriptorPlan {
   localPath?: string;
 }
 
-export interface DatabasePlan {
-  secret: string;
-  slug: string;
-  port: number;
-  dbName: string;
-  url: string;
-}
-
-export interface RedisPlan {
-  secret: string;
-  slug: string;
-  port: number;
-  url: string;
-}
-
 export type InfraPhase =
   | "resolve-config"
   | "allocate-services"
-  | "allocate-databases"
   | "claim"
   | "materialize-env"
   | "launch";
@@ -89,6 +73,14 @@ export class InfraError extends Data.TaggedError("InfraError")<{
 export interface InfraInput {
   configDir: string;
   bosConfig: RuntimeConfig;
+  /**
+   * The operator-supplied environment (shell exports ∪ `.env`-file values).
+   * Conventional database/redis URLs are generated only for `*_DATABASE_URL`/
+   * `*_REDIS_URL` secrets the operator did not already supply — an unset
+   * operator tier leaves the secret to the consumer's own default (the pglite
+   * boot schemas), which is what keeps compose out of the zero-config dev path.
+   */
+  operatorEnv?: Record<string, string>;
   cli: {
     port?: number;
     apiPort?: number;

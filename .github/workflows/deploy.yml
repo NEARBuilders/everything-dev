@@ -227,6 +227,13 @@ jobs:
       BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
       BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      # Workspace-scoped token + project/environment targeting — the root
+      # repoint (`railway service source connect` to the smoked digest) needs
+      # workspace scope; a project token alone only authorizes the plain
+      # redeploy (same wiring as consumer-deploy.yml).
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+      RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
       # Pre-pushed image from the image job — bos deploy skips its local
       # image build/push and pins the Railway deploy to this digest. BOS_IMAGE
       # carries the exact pushed ref so the pin pairs with the digest (with a
@@ -278,12 +285,6 @@ jobs:
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      # The post-publish smoke boots the runtime image identity-driven; its
-      # boot surface needs the compose test databases (the smoke-container
-      # idiom: host.docker.internal:5434/5435).
-      - name: Start test databases
-        run: docker compose up -d --wait postgres-api-test postgres-auth-test
 
       - name: Deploy (preflight → build → upload → publish → smoke → Railway pin)
         timeout-minutes: 55

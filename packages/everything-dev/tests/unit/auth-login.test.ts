@@ -359,6 +359,25 @@ describe("device login client", () => {
     await expect(startDeviceLogin({ siteUrl: SITE })).rejects.toThrow(/could not start/i);
   });
 
+  it("carries the host 503 detail in the could-not-start message", async () => {
+    stubFetchSequence([
+      {
+        match: "/api/auth/device/code",
+        status: 503,
+        body: {
+          error: "Service Unavailable",
+          message: "The API is currently unavailable.",
+          detail:
+            "Plugin auth at https://cdn.everything.dev/bundles/dev.everything.near/everything.dev/auth failed: shared dependency version skew",
+        },
+      },
+    ]);
+
+    await expect(startDeviceLogin({ siteUrl: SITE })).rejects.toThrow(
+      /could not start \(503\): The API is currently unavailable\. — Plugin auth .*version skew/,
+    );
+  });
+
   it("rejects when aborted while waiting", async () => {
     stubFetchSequence([
       { match: "/api/auth/device/code", status: 200, body: deviceCodeResponse() },

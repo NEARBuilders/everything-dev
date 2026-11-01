@@ -5,17 +5,20 @@
  * issue: https://github.com/NEARBuilders/everything-dev/issues
  */
 import { defineConfig } from "drizzle-kit";
-import { resolveDatabaseUrl, workspaceIdentityFromModuleUrl } from "everything-dev/db";
+import {
+  drizzleCredentialsFor,
+  resolveDatabaseUrl,
+  workspaceIdentityFromModuleUrl,
+} from "everything-dev/db";
 
 const identity = workspaceIdentityFromModuleUrl(import.meta.url);
+const credentials = drizzleCredentialsFor(resolveDatabaseUrl(identity));
 
 export default defineConfig({
   schema: "./src/db/schema.ts",
   out: "./src/db/migrations",
-  dialect: "postgresql",
-  dbCredentials: {
-    url: resolveDatabaseUrl(identity),
-  },
+  dialect: credentials.dialect,
+  dbCredentials: credentials.dbCredentials,
   migrations: {
     schema: identity.journal.schema,
     table: identity.journal.table,

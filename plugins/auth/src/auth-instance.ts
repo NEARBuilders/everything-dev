@@ -21,6 +21,7 @@ import { custody } from "./custody";
 import type { Database as AuthDatabase } from "./db/layer";
 import * as schema from "./db/schema";
 import { BOS_CLI_CLIENT_ID, deviceLink } from "./device-link";
+import { emailVisibility } from "./email-visibility";
 import {
   isNearInvitation,
   isNearNetwork,
@@ -37,8 +38,14 @@ import {
   requireUserVerifiedSignIn,
   requireWalletCapablePasskey,
 } from "./passkey-sign-up";
+import {
+  activateDefaultOrganizationForSession,
+  ensurePersonalOrganization,
+  mirrorSessionOrganizationChoice,
+} from "./personal-organization";
 import { attributeReferralOnUserCreate, referralSignupGuard } from "./referral-signup";
 import { setEmail } from "./set-email";
+import type { OrgPermissionAuth } from "./utils";
 
 function buildOrganizationAccess(permissions: AuthPermissionStatements) {
   const ac = createAccessControl(permissions.statements);
@@ -112,8 +119,10 @@ export function resolvePasskeyRelyingPartyOptions(
 }
 
 export function buildSiwnOptions(config: AuthConfig): Parameters<typeof siwn>[0] {
+  const relyingParty = resolvePasskeyRelyingPartyOptions(config);
   const base = {
     passkeyWalletNetwork: config.network ?? "mainnet",
+    passkeyWalletRelyingParty: { rpID: relyingParty.rpID, origins: relyingParty.origin },
     apiKey: config.siwn.apiKey,
     rpcUrl: config.siwn.rpcUrl,
     relayer: config.siwn.relayer,
@@ -203,50 +212,6 @@ async function sendSMS(
   console.log(`================================================================\n`);
 }
 
-async function createPersonalOrganization(
-  database: AuthDatabase,
-  user: { id: string; name?: string; email?: string; isAnonymous?: boolean },
-) {
-  if (user.isAnonymous) {
-    return null;
-  }
-
-  const existingOrg = await database.query.organization.findFirst({
-    where: (org, { eq, and }) =>
-      and(eq(org.slug, user.id), eq(org.metadata, JSON.stringify({ isPersonal: true }))),
-  });
-
-  if (existingOrg) {
-    return existingOrg;
-  }
-
-  const [personalOrg] = await database
-    .insert(schema.organization)
-    .values({
-      id: crypto.randomUUID(),
-      name: user.name || "My Organization",
-      slug: user.id,
-      logo: null,
-      metadata: JSON.stringify({ isPersonal: true }),
-      createdAt: new Date(),
-    })
-    .returning();
-
-  if (!personalOrg) {
-    throw new Error("Failed to create personal organization");
-  }
-
-  await database.insert(schema.member).values({
-    id: crypto.randomUUID(),
-    userId: user.id,
-    organizationId: personalOrg.id,
-    role: "owner",
-    createdAt: new Date(),
-  });
-
-  return personalOrg;
-}
-
 export function createAuthInstance(
   config: AuthConfig,
   db: AuthDatabase,
@@ -283,7 +248,9 @@ export function createAuthInstance(
     ? siwnOptions.recipients.mainnet
     : siwnOptions.recipient;
 
-  return betterAuth({
+  let authRef: OrgPermissionAuth | undefined;
+
+  const auth = betterAuth({
     database: drizzleAdapter(db, {
       provider: "pg",
       schema: schema,
@@ -341,10 +308,12 @@ export function createAuthInstance(
       passkeySignUp({ network, referral: config.referral }),
       setEmail({ requireVerification: Boolean(emailApiKey && emailConfig?.from) }),
       organizationApproval(db),
+      emailVisibility({ getAuth: () => authRef }),
       organization({
         ac: orgAc,
         roles: orgRoles,
         membershipLimit: membershipPolicy.limit,
+        requireEmailVerificationOnInvitation: true,
         teams: {
           enabled: true,
           defaultTeam: { enabled: false },
@@ -528,8 +497,27 @@ export function createAuthInstance(
           after: async (user) => {
             const userData = user as typeof schema.user.$inferInsert & { isAnonymous?: boolean };
             if (userData.isAnonymous) return;
-            await createPersonalOrganization(db, user);
+            await ensurePersonalOrganization(db, user);
             await attributeReferralOnUserCreate(user, config.referral);
+          },
+        },
+      },
+      session: {
+        create: {
+          after: async (session) => {
+            await activateDefaultOrganizationForSession(db, session).catch((error) => {
+              console.warn(
+                "[Auth] Failed to activate default organization on session create",
+                error,
+              );
+            });
+          },
+        },
+        update: {
+          after: async (session) => {
+            await mirrorSessionOrganizationChoice(db, session).catch((error) => {
+              console.warn("[Auth] Failed to remember organization preference", error);
+            });
           },
         },
       },
@@ -563,6 +551,8 @@ export function createAuthInstance(
       },
     },
   });
+  authRef = auth;
+  return auth;
 }
 
 export type Auth = ReturnType<typeof createAuthInstance>;

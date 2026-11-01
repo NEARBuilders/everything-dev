@@ -5,6 +5,7 @@ import { z } from "zod";
 export type { AuthServices } from "./auth-export";
 
 import { createAuthInstance } from "./auth-instance";
+import { ensureBootstrapAdmin } from "./bootstrap-admin";
 import { normalizeAuthConfig } from "./config";
 import { authSecretsSchema, authVariablesSchema } from "./config-schemas";
 import { contract } from "./contract";
@@ -65,6 +66,16 @@ export default createPlugin.withPlugins<PluginsClient>()({
       };
 
       yield* Effect.log("[Auth] Better Auth instance created");
+
+      if (config.secrets.AUTH_BOOTSTRAP_ADMIN_API_KEY) {
+        yield* ensureBootstrapAdmin({
+          db,
+          secret: config.secrets.AUTH_BOOTSTRAP_ADMIN_API_KEY,
+        });
+        yield* Effect.logWarning(
+          "[Auth] bootstrap admin enabled via AUTH_BOOTSTRAP_ADMIN_API_KEY — dev/test seeding only, never set in production",
+        );
+      }
 
       return Layer.mergeAll(
         buildAuthServicesLayer({

@@ -1,5 +1,4 @@
 ---
-"host": patch
 "every-plugin": patch
 ---
 

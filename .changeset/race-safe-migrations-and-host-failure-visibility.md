@@ -1,6 +1,5 @@
 ---
 "everything-dev": patch
-"host": patch
 ---
 
 Make host/plugin failures visible and stop one failed plugin from taking down the API.

@@ -194,4 +194,28 @@ describe("authored form round-trip", () => {
     const { extends: _dropped, name: _renamed, ...expectedRest } = descriptor;
     expect(inputRest).toEqual(expectedRest);
   });
+
+  it("round-trips a remote-only auth attachment with no local path (citynode shape)", () => {
+    const descriptor = App({
+      name: "child.test",
+      extends: "bos://base.near/base",
+      account: "child.near",
+      domain: "child.test",
+      auth: {
+        name: "@everything-dev/auth-plugin",
+        variables: {
+          siwn: { recipients: { mainnet: "child.near" } },
+        },
+        secrets: ["AUTH_DATABASE_URL"],
+        ui: { name: "auth-ui", path: "plugins/auth-ui" },
+      },
+    });
+    const input = configInputToDescriptor(toConfigInput(descriptor));
+    expect(input.auth).toMatchObject({
+      name: "@everything-dev/auth-plugin",
+      variables: { siwn: { recipients: { mainnet: "child.near" } } },
+      secrets: ["AUTH_DATABASE_URL"],
+      ui: { name: "auth-ui", path: "plugins/auth-ui" },
+    });
+  });
 });

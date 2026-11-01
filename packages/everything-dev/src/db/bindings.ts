@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { Context, Data, Effect, Layer } from "effect";
 import type { RuntimeConfig } from "../types";
+import { PGLITE_DEFAULT_URL } from "./binding";
 import { getDatabaseUrlSecretName, getMigrationStorage, pluginMigrationSlug } from "./core";
 import { type WorkspaceIdentity, workspaceIdentityFromWorkspaceDir } from "./identity";
 
@@ -91,15 +92,28 @@ function resolvePluginBinding(
   const url = env[identity.secretName];
   if (!url) {
     const declaredDatabaseSecrets = (secrets ?? []).filter((s) => s.endsWith("_DATABASE_URL"));
-    const mismatch =
-      declaredDatabaseSecrets.length > 0 && !declaredDatabaseSecrets.includes(identity.secretName)
-        ? ` Config declares ${declaredDatabaseSecrets.join(", ")} — the workspace package name and the declared secret disagree.`
-        : "";
-    throw new Error(
-      `.env missing ${identity.secretName} for plugin "${key}".` +
-        mismatch +
-        ` Add it to your .env file (see .env.example).`,
-    );
+    if (
+      declaredDatabaseSecrets.length > 0 &&
+      !declaredDatabaseSecrets.includes(identity.secretName)
+    ) {
+      throw new Error(
+        `.env missing ${identity.secretName} for plugin "${key}".` +
+          ` Config declares ${declaredDatabaseSecrets.join(", ")} — the workspace package name and the declared secret disagree.` +
+          ` Add it to your .env file (see .env.example).`,
+      );
+    }
+    if (!identity.workspaceDir) {
+      throw new Error(
+        `.env missing ${identity.secretName} for remote plugin "${key}" — a remote binding needs an explicit URL; add it to your .env file.`,
+      );
+    }
+    return {
+      key,
+      source: source ?? "remote",
+      section,
+      identity,
+      url: PGLITE_DEFAULT_URL,
+    };
   }
 
   return {

@@ -14,6 +14,12 @@ export interface HashArtifactsPluginOptions {
   entryBase: string;
   /** Absolute dist root this environment wrote (web: `dist`, node: `dist/ssr`). */
   distRoot: string;
+  /**
+   * The shared-singleton `name → version` map this build embedded — recorded
+   * in build-report.json so the version manifest carries shared-dep
+   * semantics (#546).
+   */
+  shared?: Record<string, string>;
 }
 
 function listFiles(dir: string, out: string[] = []): string[] {
@@ -71,7 +77,14 @@ export function hashArtifactsPlugin(options: HashArtifactsPluginOptions): Rsbuil
         }
         fs.writeFileSync(
           path.join(distRoot, "build-report.json"),
-          `${JSON.stringify(BuildEntryReportSchema.parse(plan.report), null, 2)}\n`,
+          `${JSON.stringify(
+            BuildEntryReportSchema.parse({
+              ...plan.report,
+              ...(options.shared ? { shared: options.shared } : {}),
+            }),
+            null,
+            2,
+          )}\n`,
         );
       });
     },

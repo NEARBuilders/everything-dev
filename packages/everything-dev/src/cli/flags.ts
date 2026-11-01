@@ -12,6 +12,19 @@ type SchemaLike = {
   };
 };
 
+function formatDefault(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (value === null || value === undefined) return "null";
+  try {
+    return JSON.stringify(value) ?? "null";
+  } catch {
+    return "unserializable default";
+  }
+}
+
 /** The flag description is whatever `.describe()` attached along the
  * wrapper chain — check each layer's registry entry. */
 export function describeOf(schema: SchemaLike): string | undefined {
@@ -75,7 +88,7 @@ export function flagHelpLines(descriptor: CommandDescriptor): string[] {
     if (description) parts.push(description);
     const defaultValue = defaultValueOf(fieldSchema as SchemaLike);
     if (defaultValue !== undefined && typeof defaultValue !== "function") {
-      parts.push(`default: ${String(defaultValue)}`);
+      parts.push(`default: ${formatDefault(defaultValue)}`);
     }
     lines.push(`    ${parts.join("  ")}`);
   }

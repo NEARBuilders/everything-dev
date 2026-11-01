@@ -16,6 +16,7 @@ import {
   fetchRollbackHistory,
   isSnapshotLive,
   publishRollbackSnapshot,
+  resolvePointerRestore,
 } from "../services/deploy/rollback-flow";
 import { type DeployTrainInput, DeployTrainService } from "../services/deploy/train";
 import { fetchDeployManifests } from "../services/registry/fastkv";
@@ -283,7 +284,10 @@ async function rollbackBody(
       verbose: input.verbose,
       dryRun: input.dryRun,
     },
-    { skipVerify: true },
+    {
+      skipVerify: true,
+      restorePlatformPointer: await resolvePointerRestore(account, domain, input.registry),
+    },
   );
   if (!rollback.ok) {
     return {
@@ -455,6 +459,7 @@ async function deployBody(
       ? (session.rawConfig as unknown as Record<string, unknown>)
       : undefined,
     repository: nextSession.config?.repository,
+    release: result.releaseLeg,
   });
 
   if (legsOutcome.failure) {

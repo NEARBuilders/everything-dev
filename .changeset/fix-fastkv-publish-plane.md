@@ -1,7 +1,5 @@
 ---
 "everything-dev": patch
-"ui": minor
-"api": minor
 ---
 
 Fix the tenant publish plane: the apps plugin no longer overrides the registry namespace, so tenant config publishes (including DAO-owned tenants via the Trezu flow) now target the global `dev.everything.near` registry that `bos://` resolution and the host's tenant loader actually read. Previously the wizard wrote configs into a project-local FastKV trie that the host could never resolve.

@@ -149,7 +149,7 @@ export default {
       },
     },
     secrets: {
-      AUTH_DATABASE_URL: process.env.AUTH_DATABASE_URL || "pglite:.bos/auth/:memory:",
+      AUTH_DATABASE_URL: process.env.AUTH_DATABASE_URL || "pglite:.bos/db",
       BETTER_AUTH_SECRET:
         process.env.BETTER_AUTH_SECRET || "dev-only-secret-do-not-use-in-production",
       GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET,
@@ -161,6 +161,7 @@ export default {
       RESEND_API_KEY: process.env.RESEND_API_KEY,
       NEAR_RELAYER_PRIVATE_KEY_MAINNET: process.env.NEAR_RELAYER_PRIVATE_KEY_MAINNET,
       NEAR_RELAYER_PRIVATE_KEY_TESTNET: process.env.NEAR_RELAYER_PRIVATE_KEY_TESTNET,
+      AUTH_BOOTSTRAP_ADMIN_API_KEY: process.env.AUTH_BOOTSTRAP_ADMIN_API_KEY,
     },
   } satisfies PluginConfigInput<typeof Plugin>,
 };

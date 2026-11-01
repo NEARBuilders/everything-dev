@@ -1,5 +1,13 @@
 # better-near-auth
 
+## 2.0.0-rc.5
+
+### Patch Changes
+
+- 47d39ed: Adopt nearConnect fork.3 (`elliotBraem/near-connect#v0.12.0-fork.3`): the sandbox now bridges `webauthn.create`/`webauthn.get` for permission-declared wallets (the missing host-library prerequisite for the immutable-pinned passkey executor, PR #621), and wallet sign-out no longer wipes the sandbox storage space (the version-keyed executor cache and gas-key bootstrap material survive sign-out). The passkey wallet manifest declares the new `webauthn` permission so the bridge opens for our executor.
+- b3d6bec: #340 passkey client hardening: the sandbox executor is pinned to an immutable commit SHA on NEAR-DevHub/near-connect-passkey (was the mutable `refs/heads/main` — every fetch could serve new sandbox code; the manifest bumps to `1.0.2` so cached executors are re-fetched), and every swallowed failure in the client surface now logs with cause — a failing `registerWallet` previously hid the wallet from sign-in silently.
+- 38fb0a2: #337 passkey/device-link server hardening: NEP-413 sandbox proofs now verify the WebAuthn `rpIdHash` and `clientDataJSON.origin` against a configured relying party (`passkeyWalletRelyingParty` — wired from the auth plugin's rpID/origin resolution, enforcement is opt-in for other consumers), the NEP-413 payload hash throws on a wrong nonce length instead of silently signing an empty challenge, both NEP-413 nonce guards are atomic via `reserveVerificationValue` (first-writer-wins; the find-then-insert race is gone), and `linkPasskeyWalletFromCredential` filters its existing-row lookup by network with the concurrent double-link double-check covered by the new `(accountId, network)` unique gate.
+
 ## 2.0.0-rc.4
 
 ### Patch Changes

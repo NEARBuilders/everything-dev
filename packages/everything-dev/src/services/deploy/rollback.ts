@@ -1,4 +1,5 @@
 import type { BosConfigInput } from "../../types";
+import { walkConfigSlots } from "../config-slots";
 import { fetchVerifiedManifest } from "./manifest-verify";
 
 /**
@@ -32,26 +33,9 @@ interface PinnedSlotRef {
 
 function collectPinnedSlots(config: BosConfigInput): Array<{ slot: string; ref: PinnedSlotRef }> {
   const slots: Array<{ slot: string; ref: PinnedSlotRef }> = [];
-  const app = config.app as Record<string, PinnedSlotRef | undefined> | undefined;
-  const plugins = config.plugins as Record<string, unknown> | undefined;
-
-  const push = (slot: string, ref: unknown): void => {
-    if (ref && typeof ref === "object") slots.push({ slot, ref: ref as PinnedSlotRef });
-  };
-
-  if (app) {
-    for (const key of ["host", "ui", "api", "auth"] as const) push(`app.${key}`, app[key]);
-    const auth = app.auth as { ui?: unknown } | undefined;
-    if (auth?.ui) push("app.auth.ui", auth.ui);
-  }
-  if (plugins) {
-    for (const [key, plugin] of Object.entries(plugins)) {
-      if (typeof plugin !== "object" || plugin === null) continue;
-      push(key, plugin);
-      const ui = (plugin as { ui?: unknown }).ui;
-      if (ui) push(`${key}.ui`, ui);
-    }
-  }
+  walkConfigSlots(config as unknown as Record<string, unknown>, ({ slot, entry }) => {
+    if (entry && typeof entry === "object") slots.push({ slot, ref: entry as PinnedSlotRef });
+  });
   return slots;
 }
 
@@ -126,9 +110,9 @@ export function summarizeSlotPins(config: BosConfigInput): string {
   return pinned.length > 0 ? pinned.join(" ") : "no version pins (pre-pin snapshot)";
 }
 
-export function buildRollbackPayload<T extends Record<string, unknown>>(
+export function buildRollbackPayload<T extends object>(
   targetConfig: T,
   rolledBackFrom: string,
-): T {
-  return { ...targetConfig, rolledBackFrom } as T;
+): T & { rolledBackFrom: string } {
+  return { ...targetConfig, rolledBackFrom };
 }

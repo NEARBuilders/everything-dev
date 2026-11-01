@@ -23,7 +23,7 @@ export default App({
   api: API({
     path: "api",
     variables: { gatewayDomains: "everything.dev,dev.everything.dev" },
-    secrets: ["API_DATABASE_URL"],
+    secrets: ["API_DATABASE_URL", "BETTER_AUTH_SECRET"],
   }),
   auth: Plugin("auth").path("plugins/auth", {
     name: "@everything-dev/auth-plugin",
@@ -38,6 +38,9 @@ export default App({
       "TWILIO_AUTH_TOKEN",
       "TWILIO_PHONE_NUMBER",
       "RESEND_API_KEY",
+      // Dev/test-only seeding seam (ADR 0038 addendum) — declared so the
+      // regression stacks' env reaches the plugin; never set in production.
+      "AUTH_BOOTSTRAP_ADMIN_API_KEY",
     ],
     variables: {
       organizationMembershipLimit: 1000,

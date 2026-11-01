@@ -391,7 +391,7 @@ function buildMergedJournal(
     const raw = upstreamEntryByTag.get(append.fromTag);
     const when =
       typeof raw?.when === "number" && raw.when > appendedWhen ? raw.when : ++appendedWhen;
-    return { ...(raw ?? {}), idx: append.idx, tag: append.toTag, when };
+    return { ...raw, idx: append.idx, tag: append.toTag, when };
   });
   const merged = { ...localRaw.journal, entries: [...localRaw.entries, ...appendedEntries] };
   return `${JSON.stringify(merged, null, 2)}\n`;

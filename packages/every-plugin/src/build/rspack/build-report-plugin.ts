@@ -1,6 +1,16 @@
 import type { Compiler, RspackPluginInstance } from "@rspack/core";
 import { BuildEntryReportSchema, findHashedEntry } from "../artifact-names";
 
+export interface BuildReportOptions {
+  entryBase?: string;
+  /**
+   * The shared-singleton `name → version` map this build embedded — recorded
+   * in build-report.json so the deploy leg's version manifest carries
+   * shared-dep semantics (#546).
+   */
+  shared?: Record<string, string>;
+}
+
 /**
  * Emits `build-report.json` for the deploy leg: the container entry is hashed
  * by the build's filename template (`remoteEntry.[contenthash].js`), and the
@@ -11,7 +21,10 @@ import { BuildEntryReportSchema, findHashedEntry } from "../artifact-names";
 export class BuildReportPlugin implements RspackPluginInstance {
   name = "BuildReportPlugin";
 
-  constructor(private entryBase = "remoteEntry") {}
+  constructor(
+    private entryBase = "remoteEntry",
+    private options: BuildReportOptions = {},
+  ) {}
 
   apply(compiler: Compiler) {
     compiler.hooks.thisCompilation.tap(this.name, (compilation) => {
@@ -20,10 +33,14 @@ export class BuildReportPlugin implements RspackPluginInstance {
       const stage = webpack?.Compilation?.PROCESS_ASSETS_STAGE_ADDITIONS ?? 1000;
 
       compilation.hooks.processAssets.tap({ name: this.name, stage }, (assets) => {
-        const entry = findHashedEntry(Object.keys(assets), this.entryBase);
+        const entryBase = this.options.entryBase ?? this.entryBase;
+        const entry = findHashedEntry(Object.keys(assets), entryBase);
         if (!entry || !rawSource) return;
 
-        const report = BuildEntryReportSchema.parse({ entry });
+        const report = BuildEntryReportSchema.parse({
+          entry,
+          ...(this.options.shared ? { shared: this.options.shared } : {}),
+        });
         compilation.emitAsset(
           "build-report.json",
           new rawSource(`${JSON.stringify(report, null, 2)}\n`),

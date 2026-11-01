@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import process from "node:process";
 import { Data, Effect, Exit } from "effect";
 import { findConfigPath } from "../config";
+import { secretsRenderers } from "../handlers/secrets";
 import bosPlugin from "../plugin";
 import { createPluginRuntime } from "../sdk";
 import { installBundleFetchFromEnv } from "../services/resolution/resolver";
@@ -39,7 +40,14 @@ const renderers = {
   ...lifecycleRenderers,
   ...publishRenderers,
   ...scaffoldRenderers,
+  ...secretsRenderers,
 };
+
+const printError = (message: string): void => {
+  console.error(message);
+};
+
+const envOf = (name: string): string | undefined => process.env[name];
 
 const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
   try: async (): Promise<void> => {
@@ -61,7 +69,7 @@ const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
 
     const commandMatch = findCommandDescriptor(invocationArgs);
     if (!commandMatch) {
-      console.error(`Unknown command: ${command}`);
+      printError(`Unknown command: ${command}`);
       process.exit(1);
     }
 
@@ -90,7 +98,7 @@ const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
     const displayVersion = edResolved?.installedVersion
       ? `${edResolved.installedVersion}${edResolved.isLinked ? " (linked)" : ""}`
       : undefined;
-    if (!process.env.BOS_NO_BANNER) {
+    if (!envOf("BOS_NO_BANNER")) {
       printBanner("everything-dev", displayVersion);
     }
 
@@ -141,7 +149,7 @@ const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
         descriptor.key !== "publish" &&
         descriptor.key !== "deploy"
       ) {
-        console.error(`[CLI] ${formatUnknownError(result.error)}`);
+        printError(`[CLI] ${formatUnknownError(result.error)}`);
         process.exit(1);
       }
 
@@ -160,7 +168,7 @@ export const runCli = async (): Promise<void> => {
     for (const reason of reasons) {
       if (reason?._tag !== "Fail") continue;
       const failure = (reason as { error?: unknown }).error;
-      console.error(`[CLI] ${formatUnknownError(failure)}`);
+      printError(`[CLI] ${formatUnknownError(failure)}`);
     }
     process.exit(1);
   }

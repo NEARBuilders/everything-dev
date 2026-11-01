@@ -1,7 +1,4 @@
 ---
-"@everything-dev/auth-plugin": minor
-"api": patch
-"ui": patch
 "everything-dev": patch
 ---
 

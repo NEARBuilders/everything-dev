@@ -25,7 +25,7 @@ export function createOrganizationRequestHandlers(
       .use(requireAdmin)
       .effect(function* () {
         const members = yield* MembersService;
-        return yield* mapDomainError(members.listPendingOrganizations());
+        return yield* mapDomainError(members.listPendingOrganizations);
       }),
     reviewOrganization: builder.reviewOrganization
       .use(requireAuth)
