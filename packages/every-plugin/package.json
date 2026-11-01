@@ -280,7 +280,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.0-rc.117",
+    "@effect/vitest": "4.0.0-rc.118",
     "@orpc/client": "2.0.0-beta.35",
     "@orpc/openapi": "2.0.0-beta.35",
     "@rspack/cli": "catalog:",
