@@ -48,6 +48,7 @@ export default App({
       passkey: { rpID: "everything.dev", rpName: "everything.dev" },
       socialProviders: { github: {}, google: {} },
       referral: { maskReferredUserEmail: true },
+      ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
       siwn: {
         recipients: {
           mainnet: "dev.everything.near",
