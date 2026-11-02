@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { versionManifestFetcher, versionManifestText, pinFor } from "../helpers/version-manifests";
 import {
+  auditReleasePlane,
   authoredSlotPaths,
   stampInheritedReleaseSlots,
 } from "../../src/services/resolution/release-plane";
@@ -138,5 +140,92 @@ describe("release-plane stamping", () => {
     expect(paths.has("app.host")).toBe(true);
     expect(paths.has("plugins.votes")).toBe(true);
     expect(paths.has("plugins.votes.ui")).toBe(true);
+  });
+});
+
+describe("auditReleasePlane — the dev chain audit", () => {
+  const pin = pinFor("mf-manifest.json", { "every-plugin": "3.0.0-rc.15", effect: "4.0.0-rc.118" });
+  const slotInputs = [
+    {
+      slot: "plugins.auth",
+      base: "https://auth-rc28.test",
+      pin,
+    },
+  ];
+  const fetch = versionManifestFetcher({
+    "https://auth-rc28.test/mf-manifest.json": versionManifestText({
+      "every-plugin": "3.0.0-rc.15",
+      effect: "4.0.0-rc.118",
+    }),
+  });
+
+  it("coherent strict singletons say nothing", async () => {
+    const lines = await auditReleasePlane({
+      slots: slotInputs,
+      authoredPaths: new Set(),
+      localVersionOf: (name) => (name === "every-plugin" ? "3.0.0-rc.15" : "4.0.0-rc.118"),
+      fetchImpl: fetch,
+    });
+    expect(lines).toEqual([]);
+  });
+
+  it("an inherited slot lagging the exact strict singleton names bos upgrade", async () => {
+    const lines = await auditReleasePlane({
+      slots: slotInputs,
+      authoredPaths: new Set(),
+      localVersionOf: (name) => (name === "every-plugin" ? "3.0.0-rc.14" : "4.0.0-rc.118"),
+      fetchImpl: fetch,
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.slot).toBe("plugins.auth");
+    expect(lines[0]!.kind).toBe("inherited");
+    expect(lines[0]!.message).toContain("run bos upgrade");
+  });
+
+  it("an owned slot ahead of the runtime names bos plugin publish", async () => {
+    const lines = await auditReleasePlane({
+      slots: [
+        {
+          slot: "plugins.nostr",
+          base: "https://nostr-rc28.test",
+          pin: pinFor("mf-manifest.json", { "every-plugin": "3.0.0-rc.15" }),
+        },
+      ],
+      authoredPaths: new Set(["plugins.nostr"]),
+      localVersionOf: (name) => (name === "every-plugin" ? "3.0.0-rc.14" : undefined),
+      fetchImpl: versionManifestFetcher({
+        "https://nostr-rc28.test/mf-manifest.json": versionManifestText({
+          "every-plugin": "3.0.0-rc.15",
+        }),
+      }),
+    });
+    expect(lines[0]!.kind).toBe("owned");
+    expect(lines[0]!.message).toContain("run bos plugin publish plugins.nostr");
+  });
+
+  it("an unservable pin reports on its slot", async () => {
+    const lines = await auditReleasePlane({
+      slots: [
+        { slot: "plugins.ghost", base: "https://ghost.test", pin: pinFor("mf-manifest.json", {}) },
+      ],
+      authoredPaths: new Set(),
+      localVersionOf: () => undefined,
+      fetchImpl: versionManifestFetcher({}),
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.message).toContain("does not serve at its production URL");
+  });
+
+  it("provisioned slots inherit by upgrading", async () => {
+    const lines = await auditReleasePlane({
+      slots: [],
+      authoredPaths: new Set(),
+      localVersionOf: () => undefined,
+      provisionedSlots: ["plugins.warden"],
+      pinnedReleaseVersion: "2.0.0-rc.28",
+      fetchImpl: fetch,
+    });
+    expect(lines[0]!.kind).toBe("provisioned");
+    expect(lines[0]!.message).toContain("run bos upgrade to inherit");
   });
 });
