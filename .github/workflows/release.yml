@@ -2,13 +2,21 @@
 # children: #572 removed changesets from the child template entirely.
 name: Release
 
+# Fires directly on push: the merge queue is the CI gate for main (the
+# merge-queue batch that produced this commit ran the full suite and could
+# only merge on green), so a separate CI-success signal is not needed.
+# The gate job still guards staleness — a newer tip releases instead of
+# this run.
+#
+# The version PR ("chore: version packages") is created by the changesets
+# action and merged via the manual merge button (a maintainer bypass, as
+# always). It would normally trip every CI detect-changes arm over a
+# package.json-only diff; instead detect-changes fast-paths
+# `changeset-release/*` PRs to an all-skipped run, so the required `CI gate`
+# check goes green without paying the regression matrix — the publish
+# script's own builds and npm's registry checks are the real gates here.
 on:
-  # CI-gated like Deploy: only a green push to main releases. Docs-only
-  # merges lose their path filter (workflow_run has none) — the changesets
-  # pass no-ops on those, costing one lint-speed install.
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
     branches: [main]
   # Manual retry leg: npm/OIDC/registry blips whose CI already ran repay
   # a dispatch instead of a push.
@@ -27,7 +35,7 @@ jobs:
     name: Verify release is current
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+      github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -36,7 +44,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 2
 
       # Mirrors Deploy's gate: a newer push to main makes this run's release

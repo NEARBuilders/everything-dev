@@ -4,21 +4,22 @@
 # https://github.com/NEARBuilders/everything-dev/issues
 name: CI
 
+# CI is the PR/merge-queue validation workflow only — there is no
+# `push: main` trigger. The main-branch ruleset routes every merge through
+# the merge queue, which runs this same suite once per batch against the
+# real post-merge tree and merges on green; re-running the suite on the
+# push event would only re-validate the exact SHA the queue just proved.
+# Deploy and Release trigger on push and gate themselves (see their own
+# workflows).
+#
+# Skip-safety: `paths-ignore` is deliberately absent — a paths-ignored run
+# never reports the required `CI gate` check, and the merge queue would
+# stall forever waiting on it. Path-targeting lives inside `detect-changes`
+# instead, where a no-op reports success (docs-only PRs therefore pay only
+# the lint/audit pass, and changeset version PRs fast-path to green — see
+# `detect-changes`).
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".changeset/**"
   pull_request:
-    # Mirrors the push filter. Docs-only PRs run the dedicated Docs Check
-    # workflow (which also validates links against renamed/deleted targets);
-    # changeset-only PRs need no validation at all.
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".changeset/**"
   workflow_dispatch:
 
 concurrency:
@@ -37,6 +38,7 @@ jobs:
     name: Detect changes
     runs-on: ubuntu-24.04
     outputs:
+      version: ${{ steps.changes.outputs.version }}
       everything-dev: ${{ steps.changes.outputs.everything-dev }}
       every-plugin: ${{ steps.changes.outputs.every-plugin }}
       plugins: ${{ steps.changes.outputs.plugins }}
@@ -55,7 +57,51 @@ jobs:
 
       - name: Detect changed paths
         id: changes
+        env:
+          # Untrusted pull-request data must enter the script as an env var
+          # (script-injection surface, see actionlint's expression rule).
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
+          # Version-PR fast path: the changesets bot's "chore: version
+          # packages" PRs are `package.json`/lockfile/changelog-only diffs,
+          # which would light every arm below and pay the full regression
+          # matrix for a bump. Everything reports false instead; the suite
+          # jobs skip and the `CI gate` passes on the all-skipped run. The
+          # publish script's own builds and npm's registry checks are the
+          # real gates on this plane (release.yml).
+          #
+          # Guard: merge-queue batch runs expose the PR's real head branch
+          # but run on a `gh-readonly-queue/*` ref — a batch containing a
+          # version PR must still validate the *other* PRs, so the
+          # fast path never fires there (the diff arms take over).
+          # HEAD_REF comes from a step env, not an inline template — branch
+          # names are attacker-controlled (vetted by actionlint).
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            case "$HEAD_REF" in
+              changeset-release/*)
+                case "$GITHUB_REF" in
+                  refs/heads/gh-readonly-queue/*) ;;
+                  *)
+                    {
+                      echo "version=true"
+                      echo "workflows=false"
+                      echo "everything-dev=false"
+                      echo "every-plugin=false"
+                      echo "plugins=false"
+                      echo "ui-api=false"
+                      echo "host=false"
+                      echo "regression-http=false"
+                      echo "regression-framework=false"
+                      echo "regression-browser=false"
+                      echo "regression-unit=false"
+                    } >> "$GITHUB_OUTPUT"
+                    echo "::notice::Changesets version PR ($HEAD_REF) — CI fast-path: suites skipped, release script owns this plane"
+                    exit 0
+                    ;;
+                esac
+                ;;
+            esac
+          fi
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch origin "${{ github.base_ref }}" --depth=1
             BASE="origin/${{ github.base_ref }}"
@@ -149,6 +195,8 @@ jobs:
 
   lint-and-typecheck:
     name: Lint and Type Check
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.version != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -252,7 +300,7 @@ jobs:
     name: Workflow lint
     runs-on: ubuntu-24.04
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.workflows == 'true'
+    if: needs.detect-changes.outputs.version != 'true' && needs.detect-changes.outputs.workflows == 'true'
     timeout-minutes: 5
     steps:
       - name: Checkout repository
@@ -920,10 +968,11 @@ jobs:
   # Build the docker regression fixture once per run and push it for the
   # start:* suites to pull (three suites otherwise pay three identical full
   # builds). Also exports the shared builder-stage layers to the GHCR
-  # buildcache ref, which the deploy workflow's runtime build imports for
-  # the same SHA (the manifest-gen layers diverge — regression omits
-  # BOS_GIT_SHA — but the install + framework builds hit). Push events only:
-  # fork PR runs can't push to GHCR and fall back to per-suite local builds.
+  # buildcache ref, which the deploy workflow's runtime build imports on a
+  # best-effort basis (the manifest-gen layers diverge — regression omits
+  # BOS_GIT_SHA — but the install + framework builds hit). Manual-dispatch
+  # runs only: PR/queue runs can't push to GHCR and fall back to per-suite
+  # local builds.
   regression-image:
     name: Build regression fixture image
     needs: [detect-changes]
@@ -975,3 +1024,40 @@ jobs:
             exit 1
           fi
           echo "image=${REF}@${DIGEST}" >> "$GITHUB_OUTPUT"
+
+  # Umbrella required check: the main-branch ruleset + merge queue require
+  # exactly the `CI gate` context. Path-gated suite jobs are legitimately
+  # skipped when their paths are untouched, and a required check never
+  # treats "skipped" as success — so the gate runs unconditionally and
+  # folds the whole tree into one boolean: pass when every suite succeeded
+  # OR was skipped on purpose, fail on any failure or cancellation.
+  # detect-changes is in `needs` so its own failure cannot masquerade as a
+  # clean all-skipped run.
+  ci-gate:
+    name: CI gate
+    needs:
+      - detect-changes
+      - lint-and-typecheck
+      - workflows-lint
+      - framework-tests
+      - plugin-tests
+      - ui-api-tests
+      - host-tests
+      - regression-unit
+      - regression-http
+      - regression-http-start
+      - regression-framework
+      - regression-browser
+      - regression-browser-start
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate suite results
+        run: |
+          RESULTS="${{ join(needs.*.result, ' ') }}"
+          echo "suite results: $RESULTS"
+          if echo "$RESULTS" | grep -qE 'failure|cancelled'; then
+            echo "::error::CI run has failed or cancelled suites — see the jobs above"
+            exit 1
+          fi

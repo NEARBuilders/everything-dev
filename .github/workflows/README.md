@@ -6,13 +6,16 @@ This repository is the base everything.dev runtime — the source of truth for t
 
 Workflows:
 
-- `CI` — lint, audit, typecheck, framework tests, and regression suites
-- `Deploy` — production deployment via `bos deploy` (build → bundle upload → FastKV publish → GHCR image push → Railway; runs after CI succeeds on `main`)
+- `CI` — lint, audit, typecheck, framework tests, and regression suites (pull requests and merge-queue batches only)
+- `Deploy` — production deployment via `bos deploy` (build → bundle upload → FastKV publish → GHCR image push → Railway; triggered by push to `main`)
 - `Staging` — the same deployment against the staging environment (`--env staging`, triggered by push to the `staging` branch)
-- `Release` — changeset versioning and npm publish (runs on push to `main`, canonical changesets flow)
+- `Release` — changeset versioning and npm publish (triggered by push to `main`, canonical changesets flow)
+- `Backcompat nightly` — nightly run of the backcompat regression tier (`test:regression:backcompat`), which is intentionally not on the merge gate
 - `consumer-ci` / `consumer-deploy` / `consumer-staging` — reusable workflows for generated child repos (see [Consumer workflows](#consumer-workflows))
 
-Design: `CI` is the validation workflow. On a successful push to `main`, the `Deploy` workflow triggers via `workflow_run` — it deploys only fresh push-triggered CI runs whose commit is still the tip of `main`, and it checks out the exact SHA that CI validated (`workflow_run.head_sha`).
+Design: `CI` runs once per change. The main-branch ruleset routes every merge through the **merge queue**, which runs this same suite once per batch against the real post-merge tree and merges on green — so there is no `push: main` CI trigger, and a merged commit is never re-tested on a second plane. `Deploy` and `Release` trigger directly on push and gate themselves: they re-verify the commit is still the main tip (stale runs skip; the queued run for the new tip deploys/releases instead), and Deploy additionally verifies the commit landed as a pull request (merge-queue provenance — a direct push by an admin bypass has no associated PR and fails the gate; `workflow_dispatch` with the `force` input is the deliberate escape hatch).
+
+The changesets version PR never runs the full matrix: `detect-changes` fast-paths `changeset-release/*` PRs to an all-skipped run, so the required `CI gate` check goes green immediately (`package.json`-only diffs would otherwise trip every `detect-changes` arm). `publish-release-packages.ts`'s own builds and npm's registry checks are the real gates on that plane, and the version PR merges via the manual merge button.
 
 `Staging` runs independently on push to the `staging` branch, deploying with the config's staging env (`staging.account`/`staging.domain` in `bos.app.ts`).
 
@@ -20,9 +23,9 @@ Design: `CI` is the validation workflow. On a successful push to `main`, the `De
 
 ### CI (`ci.yml`)
 
-**Trigger:** Push to `main` (with `paths-ignore` for markdown and changesets) or pull requests. Also `workflow_dispatch`.
+**Trigger:** Pull requests and merge-queue batches (both arrive as `pull_request` events) or `workflow_dispatch`. There is deliberately **no** `push: main` trigger — the merge queue already validated the exact merged tree, so a push-run would only repeat that validation.
 
-**Purpose:** Lint, typecheck, security audit, framework tests, and regression suites.
+**Purpose:** Lint, typecheck, security audit, framework tests, and regression suites — folded into one required check, `CI gate`.
 
 **Jobs:**
 1. `detect-changes` — diffs against the base to gate the test jobs by changed paths (includes the authored config files `bos.app.ts`/`bos.dev.ts` and `tsconfig.base.json`)
@@ -32,8 +35,10 @@ Design: `CI` is the validation workflow. On a successful push to `main`, the `De
 5. `host-tests` — host test suite (only if `host/`, `ui/`, or packages changed)
 6. `regression-unit` / `regression-http` / `regression-framework` / `regression-browser` — the regression stack (path-gated)
 7. `regression-http-start` / `regression-browser-start` — the `start:*` regression variants (deployment image); pull the fixture built once per run by `regression-image` instead of building it
-8. `regression-image` — builds the docker regression fixture once per run (push events only — fork PRs fall back to per-suite local builds) and exports the shared builder-stage layers to a GHCR buildcache ref the Deploy image job imports for the same SHA
-9. `mirror-images` — standalone (not part of CI): weekly/dispatchable refresh of the org's GHCR base-image mirror (`mirror-node`/`mirror-postgres`/`mirror-redis`, synced from the upstream library — Docker Hub and ECR Public both rate-limit shared CI egress IPs)
+8. `regression-image` — builds the docker regression fixture once per run (dispatch events only — PR/queue runs fall back to per-suite local builds) and exports the shared builder-stage layers to a GHCR buildcache ref the Deploy image job imports
+9. `ci-gate` — the umbrella required check (`CI gate`): succeeds when every suite succeeded or was legitimately skipped by `detect-changes`, fails on any failure or cancellation. This is the only context the main-branch ruleset + merge queue require — path-gated jobs cannot be required directly, because a required check never treats "skipped" as success.
+10. `backcompat-nightly` — nightly backcompat regression tier (http + browser); deliberately not on the merge gate (see `backcompat-nightly.yml`)
+11. `mirror-images` — standalone (not part of CI): weekly/dispatchable refresh of the org's GHCR base-image mirror (`mirror-node`/`mirror-postgres`/`mirror-redis`, synced from the upstream library — Docker Hub and ECR Public both rate-limit shared CI egress IPs)
 
 **Key design decisions:**
 - Generated types (`types:gen`) are produced on demand: `pnpm run typecheck` chains `types:gen` first, `bos dev`/`bos build`/`bos publish` regenerate via `generateCodeArtifacts` — no postinstall hook exists (it was dead code under `--ignore-scripts` installs).
@@ -43,8 +48,8 @@ Design: `CI` is the validation workflow. On a successful push to `main`, the `De
 - `lint-and-typecheck` and `host-tests` cache `repos/effect` (the 61MB Effect monorepo clone `pnpm run prepare` creates), keyed on the pinned effect tag in the prepare script.
 - The three `start:*` regression suites share one docker build: `regression-image` builds `--target regression` once, pushes it to `ghcr.io/<repo>:regression-ci` as a digest-pinned ref, and the start suites pull it (`REGRESSION_PREBUILT_IMAGE` → `start-container.mjs` skips the build; local runs and CI fallback build as before).
 - Docker layer caching uses a GHCR registry buildcache (`ghcr.io/<repo>:buildcache`, `type=registry,mode=max`) — the gha backend's 10GB repo cap can't hold this monorepo's GB-scale node_modules layers. Note the cache-mount pnpm store *inside* the image build is never exported (BuildKit cache mounts aren't part of layer caches), so the win is the shared builder-stage layers (base, install, framework builds) — the deploy image job imports them for the same SHA CI just built.
-- `cancel-in-progress: true` is safe for CI — cancelled runs never trigger Deploy (the `workflow_run` gate requires a fresh `push` event and a `success` conclusion).
-- Skipped jobs in `needs` are non-blocking for the workflow result: `framework-tests`/`plugin-tests` may be skipped (no relevant changes) without failing CI.
+- `cancel-in-progress: true` is safe for CI — a cancelled run reports a red `CI gate`, which the merge queue (and nothing else) consumes.
+- Skipped jobs in `needs` never break the gate: the `ci-gate` umbrella accepts `success` or `skipped` for every suite job and only fails on `failure`/`cancelled`.
 - Deploy reads its config from FastKV at runtime (`BOS_ACCOUNT`/`BOS_GATEWAY` on Railway), so nothing needs to be committed back after a deploy.
 
 ### Release (`release.yml`)
@@ -57,11 +62,13 @@ Design: `CI` is the validation workflow. On a successful push to `main`, the `De
 
 ```
 1. Developer creates changeset          →  pnpm run changeset
-2. Developer merges feature branch      →  Changesets land on main
-3. CI succeeds on main                  →  workflow_run triggers Deploy directly
-4. Release runs on every push to main   →  pending changesets: opens/updates
+2. Developer merges via the merge queue →  the queue validated the merged
+                                           tree with the full CI suite;
+                                           "chore: version packages" PRs
+                                           merge directly (ruleset exempt)
+3. Release runs on every push to main   →  pending changesets: opens/updates
                                            the "chore: version packages" PR
-5. Team merges Version Packages PR      →  no changesets remain (hasChangesets=false)
+4. Team merges Version Packages PR      →  no changesets remain (hasChangesets=false)
                                            ↓
                                            pnpm run release (scripts/publish-release-packages.ts)
                                            ↓
@@ -69,7 +76,7 @@ Design: `CI` is the validation workflow. On a successful push to `main`, the `De
                                            (rc dist-tag while .changeset/pre.json pre mode is on)
                                            ↓
                                            GitHub Releases created for each package
-6. Final release after RC               →  add a changeset, `pnpm changeset pre exit`,
+5. Final release after RC               →  add a changeset, `pnpm changeset pre exit`,
                                            merge the final version PR (no -rc suffix,
                                            no --prerelease flag)
 ```
@@ -80,15 +87,16 @@ This is the canonical [changesets/action](https://github.com/changesets/changese
 
 ### Deploy (`deploy.yml`)
 
-**Trigger:** `workflow_run` (CI completed successfully on `main` from a `push` event), or `workflow_dispatch` (guarded to `main`).
+**Trigger:** Push to `main`, or `workflow_dispatch` (guarded to `main`, with `force` to skip the provenance check).
 
 **Purpose:** Deploy in two jobs, image first. The `image` job builds the `runtime` stage and pushes it to GHCR by SHA + version tags (`latest` held during prereleases) — *before* any config or bundle publish, so a failed image push cannot leave a partially published deploy. The `deploy` job then runs `pnpm run bos deploy`: preflight (fails fast on config/signing/storage credentials before any build), staleness-checked prerequisite builds + workspace builds, bundle upload to the R2-backed storage at `cdn.everything.dev`, FastKV publish with read-back confirmation, and a pull-only Railway deploy pinned to the pre-pushed image digest (handed over as `BOS_IMAGE_DIGEST`; generated thin `FROM <image>@sha256:<digest>` Dockerfile — Railway never rebuilds, ADR 0021).
 
 **Behavior:**
-- A `gate` job first verifies the CI-validated commit is still the tip of `main` — if `main` moved on, this run is skipped and the run queued for the new tip deploys instead
+- A `gate` job first verifies the deployed commit is still the tip of `main` — if `main` moved on, this run is skipped and the run queued for the new tip deploys instead
+- The gate then verifies the commit has an associated pull request (merge-queue provenance — see the [overview](#overview)); a direct push fails the gate
 - The `image` job is self-contained (the Dockerfile builds all workspaces from source in-image — no node/pnpm setup); it fails fast and blocks the deploy job when it cannot push the image or capture its digest
 - Runs `pnpm run bos deploy` — the CLI handles every remaining stage; missing pieces (e.g. no `RAILWAY_TOKEN`) soft-skip their leg with a notice, and the deploy exits 0 whenever the config publishes and no leg failed
-- Checks out the exact commit CI validated (`github.event.workflow_run.head_sha`)
+- Checks out the pushed commit (`github.sha`)
 - Keeps the bundle compatibility check (`bos mf check`) and the remote smoke test as workflow-level verification
 - Does **not** commit anything back — the runtime fetches the published config from FastKV (`bos start` resolves `BOS_ACCOUNT`/`BOS_GATEWAY`); the authored `bos.app.ts` is the publish *input*, not the deploy output
 
@@ -132,7 +140,7 @@ All three take a `working_directory` input (default `.`): the directory from whi
 
 **Prerequisite:** the parent repo's Actions settings must allow these workflows to be accessed from other repositories (Settings → Actions → General → Access).
 
-**Branch protection / required checks:** point the child repo's rule at `Lint and Type Check` — the gate job the `ci.yml` template ships after the reusable call. GitHub names reusable-workflow jobs `<caller> / <callee>` (here `CI / Lint, typecheck, and test`) and the caller cannot override the callee half, so requiring that context couples the merge gate to the upstream callee's display name: an upstream rename breaks every child's merge gate silently, with nothing notifying the children. The gate job is child-owned and slash-free, so it is immune to upstream renames. A reusable job cannot take caller jobs in `needs`, which is why the gate lives in the child's `ci.yml` rather than in `consumer-ci.yml`.
+**Branch protection / required checks:** point the child repo's rule at `Lint and Type Check` — the gate job the `ci.yml` template ships after the reusable call. GitHub names reusable-workflow jobs `<caller> / <callee>` (here `CI / Lint, typecheck, and test`) and the caller cannot override the callee half, so requiring that context couples the merge gate to the upstream callee's display name: an upstream rename breaks every child's merge gate silently, with nothing notifying the children. The gate job is child-owned and slash-free, so it is immune to upstream renames. A reusable job cannot take caller jobs in `needs`, which is why the gate lives in the child's `ci.yml` rather than in `consumer-ci.yml`. Child repos that want the same merge-queue elimination of repeated runs can follow the parent's pattern: a ruleset with a `merge_queue` rule + a single umbrella required check, `push` triggers removed from CI, and deploy/release workflows gating on push (tip + provenance).
 
 Two related caveats the template already handles:
 - `paths-ignore` is deliberately absent from the `pull_request` trigger — a paths-ignored PR never runs CI, so the required check is never reported and docs-only PRs are permanently blocked once branch protection is on. `push` keeps `paths-ignore` (it gates Deploy via `workflow_run`).

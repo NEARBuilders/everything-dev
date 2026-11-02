@@ -2,17 +2,30 @@
 # Local edits are allowed: on the next sync the template version wins and your copy
 # is backed up under `.bos/sync-backup/`. To make a change permanent, file an issue:
 # https://github.com/NEARBuilders/everything-dev/issues
+# Deploy train: preflight → build → upload bundles → publish config + platform
+# manifest → image (pre-pushed digest or local docker build) → post-publish
+# smoke (--smoke) → Railway.
+#
+# The main-branch ruleset routes every merge through the merge queue, where
+# the full CI suite must have already proven the merged tree (`CI gate`).
+# This workflow therefore triggers directly on push and re-verifies, per
+# run: the commit is still the main tip, the merged diff is runtime-
+# relevant, and the commit actually landed as a PR (a direct push — e.g.
+# an admin bypass — has no associated pull request and fails the gate;
+# dispatch with the `force` input to deploy deliberately).
 name: Deploy
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
     branches: [main]
   workflow_dispatch:
     inputs:
       verbose:
         description: 'Show full build output instead of clean summary'
+        type: boolean
+        default: false
+      force:
+        description: 'Skip the merge-queue provenance check (deliberate deploys from main pushes)'
         type: boolean
         default: false
 
@@ -22,30 +35,35 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
   packages: write
 
 jobs:
-  # Deploy gate: only fresh CI runs of a push to main, only while the
-  # validated commit is still the tip of main. Manual dispatches must run
-  # against main; stale runs are skipped (the queued run for the new tip
-  # deploys instead).
+  # Deploy gate: only while the validated commit is still the tip of main,
+  # only when the merged diff touches runtime-relevant paths, and only
+  # when the commit actually landed as a pull request (the merge queue is
+  # the only sanctioned path to main — a direct push by an admin bypass
+  # has no associated PR and fails the gate). Manual dispatches must run
+  # against main; `force` skips the provenance check for deliberate
+  # deploys from direct pushes.
   gate:
     name: Verify deploy is current
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+      github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
-      deploy: ${{ steps.tip.outputs.current == 'true' && steps.relevance.outputs.relevant == 'true' }}
+      deploy: ${{ steps.tip.outputs.current == 'true' && steps.relevance.outputs.relevant == 'true' && steps.provenance.outputs.queued == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 2
 
-      - name: Verify the CI-validated commit is still the main tip
+      # The queued run for the new tip deploys instead.
+      - name: Verify the deployed commit is still the main tip
         id: tip
         run: |
           git fetch --no-tags origin main
@@ -55,7 +73,7 @@ jobs:
             echo "current=true" >> "$GITHUB_OUTPUT"
           else
             echo "current=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping deploy — main advanced past the CI-validated commit ($SHA → $TIP). The queued run for the new tip deploys instead."
+            echo "::notice::Skipping deploy — main advanced past the validated commit ($SHA → $TIP). The queued run for the new tip deploys instead."
           fi
 
       # Relevance gate: skip the full deploy train when the merged diff touches
@@ -89,6 +107,32 @@ jobs:
             while IFS= read -r f; do echo "  $f"; done <<< "$FILES"
           fi
 
+      # Merge-queue provenance: every sanctioned merge to main lands as a
+      # pull request whose squash commit is this SHA (the "list pull
+      # requests associated with a commit" endpoint resolves squash merges
+      # and merge commits alike). A zero result means the commit was pushed
+      # directly — outside the queue — by a bypass actor; fail loud instead
+      # of deploying unvalidated code. workflow_dispatch + `force` is the
+      # deliberate escape hatch.
+      - name: Verify the commit merged through the merge queue
+        id: provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force == true }}
+        run: |
+          QUEUES="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq length)"
+          if [ "$QUEUES" -gt 0 ]; then
+            echo "queued=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$FORCE" = "true" ]; then
+            echo "queued=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Provenance check skipped by the force input — deploying a commit with no associated pull request"
+            exit 0
+          fi
+          echo "queued=false" >> "$GITHUB_OUTPUT"
+          echo "::error::$GITHUB_SHA has no associated pull request — it was pushed directly to main, outside the merge queue, so it was never validated. Merging this commit's branch through the queue re-deploys it automatically, or dispatch this workflow on main with the force input to deploy it deliberately."
+
   # Image leg: build the `runtime` stage and push it to GHCR (sha-<short> +
   # version tags, latest held on prereleases) BEFORE any config/bundle publish,
   # so a failed image push cannot leave a partially published deploy. The
@@ -109,7 +153,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -245,7 +289,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Guard — no stray bun artifacts
         run: |
