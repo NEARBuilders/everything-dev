@@ -1,4 +1,6 @@
+import { SHARED_DEP_SPECS } from "every-plugin/shared-deps-spec";
 import { type ConfigSlot, ensureObjectContainers, walkConfigSlots } from "../config-slots";
+import { resolveSlotVersion } from "../deploy/version-manifest";
 import type { ReleaseSlotRecord } from "../platform/manifest";
 import { isPlainObject } from "./merge";
 
@@ -131,4 +133,86 @@ function stampSlotRecord(
   entry.production = record.base;
   entry.pin = { manifest: record.pin.manifest, integrity: record.pin.integrity };
   container[leaf] = entry;
+}
+
+export interface PlaneAuditLine {
+  slot: string;
+  kind: "inherited" | "owned" | "provisioned";
+  message: string;
+}
+
+/**
+ * The dev-boot chain audit (ADR 0034 + #546's shared-singleton trust):
+ * every pinned remote slot's embedded singleton versions are compared
+ * against the local workspace catalog — the same `satisfiesConstraint`
+ * family the deploy-train compat-window gate speaks, so one mismatch
+ * reads the same way in the train and on screen. One line per divergent
+ * slot, with the repair named for its ownership: inherited →
+ * `bos upgrade` (the pin trails the chain serving the slot); owned →
+ * `bos plugin publish <key>` (built against an older chain); provisioned
+ * slots omitted from the pinned plane → inherit by upgrading. Empty out:
+ * the whole plane composes coherently.
+ */
+export async function auditReleasePlane(input: {
+  slots: Array<{ slot: string; base: string; pin: { manifest: string; integrity: string } }>;
+  authoredPaths: Set<string>;
+  /** The installed version this runtime composes for one singleton name —
+   * the probe the boot guard consults too (catalog for framework names,
+   * node_modules for the rest). */
+  localVersionOf: (name: string) => string | undefined;
+  provisionedSlots?: readonly string[];
+  pinnedReleaseVersion?: string;
+  /** test seam — threaded to the version-manifest fetch */
+  fetchImpl?: typeof fetch;
+}): Promise<PlaneAuditLine[]> {
+  const lines: PlaneAuditLine[] = [];
+  const strictness = new Map(SHARED_DEP_SPECS.map((spec) => [spec.name, spec.critical]));
+
+  for (const { slot, base, pin } of input.slots) {
+    const kind = input.authoredPaths.has(slot) ? "owned" : "inherited";
+    const repair =
+      kind === "owned"
+        ? `run bos plugin publish ${slot.replace(/\.(ui)?$/, "")} (built against an older chain)`
+        : "run bos upgrade (the pin trails the chain serving this slot)";
+    try {
+      const resolved = await resolveSlotVersion({
+        base,
+        pin,
+        ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+      });
+      for (const [name, version] of Object.entries(resolved.sharedVersions ?? {})) {
+        // Strict singletons must agree exactly (shareConfigFor: critical ⇒
+        // strictVersion true); non-strict names range-coexist by design — no line.
+        if (!strictness.get(name)) continue;
+        const local = input.localVersionOf(name);
+        if (local !== undefined && local === version) continue;
+        lines.push({
+          slot,
+          kind,
+          message:
+            `${slot} was built against ${name}@${version}, this runtime composes ${name}@${local ?? "unknown"} — ` +
+            `${repair}`,
+        });
+        break;
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      lines.push({
+        slot,
+        kind,
+        message: `${slot}'s version manifest does not serve at its production URL (${reason}) — ${repair}`,
+      });
+    }
+  }
+
+  for (const slot of input.provisionedSlots ?? []) {
+    lines.push({
+      slot,
+      kind: "provisioned",
+      message:
+        `slot "${slot}" was provisioned upstream after ${input.pinnedReleaseVersion ?? "the pinned release"}` +
+        ` — run bos upgrade to inherit`,
+    });
+  }
+  return lines;
 }
