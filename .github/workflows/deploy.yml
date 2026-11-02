@@ -132,6 +132,7 @@ jobs:
           fi
           echo "queued=false" >> "$GITHUB_OUTPUT"
           echo "::error::$GITHUB_SHA has no associated pull request — it was pushed directly to main, outside the merge queue, so it was never validated. Merging this commit's branch through the queue re-deploys it automatically, or dispatch this workflow on main with the force input to deploy it deliberately."
+          exit 1
 
   # Image leg: build the `runtime` stage and push it to GHCR (sha-<short> +
   # version tags, latest held on prereleases) BEFORE any config/bundle publish,
