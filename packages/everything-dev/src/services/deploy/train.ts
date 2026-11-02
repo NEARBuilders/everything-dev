@@ -21,7 +21,7 @@ import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegat
 import { submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
-import { PlatformReleaseManifestSchema, type PlatformReleaseManifest } from "../platform/manifest";
+import { type PlatformReleaseManifest, PlatformReleaseManifestSchema } from "../platform/manifest";
 import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKey } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { mergeAuthoredOverPublished, stripLocalDevelopmentTargets } from "../resolution/merge";
@@ -978,10 +978,7 @@ export async function runPublishTrain(
         });
       }
       if (!releaseLeg) {
-        const windowViolations = compatWindowViolations(
-          pointer?.sharedDeps,
-          sharedByWorkspace,
-        );
+        const windowViolations = compatWindowViolations(pointer?.sharedDeps, sharedByWorkspace);
         if (windowViolations.length > 0) {
           throw new PublishTrainError({
             kind: "compat-window",

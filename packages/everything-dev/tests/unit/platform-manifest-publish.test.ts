@@ -258,7 +258,8 @@ describe("platformTruthViolations", () => {
   });
 });
 
-describe("compatWindowViolations", () => {  const pin = (version: string) => ({
+describe("compatWindowViolations", () => {
+  const pin = (version: string) => ({
     version,
     requiredVersion: "19.2.9",
     singleton: true,
@@ -284,7 +285,10 @@ describe("compatWindowViolations", () => {  const pin = (version: string) => ({
   it("clean when every embedded chain row satisfies the pinned window", () => {
     const violations = compatWindowViolations(
       { react: pin("19.2.9") },
-      new Map([["ui", { react: "19.2.9" }], ["auth", { react: "19.2.9" }]]),
+      new Map([
+        ["ui", { react: "19.2.9" }],
+        ["auth", { react: "19.2.9" }],
+      ]),
     );
     expect(violations).toEqual([]);
   });
