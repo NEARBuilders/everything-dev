@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  compatWindowViolations,
   composePlatformManifestPublishEntry,
   deriveImageRefFromPlatformManifest,
   PLATFORM_IMAGE_REF,
@@ -254,5 +255,45 @@ describe("platformTruthViolations", () => {
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain("api was built against every-plugin@3.0.0-rc.9");
     expect(violations[0]).toContain("pins ^3.0.0-rc.11");
+  });
+});
+
+describe("compatWindowViolations", () => {  const pin = (version: string) => ({
+    version,
+    requiredVersion: "19.2.9",
+    singleton: true,
+    strictVersion: true,
+    eager: false,
+    shareScope: "default",
+  });
+
+  it("flags a build chain that moved mid-version under an unchanged pointer — the Nov-02 skew", () => {
+    const violations = compatWindowViolations(
+      { react: pin("19.2.9") },
+      new Map([
+        ["ui", { react: "19.2.9" }],
+        ["agent-connect", { react: "19.2.4" }],
+      ]),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0]).toContain("agent-connect was built against react@19.2.4");
+    expect(violations[0]).toContain("serves 19.2.9");
+    expect(violations[0]).toContain("compat window moved mid-version");
+  });
+
+  it("clean when every embedded chain row satisfies the pinned window", () => {
+    const violations = compatWindowViolations(
+      { react: pin("19.2.9") },
+      new Map([["ui", { react: "19.2.9" }], ["auth", { react: "19.2.9" }]]),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it("skips names the published window does not pin", () => {
+    const violations = compatWindowViolations(
+      { react: pin("19.2.9") },
+      new Map([["ui", { react: "19.2.9", "brand-new-dep": "1.0.0" }]]),
+    );
+    expect(violations).toEqual([]);
   });
 });

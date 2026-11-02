@@ -21,7 +21,7 @@ import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegat
 import { submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
-import type { PlatformReleaseManifest } from "../platform/manifest";
+import { PlatformReleaseManifestSchema, type PlatformReleaseManifest } from "../platform/manifest";
 import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKey } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { mergeAuthoredOverPublished, stripLocalDevelopmentTargets } from "../resolution/merge";
@@ -52,6 +52,7 @@ import { applyDeployResults, type DeployResultEntry } from "./integrity";
 import { computeOwedWork } from "./owed";
 import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
+  compatWindowViolations,
   composePlatformManifestPublishEntry,
   getPlatformManifestKey,
   getPlatformVersionSlotKey,
@@ -918,13 +919,10 @@ export async function runPublishTrain(
   // a version.
   let platformManifest: PlatformManifestPublishEntry | null = null;
   if (!isStaging && input.build) {
-    let pointer: { frameworkVersion?: string } | null;
+    let pointer: PlatformReleaseManifest | null;
     try {
-      pointer = await fetchRegistryKey<{ frameworkVersion?: string }>(
-        account,
-        gateway,
-        "platform.json",
-      );
+      const pointerBytes = await fetchRegistryKey<unknown>(account, gateway, "platform.json");
+      pointer = pointerBytes ? PlatformReleaseManifestSchema.parse(pointerBytes) : null;
     } catch (error) {
       throw new PublishTrainError({
         kind: "platform-manifest",
@@ -978,6 +976,25 @@ export async function runPublishTrain(
             `platform manifest does not match the uploaded bundles:\n` +
             violations.map((line) => `    ${line}`).join("\n"),
         });
+      }
+      if (!releaseLeg) {
+        const windowViolations = compatWindowViolations(
+          pointer?.sharedDeps,
+          sharedByWorkspace,
+        );
+        if (windowViolations.length > 0) {
+          throw new PublishTrainError({
+            kind: "compat-window",
+            registryUrl,
+            built,
+            skipped,
+            deployResults,
+            error:
+              `non-release deploy bakes a chain the pinned compat window doesn't serve — ` +
+              `pinned children would resolve skew under an unchanged platform manifest:\n` +
+              windowViolations.map((line) => `    ${line}`).join("\n"),
+          });
+        }
       }
       if (releaseLeg) {
         const frameworkVersion = composed.manifest.frameworkVersion;

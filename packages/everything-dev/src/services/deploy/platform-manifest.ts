@@ -158,6 +158,39 @@ export function platformTruthViolations(
 }
 
 /**
+ * The compat-window freshness gate for **non-release** legs (#573-class):
+ * when the pointer doesn't move, the pinned children keep resolving the
+ * published manifest's `sharedDeps` — a chain that moved mid-version (a
+ * catalog bump without a version bump) would land skew on every child while
+ * every in-train version stamp agrees. Compares the embedded build versions
+ * against the **published bytes** (not the composed manifest — on a release
+ * leg the composed manifest IS the publish and needn't obey the old bytes).
+ * Same `satisfiesConstraint` semantics as `platformTruthViolations`; absent
+ * pins and unpinned names comparison is skipped. Returns human-readable
+ * violations; empty = clean.
+ */
+export function compatWindowViolations(
+  publishedSharedDeps: Record<string, { version: string }> | undefined,
+  sharedByWorkspace: Map<string, Record<string, string> | undefined>,
+): string[] {
+  if (!publishedSharedDeps) return [];
+  const violations: string[] = [];
+  for (const [workspace, shared] of sharedByWorkspace) {
+    if (!shared) continue;
+    for (const [name, version] of Object.entries(shared)) {
+      const pin = publishedSharedDeps[name];
+      if (pin && !satisfiesConstraint(version, pin.version)) {
+        violations.push(
+          `${workspace} was built against ${name}@${version}, the pinned release manifest serves ${pin.version} — ` +
+            `the compat window moved mid-version: commit a version PR so the release leg repins the window with the chain`,
+        );
+      }
+    }
+  }
+  return violations;
+}
+
+/**
  * The derived-pin seam for image refs (ADR 0034 pt 2): when the platform
  * manifest resolves, a runtime's image ref derives as `ref@v<version>` —
  * never hand-pinned. Digest resolution rides the registry and arrives as

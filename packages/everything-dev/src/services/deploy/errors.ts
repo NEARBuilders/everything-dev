@@ -23,6 +23,7 @@ export type TrainErrorKind =
   | "pin-verification"
   | "platform-manifest"
   | "platform-truth"
+  | "compat-window"
   | "sign"
   | "submit"
   | "confirm";
