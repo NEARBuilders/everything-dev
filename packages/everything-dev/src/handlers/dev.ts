@@ -1,6 +1,5 @@
-import { Effect } from "effect";
 import { DevFlowService } from "../services/dev/flow";
-import { chainHeadPinLagNotice, resolvePlatformManifest } from "../services/platform/manifest";
+import { chainHeadPinLagNotice } from "../services/platform/manifest";
 import { ResolutionSessionService } from "../services/resolution/session";
 import type { BosBuilder } from "./shared";
 
@@ -11,20 +10,10 @@ export function registerDev(builder: BosBuilder) {
       const flow = yield* DevFlowService;
       const result = yield* flow.dev(session, input);
       if (result.status === "started") {
-        const notice = yield* Effect.gen(function* () {
-          const pin = session?.rawConfig?.platform;
-          if (!session?.root || !pin) return undefined;
-          const head = yield* Effect.tryPromise({
-            try: () =>
-              resolvePlatformManifest({
-                configDir: session.root,
-                localConfig: { ...session.rawConfig, platform: undefined },
-              }),
-            catch: () => null,
-          });
-          if (!head) return undefined;
-          return chainHeadPinLagNotice(head.manifest.frameworkVersion, pin);
-        });
+        const notice = chainHeadPinLagNotice(
+          session?.releaseManifest?.frameworkVersion,
+          session?.rawConfig?.platform,
+        );
         if (notice) console.log(`\n  ${notice}\n`);
       }
       return result;

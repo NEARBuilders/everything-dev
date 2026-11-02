@@ -56,6 +56,10 @@ _Avoid_: version manifest (that's the per-workspace deploy pin), plugin manifest
 One of the three independently-pinned byte sources a booting runtime consumes — **image** (the digest-pinned universal image), **config** (on-chain FastKV, account-key signed, atomic), **bundles** (CDN bytes whose sha384 SRI is recorded inside the on-chain config). The security model (ADR 0036): each plane's bytes verify against pins recorded in a *different* plane, so compromising any single plane is insufficient. Speed asymmetry is part of the model — config moves fast (atomic publish, minutes), image moves slow (rare smoke-gated rebuilds).
 _Avoid_: trust layer, security layer (nothing is layered — the planes are peers), integrity plane (integrity is one pin among three)
 
+**Release plane**:
+The version-scoped composition surface a platform-pinned runtime composes from (ADR 0034 consumer boot): every inherited config slot — `app.*` and `plugins.*` — stamps at resolution with the pinned release's recorded `{ production, pin }` (`ResolutionSession.releaseManifest` → `release-plane.ts`), so production, local dev, and type generation all share one co-versioned byte set. Child-authored slots stay untouched; slots provisioned by later parent releases are omitted from an older pin's plane and surfaced at dev boot ("present upstream from rc.N — run `bos upgrade` to inherit") rather than silently live-followed. `bos upgrade` is the plane mover.
+_Avoid_: version plane, plane stamping (the mechanism; the release plane is the outcome), pointer-live (what it replaces: extends inheritance that drifted with the parent's latest deploy), slots override (it is not a config source — it stamps the inherited entries)
+
 ## Organization access
 
 **Team**:

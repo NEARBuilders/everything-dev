@@ -119,13 +119,40 @@ function of (child code, pinned release):
    boot-check walk, every remote slot the leaf does *not* author (present in
    the release's `slots` map, not authored by the leaf) is re-pointed at
    the release's recorded production URL + pin — child-wins over the parent's
-   live pointer at every consumer boot. A slot is authored only when its entry
-   names a code source (`production`, `development`, `pin`, `extends`, `proxy`,
+   live config pointer at every consumer boot. A slot is authored only when
+   its entry names a code source (`production`, `development`, `pin`, `extends`, `proxy`,
    a bare plugin ref, or `ui: false`); an entry carrying only configuration
    (`variables`, `secrets`, …) is still stamped, its configuration kept
    (amended 2026-11-01, #679). Slots the child authors stay untouched;
    a no-`slots` manifest stamps nothing; rollback payloads are canonical and
    skip stamping.
+
+**Amended 2026-11-02: consumer-boot stamping is the primary plane mechanism**
+(plugins plane included). #679's stamping ran only on the deploy train — a
+child's next deploy — while every consumer (`bos dev`, host boot, tenant
+resolution, type generation) extend-merges the parent's **live** config
+pointer fresh, so local dev of a pinned child kept following the parent's
+newest bytes and skewed anyway. The stamping core moved to
+`services/resolution/release-plane.ts` (one implementation, two seams):
+
+- **Consumer boot** (`ResolutionSession`, default-on when the authored
+  `platform` pin resolves): the extends-merged shape is stamped with the
+  pinned release's recorded slots — `app.*` **and, now, `plugins.*`** —
+  by *merging* `{ production, pin }` into the existing inherited entry,
+  which makes the rc.26 invalid-schema mode impossible (the live entry
+  already carries the slot's full shape). Nothing is created: a slot path
+  absent from the merged shape is post-release provisioned (added by a
+  later parent release), is omitted from the child's plane, and is
+  surfaced by the dev-boot audit instead of being silently live-followed.
+- **Deploy payload** (unchanged semantics, `allowCreate`)
+  : `app.*` only, creating when absent — kept so the published artifact
+  hard-carries the plane even for consumers that never re-resolve.
+- **Pre-`slots` releases**: a manifest without the map stamps nothing;
+  children degrade to live-follow exactly as before the amendment (they
+  remain protected by the composition gate until their next upgrade).
+- **Pinned resolution failures fail loud** (slot-first contract names the
+  key) — the plane never degrades a broken pin into silent skew; the
+  composition gate covers children below the point where a pin exists.
 
 Finally, the deploy train gained the **composition gate** (`PublishTrainError`
 kind `composition`, Layer 1 of the fix): before publish, the extends-merged

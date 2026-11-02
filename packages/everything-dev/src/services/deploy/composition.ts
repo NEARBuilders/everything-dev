@@ -1,14 +1,12 @@
 import type { BosConfigInput } from "../../types";
-import { type ConfigSlot, ensureObjectContainers, walkConfigSlots } from "../config-slots";
 import { readInstalledFrameworkVersion } from "../framework-version";
 import {
   checkPlatformCompat,
   type PlatformReleaseManifest,
-  type ReleaseSlotRecord,
   type ResolvePlatformManifestOptions,
   resolvePlatformManifest,
 } from "../platform/manifest";
-import { isPlainObject } from "../resolution/merge";
+import { stampInheritedReleaseSlots } from "../resolution/release-plane";
 import { readWorkspaceCatalog } from "../workspace/catalog";
 import { findWorkspaceRoot } from "../workspace/workspace";
 import { collectSlotPinRefs } from "./rollback";
@@ -52,34 +50,9 @@ export async function resolveReleaseManifestForDeploy(input: {
   return resolved?.manifest ?? null;
 }
 
-/** Keys that name where a slot's code comes from — owning the slot's bytes. */
-const SLOT_SOURCE_KEYS = ["production", "development", "pin", "extends", "proxy"] as const;
-
-/**
- * A slot is authored when its entry names a code source (or opts out with
- * `ui: false` / owns it via a bare plugin ref). An entry that only configures
- * an inherited slot — `variables`, `secrets`, `routes`, … — does not own its
- * bytes, so the release still pins them.
- */
-function declaresSlotSource(entry: ConfigSlot["entry"]): boolean {
-  if (entry === false || typeof entry === "string") return true;
-  return SLOT_SOURCE_KEYS.some((key) => entry[key] !== undefined);
-}
-
 /** Authored slot paths: every slot whose code source the leaf itself declares. */
-export function authoredSlotPaths(config: Record<string, unknown>): Set<string> {
-  const paths = new Set<string>();
-  walkConfigSlots(config, ({ slot, entry, isPluginRef }) => {
-    if (declaresSlotSource(entry)) paths.add(slot);
-    // KEEP: a bare-string plugin ref (`extends: "bos://…"`) owns its whole
-    // surface — composed resolution derives its ui from the extended config,
-    // so the ownership set must include it independently of the `ui` key.
-    if (isPluginRef) paths.add(`${slot}.ui`);
-  });
-  return paths;
-}
+export { authoredSlotPaths } from "../resolution/release-plane";
 
-/** Stamped slot paths (diagnostic), in stamp order. */
 export interface StampOutcome {
   stamped: string[];
 }
@@ -99,43 +72,13 @@ export function stampInheritedSlotsFromRelease(input: {
   authoredConfig: Record<string, unknown>;
   manifest: PlatformReleaseManifest;
 }): StampOutcome {
-  const slots = input.manifest.slots ?? {};
-  const authored = authoredSlotPaths(input.authoredConfig);
-  const stamped: string[] = [];
-
-  for (const [slotPath, record] of Object.entries(slots)) {
-    // KEEP: only app.* slots are stampable — a child's declared `plugins`
-    // object owns the whole plugin domain in one wholesale replace
-    // (mergeBosConfigWithExtends), so stamping parent plugin slots would
-    // both expand the child's composed plugin set and produce
-    // schema-invalid entries (the stamped ui record alone carries no
-    // required `name`; the wholesale replace never fills it — the
-    // feedback.nearbuilders.org rc.26 incident).
-    if (!/^app\.[^.]+(\.ui)?$/.test(slotPath)) continue;
-    if (authored.has(slotPath)) continue;
-    stampSlotRecord(input.payload, slotPath, record);
-    stamped.push(slotPath);
-  }
-  return { stamped };
-}
-
-/** Write `{ production, pin }` for one dotted slot path (2–3 segments),
- * merging into an existing entry rather than replacing it. */
-function stampSlotRecord(
-  payload: Record<string, unknown>,
-  slotPath: string,
-  record: ReleaseSlotRecord,
-): void {
-  const segments = slotPath.split(".");
-  if ((segments.length !== 2 && segments.length !== 3) || !segments[1]) return;
-  const leaf = segments[segments.length - 1];
-  const container = ensureObjectContainers(payload, segments.slice(0, -1));
-  if (!leaf) return;
-  const existing = container[leaf];
-  const entry: Record<string, unknown> = isPlainObject(existing) ? { ...existing } : {};
-  entry.production = record.base;
-  entry.pin = { manifest: record.pin.manifest, integrity: record.pin.integrity };
-  container[leaf] = entry;
+  const outcome = stampInheritedReleaseSlots({
+    config: input.payload,
+    authoredConfig: input.authoredConfig,
+    slots: input.manifest.slots,
+    mode: "payload",
+  });
+  return { stamped: outcome.stamped };
 }
 
 export interface CompositionGateReport {

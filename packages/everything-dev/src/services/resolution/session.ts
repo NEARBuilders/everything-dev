@@ -12,6 +12,7 @@ import type {
 } from "../../types";
 import { BosConfigSchema } from "../../types";
 import { parseBosRef } from "../../utils/bos-ref";
+import { type PlatformReleaseManifest, resolvePlatformManifest } from "../platform/manifest";
 import { fetchBosConfigFromFastKv } from "../registry/fastkv";
 import { readWorkspaceCatalog, resolveSourceDir } from "./init-source";
 import {
@@ -33,6 +34,7 @@ import {
 } from "./load";
 import type { BosEnv } from "./merge";
 import { mergeBosConfigWithExtends, resolveExtendsRef } from "./merge";
+import { stampInheritedReleaseSlots } from "./release-plane";
 import { buildRuntimeConfig, buildRuntimePluginsForConfig } from "./runtime";
 import { collectUnknownKeys } from "./unknown-keys";
 
@@ -116,6 +118,12 @@ interface SessionParts {
   unknownAuthoredKeys?: string[];
   catalog: Record<string, string> | null;
   repository: string | undefined;
+  /** The resolved release manifest for a platform-pinned runtime (slot-first,
+   * once per session) — null when unpinned, unresolvable, or no manifest
+   * publishes. */
+  releaseManifest?: PlatformReleaseManifest | null;
+  /** Consumer-plane stamping outcome for pinned runtimes (ADR 0034). */
+  releasePlane?: { stamped?: string[]; omitted?: string[] };
   env: BosEnv;
   warnings: string[];
 }
@@ -313,6 +321,11 @@ export class ResolutionSession {
   readonly unknownAuthoredKeys: readonly string[];
   readonly catalog: Record<string, string> | null;
   readonly repository: string | undefined;
+  readonly releaseManifest: PlatformReleaseManifest | null;
+  readonly releasePlane: {
+    readonly stamped: readonly string[];
+    readonly omitted: readonly string[];
+  };
 
   #env: BosEnv;
   #warnings: string[];
@@ -327,6 +340,11 @@ export class ResolutionSession {
     this.unknownAuthoredKeys = parts.unknownAuthoredKeys ?? [];
     this.catalog = parts.catalog;
     this.repository = parts.repository;
+    this.releaseManifest = parts.releaseManifest ?? null;
+    this.releasePlane = {
+      stamped: parts.releasePlane?.stamped ?? [],
+      omitted: parts.releasePlane?.omitted ?? [],
+    };
     this.#env = parts.env;
     this.#warnings = parts.warnings;
   }
@@ -430,6 +448,35 @@ export async function openResolution(
 
         let overlayMerged = mergedRaw;
         let devOverlay: Record<string, unknown> | undefined;
+        // Release-plane stamping (ADR 0034 consumer boot): a platform-pinned
+        // runtime composes the pinned release's recorded slots — production,
+        // local dev, and type generation inherit the same bytes instead of
+        // the parent's live config pointer. Runs before the dev overlay so
+        // the overlay still wins on conflict. Only a PIN resolves the plane:
+        // an unpinned runtime follows the parent's live pointer exactly as
+        // before. A pinned-but-unresolvable manifest fails loud right here
+        // (the slot-first contract names the key) instead of skewing later.
+        const releaseManifest: PlatformReleaseManifest | null =
+          rawConfig && typeof rawConfig.platform === "string"
+            ? ((
+                await resolvePlatformManifest({
+                  configDir: dispatch.root,
+                  localConfig: rawConfig as Record<string, unknown>,
+                })
+              )?.manifest ?? null)
+            : null;
+        let releasePlane: NonNullable<SessionParts["releasePlane"]> = {};
+        if (releaseManifest) {
+          const tree = structuredClone(mergedRaw) as Record<string, unknown>;
+          const stamp = stampInheritedReleaseSlots({
+            config: tree,
+            authoredConfig: rawConfig as Record<string, unknown>,
+            slots: releaseManifest.slots,
+            mode: "consumer",
+          });
+          releasePlane = { stamped: stamp.stamped, omitted: stamp.omitted };
+          overlayMerged = tree as BosConfigInput;
+        }
         if (env === "development" && !dispatch.remote) {
           const overlayPath = join(dirname(dispatch.entry), DEV_OVERLAY_FILENAME);
           if ((await resolvedIo.readFileOrNull(overlayPath)) !== null) {
@@ -471,6 +518,8 @@ export async function openResolution(
           unknownAuthoredKeys,
           catalog: collectCatalogs ? Object.assign({}, ...[...catalogs].reverse()) : null,
           repository,
+          releaseManifest,
+          releasePlane,
         } satisfies Omit<SessionParts, "env" | "warnings">;
       } catch (error) {
         if (dispatch.remote && isConfigNotFound(error)) {
