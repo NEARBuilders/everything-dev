@@ -78,14 +78,6 @@ const dormantClientLayer = Layer.succeed(AgentApiClient, {
 
 const newId = (): string => crypto.randomUUID();
 
-/** The pieces of the generated intent the ledger stores and the UI needs. */
-interface GeneratedIntent {
-  correlation_id: string;
-  agent_id?: string | null;
-  status: string;
-  expires_at: string;
-}
-
 type LedgerError = ORPCError<"INTERNAL_SERVER_ERROR", unknown>;
 
 const CONFLICT_ERROR = (message: string) => new ORPCError("CONFLICT", { message });
@@ -326,7 +318,7 @@ export default createPlugin({
     };
 
     return {
-      agentCreate: builder.agentCreate.effect(function* ({ input, context, errors }) {
+      agentCreate: builder.agentCreate.effect(function* ({ input, context }) {
         const userId = requireUser(context.userId);
         const owner = deriveOwner(context.near);
         const client = yield* AgentApiClient;
