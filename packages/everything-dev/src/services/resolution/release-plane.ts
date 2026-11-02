@@ -99,15 +99,19 @@ function slotEntryAt(
   slotPath: string,
 ): Record<string, unknown> | undefined {
   const segments = slotPath.split(".");
-  if ((segments.length !== 2 && segments.length !== 3) || !segments[1]) return undefined;
+  if ((segments.length !== 2 && segments.length !== 3) || !segments[0] || !segments[1]) {
+    return undefined;
+  }
   let node: unknown = config;
   for (const segment of segments.slice(0, -1)) {
     if (!isPlainObject(node)) return undefined;
     node = node[segment];
   }
   if (!isPlainObject(node)) return undefined;
-  const leaf = segments[segments.length - 1];
-  return isPlainObject(node[leaf]) ? (node[leaf] as Record<string, unknown>) : undefined;
+  const leaf = segments.at(-1);
+  if (leaf === undefined) return undefined;
+  const entry = node[leaf];
+  return isPlainObject(entry) ? entry : undefined;
 }
 
 /** Write `{ production, pin }` for one dotted slot path (2–3 segments),
@@ -118,8 +122,8 @@ function stampSlotRecord(
   record: ReleaseSlotRecord,
 ): void {
   const segments = slotPath.split(".");
-  if ((segments.length !== 2 && segments.length !== 3) || !segments[1]) return;
-  const leaf = segments[segments.length - 1];
+  if ((segments.length !== 2 && segments.length !== 3) || !segments[0] || !segments[1]) return;
+  const leaf = segments.at(-1);
   const container = ensureObjectContainers(config, segments.slice(0, -1));
   if (!leaf) return;
   const existing = container[leaf];
