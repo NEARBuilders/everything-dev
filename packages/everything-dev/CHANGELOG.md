@@ -1,5 +1,13 @@
 # everything-dev
 
+## 2.0.0-rc.30
+
+### Patch Changes
+
+- 31fa1a4: CI economy overhaul: the `main` ruleset now routes every merge through the GitHub merge queue (one full-suite run per batch against the real merged tree, required check `CI gate`), CI no longer re-runs on push to `main`, and the changesets version PR fast-paths to an all-skipped green run instead of paying the full regression matrix over a package.json-only diff. Deploy and Release trigger directly on push and gate themselves (tip guard, runtime-relevance diff, merge-queue provenance with a `workflow_dispatch --force` escape hatch), and the never-run `test:regression:backcompat` tier runs on a nightly schedule (`backcompat-nightly.yml`).
+- 284000d: The release plane moves to consumer boot: every `bos dev`, host boot, tenant resolution, and type generation run of a platform-pinned runtime now stamps its inherited config slots (`app.*` **and** `plugins.*`) with the pinned release's recorded `{ production, pin }`, instead of extending-merging the parent's live config pointer — production, local dev, and compile-time contracts resolve the same co-versioned bytes, so a parent's rc.N+1 publish no longer skews a pinned child's composition (the rc.27-pinned child whose auth bundle moved underneath it). The stamp core moves to `services/resolution/release-plane.ts` (one implementation; the deploy payload seam unchanged — `allowCreate` keeps #679 semantics); post-release provisioned slots are omitted and surfaced for the dev audit rather than silently live-followed; pre-`slots` releases degrade to exactly today's behavior, and per-session release resolution is shared between the plane and the dev upgrade notice.
+- a140fba: The dev chain audit closes the loop: a successful `bos dev` boot fetches each composed remote slot's version-manifest and compares its embedded **strict singletons** (critical names per the shared-dep specs — `every-plugin`, `effect`, `@orpc/*`, the UI flips) against the versions this runtime actually composes; divergences print one line per slot with the ownership-correct repair — inherited → `run bos upgrade`, owned → `run bos plugin publish <key>`, and slots provisioned upstream after the pinned release print "run bos upgrade to inherit". The audit never blocks boot and reads no npm. It is the user-visible face of the compat machinery: same strict-singleton law as the training gate (critical ⇒ exact), slot payloads, and boot guard, so one mismatch reads the same in the train and on screen.
+
 ## 2.0.0-rc.29
 
 ### Patch Changes
