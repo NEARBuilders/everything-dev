@@ -3,15 +3,15 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
-    # Docs-only merges cannot change changesets — skip the changesets pass.
-    # Deliberately NOT ignoring .changeset/** — that is the input this
-    # workflow consumes.
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
+  # CI-gated like Deploy: only a green push to main releases. Docs-only
+  # merges lose their path filter (workflow_run has none) — the changesets
+  # pass no-ops on those, costing one lint-speed install.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Manual retry leg: npm/OIDC/registry blips whose CI already ran repay
+  # a dispatch instead of a push.
   workflow_dispatch:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
@@ -23,11 +23,42 @@ permissions:
   actions: write
 
 jobs:
+  gate:
+    name: Verify release is current
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      release: ${{ steps.tip.outputs.current == 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+
+      # Mirrors Deploy's gate: a newer push to main makes this run's release
+      # stale — the queued run for the new tip releases instead, and two
+      # publishes never race a moving pointer.
+      - name: Verify the CI-validated commit is still the main tip
+        id: tip
+        run: |
+          git fetch --no-tags origin main
+          TIP="$(git rev-parse origin/main)"
+          SHA="$(git rev-parse HEAD)"
+          if [ "$SHA" = "$TIP" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping release — main advanced past the CI-validated commit ($SHA → $TIP). The queued run for the new tip releases instead."
+          fi
+
   release:
     name: Process Changesets
-    # Dispatches must run against main — a manual run on a feature branch
-    # would open version PRs (or publish) from the wrong source.
-    if: github.ref == 'refs/heads/main'
+    needs: [gate]
+    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
