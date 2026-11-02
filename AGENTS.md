@@ -359,6 +359,7 @@ Tenant model:
 Current fixed-core host rules:
 - the shared host still boots once from one base runtime snapshot
 - child runtime config must extend the active BOS runtime
+- a pinned child composes the **release plane** (ADR 0034): inherited slots (`app.*`, `plugins.*`) stamp at resolution with the pinned release's `{ production, pin }` — parent deploys move nothing the child's pin does not name; post-release slots are omitted and surfaced at dev boot; `bos upgrade` is the plane mover
 - supported request-scoped overrides are `ui` and existing `plugins.<id>.ui`
 - tenant SSR is gated per-tenant by the `allowSsr` column on the tenant record; the host's BindingResolver reads permissions from the API's `GET /tenants/bindings` endpoint (cached for 30s)
 - nested label routing and account-relative tenant derivation are the intended architecture direction, but not the complete resolver behavior today
