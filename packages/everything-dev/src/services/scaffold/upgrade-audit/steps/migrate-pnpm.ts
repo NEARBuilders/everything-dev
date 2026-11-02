@@ -46,6 +46,7 @@ export const V2_CATALOG: Readonly<Record<string, string>> = {
   "@orpc/tanstack-query": "2.0.0-beta.45",
   "@orpc/zod": "2.0.0-beta.45",
   "@outlayer/sdk": "0.1.0-alpha.4",
+  "@near-intents-agent-api/sdk": "^0.4.1",
   "@rsbuild/core": "2.2.8",
   "@rsbuild/plugin-react": "2.1.0",
   "@rspack/cli": "2.2.6",
