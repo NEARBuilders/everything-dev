@@ -1,5 +1,12 @@
 # every-plugin
 
+## 3.0.0-rc.15
+
+### Patch Changes
+
+- 8c916ff: Bump the @orpc suite to 2.0.0-beta.45 — `MemoryPublisher`'s `resume` option takes `ttl` (milliseconds) instead of `seconds`.
+- 150b092: `createRpcClient` keeps the request's own headers, including `content-type: application/json`, when you pass custom headers such as an API key. Before, they were dropped and the server rejected the input.
+
 ## 3.0.0-rc.14
 
 ### Patch Changes
