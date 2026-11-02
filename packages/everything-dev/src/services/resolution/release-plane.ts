@@ -1,8 +1,8 @@
+import { SHARED_DEP_SPECS } from "every-plugin/shared-deps-spec";
 import { type ConfigSlot, ensureObjectContainers, walkConfigSlots } from "../config-slots";
+import { resolveSlotVersion } from "../deploy/version-manifest";
 import type { ReleaseSlotRecord } from "../platform/manifest";
 import { isPlainObject } from "./merge";
-import { resolveSlotVersion } from "../deploy/version-manifest";
-import { SHARED_DEP_SPECS } from "every-plugin/shared-deps-spec";
 
 /**
  * The release plane (ADR 0034 amendment — release-scoped extends

@@ -1,17 +1,17 @@
 import { Effect } from "effect";
-import { chainHeadPinLagNotice } from "../services/platform/manifest";
+import { collectSlotPinRefs } from "../services/deploy/rollback";
 import { DevFlowService } from "../services/dev/flow";
+import { readInstalledFrameworkVersion } from "../services/framework-version";
+import { chainHeadPinLagNotice } from "../services/platform/manifest";
 import {
   auditReleasePlane,
   authoredSlotPaths,
   type PlaneAuditLine,
 } from "../services/resolution/release-plane";
-import { collectSlotPinRefs } from "../services/deploy/rollback";
-import { readInstalledFrameworkVersion } from "../services/framework-version";
+import { type ResolutionSession, ResolutionSessionService } from "../services/resolution/session";
 import { findWorkspaceRoot } from "../services/workspace/workspace";
-import { ResolutionSessionService, type ResolutionSession } from "../services/resolution/session";
-import type { BosBuilder } from "./shared";
 import type { BosConfigInput } from "../types";
+import type { BosBuilder } from "./shared";
 
 const auditSessionPlane = (session: NonNullable<ResolutionSession>): Promise<PlaneAuditLine[]> =>
   auditReleasePlane({

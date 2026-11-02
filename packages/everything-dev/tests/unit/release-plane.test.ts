@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { versionManifestFetcher, versionManifestText, pinFor } from "../helpers/version-manifests";
 import {
   auditReleasePlane,
   authoredSlotPaths,
   stampInheritedReleaseSlots,
 } from "../../src/services/resolution/release-plane";
+import { pinFor, versionManifestFetcher, versionManifestText } from "../helpers/version-manifests";
 
 const record = (base: string, version = "1") => ({
   base,
