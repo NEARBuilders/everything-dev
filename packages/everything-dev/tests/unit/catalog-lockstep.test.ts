@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { V2_CATALOG } from "../../src/services/scaffold/upgrade-audit/steps/migrate-pnpm";
+import { V2_CATALOG } from "../../src/services/scaffold/upgrade-audit/steps/v2-catalog";
 
 // Drift guard: the v1→v2 migration's catalog baseline is compiled into the
 // released everything-dev and overwrites the child's rows on migration — if

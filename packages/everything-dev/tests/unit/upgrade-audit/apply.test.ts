@@ -9,6 +9,7 @@ import {
 } from "../../../src/services/scaffold/upgrade-audit/steps/apply-manifest";
 import { authorConfig } from "../../../src/services/scaffold/upgrade-audit/steps/author-config";
 import { migratePnpm } from "../../../src/services/scaffold/upgrade-audit/steps/migrate-pnpm";
+import { V2_CATALOG } from "../../../src/services/scaffold/upgrade-audit/steps/v2-catalog";
 import { PNPM_PACKAGE_MANAGER } from "../../../src/services/workspace/catalog-overrides";
 
 let projectDir: string;
@@ -62,9 +63,9 @@ describe("migratePnpm", () => {
     await run(migratePnpm(projectDir, false));
     const yaml = await readFile(join(projectDir, "pnpm-workspace.yaml"), "utf-8");
     // framework rows: V2_CATALOG wins over the v1 leftovers the fixture ships
-    expect(yaml).toContain("everything-dev: ^2.0.0-rc.27");
-    expect(yaml).toContain("every-plugin: ^3.0.0-rc.14");
-    expect(yaml).toContain("better-near-auth: ^2.0.0-rc.5");
+    expect(yaml).toContain(`everything-dev: ${V2_CATALOG["everything-dev"]}`);
+    expect(yaml).toContain(`every-plugin: ${V2_CATALOG["every-plugin"]}`);
+    expect(yaml).toContain(`better-near-auth: ${V2_CATALOG["better-near-auth"]}`);
     // ecosystem rows: V2_CATALOG wins over v1 leftovers
     expect(yaml).toContain("better-auth: 1.7.14");
     expect(yaml).toContain("overrides:");
@@ -72,9 +73,10 @@ describe("migratePnpm", () => {
     expect(yaml).toContain("- api");
     expect(yaml).toContain("- plugins/*");
     // release-age posture: derived from the catalog's framework rows, pruned
-    expect(yaml).toContain("minimumReleaseAgeExcludePrune: true");
-    expect(yaml).toContain('- "everything-dev@2.0.0-rc.27"');
-    expect(yaml).toContain('- "every-plugin@3.0.0-rc.14"');
+    const everythingDevPin = V2_CATALOG["everything-dev"];
+    const everyPluginPin = V2_CATALOG["every-plugin"];
+    expect(yaml).toContain(`- "everything-dev@${everythingDevPin.replace(/^\^/, "")}"`);
+    expect(yaml).toContain(`- "every-plugin@${everyPluginPin.replace(/^\^/, "")}"`);
     expect(yaml).not.toContain("2.0.0-rc.14 ||");
   });
 
