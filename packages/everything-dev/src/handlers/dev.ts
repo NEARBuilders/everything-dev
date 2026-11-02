@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { chainHeadPinLagNotice, resolvePlatformManifest } from "../services/platform/manifest";
 import { DevFlowService } from "../services/dev/flow";
+import { chainHeadPinLagNotice, resolvePlatformManifest } from "../services/platform/manifest";
 import { ResolutionSessionService } from "../services/resolution/session";
 import type { BosBuilder } from "./shared";
 
