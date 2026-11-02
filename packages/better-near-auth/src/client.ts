@@ -58,7 +58,13 @@ import {
   type ViewContractRequestT,
   type ViewContractResponseT,
 } from "./types.js";
+import {
+  clearWalletSigner,
+  type NearConnectSignerWallet,
+  setWalletSigner,
+} from "./wallet-signer.js";
 
+export type { AuthCallbacks } from "./auth-callbacks.js";
 export {
   getNearAtoms,
   type NearAtomsSource,
@@ -67,10 +73,7 @@ export {
   type NearState,
 } from "./store.js";
 
-export interface AuthCallbacks {
-  onSuccess?: () => void;
-  onError?: (error: Error & { status?: number; code?: string }) => void;
-}
+import type { AuthCallbacks } from "./auth-callbacks.js";
 
 export interface SIWNClientConfig {
   recipient?: string;
@@ -161,6 +164,7 @@ export interface SIWNClientActions {
   };
 }
 
+export { signAgentIntent } from "./agent-connect-client.js";
 export { BOS_CLI_CLIENT_ID, DEFAULT_DEVICE_LINK_CLIENT_ID } from "./constants.js";
 export { isPasskeyWalletAvailable, type PasskeyWalletNetwork } from "./passkey.js";
 
@@ -248,6 +252,14 @@ export const siwnClient = (config: SIWNClientConfig) => {
       .getConnectedWallet()
       .then((connected) => {
         connectedWallets.set(network, connected);
+        if (connected.accounts?.[0]?.accountId) {
+          setWalletSigner({
+            accountId: connected.accounts[0].accountId,
+            publicKey: connected.accounts[0].publicKey ?? null,
+            network,
+            wallet: connected.wallet as NearConnectSignerWallet,
+          });
+        }
         return connected;
       })
       .finally(() => {
@@ -315,6 +327,7 @@ export const siwnClient = (config: SIWNClientConfig) => {
 
       connector.on("wallet:signOut", () => {
         connectedWallets.delete(network);
+        clearWalletSigner(network);
         if (activeNetwork.get() !== network) return;
         walletConnected.set(false);
         const state = nearState.get();

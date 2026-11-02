@@ -50,6 +50,8 @@
     "authentication",
     "blockchain",
     "web3",
+    "agent-connect",
+    "near-intents",
     "plugin",
     "tanstack-intent"
   ],
@@ -79,10 +81,12 @@
     }
   },
   "dependencies": {
+    "@near-intents-agent-api/sdk": "^0.4.1",
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
     "@noble/post-quantum": "^0.6.1",
     "@scure/base": "^2.2.0",
+    "@simplewebauthn/browser": "^13.3.0",
     "nanostores": "^1.1.0",
     "near-kit": "^0.20.2",
     "zod": "^4.4.3"

@@ -13,6 +13,7 @@ These are architecture and implementation plans, not issue tickets — sprint ti
 docs/plans/
 ├── 001–066 (flat)       # advisor audit queue (open work)
 ├── beta-v2/             # v2 platform architecture (5 docs)
+├── target-state/        # platform target-state vision: primitives, default path, economy
 ├── deploy-agents-rebuild/  # sprint: deploy consolidation + agents rebuild (SPRINT.md + tickets)
 ├── extensions/          # plans that extend the beta-v2 architecture
 ├── infra/               # infrastructure & migration plans
