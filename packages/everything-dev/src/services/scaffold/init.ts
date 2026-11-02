@@ -33,22 +33,13 @@ export {
   type SourceResult,
 } from "../resolution/init-source";
 
-export const PNPM_PACKAGE_MANAGER = "pnpm@12.10.1";
+import {
+  PNPM_PACKAGE_MANAGER,
+  reconcileWorkspacePosture,
+  type WorkspaceYamlDoc,
+} from "../workspace/catalog-overrides";
 
-/**
- * Transitive-singleton overrides every workspace in the fleet must agree on
- * (ticket 05's deviation log: isolated resolution splits better-auth
- * peer-context identities across the plugin fleet). Values derive from the
- * catalog so sync keeps them current; keys absent from the catalog are left
- * unpinned.
- */
-const CHILD_OVERRIDE_KEYS = [
-  "@better-fetch/fetch",
-  "@rspack/core",
-  "better-auth",
-  "react",
-  "react-dom",
-] as const;
+export { PNPM_PACKAGE_MANAGER };
 
 /**
  * The child's workspace manifest: pnpm-workspace.yaml is canonical (v2, ADR
@@ -61,13 +52,11 @@ export function writeChildWorkspaceYaml(
   next: { packages: string[]; catalog: Record<string, string> },
 ): boolean {
   const yamlPath = join(projectDir, "pnpm-workspace.yaml");
-  let doc: {
+  let doc: WorkspaceYamlDoc & {
     packages?: string[];
-    catalog?: Record<string, string>;
     nodeLinker?: string;
     linkWorkspacePackages?: boolean;
     ignoreScripts?: boolean;
-    overrides?: Record<string, string>;
   } = {};
   if (existsSync(yamlPath)) {
     try {
@@ -117,17 +106,8 @@ export function writeChildWorkspaceYaml(
     changed = true;
   }
 
-  const overrides: Record<string, string> = { ...doc.overrides };
-  for (const key of CHILD_OVERRIDE_KEYS) {
-    if (catalog[key] && overrides[key] !== catalog[key]) {
-      overrides[key] = catalog[key];
-      changed = true;
-    }
-  }
-  if (Object.keys(overrides).length > 0) {
-    doc.overrides = Object.fromEntries(
-      Object.entries(overrides).sort(([a], [b]) => a.localeCompare(b)),
-    );
+  if (reconcileWorkspacePosture(doc as Parameters<typeof reconcileWorkspacePosture>[0])) {
+    changed = true;
   }
 
   if (changed) {

@@ -12,10 +12,19 @@ const OVERRIDES_PINS = ["@effect/platform-node", "@effect/platform-node-shared"]
 function readOverridePins(workspace: WorkspaceFile): Record<string, string | undefined> {
   const pins: Record<string, string | undefined> = {};
   for (const name of OVERRIDES_PINS) {
-    pins[name] =
-      typeof workspace.overrides?.[name] === "string"
-        ? (workspace.overrides[name] as string)
-        : undefined;
+    const value = workspace.overrides?.[name];
+    if (typeof value !== "string") {
+      pins[name] = undefined;
+    } else if (value === "catalog:") {
+      // The catalog:-protocol override (the drift-proof form) resolves through
+      // the catalog row it references.
+      pins[name] =
+        typeof workspace.catalog?.[name] === "string"
+          ? (workspace.catalog[name] as string)
+          : undefined;
+    } else {
+      pins[name] = value;
+    }
   }
   return pins;
 }

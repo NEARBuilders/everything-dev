@@ -89,7 +89,7 @@ export default createPlugin.withPlugins<PluginsClient>()({
       yield* service.ping;
 
       const publisher = new MemoryPublisher<TemplateEvents>({
-        resume: { enabled: true, seconds: 60 * 2 },
+        resume: { enabled: true, ttl: 60 * 2 * 1000 },
       });
 
       if (config.variables.backgroundEnabled) {

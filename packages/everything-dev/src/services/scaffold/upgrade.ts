@@ -6,6 +6,10 @@ import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../../contract"
 import { readJsonFile } from "../../utils/json-file";
 import { timePhase } from "../../utils/timing";
 import { readWorkspaceCatalog } from "../workspace/catalog";
+import {
+  reconcilePackageManagerPin,
+  reconcileWorkspaceYamlFile,
+} from "../workspace/catalog-overrides";
 import { runPnpmInstallForUpgrade } from "./init";
 import { syncTemplate } from "./sync";
 import { describeMigrationFailure, runMigrationPhase } from "./upgrade-migration";
@@ -188,6 +192,16 @@ export async function upgradeTemplate(
         updatePackageFileCatalogRefs(pkgPath, inheritedCatalogPackageNames);
       }
     }
+
+    // Overrides and release-age excludes follow the synced catalog (#659/#682):
+    // a literal override re-pinning an old version beats the new catalog row
+    // at resolution time, so the build silently keeps running stale shared
+    // deps and the #546 skew gate blames the wrong fix.
+    reconcileWorkspaceYamlFile(workspaceDirOf(projectDir));
+
+    // Forward-only pnpm pin propagation — migrate-pnpm is a one-time v1→v2
+    // step, so existing v2 children only see a parent toolchain bump here.
+    reconcilePackageManagerPin(pkgPath);
 
     // @better-auth/core rides the catalog row its plugins need; it is not in
     // every template package.json, so it is ensured here rather than sync'd.

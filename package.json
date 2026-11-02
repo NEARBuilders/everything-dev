@@ -2,7 +2,7 @@
   "name": "monorepo",
   "private": true,
   "scripts": {
-    "prepare": "node --import tsx scripts/check-effect-pin.ts && (test -d repos/effect/.git || git clone --depth 1 --branch effect@4.0.0-rc.117 https://github.com/Effect-TS/effect.git repos/effect; effect-tsgo patch --oxlint)",
+    "prepare": "node --import tsx scripts/check-effect-pin.ts && (test -d repos/effect/.git || git clone --depth 1 --branch effect@4.0.0-rc.118 https://github.com/Effect-TS/effect.git repos/effect; effect-tsgo patch --oxlint)",
     "init": "pnpm run db:migrate",
     "dev": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts dev",
     "dev:ui": "node --import tsx --conditions=development packages/everything-dev/src/cli.ts dev --api remote",
@@ -69,7 +69,7 @@
     "test:regression:backcompat": "pnpm run test:regression:http:backcompat && pnpm run test:regression:browser:backcompat",
     "test:regression": "pnpm run test:regression:unit && pnpm run test:regression:dev && pnpm run test:regression:start && pnpm run test:regression:backcompat"
   },
-  "packageManager": "pnpm@12.10.1+sha512.ba40a37eb1a370d60fea8c4cf1d364c13bcccef518e98ad2bcee954f539d38da37458e58261a3fa55e06523450ea0ffff9f497b135be41f2c15c1642bacace6c",
+  "packageManager": "pnpm@12.16.1+sha512.091d1dee7927575661b25dab3c2ae31cafc1c54d6b71ed6a6600cf0c1cb10434a447eae14015f1b23e2e6bedeed79df94a932e2164d2832280dce3fb32f656d1",
   "type": "module",
   "engines": {
     "node": ">=20.11"
@@ -77,13 +77,13 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
     "@changesets/cli": "^2.29.8",
-    "@effect/tsgo": "^0.45.0",
+    "@effect/tsgo": "^0.63.0",
     "@playwright/test": "^1.58.1",
     "@shadcn/lint": "^0.2.0",
     "@types/pg": "catalog:",
     "dotenv": "^17.3.1",
-    "oxlint": "1.82.0",
-    "oxlint-tsgolint": "7.0.2001",
+    "oxlint": "1.90.0",
+    "oxlint-tsgolint": "7.0.2005",
     "tsx": "^4.21.0",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "catalog:"
