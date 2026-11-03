@@ -253,8 +253,10 @@ workspace process persists to its own `pglite:.bos/db` data dir (`api/.bos/db`,
 `plugins/<id>/.bos/db`, …); concurrent projects (even 40 at once) can never fight over DB
 ports. The api and its in-process plugins share one data dir with `plugin_<slug>` schema
 isolation; auth keeps its own dir. pglite ≥ 0.4.6 supports multiple instances per data dir
-across processes, so `db:studio`/`db:migrate`/`db:push` work while dev runs (they may queue
-behind dev's writes; two dev sessions in one repo share data).
+across processes, so dev and tools share data safely (heavy writers may queue on the file
+lock). The pglite default is a runtime-driver concern: boot migrations apply zero-config,
+but drizzle-kit commands (`db:studio`/`db:migrate`/`db:push`) require a `postgres://` URL
+in `*_DATABASE_URL` (their configs are static `dialect: "postgresql"`).
 
 **Degraded/parity mode:** production or shared-server access points `*_DATABASE_URL` in
 `.env` at a real `postgres://` URL (Neon/Railway per ADR 0035). Parity testing pglite/pg

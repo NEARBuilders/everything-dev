@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
+import defaults from "./defaults.json";
 import type { WorkspaceIdentity } from "./identity";
 
 /**
@@ -16,27 +17,17 @@ export function bindingEnv(binding: { secretName: string; url: string }): Record
 /**
  * The zero-config local database: a persistent, file-backed PGlite data dir
  * resolved per workspace process (`.bos/db` relative to the workspace cwd).
- * No ports, no docker — concurrent projects never collide.
+ * No ports, no docker — concurrent projects never collide. This default is a
+ * runtime-driver concern only: drizzle-kit commands (db:push/db:studio/
+ * db:migrate) need a real postgres DSN in the environment.
+ *
+ * Single-sourced in `defaults.json` (read by plain-node tooling like the
+ * regression env too) — never hardcode the literal elsewhere. Scaffolded
+ * templates and plugin secret defaults deliberately keep their own frozen
+ * copy: a database location is pinned at init, it must not silently follow
+ * a framework upgrade.
  */
-export const PGLITE_DEFAULT_URL = "pglite:.bos/db";
-
-/**
- * drizzle-kit dialect options for a resolved database URL: `pglite:` URLs use
- * the `pglite` dialect with a `driver`-tagged data-dir path; anything else is
- * a regular postgres DSN.
- */
-export function drizzleCredentialsFor(url: string): {
-  dialect: "postgresql" | "pglite";
-  dbCredentials: { url: string; driver?: "pglite" };
-} {
-  if (url.startsWith("pglite:")) {
-    return {
-      dialect: "pglite",
-      dbCredentials: { driver: "pglite", url: url.replace("pglite:", "") },
-    };
-  }
-  return { dialect: "postgresql", dbCredentials: { url } };
-}
+export const PGLITE_DEFAULT_URL = defaults.pgliteDefaultUrl;
 
 function findEnvFile(startDir: string | undefined): string | undefined {
   if (!startDir) return undefined;
@@ -59,12 +50,12 @@ function findEnvFile(startDir: string | undefined): string | undefined {
  *   2. the canonical secret in the nearest `.env` walked up from the
  *      workspace directory (existing environment wins — values are not
  *      overridden, matching dotenv semantics)
- *   3. the persistent local default (`PGLITE_DEFAULT_URL`) — valid for
- *      connecting commands too, so `pnpm run db:migrate`/`db:studio` work
+ *   3. the persistent local default (`PGLITE_DEFAULT_URL`) — consumed by the
+ *      runtime driver (`createDatabaseDriver`), so boot migrations apply
  *      zero-config against the workspace's `.bos/db` data dir
  *
- * drizzle-kit commands the default works for are unaffected; non-drizzle-kit
- * consumers get the same persistent default.
+ * drizzle-kit commands need a postgres DSN; feeding them the pglite default
+ * fails loudly at connect time.
  */
 export function resolveDatabaseUrl(
   identity: WorkspaceIdentity,

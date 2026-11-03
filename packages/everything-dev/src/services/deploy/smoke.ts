@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
+import { PGLITE_DEFAULT_URL } from "../../db/binding";
 
 /**
  * The runtime-image boot gate: boots a runtime image the way production
@@ -217,9 +218,9 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
     // Boot-gate only: the container's own persistent-by-path PGlite default
     // (in-container fs) is enough — no external postgres involved.
     API_DATABASE_URL:
-      options.apiDatabaseUrl ?? process.env.SMOKE_API_DATABASE_URL ?? "pglite:.bos/db",
+      options.apiDatabaseUrl ?? process.env.SMOKE_API_DATABASE_URL ?? PGLITE_DEFAULT_URL,
     AUTH_DATABASE_URL:
-      options.authDatabaseUrl ?? process.env.SMOKE_AUTH_DATABASE_URL ?? "pglite:.bos/db",
+      options.authDatabaseUrl ?? process.env.SMOKE_AUTH_DATABASE_URL ?? PGLITE_DEFAULT_URL,
     BETTER_AUTH_SECRET:
       options.authSecret ??
       process.env.SMOKE_BETTER_AUTH_SECRET ??

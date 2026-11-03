@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Effect } from "effect";
-import type { DatabaseBinding, DrizzleKitService } from "../../db";
+import type { DatabaseBinding } from "../../db/bindings";
+import type { DrizzleKitService } from "../../db/drizzle-kit";
 import { type DoctorReport, diagnosePlugin } from "./doctor";
 
 export interface RepairResult {

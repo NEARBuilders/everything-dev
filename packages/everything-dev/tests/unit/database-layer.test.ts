@@ -6,13 +6,10 @@ import { sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { Cause, Context, Effect, Exit, Layer, Scope } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  DatabaseError,
-  databaseLayer,
-  type LoadedMigrations,
-  type Migration,
-  pluginSchemaName,
-} from "../../src/db";
+import { pluginSchemaName } from "../../src/db/driver";
+import { DatabaseError } from "../../src/db/errors";
+import { databaseLayer } from "../../src/db/layer";
+import type { LoadedMigrations, Migration } from "../../src/db/run-migrations";
 
 const dirs: string[] = [];
 
