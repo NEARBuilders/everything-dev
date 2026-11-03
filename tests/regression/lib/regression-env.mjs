@@ -12,9 +12,16 @@ const DEFAULT_BETTER_AUTH_SECRET = "regression-test-secret-do-not-use-in-product
  */
 const DEFAULT_BOOTSTRAP_ADMIN_API_KEY =
   "regression-bootstrap-admin-api-key-0123456789abcdef0123456789abcdef0123456789";
+/** Single-sourced from the framework package — never hardcode the literals. */
+const DB_DEFAULTS = JSON.parse(
+  fs.readFileSync(
+    new URL("../../../packages/everything-dev/src/db/defaults.json", import.meta.url),
+    "utf-8",
+  ),
+);
 /** The developer's persistent dev data dir default (per workspace process). */
-const DEV_PGLITE_URL = "pglite:.bos/db";
-const TEST_DATABASE_DEFAULT = "pglite::memory:";
+const DEV_PGLITE_URL = DB_DEFAULTS.pgliteDefaultUrl;
+const TEST_DATABASE_DEFAULT = DB_DEFAULTS.pgliteTestUrl;
 
 export function findRepoRoot(startDir = process.cwd()) {
   let current = path.resolve(startDir);

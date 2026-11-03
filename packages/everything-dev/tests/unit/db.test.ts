@@ -9,7 +9,7 @@ import {
   getMigrationStorage,
   pluginMigrationSlug,
   toSqlArray,
-} from "../../src/db";
+} from "../../src/db/core";
 
 describe("getMigrationSlug", () => {
   it("falls back to npm_package_name when no dir given", () => {

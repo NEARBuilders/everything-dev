@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { PGLITE_DEFAULT_URL } from "../db/binding";
+import defaults from "../db/defaults.json";
 import type { RuntimeConfig } from "../types";
 import { frameworkOwnedHeaderComment } from "./scaffold/ownership";
 
@@ -19,8 +21,8 @@ const VESTIGIAL_SECRETS = new Set([
  * shared server. The two-database split (auth separate from everything
  * else) survives independent of compose.
  */
-export const PGLITE_DEV_DATABASE_URL = "pglite:.bos/db";
-export const PGLITE_TEST_DATABASE_URL = "pglite::memory:";
+export const PGLITE_DEV_DATABASE_URL = PGLITE_DEFAULT_URL;
+export const PGLITE_TEST_DATABASE_URL = defaults.pgliteTestUrl;
 
 export interface DatabaseConvention {
   secret: string;

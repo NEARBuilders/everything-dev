@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Context, Data, Effect, Layer } from "effect";
-import { bindingEnv, drizzleCredentialsFor } from "./binding";
+import { bindingEnv } from "./binding";
 import type { DatabaseBinding } from "./bindings";
 
 export class DrizzleKitError extends Data.TaggedError("DrizzleKitError")<{
@@ -109,15 +109,14 @@ function writeGeneratedConfig(binding: DatabaseBinding, projectDir: string): str
   const dbDir = resolve(projectDir, ".bos", "db", binding.key);
   mkdirSync(dbDir, { recursive: true });
 
-  const credentials = drizzleCredentialsFor(binding.url);
   const configPath = join(dbDir, "drizzle.config.ts");
   const configContent = `import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
   schema: "./drizzle/schema.ts",
   out: "./drizzle",
-  dialect: "${credentials.dialect}",
-  dbCredentials: ${JSON.stringify(credentials.dbCredentials)},
+  dialect: "postgresql",
+  dbCredentials: { url: ${JSON.stringify(binding.url)} },
   migrations: {
     schema: "${binding.identity.journal.schema}",
     table: "${binding.identity.journal.table}",

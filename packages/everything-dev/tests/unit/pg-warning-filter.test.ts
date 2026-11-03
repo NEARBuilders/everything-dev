@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const script = `
-const { suppressPgQueryQueueDeprecation } = require("./src/db/index.ts");
+const { suppressPgQueryQueueDeprecation } = require("./src/db/core.ts");
 suppressPgQueryQueueDeprecation();
 const util = require("node:util");
 const pgQuery = util.deprecate(
