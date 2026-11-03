@@ -280,9 +280,9 @@ describe("resolvePlatformManifest", () => {
     });
     const resolved = await h.run(childConfig);
     expect(resolved).not.toBeNull();
-    const cached = JSON.parse(
-      readFileSync(join(tmpRoot, ".bos", "platform-manifest.json"), "utf-8"),
-    ) as { manifest: PlatformReleaseManifest };
+    const cached = JSON.parse(readFileSync(join(tmpRoot, ".bos", "manifest.json"), "utf-8")) as {
+      manifest: PlatformReleaseManifest;
+    };
     expect(cached.manifest.frameworkVersion).toBe("2.0.0-rc.14");
   });
 });

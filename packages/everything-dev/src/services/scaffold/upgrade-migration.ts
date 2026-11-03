@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { MISSING_CONFIG_MESSAGE, readAuthoredConfigInput } from "../../config";
 import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../../contract";
@@ -127,6 +127,11 @@ export async function runMigrationPhase(
   scope: MigrationScope,
 ): Promise<UpgradeResult> {
   const timings: PhaseTiming[] = [];
+
+  // The pre-rename manifest cache location is not read by this code — a
+  // stale file beside the live one only invites confusion (ticket 08).
+  const legacyCache = join(projectDir, ".bos", "platform-manifest.json");
+  if (existsSync(legacyCache)) rmSync(legacyCache, { force: true });
 
   // The catalog-preferring resolution would read the specifier back as the
   // installed version — exactly the blind spot this gate exists for. Read the

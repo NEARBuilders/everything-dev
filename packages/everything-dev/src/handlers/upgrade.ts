@@ -502,7 +502,7 @@ export function registerUpgrade(builder: BosBuilder) {
     }),
 
     mfCheck: builder.mfCheck.effect(function* (_opts, input) {
-      const platformManifest = yield* PlatformManifestService;
+      const manifestService = yield* PlatformManifestService;
       return yield* Effect.promise(async () => {
         let authored: BosConfig | null = null;
         try {
@@ -562,58 +562,58 @@ export function registerUpgrade(builder: BosBuilder) {
         // host's boot guard). Absent when no UI slots exist.
         const ui = await checkUiCompositionCompat(authored, { timeoutMs: input.timeoutMs });
 
-        // ADR 0034 pt 5 — the platform compat gate, additive to the federation
+        // ADR 0034 pt 5 — the release compat gate, additive to the federation
         // check (a sibling, never a relaxation). Absent when no manifest
         // resolves (in-image hosts self-describe; the smoke gate covers them).
-        let platform: { ok: boolean; violations: PlatformCompatViolation[] } | undefined;
+        let manifest: { ok: boolean; violations: PlatformCompatViolation[] } | undefined;
         try {
           const configPath = findConfigPath();
           if (configPath) {
             const projectDir = resolve(dirname(configPath));
-            const resolved = await platformManifest.resolvePlatformManifest({
+            const resolved = await manifestService.resolvePlatformManifest({
               configDir: projectDir,
               localConfig: authored as Record<string, unknown>,
             });
             if (resolved) {
               const root = findWorkspaceRoot(projectDir)?.dir ?? projectDir;
-              const violations = platformManifest.checkPlatformCompat(resolved.manifest, {
+              const violations = manifestService.checkPlatformCompat(resolved.manifest, {
                 platformVersion: readInstalledFrameworkVersion(projectDir, "everything-dev"),
                 catalog: readWorkspaceCatalog(root),
               });
-              platform = { ok: violations.length === 0, violations };
+              manifest = { ok: violations.length === 0, violations };
             }
           }
         } catch (e) {
-          platform = {
+          manifest = {
             ok: false,
             violations: [
               {
                 kind: "minChild",
-                message: `platform manifest resolution failed: ${e instanceof Error ? e.message : String(e)}`,
+                message: `release manifest resolution failed: ${e instanceof Error ? e.message : String(e)}`,
               },
             ],
           };
         }
 
         return {
-          status: report.ok && (platform?.ok ?? true) ? ("ok" as const) : ("fail" as const),
+          status: report.ok && (manifest?.ok ?? true) ? ("ok" as const) : ("fail" as const),
           hostVersion: report.hostVersion,
           hostReachable: report.hostReachable,
           hostReason: report.hostReason,
           remotes: report.remotes,
           ...(ui.slots.length > 0 ? { ui: { ok: ui.ok, slots: ui.slots } } : {}),
-          ...(platform ? { platform } : {}),
+          ...(manifest ? { manifest } : {}),
         };
       });
     }),
 
-    platformManifest: builder.platformManifest.effect(function* (_opts, input) {
-      const platformManifest = yield* PlatformManifestService;
+    manifest: builder.manifest.effect(function* (_opts, input) {
+      const manifestService = yield* PlatformManifestService;
       return yield* Effect.promise(async () => {
         // In-image: the booted host self-describes (ADR 0034 pt 1) — the
         // staged manifest is the release's own bytes; a compat check of the
         // image against itself is trivially consistent.
-        const inImage = platformManifest.readInImagePlatformManifest();
+        const inImage = manifestService.readInImagePlatformManifest();
         if (inImage) {
           return {
             status: "ok" as const,
@@ -638,7 +638,7 @@ export function registerUpgrade(builder: BosBuilder) {
           let resolved: ResolvedPlatformManifest | null;
           let drift: { pinned: string; published: string } | undefined;
           try {
-            resolved = await platformManifest.resolvePlatformManifest({
+            resolved = await manifestService.resolvePlatformManifest({
               configDir: projectDir,
               localConfig: authoredConfig,
             });
@@ -647,7 +647,7 @@ export function registerUpgrade(builder: BosBuilder) {
             // — the root republished past it (issue #546). Resolve the latest
             // published manifest so the report names the drift instead of the
             // cryptic pin-not-found error.
-            const latest = await platformManifest.resolvePlatformManifest({
+            const latest = await manifestService.resolvePlatformManifest({
               configDir: projectDir,
               localConfig: { ...authoredConfig, release: undefined },
             });
@@ -668,7 +668,7 @@ export function registerUpgrade(builder: BosBuilder) {
               version: drift.published,
               source: `bos://${resolved.source.account}/${resolved.source.gateway}`,
               drift,
-              error: `parent platform is ${drift.published} (published at bos://${resolved.source.account}/${resolved.source.gateway}), you pinned ${drift.pinned} — run \`bos upgrade\` to realign`,
+              error: `parent release is ${drift.published} (published at bos://${resolved.source.account}/${resolved.source.gateway}), you target ${drift.pinned} — run \`bos upgrade\` to realign`,
             };
           }
           const base = {
@@ -682,7 +682,7 @@ export function registerUpgrade(builder: BosBuilder) {
             return base;
           }
           const root = findWorkspaceRoot(projectDir)?.dir ?? projectDir;
-          const violations = platformManifest.checkPlatformCompat(resolved.manifest, {
+          const violations = manifestService.checkPlatformCompat(resolved.manifest, {
             platformVersion: readInstalledFrameworkVersion(projectDir, "everything-dev"),
             catalog: readWorkspaceCatalog(root),
           });

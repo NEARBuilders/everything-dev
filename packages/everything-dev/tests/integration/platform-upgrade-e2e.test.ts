@@ -277,7 +277,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
   });
 
   it("stale fail-loud — a pin whose slot was never published fails with the actionable error (#568 class)", async () => {
-    const cacheFile = join(childDir, ".bos", "platform-manifest.json");
+    const cacheFile = join(childDir, ".bos", "manifest.json");
     if (existsSync(cacheFile)) rmSync(cacheFile);
 
     // a version whose manifest leg never published a slot — the release
@@ -295,7 +295,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
   });
 
   it("the cache is an offline aid, not stale-pin grace — an expired cache is irrelevant when the slot resolves", async () => {
-    const cacheFile = join(childDir, ".bos", "platform-manifest.json");
+    const cacheFile = join(childDir, ".bos", "manifest.json");
     const cache = {
       schemaVersion: 1 as const,
       kind: "everything-dev/platform-manifest-cache",
@@ -423,7 +423,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
   it("cache refusal — the upgrade-of-record never chooses a release from the offline cache", async () => {
     // a fresh cache stands in on the child (the offline-dev aid) while the
     // registry goes dark — the upgrade refuses instead of stamping stale bytes
-    const cacheFile = join(childDir, ".bos", "platform-manifest.json");
+    const cacheFile = join(childDir, ".bos", "manifest.json");
     mkdirSync(join(childDir, ".bos"), { recursive: true });
     writeFileSync(
       cacheFile,
