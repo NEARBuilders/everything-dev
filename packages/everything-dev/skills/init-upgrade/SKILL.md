@@ -141,7 +141,8 @@ Port <workspace> to the ADR 0033 database seam:
    namespace: false only for the api shell (public schema) and auth (dedicated database).
 2. Keep src/db/schema.ts, src/db/migrations/, and drizzle.config.ts untouched.
 3. Re-point `type { Database } from "./db"` imports to "./db/layer"; import
-   DatabaseError/unwrapDatabaseError from "everything-dev/db" directly.
+   `DatabaseError` from "everything-dev/db" directly (error text is on
+   `DatabaseError.message` — `unwrapDatabaseError` is framework-internal).
 4. `DatabaseLive(config)` now takes the initialize input (pluginId + secrets) —
    update the plugin's initialize call site.
 5. In tests, drop any `Layer.succeed(PluginIdTag, ...)` provision for the db layer;

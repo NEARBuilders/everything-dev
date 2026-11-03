@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
+import defaults from "./defaults.json";
 import type { WorkspaceIdentity } from "./identity";
 
 /**
@@ -19,8 +20,14 @@ export function bindingEnv(binding: { secretName: string; url: string }): Record
  * No ports, no docker — concurrent projects never collide. This default is a
  * runtime-driver concern only: drizzle-kit commands (db:push/db:studio/
  * db:migrate) need a real postgres DSN in the environment.
+ *
+ * Single-sourced in `defaults.json` (read by plain-node tooling like the
+ * regression env too) — never hardcode the literal elsewhere. Scaffolded
+ * templates and plugin secret defaults deliberately keep their own frozen
+ * copy: a database location is pinned at init, it must not silently follow
+ * a framework upgrade.
  */
-export const PGLITE_DEFAULT_URL = "pglite:.bos/db";
+export const PGLITE_DEFAULT_URL = defaults.pgliteDefaultUrl;
 
 function findEnvFile(startDir: string | undefined): string | undefined {
   if (!startDir) return undefined;

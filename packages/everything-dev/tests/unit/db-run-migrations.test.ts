@@ -3,15 +3,13 @@ import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
+import type { MigrationStorage } from "../../src/db/core";
 import {
-  type DatabaseError,
   isConcurrentDdlUniqueViolation,
   isRetryableMigrationExecutionError,
-  type Migration,
-  type MigrationDatabase,
-  type MigrationStorage,
-  runMigrations,
-} from "../../src/db";
+} from "../../src/db/core";
+import type { DatabaseError } from "../../src/db/errors";
+import { type Migration, type MigrationDatabase, runMigrations } from "../../src/db/run-migrations";
 
 type Runner = (
   db: MigrationDatabase,

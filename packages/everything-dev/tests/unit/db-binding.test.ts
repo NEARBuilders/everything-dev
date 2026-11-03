@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bindingEnv, resolveDatabaseUrl, workspaceIdentityFromWorkspaceDir } from "../../src/db";
+import { bindingEnv, PGLITE_DEFAULT_URL, resolveDatabaseUrl } from "../../src/db/binding";
+import { workspaceIdentityFromWorkspaceDir } from "../../src/db/identity";
 
 function makeWorkspace(): { workspaceDir: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "everything-dev-binding-"));
@@ -54,7 +55,7 @@ describe("resolveDatabaseUrl", () => {
     const { workspaceDir, cleanup } = makeWorkspace();
     try {
       const identity = workspaceIdentity(workspaceDir);
-      expect(resolveDatabaseUrl(identity, { env: {} })).toBe("pglite:.bos/db");
+      expect(resolveDatabaseUrl(identity, { env: {} })).toBe(PGLITE_DEFAULT_URL);
     } finally {
       cleanup();
     }
