@@ -488,6 +488,18 @@ function hasPluginsWorkspace(projectDir: string): boolean {
   return false;
 }
 
+/**
+ * Whether a plugin's `drizzle.config.ts` rides the sync: plugins carry a
+ * database seam (`src/db`) or already have a config to reconcile. Gating on
+ * `src/db` alone stranded config-only plugins on stale template bytes.
+ */
+export function shouldSyncPluginDrizzleConfig(projectDir: string, pluginKey: string): boolean {
+  const pluginDir = join(projectDir, "plugins", pluginKey);
+  return (
+    existsSync(join(pluginDir, "src", "db")) || existsSync(join(pluginDir, "drizzle.config.ts"))
+  );
+}
+
 export async function syncTemplate(
   projectDir: string,
   options: TemplateSyncOptions = {},
@@ -632,7 +644,7 @@ export async function syncTemplate(
 
     // Sync drizzle.config.ts from api into each DB-enabled plugin
     for (const pluginKey of childPlugins) {
-      if (!existsSync(join(projectDir, "plugins", pluginKey, "src", "db"))) continue;
+      if (!shouldSyncPluginDrizzleConfig(projectDir, pluginKey)) continue;
       const sourceFile = "api/drizzle.config.ts";
       if (!existsSync(join(sourceDir, sourceFile))) continue;
       destToSource.set(`plugins/${pluginKey}/drizzle.config.ts`, sourceFile);

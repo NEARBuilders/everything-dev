@@ -355,3 +355,61 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
     ).toThrow();
   });
 });
+
+describe("upgradeTemplate install-drift guard", () => {
+  function installFixture(projectDir: string, version: string): void {
+    mkdirSync(join(projectDir, "node_modules", "everything-dev"), { recursive: true });
+    writeFileSync(
+      join(projectDir, "node_modules", "everything-dev", "package.json"),
+      `${JSON.stringify({ name: "everything-dev", version })}\n`,
+    );
+  }
+
+  it("fails loud when the installed framework version escapes the exact release target", async () => {
+    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
+      makeManifest("3.0.0", { "everything-dev": "3.0.0", "every-plugin": "2.0.0" }) as never,
+    );
+    const projectDir = makeProjectDir({ "everything-dev": "^3.0.0", "every-plugin": "^2.0.0" });
+    installFixture(projectDir, "3.0.0-rc.1");
+
+    await expect(
+      upgradeTemplate(projectDir, { dryRun: false, noInstall: true, noSync: false }),
+    ).rejects.toThrow(/release target 3\.0\.0/);
+  });
+
+  it("passes when the installed version satisfies a legacy range row", async () => {
+    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
+      makeManifest("3.0.0", { "everything-dev": "^3.0.0-rc.0", "every-plugin": "^2.0.0" }) as never,
+    );
+    const projectDir = makeProjectDir({
+      "everything-dev": "^3.0.0-rc.0",
+      "every-plugin": "^2.0.0",
+    });
+    installFixture(projectDir, "3.0.0-rc.1");
+    mockSyncTemplate();
+
+    const result = await upgradeTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      noSync: false,
+      migrationsOnly: true,
+    });
+    expect(result.status).toBe("upgraded");
+  });
+
+  it("skips the guard when nothing is installed yet (fresh trees)", async () => {
+    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
+      makeManifest("3.0.0", { "everything-dev": "3.0.0", "every-plugin": "2.0.0" }) as never,
+    );
+    const projectDir = makeProjectDir({ "everything-dev": "^3.0.0", "every-plugin": "^2.0.0" });
+    mockSyncTemplate();
+
+    const result = await upgradeTemplate(projectDir, {
+      dryRun: false,
+      noInstall: true,
+      noSync: false,
+      migrationsOnly: true,
+    });
+    expect(result.status).toBe("upgraded");
+  });
+});
