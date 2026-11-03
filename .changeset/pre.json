@@ -248,6 +248,8 @@
     "redeem-returns-organization-id",
     "referral-plugin-integration",
     "registry-consumer-surface",
+    "registry-consumers-collapse",
+    "registry-pointer-double-prefix",
     "registry-resolution-machine",
     "registry-use-command",
     "regression-harness-344-residue",
