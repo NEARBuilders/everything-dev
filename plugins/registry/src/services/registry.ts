@@ -4,8 +4,8 @@ import { mergeBosConfigWithExtends, resolveExtendsRef } from "everything-dev/con
 import {
   keyPathOf,
   latestUrlFor,
-  networkIdForAccount,
   ManifestSchema,
+  networkIdForAccount,
   parseRuntimeRef,
   type RegistryClientShape,
   type ResolutionOutcome,

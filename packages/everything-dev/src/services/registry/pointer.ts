@@ -26,11 +26,7 @@ export function getManifestKey(accountId: string, gatewayId: string): string {
   return `apps/${accountId}/${gatewayId}/${PLATFORM_POINTER_REL_KEY}`;
 }
 
-export function getVersionKey(
-  accountId: string,
-  gatewayId: string,
-  version: string,
-): string {
+export function getVersionKey(accountId: string, gatewayId: string, version: string): string {
   return `apps/${accountId}/${gatewayId}/${getVersionRelKey(version)}`;
 }
 
