@@ -260,3 +260,115 @@ describe("isConfigAlreadyPublished", () => {
     expect(result).toBe(false);
   });
 });
+
+describe("confirmPublish — the platformPointer leg (the pre-cutover release flip)", () => {
+  beforeEach(() => {
+    delete process.env.BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS;
+    delete process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS;
+  });
+
+  afterEach(() => {
+    delete process.env.BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS;
+    delete process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS;
+  });
+
+  const POINTER_WIRE_KEY = "apps/dev.everything.near/everything.dev/platform.json";
+  const manifest = { frameworkVersion: "2.0.0-rc.36", everyPluginVersion: "3.0.0-rc.15" };
+
+  const legs = (): ConfirmLeg[] => [
+    { kind: "runtimeConfig", key: CONFIG_KEY, expected: { domain: "everything.dev" } },
+    {
+      kind: "platformPointer",
+      wireKey: POINTER_WIRE_KEY,
+      expected: manifest,
+      read: async () => null,
+    },
+  ];
+
+  it("verifies the pointer leg through its injected pre-cutover read", async () => {
+    const clock = fakeClock();
+    const verdict = await confirmPublish({
+      legs: [
+        { kind: "runtimeConfig", key: CONFIG_KEY, expected: { domain: "everything.dev" } },
+        {
+          kind: "platformPointer",
+          wireKey: POINTER_WIRE_KEY,
+          expected: manifest,
+          read: async () => manifest,
+        },
+      ],
+      timeoutMs: 10_000,
+      intervalMs: 10,
+      read: async (key) => {
+        if (key.kind === "runtimeConfig") return { domain: "everything.dev" };
+        throw new Error(`no served value for ${key.kind}`);
+      },
+      now: clock.now,
+      sleep: async (ms) => {
+        clock.tick(ms);
+      },
+    });
+    expect(verdict).toEqual({ ok: true, verified: ["runtimeConfig", "platformPointer"] });
+  });
+
+  it("a lagging pointer flip retries until the index serves it — then verifies", async () => {
+    const clock = fakeClock();
+    let pointerReads = 0;
+    const verdict = await confirmPublish({
+      legs: [
+        { kind: "runtimeConfig", key: CONFIG_KEY, expected: { domain: "everything.dev" } },
+        {
+          kind: "platformPointer",
+          wireKey: POINTER_WIRE_KEY,
+          expected: manifest,
+          // the index lags the write: two absent probes, then the flip
+          read: async () => {
+            pointerReads += 1;
+            return pointerReads < 3 ? null : manifest;
+          },
+        },
+      ],
+      timeoutMs: 10_000,
+      intervalMs: 10,
+      read: async (key) => {
+        if (key.kind === "runtimeConfig") return { domain: "everything.dev" };
+        throw new Error(`no served value for ${key.kind}`);
+      },
+      now: clock.now,
+      sleep: async (ms) => {
+        clock.tick(ms);
+      },
+    });
+    expect(verdict).toEqual({ ok: true, verified: ["runtimeConfig", "platformPointer"] });
+    expect(pointerReads).toBe(3);
+  });
+
+  it("a pointer-leg timeout names the wire key, not a key-model path", async () => {
+    const clock = fakeClock();
+    const verdict = await confirmPublish({
+      legs: [
+        { kind: "runtimeConfig", key: CONFIG_KEY, expected: { domain: "everything.dev" } },
+        {
+          kind: "platformPointer",
+          wireKey: POINTER_WIRE_KEY,
+          expected: manifest,
+          read: async () => null,
+        },
+      ],
+      timeoutMs: 100,
+      intervalMs: 10,
+      read: async (key) => {
+        if (key.kind === "runtimeConfig") return { domain: "everything.dev" };
+        throw new Error(`no served value for ${key.kind}`);
+      },
+      now: clock.now,
+      sleep: async (ms) => {
+        clock.tick(ms);
+      },
+    });
+    expect(verdict.ok).toBe(false);
+    const message = describeConfirmTimeout(legs(), verdict);
+    expect(message).toContain(POINTER_WIRE_KEY);
+    expect(message).not.toContain("bos.config.json");
+  });
+});

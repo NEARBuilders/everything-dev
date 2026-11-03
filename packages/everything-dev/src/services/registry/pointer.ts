@@ -11,20 +11,27 @@
  */
 import { fetchRegistryKey } from "./fastkv";
 
-export function platformPointerKeyOf(accountId: string, gatewayId: string): string {
-  return `apps/${accountId}/${gatewayId}/platform.json`;
+/** The pointer key relative to `apps/<account>/<gateway>/` — the form
+ * `fetchRegistryKey` takes (it wraps with the runtime prefix) and the form
+ * the history endpoint's `keyPath` parameter takes. The full-key helpers
+ * below are derived from these — one derivation per wire key, so ticket 10's
+ * cutover flips this file and nothing else. */
+export const PLATFORM_POINTER_REL_KEY = "platform.json";
+
+export function platformVersionSlotRelKeyOf(version: string): string {
+  return `platform-versions/${version}.json`;
 }
 
-/** The pointer key relative to `apps/<account>/<gateway>/` — the form the
- * history endpoint's `keyPath` parameter takes. */
-export const PLATFORM_POINTER_REL_KEY = "platform.json";
+export function platformPointerKeyOf(accountId: string, gatewayId: string): string {
+  return `apps/${accountId}/${gatewayId}/${PLATFORM_POINTER_REL_KEY}`;
+}
 
 export function platformVersionSlotKeyOf(
   accountId: string,
   gatewayId: string,
   version: string,
 ): string {
-  return `apps/${accountId}/${gatewayId}/platform-versions/${version}.json`;
+  return `apps/${accountId}/${gatewayId}/${platformVersionSlotRelKeyOf(version)}`;
 }
 
 /** The per-deploy audit record's key — the timestamp is munged into a
@@ -39,18 +46,15 @@ export function deployAuditKeyOf(
 
 /** The release classifier's pointer read: absent (null) means no release has
  * published; a read failure throws — an unknown state must never silently
- * classify a release as non-release. */
+ * classify a release as non-release. The keyPath is RELATIVE —
+ * `fetchRegistryKey` wraps it with the runtime prefix (a full key here
+ * double-prefixes the wire key and reads a slot that can never exist). */
 export function readPlatformPointer<T>(
   accountId: string,
   gatewayId: string,
   registry?: string,
 ): Promise<T | null> {
-  return fetchRegistryKey<T>(
-    accountId,
-    gatewayId,
-    platformPointerKeyOf(accountId, gatewayId),
-    registry,
-  );
+  return fetchRegistryKey<T>(accountId, gatewayId, PLATFORM_POINTER_REL_KEY, registry);
 }
 
 /** The release leg's immutability check: the version slot must either be
@@ -62,10 +66,5 @@ export function readPlatformVersionSlot<T>(
   version: string,
   registry?: string,
 ): Promise<T | null> {
-  return fetchRegistryKey<T>(
-    accountId,
-    gatewayId,
-    platformVersionSlotKeyOf(accountId, gatewayId, version),
-    registry,
-  );
+  return fetchRegistryKey<T>(accountId, gatewayId, platformVersionSlotRelKeyOf(version), registry);
 }
