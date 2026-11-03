@@ -69,9 +69,17 @@ const FRAMEWORK_PACKAGE_NAMES = ["better-near-auth", "every-plugin", "everything
  * false), or whether publishability could not be determined (network error,
  * unexpected status — null; callers must not block on that).
  */
-export async function npmVersionPublished(name: string, version: string): Promise<boolean | null> {
+export async function npmVersionPublished(
+  name: string,
+  version: string,
+  options: { bustCache?: boolean } = {},
+): Promise<boolean | null> {
   try {
-    const res = await fetchResponse(`https://registry.npmjs.org/${name}/${version}`, {
+    // Cache-buster query on the polled path: the registry CDN read-serves
+    // <name>/<version> endpoints, so a freshly published version can 404
+    // from a stale edge cache; a unique query string always misses it.
+    const suffix = options.bustCache ? `?bust=${Date.now()}-${Math.random()}` : "";
+    const res = await fetchResponse(`https://registry.npmjs.org/${name}/${version}${suffix}`, {
       headers: { Accept: "application/json" },
     });
     if (res.status === 200) return true;
@@ -92,26 +100,144 @@ export async function npmVersionPublished(name: string, version: string): Promis
  */
 export async function findUnpublishedFrameworkPackages(
   configDir: string,
+  options: { probe?: (name: string, version: string) => Promise<boolean | null> } = {},
 ): Promise<Array<{ name: string; version: string }>> {
-  const unpublished: Array<{ name: string; version: string }> = [];
+  const probe = options.probe ?? npmVersionPublished;
+  const results = await probePackages(readFrameworkPackageManifests(configDir), probe);
+  return results
+    .filter((entry) => entry.state === false)
+    .map((entry) => ({ name: entry.pkg.name, version: entry.pkg.version }));
+}
+
+interface FrameworkManifest {
+  name: (typeof FRAMEWORK_PACKAGE_NAMES)[number];
+  version: string;
+}
+
+function readFrameworkPackageManifests(configDir: string): Array<FrameworkManifest> {
+  const manifests: Array<FrameworkManifest> = [];
   for (const name of FRAMEWORK_PACKAGE_NAMES) {
     const manifestPath = join(configDir, "packages", name, "package.json");
     if (!existsSync(manifestPath)) continue;
     const version = (JSON.parse(readFileSync(manifestPath, "utf-8")) as { version?: string })
       .version;
-    if (!version) continue;
-    const published = await npmVersionPublished(name, version);
-    if (published === false) {
-      unpublished.push({ name, version });
-    } else if (published === null) {
+    if (version) manifests.push({ name, version });
+  }
+  return manifests;
+}
+
+/** A manifest npm does not (yet) serve, as tracked by the wait loop. */
+interface UnpublishedPackage {
+  name: string;
+  version: string;
+}
+
+export interface FrameworkPublishWaitOptions {
+  /** Poll cadence. Default 15s. */
+  intervalMs?: number;
+  /** Total time to wait for the Release train's publish. Default 15 min. */
+  budgetMs?: number;
+  /** Injectable sleep (unit tests fast-forward the wait). */
+  sleep?: (ms: number) => Promise<void>;
+  /** Injectable clock (unit tests drive the budget deterministically). */
+  now?: () => number;
+  /** Injectable registry probe (unit tests bypass the network). */
+  probe?: (name: string, version: string) => Promise<boolean | null>;
+}
+
+export type FrameworkPublishWait = { kind: "ok" } | { kind: "error"; error: string };
+
+const DEFAULT_PUBLISH_WAIT = { intervalMs: 15_000, budgetMs: 15 * 60_000 };
+
+/**
+ * Waits out the Deploy/Release race on version-bump merges: both trains
+ * trigger on the same push, and the Release workflow needs minutes to
+ * publish the bumped versions. Instead of refusing (bundles never ship
+ * ahead of the registry — that invariant stands), preflight parks here
+ * until every workspace framework version is on npm, up to a bounded
+ * budget; a timeout keeps the original fail-loud behavior with a pointer
+ * at the Release run.
+ */
+export async function waitForFrameworkPackages(
+  configDir: string,
+  options: FrameworkPublishWaitOptions = {},
+): Promise<FrameworkPublishWait> {
+  const intervalMs = options.intervalMs ?? DEFAULT_PUBLISH_WAIT.intervalMs;
+  const budgetMs = options.budgetMs ?? DEFAULT_PUBLISH_WAIT.budgetMs;
+  const sleep =
+    options.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const now = options.now ?? Date.now;
+  const probe =
+    options.probe ?? ((name, version) => npmVersionPublished(name, version, { bustCache: true }));
+
+  const manifests = readFrameworkPackageManifests(configDir);
+  if (manifests.length === 0) return { kind: "ok" };
+
+  const listing = (packages: Array<UnpublishedPackage>) =>
+    packages.map((pkg) => `${pkg.name}@${pkg.version}`).join(", ");
+
+  const states = await probePackages(manifests, probe);
+  if (states.every((entry) => entry.state === true)) return { kind: "ok" };
+  let pending = states.filter((entry) => entry.state === false).map((entry) => entry.pkg);
+
+  console.log(
+    `  Waiting for the Release workflow to publish ${colors.cyan(listing(pending))} to npm ` +
+      `(polling every ${Math.round(intervalMs / 1000)}s, budget ${Math.round(budgetMs / 60_000)} min)`,
+  );
+
+  const startedAt = now();
+  const deadline = startedAt + budgetMs;
+  let lastProgressLog = startedAt;
+  while (true) {
+    await sleep(intervalMs);
+    const results = await probePackages(pending, probe);
+    for (const entry of results.filter((check) => check.state === true)) {
+      console.log(`  ✓ ${entry.pkg.name}@${entry.pkg.version} published`);
+    }
+    pending = results.filter((check) => check.state === false).map((check) => check.pkg);
+    if (pending.length === 0) {
+      console.log("  ✓ framework packages cleared the npm gate — resuming the deploy train");
+      return { kind: "ok" };
+    }
+    if (now() >= deadline) {
+      return {
+        kind: "error",
+        error:
+          `Framework package(s) ${listing(pending)} were not published to npm within ` +
+          `${Math.round(budgetMs / 60_000)} min — deploys must not ship bundles ahead of the ` +
+          "registry (child scaffolds and update checks read these versions). The Release " +
+          "workflow for this commit may still be publishing or may have failed — check its " +
+          "run, then re-run the deploy once the packages are on npm.",
+      };
+    }
+    if (now() - lastProgressLog >= 60_000) {
+      lastProgressLog = now();
       console.log(
-        colors.yellow(
-          `  ! Could not verify ${name}@${version} on npm (registry unreachable) — continuing`,
-        ),
+        `  Still unpublished: ${listing(pending)} (${Math.round((now() - startedAt) / 1000)}s elapsed)`,
       );
     }
   }
-  return unpublished;
+}
+
+async function probePackages(
+  packages: Array<UnpublishedPackage>,
+  probe: (name: string, version: string) => Promise<boolean | null>,
+): Promise<Array<{ pkg: UnpublishedPackage; state: boolean | null }>> {
+  const results: Array<{ pkg: UnpublishedPackage; state: boolean | null }> = [];
+  for (const pkg of packages) {
+    const state = await probe(pkg.name, pkg.version);
+    if (state === null) {
+      // Original gate semantics: an unverifiable state never blocks the
+      // deploy (registry outage stays a warn-and-continue path).
+      console.log(
+        colors.yellow(
+          `  ! Could not verify ${pkg.name}@${pkg.version} on npm (registry unreachable) — continuing`,
+        ),
+      );
+    }
+    results.push({ pkg, state });
+  }
+  return results;
 }
 
 interface PreflightInput {
@@ -226,14 +352,9 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
     apiKey: undefined,
   };
   if (input.build) {
-    const unpublished = await findUnpublishedFrameworkPackages(configDir);
-    if (unpublished.length > 0) {
-      const listing = unpublished.map((pkg) => `${pkg.name}@${pkg.version}`).join(", ");
-      return fail(
-        `Framework package(s) ${listing} are not published to npm yet — deploys must not ship ` +
-          "bundles ahead of the registry (child scaffolds and update checks read these versions). " +
-          "The release train publishes npm itself; re-run the deploy once the Release workflow completes.",
-      );
+    const wait = await waitForFrameworkPackages(configDir);
+    if (wait.kind === "error") {
+      return fail(wait.error);
     }
 
     cdnDeploy = resolveCdnDeployInputs({
