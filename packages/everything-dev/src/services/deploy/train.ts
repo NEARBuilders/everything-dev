@@ -22,8 +22,10 @@ import { submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
 import { type PlatformReleaseManifest, PlatformReleaseManifestSchema } from "../platform/manifest";
+import { confirmPublish, describeConfirmTimeout } from "../registry/confirm";
 import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKey } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
+import { keyPathOf, parseRuntimeRef, runtimeRefOf } from "../registry/keys";
 import { mergeAuthoredOverPublished, stripLocalDevelopmentTargets } from "../resolution/merge";
 import {
   type BuildTargetsDeps,
@@ -69,10 +71,6 @@ import {
   uploadWorkspaceBundle,
 } from "./upload-leg";
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /** Best-effort repo HEAD for the version manifest (`gitSha`): non-git
  * contexts (child bundles built outside a repo) omit the field silently —
  * it never fails the deploy. */
@@ -84,91 +82,6 @@ async function resolveGitSha(cwd: string): Promise<string | undefined> {
   } catch {
     return undefined;
   }
-}
-
-export async function waitForPublishedConfig(opts: {
-  account: string;
-  gateway: string;
-  publishConfig: BosConfigInput;
-  registry?: string;
-  timeoutMs?: number;
-  intervalMs?: number;
-  fetchConfig?: typeof fetchBosConfigFromFastKv;
-  /** The submit's tx hash (#430): once the registry history shows this tx,
-   * the write has landed on-chain — one authoritative read-back decides
-   * instead of repeated deep-equality polling. */
-  txHash?: string;
-  fetchHistory?: typeof fetchConfigHistory;
-}): Promise<void> {
-  const fetchConfig = opts.fetchConfig ?? fetchBosConfigFromFastKv;
-  const envTimeoutMs = Number(process.env.BOS_PUBLISH_CONFIRMATION_TIMEOUT_MS);
-  const envIntervalMs = Number(process.env.BOS_PUBLISH_CONFIRMATION_INTERVAL_MS);
-  const timeoutMs =
-    opts.timeoutMs ?? (Number.isFinite(envTimeoutMs) ? envTimeoutMs : undefined) ?? 120_000;
-  const intervalMs =
-    opts.intervalMs ?? (Number.isFinite(envIntervalMs) ? envIntervalMs : undefined) ?? 3_000;
-  const startedAt = Date.now();
-  let lastError: unknown;
-
-  // The tx probe is the cheap poll (#430): while it is informative (returns
-  // entries, tx not yet visible), the config equality read-back waits. After
-  // a bounded run of informative-but-absent probes — or any probe failure —
-  // the wait falls back permanently to plain equality polling, so a registry
-  // whose history never carries the tx still confirms.
-  let txProbeSkips = 0;
-  const TX_PROBE_SKIP_LIMIT = 2;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      let trackByTx = opts.txHash !== undefined && opts.fetchHistory !== undefined;
-      if (trackByTx && txProbeSkips >= TX_PROBE_SKIP_LIMIT) {
-        trackByTx = false;
-      }
-
-      if (trackByTx) {
-        try {
-          const history = await opts.fetchHistory!({
-            accountId: opts.account,
-            gatewayId: opts.gateway,
-            registry: opts.registry,
-            limit: 5,
-          });
-          const txLanded = history.some((entry) => entry.txHash === opts.txHash);
-          if (txLanded) {
-            // The write landed on-chain — the read-back is the authoritative
-            // content check (ADR 0001). A mismatch keeps polling:
-            // replication may lag the tx.
-            txProbeSkips = 0;
-          } else {
-            txProbeSkips += 1;
-            await sleep(intervalMs);
-            continue;
-          }
-        } catch (historyError) {
-          // A history probe failure must not starve the wait — fall back to
-          // the plain equality poll.
-          lastError = historyError;
-        }
-      }
-
-      const verifiedConfig = await fetchConfig<BosConfigInput>(
-        `bos://${opts.account}/${opts.gateway}`,
-        opts.registry,
-      );
-      if (JSON.stringify(verifiedConfig) === JSON.stringify(opts.publishConfig)) {
-        return;
-      }
-    } catch (error) {
-      lastError = error;
-    }
-
-    await sleep(intervalMs);
-  }
-
-  const reason = lastError instanceof Error ? ` Last error: ${lastError.message}` : "";
-  throw new Error(
-    `Timed out waiting for publish confirmation at bos://${opts.account}/${opts.gateway}.${reason}`,
-  );
 }
 
 export async function isConfigAlreadyPublished(opts: {
@@ -1174,16 +1087,34 @@ export async function runPublishTrain(
 
     console.log("  Waiting for publish confirmation...");
     try {
-      await waitForPublishedConfig({
-        account,
-        gateway,
-        publishConfig: publishPayload,
-        registry: input.registry,
-        fetchConfig: deps.registry.fetchConfig,
-        ...(result.txHash
-          ? { txHash: result.txHash, fetchHistory: deps.registry.fetchHistory }
-          : {}),
+      const confirmLegs = [
+        {
+          kind: "runtimeConfig" as const,
+          key: {
+            kind: "runtimeConfig" as const,
+            ref: runtimeRefOf({ accountId: account, gatewayId: gateway }),
+          },
+          expected: publishPayload,
+        },
+      ];
+      const verdict = await confirmPublish({
+        legs: confirmLegs,
+        ...(result.txHash ? { txHash: result.txHash } : {}),
+        read: (key) => deps.registry.fetchConfig(key.ref, input.registry),
+        history: (key, limit) => {
+          const { accountId, gatewayId } = parseRuntimeRef(key.ref);
+          return deps.registry.fetchHistory({
+            accountId,
+            gatewayId,
+            registry: input.registry,
+            limit,
+            keyPath: keyPathOf(key),
+          });
+        },
       });
+      if (!verdict.ok) {
+        throw new Error(describeConfirmTimeout(confirmLegs, verdict));
+      }
     } catch (error) {
       throw new PublishTrainError({
         kind: "confirm",
