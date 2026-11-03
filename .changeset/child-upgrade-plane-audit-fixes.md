@@ -1,0 +1,11 @@
+---
+"everything-dev": minor
+---
+
+Upgrade/audit correctness for pinned children — the opencrosspost rc.30 regression class:
+
+- **The release-plane audit's "what does this runtime compose" probe now reads the pnpm-workspace.yaml catalog.** It previously read only the legacy `package.json#workspaces.catalog` location and fell back to root `node_modules/<pkg>` (absent under the isolated linker), reporting every shared singleton as `@unknown` — a coherent pinned plane rendered as a wall of false divergences ("app.ui was built against react@19.3.1, this runtime composes react@unknown").
+- **Honest provisioned/uncomposed slot reporting.** A manifest slot the merged config does not compose (a child declaring its own `plugins` domain wholesale-replaces the inherited one) is now an informational "not composed by this config" note — no longer the unactionable "run bos upgrade to inherit". The genuinely-provisioned case (a config slot the pinned manifest lacks, composing live unpinned bytes) is now detected and reports "run bos upgrade to re-pin and claim it".
+- **Correct repair commands for owned slots.** Slot paths are not publish keys: `app.<key>[.ui]` slots now name `bos deploy --packages <key>` (they were never publishable via `bos plugin publish`), and `plugins.<id>[.ui]` name `bos plugin publish <id>`.
+- **`bos upgrade` realigns owned slots itself.** After a framework version delta, the migration phase audits the freshly resolved plane and republishes owned slots still built against the old chain through the scoped deploy train (`bos deploy --packages …`), best-effort — no stored publish session (or a failed republish) degrades to the printed hand-repair instruction without failing the upgrade. `--no-realign` opts out.
+- **No more interactive `pnpm approve` on fresh installs.** `bos init` and `bos upgrade` run `pnpm approve --all` after installing, persisting the pnpm ≥12.11 permissions policy (dep-shipped agent skills, build scripts) into pnpm-workspace.yaml so every later install is prompt-free. Best-effort: older pnpm without the command is a no-op.

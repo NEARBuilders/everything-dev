@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readWorkspaceCatalog } from "./workspace/catalog";
 import { findWorkspaceRoot } from "./workspace/workspace";
 
 export interface FrameworkPackageResolution {
@@ -21,7 +22,13 @@ export function readRootCatalogVersion(
   projectDir: string,
   packageName: string,
 ): string | undefined {
-  const pkgPath = join(workspaceDirOf(projectDir), "package.json");
+  const root = workspaceDirOf(projectDir);
+  // The catalog lives in pnpm-workspace.yaml on every current tree (pnpm 12
+  // layout, what `bos init`/`bos sync` write and what the parent ships); the
+  // package.json `workspaces.catalog` read below is the legacy fallback.
+  const yamlCatalog = readWorkspaceCatalog(root)[packageName];
+  if (yamlCatalog) return stripVersionPrefix(yamlCatalog);
+  const pkgPath = join(root, "package.json");
   if (!existsSync(pkgPath)) return undefined;
   const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
     workspaces?: { catalog?: Record<string, string> };
