@@ -18,20 +18,20 @@ import { fetchRegistryKey } from "./fastkv";
  * cutover flips this file and nothing else. */
 export const PLATFORM_POINTER_REL_KEY = "platform.json";
 
-export function platformVersionSlotRelKeyOf(version: string): string {
+export function getVersionRelKey(version: string): string {
   return `platform-versions/${version}.json`;
 }
 
-export function platformPointerKeyOf(accountId: string, gatewayId: string): string {
+export function getManifestKey(accountId: string, gatewayId: string): string {
   return `apps/${accountId}/${gatewayId}/${PLATFORM_POINTER_REL_KEY}`;
 }
 
-export function platformVersionSlotKeyOf(
+export function getVersionKey(
   accountId: string,
   gatewayId: string,
   version: string,
 ): string {
-  return `apps/${accountId}/${gatewayId}/${platformVersionSlotRelKeyOf(version)}`;
+  return `apps/${accountId}/${gatewayId}/${getVersionRelKey(version)}`;
 }
 
 /** The per-deploy audit record's key — the timestamp is munged into a
@@ -49,7 +49,7 @@ export function deployAuditKeyOf(
  * classify a release as non-release. The keyPath is RELATIVE —
  * `fetchRegistryKey` wraps it with the runtime prefix (a full key here
  * double-prefixes the wire key and reads a slot that can never exist). */
-export function readPlatformPointer<T>(
+export function readManifestTag<T>(
   accountId: string,
   gatewayId: string,
   registry?: string,
@@ -60,11 +60,11 @@ export function readPlatformPointer<T>(
 /** The release leg's immutability check: the version slot must either be
  * absent or hold byte-identical content — a divergent republish is a burned
  * version. */
-export function readPlatformVersionSlot<T>(
+export function readVersionRecord<T>(
   accountId: string,
   gatewayId: string,
   version: string,
   registry?: string,
 ): Promise<T | null> {
-  return fetchRegistryKey<T>(accountId, gatewayId, platformVersionSlotRelKeyOf(version), registry);
+  return fetchRegistryKey<T>(accountId, gatewayId, getVersionRelKey(version), registry);
 }

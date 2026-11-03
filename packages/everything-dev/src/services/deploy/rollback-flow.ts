@@ -4,7 +4,7 @@ import {
   fetchBosConfigFromFastKv,
   fetchConfigHistory,
 } from "../registry/fastkv";
-import { PLATFORM_POINTER_REL_KEY, platformPointerKeyOf } from "../registry/pointer";
+import { PLATFORM_POINTER_REL_KEY, getManifestKey } from "../registry/pointer";
 import { verifyBootPayload } from "../resolution/boot-check";
 import { buildRollbackPayload, verifyRollbackSnapshot } from "./rollback";
 import { type DeployTrainInput, publishToFastKv } from "./train";
@@ -176,7 +176,7 @@ export async function resolvePointerRestore(
     const previousPointer = pointerHistory[1];
     if (!previousPointer) return undefined;
     return {
-      key: platformPointerKeyOf(account, domain),
+      key: getManifestKey(account, domain),
       value: JSON.stringify(previousPointer.value),
     };
   } catch {
