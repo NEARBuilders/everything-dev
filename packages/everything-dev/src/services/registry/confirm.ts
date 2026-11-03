@@ -20,15 +20,31 @@ import { keyPathOf, type RegistryKey } from "./keys";
  * never skips the leg — it retries until the deadline.
  */
 
-export type ConfirmLegKind = "runtimeConfig" | "manifest" | "version";
+export type ConfirmLegKind = "runtimeConfig" | "manifest" | "version" | "platformPointer";
 
-export interface ConfirmLeg {
-  readonly kind: ConfirmLegKind;
+export interface ConfigConfirmLeg {
+  readonly kind: "runtimeConfig" | "manifest" | "version";
   readonly key: RegistryKey;
   /** The expected value — the exact publish payload (deep-equality via
    * JSON compare; the registry serves the written value verbatim). */
   readonly expected: unknown;
 }
+
+export interface PlatformPointerConfirmLeg {
+  readonly kind: "platformPointer";
+  /** The pre-cutover wire key (`apps/<a>/<g>/platform.json`) — named
+   * verbatim in the timeout message. The pointer lives outside the key
+   * model's union until ticket 10's cutover, so it carries its wire key
+   * explicitly instead of a RegistryKey. */
+  readonly wireKey: string;
+  /** The pre-cutover transport, injected — `readPlatformPointer` bound to
+   * the runtime; never baked into keys.ts. */
+  readonly read: () => Promise<unknown>;
+  /** The expected value — the composed release manifest the leg wrote. */
+  readonly expected: unknown;
+}
+
+export type ConfirmLeg = ConfigConfirmLeg | PlatformPointerConfirmLeg;
 
 export type ConfirmVerdict =
   | { readonly ok: true; readonly verified: readonly ConfirmLegKind[] }
@@ -73,9 +89,11 @@ export async function confirmPublish(opts: ConfirmOptions): Promise<ConfirmVerdi
 
   // The tx probe is informative only: after TX_PROBE_SKIP_LIMIT
   // informative-but-absent probes — or any probe failure — the machine
-  // tracks by content alone.
+  // tracks by content alone. It probes the first keyed leg (the runtime
+  // config, always present in a real publish).
   const TX_PROBE_SKIP_LIMIT = 2;
-  let trackByTx = opts.txHash !== undefined && opts.history !== undefined;
+  const probeLeg = opts.legs.find((leg): leg is ConfigConfirmLeg => "key" in leg);
+  let trackByTx = opts.txHash !== undefined && opts.history !== undefined && probeLeg !== undefined;
   let txProbeSkips = 0;
   let indexed = false;
 
@@ -83,7 +101,7 @@ export async function confirmPublish(opts: ConfirmOptions): Promise<ConfirmVerdi
   while (now() - startedAt < timeoutMs) {
     if (trackByTx && !indexed) {
       try {
-        const entries = await history(opts.legs[0]!.key, 5);
+        const entries = await history(probeLeg!.key, 5);
         if (entries.some((entry) => entry.txHash === opts.txHash)) {
           indexed = true;
           txProbeSkips = 0;
@@ -100,7 +118,7 @@ export async function confirmPublish(opts: ConfirmOptions): Promise<ConfirmVerdi
 
     for (const leg of pending()) {
       try {
-        const served = await read(leg.key);
+        const served = "read" in leg ? await leg.read() : await read(leg.key);
         if (deepEqual(served, leg.expected)) {
           verified.add(leg.kind);
           lastErrors.delete(leg.kind);
@@ -131,7 +149,7 @@ export function describeConfirmTimeout(
 ): string {
   const unverifiedKeys = legs
     .filter((leg) => verdict.unverified.includes(leg.kind))
-    .map((leg) => keyPathOf(leg.key));
+    .map((leg) => ("wireKey" in leg ? leg.wireKey : keyPathOf(leg.key)));
   return (
     `Timed out waiting for publish confirmation — unverified: ${unverifiedKeys.join(", ")}` +
     (verdict.lastError ? ` (last error: ${verdict.lastError})` : "")

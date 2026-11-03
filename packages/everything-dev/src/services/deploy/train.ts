@@ -28,7 +28,6 @@ import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { keyPathOf, parseRuntimeRef, runtimeRefOf } from "../registry/keys";
 import {
   deployAuditKeyOf,
-  PLATFORM_POINTER_REL_KEY,
   platformPointerKeyOf,
   platformVersionSlotKeyOf,
   readPlatformPointer,
@@ -1109,6 +1108,21 @@ export async function runPublishTrain(
           },
           expected: publishPayload,
         },
+        // The release leg's pointer flip is a written leg like any other —
+        // it reads back through the pre-cutover transport until it serves
+        // the manifest this train just published (the Nov-03 smoke caught
+        // these reads resolving a double-prefixed key; a leg that never
+        // verified is how a broken read hides).
+        ...(platformManifest
+          ? [
+              {
+                kind: "platformPointer" as const,
+                wireKey: platformPointerKeyOf(account, gateway),
+                expected: platformManifest.manifest,
+                read: () => readPlatformPointer<unknown>(account, gateway, input.registry),
+              },
+            ]
+          : []),
       ];
       const verdict = await confirmPublish({
         legs: confirmLegs,
