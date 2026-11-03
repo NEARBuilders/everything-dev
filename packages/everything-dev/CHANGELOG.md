@@ -1,5 +1,40 @@
 # everything-dev
 
+## 2.0.0-rc.36
+
+### Minor Changes
+
+- 2d6be1f: Consumers collapse onto the registry primitive. The `everything-dev/fastkv`
+  subpath export is removed (no shim, strict cutover policy) — import
+  `everything-dev/registry` instead; `fetchDeployManifests`,
+  `fetchBosConfigFromFastKv`, and the transport helpers remain reachable from the
+  root export, and `fastkv.ts` now delegates to the client + key model so absent
+  and unreachable registry reads are finally distinct (`RegistryError` propagates
+  where every previous fetcher collapsed into "No config found" — that message is
+  preserved for absent reads). The pre-cutover wire keys
+  (`platform.json`, `platform-versions/<v>.json`, `manifests/<ts>.json`) are
+  derived in exactly one file (`registry/pointer.ts`); the deploy train's inline
+  derivations and the legacy `getPlatformManifestKey`/`getPlatformVersionSlotKey`
+  helpers are gone. The post-publish smoke on release trains reads the pointer
+  and fails the leg — rollback engages — when it doesn't serve the version just
+  published.
+
+### Patch Changes
+
+- ead04cb: The release-pointer reads fetch the runtime-prefixed wire key exactly once.
+  `readPlatformPointer` / `readPlatformVersionSlot` passed a full key into
+  `fetchRegistryKey` (which wraps with `apps/<account>/<gateway>/`), so every
+  pointer and version-slot read resolved a double-prefixed key that can never
+  exist and returned null — the Nov-03 release-train deploy failed its smoke
+  leg on this ("release pointer serves nothing") and rolled back, and the
+  version-slot immutability check silently passed, burning the rc.35 slot.
+  Pointer keys are now derived from their relative forms in one place
+  (`registry/pointer.ts`), the release leg's pointer flip verifies as a
+  confirmed leg of the publish-confirmation machine (retry-until-deadline
+  through the pre-cutover transport, the wire key named on timeout), and
+  unit tests pin the exact read URLs so the seam gap that hid this cannot
+  reopen.
+
 ## 2.0.0-rc.35
 
 ### Minor Changes
