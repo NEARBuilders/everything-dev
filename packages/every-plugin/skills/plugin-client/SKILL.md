@@ -416,7 +416,7 @@ A child project inherits the parent's host, API, auth, and plugins via the `exte
 
 ```json
 {
-  "extends": "bos://dev.everything.near/dev.everything.dev",
+  "extends": "bos://dev.everything.near/everything.dev",
   "account": "myapp.near",
   "domain": "myapp.everything.dev"
 }
@@ -433,7 +433,7 @@ This inherits:
 
 ```bash
 bos init myapp.everything.dev \
-  --extends dev.everything.near/dev.everything.dev \
+  --extends dev.everything.near/everything.dev \
   --overrides ui,plugins \
   --plugins apps,template
 ```

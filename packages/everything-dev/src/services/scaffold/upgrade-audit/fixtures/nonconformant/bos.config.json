@@ -1,5 +1,5 @@
 {
-  "extends": "bos://dev.everything.near/dev.everything.dev",
+  "extends": "bos://dev.everything.near/everything.dev",
   "account": "example.near",
   "domain": "example.dev",
   "mysteryKey": true,

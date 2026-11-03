@@ -217,7 +217,7 @@ describe("publishToFastKv publish.auth guard", () => {
     };
     const entryKeys = Object.keys(submitted.args);
     expect(entryKeys).toHaveLength(2);
-    expect(entryKeys[0]).toBe("apps/dev.everything.near/dev.everything.dev/bos.config.json");
+    expect(entryKeys[0]).toBe("apps/dev.everything.near/everything.dev/bos.config.json");
     expect(entryKeys[1]).toMatch(/^apps\/dev\.everything\.near\/dev\.everything\.dev\/manifests\//);
     expect(submitted.relayEndpoint).toBe("http://localhost:3003/api/auth/near/relay");
     expect(submitted.apiKey).toBe("api_test");

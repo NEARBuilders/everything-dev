@@ -299,7 +299,7 @@ describe("publishToFastKv preflight ordering", () => {
         origin: "https://upload.example.test",
         apiKey: "api_ci_key",
         account: "dev.everything.near",
-        gateway: "dev.everything.dev",
+        gateway: "everything.dev",
         workspace: "host",
       }),
     );
@@ -499,7 +499,7 @@ describe("publishToFastKv preflight ordering", () => {
       args: Record<string, string>;
     };
     const payload = JSON.parse(
-      call.args["apps/dev.everything.near/dev.everything.dev/bos.config.json"],
+      call.args["apps/dev.everything.near/everything.dev/bos.config.json"],
     );
     expect(payload.title).toBe("Edited Title");
     expect(payload.app.ui.production).toBe("https://ui.example");

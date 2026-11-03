@@ -222,13 +222,13 @@ describe("isConfigAlreadyPublished", () => {
 
     const result = await isConfigAlreadyPublished({
       account: "dev.everything.near",
-      gateway: "dev.everything.dev",
+      gateway: "everything.dev",
       publishConfig,
     });
 
     expect(result).toBe(true);
     expect(fetchBosConfigFromFastKvMock).toHaveBeenCalledWith(
-      "bos://dev.everything.near/dev.everything.dev",
+      "bos://dev.everything.near/everything.dev",
       undefined,
     );
   });
@@ -241,7 +241,7 @@ describe("isConfigAlreadyPublished", () => {
 
     const result = await isConfigAlreadyPublished({
       account: "dev.everything.near",
-      gateway: "dev.everything.dev",
+      gateway: "everything.dev",
       publishConfig,
     });
 
@@ -253,7 +253,7 @@ describe("isConfigAlreadyPublished", () => {
 
     const result = await isConfigAlreadyPublished({
       account: "dev.everything.near",
-      gateway: "dev.everything.dev",
+      gateway: "everything.dev",
       publishConfig,
     });
 
