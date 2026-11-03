@@ -1,23 +1,21 @@
 import { Context, Effect, Layer } from "effect";
 import type { BosConfigInput } from "everything-dev";
 import { mergeBosConfigWithExtends, resolveExtendsRef } from "everything-dev/config";
-import { decodeSignedDelegateAction, isPrivateKey, Near } from "near-kit";
 import {
-  buildRegistryConfigUrl,
-  fetchBosConfigFromFastKv,
-  getFastKvBaseUrlForAccount,
-  getFastKvBaseUrlForNetwork,
-  getRegistryConfigKey,
-  getRegistryMetadataKey,
-  getRegistryNamespaceForAccount,
-  getRegistryNamespaceForNetwork,
-  listLatestValues,
-  type NetworkId,
-  parseBosUrl,
-  type RegistryConfig,
-  RegistryConfigService,
-  readLatestValue,
-} from "./fastkv";
+  keyPathOf,
+  latestUrlFor,
+  networkIdForAccount,
+  PlatformReleaseManifestSchema,
+  parseRuntimeRef,
+  type RegistryClientShape,
+  type ResolutionOutcome,
+  registryBaseUrlForNetwork,
+  registryClientShape,
+  resolveRelease,
+  runtimeRefOf,
+} from "everything-dev/registry";
+import { decodeSignedDelegateAction, isPrivateKey, Near } from "near-kit";
+import { type RegistryConfig, RegistryConfigService } from "./config";
 
 type PrivateKey = `ed25519:${string}` | `secp256k1:${string}`;
 type JsonObject = Record<string, unknown>;
@@ -31,7 +29,7 @@ function assertPrivateKey(key: string): PrivateKey {
   return key as PrivateKey;
 }
 
-function createRelayNear(accountId: string, privateKey: string, network?: NetworkId) {
+function createRelayNear(accountId: string, privateKey: string, network?: "mainnet" | "testnet") {
   return new Near({
     network: network ?? "mainnet",
     defaultSignerId: accountId,
@@ -141,6 +139,27 @@ export interface RegistryRelayResult {
   senderId: string;
 }
 
+export interface ManifestReadInput {
+  ref: string;
+  includeVersionRecord?: boolean;
+}
+
+export interface ManifestReadResult {
+  ref: string;
+  tag: unknown;
+  versionRecord: unknown;
+}
+
+export interface RuntimeResolveInput {
+  ref: string;
+  release?: string;
+}
+
+export interface RuntimeResolveResult {
+  ref: string;
+  outcome: ResolutionOutcome;
+}
+
 interface DiscoveredConfig {
   accountId: string;
   gatewayId: string;
@@ -156,6 +175,11 @@ interface DiscoveryCache {
 }
 
 let discoveryCache: DiscoveryCache | null = null;
+
+/** Test seam — the discovery cache is module-global. */
+export function resetDiscoveryCache(): void {
+  discoveryCache = null;
+}
 
 export interface KvEntry {
   key: string;
@@ -214,6 +238,8 @@ export class RegistryService extends Context.Service<
       signedDelegateActionPayload: string,
     ) => Promise<RegistryRelayResult>;
     getRegistryRelaySender: (signedDelegateActionPayload: string) => string;
+    getManifest: (input: ManifestReadInput) => Promise<ManifestReadResult>;
+    resolveRuntime: (input: RuntimeResolveInput) => Promise<RuntimeResolveResult>;
     kvGet: (path: string) => Promise<unknown>;
     kvList: (input: KvListInput) => Promise<{
       data: KvEntry[];
@@ -232,36 +258,38 @@ export class RegistryService extends Context.Service<
   );
 }
 
-export function createRegistryMethods(config: RegistryConfig) {
+function canonicalConfigKey(accountId: string, gatewayId: string): string {
+  return keyPathOf({ kind: "runtimeConfig", ref: runtimeRefOf({ accountId, gatewayId }) });
+}
+
+/** The app-metadata key — the plugin's own domain surface (claims, title,
+ * repo), not a release-contract key. */
+function getRegistryMetadataKey(accountId: string, gatewayId: string): string {
+  return `apps/${accountId}/${gatewayId}/manifest`;
+}
+
+export function createRegistryMethods(
+  config: RegistryConfig,
+  client: RegistryClientShape = registryClientShape,
+) {
+  const namespace = config.namespace;
+
   const discoverPublishedConfigs = async (): Promise<DiscoveredConfig[]> => {
     if (discoveryCache && Date.now() < discoveryCache.expiresAt) {
       return discoveryCache.data;
     }
-    const results = await Promise.all([
-      discoverPublishedConfigsForNetwork("mainnet", config),
-      discoverPublishedConfigsForNetwork("testnet", config),
-    ]);
-    const data = results.flat().sort(compareDiscovered);
-    discoveryCache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
-    return data;
-  };
-
-  const discoverPublishedConfigsForNetwork = async (
-    network: NetworkId,
-    registryConfig: RegistryConfig,
-  ): Promise<DiscoveredConfig[]> => {
-    const baseUrl = getFastKvBaseUrlForNetwork(network);
-    const currentAccountId = getRegistryNamespaceForNetwork(network, registryConfig);
+    // Discovery lists the namespace's own network — the primitive derives
+    // the host from the account, so the old cross-host scan with a
+    // mismatched namespace string has no coherent primitive equivalent.
     const apps: DiscoveredConfig[] = [];
-    let pageToken: string | null = null;
+    let pageToken: string | undefined;
 
     for (;;) {
-      const page = await listLatestValues({
-        baseUrl,
-        currentAccountId,
+      const page = await client.list({
+        ref: runtimeRefOf({ accountId: namespace, gatewayId: namespace }),
         keyPrefix: DISCOVERY_PREFIX,
-        pageToken: pageToken ?? undefined,
         limit: 200,
+        ...(pageToken ? { pageToken } : {}),
       });
 
       for (const entry of page.entries) {
@@ -293,7 +321,9 @@ export function createRegistryMethods(config: RegistryConfig) {
       pageToken = page.pageToken;
     }
 
-    return apps;
+    const data = apps.sort(compareDiscovered);
+    discoveryCache = { data, expiresAt: Date.now() + CACHE_TTL_MS };
+    return data;
   };
 
   const resolveAppSummary = async (item: DiscoveredConfig): Promise<RegistryAppSummary> => {
@@ -302,11 +332,12 @@ export function createRegistryMethods(config: RegistryConfig) {
       item.gatewayId,
       item.rawConfig,
       config,
+      client,
     );
-    const metadata = await getRegistryMetadata(item.accountId, item.gatewayId, config);
+    const metadata = await getRegistryMetadata(item.accountId, item.gatewayId);
 
     return {
-      ...normalizeResolvedConfig(item.accountId, item.gatewayId, resolved, config),
+      ...normalizeResolvedConfig(item.accountId, item.gatewayId, resolved),
       metadata,
     };
   };
@@ -315,7 +346,6 @@ export function createRegistryMethods(config: RegistryConfig) {
     accountId: string,
     gatewayId: string,
     runtime: ResolvedPublishedRuntime,
-    registryConfig: RegistryConfig,
   ): RegistryAppSummary => {
     const { resolvedConfig: configInput, lineage } = runtime;
     const hostConfig = getAppConfig(configInput, "host");
@@ -327,13 +357,16 @@ export function createRegistryMethods(config: RegistryConfig) {
     const apiUrl = readString(apiConfig.production);
     const uiSsrUrl = readString(uiConfig.ssr);
     const domain = readString(configInput.domain);
-    const canonicalKey = getRegistryConfigKey(accountId, gatewayId);
+    const canonicalKey = canonicalConfigKey(accountId, gatewayId);
 
     return {
       accountId,
       gatewayId,
       canonicalKey,
-      canonicalConfigUrl: buildRegistryConfigUrl(accountId, gatewayId, registryConfig),
+      canonicalConfigUrl: latestUrlFor(
+        { kind: "runtimeConfig", ref: runtimeRefOf({ accountId, gatewayId }) },
+        { registry: namespace },
+      ),
       startCommand: `bunx everything-dev@latest start --account ${accountId} --domain ${gatewayId}`,
       domain,
       openUrl: buildOpenUrl(domain),
@@ -353,13 +386,14 @@ export function createRegistryMethods(config: RegistryConfig) {
   const getRegistryMetadata = async (
     accountId: string,
     gatewayId: string,
-    registryConfig: RegistryConfig,
   ): Promise<RegistryMetadata | null> => {
-    const value = await readLatestValue({
-      baseUrl: getFastKvBaseUrlForAccount(accountId),
-      currentAccountId: getRegistryNamespaceForAccount(accountId, registryConfig),
-      key: getRegistryMetadataKey(accountId, gatewayId),
+    const metadataKey = getRegistryMetadataKey(accountId, gatewayId);
+    const page = await client.list({
+      ref: runtimeRefOf({ accountId, gatewayId }),
+      keyPrefix: metadataKey,
+      limit: 1,
     });
+    const value = page.entries[0]?.value ?? null;
 
     if (!value) {
       return null;
@@ -391,6 +425,7 @@ export function createRegistryMethods(config: RegistryConfig) {
             item.gatewayId,
             item.rawConfig,
             config,
+            client,
           ),
         })),
       );
@@ -438,17 +473,23 @@ export function createRegistryMethods(config: RegistryConfig) {
         return null;
       }
 
-      const resolved = await resolvePublishedRuntime(accountId, gatewayId, match.rawConfig, config);
-      const normalized = normalizeResolvedConfig(accountId, gatewayId, resolved, config);
+      const resolved = await resolvePublishedRuntime(
+        accountId,
+        gatewayId,
+        match.rawConfig,
+        config,
+        client,
+      );
+      const normalized = normalizeResolvedConfig(accountId, gatewayId, resolved);
       const metadataKey = getRegistryMetadataKey(accountId, gatewayId);
-      const metadata = await getRegistryMetadata(accountId, gatewayId, config);
+      const metadata = await getRegistryMetadata(accountId, gatewayId);
 
       return {
         ...normalized,
         metadata,
         metadataKey,
-        metadataContractId: getRegistryNamespaceForAccount(accountId, config),
-        metadataFastKvUrl: getFastKvBaseUrlForAccount(accountId),
+        metadataContractId: namespace,
+        metadataFastKvUrl: registryBaseUrlForNetwork(networkIdForAccount(accountId)),
         extendsChain: resolved.lineage.extendsChain,
         resolvedConfig: resolved.resolvedConfig as JsonObject,
       };
@@ -463,27 +504,23 @@ export function createRegistryMethods(config: RegistryConfig) {
           item.gatewayId,
           item.rawConfig,
           config,
+          client,
         );
-        const normalized = normalizeResolvedConfig(
-          item.accountId,
-          item.gatewayId,
-          resolved,
-          config,
-        );
+        const normalized = normalizeResolvedConfig(item.accountId, item.gatewayId, resolved);
 
         if (normalized.hostUrl !== hostUrl) {
           continue;
         }
 
         const metadataKey = getRegistryMetadataKey(item.accountId, item.gatewayId);
-        const metadata = await getRegistryMetadata(item.accountId, item.gatewayId, config);
+        const metadata = await getRegistryMetadata(item.accountId, item.gatewayId);
 
         return {
           ...normalized,
           metadata,
           metadataKey,
-          metadataContractId: getRegistryNamespaceForAccount(item.accountId, config),
-          metadataFastKvUrl: getFastKvBaseUrlForAccount(item.accountId),
+          metadataContractId: namespace,
+          metadataFastKvUrl: registryBaseUrlForNetwork(networkIdForAccount(item.accountId)),
           extendsChain: resolved.lineage.extendsChain,
           resolvedConfig: resolved.resolvedConfig as JsonObject,
         };
@@ -496,8 +533,8 @@ export function createRegistryMethods(config: RegistryConfig) {
       const discovered = await discoverPublishedConfigs();
       return {
         discoveredApps: discovered.length,
-        metadataContractId: `${getRegistryNamespaceForNetwork("mainnet", config)} | ${getRegistryNamespaceForNetwork("testnet", config)}`,
-        metadataFastKvUrl: getFastKvBaseUrlForNetwork("mainnet"),
+        metadataContractId: namespace,
+        metadataFastKvUrl: registryBaseUrlForNetwork(networkIdForAccount(namespace)),
         relayEnabled: Boolean(config.relayAccountId && config.relayPrivateKey),
         relayAccountId: config.relayAccountId ?? null,
         timestamp: new Date().toISOString(),
@@ -509,7 +546,7 @@ export function createRegistryMethods(config: RegistryConfig) {
       const manifest = buildRegistryManifest(input);
 
       return {
-        contractId: getRegistryNamespaceForAccount(input.accountId, config),
+        contractId: namespace,
         methodName: "__fastdata_kv" as const,
         key,
         manifest,
@@ -522,10 +559,10 @@ export function createRegistryMethods(config: RegistryConfig) {
     },
 
     prepareRegistryConfigWrite: (input: RegistryConfigWriteInput) => {
-      const key = getRegistryConfigKey(input.accountId, input.gatewayId);
+      const key = canonicalConfigKey(input.accountId, input.gatewayId);
 
       return {
-        contractId: getRegistryNamespaceForAccount(input.accountId, config),
+        contractId: namespace,
         methodName: "__fastdata_kv" as const,
         key,
         args: {
@@ -545,13 +582,13 @@ export function createRegistryMethods(config: RegistryConfig) {
       const senderId = signedDelegate.signedDelegate.delegateAction.senderId;
 
       const near = createRelayNear(
-        config.relayAccountId!,
-        config.relayPrivateKey!,
+        config.relayAccountId,
+        config.relayPrivateKey,
         config.relayNetwork,
       );
 
       const result = await near
-        .transaction(config.relayAccountId!)
+        .transaction(config.relayAccountId)
         .signedDelegateAction(signedDelegate)
         .send({ waitUntil: "NONE" });
 
@@ -567,42 +604,103 @@ export function createRegistryMethods(config: RegistryConfig) {
       return signedDelegate.signedDelegate.delegateAction.senderId;
     },
 
+    getManifest: async (input: ManifestReadInput): Promise<ManifestReadResult> => {
+      const parsed = parseRuntimeRef(input.ref);
+      const ref = runtimeRefOf({ accountId: parsed.accountId, gatewayId: parsed.gatewayId });
+      const tag = await client.readOrNull<unknown>({ kind: "manifest", ref });
+      let versionRecord: unknown = null;
+      if (input.includeVersionRecord && tag && typeof tag === "object" && tag !== null) {
+        const version = (tag as { version?: unknown }).version;
+        if (typeof version === "string" && version) {
+          versionRecord = await client.readOrNull<unknown>({
+            kind: "version",
+            ref,
+            version,
+          });
+        }
+      }
+      return { ref: input.ref, tag, versionRecord };
+    },
+
+    resolveRuntime: async (input: RuntimeResolveInput): Promise<RuntimeResolveResult> => {
+      const parsed = parseRuntimeRef(input.ref);
+      const refKey = runtimeRefOf({ accountId: parsed.accountId, gatewayId: parsed.gatewayId });
+      const configKey =
+        parsed.path.length > 0
+          ? { kind: "runtimeConfig" as const, ref: refKey, path: parsed.path }
+          : { kind: "runtimeConfig" as const, ref: refKey };
+      await client.read<BosConfigInput>(configKey);
+      const outcome = await resolveRelease({
+        query: input.release
+          ? { kind: "Pinned", release: input.release, ref: refKey }
+          : { kind: "Latest", ref: refKey },
+        // The walk starts AT the subject ref — its own config (fetched via
+        // the fetchParent seam below) provides any further extends links.
+        localConfig: { extends: input.ref },
+        seams: {
+          readManifestTag: async (r) => client.readOrNull<unknown>({ kind: "manifest", ref: r }),
+          readVersionRecord: async (r, release) => {
+            const record = await client.readOrNull<unknown>({
+              kind: "version",
+              ref: r,
+              version: release,
+            });
+            return record === null ? null : JSON.stringify(record);
+          },
+          parseManifest: (value) => PlatformReleaseManifestSchema.parse(value),
+          fetchParent: async (account, gateway) => {
+            try {
+              const parent = await client.readOrNull<BosConfigInput>({
+                kind: "runtimeConfig",
+                ref: runtimeRefOf({ accountId: account, gatewayId: gateway }),
+              });
+              return (parent as Record<string, unknown> | null) ?? null;
+            } catch {
+              return null;
+            }
+          },
+          cacheRead: () => ({ state: "miss" }),
+          cacheWrite: () => {},
+        },
+      });
+      return { ref: input.ref, outcome };
+    },
+
     kvGet: async (path: string) => {
       const accountIdMatch = path.match(/^plugins\/([^/]+)\//);
-      const accountId = accountIdMatch?.[1] ?? config.namespace;
-      return readLatestValue({
-        baseUrl: getFastKvBaseUrlForAccount(accountId),
-        currentAccountId: getRegistryNamespaceForAccount(accountId, config),
-        key: path,
+      const accountId = accountIdMatch?.[1] ?? namespace;
+      const page = await client.list({
+        ref: runtimeRefOf({ accountId, gatewayId: namespace }),
+        keyPrefix: path,
+        limit: 1,
       });
+      return page.entries[0]?.value ?? null;
     },
 
     kvList: async (input: KvListInput) => {
       const accountIdMatch = input.prefix.match(/^plugins\/([^/]+)\//);
-      const accountId = accountIdMatch?.[1] ?? config.namespace;
+      const accountId = accountIdMatch?.[1] ?? namespace;
       const limit = clamp(input.limit ?? 50, 1, 200);
       const allEntries: KvEntry[] = [];
       let pageToken: string | null = input.cursor ?? null;
       let lastPageToken: string | null = null;
 
       for (;;) {
-        const page = await listLatestValues({
-          baseUrl: getFastKvBaseUrlForAccount(accountId),
-          currentAccountId: getRegistryNamespaceForAccount(accountId, config),
+        const page = await client.list({
+          ref: runtimeRefOf({ accountId, gatewayId: namespace }),
           keyPrefix: input.prefix,
-          pageToken: pageToken ?? undefined,
           limit,
           includeMetadata: true,
+          ...(pageToken ? { pageToken } : {}),
         });
 
         for (const entry of page.entries) {
           allEntries.push({
             key: entry.key,
             value: entry.value,
-            blockHeight: entry.block_height,
-            blockTimestamp: entry.block_timestamp,
-            txHash: entry.tx_hash,
-            signerId: entry.signer_id,
+            blockHeight: entry.blockHeight,
+            blockTimestamp: Number(entry.blockTimestampNs) || undefined,
+            txHash: entry.txHash,
           });
         }
 
@@ -629,7 +727,7 @@ export function createRegistryMethods(config: RegistryConfig) {
         args[path] = JSON.stringify(value);
       }
       return {
-        contractId: config.namespace,
+        contractId: namespace,
         methodName: "__fastdata_kv" as const,
         args,
         gas: `${Math.max(10, entries.length * 5)} Tgas`,
@@ -646,13 +744,13 @@ export function createRegistryMethods(config: RegistryConfig) {
       const senderId = signedDelegate.signedDelegate.delegateAction.senderId;
 
       const near = createRelayNear(
-        config.relayAccountId!,
-        config.relayPrivateKey!,
+        config.relayAccountId,
+        config.relayPrivateKey,
         config.relayNetwork,
       );
 
       const result = await near
-        .transaction(config.relayAccountId!)
+        .transaction(config.relayAccountId)
         .signedDelegateAction(signedDelegate)
         .send({ waitUntil: "NONE" });
 
@@ -682,6 +780,7 @@ export async function resolvePublishedRuntime(
   gatewayId: string,
   configInput: BosConfigInput,
   registryConfig: RegistryConfig,
+  client: RegistryClientShape = registryClientShape,
   visited = new Set<string>(),
 ): Promise<ResolvedPublishedRuntime> {
   const selfRef = `bos://${accountId}/${gatewayId}`;
@@ -705,13 +804,24 @@ export async function resolvePublishedRuntime(
     };
   }
 
-  const { accountId: parentAccountId, gatewayId: parentGatewayId } = parseBosUrl(parentRef);
-  const parentConfig = await fetchBosConfigFromFastKv<BosConfigInput>(parentRef, registryConfig);
+  const parsedParent = parseRuntimeRef(parentRef);
+  const parentKey = runtimeRefOf({
+    accountId: parsedParent.accountId,
+    gatewayId: parsedParent.gatewayId,
+  });
+  const parentConfig = await client.read<BosConfigInput>(
+    parsedParent.path.length > 0
+      ? { kind: "runtimeConfig", ref: parentKey, path: parsedParent.path }
+      : { kind: "runtimeConfig", ref: parentKey },
+  );
+  const parentAccountId = parsedParent.accountId;
+  const parentGatewayId = parsedParent.gatewayId;
   const parentResolved = await resolvePublishedRuntime(
     parentAccountId,
     parentGatewayId,
     parentConfig,
     registryConfig,
+    client,
     nextVisited,
   );
 

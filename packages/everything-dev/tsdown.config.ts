@@ -61,6 +61,7 @@ export default defineConfig({
     "src/descriptor/index.ts",
     "src/config.ts",
     "src/services/resolution/session.ts",
+    "src/services/registry/index.ts",
     "src/services/registry/dag.ts",
     "src/services/registry/bundle-cache.ts",
     "src/services/resolution/resolver.ts",
