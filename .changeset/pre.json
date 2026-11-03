@@ -255,6 +255,7 @@
     "release-build-dependency-order",
     "release-scoped-extends-inheritance",
     "release-scoped-manifest-writes",
+    "release-sequence-hardening",
     "release-tag-candidates",
     "release-train-catalog-mirror",
     "remote-host-manifest-fail-loud",
