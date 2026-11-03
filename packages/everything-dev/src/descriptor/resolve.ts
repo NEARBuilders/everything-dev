@@ -89,6 +89,9 @@ export function toConfigInput(descriptor: AppDescriptor): BosConfigInput {
       "description",
       "repository",
       "testnet",
+      "release",
+      // legacy key flows through so the unknown-key walker flags it and the
+      // upgrade codemod can find it — it never reaches a resolved config
       "platform",
       "staging",
       "starter",
@@ -267,6 +270,7 @@ export function configInputToDescriptor(input: BosConfigInput): AppDescriptor {
     "description",
     "repository",
     "testnet",
+    "release",
     "platform",
     "staging",
     "starter",

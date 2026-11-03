@@ -280,7 +280,7 @@ describe("generateRuntimeMapEffect — backend inventory (#594 review)", () => {
       Effect.runPromise(
         generateRuntimeMapEffect(tempDir, runtime, {
           env: "development",
-          platform: "2.0.0-rc.21",
+          release: "2.0.0-rc.21",
           extendsChain: ["bos://dev.everything.near/everything.dev"],
         }),
       ),
@@ -289,7 +289,7 @@ describe("generateRuntimeMapEffect — backend inventory (#594 review)", () => {
     expect(result).not.toBeNull();
     expect(result!.backendCount).toBe(4);
     const map = JSON.parse(readFileSync(join(tempDir, ".bos/generated/runtime-map.json"), "utf8"));
-    expect(map.platform).toBe("2.0.0-rc.21");
+    expect(map.release).toBe("2.0.0-rc.21");
     expect(map.extends).toBe("bos://dev.everything.near/everything.dev");
     const byKey = Object.fromEntries(map.backends.map((b: { key: string }) => [b.key, b]));
     expect(byKey.host).toMatchObject({ kind: "host", source: "local" });

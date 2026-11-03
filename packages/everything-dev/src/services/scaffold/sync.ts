@@ -5,7 +5,7 @@ import { parse as parseYaml } from "yaml";
 import type { SyncResult } from "../../contract";
 import { materializeViaLayer } from "../../infra/materializer";
 import { computeSnapshotHash as computeHash } from "../../utils/snapshot-hash";
-import { resolvePlatformManifest } from "../platform/manifest";
+import { type ResolvedPlatformManifest, resolvePlatformManifest } from "../platform/manifest";
 import { loadInProcessDescriptor } from "../resolution/load";
 import { isPlainObject as isPlainObjectFromMerge, resolveExtendsRef } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
@@ -44,6 +44,10 @@ export interface TemplateSyncOptions {
    * written, not even the clean updates. */
   force?: boolean;
   noInstall?: boolean;
+  /** The release the caller already resolved — the upgrade train injects its
+   * single resolution so sync never re-derives (and never reads the authored
+   * release it exists to move). Absent → resolve from the authored config. */
+  resolvedRelease?: ResolvedPlatformManifest;
 }
 
 type PackageJson = Record<string, unknown>;
@@ -559,9 +563,13 @@ export async function syncTemplate(
 
   // ADR 0034 pt 4: release-scoped sync — the platform manifest is the chain's
   // release authority. An unresolved manifest means the child was never
-  // pinned to a release; pulling main/moving HEAD on top of released bytes
-  // would drift the snapshot, so this fails loud instead.
-  const platform = await resolvePlatformManifest({ configDir: projectDir, localConfig });
+  // aligned to a release; pulling main/moving HEAD on top of released bytes
+  // would drift the snapshot, so this fails loud instead. The upgrade train
+  // injects its already-resolved release; standalone use resolves from the
+  // authored config.
+  const platform = options.resolvedRelease
+    ? options.resolvedRelease
+    : await resolvePlatformManifest({ configDir: projectDir, localConfig });
   if (!platform) {
     return {
       status: "error",
@@ -571,8 +579,8 @@ export async function syncTemplate(
       conflicted: [],
       error:
         "No platform release manifest resolved (" +
-        `platform pin missing in ${join(projectDir, "bos.app.ts")} and its extends chain) — ` +
-        "run `bos upgrade` to pin a release, or `bos status` to inspect the chain",
+        `no authored release in ${join(projectDir, "bos.app.ts")} and its extends chain) — ` +
+        "run `bos upgrade` to stamp a release, or `bos status` to inspect the chain",
     };
   }
   const releaseTag = releaseRefCandidates(platform.manifest.frameworkVersion);

@@ -213,18 +213,24 @@ describe("imported-App extends", () => {
   });
 });
 
-describe("platform pin (ADR 0034)", () => {
-  it("accepts an authored platform pin and carries it into the resolved config", () => {
-    const child = App({ name: "pinned", platform: "2.0.0-rc.15" });
-    expect(() => App({ name: "strict-typo-guard", platform: 2 } as never)).toThrow();
-    expect(resolveApp("pinned", { pinned: child }).platform).toBe("2.0.0-rc.15");
+describe("authored release (ADR 0034)", () => {
+  it("accepts an authored release and carries it into the resolved config", () => {
+    const child = App({ name: "pinned", release: "2.0.0-rc.15" });
+    expect(() => App({ name: "strict-typo-guard", release: 2 } as never)).toThrow();
+    expect(resolveApp("pinned", { pinned: child }).release).toBe("2.0.0-rc.15");
   });
 
-  it("survives the authored↔resolved round-trip so sync never strips the pin", () => {
-    const input = toConfigInput(App({ name: "pinned", platform: "2.0.0-rc.15" }));
-    expect(input.platform).toBe("2.0.0-rc.15");
+  it("survives the authored↔resolved round-trip so sync never strips the release", () => {
+    const input = toConfigInput(App({ name: "pinned", release: "2.0.0-rc.15" }));
+    expect(input.release).toBe("2.0.0-rc.15");
     const descriptor = configInputToDescriptor(input);
-    expect(descriptor.platform).toBe("2.0.0-rc.15");
+    expect(descriptor.release).toBe("2.0.0-rc.15");
+  });
+
+  it("a legacy platform key still parses and carries into the input — the codemod surface", () => {
+    const input = toConfigInput(App({ name: "legacy", platform: "2.0.0-rc.14" }));
+    expect(input.platform).toBe("2.0.0-rc.14");
+    expect(input.release).toBeUndefined();
   });
 
   it("keeps the authoring-only starter level through the save-path round-trip (#565)", () => {
@@ -266,14 +272,14 @@ describe("platform pin (ADR 0034)", () => {
     expect(descriptor.api).toEqual({ path: "api", variables: { a: 1 } });
   });
 
-  it("inherits the parent's pin child-wins", () => {
+  it("inherits the parent release child-wins", () => {
     const registry: AppRegistry = {
-      base: App({ name: "base", platform: "2.0.0-rc.14" }),
+      base: App({ name: "base", release: "2.0.0-rc.14" }),
       leaf: App({ name: "leaf", extends: "base" }),
-      over: App({ name: "over", extends: "base", platform: "2.0.0-rc.15" }),
+      over: App({ name: "over", extends: "base", release: "2.0.0-rc.15" }),
     };
-    expect(resolveApp("leaf", registry).platform).toBe("2.0.0-rc.14");
-    expect(resolveApp("over", registry).platform).toBe("2.0.0-rc.15");
+    expect(resolveApp("leaf", registry).release).toBe("2.0.0-rc.14");
+    expect(resolveApp("over", registry).release).toBe("2.0.0-rc.15");
   });
 });
 

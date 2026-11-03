@@ -118,7 +118,7 @@ export async function runCompositionGate(
       ...(input.verifiedSlots ? { verifiedSlots: input.verifiedSlots } : {}),
     })),
   ];
-  if (typeof input.authoredConfig.platform === "string" && input.resolvedRelease) {
+  if (typeof input.authoredConfig.release === "string" && input.resolvedRelease) {
     violations.push(...platformCompatViolations(input.resolvedRelease, input.configDir));
   }
   return { ok: violations.length === 0, violations };

@@ -41,10 +41,17 @@ const mapTrainError = (error: PublishTrainError) =>
   Effect.succeed({ ...error.toResult(), status: "error" as const }) as Effect.Effect<TrainResult>;
 
 function unknownAuthoredKeysError(keys: readonly string[]): string {
+  if (keys.includes("platform")) {
+    return (
+      "unknown authored key `platform` — run `bos upgrade` to migrate your config to " +
+      "`release:` (the authored release field, ADR 0034); the upgrade rewrites the key " +
+      "surgically and stamps the current chain release"
+    );
+  }
   return (
     `The authored config has unknown keys: ${keys.join(", ")} — remove them from bos.app.ts. ` +
-    "ci.image in particular was retired (ADR 0034): children pin the runtime image via " +
-    'platform: "<version>" (the platform release manifest resolves the image ref and digest ' +
+    "ci.image in particular was retired (ADR 0034): children target the runtime image via " +
+    'release: "<version>" (the platform release manifest resolves the image ref and digest ' +
     "at deploy time); the root runtime derives its image from repository."
   );
 }

@@ -153,12 +153,12 @@ export class InitFlowService extends Context.Service<
               (await detectGitRemoteUrl(process.cwd()).catch(() => undefined)) ??
               parentConfig?.repository;
 
-            // ADR 0034: init scaffolds a pinned snapshot. Resolve the platform
-            // release manifest first (unpinned — the child does not exist yet,
-            // and its future pin must not constrain introducing it); the
-            // framework version becomes the scaffold's release ref and the
-            // authored config's `platform` pin. No manifest and no explicit
-            // --source → fail loud.
+            // ADR 0034: init scaffolds a release snapshot. Resolve the platform
+            // release manifest first (release-free — the child does not exist
+            // yet, and its future authored release must not constrain
+            // introducing it); the framework version becomes the scaffold's
+            // release ref and the authored config's `release` field. No
+            // manifest and no explicit --source → fail loud.
             let platform: ResolvedPlatformManifest | undefined;
             if (!input.source) {
               const chainManifest = await timePhase(timings, "platform manifest", () =>
@@ -167,7 +167,7 @@ export class InitFlowService extends Context.Service<
                   localConfig: {
                     ...(parentConfig as Record<string, unknown>),
                     extends: extendsRef,
-                    platform: undefined,
+                    release: undefined,
                   },
                   cacheRead: () => null,
                   cacheWrite: () => {},
@@ -232,7 +232,7 @@ export class InitFlowService extends Context.Service<
                     description: parentConfig?.description,
                     starter: level,
                     catalog: platform?.manifest.catalog,
-                    platform: platform?.manifest.frameworkVersion,
+                    release: platform?.manifest.frameworkVersion,
                   }),
                 );
 
@@ -252,7 +252,7 @@ export class InitFlowService extends Context.Service<
                     staging: parentConfig?.staging,
                     starter: level,
                     catalog: platform?.manifest.catalog,
-                    platform: platform?.manifest.frameworkVersion,
+                    release: platform?.manifest.frameworkVersion,
                   }),
                 );
 
@@ -307,7 +307,7 @@ export class InitFlowService extends Context.Service<
                     staging: parentConfig?.staging,
                     starter: level,
                     catalog: platform?.manifest.catalog,
-                    platform: platform?.manifest.frameworkVersion,
+                    release: platform?.manifest.frameworkVersion,
                   }),
                 );
 

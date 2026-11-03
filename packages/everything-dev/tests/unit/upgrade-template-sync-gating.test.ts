@@ -7,6 +7,7 @@ import { findCommandDescriptor } from "../../src/cli/catalog";
 import { parseCommandInput } from "../../src/cli/parse";
 import { upgradeTemplate } from "../../src/cli/upgrade";
 import * as platformManifestModule from "../../src/services/platform/manifest";
+import * as resolutionModule from "../../src/services/registry/resolution";
 import * as initSourceModule from "../../src/services/resolution/init-source";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as initModule from "../../src/services/scaffold/init";
@@ -38,14 +39,27 @@ function makeManifest(frameworkVersion: string, catalog: Record<string, string>)
   };
 }
 
+/** The upgrade source speaks to the resolution machine directly — the seam
+ * mock answers both queries it makes (Latest target + record verification). */
+function mockRelease(composed: ReturnType<typeof makeManifest>) {
+  return vi.spyOn(resolutionModule, "resolveRelease").mockResolvedValue({
+    state: "Resolved",
+    manifest: composed.manifest,
+    source: composed.source,
+    from: "manifest",
+    provenance: "pointer",
+    fromCache: false,
+  } as never);
+}
+
 beforeEach(() => {
-  // The gate under test is the child's platform pin (ADR 0034) — the manifest
-  // is injected, never fetched.
-  vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
+  // The gate under test is the child's authored release (ADR 0034) — the
+  // manifest is injected, never fetched.
+  mockRelease(
     makeManifest("2.0.0", {
       "everything-dev": "^2.0.0",
       "every-plugin": "^2.0.0",
-    }) as never,
+    }),
   );
   // The chain walk fetches the published parent config — mock it.
   vi.spyOn(initSourceModule, "fetchParentConfig").mockResolvedValue({
@@ -77,7 +91,7 @@ afterEach(() => {
   }
 });
 
-function makeProjectDir(catalog: Record<string, string>, platform?: string): string {
+function makeProjectDir(catalog: Record<string, string>, release?: string): string {
   const dir = mkdtempSync(join(tmpdir(), "upgrade-sync-gating-"));
   tempDirs.push(dir);
   mkdirSync(join(dir, "ui"), { recursive: true });
@@ -88,7 +102,7 @@ function makeProjectDir(catalog: Record<string, string>, platform?: string): str
       extends: "bos://dev.everything.near/everything.dev",
       account: "test.near",
       domain: "test.dev",
-      ...(platform ? { platform } : {}),
+      ...(release ? { release } : {}),
       app: { ui: { development: "local:ui" } },
     })}\n`,
   );
@@ -126,7 +140,7 @@ function mockSyncTemplate(result?: Partial<Record<string, unknown>>) {
 }
 
 describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
-  it("same framework version with the pin stamped → framework-owned files are never reconciled", async () => {
+  it("same release stamped → framework-owned files are never reconciled", async () => {
     const syncTemplateSpy = mockSyncTemplate();
     const projectDir = makeProjectDir(
       {
@@ -144,12 +158,12 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
 
     expect(result.status).toBe("upgraded");
     expect(result.sync).toBeUndefined();
-    // the platform pin is already current — only the package migration may move
+    // the authored release is already current — only the package migration may move
     expect(result.migrated).not.toContain("bos.config.json");
     expect(syncTemplateSpy).not.toHaveBeenCalled();
   });
 
-  it("unpinned tree → the migration phase reconciles and stamps the pin", async () => {
+  it("unauthored release → the migration phase reconciles and stamps the release", async () => {
     const syncTemplateSpy = mockSyncTemplate();
     const projectDir = makeProjectDir({
       "everything-dev": "^2.0.0",
@@ -163,7 +177,7 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
     });
 
     expect(result.status).toBe("upgraded");
-    // no pin on disk — the tree never recorded the release it sits on, so the
+    // no release on disk — the tree never recorded the release it sits on, so the
     // migration phase runs (the delta is derived, not passed); the parent
     // preflights the template sync first, the child reconciles
     expect(result.sync).toBeDefined();
@@ -174,11 +188,11 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
   });
 
   it("framework version change → preflight dry-run then the re-exec'd migration reconciles", async () => {
-    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
+    mockRelease(
       makeManifest("3.0.0", {
         "everything-dev": "^3.0.0",
         "every-plugin": "^2.0.0",
-      }) as never,
+      }),
     );
     const syncTemplateSpy = mockSyncTemplate();
     const projectDir = makeProjectDir({
@@ -203,7 +217,7 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
     expect(syncTemplateSpy).toHaveBeenCalledTimes(1);
     expect(syncTemplateSpy.mock.calls[0]?.[1]?.dryRun).toBe(true);
     // Phase 1 installed, so the migration phase re-execs from the new
-    // package. The delta is derived from the pin-vs-manifest durable state —
+    // package. The delta is derived from the release-vs-manifest durable state —
     // no version-shaped flag crosses the boundary (`--from` is the v1-train
     // selector only).
     const childArgs = vi.mocked(spawnSync).mock.calls[0]?.[1] ?? [];
@@ -211,11 +225,11 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
   });
 
   it("preflight conflict aborts before any package applies", async () => {
-    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
+    mockRelease(
       makeManifest("3.0.0", {
         "everything-dev": "^3.0.0",
         "every-plugin": "^2.0.0",
-      }) as never,
+      }),
     );
     mockSyncTemplate({
       status: "conflicted",
@@ -241,11 +255,11 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
   });
 
   it("--force bypasses the preflight and lets the migration sync overwrite", async () => {
-    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
+    mockRelease(
       makeManifest("3.0.0", {
         "everything-dev": "^3.0.0",
         "every-plugin": "^2.0.0",
-      }) as never,
+      }),
     );
     const syncTemplateSpy = mockSyncTemplate();
     const projectDir = makeProjectDir({
@@ -274,12 +288,12 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
     expect(childArgs).not.toContain("--from");
   });
 
-  it("--migrations-only completes pending work when the pin lags", async () => {
-    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
+  it("--migrations-only completes pending work when the release lags", async () => {
+    mockRelease(
       makeManifest("3.0.0", {
         "everything-dev": "^3.0.0",
         "every-plugin": "^2.0.0",
-      }) as never,
+      }),
     );
     const syncTemplateSpy = mockSyncTemplate();
     const projectDir = makeProjectDir({
@@ -304,11 +318,11 @@ describe("upgradeTemplate template-sync gating (ADR 0032/0034)", () => {
   });
 
   it("--migrations-only on an aligned tree stays a true no-op (no sync)", async () => {
-    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
+    mockRelease(
       makeManifest("3.0.0", {
         "everything-dev": "^3.0.0",
         "every-plugin": "^2.0.0",
-      }) as never,
+      }),
     );
     const syncTemplateSpy = mockSyncTemplate();
     const projectDir = makeProjectDir(
@@ -366,9 +380,7 @@ describe("upgradeTemplate install-drift guard", () => {
   }
 
   it("fails loud when the installed framework version escapes the exact release target", async () => {
-    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
-      makeManifest("3.0.0", { "everything-dev": "3.0.0", "every-plugin": "2.0.0" }) as never,
-    );
+    mockRelease(makeManifest("3.0.0", { "everything-dev": "3.0.0", "every-plugin": "2.0.0" }));
     const projectDir = makeProjectDir({ "everything-dev": "^3.0.0", "every-plugin": "^2.0.0" });
     installFixture(projectDir, "3.0.0-rc.1");
 
@@ -378,8 +390,8 @@ describe("upgradeTemplate install-drift guard", () => {
   });
 
   it("passes when the installed version satisfies a legacy range row", async () => {
-    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
-      makeManifest("3.0.0", { "everything-dev": "^3.0.0-rc.0", "every-plugin": "^2.0.0" }) as never,
+    mockRelease(
+      makeManifest("3.0.0", { "everything-dev": "^3.0.0-rc.0", "every-plugin": "^2.0.0" }),
     );
     const projectDir = makeProjectDir({
       "everything-dev": "^3.0.0-rc.0",
@@ -398,9 +410,7 @@ describe("upgradeTemplate install-drift guard", () => {
   });
 
   it("skips the guard when nothing is installed yet (fresh trees)", async () => {
-    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue(
-      makeManifest("3.0.0", { "everything-dev": "3.0.0", "every-plugin": "2.0.0" }) as never,
-    );
+    mockRelease(makeManifest("3.0.0", { "everything-dev": "3.0.0", "every-plugin": "2.0.0" }));
     const projectDir = makeProjectDir({ "everything-dev": "^3.0.0", "every-plugin": "^2.0.0" });
     mockSyncTemplate();
 

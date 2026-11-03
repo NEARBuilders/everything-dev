@@ -474,11 +474,14 @@ function preCutoverSeams(configDir: string, now: () => number): ResolutionSeams 
       const { accountId, gatewayId } = parseRuntimeRef(ref);
       // NOT the OrNull variant: a read failure must stay distinguishable
       // from a clean absent record — the machine fails loud with the node
-      // named on a failure and treats null as absence.
+      // named on a failure and treats null as absence. The key is the
+      // SEGMENT relative to `apps/<account>/<gateway>/` — fetchRegistryKey
+      // owns the prefix; a full key here double-prefixes and reads absent
+      // forever (the stranded-pin incident).
       const raw = await fetchRegistryKey<unknown>(
         accountId,
         gatewayId,
-        versionKeyOf(accountId, gatewayId, release),
+        `platform-versions/${release}.json`,
       );
       return raw === null ? null : JSON.stringify(raw);
     },
@@ -557,8 +560,8 @@ export async function resolvePlatformManifest(
   opts: ResolvePlatformManifestOptions,
 ): Promise<ResolvedPlatformManifest | null> {
   const pin =
-    typeof opts.localConfig.platform === "string" && opts.localConfig.platform
-      ? opts.localConfig.platform
+    typeof opts.localConfig.release === "string" && opts.localConfig.release
+      ? opts.localConfig.release
       : undefined;
 
   const overrides: Partial<ResolutionSeams> = {};

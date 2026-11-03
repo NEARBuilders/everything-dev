@@ -379,7 +379,7 @@ describe("resolveChildImagePin", () => {
     await expect(
       resolveChildImagePin({
         configDir: mkdtempSync(join(tmpdir(), "bos-child-pin-")),
-        localConfig: { extends: "bos://acct/gateway", platform: "9.9.9" },
+        localConfig: { extends: "bos://acct/gateway", release: "9.9.9" },
         fetchManifest: async () => manifest as never,
       }),
     ).rejects.toThrow(/platform pin 9\.9\.9.*never published/s);

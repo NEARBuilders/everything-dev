@@ -9,8 +9,10 @@ import { readWorkspaceCatalog } from "../workspace/catalog";
 import {
   reconcilePackageManagerPin,
   reconcileWorkspaceYamlFile,
+  verifyReleaseAgeExcludes,
 } from "../workspace/catalog-overrides";
 import { runPnpmApproveAll, runPnpmInstallForUpgrade } from "./init";
+import { installWithReleaseAgeRemediation } from "./install-remediation";
 import { syncTemplate } from "./sync";
 import { describeMigrationFailure, runMigrationPhase } from "./upgrade-migration";
 import {
@@ -99,28 +101,30 @@ export async function upgradeTemplate(
 
   // The version delta that drives the whole migration phase, derived from
   // durable state — nothing version-shaped rides across the re-exec boundary:
-  // the authored platform pin still holds the release the tree is aligned to
-  // (applyPlatformPin stamps the new one at the top of the migration phase),
-  // while the upgrade source resolves the manifest *ignoring* that pin. So
-  // `pin !== manifest` is the pending-delta fact — identical in the parent
-  // and in the re-exec'd child, where packages compare new-installed vs
-  // new-catalog and cannot self-diff. An absent pin also counts as a delta
-  // (a tree never pinned to a release needs the migration phase).
+  // the authored release still holds the release the tree is aligned to
+  // (applyRelease stamps the new one at the top of the migration phase),
+  // while the upgrade source resolves the manifest *ignoring* that field. So
+  // `authoredRelease !== manifest` is the pending-delta fact — identical in
+  // the parent and in the re-exec'd child, where packages compare
+  // new-installed vs new-catalog and cannot self-diff. An absent release also
+  // counts as a delta (a tree never aligned to a release needs the migration
+  // phase).
   const manifestVersion = parentSource.platform.manifest.frameworkVersion;
-  const pinDelta =
-    parentSource.authoredPin === undefined || parentSource.authoredPin !== manifestVersion;
+  const releaseDelta =
+    parentSource.authoredRelease === undefined || parentSource.authoredRelease !== manifestVersion;
 
   const hasFrameworkUpdates = packages.some((p) => p.from !== p.to && p.from !== undefined);
   const hasCatalogUpdates = catalogVersionUpdates.some((u) => u.from !== undefined);
-  // An aligned pin with matching packages is the only "nothing to do" state:
-  // a pin that lags (or is absent) means pending migration work even when the
-  // packages already sit on the release — the half-upgraded-tree repair case.
+  // An aligned release with matching packages is the only "nothing to do"
+  // state: a release that lags (or is absent) means pending migration work
+  // even when the packages already sit on the release — the
+  // half-upgraded-tree repair case.
   const hasUpdates =
     hasFrameworkUpdates ||
     hasCatalogUpdates ||
     hasCatalogRefRewrites ||
     hasAuthCoreRefRewrites ||
-    pinDelta;
+    releaseDelta;
 
   if (options.dryRun) {
     let changelogUrl: string | undefined;
@@ -141,7 +145,7 @@ export async function upgradeTemplate(
         ...catalogVersionUpdates.map((u) => ({ name: u.name, from: u.from, to: u.to })),
       ],
       availablePlugins: pluginOptions?.newPluginKeys,
-      platform: {
+      release: {
         resolved: parentSource.platform.manifest.frameworkVersion,
         source: `bos://${parentSource.platform.source.account}/${parentSource.platform.source.gateway}`,
         fromCache: parentSource.platform.fromCache,
@@ -153,7 +157,7 @@ export async function upgradeTemplate(
     };
   }
 
-  const versionDelta = pinDelta || hasFrameworkUpdates;
+  const versionDelta = releaseDelta || hasFrameworkUpdates;
 
   if (options.migrationsOnly) {
     return await runMigrationPhase(projectDir, options, parentSource, { versionDelta });
@@ -165,7 +169,10 @@ export async function upgradeTemplate(
   // resolution (`--force`, or accepting the template) can happen cleanly.
   if (versionDelta && !options.noSync && !options.force) {
     const preflight = await timePhase(timings, "preflight template sync", () =>
-      syncTemplate(projectDir, { dryRun: true }),
+      syncTemplate(projectDir, {
+        dryRun: true,
+        resolvedRelease: parentSource.platform,
+      }),
     );
     if (preflight.status === "conflicted" || (preflight.conflicted?.length ?? 0) > 0) {
       return {
@@ -199,6 +206,17 @@ export async function upgradeTemplate(
     // deps and the #546 skew gate blames the wrong fix.
     reconcileWorkspaceYamlFile(workspaceDirOf(projectDir));
 
+    // Pre-install invariant: the release-age excludes must cover every exact
+    // framework catalog row, or pnpm's supply-chain holdback fails the
+    // install on the freshly-released rows (the Nov-03 stranded rc).
+    const excludeGaps = verifyReleaseAgeExcludes(workspaceDirOf(projectDir));
+    if (excludeGaps.length > 0) {
+      throw new Error(
+        `pnpm-workspace.yaml is missing minimumReleaseAgeExclude rows for ${excludeGaps.join(", ")} — ` +
+          "the install would fail pnpm's supply-chain holdback; re-run `bos upgrade` (reconciliation repairs the file)",
+      );
+    }
+
     // Forward-only pnpm pin propagation — migrate-pnpm is a one-time v1→v2
     // step, so existing v2 children only see a parent toolchain bump here.
     reconcilePackageManagerPin(pkgPath);
@@ -219,7 +237,11 @@ export async function upgradeTemplate(
 
   if (needsInstall) {
     await timePhase(timings, "install dependencies", () =>
-      runPnpmInstallForUpgrade(workspaceDirOf(projectDir)),
+      installWithReleaseAgeRemediation({
+        workspaceDir: workspaceDirOf(projectDir),
+        run: () => runPnpmInstallForUpgrade(workspaceDirOf(projectDir)),
+        log: (message) => console.error(`  [install] ${message}`),
+      }),
     );
     // The new dependency set may ship agent skills / build scripts pnpm gates
     // behind `pnpm approve` — approve them in the same train so the tree it

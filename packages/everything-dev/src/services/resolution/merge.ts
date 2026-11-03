@@ -11,7 +11,7 @@ export const BOS_CONFIG_ORDER = [
   "staging",
   "repository",
   "publish",
-  "platform",
+  "release",
   "ci",
   "app",
   "plugins",
