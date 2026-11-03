@@ -10,7 +10,7 @@ import {
   reconcilePackageManagerPin,
   reconcileWorkspaceYamlFile,
 } from "../workspace/catalog-overrides";
-import { runPnpmInstallForUpgrade } from "./init";
+import { runPnpmApproveAll, runPnpmInstallForUpgrade } from "./init";
 import { syncTemplate } from "./sync";
 import { describeMigrationFailure, runMigrationPhase } from "./upgrade-migration";
 import {
@@ -221,6 +221,13 @@ export async function upgradeTemplate(
     await timePhase(timings, "install dependencies", () =>
       runPnpmInstallForUpgrade(workspaceDirOf(projectDir)),
     );
+    // The new dependency set may ship agent skills / build scripts pnpm gates
+    // behind `pnpm approve` — approve them in the same train so the tree it
+    // leaves behind installs clean on every machine (best-effort; see the
+    // helper).
+    await timePhase(timings, "approve pnpm permissions", () =>
+      runPnpmApproveAll(workspaceDirOf(projectDir)),
+    );
   }
 
   // If we installed new framework packages, re-exec from the new package so migrations
@@ -236,6 +243,7 @@ export async function upgradeTemplate(
       "--no-install",
       ...(options.noSync ? ["--no-sync"] : []),
       ...(options.force ? ["--force"] : []),
+      ...(options.noRealign ? ["--no-realign"] : []),
       "--json",
     ];
 
@@ -260,6 +268,10 @@ export async function upgradeTemplate(
 
     try {
       const childUpgrade: UpgradeResult = JSON.parse(childResult.stdout);
+      // The re-exec'd child pipes its own stdout for the structured result, so
+      // everything it relayed to stderr (realign deploy output, migration
+      // warnings) would be swallowed on the success path — surface it here.
+      if (childResult.stderr?.trim()) process.stderr.write(childResult.stderr);
       const mainPkg = packages.find((p) => p.name === "everything-dev");
       const changelogUrl =
         mainPkg?.from && mainPkg.from !== mainPkg.to

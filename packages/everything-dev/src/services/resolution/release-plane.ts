@@ -137,8 +137,30 @@ function stampSlotRecord(
 
 export interface PlaneAuditLine {
   slot: string;
-  kind: "inherited" | "owned" | "provisioned";
+  kind: "inherited" | "owned" | "provisioned" | "uncomposed";
   message: string;
+}
+
+/**
+ * The publish key an owned slot realigns through: the workspace key the
+ * scoped deploy train and `bos plugin publish` understand — `app.<key>` and
+ * `app.<key>.ui` publish as the app key (`ui`, `api`, …), `plugins.<id>` and
+ * `plugins.<id>.ui` as the plugin id. Slot paths themselves are not keys.
+ */
+export function slotPublishKey(slot: string): string {
+  const [domain, key] = slot.split(".");
+  return domain === "app" || domain === "plugins" ? (key ?? slot) : slot;
+}
+
+/** The repair instruction for an owned slot diverging on shared singletons:
+ * app slots republish through the scoped deploy train (they are not plugins);
+ * plugin slots through the single-plugin publish. */
+function ownedSlotRepair(slot: string): string {
+  const key = slotPublishKey(slot);
+  const command = slot.startsWith("app.")
+    ? `bos deploy --packages ${key}`
+    : `bos plugin publish ${key}`;
+  return `run ${command} (built against an older chain)`;
 }
 
 /**
@@ -149,9 +171,18 @@ export interface PlaneAuditLine {
  * reads the same way in the train and on screen. One line per divergent
  * slot, with the repair named for its ownership: inherited →
  * `bos upgrade` (the pin trails the chain serving the slot); owned →
- * `bos plugin publish <key>` (built against an older chain); provisioned
- * slots omitted from the pinned plane → inherit by upgrading. Empty out:
+ * `bos plugin publish <key>` (built against an older chain). Empty out:
  * the whole plane composes coherently.
+ *
+ * Two plane-shape signals ride beside the version check:
+ * - a config slot the pinned manifest does not record is genuinely
+ *   provisioned upstream after the pin — it composes live, unpinned bytes,
+ *   and `bos upgrade` claims it;
+ * - a manifest slot the merged config does not compose is NOT an upgrade
+ *   candidate — a child declaring its own `plugins` domain wholesale-
+ *   replaces the inherited one by design, so that is an uncomposed-slot
+ *   note, never a "run bos upgrade" instruction (an upgrade cannot change
+ *   the merged shape).
  */
 export async function auditReleasePlane(input: {
   slots: Array<{ slot: string; base: string; pin: { manifest: string; integrity: string } }>;
@@ -161,18 +192,23 @@ export async function auditReleasePlane(input: {
    * node_modules for the rest). */
   localVersionOf: (name: string) => string | undefined;
   provisionedSlots?: readonly string[];
+  /** Every slot path the merged resolved config walks (authored + inherited). */
+  configSlotPaths?: readonly string[];
+  /** Slot paths the pinned release manifest records. */
+  manifestSlotPaths?: readonly string[];
   pinnedReleaseVersion?: string;
   /** test seam — threaded to the version-manifest fetch */
   fetchImpl?: typeof fetch;
 }): Promise<PlaneAuditLine[]> {
   const lines: PlaneAuditLine[] = [];
   const strictness = new Map(SHARED_DEP_SPECS.map((spec) => [spec.name, spec.critical]));
+  const manifestSlotPaths = new Set(input.manifestSlotPaths ?? []);
 
   for (const { slot, base, pin } of input.slots) {
     const kind = input.authoredPaths.has(slot) ? "owned" : "inherited";
     const repair =
       kind === "owned"
-        ? `run bos plugin publish ${slot.replace(/\.(ui)?$/, "")} (built against an older chain)`
+        ? ownedSlotRepair(slot)
         : "run bos upgrade (the pin trails the chain serving this slot)";
     try {
       const resolved = await resolveSlotVersion({
@@ -205,13 +241,31 @@ export async function auditReleasePlane(input: {
     }
   }
 
+  // Config slots the pinned manifest does not record: genuinely provisioned
+  // upstream after the pin — they compose live, unpinned bytes, so the repair
+  // is a real re-pin. Inherited only (authored slots are the leaf's own
+  // decision, and pinned ones are already claimed by the manifest).
+  const pinnedSlots = new Set(input.slots.map((ref) => ref.slot));
+  for (const slot of input.configSlotPaths ?? []) {
+    if (!manifestSlotPaths.has(slot) && !pinnedSlots.has(slot) && !input.authoredPaths.has(slot)) {
+      lines.push({
+        slot,
+        kind: "provisioned",
+        message:
+          `slot "${slot}" is served by the extends chain but missing from the ` +
+          `${input.pinnedReleaseVersion ?? "pinned"} release plane — it composes live, unpinned bytes; ` +
+          `run bos upgrade to re-pin and claim it`,
+      });
+    }
+  }
+
   for (const slot of input.provisionedSlots ?? []) {
     lines.push({
       slot,
-      kind: "provisioned",
+      kind: "uncomposed",
       message:
-        `slot "${slot}" was provisioned upstream after ${input.pinnedReleaseVersion ?? "the pinned release"}` +
-        ` — run bos upgrade to inherit`,
+        `slot "${slot}" is recorded in the ${input.pinnedReleaseVersion ?? "pinned"} release ` +
+        `but not composed by this config — declare it in your config's app/plugins domain to compose it`,
     });
   }
   return lines;

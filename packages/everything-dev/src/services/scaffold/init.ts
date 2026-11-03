@@ -1118,6 +1118,37 @@ export async function runPnpmInstallForUpgrade(
   );
 }
 
+/**
+ * Approve everything pnpm recorded as awaiting approval (dep-shipped agent
+ * skills, build scripts) without an interactive prompt. A fresh tree's first
+ * install records the framework packages' skills as pending — pnpm ≥12.11
+ * gates them behind `pnpm approve` — and leaving them pending leaves an
+ * approval chore (and unlinked skills) on every machine that clones the tree.
+ * The decision persists into the `permissions` block of pnpm-workspace.yaml,
+ * so this converges: the first install/approve writes the policy, later
+ * installs read it. Best-effort by design — older pnpm without `approve`
+ * (or a refusal) must not fail the train; the pending state just remains.
+ */
+export async function runPnpmApproveAll(
+  destination: string,
+  opts?: {
+    spinner?: { message: (msg: string) => void };
+  },
+): Promise<boolean> {
+  try {
+    await runWithProgress(
+      "pnpm",
+      ["approve", "--all"],
+      destination,
+      opts?.spinner,
+      "Approving pnpm permissions",
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function runTypesGen(
   destination: string,
   opts?: {

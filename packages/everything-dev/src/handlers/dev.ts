@@ -1,34 +1,29 @@
 import { Effect } from "effect";
-import { collectSlotPinRefs } from "../services/deploy/rollback";
 import { DevFlowService } from "../services/dev/flow";
-import { readInstalledFrameworkVersion } from "../services/framework-version";
 import { chainHeadPinLagNotice } from "../services/platform/manifest";
-import {
-  auditReleasePlane,
-  authoredSlotPaths,
-  type PlaneAuditLine,
-} from "../services/resolution/release-plane";
-import { type ResolutionSession, ResolutionSessionService } from "../services/resolution/session";
-import { findWorkspaceRoot } from "../services/workspace/workspace";
-import type { BosConfigInput } from "../types";
+import { auditSessionPlane, type PlaneAuditLine } from "../services/resolution/plane-audit";
+import { ResolutionSessionService } from "../services/resolution/session";
 import type { BosBuilder } from "./shared";
 
-const auditSessionPlane = (session: NonNullable<ResolutionSession>): Promise<PlaneAuditLine[]> =>
-  auditReleasePlane({
-    slots: collectSlotPinRefs((session.config ?? {}) as BosConfigInput),
-    authoredPaths: authoredSlotPaths((session.rawConfig ?? {}) as Record<string, unknown>),
-    localVersionOf: (name) =>
-      readInstalledFrameworkVersion(findWorkspaceRoot(session.root)?.dir ?? session.root, name),
-    provisionedSlots: session.releasePlane.omitted,
-    pinnedReleaseVersion: session.releaseManifest?.frameworkVersion,
-  });
-
 const renderAuditLines = (lines: readonly PlaneAuditLine[]): void => {
-  console.log(`\n  ${lines.length} release-plane divergence(s) in the composition:`);
-  for (const line of lines) {
-    console.log(`  - ${line.message}`);
+  const divergences = lines.filter((line) => line.kind !== "uncomposed");
+  const notes = lines.filter((line) => line.kind === "uncomposed");
+  if (divergences.length > 0) {
+    console.log(`\n  ${divergences.length} release-plane divergence(s) in the composition:`);
+    for (const line of divergences) {
+      console.log(`  - ${line.message}`);
+    }
+    console.log("\n  The runtime survived on its pinned bytes — realign before shipping.\n");
   }
-  console.log("\n  The runtime survived on its pinned bytes — realign before shipping.\n");
+  if (notes.length > 0) {
+    console.log(
+      `\n  ${notes.length} pinned-release slot(s) this config does not compose (informational):`,
+    );
+    for (const line of notes) {
+      console.log(`  - ${line.message}`);
+    }
+    console.log("");
+  }
 };
 
 export function registerDev(builder: BosBuilder) {

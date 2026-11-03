@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   auditReleasePlane,
   authoredSlotPaths,
+  slotPublishKey,
   stampInheritedReleaseSlots,
 } from "../../src/services/resolution/release-plane";
 import { pinFor, versionManifestFetcher, versionManifestText } from "../helpers/version-manifests";
@@ -200,7 +201,26 @@ describe("auditReleasePlane — the dev chain audit", () => {
       }),
     });
     expect(lines[0]!.kind).toBe("owned");
-    expect(lines[0]!.message).toContain("run bos plugin publish plugins.nostr");
+    expect(lines[0]!.message).toContain("run bos plugin publish nostr");
+  });
+
+  it("an owned app slot names the scoped deploy train, not plugin publish", async () => {
+    const lines = await auditReleasePlane({
+      slots: [
+        {
+          slot: "app.ui",
+          base: "https://ui-rc28.test",
+          pin: pinFor("mf-manifest.json", { react: "19.3.1" }),
+        },
+      ],
+      authoredPaths: new Set(["app.ui"]),
+      localVersionOf: (name) => (name === "react" ? "19.2.0" : undefined),
+      fetchImpl: versionManifestFetcher({
+        "https://ui-rc28.test/mf-manifest.json": versionManifestText({ react: "19.3.1" }),
+      }),
+    });
+    expect(lines[0]!.kind).toBe("owned");
+    expect(lines[0]!.message).toContain("run bos deploy --packages ui");
   });
 
   it("an unservable pin reports on its slot", async () => {
@@ -216,16 +236,153 @@ describe("auditReleasePlane — the dev chain audit", () => {
     expect(lines[0]!.message).toContain("does not serve at its production URL");
   });
 
-  it("provisioned slots inherit by upgrading", async () => {
+  it("a pinned child composing a coherent subset plane is clean — the opencrosspost rc.30 regression", async () => {
+    // The exact shape that produced ten false divergences: pinned app slots
+    // whose shared versions match the runtime exactly, plus inherited plugin
+    // slots the child's own plugins domain (wholesale replace) does not
+    // compose. With the probe fed the catalog's versions, the only lines are
+    // uncomposed notes — no "react@unknown", no "run bos upgrade".
+    const slotInputs = [
+      {
+        slot: "app.ui",
+        base: "https://ui.test",
+        pin: pinFor("mf-manifest.json", { react: "19.3.1" }),
+      },
+      {
+        slot: "app.api",
+        base: "https://api.test",
+        pin: pinFor("mf-manifest.json", { "@orpc/client": "2.0.0-beta.45" }),
+      },
+      {
+        slot: "app.auth",
+        base: "https://auth.test",
+        pin: pinFor("mf-manifest.json", { "@orpc/client": "2.0.0-beta.45" }),
+      },
+      {
+        slot: "app.auth.ui",
+        base: "https://auth-ui.test",
+        pin: pinFor("mf-manifest.json", { react: "19.3.1" }),
+      },
+    ];
+    const fetchImpl = versionManifestFetcher({
+      "https://ui.test/mf-manifest.json": versionManifestText({ react: "19.3.1" }),
+      "https://api.test/mf-manifest.json": versionManifestText({
+        "@orpc/client": "2.0.0-beta.45",
+      }),
+      "https://auth.test/mf-manifest.json": versionManifestText({
+        "@orpc/client": "2.0.0-beta.45",
+      }),
+      "https://auth-ui.test/mf-manifest.json": versionManifestText({ react: "19.3.1" }),
+    });
+    const lines = await auditReleasePlane({
+      slots: slotInputs,
+      authoredPaths: new Set([
+        "app.ui",
+        "app.api",
+        "plugins.auth",
+        "plugins.connectors",
+        "plugins.twitter",
+      ]),
+      localVersionOf: (name) => {
+        const catalog: Record<string, string> = {
+          react: "19.3.1",
+          "@orpc/client": "2.0.0-beta.45",
+        };
+        return catalog[name];
+      },
+      provisionedSlots: [
+        "plugins.ai",
+        "plugins.ai.ui",
+        "plugins.proposals",
+        "plugins.registry",
+        "plugins.template",
+        "plugins.votes",
+      ],
+      configSlotPaths: [
+        "app.ui",
+        "app.api",
+        "plugins.auth",
+        "plugins.connectors",
+        "plugins.twitter",
+      ],
+      manifestSlotPaths: [
+        "app.ui",
+        "app.api",
+        "app.auth",
+        "app.auth.ui",
+        "plugins.ai",
+        "plugins.ai.ui",
+        "plugins.proposals",
+        "plugins.registry",
+        "plugins.template",
+        "plugins.votes",
+      ],
+      pinnedReleaseVersion: "2.0.0-rc.30",
+      fetchImpl,
+    });
+    expect(lines.every((line) => line.kind === "uncomposed")).toBe(true);
+    expect(lines.some((line) => line.message.includes("unknown"))).toBe(false);
+    expect(lines.some((line) => line.message.includes("bos upgrade"))).toBe(false);
+  });
+
+  it("a manifest slot the merged config does not compose is an uncomposed note, not an upgrade", async () => {
     const lines = await auditReleasePlane({
       slots: [],
       authoredPaths: new Set(),
       localVersionOf: () => undefined,
       provisionedSlots: ["plugins.warden"],
+      manifestSlotPaths: ["plugins.warden"],
+      configSlotPaths: [],
       pinnedReleaseVersion: "2.0.0-rc.28",
       fetchImpl: fetch,
     });
+    expect(lines[0]!.kind).toBe("uncomposed");
+    expect(lines[0]!.message).toContain("not composed by this config");
+    expect(lines[0]!.message).not.toContain("bos upgrade");
+  });
+
+  it("a config slot the pinned manifest lacks is genuinely provisioned — upgrade claims it", async () => {
+    const lines = await auditReleasePlane({
+      slots: [],
+      authoredPaths: new Set(),
+      localVersionOf: () => undefined,
+      provisionedSlots: [],
+      manifestSlotPaths: ["plugins.other"],
+      configSlotPaths: ["plugins.warden", "plugins.other"],
+      pinnedReleaseVersion: "2.0.0-rc.28",
+      fetchImpl: fetch,
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.slot).toBe("plugins.warden");
     expect(lines[0]!.kind).toBe("provisioned");
-    expect(lines[0]!.message).toContain("run bos upgrade to inherit");
+    expect(lines[0]!.message).toContain("run bos upgrade to re-pin and claim it");
+  });
+
+  it("an authored slot absent from the manifest is the leaf's own decision — no line", async () => {
+    const lines = await auditReleasePlane({
+      slots: [],
+      authoredPaths: new Set(["plugins.warden"]),
+      localVersionOf: () => undefined,
+      provisionedSlots: [],
+      manifestSlotPaths: [],
+      configSlotPaths: ["plugins.warden"],
+      pinnedReleaseVersion: "2.0.0-rc.28",
+      fetchImpl: fetch,
+    });
+    expect(lines).toEqual([]);
+  });
+});
+
+describe("slotPublishKey — slot paths to publish keys", () => {
+  it.each([
+    ["app.ui", "ui"],
+    ["app.api", "api"],
+    ["app.host", "host"],
+    ["app.auth", "auth"],
+    ["app.auth.ui", "auth"],
+    ["plugins.nostr", "nostr"],
+    ["plugins.nostr.ui", "nostr"],
+  ])("maps %s to %s", (slot, key) => {
+    expect(slotPublishKey(slot)).toBe(key);
   });
 });

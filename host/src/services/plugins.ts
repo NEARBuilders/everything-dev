@@ -161,6 +161,15 @@ export const secretsFromEnv = Effect.fn("secretsFromEnv")(function* (keys: strin
 });
 
 /**
+ * The platform root secret is every runtime's KEK seed (HKDF, runtime-scoped
+ * salt) — every plugin's secrets schema requires it, but chain-composed
+ * config slots may not declare it (a published `app.auth` fragment carries
+ * only the slot's own operational secrets). When the env provides it, it
+ * rides into every plugin's secrets regardless of the declared list.
+ */
+const PLATFORM_ROOT_SECRET = "BETTER_AUTH_SECRET";
+
+/**
  * Plugin `*_DATABASE_URL` secrets fall back to the shared API database — the
  * platform's two-database contract (`AUTH_DATABASE_URL` + `API_DATABASE_URL`
  * only; plugins isolate their tables in `plugin_<slug>` schemas). Explicit
@@ -171,6 +180,12 @@ export function resolveSecretsWithDatabaseFallback(
 ): Effect.Effect<Record<string, string>, Config.ConfigError> {
   return Effect.gen(function* () {
     const secrets = unredactSecrets(yield* secretsFromEnv(keys));
+    if (!secrets[PLATFORM_ROOT_SECRET]) {
+      const rootSecret = yield* Config.Redacted(PLATFORM_ROOT_SECRET).pipe(Config.option);
+      if (Option.isSome(rootSecret) && Redacted.value(rootSecret.value).length > 0) {
+        secrets[PLATFORM_ROOT_SECRET] = Redacted.value(rootSecret.value);
+      }
+    }
     const missingDbKeys = keys.filter((k) => k.endsWith("_DATABASE_URL") && !secrets[k]);
     if (missingDbKeys.length === 0) return secrets;
 
