@@ -7,7 +7,9 @@
  *   the fresh 24h cache) → stale fail-loud (cache deleted / TTL expired, pin
  *   unresolvable) → C2 upgrade ignores the pin, re-pins the latest release →
  *   #546 replay (drifted-react republish: the composition gate names the
- *   skewed slots, `bos platform manifest --check` flags the drift).
+ *   skewed slots, `bos platform manifest --check` flags the drift) → the
+ *   mixed-tree replay (a caret-authored root publishes exact catalog rows,
+ *   the child upgrade consumes them verbatim, a drifted install fails loud).
  *
  * The deploy legs are proxies for the real train: composition of the
  * platform.json registry entry (the publish half) and the derived image
@@ -18,7 +20,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { upgradeTemplate } from "../../src/cli/upgrade";
 import {
   resolveReleaseManifestForDeploy,
   runCompositionGate,
@@ -32,6 +35,7 @@ import {
   platformTruthViolations,
 } from "../../src/services/deploy/platform-manifest";
 import { checkUiCompositionCompat } from "../../src/services/federation/service";
+import * as platformManifestModule from "../../src/services/platform/manifest";
 import {
   checkPlatformCompat,
   getPlatformVersionSlotKey,
@@ -43,11 +47,18 @@ import {
   resolveBootShape,
   verifyResolvedBootShape,
 } from "../../src/services/resolution/boot-check";
+import * as initSourceModule from "../../src/services/resolution/init-source";
+import * as sessionModule from "../../src/services/resolution/session";
+import * as initModule from "../../src/services/scaffold/init";
+import * as syncModule from "../../src/services/scaffold/sync";
 import { applyPlatformPin } from "../../src/services/scaffold/upgrade-migration";
+import { installDriftError } from "../../src/services/scaffold/upgrade-packages";
 import {
   type ExtendedRootSourceOptions,
   readExtendedRootSource,
 } from "../../src/services/scaffold/upgrade-source";
+import { readWorkspaceCatalog } from "../../src/services/workspace/catalog";
+import * as sharedDepsModule from "../../src/services/workspace/shared-deps";
 import { versionManifestFetcher, versionManifestText } from "../helpers/version-manifests";
 
 const ROOT_ACCOUNT = "dev.everything.near";
@@ -733,5 +744,275 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     expect(combined).toContain("19.2.4");
     expect(combined).toContain("19.3.0");
     expect(combined).toContain("bos upgrade");
+  });
+});
+
+/**
+ * The mixed-tree replay (the Nov-02 upgrade incident): the release manifest
+ * shipped caret catalog rows, so the child's `pnpm install --force`
+ * re-resolved the caret to the newest published rc while template bytes
+ * synced from the release tag — rc.N template bytes against rc.N+1 packages,
+ * and every build failed on the removed db-surface exports. The regression
+ * contract, end to end on the real compose + real upgrade paths:
+ *
+ *   1. a caret-authored root cannot publish a floating manifest — the
+ *      compose freezes every resolvable row to the version the release was
+ *      built with;
+ *   2. the child upgrade consumes those exact rows verbatim — the catalog
+ *      it leaves behind cannot float, whatever the registry's newest is;
+ *   3. an install that already drifted past the release target fails the
+ *      upgrade loud BEFORE anything mutates.
+ */
+describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)", () => {
+  const ACCOUNT = "misalign.near";
+  const GATEWAY = "mixed-tree";
+  const RELEASE_VERSION = "2.0.0-rc.30";
+  const NEWER_RC_IN_THE_WILD = "2.0.0-rc.31";
+
+  let rootDir: string;
+  let childDir: string;
+  let releaseManifest: PlatformReleaseManifest;
+
+  /** The incident's root: caret framework rows in the authored catalog (what
+   * a pre-exact release shipped), workspace packages whose own versions are
+   * what the release was built with, and a lockfile resolving the range rows
+   * past the caret floor — rc.31 exists in the wild and a caret would float. */
+  function caretRootFixture(): string {
+    const dir = mkdtempSync(join(tmpdir(), "platform-e2e-caret-root-"));
+    tempDirs.push(dir);
+    mkdirSync(join(dir, "packages", "everything-dev"), { recursive: true });
+    mkdirSync(join(dir, "packages", "every-plugin"), { recursive: true });
+    writeFileSync(
+      join(dir, "packages", "everything-dev", "package.json"),
+      `${JSON.stringify({ name: "everything-dev", version: RELEASE_VERSION })}\n`,
+    );
+    writeFileSync(
+      join(dir, "packages", "every-plugin", "package.json"),
+      `${JSON.stringify({ name: "every-plugin", version: "3.0.0-rc.15" })}\n`,
+    );
+    writeFileSync(
+      join(dir, "pnpm-workspace.yaml"),
+      [
+        "packages:",
+        "  - packages/*",
+        "",
+        "catalog:",
+        '  "everything-dev": "^2.0.0-rc.30"',
+        '  "every-plugin": "^3.0.0-rc.15"',
+        '  react: "^19.2.0"',
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(dir, "pnpm-lock.yaml"),
+      [
+        "lockfileVersion: '9.0'",
+        "",
+        "importers:",
+        "",
+        "  .:",
+        "",
+        "  ui:",
+        "    dependencies:",
+        "      react:",
+        "        specifier: 'catalog:'",
+        "        version: 19.2.9(react-dom@19.2.9)",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(join(dir, "package.json"), "{}\n");
+    return dir;
+  }
+
+  /** The pre-upgrade child: caret rows from the PREVIOUS release, no node_modules,
+   * no platform pin — exactly the tree an `bos upgrade` arrives at. */
+  function caretChildFixture(): string {
+    const dir = mkdtempSync(join(tmpdir(), "platform-e2e-caret-child-"));
+    tempDirs.push(dir);
+    mkdirSync(join(dir, "ui"), { recursive: true });
+    writeFileSync(
+      join(dir, "bos.config.json"),
+      `${JSON.stringify({
+        extends: `bos://${ACCOUNT}/${GATEWAY}`,
+        account: "child.near",
+        domain: "child.example",
+        app: { ui: { development: "local:ui" } },
+      })}\n`,
+    );
+    writeFileSync(
+      join(dir, "pnpm-workspace.yaml"),
+      [
+        "packages:",
+        "  - ui",
+        "",
+        "catalog:",
+        '  "everything-dev": "^2.0.0-rc.29"',
+        '  "every-plugin": "^3.0.0-rc.14"',
+        '  react: "^19.2.0"',
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(dir, "package.json"),
+      `${JSON.stringify({
+        name: "monorepo",
+        private: true,
+        type: "module",
+        dependencies: { "everything-dev": "catalog:", "every-plugin": "catalog:" },
+      })}\n`,
+    );
+    writeFileSync(join(dir, "ui", "package.json"), `${JSON.stringify({ name: "ui" })}\n`);
+    return dir;
+  }
+
+  function installNodeModules(dir: string, version: string): void {
+    mkdirSync(join(dir, "node_modules", "everything-dev"), { recursive: true });
+    writeFileSync(
+      join(dir, "node_modules", "everything-dev", "package.json"),
+      `${JSON.stringify({ name: "everything-dev", version })}\n`,
+    );
+  }
+
+  /** The upgrade seams that reach outside the fixture tree — the manifest leg
+   * resolves the composed bytes from this describe's fixture (never a
+   * hand-written manifest), everything else is the harness boundary. */
+  function mockUpgradeSeams(): void {
+    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue({
+      manifest: releaseManifest,
+      source: { account: ACCOUNT, gateway: GATEWAY },
+      fromCache: false,
+    } as never);
+    vi.spyOn(initSourceModule, "fetchParentConfig").mockResolvedValue({
+      repository: "https://github.com/NEARBuilders/everything-dev",
+    } as never);
+    vi.spyOn(sessionModule, "openResolution").mockResolvedValue({
+      config: { account: "child.near", domain: "child.example" },
+    } as never);
+    vi.spyOn(sharedDepsModule, "syncResolvedSharedDeps").mockResolvedValue({
+      mode: "bos->catalog",
+      hostMode: "local",
+      bosConfigChanged: false,
+      catalogChanged: false,
+      generatedChanged: false,
+      resolved: { deps: {}, fingerprintSha256: "" },
+    } as never);
+    vi.spyOn(initModule, "runPnpmInstallForUpgrade").mockResolvedValue();
+    vi.spyOn(initModule, "runTypesGen").mockResolvedValue();
+    vi.spyOn(syncModule, "syncTemplate").mockResolvedValue({
+      status: "synced",
+      updated: [],
+      skipped: [],
+      added: [],
+      conflicted: [],
+    } as never);
+  }
+
+  beforeAll(() => {
+    rootDir = caretRootFixture();
+    const entry = composePlatformManifestPublishEntry({
+      configDir: rootDir,
+      account: ACCOUNT,
+      gateway: GATEWAY,
+    });
+    expect(entry).not.toBeNull();
+    releaseManifest = entry!.manifest;
+    // the real train's atomic write: the immutable version slot + the pointer
+    registry.set(entry!.key, JSON.parse(entry!.value));
+    registry.set(
+      getPlatformVersionSlotKey(ACCOUNT, GATEWAY, RELEASE_VERSION),
+      JSON.parse(entry!.value),
+    );
+    registry.set(`apps/${ACCOUNT}/${GATEWAY}/bos.config.json`, {
+      repository: "https://github.com/NEARBuilders/everything-dev",
+    });
+  });
+
+  beforeEach(() => {
+    childDir = caretChildFixture();
+  });
+
+  afterAll(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("a caret-authored root publishes exact rows — the manifest cannot float", () => {
+    expect(releaseManifest.catalog["everything-dev"]).toBe(RELEASE_VERSION);
+    expect(releaseManifest.catalog["every-plugin"]).toBe("3.0.0-rc.15");
+    expect(releaseManifest.catalog.react).toBe("19.2.9");
+    // the anti-float wire invariant: no framework row is a caret that
+    // `pnpm install --force` could re-resolve past this release
+    for (const name of ["everything-dev", "every-plugin"] as const) {
+      expect(releaseManifest.catalog[name]).not.toMatch(/^[\^~]/);
+    }
+  });
+
+  it("the child upgrade consumes the exact rows verbatim — the catalog it leaves behind cannot float", async () => {
+    mockUpgradeSeams();
+
+    const result = await upgradeTemplate(childDir, {
+      dryRun: false,
+      noInstall: true,
+      noSync: false,
+    });
+
+    expect(result.status).toBe("upgraded");
+    const childCatalog = readWorkspaceCatalog(childDir);
+    // the caret rows (^2.0.0-rc.29 / ^3.0.0-rc.14 / ^19.2.0) landed exact
+    expect(childCatalog["everything-dev"]).toBe(RELEASE_VERSION);
+    expect(childCatalog["every-plugin"]).toBe("3.0.0-rc.15");
+    expect(childCatalog.react).toBe("19.2.9");
+    // the pin froze to the release the upgrade landed from
+    expect(result.migrated).toContain("bos.config.json");
+    const migratedConfig = JSON.parse(readFileSync(join(childDir, "bos.config.json"), "utf-8")) as {
+      platform?: string;
+    };
+    expect(migratedConfig.platform).toBe(RELEASE_VERSION);
+    // the coherence floor: the exact catalog plus the release install is
+    // coherent, and the newer rc that floated past it is named by the gate
+    expect(
+      installDriftError(
+        { "everything-dev": RELEASE_VERSION, "every-plugin": "3.0.0-rc.15" },
+        childCatalog,
+      ),
+    ).toBeUndefined();
+    expect(
+      installDriftError(
+        { "everything-dev": NEWER_RC_IN_THE_WILD, "every-plugin": "3.0.0-rc.15" },
+        childCatalog,
+      ),
+    ).toContain(`everything-dev installed ${NEWER_RC_IN_THE_WILD}`);
+  });
+
+  it("an install that already floated past the release fails the upgrade loud — the migration phase never runs", async () => {
+    installNodeModules(childDir, NEWER_RC_IN_THE_WILD);
+    mockUpgradeSeams();
+
+    await expect(
+      upgradeTemplate(childDir, { dryRun: false, noInstall: true, noSync: false }),
+    ).rejects.toThrow(
+      new RegExp(
+        `everything-dev installed ${NEWER_RC_IN_THE_WILD} vs release target ${RELEASE_VERSION}`,
+      ),
+    );
+
+    // The gate is the migration phase's tripwire: Phase 1 may have synced the
+    // catalog rows (the repair install is exactly what a real --no-install run
+    // skips) and the read-only preflight dry-run may probe, but no applying
+    // sync ever ran — no template bytes stamped over the drifted packages, no
+    // pin frozen to the release.
+    const applyingSyncs = vi
+      .mocked(syncModule.syncTemplate)
+      .mock.calls.filter(([, opts]) => !opts?.dryRun);
+    expect(applyingSyncs).toEqual([]);
+    const migratedConfig = JSON.parse(readFileSync(join(childDir, "bos.config.json"), "utf-8")) as {
+      platform?: string;
+    };
+    expect(migratedConfig.platform).toBeUndefined();
   });
 });
