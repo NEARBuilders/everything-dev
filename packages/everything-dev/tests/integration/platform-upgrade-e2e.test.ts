@@ -38,11 +38,11 @@ import { checkUiCompositionCompat } from "../../src/services/federation/service"
 import * as platformManifestModule from "../../src/services/platform/manifest";
 import {
   checkPlatformCompat,
-  getPlatformVersionSlotKey,
   type PlatformReleaseManifest,
   PlatformReleaseManifestSchema,
   resolvePlatformManifest,
 } from "../../src/services/platform/manifest";
+import { platformVersionSlotKeyOf } from "../../src/services/registry/pointer";
 import {
   resolveBootShape,
   verifyResolvedBootShape,
@@ -141,7 +141,7 @@ function publishRootRelease(previousVersion?: string): PlatformReleaseManifest {
   // version slot + the pointer flip
   registry.set(entry!.key, JSON.parse(entry!.value));
   registry.set(
-    getPlatformVersionSlotKey(ROOT_ACCOUNT, ROOT_GATEWAY, entry!.manifest.frameworkVersion),
+    platformVersionSlotKeyOf(ROOT_ACCOUNT, ROOT_GATEWAY, entry!.manifest.frameworkVersion),
     JSON.parse(entry!.value),
   );
   registry.set(CONFIG_KEY, {
@@ -577,7 +577,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     });
     expect(entry).not.toBeNull();
     registry.set(entry!.key, JSON.parse(entry!.value));
-    registry.set(getPlatformVersionSlotKey(ACCOUNT, GATEWAY, version), JSON.parse(entry!.value));
+    registry.set(platformVersionSlotKeyOf(ACCOUNT, GATEWAY, version), JSON.parse(entry!.value));
     registry.set(liveConfigKey, {
       account: ACCOUNT,
       domain: GATEWAY,

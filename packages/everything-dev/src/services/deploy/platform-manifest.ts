@@ -12,18 +12,15 @@ import { walkConfigSlots } from "../config-slots";
 import {
   composePlatformReleaseManifest,
   computeTemplateInventory,
-  getPlatformManifestKey,
-  getPlatformVersionSlotKey,
   type PlatformReleaseManifest,
   type ReleaseSlotRecord,
   resolvePlatformManifest,
   serializePlatformReleaseManifest,
 } from "../platform/manifest";
+import { platformPointerKeyOf, platformVersionSlotKeyOf } from "../registry/pointer";
 import { readWorkspaceCatalog } from "../workspace/catalog";
 import { readFrameworkVersion } from "./image";
 import { computeSriHash } from "./integrity";
-
-export { getPlatformManifestKey, getPlatformVersionSlotKey };
 
 /** The universal image (ADR 0020/0021) — the release manifest's image ref. */
 export const PLATFORM_IMAGE_REF = "ghcr.io/nearbuilders/everything-dev";
@@ -191,7 +188,7 @@ export function composePlatformManifestPublishEntry(opts: {
   });
   const value = serializePlatformReleaseManifest(manifest);
   return {
-    key: getPlatformManifestKey(opts.account, opts.gateway),
+    key: platformPointerKeyOf(opts.account, opts.gateway),
     value,
     integrity: computeSriHash(value),
     manifest,

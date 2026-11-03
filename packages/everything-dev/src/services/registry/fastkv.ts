@@ -11,24 +11,18 @@ interface FastKvListResponse {
 }
 
 import { fetchJsonOrNull, fetchRaw } from "../../utils/http-client";
-
-function getNetworkIdForAccount(accountId: string): NetworkId {
-  return accountId.endsWith(".testnet") ? "testnet" : "mainnet";
-}
-
-const FASTKV_TESTNET_URL = "https://kv.test.fastnear.com";
-const FASTKV_MAINNET_URL = "https://kv.main.fastnear.com";
-const REGISTRY_NAMESPACE_TESTNET = "dev.allthethings.testnet";
-const REGISTRY_NAMESPACE_MAINNET = "dev.everything.near";
+import {
+  latestUrlFor,
+  networkIdForAccount,
+  RegistryError,
+  registryBaseUrlForNetwork,
+  registryClientShape,
+  registryNamespaceForNetwork,
+} from "./client";
+import { keyPathOf, parseRuntimeRef, type RegistryKey, type RuntimeRef } from "./keys";
 
 export function getFastKvBaseUrlForNetwork(network: NetworkId): string {
-  return network === "testnet" ? FASTKV_TESTNET_URL : FASTKV_MAINNET_URL;
-}
-
-function getFastKvBaseUrlForAccount(accountId: string): string {
-  return getNetworkIdForAccount(accountId) === "testnet"
-    ? getFastKvBaseUrlForNetwork("testnet")
-    : getFastKvBaseUrlForNetwork("mainnet");
+  return registryBaseUrlForNetwork(network);
 }
 
 export function buildRegistryConfigUrl(
@@ -36,10 +30,7 @@ export function buildRegistryConfigUrl(
   gatewayId: string,
   registry?: string,
 ): string {
-  const baseUrl = getFastKvBaseUrlForAccount(accountId);
-  const namespace = getRegistryNamespaceForAccount(accountId, registry);
-  const key = encodeURIComponent(getRegistryConfigKey(accountId, gatewayId));
-  return `${baseUrl}/v0/latest/${encodeURIComponent(namespace)}/${encodeURIComponent(accountId)}/${key}`;
+  return latestUrlFor(configKey(accountId, gatewayId), { registry });
 }
 
 export function buildRegistryConfigUrlForNetwork(
@@ -48,19 +39,26 @@ export function buildRegistryConfigUrlForNetwork(
   gatewayId: string,
   registry?: string,
 ): string {
-  const baseUrl = getFastKvBaseUrlForNetwork(network);
-  const namespace = getRegistryNamespaceForNetwork(network, registry);
-  const key = encodeURIComponent(getRegistryConfigKey(accountId, gatewayId));
-  return `${baseUrl}/v0/latest/${encodeURIComponent(namespace)}/${encodeURIComponent(accountId)}/${key}`;
+  const base = registryBaseUrlForNetwork(network);
+  const namespace = registryNamespaceForNetwork(network, registry);
+  const key = encodeURIComponent(keyPathOf(configKey(accountId, gatewayId)));
+  return `${base}/v0/latest/${encodeURIComponent(namespace)}/${encodeURIComponent(accountId)}/${key}`;
 }
 
 export function getRegistryNamespaceForAccount(accountId: string, registry?: string): string {
-  return registry ?? getRegistryNamespaceForNetwork(getNetworkIdForAccount(accountId));
+  return registry ?? registryNamespaceForNetwork(networkIdForAccount(accountId));
 }
 
 export function getRegistryNamespaceForNetwork(network: NetworkId, registry?: string): string {
-  if (registry) return registry;
-  return network === "testnet" ? REGISTRY_NAMESPACE_TESTNET : REGISTRY_NAMESPACE_MAINNET;
+  return registryNamespaceForNetwork(network, registry);
+}
+
+function configKey(accountId: string, gatewayId: string, pathSegments: string[] = []): RegistryKey {
+  return {
+    kind: "runtimeConfig",
+    ref: runtimeRefOf(accountId, gatewayId),
+    ...(pathSegments.length > 0 ? { path: pathSegments } : {}),
+  };
 }
 
 function getRegistryConfigKey(
@@ -68,11 +66,11 @@ function getRegistryConfigKey(
   gatewayId: string,
   pathSegments: string[] = [],
 ): string {
-  const suffix =
-    pathSegments.length > 0
-      ? `/${pathSegments.map((segment) => encodeURIComponent(segment)).join("/")}`
-      : "";
-  return `apps/${accountId}/${gatewayId}${suffix}/bos.config.json`;
+  return keyPathOf(configKey(accountId, gatewayId, pathSegments));
+}
+
+function runtimeRefOf(accountId: string, gatewayId: string): RuntimeRef {
+  return `bos://${accountId}/${gatewayId}`;
 }
 
 export function parseBosUrl(bosUrl: string): {
@@ -80,39 +78,30 @@ export function parseBosUrl(bosUrl: string): {
   gatewayId: string;
   pathSegments: string[];
 } {
-  const strippedUrl = bosUrl.split("#")[0]!;
-  const match = strippedUrl.match(/^bos:\/\/([^/]+)\/(.+)$/);
-  if (!match?.[1] || !match[2]) {
-    throw new Error(`Invalid BOS URL: ${bosUrl}`);
-  }
-
-  const pathSegments = match[2]
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => decodeURIComponent(segment));
-  if (pathSegments.length === 0) {
-    throw new Error(`Invalid BOS URL: ${bosUrl}`);
-  }
-
-  const [gatewayId, ...pathSegmentsTail] = pathSegments;
-  if (!gatewayId) {
-    throw new Error(`Invalid BOS URL: ${bosUrl}`);
-  }
-
+  const parsed = parseRuntimeRef(bosUrl);
   return {
-    accountId: match[1],
-    gatewayId,
-    pathSegments: pathSegmentsTail,
+    accountId: parsed.accountId,
+    gatewayId: parsed.gatewayId,
+    pathSegments: parsed.path,
   };
 }
 
 export async function fetchBosConfigFromFastKv<T>(bosUrl: string, registry?: string): Promise<T> {
   const { accountId, gatewayId, pathSegments } = parseBosUrl(bosUrl);
-  const key = encodeURIComponent(getRegistryConfigKey(accountId, gatewayId, pathSegments));
-  const payload = await fetchJson<FastKvListResponse>(
-    `${getFastKvBaseUrlForAccount(accountId)}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId, registry))}/${encodeURIComponent(accountId)}/${key}`,
-  );
-  return parseFastKvConfigValue<T>(payload, bosUrl);
+  try {
+    return await registryClientShape.read<T>(
+      configKey(accountId, gatewayId, pathSegments),
+      registry !== undefined ? { registry } : undefined,
+    );
+  } catch (error) {
+    // message parity: the historical failure surface is "No config found
+    // for <bosUrl>" — keep it for absent reads so every "startsWith" check
+    // downstream keeps working.
+    if (error instanceof RegistryError && error.kind === "absent") {
+      throw new Error(`No config found for ${bosUrl}`);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -130,7 +119,7 @@ export async function fetchRegistryKey<T>(
 ): Promise<T | null> {
   const key = encodeURIComponent(`apps/${accountId}/${gatewayId}/${keyPath}`);
   const payload = await fetchJson<FastKvListResponse>(
-    `${getFastKvBaseUrlForAccount(accountId)}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId, registry))}/${encodeURIComponent(accountId)}/${key}`,
+    `${registryBaseUrlForNetwork(networkIdForAccount(accountId))}/v0/latest/${encodeURIComponent(getRegistryNamespaceForAccount(accountId, registry))}/${encodeURIComponent(accountId)}/${key}`,
   );
   const value = payload?.entries?.find(Boolean)?.value;
   if (!value) return null;
@@ -223,7 +212,7 @@ export async function fetchConfigHistory(opts: {
     opts.keyPath ?? getRegistryConfigKey(opts.accountId, opts.gatewayId),
   );
   const limit = Math.max(1, Math.min(opts.limit ?? 20, FASTKV_HISTORY_MAX_LIMIT));
-  const url = `${getFastKvBaseUrlForAccount(opts.accountId)}/v0/history/${encodeURIComponent(getRegistryNamespaceForAccount(opts.accountId, opts.registry))}/${encodeURIComponent(opts.accountId)}/${key}?limit=${limit}`;
+  const url = `${registryBaseUrlForNetwork(networkIdForAccount(opts.accountId))}/v0/history/${encodeURIComponent(getRegistryNamespaceForAccount(opts.accountId, opts.registry))}/${encodeURIComponent(opts.accountId)}/${key}?limit=${limit}`;
   const payload = await fetchJson<FastKvHistoryResponse>(url);
   const entries = (payload?.entries ?? []).filter(Boolean) as FastKvHistoryEntry[];
 
@@ -262,7 +251,7 @@ export async function fetchDeployManifests(opts: {
   const keyPrefix = encodeURIComponent(
     `${getRegistryConfigKey(opts.accountId, opts.gatewayId).replace(/bos\.config\.json$/, "")}manifests/`,
   );
-  const url = `${getFastKvBaseUrlForAccount(opts.accountId)}/v0/history/${encodeURIComponent(getRegistryNamespaceForAccount(opts.accountId, opts.registry))}/${encodeURIComponent(opts.accountId)}`;
+  const url = `${registryBaseUrlForNetwork(networkIdForAccount(opts.accountId))}/v0/history/${encodeURIComponent(getRegistryNamespaceForAccount(opts.accountId, opts.registry))}/${encodeURIComponent(opts.accountId)}`;
   const payload = await fetchJson<FastKvHistoryResponse>(url, {
     method: "POST",
     body: JSON.stringify({

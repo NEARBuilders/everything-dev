@@ -1,10 +1,10 @@
 import type { BosConfigInput, RuntimeConfig } from "../../types";
-import { getPlatformManifestKey } from "../platform/manifest";
 import {
   type ConfigHistoryEntry,
   fetchBosConfigFromFastKv,
   fetchConfigHistory,
 } from "../registry/fastkv";
+import { PLATFORM_POINTER_REL_KEY, platformPointerKeyOf } from "../registry/pointer";
 import { verifyBootPayload } from "../resolution/boot-check";
 import { buildRollbackPayload, verifyRollbackSnapshot } from "./rollback";
 import { type DeployTrainInput, publishToFastKv } from "./train";
@@ -171,12 +171,12 @@ export async function resolvePointerRestore(
       gatewayId: domain,
       registry,
       limit: 5,
-      keyPath: "platform.json",
+      keyPath: PLATFORM_POINTER_REL_KEY,
     });
     const previousPointer = pointerHistory[1];
     if (!previousPointer) return undefined;
     return {
-      key: getPlatformManifestKey(account, domain),
+      key: platformPointerKeyOf(account, domain),
       value: JSON.stringify(previousPointer.value),
     };
   } catch {

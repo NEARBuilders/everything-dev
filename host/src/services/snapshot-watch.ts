@@ -1,5 +1,11 @@
 import { Context, Effect, Layer } from "effect";
-import { fetchBosConfigFromFastKv } from "everything-dev/fastkv";
+import { parseRuntimeRef, registryClientShape, runtimeRefOf } from "everything-dev/registry";
+
+const refOf = (bosUrl: string) => {
+  const parsed = parseRuntimeRef(bosUrl);
+  return runtimeRefOf({ accountId: parsed.accountId, gatewayId: parsed.gatewayId });
+};
+
 import { pointerFingerprint } from "everything-dev/fingerprint";
 import { verifySriForUrl } from "everything-dev/integrity";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
@@ -211,9 +217,10 @@ async function verifyCurrentEntries(config: RuntimeConfig): Promise<void> {
   for (const target of targets) {
     if (!target.url) continue;
     if (target.extendsRef) {
-      const parentConfig = await fetchBosConfigFromFastKv<Record<string, unknown>>(
-        target.extendsRef,
-      );
+      const parentConfig = await registryClientShape.read<Record<string, unknown>>({
+        kind: "runtimeConfig",
+        ref: refOf(target.extendsRef),
+      });
       const parentSlot = getSlotForExtends(parentConfig, target.key);
       const parentPin = getPinForExtends(parentConfig, target.key);
       if (parentPin) {
@@ -308,7 +315,9 @@ export class SnapshotWatch extends Context.Service<
               Effect.runPromiseWith(effectContext)(coordinator.adopt(published)),
             fetchPointer: () =>
               watchTarget
-                ? fetchBosConfigFromFastKv<BosConfig>(watchTarget).catch(() => null)
+                ? registryClientShape
+                    .readOrNull<BosConfig>({ kind: "runtimeConfig", ref: refOf(watchTarget) })
+                    .catch(() => null)
                 : Promise.resolve(null),
             verifyEntries: (current) => verifyCurrentEntries(current),
             lastSeen,

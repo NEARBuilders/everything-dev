@@ -22,7 +22,8 @@ import { type BootstrapDeps, DevStepError, loadEnvStep } from "../dev/boot";
 import { emitProgress } from "../dev/progress";
 import { type AppOrchestrator, buildServiceDescriptorMap } from "../dev/service-descriptor";
 import type { DevSessionData, StartSummary } from "../dev/session";
-import { buildRegistryConfigUrl } from "../registry/fastkv";
+import { latestUrlFor } from "../registry/client";
+import { runtimeRefOf } from "../registry/keys";
 import { resolvePublishedConfig } from "../registry/published";
 import { isRegistryStart, resolveStartConfigSource, type StartConfigSource } from "./source";
 
@@ -83,7 +84,10 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       config = deps.session?.config ?? null;
     } else if (explicitConfig.registry) {
       const { account, domain } = explicitConfig.registry;
-      const expectedUrl = buildRegistryConfigUrl(account, domain, registry);
+      const expectedUrl = latestUrlFor(
+        { kind: "runtimeConfig", ref: runtimeRefOf({ accountId: account, gatewayId: domain }) },
+        registry !== undefined ? { registry } : undefined,
+      );
       remoteConfig = yield* Effect.tryPromise({
         try: () => resolvePublishedConfig(account, domain, registry),
         catch: (error) =>
@@ -262,10 +266,15 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
 
     const configSourceHttp =
       remoteConfig && explicitConfig.registry
-        ? buildRegistryConfigUrl(
-            explicitConfig.registry.account,
-            explicitConfig.registry.domain,
-            registry,
+        ? latestUrlFor(
+            {
+              kind: "runtimeConfig",
+              ref: runtimeRefOf({
+                accountId: explicitConfig.registry.account,
+                gatewayId: explicitConfig.registry.domain,
+              }),
+            },
+            registry !== undefined ? { registry } : undefined,
           )
         : undefined;
 
