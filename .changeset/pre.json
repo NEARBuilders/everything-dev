@@ -247,6 +247,7 @@
     "react-doctor-followup-fixes",
     "redeem-returns-organization-id",
     "referral-plugin-integration",
+    "registry-consumer-surface",
     "registry-resolution-machine",
     "registry-use-command",
     "regression-harness-344-residue",
