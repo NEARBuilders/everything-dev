@@ -12,13 +12,13 @@ import {
   runPostPublishLegs,
 } from "../../src/services/deploy/legs";
 
-const { readPlatformPointerMock } = vi.hoisted(() => ({
-  readPlatformPointerMock: vi.fn<() => Promise<unknown>>(),
+const { readManifestTagMock } = vi.hoisted(() => ({
+  readManifestTagMock: vi.fn<() => Promise<unknown>>(),
 }));
 
 vi.mock("../../src/services/registry/pointer", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/services/registry/pointer")>();
-  return { ...actual, readPlatformPointer: readPlatformPointerMock };
+  return { ...actual, readManifestTag: readManifestTagMock };
 });
 
 const digest64 = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -463,7 +463,7 @@ describe("runPostPublishLegs", () => {
     sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-manifest-ok-"));
     vi.stubEnv("BOS_IMAGE", "");
     vi.stubEnv("RAILWAY_TOKEN", "project-token");
-    readPlatformPointerMock.mockResolvedValue({ frameworkVersion: "2.0.0-rc.14" });
+    readManifestTagMock.mockResolvedValue({ frameworkVersion: "2.0.0-rc.14" });
     const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
 
     const outcome = await runPostPublishLegs(
@@ -481,7 +481,7 @@ describe("runPostPublishLegs", () => {
       deps,
     );
 
-    expect(readPlatformPointerMock).toHaveBeenCalledWith("acct", "gw", undefined);
+    expect(readManifestTagMock).toHaveBeenCalledWith("acct", "gw", undefined);
     expect(deps.runSmoke).toHaveBeenCalled();
     expect(outcome.failure).toBeUndefined();
     expect(outcome.legs.smoke?.status).toBe("ok");
@@ -491,7 +491,7 @@ describe("runPostPublishLegs", () => {
     sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-manifest-red-"));
     vi.stubEnv("BOS_IMAGE", "");
     vi.stubEnv("RAILWAY_TOKEN", "project-token");
-    readPlatformPointerMock.mockResolvedValue({ frameworkVersion: "1.9.9" });
+    readManifestTagMock.mockResolvedValue({ frameworkVersion: "1.9.9" });
     const deps = {
       ...baseDeps(),
       resolveChildImagePin: vi.fn().mockResolvedValue(pin),

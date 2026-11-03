@@ -2,8 +2,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { auditSessionPlane } from "../resolution/plane-audit";
-import { type PlaneAuditLine, slotPublishKey } from "../resolution/release-plane";
+import { auditSessionComposition } from "../resolution/composition-audit";
+import { type CompositionAuditLine, workspaceKeyOfRemote } from "../resolution/release-composition";
 import type { ResolutionSession } from "../resolution/session";
 import { findWorkspaceRoot } from "../workspace/workspace";
 
@@ -31,10 +31,12 @@ export interface OwnedRealignment {
   failures: Array<{ key: string; error: string }>;
 }
 
-const ownedKeysFrom = (lines: readonly PlaneAuditLine[]): string[] =>
+const ownedKeysFrom = (lines: readonly CompositionAuditLine[]): string[] =>
   [
     ...new Set(
-      lines.filter((line) => line.kind === "owned").map((line) => slotPublishKey(line.slot)),
+      lines
+        .filter((line) => line.kind === "owned")
+        .map((line) => workspaceKeyOfRemote(line.remote)),
     ),
   ].sort();
 
@@ -42,8 +44,8 @@ const ownedKeysFrom = (lines: readonly PlaneAuditLine[]): string[] =>
 export async function detectOwnedDivergentKeys(
   session: NonNullable<ResolutionSession>,
   options?: { fetchImpl?: typeof fetch },
-): Promise<{ keys: string[]; lines: PlaneAuditLine[] }> {
-  const lines = await auditSessionPlane(session, options);
+): Promise<{ keys: string[]; lines: CompositionAuditLine[] }> {
+  const lines = await auditSessionComposition(session, options);
   return { keys: ownedKeysFrom(lines), lines };
 }
 

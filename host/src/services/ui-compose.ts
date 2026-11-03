@@ -22,12 +22,12 @@ import {
   type ComposePayload,
   type ConstructedTree,
   digestOf,
-  type EntrySlot,
   entryUrls,
   MANIFEST_FILENAME,
   type NavManifest,
   type PluginManifest,
   parsePluginManifest,
+  type RemoteEntry,
   type RouteConfigModule,
 } from "everything-dev/ui/manifest";
 import type { RouterModule } from "../types";
@@ -66,7 +66,7 @@ export interface ComposedUi {
 export interface UiSource {
   key: string;
   mfName: string;
-  remote?: EntrySlot;
+  remote?: RemoteEntry;
   localRoot?: string;
   manifestUrl?: string;
   /** SRI the pinned version manifest records for the compose manifest —
@@ -78,7 +78,7 @@ export interface UiSource {
    * remote registration */
   browserManifestUrl?: string;
   /** client-side web entry (browser remoteEntry.js) */
-  webEntry?: string;
+  uiEntry?: string;
   /** Shared-singleton `name → version` the pinned build embedded (#546) —
    * cross-compared across the composition before any remote loads, so a
    * platform skew fails with a named error instead of the federation
@@ -119,7 +119,7 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
           : `${config.ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}`,
       manifestIntegrity: config.ui.manifestIntegrity,
       browserManifestUrl: coreUrls.browserManifest,
-      webEntry: coreUrls.web,
+      uiEntry: coreUrls.ui,
       sharedVersions: config.ui.sharedVersions,
     },
   ];
@@ -149,7 +149,7 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
       manifestUrl: ui.url ? `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}` : undefined,
       manifestIntegrity: ui.manifestIntegrity,
       browserManifestUrl: urls.browserManifest,
-      webEntry: urls.web,
+      uiEntry: urls.ui,
       sharedVersions: ui.sharedVersions,
     });
   }
@@ -405,7 +405,7 @@ const digestOfSources = Effect.fn("digestOfSources")(function* (composable: Comp
 const clientPayloadOf = (composable: ComposableSource[], digest: string): ComposePayload => ({
   digest,
   remotes: composable.flatMap(({ source, manifest }) => {
-    if (source.key === CORE_UI_KEY || !source.webEntry) return [];
+    if (source.key === CORE_UI_KEY || !source.uiEntry) return [];
     return [
       {
         // The client matches remotes to manifests by `key === manifest.name`;
@@ -413,7 +413,7 @@ const clientPayloadOf = (composable: ComposableSource[], digest: string): Compos
         // MF container name is separate deployment detail.
         key: manifest.name,
         name: source.mfName,
-        entry: source.webEntry,
+        entry: source.uiEntry,
         ...(source.browserManifestUrl ? { manifestUrl: source.browserManifestUrl } : {}),
       },
     ];

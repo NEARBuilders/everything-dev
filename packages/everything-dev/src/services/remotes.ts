@@ -14,16 +14,13 @@ import { isPlainObject } from "./resolution/merge";
  * `isPluginRef` true (it owns the plugin and its whole ui surface).
  */
 
-export interface ConfigSlot {
+export interface Remote {
   slot: string;
   entry: Record<string, unknown> | string | false;
   readonly isPluginRef: boolean;
 }
 
-export function walkConfigSlots(
-  config: Record<string, unknown>,
-  visit: (slot: ConfigSlot) => void,
-): void {
+export function walkRemotes(config: Record<string, unknown>, visit: (slot: Remote) => void): void {
   const app = config.app;
   if (isPlainObject(app)) {
     for (const [key, entry] of Object.entries(app)) {

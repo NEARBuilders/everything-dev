@@ -6,4 +6,4 @@
  */
 
 export * from "every-plugin/ui/manifest";
-export * from "../slot";
+export * from "../remote-entry";

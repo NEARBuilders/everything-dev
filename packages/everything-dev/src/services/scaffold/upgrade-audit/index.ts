@@ -22,7 +22,7 @@ import {
   probeComposeSeam,
   readEveryPluginVersion,
 } from "./checks/compose-seam";
-import type { Manifest, RouterSeam, Finding as RuntimeFinding } from "./domain";
+import type { RouterSeam, Finding as RuntimeFinding, UpgradeManifest } from "./domain";
 import { GateBlocked } from "./domain";
 import type { StepResult } from "./steps/author-config";
 import { migrateI18nSeam } from "./steps/migrate-i18n-seam";
@@ -43,7 +43,7 @@ export type PlainFinding = {
   readonly message: string;
 };
 
-export type AuditManifest = Manifest;
+export type AuditManifest = UpgradeManifest;
 
 export type AuditOutcome = {
   readonly tier: "A" | "B";
@@ -66,7 +66,7 @@ export const toPlainFinding = (finding: RuntimeFinding): PlainFinding => ({
 
 export const isV2Tree = (projectDir: string): boolean => existsSync(join(projectDir, "bos.app.ts"));
 
-const writeManifestFile = async (projectDir: string, manifest: Manifest): Promise<void> => {
+const writeManifestFile = async (projectDir: string, manifest: UpgradeManifest): Promise<void> => {
   await mkdir(join(projectDir, ".bos"), { recursive: true });
   await writeFile(
     join(projectDir, ".bos/v2-upgrade-manifest.json"),
@@ -164,5 +164,5 @@ export const describeComposeProbe = (probe: ComposeProbe): string => {
   }
 };
 
-export type { Manifest, RouterSeam, StepResult };
+export type { RouterSeam, StepResult, UpgradeManifest };
 export { GateBlocked };

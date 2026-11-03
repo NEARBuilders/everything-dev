@@ -21,7 +21,7 @@ import { ensureDelegateKey, submitRegistryWriteDelegated } from "../auth/delegat
 import { submitRegistryWrite } from "../auth/near-signer";
 import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/signer";
 import { generateCodeArtifacts } from "../codegen/artifacts";
-import { type PlatformReleaseManifest, PlatformReleaseManifestSchema } from "../platform/manifest";
+import { type Manifest, ManifestSchema } from "../platform/manifest";
 import { confirmPublish, describeConfirmTimeout } from "../registry/confirm";
 import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
@@ -45,13 +45,13 @@ import {
 import {
   resolveReleaseManifestForDeploy,
   runCompositionGate,
-  stampInheritedSlotsFromRelease,
+  stampRemotesFromRelease,
 } from "./composition";
 import { BundleStorage, RegistryStore, type RegistryStoreShape } from "./deps";
 import {
+  digestsFromPublishedConfig,
   type PreviousPin,
   pinsFromDeployState,
-  pinsFromPublishedConfig,
   upsertDeployStatePins,
 } from "./diff";
 import { PublishTrainError, type PublishTrainFailureResult, type PublishTrainOk } from "./errors";
@@ -233,7 +233,7 @@ export async function runPublishTrain(
   const prevPins: Record<string, PreviousPin> = fullUpload
     ? {}
     : {
-        ...pinsFromPublishedConfig(
+        ...digestsFromPublishedConfig(
           (plan.publishedConfig ?? {}) as BosConfigInput,
           account,
           gateway,
@@ -682,7 +682,7 @@ export async function runPublishTrain(
   // parent's live config pointer can move (a root rc.N+1 publish) without
   // skewing a pinned child's composition. Resolution failures warn and
   // continue unpinned; the composition gate below still cross-checks bytes.
-  let resolvedRelease: PlatformReleaseManifest | null = null;
+  let resolvedRelease: Manifest | null = null;
   if (input.exactPayload !== true) {
     try {
       resolvedRelease = await resolveReleaseManifestForDeploy({
@@ -690,7 +690,7 @@ export async function runPublishTrain(
         authoredConfig: publishRawConfig as Record<string, unknown>,
       });
       if (resolvedRelease) {
-        const stamped = stampInheritedSlotsFromRelease({
+        const stamped = stampRemotesFromRelease({
           payload: publishPayload as Record<string, unknown>,
           authoredConfig: publishRawConfig as Record<string, unknown>,
           manifest: resolvedRelease,
@@ -840,10 +840,10 @@ export async function runPublishTrain(
   // a version.
   let platformManifest: PlatformManifestPublishEntry | null = null;
   if (!isStaging && input.build) {
-    let pointer: PlatformReleaseManifest | null;
+    let pointer: Manifest | null;
     try {
       const pointerBytes = await readPlatformPointer<unknown>(account, gateway, input.registry);
-      pointer = pointerBytes ? PlatformReleaseManifestSchema.parse(pointerBytes) : null;
+      pointer = pointerBytes ? ManifestSchema.parse(pointerBytes) : null;
     } catch (error) {
       throw new PublishTrainError({
         kind: "platform-manifest",
@@ -995,7 +995,7 @@ export async function runPublishTrain(
   // config is confirmed published, so the pointer never claims undeployed state.
   const persistDeployState = () => {
     try {
-      const pins = pinsFromPublishedConfig(publishPayload as BosConfigInput, account, gateway);
+      const pins = digestsFromPublishedConfig(publishPayload as BosConfigInput, account, gateway);
       if (Object.keys(pins).length > 0) {
         upsertDeployStatePins(configDir, account, gateway, pins);
       }

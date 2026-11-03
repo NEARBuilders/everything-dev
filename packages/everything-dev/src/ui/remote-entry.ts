@@ -5,14 +5,14 @@ import {
 import type { BosEnv } from "../services/resolution/merge";
 
 /**
- * The host's entry-URL SlotResolver: one pure derivation from a stamped
- * config slot to the URLs each surface loads. `EntrySlot` is structural —
+ * The host's entry-URL EntryResolver: one pure derivation from a stamped
+ * config slot to the URLs each surface loads. `RemoteEntry` is structural —
  * the version-manifest derivation (atomic-deploys 04) stamps exactly these
  * fields onto `RuntimeConfig` slots, so they satisfy it as-is. Each surface
- * of `entryUrls` resolves (and throws) lazily — a caller reading only `web`
+ * of `entryUrls` resolves (and throws) lazily — a caller reading only `ui`
  * never trips the ssr surface's resolution, and vice versa.
  */
-export interface EntrySlot {
+export interface RemoteEntry {
   /** slot identity, verbatim in resolution errors */
   name: string;
   url?: string;
@@ -36,7 +36,7 @@ export interface EntrySlot {
 
 export interface EntryUrls {
   /** browser script src / registration entry — bustered fixed name in dev, hashed in prod */
-  readonly web: string;
+  readonly ui: string;
   /** server container entry; undefined when the slot has no SSR coordinates */
   readonly ssr?: string;
   /** pin-derived hashed mf-manifest; undefined ⟺ local slot (atomic-deploys 08, STRUCTURAL) */
@@ -63,7 +63,7 @@ function requireEntry(
   );
 }
 
-function ssrEntryUrl(slot: EntrySlot, env: BosEnv): string | undefined {
+function ssrEntryUrl(slot: RemoteEntry, env: BosEnv): string | undefined {
   if (slot.ssrEntryUrl) return slot.ssrEntryUrl;
   if (env === "development") {
     return slot.ssrUrl
@@ -80,15 +80,15 @@ function ssrEntryUrl(slot: EntrySlot, env: BosEnv): string | undefined {
   );
 }
 
-export function entryUrls(slot: EntrySlot, env: BosEnv): EntryUrls {
+export function entryUrls(slot: RemoteEntry, env: BosEnv): EntryUrls {
   const base = trimBase(slot.publicUrl ?? slot.url);
   return {
-    get web() {
+    get ui() {
       return requireEntry(
         slot.entryUrl,
         env,
         slot.name,
-        "web",
+        "ui",
         withBuster(`${base}/${UI_REMOTE_ENTRY_FILENAME}`, slot.integrity),
       );
     },

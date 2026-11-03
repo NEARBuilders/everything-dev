@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readPlatformPointer, readPlatformVersionSlot } from "../../src/services/registry/pointer";
+import { readManifestTag, readVersionRecord } from "../../src/services/registry/pointer";
 
 /**
  * The wire-shape regression: the pointer reads fetch the runtime-prefixed
@@ -33,11 +33,11 @@ function stubRegistry(value: unknown): void {
   );
 }
 
-describe("readPlatformPointer / readPlatformVersionSlot — the read wire keys", () => {
-  it("readPlatformPointer fetches apps/<account>/<gateway>/platform.json — prefixed exactly once", async () => {
+describe("readManifestTag / readVersionRecord — the read wire keys", () => {
+  it("readManifestTag fetches apps/<account>/<gateway>/platform.json — prefixed exactly once", async () => {
     stubRegistry({ frameworkVersion: "2.0.0-rc.35" });
 
-    const pointer = await readPlatformPointer<{ frameworkVersion: string }>(ACCOUNT, GATEWAY);
+    const pointer = await readManifestTag<{ frameworkVersion: string }>(ACCOUNT, GATEWAY);
 
     expect(pointer?.frameworkVersion).toBe("2.0.0-rc.35");
     expect(fetchedUrls).toEqual([
@@ -46,10 +46,10 @@ describe("readPlatformPointer / readPlatformVersionSlot — the read wire keys",
     ]);
   });
 
-  it("readPlatformVersionSlot fetches apps/<account>/<gateway>/platform-versions/<v>.json — prefixed exactly once", async () => {
+  it("readVersionRecord fetches apps/<account>/<gateway>/platform-versions/<v>.json — prefixed exactly once", async () => {
     stubRegistry({ frameworkVersion: "2.0.0-rc.36" });
 
-    const slot = await readPlatformVersionSlot<{ frameworkVersion: string }>(
+    const slot = await readVersionRecord<{ frameworkVersion: string }>(
       ACCOUNT,
       GATEWAY,
       "2.0.0-rc.36",
@@ -65,7 +65,7 @@ describe("readPlatformPointer / readPlatformVersionSlot — the read wire keys",
   it("an absent slot reads null through the same single-prefixed key", async () => {
     stubRegistry(undefined);
 
-    await expect(readPlatformVersionSlot(ACCOUNT, GATEWAY, "9.9.9")).resolves.toBeNull();
+    await expect(readVersionRecord(ACCOUNT, GATEWAY, "9.9.9")).resolves.toBeNull();
     expect(fetchedUrls).toEqual([
       "https://kv.main.fastnear.com/v0/latest/dev.everything.near/dev.everything.near/" +
         `apps%2F${ACCOUNT}%2F${GATEWAY}%2Fplatform-versions%2F9.9.9.json`,

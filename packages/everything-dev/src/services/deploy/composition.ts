@@ -2,14 +2,14 @@ import type { BosConfigInput } from "../../types";
 import { readInstalledFrameworkVersion } from "../framework-version";
 import {
   checkPlatformCompat,
-  type PlatformReleaseManifest,
+  type Manifest,
   type ResolvePlatformManifestOptions,
   resolvePlatformManifest,
 } from "../platform/manifest";
-import { stampInheritedReleaseSlots } from "../resolution/release-plane";
+import { stampInheritedRemotes } from "../resolution/release-composition";
 import { readWorkspaceCatalog } from "../workspace/catalog";
 import { findWorkspaceRoot } from "../workspace/workspace";
-import { collectSlotPinRefs } from "./rollback";
+import { collectRemoteDescriptors } from "./rollback";
 import { resolveSlotVersion } from "./version-manifest";
 
 /**
@@ -41,7 +41,7 @@ export async function resolveReleaseManifestForDeploy(input: {
   authoredConfig: Record<string, unknown>;
   /** test/registry seam — threaded to the platform-manifest resolution */
   resolveOptions?: Partial<ResolvePlatformManifestOptions>;
-}): Promise<PlatformReleaseManifest | null> {
+}): Promise<Manifest | null> {
   const resolved = await resolvePlatformManifest({
     configDir: input.configDir,
     localConfig: input.authoredConfig,
@@ -51,7 +51,7 @@ export async function resolveReleaseManifestForDeploy(input: {
 }
 
 /** Authored slot paths: every slot whose code source the leaf itself declares. */
-export { authoredSlotPaths } from "../resolution/release-plane";
+export { authoredRemoteKeys } from "../resolution/release-composition";
 
 export interface StampOutcome {
   stamped: string[];
@@ -60,19 +60,19 @@ export interface StampOutcome {
 /**
  * Stamp inherited slots: for every `app.*` slot in the release manifest's
  * `slots` map that the authored config does not author (see
- * `authoredSlotPaths` — configuring a slot is not authoring it), write the release's
+ * `authoredRemoteKeys` — configuring a slot is not authoring it), write the release's
  * recorded production URL + pin into the payload. Child-wins deep merge then
  * shadows the parent's live config pointer at every consumer boot, so the
  * child composes exactly the bytes its pinned release published. Slots the
  * child authors stay untouched, and a manifest without `slots` (pre-amendment
  * releases) stamps nothing — the composition gate covers those children.
  */
-export function stampInheritedSlotsFromRelease(input: {
+export function stampRemotesFromRelease(input: {
   payload: Record<string, unknown>;
   authoredConfig: Record<string, unknown>;
-  manifest: PlatformReleaseManifest;
+  manifest: Manifest;
 }): StampOutcome {
-  const outcome = stampInheritedReleaseSlots({
+  const outcome = stampInheritedRemotes({
     config: input.payload,
     authoredConfig: input.authoredConfig,
     slots: input.manifest.slots,
@@ -90,7 +90,7 @@ export interface CompositionGateInput {
   configDir: string;
   authoredConfig: Record<string, unknown>;
   resolvedShape: Record<string, unknown>;
-  resolvedRelease: PlatformReleaseManifest | null;
+  resolvedRelease: Manifest | null;
   /**
    * The slot names the leaf-payload pin verification leg proved servable;
    * an unresolvable merged-shape pin outside this set is reported as a
@@ -134,7 +134,7 @@ export async function compositionSkewViolations(
   merged: Record<string, unknown>,
   opts: { fetchImpl?: typeof fetch; verifiedSlots?: ReadonlySet<string> } = {},
 ): Promise<string[]> {
-  const uiSlots = collectSlotPinRefs(merged as BosConfigInput).filter(
+  const uiSlots = collectRemoteDescriptors(merged as BosConfigInput).filter(
     (ref) => ref.slot === "app.ui" || ref.slot.endsWith(".ui"),
   );
   if (uiSlots.length === 0) return [];
@@ -186,10 +186,7 @@ export async function compositionSkewViolations(
  * and workspace catalog against its OWN pinned release — a child resolving
  * via slot-first never fails for being older than the parent's latest.
  */
-export function platformCompatViolations(
-  manifest: PlatformReleaseManifest,
-  configDir: string,
-): string[] {
+export function platformCompatViolations(manifest: Manifest, configDir: string): string[] {
   const root = findWorkspaceRoot(configDir)?.dir ?? configDir;
   const violations = checkPlatformCompat(manifest, {
     platformVersion: readInstalledFrameworkVersion(configDir, "everything-dev"),

@@ -18,14 +18,14 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { PlatformReleaseManifest } from "../platform/manifest-schema";
+import type { Manifest } from "../platform/manifest-schema";
 
 export interface ManifestCacheRecord {
   schemaVersion: 1;
   kind: "everything-dev/platform-manifest-cache";
   resolvedAt: string;
   source: { account: string; gateway: string };
-  manifest: PlatformReleaseManifest;
+  manifest: Manifest;
   provenance?: "slot" | "pointer";
 }
 

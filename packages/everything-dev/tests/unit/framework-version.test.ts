@@ -8,7 +8,7 @@ import {
 } from "../../src/services/framework-version";
 
 /**
- * The release-plane audit's "what does this runtime compose" probe
+ * The release-composition audit's "what does this runtime compose" probe
  * (`readRootCatalogVersion` via `readInstalledFrameworkVersion`). The
  * regression it pins: children keep the catalog in pnpm-workspace.yaml and
  * (pre-hoisted-linker trees) have no root `node_modules/<pkg>` to fall back

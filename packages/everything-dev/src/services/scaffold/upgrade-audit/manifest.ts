@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { ImportRewrite, Manifest, PluginInventory, RouterSeam } from "./domain";
+import type { ImportRewrite, PluginInventory, RouterSeam, UpgradeManifest } from "./domain";
 import { fileExists, listFiles, readText } from "./fs";
 import { OBSOLETE_FILES } from "./obsolete-files";
 
@@ -64,7 +64,7 @@ export const buildManifest = (
   importRewrites: readonly ImportRewrite[],
   configKeys: readonly string[],
   routerSeam: RouterSeam,
-): Effect.Effect<Manifest, Error> =>
+): Effect.Effect<UpgradeManifest, Error> =>
   Effect.gen(function* () {
     const deleteFiles = yield* existingOf(projectDir, OBSOLETE_FILES);
     const plugins = yield* pluginInventory(projectDir);
@@ -84,5 +84,5 @@ export const buildManifest = (
         schemaFile: schemaFile ? "api/src/db/schema.ts" : null,
         migrationsDir: migrationFiles.length > 0 ? "api/src/db/migrations" : null,
       },
-    } satisfies Manifest;
+    } satisfies UpgradeManifest;
   });

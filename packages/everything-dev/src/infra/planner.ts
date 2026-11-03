@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { Clock, Effect } from "effect";
 import {
-  type AuthSlotShape,
+  type AuthRemoteShape,
   buildDescription,
   isAuthMirrorPluginEntry,
 } from "../services/dev/service-descriptor";
@@ -69,7 +69,7 @@ function allocateServices(
     { source: string; localPath?: string; ui?: { source: string; localPath?: string } }
   >,
   configDir: string,
-  auth?: AuthSlotShape,
+  auth?: AuthRemoteShape,
   sources?: ServiceSources,
 ): Effect.Effect<AllocateServicesResult, InfraError, PortAllocator> {
   return Effect.gen(function* () {

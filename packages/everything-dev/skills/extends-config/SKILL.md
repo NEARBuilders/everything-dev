@@ -45,7 +45,7 @@ The root-level `platform` field pins the framework release this runtime tracks:
 - The field is on sync's managed-key list, so it survives template personalization.
 - Everything else derives from the resolved manifest: the upgrade catalog, the image ref (`ref@v<version>`), the release-scoped sync source, and the compat contract. Offline dev caches the resolved manifest at `.bos/platform-manifest.json` (gitignored memo).
 - **The pin freezes the whole inherited plane, not just the framework versions** (ADR 0034 consumer boot): every config slot the runtime composes (`app.*`, `plugins.*`) is stamped at resolution with the pin's release-recorded `{ production, pin }` — slots the child authors stay untouched, and a slot the parent added *after* the pinned release is omitted (surfaced at dev boot as "present upstream from rc.N — run bos upgrade to inherit") instead of being live-followed. Config-only changes from the parent that the child did not author still flow through; byte-moving pins do not. `bos upgrade` is the only thing that moves the plane.
-- Inspect with `bos platform manifest` (`--check` adds the compat gate); `bos upgrade --check` is the manual drift alarm against the latest release.
+- Inspect with `bos manifest` (`--check` adds the compat gate); `bos upgrade --check` is the manual drift alarm against the latest release.
 
 ## Deep Merge Semantics
 

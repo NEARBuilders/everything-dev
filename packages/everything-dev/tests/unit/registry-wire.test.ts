@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   composePlatformReleaseManifest,
-  type PlatformReleaseManifest,
+  type Manifest,
   resolvePlatformManifest,
 } from "../../src/services/platform/manifest";
 
@@ -19,7 +19,7 @@ afterEach(() => {
   if (tmpRoot) rmSync(tmpRoot, { recursive: true, force: true });
 });
 
-function makeManifest(frameworkVersion: string): PlatformReleaseManifest {
+function makeManifest(frameworkVersion: string): Manifest {
   return composePlatformReleaseManifest({
     frameworkVersion,
     everyPluginVersion: "3.0.0-rc.9",

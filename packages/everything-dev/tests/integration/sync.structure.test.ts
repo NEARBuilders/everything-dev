@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   composePlatformReleaseManifest,
   computeTemplateInventory,
-  PlatformReleaseManifestSchema,
+  ManifestSchema,
   serializePlatformReleaseManifest,
 } from "../../src/services/platform/manifest";
 import {
@@ -345,9 +345,7 @@ describe("platform release manifest guardrail (ADR 0034)", () => {
       templateInventory: computeTemplateInventory(REPO_ROOT),
       compatMinChild: "0.0.0-test",
     });
-    const parsed = PlatformReleaseManifestSchema.parse(
-      JSON.parse(serializePlatformReleaseManifest(manifest)),
-    );
+    const parsed = ManifestSchema.parse(JSON.parse(serializePlatformReleaseManifest(manifest)));
     expect(parsed.templateInventory.length).toBeGreaterThan(0);
   });
 });

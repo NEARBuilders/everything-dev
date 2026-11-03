@@ -5,8 +5,8 @@ import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BosBuilder } from "../../src/handlers/shared";
 import {
-  PlatformManifestService,
-  PlatformReleaseManifestSchema,
+  ManifestSchema,
+  ManifestService,
   type ResolvedPlatformManifest,
 } from "../../src/services/platform/manifest";
 
@@ -34,7 +34,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const PUBLISHED = PlatformReleaseManifestSchema.parse({
+const PUBLISHED = ManifestSchema.parse({
   schemaVersion: 1,
   kind: "everything-dev/platform-manifest",
   frameworkVersion: "2.0.0-rc.18",
@@ -55,10 +55,10 @@ function serviceWith(
     configDir: string;
     localConfig: Record<string, unknown>;
   }) => Promise<ResolvedPlatformManifest | null>,
-): Layer.Layer<PlatformManifestService> {
+): Layer.Layer<ManifestService> {
   return Layer.succeed(
-    PlatformManifestService,
-    PlatformManifestService.of({
+    ManifestService,
+    ManifestService.of({
       resolvePlatformManifest: resolve,
       composePlatformReleaseManifest: () => {
         throw new Error("not exercised by this test");
@@ -69,7 +69,7 @@ function serviceWith(
   );
 }
 
-function manifestEffect(layer: Layer.Layer<PlatformManifestService>): Promise<unknown> {
+function manifestEffect(layer: Layer.Layer<ManifestService>): Promise<unknown> {
   const effectHandler =
     (fn: (opts: unknown, input: unknown) => Generator) => (opts: unknown, input: unknown) =>
       // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- test harness mirrors @orpc middlewareGen interop

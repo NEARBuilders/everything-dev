@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { BosConfig } from "../../types";
-import { walkConfigSlots } from "../config-slots";
+import { walkRemotes } from "../remotes";
 
 /**
  * The published pointer's version identity (atomic-deploys 08/12): a hash
@@ -10,7 +10,7 @@ import { walkConfigSlots } from "../config-slots";
  */
 export function pointerFingerprint(config: BosConfig): string {
   const parts: Array<string> = [];
-  walkConfigSlots(config as unknown as Record<string, unknown>, ({ slot, entry, isPluginRef }) => {
+  walkRemotes(config as unknown as Record<string, unknown>, ({ slot, entry, isPluginRef }) => {
     if (isPluginRef) {
       parts.push(`${slot}:${entry as string}`);
       return;
@@ -31,7 +31,7 @@ export function pointerFingerprint(config: BosConfig): string {
 /** Per-slot pin ids for display (slot → versioned manifest filename). */
 export function slotPins(config: BosConfig): Record<string, string> {
   const pins: Record<string, string> = {};
-  walkConfigSlots(config as unknown as Record<string, unknown>, ({ slot, entry, isPluginRef }) => {
+  walkRemotes(config as unknown as Record<string, unknown>, ({ slot, entry, isPluginRef }) => {
     if (isPluginRef) return;
     const s = entry as { pin?: unknown } | undefined;
     if (!s) return;

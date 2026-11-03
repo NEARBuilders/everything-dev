@@ -2,20 +2,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { walkConfigSlots } from "../../src/services/config-slots";
 import {
-  authoredSlotPaths,
+  authoredRemoteKeys,
   compositionSkewViolations,
   runCompositionGate,
-  stampInheritedSlotsFromRelease,
+  stampRemotesFromRelease,
 } from "../../src/services/deploy/composition";
 import { computeManifestSri } from "../../src/services/deploy/manifest-verify";
 import { composePlatformManifestPublishEntry } from "../../src/services/deploy/platform-manifest";
 import { clearSlotVersionCache } from "../../src/services/deploy/version-manifest";
-import {
-  type PlatformReleaseManifest,
-  PlatformReleaseManifestSchema,
-} from "../../src/services/platform/manifest";
+import { type Manifest, ManifestSchema } from "../../src/services/platform/manifest";
+import { walkRemotes } from "../../src/services/remotes";
 import { versionManifestFetcher, versionManifestText } from "../helpers/version-manifests";
 
 /**
@@ -28,8 +25,8 @@ import { versionManifestFetcher, versionManifestText } from "../helpers/version-
 const authBase = "https://cdn.test/bundles/root.near/root/auth/";
 const authUiBase = "https://cdn.test/bundles/root.near/root/auth-ui/";
 
-function manifestWithSlots(slots: unknown): PlatformReleaseManifest {
-  return PlatformReleaseManifestSchema.parse({
+function manifestWithSlots(slots: unknown): Manifest {
+  return ManifestSchema.parse({
     schemaVersion: 1,
     kind: "everything-dev/platform-manifest",
     frameworkVersion: "2.0.0-rc.24",
@@ -55,10 +52,10 @@ afterEach(() => {
   clearSlotVersionCache();
 });
 
-describe("walkConfigSlots", () => {
+describe("walkRemotes", () => {
   it("visits canonical dotted paths, ui:false opt-outs, and bare plugin refs", () => {
     const seen: Array<{ slot: string; entry: unknown; isPluginRef: boolean }> = [];
-    walkConfigSlots(
+    walkRemotes(
       {
         app: { ui: { x: 1 }, auth: { ui: false }, title: "not-an-entry" },
         plugins: { votes: { y: 1 }, legacy: "bos://parent/p" },
@@ -75,7 +72,7 @@ describe("walkConfigSlots", () => {
   });
 });
 
-describe("stampInheritedSlotsFromRelease", () => {
+describe("stampRemotesFromRelease", () => {
   it("stamps inherited slots (auth + auth.ui) without touching authored slots", () => {
     const payload: Record<string, unknown> = {
       account: "child.near",
@@ -86,7 +83,7 @@ describe("stampInheritedSlotsFromRelease", () => {
         },
       },
     };
-    const outcome = stampInheritedSlotsFromRelease({
+    const outcome = stampRemotesFromRelease({
       payload,
       authoredConfig: structuredClone(payload),
       manifest: manifestWithSlots({
@@ -132,7 +129,7 @@ describe("stampInheritedSlotsFromRelease", () => {
       },
     };
     const payload = structuredClone(authored) as Record<string, unknown>;
-    const outcome = stampInheritedSlotsFromRelease({
+    const outcome = stampRemotesFromRelease({
       payload,
       authoredConfig: authored,
       manifest: manifestWithSlots({
@@ -181,7 +178,7 @@ describe("stampInheritedSlotsFromRelease", () => {
     const remoteOnly = { app: { api: { variables: { a: 1 }, secrets: ["S"] } } };
     const remotePayload = structuredClone(remoteOnly) as Record<string, unknown>;
     expect(
-      stampInheritedSlotsFromRelease({
+      stampRemotesFromRelease({
         payload: remotePayload,
         authoredConfig: remoteOnly,
         manifest: manifestWithSlots(apiSlot),
@@ -196,7 +193,7 @@ describe("stampInheritedSlotsFromRelease", () => {
 
     const proxied = { app: { api: { proxy: "https://api.child.test", variables: { a: 1 } } } };
     expect(
-      stampInheritedSlotsFromRelease({
+      stampRemotesFromRelease({
         payload: structuredClone(proxied),
         authoredConfig: proxied,
         manifest: manifestWithSlots(apiSlot),
@@ -206,7 +203,7 @@ describe("stampInheritedSlotsFromRelease", () => {
 
   it("stamps nothing when the release carries no slots map (pre-amendment releases)", () => {
     const payload: Record<string, unknown> = { account: "child.near" };
-    const outcome = stampInheritedSlotsFromRelease({
+    const outcome = stampRemotesFromRelease({
       payload,
       authoredConfig: {},
       manifest: manifestWithSlots(undefined),
@@ -224,7 +221,7 @@ describe("stampInheritedSlotsFromRelease", () => {
         },
       },
     };
-    stampInheritedSlotsFromRelease({
+    stampRemotesFromRelease({
       payload,
       authoredConfig: {},
       manifest: manifestWithSlots({
@@ -244,7 +241,7 @@ describe("stampInheritedSlotsFromRelease", () => {
     const authored = {
       plugins: { votes: { extends: "bos://root.near/root", ui: false } },
     };
-    const outcome = stampInheritedSlotsFromRelease({
+    const outcome = stampRemotesFromRelease({
       payload: structuredClone(authored),
       authoredConfig: authored,
       manifest: manifestWithSlots({
@@ -265,7 +262,7 @@ describe("stampInheritedSlotsFromRelease", () => {
     const authored = {
       plugins: { votes: { extends: "bos://root.near/root" } },
     };
-    const outcome = stampInheritedSlotsFromRelease({
+    const outcome = stampRemotesFromRelease({
       payload: structuredClone(authored),
       authoredConfig: authored,
       manifest: manifestWithSlots({
@@ -292,7 +289,7 @@ describe("stampInheritedSlotsFromRelease", () => {
       },
     };
     const payload = structuredClone(authored);
-    const outcome = stampInheritedSlotsFromRelease({
+    const outcome = stampRemotesFromRelease({
       payload,
       authoredConfig: authored,
       manifest: manifestWithSlots({
@@ -325,9 +322,9 @@ describe("stampInheritedSlotsFromRelease", () => {
   });
 });
 
-describe("authoredSlotPaths", () => {
+describe("authoredRemoteKeys", () => {
   it("counts app entries with their ui, and string plugin refs as fully owned", () => {
-    const paths = authoredSlotPaths({
+    const paths = authoredRemoteKeys({
       app: {
         ui: { development: "local:ui" },
         host: { production: "https://child.test/host/", ui: { name: "h" } },
@@ -348,7 +345,7 @@ describe("authoredSlotPaths", () => {
   });
 
   it("an entry that only configures an inherited slot does not author it", () => {
-    const paths = authoredSlotPaths({
+    const paths = authoredRemoteKeys({
       app: {
         auth: {
           variables: { a: 1 },
@@ -571,7 +568,7 @@ describe("composePlatformManifestPublishEntry — release slots", () => {
       publishPayload: releasePayload,
     });
     expect(entry).not.toBeNull();
-    const parsed = PlatformReleaseManifestSchema.parse(JSON.parse(entry!.value));
+    const parsed = ManifestSchema.parse(JSON.parse(entry!.value));
     expect(parsed.slots).toMatchObject({
       "app.auth": {
         base: authBase,
@@ -620,7 +617,7 @@ describe("composePlatformManifestPublishEntry — release slots", () => {
       account: "root.near",
       gateway: "root",
     });
-    const parsed = PlatformReleaseManifestSchema.parse(JSON.parse(entry!.value));
+    const parsed = ManifestSchema.parse(JSON.parse(entry!.value));
     expect(parsed.slots).toBeUndefined();
   });
 });

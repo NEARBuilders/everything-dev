@@ -23,10 +23,7 @@
  */
 import { createHash } from "node:crypto";
 import { getExtendsRef, parseBosRef } from "../../utils/bos-ref";
-import {
-  type PlatformReleaseManifest,
-  PlatformReleaseManifestSchema,
-} from "../platform/manifest-schema";
+import { type Manifest, ManifestSchema } from "../platform/manifest-schema";
 import { fetchParentConfig } from "../resolution/init-source";
 import {
   MANIFEST_CACHE_TTL_MS,
@@ -141,7 +138,7 @@ export type ResolutionContext = {
 export type ResolutionOutcome =
   | {
       readonly state: "Resolved";
-      readonly manifest: PlatformReleaseManifest;
+      readonly manifest: Manifest;
       /** the chain node that served the bytes */
       readonly source: { account: string; gateway: string };
       /** which home resolved the query: a version record (pinned), the
@@ -166,7 +163,7 @@ export interface ResolutionSeams {
   readVersionRecord(ref: RuntimeRef, release: string): Promise<string | null>;
   /** Parse a full manifest or record payload. Throws on a corrupt payload —
    * the machine records it as unreachable. */
-  parseManifest(value: unknown): PlatformReleaseManifest;
+  parseManifest(value: unknown): Manifest;
   fetchParent(account: string, gateway: string): Promise<Record<string, unknown> | null>;
   cacheRead(pin?: string): ManifestCacheRead;
   cacheWrite(record: ManifestCacheRecord): void;
@@ -237,7 +234,7 @@ export async function resolveRelease(input: {
   const chainRefs = chain.map(refOf);
 
   const writeCache = (
-    manifest: PlatformReleaseManifest,
+    manifest: Manifest,
     node: ExtendsChainNode,
     provenance: "slot" | "pointer",
   ): void => {
@@ -285,7 +282,7 @@ export async function resolveRelease(input: {
         };
       }
       if (text !== null) {
-        let manifest: PlatformReleaseManifest;
+        let manifest: Manifest;
         try {
           manifest = seams.parseManifest(JSON.parse(text));
         } catch (error) {
@@ -371,7 +368,7 @@ export async function resolveRelease(input: {
           context: { chain: chainRefs, tagServes },
         };
       }
-      let manifest: PlatformReleaseManifest;
+      let manifest: Manifest;
       try {
         manifest = seams.parseManifest(JSON.parse(text));
       } catch (error) {
@@ -394,7 +391,7 @@ export async function resolveRelease(input: {
     }
     // full manifest tag (pre-cutover pointer)
     tagServes = "full";
-    let manifest: PlatformReleaseManifest;
+    let manifest: Manifest;
     try {
       manifest = seams.parseManifest(tag);
     } catch (error) {
@@ -486,7 +483,7 @@ function preCutoverSeams(configDir: string, now: () => number): ResolutionSeams 
       return raw === null ? null : JSON.stringify(raw);
     },
     parseManifest(value) {
-      return PlatformReleaseManifestSchema.parse(value);
+      return ManifestSchema.parse(value);
     },
     fetchParent(account, gateway) {
       return fetchParentConfig(account, gateway)
@@ -529,7 +526,7 @@ function preCutoverSeams(configDir: string, now: () => number): ResolutionSeams 
 // this shape until the outcome-typed migration (ticket 05+).
 
 export interface ResolvedPlatformManifest {
-  manifest: PlatformReleaseManifest;
+  manifest: Manifest;
   source: { account: string; gateway: string };
   fromCache: boolean;
   /** Where the resolved bytes came from (#574): an immutable version record
@@ -543,7 +540,7 @@ export type PlatformManifestCache = ManifestCacheRecord;
 export interface ResolvePlatformManifestOptions {
   configDir: string;
   localConfig: Record<string, unknown>;
-  fetchManifest?: (account: string, gateway: string) => Promise<PlatformReleaseManifest | null>;
+  fetchManifest?: (account: string, gateway: string) => Promise<Manifest | null>;
   /** The immutable version-record read (#574) — an exact pin's target.
    * Throws on read failure (distinct from a clean absent record). */
   fetchSlot?: (account: string, gateway: string, version: string) => Promise<unknown>;

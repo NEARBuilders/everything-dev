@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   diffWorkspaceFiles,
+  digestsFromPublishedConfig,
   localObjectIntegrity,
   localSriMap,
   mergedFileIntegrity,
   pinsFromDeployState,
-  pinsFromPublishedConfig,
   readDeployState,
   upsertDeployStatePins,
   workspaceKeyOfBase,
@@ -134,7 +134,7 @@ describe("deploy-state pointer", () => {
   });
 });
 
-describe("pinsFromPublishedConfig", () => {
+describe("digestsFromPublishedConfig", () => {
   const account = "a.near";
   const gateway = "g.test";
   const pin = { manifest: "versions/aaaaaaaaaaaaaaaa.json", integrity: "sha384-aaa" };
@@ -163,13 +163,13 @@ describe("pinsFromPublishedConfig", () => {
   } as unknown as BosConfigInput;
 
   it("maps bundle bases back to workspace keys, filtered to the namespace", () => {
-    const pins = pinsFromPublishedConfig(config, account, gateway);
+    const pins = digestsFromPublishedConfig(config, account, gateway);
     expect(Object.keys(pins).sort()).toEqual(["auth", "auth-ui", "ui"]);
     expect(pins.ui).toEqual(pin);
   });
 
   it("ignores slots whose production base is not a bundle base", () => {
-    const pins = pinsFromPublishedConfig(
+    const pins = digestsFromPublishedConfig(
       {
         app: { ui: { production: "https://cdn.test/ui/", pin } },
       } as unknown as BosConfigInput,

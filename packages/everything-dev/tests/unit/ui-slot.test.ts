@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type EntrySlot, entryUrls } from "../../src/ui/slot";
+import { entryUrls, type RemoteEntry } from "../../src/ui/remote-entry";
 
 const APPS = "https://cdn.example.com/apps";
 const APPS_SSR = "https://cdn.example.com/apps-ssr";
 
-const remoteSlot = (over: Partial<EntrySlot> = {}): EntrySlot => ({
+const remoteSlot = (over: Partial<RemoteEntry> = {}): RemoteEntry => ({
   name: "apps",
   url: APPS,
   entryUrl: `${APPS}/remoteEntry.aaa.js`,
@@ -90,7 +90,7 @@ describe("entryUrls — dev fixed names (no pin derivation in development)", () 
 });
 
 describe("entryUrls — local slot (atomic-deploys 08)", () => {
-  const localSlot = (over: Partial<EntrySlot> = {}): EntrySlot => ({
+  const localSlot = (over: Partial<RemoteEntry> = {}): RemoteEntry => ({
     name: "auth-ui",
     url: "http://localhost:4111",
     localPath: "/w/plugins/auth-ui",

@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import {
-  type PlatformReleaseManifest,
-  PlatformReleaseManifestSchema,
-} from "../../src/services/platform/manifest-schema";
+import { type Manifest, ManifestSchema } from "../../src/services/platform/manifest-schema";
 import {
   type ResolutionQuery,
   type ResolutionSeams,
@@ -12,8 +9,8 @@ import {
 
 const ROOT = "bos://dev.everything.near/everything.dev";
 
-function manifest(frameworkVersion: string): PlatformReleaseManifest {
-  return PlatformReleaseManifestSchema.parse({
+function manifest(frameworkVersion: string): Manifest {
+  return ManifestSchema.parse({
     schemaVersion: 1,
     kind: "everything-dev/platform-manifest",
     frameworkVersion,
@@ -31,7 +28,7 @@ function manifest(frameworkVersion: string): PlatformReleaseManifest {
  * it. `throwOnRecord`/`throwOnTag` simulate an unreachable registry. */
 function harness(opts?: {
   tag?: unknown;
-  records?: Record<string, PlatformReleaseManifest>;
+  records?: Record<string, Manifest>;
   throwOnTag?: Error;
   throwOnRecord?: Error;
   cache?: { pin?: string; fresh?: boolean };
@@ -49,7 +46,7 @@ function harness(opts?: {
       if (opts?.throwOnRecord) throw opts.throwOnRecord;
       return recordTexts[release] ?? null;
     },
-    parseManifest: (value) => PlatformReleaseManifestSchema.parse(value),
+    parseManifest: (value) => ManifestSchema.parse(value),
     fetchParent: async () => null,
     cacheRead: (pin) => {
       if (!opts?.cache) return { state: "miss" };
