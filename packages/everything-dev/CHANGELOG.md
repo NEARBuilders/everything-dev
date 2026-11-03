@@ -1,5 +1,36 @@
 # everything-dev
 
+## 2.0.0-rc.32
+
+### Patch Changes
+
+- 74e9cbe: Release-train sequence hardening: Deploy's preflight npm gate now waits for the Release workflow's publish instead of refusing in the same-push race window (bounded 15-min poll, cache-busted version endpoint, registry outage still warns without blocking); the changesets version PR fast-paths its CI even through the merge queue when the batch diff is release-mechanical (`scripts/version-only-diff.mjs` — version/internal-range package.json lines, changelogs, `.changeset/**`, lockfile, generated catalog baseline); the Release workflow engages auto-merge on the version PR for zero-touch releases (the `hold-release` label parks a big scope in the same release), and its concurrency drains superseded runs so the bot-branch force-push race self-heals.
+
+## 2.0.0-rc.31
+
+### Minor Changes
+
+- 68642d2: Upgrade/audit correctness for pinned children — the opencrosspost rc.30 regression class:
+
+  - **The release-plane audit's "what does this runtime compose" probe now reads the pnpm-workspace.yaml catalog.** It previously read only the legacy `package.json#workspaces.catalog` location and fell back to root `node_modules/<pkg>` (absent under the isolated linker), reporting every shared singleton as `@unknown` — a coherent pinned plane rendered as a wall of false divergences ("app.ui was built against react@19.3.1, this runtime composes react@unknown").
+  - **Honest provisioned/uncomposed slot reporting.** A manifest slot the merged config does not compose (a child declaring its own `plugins` domain wholesale-replaces the inherited one) is now an informational "not composed by this config" note — no longer the unactionable "run bos upgrade to inherit". The genuinely-provisioned case (a config slot the pinned manifest lacks, composing live unpinned bytes) is now detected and reports "run bos upgrade to re-pin and claim it".
+  - **Correct repair commands for owned slots.** Slot paths are not publish keys: `app.<key>[.ui]` slots now name `bos deploy --packages <key>` (they were never publishable via `bos plugin publish`), and `plugins.<id>[.ui]` name `bos plugin publish <id>`.
+  - **`bos upgrade` realigns owned slots itself.** After a framework version delta, the migration phase audits the freshly resolved plane and republishes owned slots still built against the old chain through the scoped deploy train (`bos deploy --packages …`), best-effort — no stored publish session (or a failed republish) degrades to the printed hand-repair instruction without failing the upgrade. `--no-realign` opts out.
+  - **No more interactive `pnpm approve` on fresh installs.** `bos init` and `bos upgrade` run `pnpm approve --all` after installing, persisting the pnpm ≥12.11 permissions policy (dep-shipped agent skills, build scripts) into pnpm-workspace.yaml so every later install is prompt-free. Best-effort: older pnpm without the command is a no-op.
+  - **`--json` output is machine-parseable.** The CLI banner no longer prints on `--json` invocations — it corrupted stdout for anything piping `bos upgrade --check --json`.
+  - **Chain-composed plugins receive the platform root secret.** The host's plugin secrets assembly unions the declared secret list with `BETTER_AUTH_SECRET` from the environment — every plugin's secrets schema requires it (the vault derives the runtime KEK from it), but a published `app.auth` fragment carries only the slot's own operational secrets, so a consumer composing the production auth slot failed its schema validation with the per-run generated secret unreachable.
+  - **The consumer rc gate** (`fresh-init-dev`): the release a consumer resolves must scaffold a fresh child the way `bos init` really does — pin and catalog from the published platform manifest, framework packages resolved through the extends chain — install prompt-free, resolve its pin against the extends chain, and boot under `bos dev` cleanly (no release-plane divergence block, no shutdown noise, graceful quit), with strict zero-divergence assertions. Local-only for now (skipped in CI, child linked to the local framework): the shipped rc.30 bytes still carry the consumer-facing defects above and the root's live config composes plugin slots the rc.30 release manifest does not record — flip the skip back to CI-only once a release ships the fixes and records the live slots.
+
+- 812b98a: Flatten the db surface: `agent-connect` moves onto the standard `databaseLayer` seam, and `everything-dev/db` becomes a curated, audited interface.
+
+  - `plugins/agent-connect`'s hand-rolled db trio (`src/db/index.ts` / `layer.ts` / `migrate.ts`) — a verbatim copy of `databaseLayer`'s boot sequence that was never sync-managed and rotted (its stale comment claimed `bos sync` copied it) — is replaced by the standard 36-line seam every other plugin uses. `DatabaseLive(config)` now takes the initialize input; behavior (namespaced `plugin_<slug>` schema, journal, drift handling) is unchanged.
+  - `everything-dev/db` drops `export *` (9 modules, ~47 exports) for an explicit curated list: workspace-config resolution (`resolveDatabaseUrl`, `workspaceIdentityFromModuleUrl`, `PGLITE_DEFAULT_URL`), the layer seam (`databaseLayer`, `loadMigrations`, `runMigrations`, `detectDrift`, `DatabaseError`, `LoadedMigrations`, `Migration`, `MigrationStorage`), the test kit (`createDatabaseDriver`, `getMigrationStorage`, `pluginMigrationSlug`, `pluginSchemaName`), and `suppressPgQueryQueueDeprecation` for the host. Removed exports had no external consumers; the superseded `isRetryableMigrationError` is deleted.
+  - The pglite defaults (`pglite:.bos/db`, `pglite::memory:`) are single-sourced in `packages/everything-dev/src/db/defaults.json` — the framework's own consumers (`binding.ts`, `services/infra.ts`, deploy smoke, regression env) read it instead of repeating literals. Scaffolded plugin defaults and init templates deliberately keep frozen copies: a database location is pinned at init, it must not silently follow a framework upgrade.
+
+### Patch Changes
+
+- 812b98a: Drizzle-kit configs are static `dialect: "postgresql"` — remove `drizzleCredentialsFor`. drizzle-kit 0.31 has no `pglite` dialect (its config schema validates against `postgresql|mysql|sqlite|turso|singlestore|gel`), so the URL-scheme-driven dialect switch produced configs that failed drizzle-kit's own validation and never typechecked against `defineConfig`. Every workspace `drizzle.config.ts` now hardcodes `dialect: "postgresql"` and passes the resolved `*_DATABASE_URL` through as-is — any plain `postgres://` DSN works unmodified. The zero-config `pglite:.bos/db` default remains a runtime-driver concern only (boot migrations); `db:push`/`db:studio`/`db:migrate` require a configured postgres URL and fail loudly at connect time otherwise.
+
 ## 2.0.0-rc.30
 
 ### Patch Changes

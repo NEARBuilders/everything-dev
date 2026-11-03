@@ -4,16 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  type DatabaseBinding,
-  DatabaseBindings,
-  type DatabaseBindingsService,
-  DrizzleKit,
-  type DrizzleKitService,
-  makeDatabaseBindings,
-  makeDrizzleKitLive,
-  workspaceIdentityFromWorkspaceDir,
-} from "../../src/db";
+import type { DatabaseBinding, DatabaseBindingsService } from "../../src/db/bindings";
+import { DatabaseBindings, makeDatabaseBindings } from "../../src/db/bindings";
+import type { DrizzleKitService } from "../../src/db/drizzle-kit";
+import { DrizzleKit, makeDrizzleKitLive } from "../../src/db/drizzle-kit";
+import { workspaceIdentityFromWorkspaceDir } from "../../src/db/identity";
 import type { RuntimeConfig } from "../../src/types";
 
 const cleanups: Array<() => void> = [];

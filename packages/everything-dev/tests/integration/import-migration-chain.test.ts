@@ -7,7 +7,8 @@ import { Cause, Effect, Exit } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { importWorkspace } from "../../src/cli/import";
 import type { ImportOptions } from "../../src/contract";
-import { detectDrift, loadMigrations, type MigrationStorage, runMigrations } from "../../src/db";
+import type { MigrationStorage } from "../../src/db/core";
+import { detectDrift, loadMigrations, runMigrations } from "../../src/db/run-migrations";
 
 const WS = "plugins/demo";
 const M = `${WS}/src/db/migrations`;

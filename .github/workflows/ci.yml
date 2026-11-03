@@ -20,6 +20,7 @@ name: CI
 # `detect-changes`).
 on:
   pull_request:
+  merge_group:
   workflow_dispatch:
 
 concurrency:
@@ -86,41 +87,38 @@ jobs:
           # publish script's own builds and npm's registry checks are the
           # real gates on this plane (release.yml).
           #
-          # Queue guard: merge-queue batch runs expose the PR's real head
-          # branch but run on a `gh-readonly-queue/*` ref, so the branch
-          # name alone is not enough there — a batch containing a version
-          # PR must still validate its sibling PRs. On queue runs the fast
-          # path fires only when the *group-tree* diff (origin/main..HEAD)
-          # is release-mechanical-only (scripts/version-only-diff.mjs);
-          # mixed batches fall through to the diff arms.
+          # Queue guard: merge-queue batch runs fire `merge_group` events on
+          # a `gh-readonly-queue/*` ref — there is no pull_request payload
+          # there, so the branch-name fast path cannot fire. The fast path
+          # applies when the whole *group-tree* diff (base_sha..HEAD) is
+          # release-mechanical-only (scripts/version-only-diff.mjs); mixed
+          # batches fall through to the diff arms so sibling PRs still get
+          # validated.
           # HEAD_REF comes from a step env, not an inline template — branch
           # names are attacker-controlled (vetted by actionlint).
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            BASE_SHA="${{ github.event.merge_group.base_sha }}"
+            git fetch --no-tags origin "$BASE_SHA" --depth=1 >/dev/null 2>&1 || true
+            if node scripts/version-only-diff.mjs "$BASE_SHA" HEAD; then
+              emit_release_skip
+              echo "::notice::Queued batch — group diff is release-mechanical only: suites skipped"
+              exit 0
+            fi
+            echo "::notice::Queued batch carries non-release changes — running the full suite"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
             case "$HEAD_REF" in
               changeset-release/*)
-                case "$GITHUB_REF" in
-                  refs/heads/gh-readonly-queue/*)
-                    BASE_REF="origin/${{ github.base_ref }}"
-                    git fetch --no-tags origin "${{ github.base_ref }}" --depth=1 >/dev/null 2>&1
-                    if node scripts/version-only-diff.mjs "$BASE_REF" HEAD; then
-                      emit_release_skip
-                      echo "::notice::Queued changesets version PR ($HEAD_REF) — group diff is release-mechanical only: suites skipped"
-                      exit 0
-                    fi
-                    echo "::notice::Queued changeset-release batch carries non-release changes — running the full suite"
-                    ;;
-                  *)
-                    emit_release_skip
-                    echo "::notice::Changesets version PR ($HEAD_REF) — CI fast-path: suites skipped, release script owns this plane"
-                    exit 0
-                    ;;
-                esac
+                emit_release_skip
+                echo "::notice::Changesets version PR ($HEAD_REF) — CI fast-path: suites skipped, release script owns this plane"
+                exit 0
                 ;;
             esac
           fi
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch origin "${{ github.base_ref }}" --depth=1
             BASE="origin/${{ github.base_ref }}"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            BASE="${{ github.event.merge_group.base_sha }}"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             {
               echo "everything-dev=true"
@@ -1032,7 +1030,7 @@ jobs:
     name: Build regression fixture image
     needs: [detect-changes]
     if: >-
-      github.event_name != 'pull_request' &&
+      github.event_name == 'workflow_dispatch' &&
       (needs.detect-changes.outputs.regression-http == 'true' ||
        needs.detect-changes.outputs.regression-browser == 'true')
     runs-on: ubuntu-24.04

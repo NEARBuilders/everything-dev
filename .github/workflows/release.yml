@@ -22,7 +22,15 @@ on:
   # a dispatch instead of a push.
   workflow_dispatch:
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+# cancel-in-progress: the run for the newest tip supersedes older runs.
+# The race that motivated this: two "Process Changesets" legs force-pushed
+# the bot's version-PR branch concurrently ("failed to push some refs").
+# Cancellation mid-publish is recoverable by design — the publish script
+# stages exact version pins and re-publishing is registry-idempotent, so
+# the superseding run heals any partially-published set.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -117,6 +125,42 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
+      # Zero-touch releases: when this run opened/updated the version PR,
+      # queue its merge — auto-merge enqueues the pull request into the
+      # merge queue as soon as the fast-path `CI gate` goes green, so each
+      # merge that lands changesets publishes a new release minutes later
+      # without a human merge-button stop.
+      #
+      # Escape hatch: a maintainer labels the version PR `hold-release` to
+      # park a big scope in the same release (the PR object persists across
+      # bot updates, so the label sticks); remove the label and the next
+      # run engages the auto-merge. Merging remains possible by hand at any
+      # time — the label only turns off the automation.
+      - name: Engage release auto-merge
+        if: >-
+          steps.changesets.outputs.published != 'true' &&
+          steps.changesets.outputs.pullRequestNumber != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+        run: |
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER="$(gh pr list --state open --head changeset-release/main --json number --jq '.[0].number // empty')"
+          fi
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::notice::No open version PR — nothing to auto-merge"
+            exit 0
+          fi
+          LABELS="$(gh pr view "$PR_NUMBER" --json labels --jq '[.labels[].name] | join(",")')"
+          if echo ",$LABELS," | grep -q ',hold-release,'; then
+            echo "::notice::hold-release label present on #$PR_NUMBER — parking the release; merge manually when the big scope is ready (remove the label to re-engage automation)"
+            exit 0
+          fi
+          if gh pr merge "$PR_NUMBER" --auto --squash; then
+            echo "::notice::Auto-merge engaged on #$PR_NUMBER — the release ships once the queue merges it"
+          else
+            echo "::warning::Auto-merge unavailable for #$PR_NUMBER (merge-queue enqueue or default auto-merge needs attention) — merge manually: https://github.com/$GITHUB_REPOSITORY/pull/$PR_NUMBER"
+          fi
       # Version bumps structurally outdate the skills' library_version
       # markers, and the release event these packages create with
       # GITHUB_TOKEN is swallowed by GitHub's event-recursion guard — so

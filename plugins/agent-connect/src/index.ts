@@ -135,9 +135,7 @@ export default createPlugin({
       return Layer.mergeAll(
         clientLayer,
         grantVaultLayer(vaultSecret),
-        agentStoreLayer.pipe(
-          Layer.provide(DatabaseLive(config.secrets.AGENT_CONNECT_DATABASE_URL)),
-        ),
+        agentStoreLayer.pipe(Layer.provide(DatabaseLive(config))),
       );
     }),
 

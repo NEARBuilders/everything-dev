@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from "effect";
 import type { DbDoctorResult, DbRepairResult, DbStudioResult } from "../../contract";
-import { DatabaseBindings, DrizzleKit } from "../../db/index";
+import { DatabaseBindings } from "../../db/bindings";
+import { DrizzleKit } from "../../db/drizzle-kit";
 
 export class DbOpsService extends Context.Service<
   DbOpsService,

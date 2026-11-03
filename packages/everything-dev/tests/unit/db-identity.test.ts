@@ -2,12 +2,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { normalizeSlug } from "../../src/db/core";
 import {
   findWorkspaceDir,
-  normalizeSlug,
   workspaceIdentityFromModuleUrl,
   workspaceIdentityFromWorkspaceDir,
-} from "../../src/db";
+} from "../../src/db/identity";
 
 function makeWorkspace(name: string, structure: string[] = []): string {
   const dir = mkdtempSync(join(tmpdir(), "everything-dev-identity-"));
