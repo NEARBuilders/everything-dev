@@ -919,7 +919,7 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
     // the real train's atomic write: the immutable version slot + the pointer
     registry.set(entry!.key, JSON.parse(entry!.value));
     registry.set(
-      getPlatformVersionSlotKey(ACCOUNT, GATEWAY, RELEASE_VERSION),
+      platformVersionSlotKeyOf(ACCOUNT, GATEWAY, RELEASE_VERSION),
       JSON.parse(entry!.value),
     );
     registry.set(`apps/${ACCOUNT}/${GATEWAY}/bos.config.json`, {
