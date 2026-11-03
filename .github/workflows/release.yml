@@ -144,7 +144,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
         run: |
-          if ! [ -n "$PR_NUMBER" ]; then
+          if [ -z "$PR_NUMBER" ]; then
             PR_NUMBER="$(gh pr list --state open --head changeset-release/main --json number --jq '.[0].number // empty')"
           fi
           if [ -z "$PR_NUMBER" ]; then
