@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   findUnpublishedFrameworkPackages,
   npmVersionPublished,
+  waitForFrameworkPackages,
 } from "../../src/services/deploy/preflight";
 
 const fetchResponse = vi.hoisted(() => vi.fn());
@@ -89,5 +90,72 @@ describe("findUnpublishedFrameworkPackages", () => {
     });
     const unpublished = await findUnpublishedFrameworkPackages(configDir);
     expect(unpublished).toEqual([]);
+  });
+});
+
+describe("waitForFrameworkPackages", () => {
+  it("returns ok immediately when every workspace framework package is on npm", async () => {
+    const configDir = fixtureConfigDir({ "everything-dev": "2.0.0-rc.30" });
+    fetchResponse.mockResolvedValue({ status: 200 });
+    const sleep = vi.fn(async () => undefined);
+    const result = await waitForFrameworkPackages(configDir, { sleep });
+    expect(result).toEqual({ kind: "ok" });
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("waits out the Release train's publish and resumes once npm serves the version", async () => {
+    const configDir = fixtureConfigDir({ "everything-dev": "2.0.0-rc.30" });
+    let probes = 0;
+    let now = 0;
+    const result = await waitForFrameworkPackages(configDir, {
+      probe: async () => {
+        probes += 1;
+        now += 15_000;
+        return probes < 3 ? false : true;
+      },
+      sleep: async () => undefined,
+      now: () => now,
+      budgetMs: 45_000,
+      intervalMs: 15_000,
+    });
+    expect(probes).toBe(3);
+    expect(result).toEqual({ kind: "ok" });
+  });
+
+  it("times out with the ship-ahead-of-registry refusal when npm never serves the version", async () => {
+    const configDir = fixtureConfigDir({ "every-plugin": "3.0.0-rc.2" });
+    fetchResponse.mockResolvedValue({ status: 404 });
+    let now = 0;
+    const result = await waitForFrameworkPackages(configDir, {
+      sleep: async () => undefined,
+      now: () => now,
+      budgetMs: 30_000,
+      intervalMs: 15_000,
+      probe: async () => {
+        now += 15_000;
+        return false;
+      },
+    });
+    expect(result.kind).toBe("error");
+    expect(result).toMatchObject({
+      error: expect.stringContaining("every-plugin@3.0.0-rc.2 were not published to npm within"),
+    });
+  });
+
+  it("treats registry outages as unbeatable-down states, never blocking the deploy", async () => {
+    const configDir = fixtureConfigDir({ "everything-dev": "2.0.0-rc.30" });
+    fetchResponse.mockRejectedValue(new Error("registry down"));
+    const result = await waitForFrameworkPackages(configDir, {
+      sleep: async () => undefined,
+    });
+    expect(result).toEqual({ kind: "ok" });
+  });
+
+  it("skips the wait entirely when no framework sources are workspace-local", async () => {
+    const configDir = mkdtempSync(join(tmpdir(), "npm-wait-empty-"));
+    const sleep = vi.fn(async () => undefined);
+    const result = await waitForFrameworkPackages(configDir, { sleep });
+    expect(result).toEqual({ kind: "ok" });
+    expect(sleep).not.toHaveBeenCalled();
   });
 });
