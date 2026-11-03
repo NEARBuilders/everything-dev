@@ -4,8 +4,9 @@
  * the registry entry that rides the train's atomic FastKV write. Framework-
  * rooted deploys only — a child deploy publishes no release manifest.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { satisfiesConstraint } from "../../utils/semver";
 import { walkConfigSlots } from "../config-slots";
 import {
@@ -72,6 +73,85 @@ export function readEveryPluginVersion(configDir: string): string | undefined {
   return readWorkspacePackageVersion(configDir, "every-plugin");
 }
 
+const EXACT_SEMVER_SPEC = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const RANGE_SEMVER_SPEC = /^[\^~]\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * Resolved versions from the workspace lockfile's importers — the versions the
+ * release was actually built with. Importer entries carry peer suffixes
+ * (`0.45.4(pg@8.23.1)`); the first importer (sorted key order) naming the
+ * package wins, and only plain semver resolutions count (`link:` entries and
+ * peer-suffixed garbage fall through). Unreadable lockfile → empty map: every
+ * row then keeps its authored range, never a wrong exact pin.
+ */
+function readLockfileResolvedVersions(configDir: string): Map<string, string> {
+  const lockPath = join(configDir, "pnpm-lock.yaml");
+  if (!existsSync(lockPath)) return new Map();
+  try {
+    const lock = parseYaml(readFileSync(lockPath, "utf-8")) as {
+      importers?: Record<
+        string,
+        {
+          dependencies?: Record<string, { version?: string }>;
+          devDependencies?: Record<string, { version?: string }>;
+          optionalDependencies?: Record<string, { version?: string }>;
+        }
+      >;
+    };
+    const versions = new Map<string, string>();
+    for (const importerKey of Object.keys(lock.importers ?? {}).sort()) {
+      const importer = lock.importers?.[importerKey];
+      if (!importer) continue;
+      for (const field of [
+        importer.dependencies,
+        importer.devDependencies,
+        importer.optionalDependencies,
+      ]) {
+        if (!field) continue;
+        for (const [name, entry] of Object.entries(field)) {
+          if (versions.has(name)) continue;
+          const version = entry?.version?.split("(")[0] ?? "";
+          if (EXACT_SEMVER_SPEC.test(version)) versions.set(name, version);
+        }
+      }
+    }
+    return versions;
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * The release catalog with every row frozen to the exact version this release
+ * was built with. Children install these rows verbatim (`syncRootCatalogWithParent`
+ * → `pnpm install --force`), so a range row here floats the child's install past
+ * the release its platform pin names — the mixed tree behind stale template bytes
+ * failing against newer framework packages (the removed `drizzleCredentialsFor` /
+ * `unwrapDatabaseError` breakage). Resolution order: a workspace package's own
+ * version for rows naming local members (`workspace:^` consumers), the lockfile
+ * resolution for range rows, and rows whose exact version is unknowable (git
+ * specs, ranges missing from the lockfile) stay verbatim — a kept range satisfies
+ * the truth gate's constraint check, a wrong exact pin would not.
+ */
+export function resolveExactCatalog(configDir: string): Record<string, string> {
+  const catalog = readWorkspaceCatalog(configDir);
+  const lockfile = readLockfileResolvedVersions(configDir);
+  const resolved: Record<string, string> = {};
+  for (const [name, spec] of Object.entries(catalog)) {
+    const workspaceVersion = readWorkspacePackageVersion(configDir, name);
+    if (workspaceVersion) {
+      resolved[name] = workspaceVersion;
+      continue;
+    }
+    if (EXACT_SEMVER_SPEC.test(spec) || !RANGE_SEMVER_SPEC.test(spec)) {
+      resolved[name] = spec;
+      continue;
+    }
+    resolved[name] = lockfile.get(name) ?? spec;
+  }
+  return resolved;
+}
+
 export interface PlatformManifestPublishEntry {
   key: string;
   value: string;
@@ -101,7 +181,7 @@ export function composePlatformManifestPublishEntry(opts: {
     everyPluginVersion,
     ...(opts.gitSha ? { gitSha: opts.gitSha } : {}),
     imageRef: opts.imageRef ?? PLATFORM_IMAGE_REF,
-    catalog: readWorkspaceCatalog(opts.configDir),
+    catalog: resolveExactCatalog(opts.configDir),
     templateInventory: computeTemplateInventory(opts.configDir),
     compatMinChild: opts.previousFrameworkVersion ?? frameworkVersion,
     ...(opts.publishPayload ? { slots: releaseSlotMap(opts.publishPayload) } : {}),
