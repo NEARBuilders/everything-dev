@@ -2,7 +2,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { readSessionHandle } from "../auth/session";
 import { auditSessionPlane } from "../resolution/plane-audit";
 import { type PlaneAuditLine, slotPublishKey } from "../resolution/release-plane";
 import type { ResolutionSession } from "../resolution/session";

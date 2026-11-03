@@ -30,7 +30,6 @@ import {
   detectOwnedDivergentKeys,
   realignOwnedSlots,
 } from "../../src/services/scaffold/upgrade-realign";
-import { versionManifestText } from "../helpers/version-manifests";
 
 const tempDirs: string[] = [];
 let server: Server;
@@ -60,7 +59,7 @@ const tempChild = (files: Record<string, string>): string => {
 };
 
 beforeAll(async () => {
-  server = createServer((req, res) => {
+  server = createServer((_req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(manifestBody(BUILT_SHARED));
   });

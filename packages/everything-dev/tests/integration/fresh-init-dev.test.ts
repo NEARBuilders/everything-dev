@@ -54,18 +54,20 @@ const registryPassthroughFetch: typeof globalThis.fetch = (input, init) => {
   const parsed = new URL(url);
   if (parsed.hostname !== FASTKV_MAINNET_HOST) return hermeticFetch(input, init);
   return new Promise<Response>((resolve, reject) => {
-    https.get(url, { headers: { accept: "application/json" } }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        resolve(
-          new Response(Buffer.concat(chunks), {
-            status: res.statusCode ?? 500,
-            statusText: res.statusMessage ?? "",
-          }),
-        );
-      });
-    }).on("error", reject);
+    https
+      .get(url, { headers: { accept: "application/json" } }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          resolve(
+            new Response(Buffer.concat(chunks), {
+              status: res.statusCode ?? 500,
+              statusText: res.statusMessage ?? "",
+            }),
+          );
+        });
+      })
+      .on("error", reject);
   });
 };
 

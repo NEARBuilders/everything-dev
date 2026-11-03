@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { DevFlowService } from "../services/dev/flow";
 import { chainHeadPinLagNotice } from "../services/platform/manifest";
 import { auditSessionPlane, type PlaneAuditLine } from "../services/resolution/plane-audit";
-import { type ResolutionSession, ResolutionSessionService } from "../services/resolution/session";
+import { ResolutionSessionService } from "../services/resolution/session";
 import type { BosBuilder } from "./shared";
 
 const renderAuditLines = (lines: readonly PlaneAuditLine[]): void => {
