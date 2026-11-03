@@ -1,11 +1,16 @@
 import { ORPCError } from "@orpc/server";
 import { Context, Effect, Layer } from "effect";
 import { createPlugin } from "every-plugin";
+import { RegistryClient } from "everything-dev/registry";
 import { z } from "zod";
 import { contract } from "./contract";
 import type { AuthPluginContext as AuthContext } from "./lib/auth-types.gen";
 import { ContextSchema } from "./lib/context";
-import { RegistryConfigService } from "./services/fastkv";
+import {
+  bindRegistryClient,
+  DEFAULT_REGISTRY_NAMESPACE,
+  RegistryConfigService,
+} from "./services/config";
 import { RegistryService } from "./services/registry";
 
 export default createPlugin({
@@ -23,9 +28,11 @@ export default createPlugin({
 
   contract,
 
+  servicesTag: RegistryClient,
+
   initialize: (config) =>
     Effect.gen(function* () {
-      const RegistryConfig = RegistryConfigService.Live({
+      const registryConfig = RegistryConfigService.Live({
         namespace: config.variables.registryNamespace,
         relayAccountId: config.secrets.REGISTRY_RELAY_ACCOUNT_ID,
         relayPrivateKey: config.secrets.REGISTRY_RELAY_PRIVATE_KEY,
@@ -33,7 +40,13 @@ export default createPlugin({
       });
 
       yield* Effect.logInfo("[Registry] Services Initialized");
-      return RegistryService.Live.pipe(Layer.provide(RegistryConfig));
+      return Layer.mergeAll(
+        RegistryService.Live.pipe(Layer.provide(registryConfig)),
+        Layer.succeed(
+          RegistryClient,
+          bindRegistryClient(config.variables.registryNamespace ?? DEFAULT_REGISTRY_NAMESPACE),
+        ),
+      );
     }),
 
   createRouter: (builder) => {
@@ -106,6 +119,30 @@ export default createPlugin({
       getRegistryStatus: builder.getRegistryStatus.handler(async ({ context }) => {
         const registryService = Context.get(context["effect/context"], RegistryService);
         return registryService.getRegistryStatus();
+      }),
+
+      getManifest: builder.getManifest.handler(async ({ input, context, errors }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        try {
+          return await registryService.getManifest(input);
+        } catch (error) {
+          throw errors.BAD_REQUEST({
+            message: error instanceof Error ? error.message : "Invalid runtime ref",
+            data: {},
+          });
+        }
+      }),
+
+      resolveRuntime: builder.resolveRuntime.handler(async ({ input, context, errors }) => {
+        const registryService = Context.get(context["effect/context"], RegistryService);
+        try {
+          return await registryService.resolveRuntime(input);
+        } catch (error) {
+          throw errors.BAD_REQUEST({
+            message: error instanceof Error ? error.message : "Resolution failed",
+            data: {},
+          });
+        }
       }),
 
       prepareRegistryMetadataWrite: builder.prepareRegistryMetadataWrite.handler(

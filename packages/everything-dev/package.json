@@ -63,6 +63,15 @@
       "import": "./dist/services/registry/dag.mjs",
       "require": "./dist/services/registry/dag.cjs"
     },
+    "./registry": {
+      "development": {
+        "types": "./src/services/registry/index.ts",
+        "import": "./src/services/registry/index.ts"
+      },
+      "types": "./dist/services/registry/index.d.mts",
+      "import": "./dist/services/registry/index.mjs",
+      "require": "./dist/services/registry/index.cjs"
+    },
     "./hosting": {
       "development": {
         "types": "./src/services/hosting/adapter.ts",

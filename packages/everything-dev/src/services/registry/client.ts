@@ -42,7 +42,7 @@ export class RegistryError extends Data.TaggedError("RegistryError")<{
   readonly kind: "absent" | "unreachable";
   readonly cause?: unknown;
 }> {
-  get message(): string {
+  override get message(): string {
     return this.kind === "absent"
       ? `Not published in the registry: ${this.key}`
       : `Registry read failed: ${this.key}`;
@@ -231,6 +231,12 @@ async function readHistory(
       };
     })
     .sort((a, b) => b.blockHeight - a.blockHeight);
+}
+
+/** The canonical latest-state URL for a key — for display and external
+ * links (the client owns all URL derivation; nothing else builds one). */
+export function latestUrlFor(key: RegistryKey, opts?: { registry?: string }): string {
+  return buildUrl(key, "latest", opts);
 }
 
 /** The plain-function seam — module is the implementation, tag is the seam. */

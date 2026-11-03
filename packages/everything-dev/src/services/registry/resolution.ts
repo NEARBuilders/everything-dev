@@ -125,7 +125,9 @@ export interface DeadEndContext {
   lastWrite?: string;
 }
 
-export interface ResolutionContext {
+/** A type alias (not an interface) so the shape stays assignable to
+ * `Record<string, unknown>` across the RPC contract boundary. */
+export type ResolutionContext = {
   /** child → root, nearest first — the chain that was scanned */
   chain: readonly RuntimeRef[];
   tagServes: TagServes;
@@ -134,7 +136,7 @@ export interface ResolutionContext {
   /** set when the chain terminates at a runtime that publishes no manifest
    * legs — "is this the runtime you meant?" */
   deadEnd?: DeadEndContext;
-}
+};
 
 export type ResolutionOutcome =
   | {
