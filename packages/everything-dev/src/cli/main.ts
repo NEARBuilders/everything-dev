@@ -98,7 +98,9 @@ const cliProgram: Effect.Effect<void, CliError> = Effect.tryPromise({
     const displayVersion = edResolved?.installedVersion
       ? `${edResolved.installedVersion}${edResolved.isLinked ? " (linked)" : ""}`
       : undefined;
-    if (!envOf("BOS_NO_BANNER")) {
+    // --json promises machine-parseable stdout — the banner would corrupt it.
+    const jsonOutput = (parsedInput as { json?: unknown }).json === true;
+    if (!jsonOutput && !envOf("BOS_NO_BANNER")) {
       printBanner("everything-dev", displayVersion);
     }
 
