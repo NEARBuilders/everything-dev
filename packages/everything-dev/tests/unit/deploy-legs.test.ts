@@ -329,8 +329,15 @@ describe("resolveRailwayStep", () => {
 
 describe("resolveChildImagePin", () => {
   const manifest = {
+    schemaVersion: 1,
+    kind: "everything-dev/platform-manifest",
     frameworkVersion: "2.0.0-rc.14",
+    everyPluginVersion: "1.0.0",
     image: { ref: "ghcr.io/nearbuilders/everything-dev", tags: ["v2.0.0-rc.14"] },
+    catalog: {},
+    sharedDeps: {},
+    templateInventory: [],
+    compat: { minChild: "1.0.0" },
   };
 
   it("resolves the manifest's ref:tag and the registry digest", async () => {
