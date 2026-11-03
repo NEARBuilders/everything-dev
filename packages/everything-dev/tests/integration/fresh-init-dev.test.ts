@@ -1,7 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import https from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   buildInitPatterns,
   copyFilteredFiles,
@@ -31,11 +32,42 @@ import { runCommand, writeGeneratedAuthStubs } from "./typecheck-utils";
  * consumer, and goes red when the latest published rc doesn't.
  *
  * Runs only in CI: it installs the real published packages from npm and
- * resolves the real parent chain over the registry.
+ * resolves the real parent chain over the registry. The hermetic fetch
+ * guard would otherwise block those in-process registry reads — the seam
+ * is stubbed per the guard's protocol: the FastKV mainnet host passes
+ * through to a real request (this gate's subject IS the published
+ * release), every other non-loopback URL keeps the guard's behavior.
  */
 
 const PORTS = { host: 4270, api: 4271, auth: 4272, ui: 4273, plugins: 4280 };
 const REPO_ROOT = join(import.meta.dirname, "../../../../");
+/** The production root runtime the consumer chain resolves against — the
+ * platform manifest publishes at the root's `domain`, not its staging
+ * domain (`dev.everything.dev` carries no release manifest). */
+const ROOT_EXTENDS = "bos://dev.everything.near/everything.dev";
+const FASTKV_MAINNET_HOST = "kv.main.fastnear.com";
+
+const hermeticFetch = globalThis.fetch;
+
+const registryPassthroughFetch: typeof globalThis.fetch = (input, init) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  const parsed = new URL(url);
+  if (parsed.hostname !== FASTKV_MAINNET_HOST) return hermeticFetch(input, init);
+  return new Promise<Response>((resolve, reject) => {
+    https.get(url, { headers: { accept: "application/json" } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => {
+        resolve(
+          new Response(Buffer.concat(chunks), {
+            status: res.statusCode ?? 500,
+            statusText: res.statusMessage ?? "",
+          }),
+        );
+      });
+    }).on("error", reject);
+  });
+};
 
 describe.skipIf(process.env.CI !== "true")(
   "fresh init — full dev run (the consumer rc gate)",
@@ -44,24 +76,30 @@ describe.skipIf(process.env.CI !== "true")(
     let published: ResolvedPlatformManifest;
 
     beforeAll(async () => {
+      vi.stubGlobal("fetch", registryPassthroughFetch);
+
       testDir = mkdtempSync(join(tmpdir(), "bos-fresh-init-dev-"));
 
       const patterns = buildInitPatterns(["ui", "api", "plugins"], ["template"], {
         template: "_template",
       });
       await copyFilteredFiles(REPO_ROOT, testDir, patterns, {
-        overrides: ["ui", "api", "plugins"],
+        overrides: ["ui", "api"],
         plugins: ["template"],
       });
       writeChildConfigFixture(testDir, ["ui", "api"], {
         template: { development: "local:plugins/_template" },
       });
+      // A real scaffolded child declares its extends — the resolution walk
+      // (and `bos dev`'s release-plane audit) read it from the config.
+      const configPath = join(testDir, "bos.config.json");
+      const fixture = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+      fixture.extends = ROOT_EXTENDS;
+      writeFileSync(configPath, JSON.stringify(fixture, null, 2));
 
       // The pin + catalog come from the published release — the real bos init
       // pathway (no local-tree catalog source).
-      const localConfig = JSON.parse(
-        readFileSync(join(testDir, "bos.config.json"), "utf8"),
-      ) as Record<string, unknown>;
+      const localConfig = fixture;
       const resolved = await resolvePlatformManifest({ configDir: testDir, localConfig });
       if (!resolved) {
         throw new Error(
@@ -72,7 +110,7 @@ describe.skipIf(process.env.CI !== "true")(
 
       await personalizeConfig(testDir, {
         extendsAccount: "dev.everything.near",
-        extendsGateway: "dev.everything.dev",
+        extendsGateway: "everything.dev",
         account: "test.near",
         domain: "test.dev",
         platform: published.manifest.frameworkVersion,
@@ -86,6 +124,7 @@ describe.skipIf(process.env.CI !== "true")(
     }, 600_000);
 
     afterAll(() => {
+      vi.unstubAllGlobals();
       rmSync(testDir, { recursive: true, force: true });
     }, 120_000);
 
