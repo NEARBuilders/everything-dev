@@ -25,7 +25,7 @@ export default createPlugin({
   initialize: (config) =>
     Effect.gen(function* () {
       yield* Effect.logInfo("[API] Initialized");
-      return DatabaseLive(config.secrets.API_DATABASE_URL);
+      return DatabaseLive(config);
     }),
 
   createRouter: (builder) => {
