@@ -4,6 +4,7 @@ import { glob } from "glob";
 import { readAuthoredConfigInput } from "../../config";
 import { getExtendsRef } from "../../utils/bos-ref";
 import { readJsonFile } from "../../utils/json-file";
+import { satisfiesConstraint } from "../../utils/semver";
 import { readInstalledFrameworkVersion } from "../framework-version";
 import { readWorkspaceCatalog, writeWorkspaceCatalog } from "../workspace/catalog";
 import { findWorkspaceRoot } from "../workspace/workspace";
@@ -238,6 +239,34 @@ export function readInstalledVersion(projectDir: string, packageName: string): s
   return readInstalledFrameworkVersion(projectDir, packageName);
 }
 
+/**
+ * The post-install coherence gate: npm resolves catalog rows at install time,
+ * so a floating framework row can land a version outside the release the
+ * upgrade targets — the mixed tree whose template bytes were synced from an
+ * older release tag than the packages just installed (the stale
+ * drizzle-config / removed db-export breakage). Exact release rows violate on
+ * any drift; legacy range rows only violate when the installed version escapes
+ * the range. Returns the failure message, or undefined when coherent.
+ */
+export function installDriftError(
+  installed: Record<string, string | undefined>,
+  targets: Record<string, string | undefined>,
+): string | undefined {
+  const drifted = FRAMEWORK_PACKAGES.flatMap((name) => {
+    const version = installed[name];
+    const target = targets[name];
+    if (!version || !target || satisfiesConstraint(version, target)) return [];
+    return [`${name} installed ${version} vs release target ${target}`];
+  });
+  if (drifted.length === 0) return undefined;
+  return (
+    "Installed framework versions disagree with the release this upgrade targets — " +
+    "the install resolved past the pinned release, which leaves template bytes built " +
+    `for an older framework. Drifted: ${drifted.join(", ")}. Re-run bos upgrade once ` +
+    "the parent chain republishes this release's exact catalog rows."
+  );
+}
+
 export function setCatalogRef(
   field: Record<string, string> | undefined,
   packageName: string,
@@ -330,6 +359,15 @@ export async function migrateChildRootPackageJson(projectDir: string): Promise<b
       delete scripts[obsoleteScript];
       changed = true;
     }
+  }
+  // The retired postinstall typegen (`bos types gen || true`) crashes on fresh
+  // clones — it runs before the child's local workspace packages are built, and
+  // `bos dev`/`build`/`typecheck` regenerate types anyway. Value-matched so a
+  // child's own postinstall survives the migration.
+  const legacyPostinstall = scripts.postinstall;
+  if (typeof legacyPostinstall === "string" && legacyPostinstall.includes("bos types gen")) {
+    delete scripts.postinstall;
+    changed = true;
   }
   if (changed) {
     writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);

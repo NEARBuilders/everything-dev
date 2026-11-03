@@ -7,6 +7,7 @@ import {
   deriveImageRefFromPlatformManifest,
   PLATFORM_IMAGE_REF,
   platformTruthViolations,
+  resolveExactCatalog,
 } from "../../src/services/deploy/platform-manifest";
 import { PlatformReleaseManifestSchema } from "../../src/services/platform/manifest";
 
@@ -90,6 +91,75 @@ describe("composePlatformManifestPublishEntry", () => {
       gateway: "citynode",
     });
     expect(entry).toBeNull();
+  });
+});
+
+describe("resolveExactCatalog", () => {
+  function scaffoldExactCatalogRoot(): string {
+    const dir = scaffoldFrameworkRoot();
+    mkdirSync(join(tmpRoot, "packages", "better-near-auth"), { recursive: true });
+    writeFileSync(
+      join(tmpRoot, "packages", "better-near-auth", "package.json"),
+      `${JSON.stringify({ name: "better-near-auth", version: "2.0.0-rc.6" })}\n`,
+    );
+    writeFileSync(
+      join(tmpRoot, "pnpm-workspace.yaml"),
+      [
+        "packages:",
+        "  - packages/*",
+        "",
+        "catalog:",
+        '  "everything-dev": "^2.0.0-rc.14"',
+        '  "every-plugin": "^3.0.0-rc.9"',
+        '  "better-near-auth": "^2.0.0-rc.6"',
+        '  react: "^19.2.0"',
+        '  effect: "4.0.0-rc.112"',
+        '  "@hot-labs/near-connect": "elliotBraem/near-connect#v0.12.0-fork.3"',
+        '  "not-in-lockfile": "^1.2.3"',
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(tmpRoot, "pnpm-lock.yaml"),
+      [
+        "lockfileVersion: '9.0'",
+        "",
+        "importers:",
+        "",
+        "  .:",
+        "",
+        "  api:",
+        "    dependencies:",
+        "      react:",
+        "        specifier: 'catalog:'",
+        "        version: 19.2.9(react-dom@19.2.9)",
+        "",
+      ].join("\n"),
+    );
+    return dir;
+  }
+
+  it("freezes workspace rows, lockfile-resolves ranges, keeps unknowable rows", () => {
+    const catalog = resolveExactCatalog(scaffoldExactCatalogRoot());
+    expect(catalog["everything-dev"]).toBe("2.0.0-rc.14");
+    expect(catalog["every-plugin"]).toBe("3.0.0-rc.9");
+    expect(catalog["better-near-auth"]).toBe("2.0.0-rc.6");
+    expect(catalog.react).toBe("19.2.9");
+    expect(catalog.effect).toBe("4.0.0-rc.112");
+    expect(catalog["@hot-labs/near-connect"]).toBe("elliotBraem/near-connect#v0.12.0-fork.3");
+    expect(catalog["not-in-lockfile"]).toBe("^1.2.3");
+  });
+
+  it("the composed release manifest carries the exact rows — children can no longer float", () => {
+    const entry = composePlatformManifestPublishEntry({
+      configDir: scaffoldExactCatalogRoot(),
+      account: "root.near",
+      gateway: "root",
+    });
+    const parsed = PlatformReleaseManifestSchema.parse(JSON.parse(entry!.value));
+    expect(parsed.catalog["everything-dev"]).toBe("2.0.0-rc.14");
+    expect(parsed.catalog.react).toBe("19.2.9");
+    expect(parsed.catalog["not-in-lockfile"]).toBe("^1.2.3");
   });
 });
 

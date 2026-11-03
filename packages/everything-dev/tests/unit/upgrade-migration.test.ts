@@ -123,6 +123,48 @@ describe("migrateChildRootPackageJson", () => {
     expect(await migrateChildRootPackageJson(dir)).toBe(false);
   });
 
+  it("scrubs the retired postinstall typegen by value", async () => {
+    const dir = makeProjectDir();
+    writeProject(
+      dir,
+      { extends: "bos://dev.everything.near/everything.dev", account: "test.near" },
+      {
+        private: true,
+        type: "module",
+        scripts: {
+          dev: "bos dev",
+          postinstall: "node node_modules/.bin/bos types gen || true",
+        },
+      },
+    );
+
+    expect(await migrateChildRootPackageJson(dir)).toBe(true);
+
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    expect((pkg.scripts as Record<string, unknown>).postinstall).toBeUndefined();
+    expect((pkg.scripts as Record<string, unknown>).dev).toBe("bos dev");
+  });
+
+  it("keeps a child-authored postinstall the framework did not scaffold", async () => {
+    const dir = makeProjectDir();
+    writeProject(
+      dir,
+      { extends: "bos://dev.everything.near/everything.dev", account: "test.near" },
+      { private: true, type: "module", scripts: { postinstall: "husky install" } },
+    );
+
+    await migrateChildRootPackageJson(dir);
+
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    expect((pkg.scripts as Record<string, unknown>).postinstall).toBe("husky install");
+  });
+
   it("returns false without a bos:// extends — parent wiring is not the CLI's business", async () => {
     const dir = makeProjectDir();
     writeProject(dir, { account: "test.near" }, { private: true, type: "module" });

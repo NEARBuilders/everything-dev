@@ -5,11 +5,16 @@ import type { PhaseTiming, UpgradeOptions, UpgradeResult } from "../../contract"
 import { formatUnknownError } from "../../utils/errors";
 import { saveBosConfig } from "../../utils/save-config";
 import { timePhase } from "../../utils/timing";
+import { readNodeModulesVersion } from "../framework-version";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import { runTypesGen } from "./init";
 import { syncTemplate } from "./sync";
-import { migrateChildRootPackageJson } from "./upgrade-packages";
+import {
+  FRAMEWORK_PACKAGES,
+  installDriftError,
+  migrateChildRootPackageJson,
+} from "./upgrade-packages";
 import {
   detectOwnedDivergentKeys,
   type OwnedRealignment,
@@ -119,6 +124,17 @@ export async function runMigrationPhase(
   scope: MigrationScope,
 ): Promise<UpgradeResult> {
   const timings: PhaseTiming[] = [];
+
+  // The catalog-preferring resolution would read the specifier back as the
+  // installed version — exactly the blind spot this gate exists for. Read the
+  // real node_modules install.
+  const drift = installDriftError(
+    Object.fromEntries(
+      FRAMEWORK_PACKAGES.map((name) => [name, readNodeModulesVersion(projectDir, name)]),
+    ),
+    Object.fromEntries(FRAMEWORK_PACKAGES.map((name) => [name, parentSource.catalog[name]])),
+  );
+  if (drift) throw new Error(drift);
 
   const platformPinned = await timePhase(timings, "stamp platform pin", () =>
     applyPlatformPin(projectDir, parentSource),

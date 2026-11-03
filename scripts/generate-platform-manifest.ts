@@ -5,12 +5,14 @@
  * packages/everything-dev/dist — the runtime stage copies that package
  * wholesale, and `bos platform manifest` reads it from the known path.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import process from "node:process";
-import { parse } from "yaml";
 import { readFrameworkVersion } from "../packages/everything-dev/src/services/deploy/image";
-import { readEveryPluginVersion } from "../packages/everything-dev/src/services/deploy/platform-manifest";
+import {
+  readEveryPluginVersion,
+  resolveExactCatalog,
+} from "../packages/everything-dev/src/services/deploy/platform-manifest";
 import {
   composePlatformReleaseManifest,
   computeTemplateInventory,
@@ -26,16 +28,12 @@ if (!frameworkVersion || !everyPluginVersion) {
   );
 }
 
-const workspaceYaml = parse(readFileSync(join(configDir, "pnpm-workspace.yaml"), "utf-8")) as {
-  catalog?: Record<string, string>;
-};
-
 const manifest = composePlatformReleaseManifest({
   frameworkVersion,
   everyPluginVersion,
   gitSha: process.env.BOS_GIT_SHA || undefined,
   imageRef: "ghcr.io/nearbuilders/everything-dev",
-  catalog: workspaceYaml.catalog ?? {},
+  catalog: resolveExactCatalog(configDir),
   templateInventory: computeTemplateInventory(configDir),
   compatMinChild: frameworkVersion,
 });
