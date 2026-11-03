@@ -2,12 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  bindingEnv,
-  drizzleCredentialsFor,
-  resolveDatabaseUrl,
-  workspaceIdentityFromWorkspaceDir,
-} from "../../src/db";
+import { bindingEnv, resolveDatabaseUrl, workspaceIdentityFromWorkspaceDir } from "../../src/db";
 
 function makeWorkspace(): { workspaceDir: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), "everything-dev-binding-"));
@@ -63,22 +58,6 @@ describe("resolveDatabaseUrl", () => {
     } finally {
       cleanup();
     }
-  });
-});
-
-describe("drizzleCredentialsFor", () => {
-  it("selects the pglite dialect and data-dir driver tag for pglite URLs", () => {
-    expect(drizzleCredentialsFor("pglite:.bos/db")).toEqual({
-      dialect: "pglite",
-      dbCredentials: { driver: "pglite", url: ".bos/db" },
-    });
-  });
-
-  it("selects the postgresql dialect with a plain DSN otherwise", () => {
-    expect(drizzleCredentialsFor("postgres://u:p@localhost:5432/db")).toEqual({
-      dialect: "postgresql",
-      dbCredentials: { url: "postgres://u:p@localhost:5432/db" },
-    });
   });
 });
 

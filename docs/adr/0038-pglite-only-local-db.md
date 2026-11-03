@@ -48,15 +48,21 @@ retired entirely (dev and test).**
 - **Port conflicts are structurally impossible** for the local default — the
   collision class this ADR exists for cannot recur.
 - **Concurrent access works out of the box.** pglite ≥ 0.4.6 supports multiple
-  instances per data dir across processes (multi-worker file locking),
-  verified empirically in this repo: a second process reads what a first
-  wrote, and `db:studio`/`db:migrate` run while `bos dev` holds the dir. Two
-  dev sessions in one repo share data rather than failing — heavy concurrent
-  writers queue on the file lock, which is acceptable at dev scale.
-- **drizzle-kit needs the `pglite` dialect** for `pglite:` URLs: configs now
-  select dialect/credentials via `drizzleCredentialsFor(url)` (`dialect:
-  "pglite"` + `driver: "pglite"`, data-dir path), plain postgres URLs keep
-  `dialect: "postgresql"`.
+  instances per data dir across processes (multi-worker file locking):
+  a second process reads what a first wrote, and tools can run while `bos dev`
+  holds the dir. Two dev sessions in one repo share data rather than failing —
+  heavy concurrent writers queue on the file lock, which is acceptable at dev
+  scale.
+- **drizzle-kit configs are static postgres.** The original version of this ADR
+  claimed drizzle-kit needs a `pglite` dialect — wrong: drizzle-kit 0.31
+  validates `dialect` against `postgresql|mysql|sqlite|turso|singlestore|gel`
+  and PGlite is not among them. Every workspace `drizzle.config.ts` hardcodes
+  `dialect: "postgresql"` with `dbCredentials: { url }` taken from the
+  environment — any `postgres://` DSN works unmodified. The zero-config
+  `pglite:.bos/db` default is a runtime-driver concern only (boot migrations
+  via `createDatabaseDriver`); drizzle-kit commands (`db:push`/`db:studio`/
+  `db:migrate`) require a postgres URL and fail loudly at connect time
+  otherwise.
 - **The driver creates the data dir recursively.** PGlite mkdirs only the leaf
   component; a missing `.bos/` prefix previously failed ENOENT at boot.
 - **Seek-time / heavy-query performance** is WASM-bound — acceptable for dev
