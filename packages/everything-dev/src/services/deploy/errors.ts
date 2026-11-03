@@ -41,6 +41,9 @@ export interface PublishTrainOk {
   /** The release classifier's decision (#571/#573) — threads to the image
    * leg so version tags move on the release deploy only. */
   releaseLeg?: boolean;
+  /** The framework version the release leg published (release trains only)
+   * — the post-publish smoke's manifest leg verifies the pointer serves it. */
+  frameworkVersion?: string;
 }
 
 /** The wire shape the train's caller sees on terminal failure. */

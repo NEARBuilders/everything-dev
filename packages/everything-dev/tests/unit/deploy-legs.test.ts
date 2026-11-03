@@ -12,6 +12,15 @@ import {
   runPostPublishLegs,
 } from "../../src/services/deploy/legs";
 
+const { readPlatformPointerMock } = vi.hoisted(() => ({
+  readPlatformPointerMock: vi.fn<() => Promise<unknown>>(),
+}));
+
+vi.mock("../../src/services/registry/pointer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/registry/pointer")>();
+  return { ...actual, readPlatformPointer: readPlatformPointerMock };
+});
+
 const digest64 = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const imageRef = { image: "ghcr.io/nearbuilders/everything-dev", source: "repository" as const };
 const pin: ChildImagePin = {
@@ -448,6 +457,67 @@ describe("runPostPublishLegs", () => {
       configDir: sessionRoot,
     });
     expect(outcome.legs.railway?.detail).toBe(`pinned ${pin.image}:${pin.tag}, redeployed app`);
+  });
+
+  it("the manifest leg: a release pointer serving the published version passes and boots", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-manifest-ok-"));
+    vi.stubEnv("BOS_IMAGE", "");
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    readPlatformPointerMock.mockResolvedValue({ frameworkVersion: "2.0.0-rc.14" });
+    const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: true,
+        runtimeConfig: null,
+        account: "acct",
+        domain: "gw",
+        localConfig: { extends: "bos://acct/gateway" },
+        release: true,
+        publishedFrameworkVersion: "2.0.0-rc.14",
+      },
+      deps,
+    );
+
+    expect(readPlatformPointerMock).toHaveBeenCalledWith("acct", "gw", undefined);
+    expect(deps.runSmoke).toHaveBeenCalled();
+    expect(outcome.failure).toBeUndefined();
+    expect(outcome.legs.smoke?.status).toBe("ok");
+  });
+
+  it("the manifest leg: a release pointer serving a foreign version fails the smoke and rolls back", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-manifest-red-"));
+    vi.stubEnv("BOS_IMAGE", "");
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    readPlatformPointerMock.mockResolvedValue({ frameworkVersion: "1.9.9" });
+    const deps = {
+      ...baseDeps(),
+      resolveChildImagePin: vi.fn().mockResolvedValue(pin),
+      rollbackToPreviousSnapshot: vi.fn().mockResolvedValue({ ok: true, blockHeight: 42 }),
+    };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: true,
+        runtimeConfig: null,
+        account: "acct",
+        domain: "gw",
+        localConfig: { extends: "bos://acct/gateway" },
+        release: true,
+        publishedFrameworkVersion: "2.0.0-rc.14",
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toContain("release pointer serves 1.9.9, expected 2.0.0-rc.14");
+    expect(outcome.failure).toContain("config rolled back to block 42");
+    expect(deps.runSmoke).not.toHaveBeenCalled();
+    expect(deps.rollbackToPreviousSnapshot).toHaveBeenCalled();
+    expect(outcome.legs.smoke?.status).toBe("failed");
   });
 
   it("fails before any leg when the pin cannot resolve", async () => {

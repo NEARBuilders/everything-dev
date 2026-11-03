@@ -3,6 +3,7 @@ import { join } from "node:path";
 import process from "node:process";
 import type { DeployLegOutcome } from "../../contract";
 import { colors, icons } from "../../utils/theme";
+import { readPlatformPointer } from "../registry/pointer";
 import {
   buildAndPushImage,
   deployImageToRailway,
@@ -303,6 +304,9 @@ export interface PostPublishLegsInput {
   /** The train's release decision (#571/#573): version + floating image
    * tags move on the release deploy only. */
   release?: boolean;
+  /** The framework version the release leg just published (release trains
+   * only) — the smoke's manifest leg verifies the pointer serves it. */
+  publishedFrameworkVersion?: string;
 }
 
 export interface PostPublishLegsOutcome {
@@ -479,17 +483,56 @@ export async function runPostPublishLegs(
       } else {
         console.log();
         console.log(colors.cyan("  ▶ Post-publish smoke (boot gate)"));
-        const smokeResult = await deps.runSmoke({
-          image: ref,
-          account: input.account,
-          gateway: input.domain,
-        });
-        if (!smokeResult.ok) {
-          const cause = smokeResult.error ?? "unknown failure";
+        // The manifest leg (sprint registry-primitive 05): on a release
+        // train the pointer must already serve the version this train just
+        // published — one registry read-back before the boot gate. A
+        // mismatch fails the smoke exactly as a red boot gate does: the
+        // rollback below covers it.
+        let cause: string | undefined;
+        let diagnosis: string | undefined;
+        if (input.release && input.publishedFrameworkVersion) {
+          try {
+            const pointer = await readPlatformPointer<{ frameworkVersion?: string }>(
+              input.account ?? "",
+              input.domain ?? "",
+              input.registry,
+            );
+            if (pointer?.frameworkVersion !== input.publishedFrameworkVersion) {
+              cause =
+                `release pointer serves ${pointer?.frameworkVersion ?? "nothing"}, ` +
+                `expected ${input.publishedFrameworkVersion}`;
+            } else {
+              console.log(
+                colors.dim(
+                  `  manifest leg: the release pointer serves ${pointer.frameworkVersion}`,
+                ),
+              );
+            }
+          } catch (error) {
+            cause = `release pointer read failed: ${error instanceof Error ? error.message : String(error)}`;
+          }
+        }
+        if (!cause) {
+          const smokeResult = await deps.runSmoke({
+            image: ref,
+            account: input.account,
+            gateway: input.domain,
+          });
+          if (!smokeResult.ok) {
+            cause = smokeResult.error ?? "unknown failure";
+            diagnosis = smokeResult.diagnosis;
+          } else {
+            legs.smoke = { status: "ok", detail: smokeResult.summary };
+            console.log(
+              colors.green(`  ${icons.ok} Post-publish smoke passed: ${smokeResult.summary ?? ""}`),
+            );
+          }
+        }
+        if (cause) {
           console.log();
           console.log(colors.error(`  ${icons.err} Post-publish smoke failed: ${cause}`));
-          if (smokeResult.diagnosis) {
-            console.log(colors.yellow(`  ${smokeResult.diagnosis}`));
+          if (diagnosis) {
+            console.log(colors.yellow(`  ${diagnosis}`));
           }
           legs.smoke = { status: "failed", detail: cause };
           if (!input.account || !input.domain) {
@@ -520,10 +563,6 @@ export async function runPostPublishLegs(
             failure: `Post-publish smoke failed (${cause}) — ${rollbackNote}`,
           };
         }
-        legs.smoke = { status: "ok", detail: smokeResult.summary };
-        console.log(
-          colors.green(`  ${icons.ok} Post-publish smoke passed: ${smokeResult.summary ?? ""}`),
-        );
       }
     }
   }

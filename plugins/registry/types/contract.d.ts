@@ -206,7 +206,72 @@ export declare const contract: {
         relayEnabled: z.ZodBoolean;
         relayAccountId: z.ZodNullable<z.ZodString>;
         timestamp: z.ZodISODateTime;
-    }, z.core.$strip>, object>;
+    }, z.core.$strip>, Record<never, never>>;
+    getManifest: import("@orpc/contract").ProcedureContract<z.ZodObject<{
+        ref: z.ZodString;
+        includeVersionRecord: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$strip>, z.ZodObject<{
+        ref: z.ZodString;
+        tag: z.ZodNullable<z.ZodUnknown>;
+        versionRecord: z.ZodNullable<z.ZodUnknown>;
+    }, z.core.$strip>, {
+        BAD_REQUEST: {
+            readonly status: 400;
+            readonly data: z.ZodObject<{
+                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    field: z.ZodString;
+                    message: z.ZodString;
+                    code: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>>>;
+            }, z.core.$strip>;
+        };
+    }>;
+    resolveRuntime: import("@orpc/contract").ProcedureContract<z.ZodObject<{
+        ref: z.ZodString;
+        release: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        ref: z.ZodString;
+        outcome: z.ZodUnion<readonly [z.ZodObject<{
+            state: z.ZodLiteral<"Resolved">;
+            manifest: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+            source: z.ZodObject<{
+                account: z.ZodString;
+                gateway: z.ZodString;
+            }, z.core.$strip>;
+            from: z.ZodEnum<{
+                cache: "cache";
+                manifest: "manifest";
+                version: "version";
+            }>;
+            provenance: z.ZodEnum<{
+                pointer: "pointer";
+                slot: "slot";
+            }>;
+            fromCache: z.ZodBoolean;
+        }, z.core.$strip>, z.ZodObject<{
+            state: z.ZodLiteral<"Unresolved">;
+            reason: z.ZodEnum<{
+                absent: "absent";
+                integrityFailure: "integrityFailure";
+                unreachable: "unreachable";
+            }>;
+            detail: z.ZodOptional<z.ZodString>;
+            context: z.ZodRecord<z.ZodString, z.ZodUnknown>;
+        }, z.core.$strip>]>;
+    }, z.core.$strip>, {
+        BAD_REQUEST: {
+            readonly status: 400;
+            readonly data: z.ZodObject<{
+                invalidFields: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                validationErrors: z.ZodOptional<z.ZodArray<z.ZodObject<{
+                    field: z.ZodString;
+                    message: z.ZodString;
+                    code: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>>>;
+            }, z.core.$strip>;
+        };
+    }>;
     prepareRegistryMetadataWrite: import("@orpc/contract").ProcedureContract<z.ZodObject<{
         accountId: z.ZodString;
         gatewayId: z.ZodString;

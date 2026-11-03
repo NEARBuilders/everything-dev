@@ -460,6 +460,7 @@ async function deployBody(
       : undefined,
     repository: nextSession.config?.repository,
     release: result.releaseLeg,
+    publishedFrameworkVersion: result.frameworkVersion,
   });
 
   if (legsOutcome.failure) {

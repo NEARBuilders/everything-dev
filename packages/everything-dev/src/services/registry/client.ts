@@ -212,7 +212,6 @@ async function readHistory(
   limit?: number,
   opts?: ReadOptions,
 ): Promise<RegistryHistoryEntry[]> {
-  const wire = keyPathOf(key);
   const capped = Math.max(1, Math.min(limit ?? HISTORY_DEFAULT_LIMIT, HISTORY_MAX_LIMIT));
   const url = `${buildUrl(key, "history", opts)}?limit=${capped}`;
   const payload = await fetchJsonOrNull<FastKvListResponse>(url, {

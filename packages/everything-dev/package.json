@@ -135,15 +135,6 @@
       "import": "./dist/services/resolution/resolver.mjs",
       "require": "./dist/services/resolution/resolver.cjs"
     },
-    "./fastkv": {
-      "development": {
-        "types": "./src/services/registry/fastkv.ts",
-        "import": "./src/services/registry/fastkv.ts"
-      },
-      "types": "./dist/services/registry/fastkv.d.mts",
-      "import": "./dist/services/registry/fastkv.mjs",
-      "require": "./dist/services/registry/fastkv.cjs"
-    },
     "./contract.meta": {
       "development": {
         "types": "./src/contract.meta.ts",

@@ -5,10 +5,10 @@ import {
   checkPlatformCompat,
   composePlatformReleaseManifest,
   computeTemplateInventory,
-  getPlatformManifestKey,
   PlatformReleaseManifestSchema,
   serializePlatformReleaseManifest,
 } from "../../src/services/platform/manifest";
+import { platformPointerKeyOf } from "../../src/services/registry/pointer";
 
 const tmpRoot = join(import.meta.dirname, ".platform-manifest-fixture");
 
@@ -88,7 +88,7 @@ describe("composePlatformReleaseManifest", () => {
 
 describe("getPlatformManifestKey", () => {
   it("names the well-known slot beside the published config", () => {
-    expect(getPlatformManifestKey("dev.everything.near", "everything.dev")).toBe(
+    expect(platformPointerKeyOf("dev.everything.near", "everything.dev")).toBe(
       "apps/dev.everything.near/everything.dev/platform.json",
     );
   });

@@ -23,9 +23,17 @@ import { dispatchSubmit, SignerService, type SignerServiceShape } from "../auth/
 import { generateCodeArtifacts } from "../codegen/artifacts";
 import { type PlatformReleaseManifest, PlatformReleaseManifestSchema } from "../platform/manifest";
 import { confirmPublish, describeConfirmTimeout } from "../registry/confirm";
-import { fetchBosConfigFromFastKv, fetchConfigHistory, fetchRegistryKey } from "../registry/fastkv";
+import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
 import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { keyPathOf, parseRuntimeRef, runtimeRefOf } from "../registry/keys";
+import {
+  deployAuditKeyOf,
+  PLATFORM_POINTER_REL_KEY,
+  platformPointerKeyOf,
+  platformVersionSlotKeyOf,
+  readPlatformPointer,
+  readPlatformVersionSlot,
+} from "../registry/pointer";
 import { mergeAuthoredOverPublished, stripLocalDevelopmentTargets } from "../resolution/merge";
 import {
   type BuildTargetsDeps,
@@ -56,8 +64,6 @@ import { platformUrlDeployEntries, pluginUiUrlDeployEntries } from "./platform";
 import {
   compatWindowViolations,
   composePlatformManifestPublishEntry,
-  getPlatformManifestKey,
-  getPlatformVersionSlotKey,
   type PlatformManifestPublishEntry,
   platformTruthViolations,
 } from "./platform-manifest";
@@ -807,7 +813,10 @@ export async function runPublishTrain(
     }
   }
 
-  const registryKey = `apps/${account}/${gateway}/bos.config.json`;
+  const registryKey = keyPathOf({
+    kind: "runtimeConfig",
+    ref: runtimeRefOf({ accountId: account, gatewayId: gateway }),
+  });
   const publishedAt = new Date().toISOString();
   // version identity printed + returned for every deploy (atomic-deploys 12)
   const fingerprint = pointerFingerprint(publishPayload as never);
@@ -815,7 +824,7 @@ export async function runPublishTrain(
   const registryEntries: Record<string, string> = {
     [registryKey]: JSON.stringify(publishPayload),
   };
-  const manifestKey = `apps/${account}/${gateway}/manifests/${publishedAt.replace(/[:.]/g, "-")}.json`;
+  const manifestKey = deployAuditKeyOf(account, gateway, publishedAt);
   // ADR 0034 + #573: the platform release manifest rides the same atomic
   // write as the config. The truth gate (shared-singleton cross-check) runs
   // on every production build deploy — but only the **release leg** writes
@@ -834,7 +843,7 @@ export async function runPublishTrain(
   if (!isStaging && input.build) {
     let pointer: PlatformReleaseManifest | null;
     try {
-      const pointerBytes = await fetchRegistryKey<unknown>(account, gateway, "platform.json");
+      const pointerBytes = await readPlatformPointer<unknown>(account, gateway, input.registry);
       pointer = pointerBytes ? PlatformReleaseManifestSchema.parse(pointerBytes) : null;
     } catch (error) {
       throw new PublishTrainError({
@@ -908,11 +917,15 @@ export async function runPublishTrain(
       }
       if (releaseLeg) {
         const frameworkVersion = composed.manifest.frameworkVersion;
-        const slotRelKey = `platform-versions/${frameworkVersion}.json`;
-        const slotKey = getPlatformVersionSlotKey(account, gateway, frameworkVersion);
+        const slotKey = platformVersionSlotKeyOf(account, gateway, frameworkVersion);
         let existingSlot: unknown;
         try {
-          existingSlot = await fetchRegistryKey<unknown>(account, gateway, slotRelKey);
+          existingSlot = await readPlatformVersionSlot<unknown>(
+            account,
+            gateway,
+            frameworkVersion,
+            input.registry,
+          );
         } catch (error) {
           throw new PublishTrainError({
             kind: "platform-manifest",
@@ -958,7 +971,7 @@ export async function runPublishTrain(
             file: platformManifest.key,
             integrity: platformManifest.integrity,
             version: platformManifest.manifest.frameworkVersion,
-            pointer: getPlatformManifestKey(account, gateway),
+            pointer: platformPointerKeyOf(account, gateway),
           },
         }
       : {}),
@@ -966,7 +979,7 @@ export async function runPublishTrain(
   if (platformManifest) {
     // One atomic write (#573): the immutable version slot + the pointer flip.
     registryEntries[platformManifest.key] = platformManifest.value;
-    registryEntries[getPlatformManifestKey(account, gateway)] = platformManifest.value;
+    registryEntries[platformPointerKeyOf(account, gateway)] = platformManifest.value;
   }
   if (input.exactPayload && input.restorePlatformPointer) {
     registryEntries[input.restorePlatformPointer.key] = input.restorePlatformPointer.value;
@@ -1138,6 +1151,7 @@ export async function runPublishTrain(
       deployResults,
       publishConfig: publishPayload,
       releaseLeg: platformManifest !== null,
+      ...(platformManifest ? { frameworkVersion: platformManifest.manifest.frameworkVersion } : {}),
     };
   } catch (error) {
     if (error instanceof PublishTrainError) throw error;
