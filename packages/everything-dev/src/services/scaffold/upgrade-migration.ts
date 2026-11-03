@@ -10,6 +10,11 @@ import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import { runTypesGen } from "./init";
 import { syncTemplate } from "./sync";
 import { migrateChildRootPackageJson } from "./upgrade-packages";
+import {
+  detectOwnedDivergentKeys,
+  type OwnedRealignment,
+  realignOwnedSlots,
+} from "./upgrade-realign";
 import { buildChangelogUrl, type ExtendedRootSource } from "./upgrade-source";
 
 /** Migration-phase scope (ADR 0032): template reconciliation rides the
@@ -156,6 +161,24 @@ export async function runMigrationPhase(
     await timePhase(timings, "generate types", () => runTypesGen(projectDir));
   }
 
+  // Owned-slot realignment: with a framework version delta, owned slots built
+  // against the old chain keep stale shared-singleton pins — republish them
+  // from the new package so the tree the upgrade leaves behind composes
+  // coherently (the plane audit on the next dev boot confirms it).
+  let realignment: OwnedRealignment | undefined;
+  if (scope.versionDelta && !options.noRealign) {
+    realignment = await timePhase(timings, "realign owned slots", async () => {
+      const session = await openResolution({ cwd: projectDir });
+      if (!session?.config) return undefined;
+      const { keys, lines } = await detectOwnedDivergentKeys(session);
+      if (keys.length === 0) return { keys: [], realigned: [], failures: [] };
+      for (const line of lines) {
+        if (line.kind === "owned") console.error(`  [realign] ${line.message}`);
+      }
+      return await realignOwnedSlots(projectDir, keys, console.error);
+    });
+  }
+
   const migratedFiles = [
     ...(platformPinned ? [platformPinned] : []),
     ...(migratedRootPackageJson ? ["package.json"] : []),
@@ -171,6 +194,7 @@ export async function runMigrationPhase(
     packages: [],
     sync: syncResult,
     migrated: migratedFiles.length > 0 ? migratedFiles : undefined,
+    ...(realignment ? { realignment } : {}),
     timings,
     changelogUrl,
   };

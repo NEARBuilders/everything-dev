@@ -62,39 +62,55 @@ jobs:
           # (script-injection surface, see actionlint's expression rule).
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
+          emit_release_skip() {
+            {
+              echo "version=true"
+              echo "workflows=false"
+              echo "everything-dev=false"
+              echo "every-plugin=false"
+              echo "plugins=false"
+              echo "ui-api=false"
+              echo "host=false"
+              echo "regression-http=false"
+              echo "regression-framework=false"
+              echo "regression-browser=false"
+              echo "regression-unit=false"
+            } >> "$GITHUB_OUTPUT"
+          }
+
           # Version-PR fast path: the changesets bot's "chore: version
-          # packages" PRs are `package.json`/lockfile/changelog-only diffs,
-          # which would light every arm below and pay the full regression
-          # matrix for a bump. Everything reports false instead; the suite
-          # jobs skip and the `CI gate` passes on the all-skipped run. The
+          # packages" PRs are package-version/changelog-only diffs, which
+          # would light every arm below and pay the full regression matrix
+          # for a bump. Everything reports false instead; the suite jobs
+          # skip and the `CI gate` passes on the all-skipped run. The
           # publish script's own builds and npm's registry checks are the
           # real gates on this plane (release.yml).
           #
-          # Guard: merge-queue batch runs expose the PR's real head branch
-          # but run on a `gh-readonly-queue/*` ref — a batch containing a
-          # version PR must still validate the *other* PRs, so the
-          # fast path never fires there (the diff arms take over).
+          # Queue guard: merge-queue batch runs expose the PR's real head
+          # branch but run on a `gh-readonly-queue/*` ref, so the branch
+          # name alone is not enough there — a batch containing a version
+          # PR must still validate its sibling PRs. On queue runs the fast
+          # path fires only when the *group-tree* diff (origin/main..HEAD)
+          # is release-mechanical-only (scripts/version-only-diff.mjs);
+          # mixed batches fall through to the diff arms.
           # HEAD_REF comes from a step env, not an inline template — branch
           # names are attacker-controlled (vetted by actionlint).
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             case "$HEAD_REF" in
               changeset-release/*)
                 case "$GITHUB_REF" in
-                  refs/heads/gh-readonly-queue/*) ;;
+                  refs/heads/gh-readonly-queue/*)
+                    BASE_REF="origin/${{ github.base_ref }}"
+                    git fetch --no-tags origin "${{ github.base_ref }}" --depth=1 >/dev/null 2>&1
+                    if node scripts/version-only-diff.mjs "$BASE_REF" HEAD; then
+                      emit_release_skip
+                      echo "::notice::Queued changesets version PR ($HEAD_REF) — group diff is release-mechanical only: suites skipped"
+                      exit 0
+                    fi
+                    echo "::notice::Queued changeset-release batch carries non-release changes — running the full suite"
+                    ;;
                   *)
-                    {
-                      echo "version=true"
-                      echo "workflows=false"
-                      echo "everything-dev=false"
-                      echo "every-plugin=false"
-                      echo "plugins=false"
-                      echo "ui-api=false"
-                      echo "host=false"
-                      echo "regression-http=false"
-                      echo "regression-framework=false"
-                      echo "regression-browser=false"
-                      echo "regression-unit=false"
-                    } >> "$GITHUB_OUTPUT"
+                    emit_release_skip
                     echo "::notice::Changesets version PR ($HEAD_REF) — CI fast-path: suites skipped, release script owns this plane"
                     exit 0
                     ;;
@@ -358,6 +374,45 @@ jobs:
 
       - name: Test better-near-auth
         run: pnpm --filter better-near-auth test
+
+  fresh-init-dev:
+    name: Fresh init dev gate
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.everything-dev == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (Node 24)
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Get pnpm store dir
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 (Node 24)
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build framework dists
+        run: pnpm run build template
+
+      - name: Fresh init + dev boot gate
+        run: pnpm --filter everything-dev exec vitest run tests/integration/fresh-init-dev.test.ts
 
   plugin-tests:
     name: Plugin tests

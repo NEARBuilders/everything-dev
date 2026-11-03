@@ -695,6 +695,11 @@ export const UpgradeOptionsSchema = z.object({
 
   noSync: z.boolean().default(false).describe("Only upgrade packages, skip template sync"),
 
+  noRealign: z
+    .boolean()
+    .default(false)
+    .describe("Skip republishing owned slots the audit finds built against an older chain"),
+
   from: z
     .enum(["v1"])
     .optional()
@@ -787,6 +792,15 @@ export const UpgradeResultSchema = z.object({
     .optional(),
   blockers: z.array(UpgradeAuditFindingSchema).readonly().optional(),
   notes: z.array(z.string()).optional(),
+  /** Owned slots republished after the version delta (the audit's
+   * "built against an older chain" repair, executed). */
+  realignment: z
+    .object({
+      keys: z.array(z.string()),
+      realigned: z.array(z.string()),
+      failures: z.array(z.object({ key: z.string(), error: z.string() })),
+    })
+    .optional(),
   timings: z.array(PhaseTimingSchema).optional(),
   changelogUrl: z.string().optional(),
   error: z.string().optional(),

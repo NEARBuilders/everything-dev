@@ -28,6 +28,7 @@ import {
   releaseRefCandidates,
   removeStrayLockfiles,
   resolveSourceDir,
+  runPnpmApproveAll,
   runPnpmInstall,
   runTypesGen,
   scaffoldMinimalProject,
@@ -381,6 +382,9 @@ export class InitFlowService extends Context.Service<
 
               if (!input.noInstall) {
                 await timePhase(timings, "install dependencies", () => runPnpmInstall(targetDir));
+                await timePhase(timings, "approve pnpm permissions", () =>
+                  runPnpmApproveAll(targetDir),
+                );
                 await timePhase(timings, "generate types", () => runTypesGen(targetDir));
                 await timePhase(timings, "generate migrations", () =>
                   generateDatabaseMigrations(targetDir),
