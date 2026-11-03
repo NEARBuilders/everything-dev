@@ -63,12 +63,14 @@ The changesets version PR never runs the full matrix: `detect-changes` fast-path
 ```
 1. Developer creates changeset          →  pnpm run changeset
 2. Developer merges via the merge queue →  the queue validated the merged
-                                           tree with the full CI suite;
-                                           "chore: version packages" PRs
-                                           merge directly (ruleset exempt)
+                                           tree with the full CI suite
 3. Release runs on every push to main   →  pending changesets: opens/updates
                                            the "chore: version packages" PR
-4. Team merges Version Packages PR      →  no changesets remain (hasChangesets=false)
+                                           and engages auto-merge → the PR
+                                           queues and merges itself (the
+                                           queue fast-paths release-mechanical
+                                           diffs — no regression matrix)
+4. Version Packages PR merges           →  no changesets remain
                                            ↓
                                            pnpm run release (scripts/publish-release-packages.ts)
                                            ↓
@@ -76,14 +78,26 @@ The changesets version PR never runs the full matrix: `detect-changes` fast-path
                                            (rc dist-tag while .changeset/pre.json pre mode is on)
                                            ↓
                                            GitHub Releases created for each package
+                                           ↓
+                                           Deploy trains publish the same SHA
+                                           (its preflight waits for the npm
+                                           publish — see Preflight npm gate below)
 5. Final release after RC               →  add a changeset, `pnpm changeset pre exit`,
-                                           merge the final version PR (no -rc suffix,
-                                           no --prerelease flag)
+                                           version PR auto-merges, final publish
 ```
 
 This is the canonical [changesets/action](https://github.com/changesets/changesets) setup: the same workflow both opens the version PR (when changesets are pending) and publishes (when they are not) — merging the version PR *is* the release. The publish logic lives in `scripts/publish-release-packages.ts` via `pnpm run release`; it builds every publishable workspace itself before staging and publishing. Generated child repos use the separate template at `.github/templates/workflows/release.yml` (`workflow_run`-triggered on CI success, version-PR + workspace GitHub Releases, no npm publish).
 
+**Release operations — zero-touch with a hold hatch:**
+- Releases ship continuously: every push to `main` with pending changesets engages auto-merge on the version PR (`gh pr merge --auto --squash`), which enqueues it; the queue fast-paths release-mechanical diffs, so nothing re-runs the regression matrix for a version bump.
+- **Where to merge by hand:** the PR's Conversation tab (the green Merge control at the bottom) — the `/queue/main` page is status-only, it never merges anything.
+- **`hold-release` label:** label the version PR to park a big scope in the same release; the bot prints a notice and skips auto-merge. Remove the label when ready — automation re-engages on the next Release run. Manual merges always work regardless of the label.
+- **`cancel-in-progress: true`** on Release concurrency: the run for the newest tip supersedes (older tip-runs were already skipping), and the publish script's registry-idempotent staging heals any partially published set.
+- **De-queueing by hand:** GraphQL `dequeuePullRequest(input: { id })` — note the argument is the PR's GraphQL `id`, not `pullRequestId`.
+
 **npm publishing uses OIDC trusted publishing** — no `NPM_TOKEN` secret needed. `NODE_AUTH_TOKEN` is set to empty string, and `npm publish --provenance` authenticates via the OIDC token provisioned by `id-token: write` permission and `actions/setup-node` with `registry-url`.
+
+**Preflight npm gate (`waitForFrameworkPackages`):** Deploy and Release trigger on the same version-bump push, and Release needs minutes to publish. Deploy's preflight used to 404 and refuse in that window; it now *waits* for the registry instead (poll every 15s, 15-min budget, cache-busted version endpoint, per-minute progress lines). The invariant is unchanged — bundles never ship ahead of npm — the refusal just fires only after the budget expires, pointing at the Release run for that SHA. A registry outage never blocks (unchanged: unverifiable state = warn and continue).
 
 ### Deploy (`deploy.yml`)
 
