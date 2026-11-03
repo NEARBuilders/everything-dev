@@ -342,6 +342,7 @@
     "universal-runtime-image",
     "upgrade-check-catalog-source",
     "upgrade-derived-delta",
+    "upgrade-exact-release-catalog",
     "upload-app-devdep",
     "upload-app-first-pass",
     "upload-proxy-timeout",
