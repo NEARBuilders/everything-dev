@@ -1168,9 +1168,14 @@ export async function runPublishTrain(
       const runConfirm = (txHash?: string) =>
         confirmPublish({
           legs: confirmLegs,
-          ...(txHash
+          ...(txHash ? { txHash } : {}),
+          // The status probe queries the transaction by (hash, sender) — a
+          // query only this train can answer for its own direct-key
+          // broadcast. Relay (wallet) and custody submissions move someone
+          // else's signed transaction, so the probe would chase the wrong
+          // sender and must not gate the wait.
+          ...(txHash && !useCustody && !useWallet
             ? {
-                txHash,
                 txStatus: (tx: string) => classifyTransactionOutcome(tx, account, network),
               }
             : {}),

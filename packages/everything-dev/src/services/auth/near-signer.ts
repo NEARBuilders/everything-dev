@@ -135,8 +135,10 @@ export async function submitRegistryWrite(
 }
 
 /** Classify a broadcast transaction for the publish-confirmation machine.
- * Explicit rejection maps to `invalid`; not-found/unknown maps to `unknown`
- * (the confirmation loop's own grace window decides when unknown is terminal);
+ * The wait level is NONE — one cheap RPC read of the current state, never a
+ * wait-for-inclusion poll (the confirmation loop paces itself). Explicit
+ * rejection maps to `invalid`; not-found/unknown maps to `unknown` (the
+ * confirmation loop's own grace window decides when unknown is terminal);
  * every probe failure maps to the conservative `unreachable` — a status probe
  * that cannot run must never kill a publish content-polling can still verify. */
 export async function classifyTransactionOutcome(
@@ -146,7 +148,7 @@ export async function classifyTransactionOutcome(
 ): Promise<TxStatus> {
   const near = new Near({ network, defaultSignerId: accountId });
   try {
-    await near.getTransactionStatus(txHash, accountId, "INCLUDED");
+    await near.getTransactionStatus(txHash, accountId, "NONE");
     return "included";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
