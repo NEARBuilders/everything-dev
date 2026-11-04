@@ -325,7 +325,7 @@ describe("checkUiCompositionCompat", () => {
     ],
   };
 
-  it("accepts sibling UI slots that agree on every named singleton", async () => {
+  it("accepts sibling UI remotes that agree on every named singleton", async () => {
     mockManifests([
       [/ui\.example/, UI_MANIFEST],
       [/votes\.example/, UI_MANIFEST],
@@ -340,10 +340,10 @@ describe("checkUiCompositionCompat", () => {
     const report = await checkUiCompositionCompat(cfg, { timeoutMs: 5_000 });
 
     expect(report.ok).toBe(true);
-    expect(report.slots.map((s) => s.slot).toSorted()).toEqual(["app.ui", "plugins.votes.ui"]);
+    expect(report.remotes.map((s) => s.remote).toSorted()).toEqual(["app.ui", "plugins.votes.ui"]);
   });
 
-  it("names the slots and versions of a react singleton skew — the #546 shape", async () => {
+  it("names the remotes and versions of a react singleton skew — the #546 shape", async () => {
     mockManifests([
       [/ui\.example/, UI_MANIFEST],
       [
@@ -366,13 +366,13 @@ describe("checkUiCompositionCompat", () => {
     const report = await checkUiCompositionCompat(cfg, { timeoutMs: 5_000 });
 
     expect(report.ok).toBe(false);
-    for (const slot of report.slots) {
-      expect(slot.ok).toBe(false);
-      expect(slot.reason).toContain("react is app.ui=19.2.4, plugins.votes.ui=19.2.9");
+    for (const remote of report.remotes) {
+      expect(remote.ok).toBe(false);
+      expect(remote.reason).toContain("react is app.ui=19.2.4, plugins.votes.ui=19.2.9");
     }
   });
 
-  it("fetches the resolved slot's hashed browser manifest when present", async () => {
+  it("fetches the resolved remote's hashed browser manifest when present", async () => {
     const fetched: string[] = [];
     mockManifests([
       [/mf-manifest\.aaaabbbb\.json/, UI_MANIFEST],
@@ -400,9 +400,9 @@ describe("checkUiCompositionCompat", () => {
     }
   });
 
-  it("returns ok with no slots when the config carries no UI slots", async () => {
+  it("returns ok with no remotes when the config carries no UI remotes", async () => {
     const report = await checkUiCompositionCompat(bosConfig());
     expect(report.ok).toBe(true);
-    expect(report.slots).toEqual([]);
+    expect(report.remotes).toEqual([]);
   });
 });

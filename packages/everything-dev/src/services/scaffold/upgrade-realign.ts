@@ -54,7 +54,7 @@ export async function detectOwnedDivergentKeys(
  * installed bos binary. Output is forwarded to stderr — the migration phase
  * runs under `--json` re-exec, where stdout is the structured result.
  */
-export async function realignOwnedSlots(
+export async function realignOwnedRemotes(
   projectDir: string,
   keys: readonly string[],
   log: (message: string) => void = (message) => process.stderr.write(`${message}\n`),

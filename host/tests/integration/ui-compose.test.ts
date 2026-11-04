@@ -313,9 +313,9 @@ describe("composeUi", () => {
     expect(variant.clientPayload.manifests).toEqual([AUTH_MANIFEST, CORE_MANIFEST]);
   });
 
-  it("local plugin ui slots carry no manifestUrl — a relative entry resolves against the page origin and registers the wrong container", async () => {
+  it("local plugin ui remotes carry no manifestUrl — a relative entry resolves against the page origin and registers the wrong container", async () => {
     const config = configWithPlugin();
-    // a local plugin ui slot only exists in development (dev targets resolve
+    // a local plugin ui remote only exists in development (dev targets resolve
     // only there) — and the fixed-name fallback is the dev contract
     config.env = "development";
     config.plugins!.auth!.ui = {

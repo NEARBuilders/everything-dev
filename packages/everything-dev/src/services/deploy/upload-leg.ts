@@ -13,7 +13,7 @@ import {
 import {
   composeWorkspaceVersionManifest,
   readBuildReport,
-  resolveSlotVersion,
+  resolveRemoteVersion,
 } from "./version-manifest";
 
 /**
@@ -36,7 +36,7 @@ export interface StorageLegDeps {
   collectDistFiles: typeof collectDistFiles;
   uploadWorkspaceDist: typeof uploadWorkspaceDist;
   uploadBundle: typeof uploadBundle;
-  resolveSlotVersion: typeof resolveSlotVersion;
+  resolveRemoteVersion: typeof resolveRemoteVersion;
   readBuildReport: typeof readBuildReport;
   composeWorkspaceVersionManifest: typeof composeWorkspaceVersionManifest;
   buildSourceArchive: typeof buildSourceArchive;
@@ -46,7 +46,7 @@ export const realStorageLegDeps: StorageLegDeps = {
   collectDistFiles,
   uploadWorkspaceDist,
   uploadBundle,
-  resolveSlotVersion,
+  resolveRemoteVersion,
   readBuildReport,
   composeWorkspaceVersionManifest,
   buildSourceArchive,
@@ -87,7 +87,7 @@ async function diffUploadWorkspace(
   let prevFiles: Record<string, string> | undefined;
   if (input.previousDigest) {
     try {
-      const resolved = await deps.resolveSlotVersion({
+      const resolved = await deps.resolveRemoteVersion({
         base: input.base,
         digest: input.previousDigest,
       });
@@ -210,7 +210,7 @@ async function resolveSourceReference(
     });
     if (input.previousDigest) {
       try {
-        const resolved = await deps.resolveSlotVersion({
+        const resolved = await deps.resolveRemoteVersion({
           base: input.base,
           digest: input.previousDigest,
         });

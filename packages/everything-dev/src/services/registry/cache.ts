@@ -2,14 +2,14 @@
  * The manifest cache — the stand-in layer, in one place. A cached resolution
  * stands in for a live fetch only while it is fresh (the #546 machinery):
  * pin-match required when the resolution is pinned, TTL-bounded always. The
- * cache exists for offline dev ONLY — never stale-pin grace: slot-first
- * resolution makes old pins resolvable forever from immutable slots, so a
+ * cache exists for offline dev ONLY — never stale-pin grace: record-first
+ * resolution makes old pins resolvable forever from immutable records, so a
  * cache can no longer be the reason a pin resolves. Without the freshness
  * bound a registry outage (or a cache written before the parent's latest
  * publish) silently serves a months-old release manifest — pins derive from
  * it and the mismatch can take an hour to diagnose. Past the TTL the cache
  * is refused: pin-less resolution degrades to "no manifest"; pinned
- * resolution fails loud with the slot key named.
+ * resolution fails loud with the record key named.
  *
  * Storage: one record at `<configDir>/.bos/manifest.json`. The record's
  * wire shape (`kind`, fields) is unchanged from the pre-rename layout; the
@@ -26,7 +26,7 @@ export interface ManifestCacheRecord {
   resolvedAt: string;
   source: { account: string; gateway: string };
   manifest: Manifest;
-  provenance?: "slot" | "pointer";
+  provenance?: "record" | "pointer";
 }
 
 export const MANIFEST_CACHE_TTL_MS = 24 * 60 * 60_000;

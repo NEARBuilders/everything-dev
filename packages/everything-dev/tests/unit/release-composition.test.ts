@@ -19,10 +19,10 @@ const consumerShape = (merged: Record<string, unknown>) => merged;
 
 describe("release-composition stamping", () => {
   const remotes = {
-    "app.auth": record("https://auth.test/slot"),
+    "app.auth": record("https://auth.test/remote"),
     "app.auth.ui": record("https://auth.test/ui"),
-    "plugins.ai": record("https://ai.test/slot"),
-    "plugins.newcomer": record("https://new.test/slot"),
+    "plugins.ai": record("https://ai.test/remote"),
+    "plugins.newcomer": record("https://new.test/remote"),
   };
 
   const authored = {
@@ -64,11 +64,11 @@ describe("release-composition stamping", () => {
     expect(outcome.stamped).toEqual(["app.auth", "app.auth.ui", "plugins.ai"]);
     expect(outcome.omitted).toEqual(["plugins.newcomer"]);
     const config1 = config as typeof merged;
-    expect(config1.app.auth.production).toBe("https://auth.test/slot");
-    expect(config1.app.auth.digest.integrity).toBe("sha384-https://auth.test/slot-1");
+    expect(config1.app.auth.production).toBe("https://auth.test/remote");
+    expect(config1.app.auth.digest.integrity).toBe("sha384-https://auth.test/remote-1");
     expect(config1.app.auth.ui.production).toBe("https://auth.test/ui");
     expect(config1.app.auth.variables).toEqual({ ka: "kept" });
-    expect(config1.plugins.ai.production).toBe("https://ai.test/slot");
+    expect(config1.plugins.ai.production).toBe("https://ai.test/remote");
     expect("newcomer" in config1.plugins).toBe(false);
   });
 
@@ -149,9 +149,9 @@ describe("auditReleaseComposition — the dev chain audit", () => {
     "every-plugin": "3.0.0-rc.15",
     effect: "4.0.0-rc.118",
   });
-  const slotInputs = [
+  const remoteInputs = [
     {
-      slot: "plugins.auth",
+      remote: "plugins.auth",
       base: "https://auth-rc28.test",
       digest,
     },
@@ -165,7 +165,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
 
   it("coherent strict singletons say nothing", async () => {
     const lines = await auditReleaseComposition({
-      remotes: slotInputs,
+      remotes: remoteInputs,
       authoredPaths: new Set(),
       localVersionOf: (name) => (name === "every-plugin" ? "3.0.0-rc.15" : "4.0.0-rc.118"),
       fetchImpl: fetch,
@@ -173,9 +173,9 @@ describe("auditReleaseComposition — the dev chain audit", () => {
     expect(lines).toEqual([]);
   });
 
-  it("an inherited slot lagging the exact strict singleton names bos upgrade", async () => {
+  it("an inherited remote lagging the exact strict singleton names bos upgrade", async () => {
     const lines = await auditReleaseComposition({
-      remotes: slotInputs,
+      remotes: remoteInputs,
       authoredPaths: new Set(),
       localVersionOf: (name) => (name === "every-plugin" ? "3.0.0-rc.14" : "4.0.0-rc.118"),
       fetchImpl: fetch,
@@ -186,11 +186,11 @@ describe("auditReleaseComposition — the dev chain audit", () => {
     expect(lines[0]!.message).toContain("run bos upgrade");
   });
 
-  it("an owned slot ahead of the runtime names bos plugin publish", async () => {
+  it("an owned remote ahead of the runtime names bos plugin publish", async () => {
     const lines = await auditReleaseComposition({
       remotes: [
         {
-          slot: "plugins.nostr",
+          remote: "plugins.nostr",
           base: "https://nostr-rc28.test",
           digest: pinFor("mf-manifest.json", { "every-plugin": "3.0.0-rc.15" }),
         },
@@ -207,11 +207,11 @@ describe("auditReleaseComposition — the dev chain audit", () => {
     expect(lines[0]!.message).toContain("run bos plugin publish nostr");
   });
 
-  it("an owned app slot names the scoped deploy train, not plugin publish", async () => {
+  it("an owned app remote names the scoped deploy train, not plugin publish", async () => {
     const lines = await auditReleaseComposition({
       remotes: [
         {
-          slot: "app.ui",
+          remote: "app.ui",
           base: "https://ui-rc28.test",
           digest: pinFor("mf-manifest.json", { react: "19.3.1" }),
         },
@@ -230,7 +230,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
     const lines = await auditReleaseComposition({
       remotes: [
         {
-          slot: "plugins.ghost",
+          remote: "plugins.ghost",
           base: "https://ghost.test",
           digest: pinFor("mf-manifest.json", {}),
         },
@@ -244,29 +244,29 @@ describe("auditReleaseComposition — the dev chain audit", () => {
   });
 
   it("a pinned child composing a coherent subset plane is clean — the opencrosspost rc.30 regression", async () => {
-    // The exact shape that produced ten false divergences: pinned app slots
+    // The exact shape that produced ten false divergences: pinned app remotes
     // whose shared versions match the runtime exactly, plus inherited plugin
-    // slots the child's own plugins domain (wholesale replace) does not
+    // remotes the child's own plugins domain (wholesale replace) does not
     // compose. With the probe fed the catalog's versions, the only lines are
     // uncomposed notes — no "react@unknown", no "run bos upgrade".
-    const slotInputs = [
+    const remoteInputs = [
       {
-        slot: "app.ui",
+        remote: "app.ui",
         base: "https://ui.test",
         digest: pinFor("mf-manifest.json", { react: "19.3.1" }),
       },
       {
-        slot: "app.api",
+        remote: "app.api",
         base: "https://api.test",
         digest: pinFor("mf-manifest.json", { "@orpc/client": "2.0.0-beta.45" }),
       },
       {
-        slot: "app.auth",
+        remote: "app.auth",
         base: "https://auth.test",
         digest: pinFor("mf-manifest.json", { "@orpc/client": "2.0.0-beta.45" }),
       },
       {
-        slot: "app.auth.ui",
+        remote: "app.auth.ui",
         base: "https://auth-ui.test",
         digest: pinFor("mf-manifest.json", { react: "19.3.1" }),
       },
@@ -282,7 +282,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
       "https://auth-ui.test/mf-manifest.json": versionManifestText({ react: "19.3.1" }),
     });
     const lines = await auditReleaseComposition({
-      remotes: slotInputs,
+      remotes: remoteInputs,
       authoredPaths: new Set([
         "app.ui",
         "app.api",
@@ -332,7 +332,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
     expect(lines.some((line) => line.message.includes("bos upgrade"))).toBe(false);
   });
 
-  it("a manifest slot the merged config does not compose is an uncomposed note, not an upgrade", async () => {
+  it("a manifest remote the merged config does not compose is an uncomposed note, not an upgrade", async () => {
     const lines = await auditReleaseComposition({
       remotes: [],
       authoredPaths: new Set(),
@@ -348,7 +348,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
     expect(lines[0]!.message).not.toContain("bos upgrade");
   });
 
-  it("a config slot the pinned manifest lacks is genuinely provisioned — upgrade claims it", async () => {
+  it("a config remote the pinned manifest lacks is genuinely provisioned — upgrade claims it", async () => {
     const lines = await auditReleaseComposition({
       remotes: [],
       authoredPaths: new Set(),
@@ -365,7 +365,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
     expect(lines[0]!.message).toContain("run bos upgrade to re-pin and claim it");
   });
 
-  it("an authored slot absent from the manifest is the leaf's own decision — no line", async () => {
+  it("an authored remote absent from the manifest is the leaf's own decision — no line", async () => {
     const lines = await auditReleaseComposition({
       remotes: [],
       authoredPaths: new Set(["plugins.warden"]),
@@ -380,7 +380,7 @@ describe("auditReleaseComposition — the dev chain audit", () => {
   });
 });
 
-describe("workspaceKeyOfRemote — slot paths to publish keys", () => {
+describe("workspaceKeyOfRemote — remote paths to publish keys", () => {
   it.each([
     ["app.ui", "ui"],
     ["app.api", "api"],
@@ -389,7 +389,7 @@ describe("workspaceKeyOfRemote — slot paths to publish keys", () => {
     ["app.auth.ui", "auth"],
     ["plugins.nostr", "nostr"],
     ["plugins.nostr.ui", "nostr"],
-  ])("maps %s to %s", (slot, key) => {
-    expect(workspaceKeyOfRemote(slot)).toBe(key);
+  ])("maps %s to %s", (remote, key) => {
+    expect(workspaceKeyOfRemote(remote)).toBe(key);
   });
 });

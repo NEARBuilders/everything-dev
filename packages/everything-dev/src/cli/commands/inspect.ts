@@ -277,11 +277,11 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
       );
     }
     if (result.ui) {
-      for (const slot of result.ui.slots) {
-        const tag = slot.ok ? colors.green("OK  ") : colors.error("FAIL");
+      for (const remote of result.ui.remotes) {
+        const tag = remote.ok ? colors.green("OK  ") : colors.error("FAIL");
         console.log(
-          `  ${colors.dim(`ui:${slot.slot}`.padEnd(10))} ${tag} ${slot.url}${
-            slot.reason ? `  ↳ ${slot.reason}` : ""
+          `  ${colors.dim(`ui:${remote.remote}`.padEnd(10))} ${tag} ${remote.url}${
+            remote.reason ? `  ↳ ${remote.reason}` : ""
           }`,
         );
       }

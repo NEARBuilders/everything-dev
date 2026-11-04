@@ -11,7 +11,7 @@ import { generateCodeArtifacts } from "../codegen/artifacts";
 import { timePhase } from "../dev/progress";
 import type { ResolvedPlatformManifest } from "../platform/manifest";
 import { resolvePlatformManifest } from "../platform/manifest";
-import { parseBosUrl } from "../registry/fastkv";
+import { parseRuntimeRef } from "../registry/keys";
 import { openResolution } from "../resolution/session";
 import { syncResolvedSharedDeps } from "../workspace/shared-deps";
 import {
@@ -91,7 +91,7 @@ export class InitFlowService extends Context.Service<
 
             if (input.extends) {
               try {
-                const { accountId, gatewayId } = parseBosUrl(
+                const { accountId, gatewayId } = parseRuntimeRef(
                   normalizeExtendsRef(input.extends, ""),
                 );
                 extendsAccount = accountId;

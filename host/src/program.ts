@@ -12,7 +12,7 @@ import {
   Option,
 } from "effect";
 import { suppressPgQueryQueueDeprecation } from "everything-dev/db";
-import { slotPins } from "everything-dev/fingerprint";
+import { remoteDigests } from "everything-dev/fingerprint";
 import { type Context, Hono } from "hono";
 import type { AuthVariables } from "./lib/auth";
 import { getCspStrict, SecurityMiddleware } from "./middleware/security";
@@ -159,7 +159,7 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           const lastOutcome = Option.isSome(watch) ? watch.value.lastOutcome : undefined;
           return {
             fingerprint: state.config.deploymentFingerprint ?? state.fingerprint,
-            slots: state.pointer ? slotPins(state.pointer as never) : {},
+            remotes: state.pointer ? remoteDigests(state.pointer as never) : {},
             ...(platform
               ? {
                   build: {

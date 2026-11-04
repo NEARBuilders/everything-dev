@@ -20,7 +20,7 @@ export function platformUrlDeployEntries(input: {
   digest?: { file: string; integrity: string };
 }): DeployResultEntry[] {
   const { origin, account, gateway, key, kind, integrity, ssrIntegrity, digest } = input;
-  const slot = kind === "app" ? "app" : "plugins";
+  const section = kind === "app" ? "app" : "plugins";
   const base = `${origin.replace(/\/$/, "")}/bundles/${account}/${gateway}/${key}/`;
   const entries: DeployResultEntry[] = [
     {
@@ -28,29 +28,29 @@ export function platformUrlDeployEntries(input: {
       ...(digest
         ? {
             value: digest.file,
-            valueField: `${slot}.${key}.digest.manifest`,
+            valueField: `${section}.${key}.digest.manifest`,
             integrity: digest.integrity,
-            integrityField: `${slot}.${key}.digest.integrity`,
+            integrityField: `${section}.${key}.digest.integrity`,
             // the remote's identity is the digest — a stale direct entry
             // SRI, retired flat manifest pointer, or the pre-cutover `pin`
             // stamp must not linger
             removeFields: [
-              `${slot}.${key}.integrity`,
-              `${slot}.${key}.manifest`,
-              `${slot}.${key}.pin.manifest`,
-              `${slot}.${key}.pin.integrity`,
+              `${section}.${key}.integrity`,
+              `${section}.${key}.manifest`,
+              `${section}.${key}.pin.manifest`,
+              `${section}.${key}.pin.integrity`,
             ],
           }
         : {
             integrity,
-            integrityField: `${slot}.${key}.integrity`,
+            integrityField: `${section}.${key}.integrity`,
             removeFields: [
-              `${slot}.${key}.manifest`,
-              `${slot}.${key}.pin.manifest`,
-              `${slot}.${key}.pin.integrity`,
+              `${section}.${key}.manifest`,
+              `${section}.${key}.pin.manifest`,
+              `${section}.${key}.pin.integrity`,
             ],
           }),
-      urlField: `${slot}.${key}.production`,
+      urlField: `${section}.${key}.production`,
     },
   ];
 
@@ -69,7 +69,7 @@ export function platformUrlDeployEntries(input: {
 /**
  * Folder-form plugin ui deploy entries: the plugin's ui surface builds to
  * `<plugin>/ui/dist` (web remoteEntry + ssr container) and uploads as its own
- * bundle key (`<key>-ui`), pinning `<slot>.<key>.ui.*` in bos.config.json.
+ * bundle key (`<key>-ui`), pinning `<section>.<key>.ui.*` in bos.config.json.
  * Without these entries a deployed plugin ui resolves with no production URL
  * and the host cannot compose (or even address) its routes.
  */
@@ -88,7 +88,7 @@ export function pluginUiUrlDeployEntries(input: {
   name?: string;
 }): DeployResultEntry[] {
   const { origin, account, gateway, key, kind, integrity, ssrIntegrity, digest, name } = input;
-  const slot = kind === "app" ? "app" : "plugins";
+  const section = kind === "app" ? "app" : "plugins";
   const base = `${origin.replace(/\/$/, "")}/bundles/${account}/${gateway}/${key}-ui/`;
   const entries: DeployResultEntry[] = [
     {
@@ -96,41 +96,41 @@ export function pluginUiUrlDeployEntries(input: {
       ...(digest
         ? {
             value: digest.file,
-            valueField: `${slot}.${key}.ui.digest.manifest`,
+            valueField: `${section}.${key}.ui.digest.manifest`,
             integrity: digest.integrity,
-            integrityField: `${slot}.${key}.ui.digest.integrity`,
+            integrityField: `${section}.${key}.ui.digest.integrity`,
             removeFields: [
-              `${slot}.${key}.ui.integrity`,
-              `${slot}.${key}.ui.manifest`,
-              `${slot}.${key}.ui.pin.manifest`,
-              `${slot}.${key}.ui.pin.integrity`,
+              `${section}.${key}.ui.integrity`,
+              `${section}.${key}.ui.manifest`,
+              `${section}.${key}.ui.pin.manifest`,
+              `${section}.${key}.ui.pin.integrity`,
             ],
           }
         : {
             integrity,
-            integrityField: `${slot}.${key}.ui.integrity`,
+            integrityField: `${section}.${key}.ui.integrity`,
             removeFields: [
-              `${slot}.${key}.ui.manifest`,
-              `${slot}.${key}.ui.pin.manifest`,
-              `${slot}.${key}.ui.pin.integrity`,
+              `${section}.${key}.ui.manifest`,
+              `${section}.${key}.ui.pin.manifest`,
+              `${section}.${key}.ui.pin.integrity`,
             ],
           }),
-      urlField: `${slot}.${key}.ui.production`,
+      urlField: `${section}.${key}.ui.production`,
     },
   ];
   if (name) {
     entries.push({
       url: base,
-      urlField: `${slot}.${key}.ui.production`,
+      urlField: `${section}.${key}.ui.production`,
       value: name,
-      valueField: `${slot}.${key}.ui.name`,
+      valueField: `${section}.${key}.ui.name`,
     });
   }
   entries.push({
     url: `${base}ssr/`,
     integrity: ssrIntegrity,
-    urlField: `${slot}.${key}.ui.ssr`,
-    integrityField: `${slot}.${key}.ui.ssrIntegrity`,
+    urlField: `${section}.${key}.ui.ssr`,
+    integrityField: `${section}.${key}.ui.ssrIntegrity`,
   });
   return entries;
 }

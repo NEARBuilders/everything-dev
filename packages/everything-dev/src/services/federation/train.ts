@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * The auth app-slot's local workspace, derived from the resolved config:
+ * The auth app remote's local workspace, derived from the resolved config:
  * `app.auth.development: "local:<dir>"` → `<dir>`, null otherwise. Shared by
  * the container-build orchestrator's build and staging phases — deriving it
  * per-site duplicated the expression and scoped it away from callers.

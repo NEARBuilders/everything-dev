@@ -51,7 +51,7 @@ const rootPayload = {
   app: { host: {}, ui: {}, api: {} },
 };
 
-const childSlot = { account: "citynode.near", gateway: "citynode.app" };
+const childRuntime = { account: "citynode.near", gateway: "citynode.app" };
 const parentRef = "bos://dev.everything.near/everything.dev";
 
 const remoteIo = (remote: Record<string, unknown>): { io: ResolutionIo; calls: string[] } => {
@@ -78,7 +78,7 @@ describe("verifyBootPayload", () => {
   it("a host-less child leaf boots via its parent's host — the rc.23 gate regression", async () => {
     const { io, calls } = remoteIo({ [parentRef]: parentWithHost });
 
-    const report = await verifyBootPayload(hostLessChild, childSlot, { io });
+    const report = await verifyBootPayload(hostLessChild, childRuntime, { io });
 
     expect(report.ok).toBe(true);
     expect(report.issues).toEqual([]);
@@ -106,7 +106,7 @@ describe("verifyBootPayload", () => {
   it("an unreachable parent is a chain issue, not a throw", async () => {
     const { io } = remoteIo({});
 
-    const report = await verifyBootPayload(hostLessChild, childSlot, { io });
+    const report = await verifyBootPayload(hostLessChild, childRuntime, { io });
 
     expect(report.ok).toBe(false);
     expect(report.chain).toEqual([]);
@@ -119,11 +119,11 @@ describe("verifyBootPayload", () => {
     expect(report.issues[0].message).toContain("could not be");
   });
 
-  it("a child extending its own slot dies as a circular chain at check time", async () => {
+  it("a child extending its own remote dies as a circular chain at check time", async () => {
     const { io } = remoteIo({});
     const selfExtending = { ...hostLessChild, extends: "bos://citynode.near/citynode.app" };
 
-    const report = await verifyBootPayload(selfExtending, childSlot, { io });
+    const report = await verifyBootPayload(selfExtending, childRuntime, { io });
 
     expect(report.ok).toBe(false);
     expect(report.issues[0]?.code).toBe("chain");
@@ -159,7 +159,7 @@ describe("verifyBootPayload", () => {
   it("a child whose merged shape still lacks app.host is attributed to the parent", async () => {
     const { io } = remoteIo({ [parentRef]: hostLessParent });
 
-    const report = await verifyBootPayload(hostLessChild, childSlot, { io });
+    const report = await verifyBootPayload(hostLessChild, childRuntime, { io });
 
     expect(report.ok).toBe(false);
     expect(report.issues[0]).toMatchObject({
@@ -182,7 +182,7 @@ describe("verifyBootPayload", () => {
       },
     };
 
-    const report = await verifyBootPayload(envMapped, childSlot, { io });
+    const report = await verifyBootPayload(envMapped, childRuntime, { io });
 
     expect(report.ok).toBe(true);
     expect(calls).toEqual(["bos://prod.near/prod.app"]);
@@ -192,7 +192,7 @@ describe("verifyBootPayload", () => {
     const { io } = remoteIo({ [parentRef]: parentWithHost });
     const snapshot = structuredClone(hostLessChild);
 
-    await verifyBootPayload(hostLessChild, childSlot, { io });
+    await verifyBootPayload(hostLessChild, childRuntime, { io });
 
     expect(hostLessChild).toEqual(snapshot);
   });
@@ -202,8 +202,8 @@ describe("verifyBootPayload", () => {
     const ioB = remoteIo({ [parentRef]: hostLessParent }).io;
 
     const [a, b] = await Promise.all([
-      verifyBootPayload(hostLessChild, childSlot, { io: ioA }),
-      verifyBootPayload(hostLessChild, childSlot, { io: ioB }),
+      verifyBootPayload(hostLessChild, childRuntime, { io: ioA }),
+      verifyBootPayload(hostLessChild, childRuntime, { io: ioB }),
     ]);
 
     expect(a.issues).toEqual(b.issues);
@@ -212,7 +212,7 @@ describe("verifyBootPayload", () => {
   it("a non-object payload is a schema issue, not a crash", async () => {
     const { io, calls } = remoteIo({});
 
-    const report = await verifyBootPayload(42, childSlot, { io });
+    const report = await verifyBootPayload(42, childRuntime, { io });
 
     expect(report.ok).toBe(false);
     expect(calls).toEqual([]);

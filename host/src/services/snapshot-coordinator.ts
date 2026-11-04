@@ -37,11 +37,11 @@ const adoptFailure = (message: string, cause: unknown) =>
   new SnapshotAdoptError({ message: `${message}: ${describeCause(cause)}`, cause });
 
 /**
- * A published pointer stores only the runtime's own overrides — slots it
+ * A published pointer stores only the runtime's own overrides — remotes it
  * inherits from its parent via `extends` (notably `app.host`) are absent.
  * Derive the adoptable config through the same extends-walking pipeline the
  * boot path uses (tenant-runtime): building a runtime config straight from
- * the raw pointer crashes on the first inherited slot. A pointer without a
+ * the raw pointer crashes on the first inherited remote. A pointer without a
  * domain has no bos:// ref to resolve — fail rather than guess one; failure
  * of any kind leaves the live snapshot untouched.
  */

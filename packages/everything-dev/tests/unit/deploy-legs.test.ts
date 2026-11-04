@@ -368,7 +368,7 @@ describe("resolveChildImagePin", () => {
       configDir: mkdtempSync(join(tmpdir(), "bos-child-pin-")),
       localConfig: { extends: "bos://acct/gateway" },
       fetchTag: async () => tag,
-      fetchSlot: async () => manifest,
+      fetchRecord: async () => manifest,
       fetchDigest: async ({ ref }) => {
         expect(ref).toBe("ghcr.io/nearbuilders/everything-dev:v2.0.0-rc.14");
         return digest64;
@@ -404,7 +404,7 @@ describe("resolveChildImagePin", () => {
         configDir: mkdtempSync(join(tmpdir(), "bos-child-pin-")),
         localConfig: { extends: "bos://acct/gateway", release: "9.9.9" },
         fetchTag: async () => tag,
-        fetchSlot: async () => null,
+        fetchRecord: async () => null,
       }),
     ).rejects.toThrow(/platform pin 9\.9\.9.*never published/s);
   });

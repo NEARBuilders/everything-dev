@@ -6,14 +6,14 @@ import type { BosEnv } from "../services/resolution/merge";
 
 /**
  * The host's entry-URL EntryResolver: one pure derivation from a stamped
- * config slot to the URLs each surface loads. `RemoteEntry` is structural —
+ * config remote to the URLs each surface loads. `RemoteEntry` is structural —
  * the version-manifest derivation (atomic-deploys 04) stamps exactly these
- * fields onto `RuntimeConfig` slots, so they satisfy it as-is. Each surface
+ * fields onto `RuntimeConfig` remotes, so they satisfy it as-is. Each surface
  * of `entryUrls` resolves (and throws) lazily — a caller reading only `ui`
  * never trips the ssr surface's resolution, and vice versa.
  */
 export interface RemoteEntry {
-  /** slot identity, verbatim in resolution errors */
+  /** remote identity, verbatim in resolution errors */
   name: string;
   url?: string;
   /** browser-facing base (ADR 0011) — the base rule is publicUrl ?? url, inside this module */
@@ -27,7 +27,7 @@ export interface RemoteEntry {
   ssrIntegrity?: string;
   /** dev-only freshness token (localUiRemoteEntry's container mtime) */
   containerVersion?: string;
-  /** pin-derived hashed browser manifest — absent for local slots, which no
+  /** pin-derived hashed browser manifest — absent for local remotes, which no
    * pin derivation ever stamps (atomic-deploys 08) and the resolver drops
    * even if one were stamped */
   browserManifestUrl?: string;
@@ -37,9 +37,9 @@ export interface RemoteEntry {
 export interface EntryUrls {
   /** browser script src / registration entry — bustered fixed name in dev, hashed in prod */
   readonly ui: string;
-  /** server container entry; undefined when the slot has no SSR coordinates */
+  /** server container entry; undefined when the remote has no SSR coordinates */
   readonly ssr?: string;
-  /** pin-derived hashed mf-manifest; undefined ⟺ local slot (atomic-deploys 08, STRUCTURAL) */
+  /** pin-derived hashed mf-manifest; undefined ⟺ local remote (atomic-deploys 08, STRUCTURAL) */
   readonly browserManifest?: string;
 }
 
@@ -51,52 +51,52 @@ const withBuster = (url: string, buster: string | undefined): string =>
 function requireEntry(
   entryUrl: string | undefined,
   env: BosEnv,
-  slot: string,
+  remote: string,
   surface: string,
   devFixed: string,
 ): string {
   if (entryUrl) return entryUrl;
   if (env === "development") return devFixed;
   throw new Error(
-    `slot "${slot}" has no derived ${surface} entry — pins resolve it from the version manifest ` +
+    `remote "${remote}" has no derived ${surface} entry — pins resolve it from the version manifest ` +
       `(the fixed dev name is development-only)`,
   );
 }
 
-function ssrEntryUrl(slot: RemoteEntry, env: BosEnv): string | undefined {
-  if (slot.ssrEntryUrl) return slot.ssrEntryUrl;
+function ssrEntryUrl(remote: RemoteEntry, env: BosEnv): string | undefined {
+  if (remote.ssrEntryUrl) return remote.ssrEntryUrl;
   if (env === "development") {
-    return slot.ssrUrl
+    return remote.ssrUrl
       ? withBuster(
-          `${trimBase(slot.ssrUrl)}/${UI_REMOTE_SERVER_ENTRY_FILENAME}`,
-          slot.ssrIntegrity ?? slot.containerVersion,
+          `${trimBase(remote.ssrUrl)}/${UI_REMOTE_SERVER_ENTRY_FILENAME}`,
+          remote.ssrIntegrity ?? remote.containerVersion,
         )
       : undefined;
   }
-  if (!slot.ssrUrl) return undefined;
+  if (!remote.ssrUrl) return undefined;
   throw new Error(
-    `slot "${slot.name}" has no derived ssr entry — pins resolve it from the version manifest ` +
+    `remote "${remote.name}" has no derived ssr entry — pins resolve it from the version manifest ` +
       `(the fixed dev name is development-only)`,
   );
 }
 
-export function entryUrls(slot: RemoteEntry, env: BosEnv): EntryUrls {
-  const base = trimBase(slot.publicUrl ?? slot.url);
+export function entryUrls(remote: RemoteEntry, env: BosEnv): EntryUrls {
+  const base = trimBase(remote.publicUrl ?? remote.url);
   return {
     get ui() {
       return requireEntry(
-        slot.entryUrl,
+        remote.entryUrl,
         env,
-        slot.name,
+        remote.name,
         "ui",
-        withBuster(`${base}/${UI_REMOTE_ENTRY_FILENAME}`, slot.integrity),
+        withBuster(`${base}/${UI_REMOTE_ENTRY_FILENAME}`, remote.integrity),
       );
     },
     get ssr() {
-      return ssrEntryUrl(slot, env);
+      return ssrEntryUrl(remote, env);
     },
     get browserManifest() {
-      return slot.localPath ? undefined : slot.browserManifestUrl;
+      return remote.localPath ? undefined : remote.browserManifestUrl;
     },
   };
 }

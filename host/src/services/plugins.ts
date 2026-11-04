@@ -75,11 +75,11 @@ function dbUrlSummary(url: string | undefined): string {
 }
 
 /**
- * The slot the federation runtime registers and loads a remote from —
+ * The remote the federation runtime registers and loads a remote from —
  * resolution errors name the CONFIG KEY (e.g. "plugins.apps"), not the MF
  * container name.
  */
-const pluginSlot = (config: RuntimePluginConfig, key: string): RemoteEntry => ({
+const pluginRemote = (config: RuntimePluginConfig, key: string): RemoteEntry => ({
   ...config,
   name: key,
 });
@@ -163,8 +163,8 @@ export const secretsFromEnv = Effect.fn("secretsFromEnv")(function* (keys: strin
 /**
  * The platform root secret is every runtime's KEK seed (HKDF, runtime-scoped
  * salt) — every plugin's secrets schema requires it, but chain-composed
- * config slots may not declare it (a published `app.auth` fragment carries
- * only the slot's own operational secrets). When the env provides it, it
+ * config remotes may not declare it (a published `app.auth` fragment carries
+ * only the remote's own operational secrets). When the env provides it, it
  * rides into every plugin's secrets regardless of the declared list.
  */
 const PLATFORM_ROOT_SECRET = "BETTER_AUTH_SECRET";
@@ -505,7 +505,7 @@ const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (para
   const args: [unknown, unknown?] = [{ variables, secrets }];
   if (pluginsClient) args.push(pluginsClient);
 
-  const remoteUrl = entryUrls(pluginSlot(entry.config, entry.key), env).ui;
+  const remoteUrl = entryUrls(pluginRemote(entry.config, entry.key), env).ui;
   const result = yield* loadRemoteWithRetry<Omit<HostPluginEntry, "key" | "name" | "warnings">>({
     label: entry.key,
     remoteUrl,
@@ -650,7 +650,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
         const runtime = createPluginRuntime({
           registry: Object.fromEntries(
             allEntries.map((entry) => {
-              const remoteUrl = entryUrls(pluginSlot(entry.config, entry.key), config.env).ui;
+              const remoteUrl = entryUrls(pluginRemote(entry.config, entry.key), config.env).ui;
               return [entry.runtimeId, { remote: remoteUrl }];
             }),
           ),

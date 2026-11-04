@@ -145,7 +145,7 @@ export type ResolutionOutcome =
       /** which home resolved the query: a version record (pinned), the
        * manifest tag (latest), or the cache stand-in */
       readonly from: "version" | "manifest" | "cache";
-      readonly provenance: "slot" | "pointer";
+      readonly provenance: "record" | "pointer";
       readonly fromCache: boolean;
     }
   | {
@@ -239,7 +239,7 @@ export async function resolveRelease(input: {
   const writeCache = (
     manifest: Manifest,
     node: ExtendsChainNode,
-    provenance: "slot" | "pointer",
+    provenance: "record" | "pointer",
   ): void => {
     seams.cacheWrite({
       schemaVersion: 1,
@@ -273,7 +273,7 @@ export async function resolveRelease(input: {
             manifest: cached.record.manifest,
             source: cached.record.source,
             from: "cache",
-            provenance: cached.record.provenance ?? "slot",
+            provenance: cached.record.provenance ?? "record",
             fromCache: true,
           };
         }
@@ -296,20 +296,20 @@ export async function resolveRelease(input: {
             context: { chain: chainRefs, tagServes: "none", failureAt: node },
           };
         }
-        writeCache(manifest, node, "slot");
+        writeCache(manifest, node, "record");
         return {
           state: "Resolved",
           manifest,
           source: { account: node.account, gateway: node.gateway },
           from: "version",
-          provenance: "slot",
+          provenance: "record",
           fromCache: false,
         };
       }
     }
     // Record miss across the chain — the release's manifest leg never
     // published (the npm-version-exists / manifest-not-published race,
-    // #568). Slots are immutable, so this state means the release deploy
+    // #568). Remotes are immutable, so this state means the release deploy
     // must be re-run.
     const deadEnd = await deadEndProbe();
     return {
@@ -509,7 +509,7 @@ export interface ResolvedPlatformManifest {
   /** Where the resolved bytes came from (#574): an immutable version record
    * (an exact pin's target) or the moving tag (unpinned "latest"
    * resolution). */
-  provenance: "slot" | "pointer";
+  provenance: "record" | "pointer";
 }
 
 export type PlatformManifestCache = ManifestCacheRecord;
@@ -522,7 +522,7 @@ export interface ResolvePlatformManifestOptions {
   fetchTag?: (account: string, gateway: string) => Promise<unknown>;
   /** The immutable version-record read (#574) — an exact pin's target.
    * Throws on read failure (distinct from a clean absent record). */
-  fetchSlot?: (account: string, gateway: string, version: string) => Promise<unknown>;
+  fetchRecord?: (account: string, gateway: string, version: string) => Promise<unknown>;
   fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
   cacheRead?: () => PlatformManifestCache | null;
   cacheWrite?: (cached: PlatformManifestCache) => void;
@@ -547,10 +547,10 @@ export async function resolvePlatformManifest(
       return opts.fetchTag!(accountId, gatewayId);
     };
   }
-  if (opts.fetchSlot) {
+  if (opts.fetchRecord) {
     overrides.readVersionRecord = async (ref, release) => {
       const { accountId, gatewayId } = parseRuntimeRef(ref);
-      const raw = await opts.fetchSlot!(accountId, gatewayId, release);
+      const raw = await opts.fetchRecord!(accountId, gatewayId, release);
       return raw === null || raw === undefined ? null : JSON.stringify(raw);
     };
   }

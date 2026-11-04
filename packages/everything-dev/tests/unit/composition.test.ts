@@ -10,7 +10,7 @@ import {
 } from "../../src/services/deploy/composition";
 import { computeManifestSri } from "../../src/services/deploy/manifest-verify";
 import { composePlatformManifestPublishEntry } from "../../src/services/deploy/platform-manifest";
-import { clearSlotVersionCache } from "../../src/services/deploy/version-manifest";
+import { clearRemoteVersionCache } from "../../src/services/deploy/version-manifest";
 import { type Manifest, ManifestSchema } from "../../src/services/platform/manifest";
 import { walkRemotes } from "../../src/services/remotes";
 import { versionManifestFetcher, versionManifestText } from "../helpers/version-manifests";
@@ -43,31 +43,31 @@ function manifestWithRemotes(remotes: unknown): Manifest {
 let tmpRoot: string;
 
 beforeEach(() => {
-  clearSlotVersionCache();
+  clearRemoteVersionCache();
   tmpRoot = mkdtempSync(join(tmpdir(), "composition-"));
 });
 
 afterEach(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
-  clearSlotVersionCache();
+  clearRemoteVersionCache();
 });
 
 describe("walkRemotes", () => {
   it("visits canonical dotted paths, ui:false opt-outs, and bare plugin refs", () => {
-    const seen: Array<{ slot: string; entry: unknown; isPluginRef: boolean }> = [];
+    const seen: Array<{ remote: string; entry: unknown; isPluginRef: boolean }> = [];
     walkRemotes(
       {
         app: { ui: { x: 1 }, auth: { ui: false }, title: "not-an-entry" },
         plugins: { votes: { y: 1 }, legacy: "bos://parent/p" },
       },
-      (slot) => seen.push({ ...slot }),
+      (remote) => seen.push({ ...remote }),
     );
     expect(seen).toEqual([
-      { slot: "app.ui", entry: { x: 1 }, isPluginRef: false },
-      { slot: "app.auth", entry: { ui: false }, isPluginRef: false },
-      { slot: "app.auth.ui", entry: false, isPluginRef: false },
-      { slot: "plugins.votes", entry: { y: 1 }, isPluginRef: false },
-      { slot: "plugins.legacy", entry: "bos://parent/p", isPluginRef: true },
+      { remote: "app.ui", entry: { x: 1 }, isPluginRef: false },
+      { remote: "app.auth", entry: { ui: false }, isPluginRef: false },
+      { remote: "app.auth.ui", entry: false, isPluginRef: false },
+      { remote: "plugins.votes", entry: { y: 1 }, isPluginRef: false },
+      { remote: "plugins.legacy", entry: "bos://parent/p", isPluginRef: true },
     ]);
   });
 });
@@ -169,7 +169,7 @@ describe("stampRemotesFromRelease", () => {
   });
 
   it("stamps a remote-only api (variables/secrets, no workspace) but not a proxied one", () => {
-    const apiSlot = {
+    const apiRemote = {
       "app.api": {
         base: "https://cdn.test/api/",
         digest: { manifest: "api.json", integrity: "sha384-api" },
@@ -181,7 +181,7 @@ describe("stampRemotesFromRelease", () => {
       stampRemotesFromRelease({
         payload: remotePayload,
         authoredConfig: remoteOnly,
-        manifest: manifestWithRemotes(apiSlot),
+        manifest: manifestWithRemotes(apiRemote),
       }).stamped,
     ).toEqual(["app.api"]);
     expect((remotePayload.app as Record<string, unknown>).api).toEqual({
@@ -196,7 +196,7 @@ describe("stampRemotesFromRelease", () => {
       stampRemotesFromRelease({
         payload: structuredClone(proxied),
         authoredConfig: proxied,
-        manifest: manifestWithRemotes(apiSlot),
+        manifest: manifestWithRemotes(apiRemote),
       }).stamped,
     ).toEqual([]);
   });
@@ -420,7 +420,7 @@ describe("compositionSkewViolations", () => {
 
     const violations = await compositionSkewViolations(merged, {
       fetchImpl: fetcher,
-      verifiedSlots: new Set(["app.auth.ui"]),
+      verifiedRemotes: new Set(["app.auth.ui"]),
     });
     expect(violations).toEqual([]);
   });
@@ -448,7 +448,7 @@ describe("compositionSkewViolations", () => {
     expect(await compositionSkewViolations(merged, { fetchImpl: fetcher })).toEqual([]);
   });
 
-  it("ignores non-UI slots entirely", async () => {
+  it("ignores non-UI remotes entirely", async () => {
     const merged = {
       app: {
         api: {

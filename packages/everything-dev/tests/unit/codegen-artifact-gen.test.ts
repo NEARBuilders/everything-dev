@@ -128,7 +128,7 @@ describe("uiManifestTargets — the plugin-ui manifest gate", () => {
     expect(targets.some((t) => t.pluginName === "ai" && t.workspaceRoot === uiDir)).toBe(true);
   });
 
-  it("a ui slot without src/routes is not a manifest target", () => {
+  it("a ui remote without src/routes is not a manifest target", () => {
     tempDir = mkdtempSync(join(tmpdir(), "manifest-gate-"));
     mkdirSync(join(tempDir, "plugins", "ai", "ui", "src"), { recursive: true });
     const runtime = fixtureRuntime(tempDir, { withPluginUiRoutes: false });

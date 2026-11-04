@@ -16,11 +16,11 @@ import { openResolution } from "../../src/services/resolution/session";
 import { BosConfigInputSchema } from "../../src/types";
 
 vi.mock("../../src/services/deploy/version-manifest", () => ({
-  resolveSlotVersion: vi.fn(async () => ({
+  resolveRemoteVersion: vi.fn(async () => ({
     entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
     entryIntegrity: "sha384-entry",
   })),
-  clearSlotVersionCache: vi.fn(),
+  clearRemoteVersionCache: vi.fn(),
 }));
 
 vi.mock("../../src/services/registry/fastkv", async (importOriginal) => {

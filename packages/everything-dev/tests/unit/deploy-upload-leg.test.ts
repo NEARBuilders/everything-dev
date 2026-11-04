@@ -32,7 +32,7 @@ function fakeDeps(overrides?: Partial<StorageLegDeps>): StorageLegDeps {
     collectDistFiles: async () => distFiles,
     uploadWorkspaceDist: () => upload(),
     uploadBundle: () => upload(),
-    resolveSlotVersion: async () => {
+    resolveRemoteVersion: async () => {
       throw new Error("no previous pin in this test");
     },
     readBuildReport: (dir: string) =>
@@ -129,7 +129,7 @@ describe("uploadWorkspaceBundle", () => {
       const deps = fakeDeps({
         // The previous manifest's entry SRI matches the local hash — the
         // skip decision — plus a file that left the dist.
-        resolveSlotVersion: async () => ({
+        resolveRemoteVersion: async () => ({
           files: { ...localSri, "stale.js": "sha384-stale" },
         }),
       });

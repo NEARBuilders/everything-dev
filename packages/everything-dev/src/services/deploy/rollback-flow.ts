@@ -91,7 +91,7 @@ export async function publishRollbackSnapshot(
       return {
         ok: false,
         registryUrl: "",
-        error: "rollback refused — a pinned slot's bytes are gone or no longer match their SRI",
+        error: "rollback refused — a pinned remote's bytes are gone or no longer match their SRI",
       };
     }
   }

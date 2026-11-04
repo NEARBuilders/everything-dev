@@ -180,9 +180,9 @@ function extractIntegrityHashes(config: Record<string, unknown>): Map<string, st
 }
 
 /**
- * The integrity anchor a slot contributes to local↔chain attestation: pinned
- * slots anchor at the pinned manifest document (the pin's SRI), unpinned
- * slots at their fixed-name entry (the direct entry SRI).
+ * The integrity anchor a remote contributes to local↔chain attestation: pinned
+ * remotes anchor at the pinned manifest document (the pin's SRI), unpinned
+ * remotes at their fixed-name entry (the direct entry SRI).
  */
 function slotHashOf(entry: Record<string, unknown>): { key: string; hash: string } | null {
   const production = entry.production;

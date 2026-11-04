@@ -66,14 +66,14 @@ export async function resolveChildImagePin(input: {
   configDir: string;
   localConfig: Record<string, unknown>;
   fetchTag?: Parameters<typeof deriveImageRefFromPlatformManifest>[0]["fetchTag"];
-  fetchSlot?: Parameters<typeof deriveImageRefFromPlatformManifest>[0]["fetchSlot"];
+  fetchRecord?: Parameters<typeof deriveImageRefFromPlatformManifest>[0]["fetchRecord"];
   fetchDigest?: typeof resolveRegistryDigest;
 }): Promise<ChildImagePin | undefined> {
   const derived = await deriveImageRefFromPlatformManifest({
     configDir: input.configDir,
     localConfig: input.localConfig,
     ...(input.fetchTag ? { fetchTag: input.fetchTag } : {}),
-    ...(input.fetchSlot ? { fetchSlot: input.fetchSlot } : {}),
+    ...(input.fetchRecord ? { fetchRecord: input.fetchRecord } : {}),
   });
   if (!derived) return undefined;
   const digest = await (input.fetchDigest ?? resolveRegistryDigest)({

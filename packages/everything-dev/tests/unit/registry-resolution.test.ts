@@ -60,7 +60,7 @@ function harness(opts?: {
         resolvedAt: new Date(opts.cache.fresh === false ? 0 : Date.now()).toISOString(),
         source: { account: "dev.everything.near", gateway: "everything.dev" },
         manifest: manifest(opts.cache.pin ?? "1.0.0"),
-        provenance: "slot" as const,
+        provenance: "record" as const,
       };
       const pinMatch = pin === undefined || record.manifest.frameworkVersion === pin;
       if (!pinMatch) return { state: "stale", record };
@@ -86,7 +86,7 @@ describe("resolveRelease — the resolution state machine (ticket 03)", () => {
     expect(outcome).toMatchObject({
       state: "Resolved",
       from: "version",
-      provenance: "slot",
+      provenance: "record",
       fromCache: false,
       source: { account: "dev.everything.near", gateway: "everything.dev" },
     });
@@ -209,7 +209,7 @@ describe("resolveRelease — the resolution state machine (ticket 03)", () => {
     expect(outcome).toMatchObject({
       state: "Resolved",
       from: "cache",
-      provenance: "slot",
+      provenance: "record",
       fromCache: true,
     });
   });

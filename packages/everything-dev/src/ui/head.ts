@@ -69,13 +69,13 @@ export function getHydrateScript(
 export function getRemoteScripts(options: RemoteScriptsOptions): HeadScript[] {
   const { runtimeConfig, containerName, hydratePath, integrity, cspNonce } = options;
   const assetsUrl = runtimeConfig?.assetsUrl?.replace(/\/$/, "");
-  const slot: RemoteEntry = {
+  const remote: RemoteEntry = {
     name: "ui",
     url: assetsUrl,
     entryUrl: runtimeConfig?.ui?.entryUrl,
     integrity,
   };
-  const entrySrc = entryUrls(slot, runtimeConfig?.env ?? "production").ui;
+  const entrySrc = entryUrls(remote, runtimeConfig?.env ?? "production").ui;
   const entryScript: HeadScript = {
     src: entrySrc,
     crossOrigin: "anonymous",

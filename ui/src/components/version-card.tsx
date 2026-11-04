@@ -3,7 +3,7 @@ import { Badge, SectionHeader } from "@/components";
 
 interface VersionEndpointResponse {
   fingerprint?: string;
-  slots?: Record<string, string>;
+  remotes?: Record<string, string>;
   watch?: { lastOutcome?: string };
 }
 
@@ -55,13 +55,13 @@ export function VersionCard() {
               </Badge>
             )}
           </div>
-          {Object.keys(version.slots ?? {}).length > 0 && (
+          {Object.keys(version.remotes ?? {}).length > 0 && (
             <div>
-              <dt className="text-muted-foreground">Slots</dt>
+              <dt className="text-muted-foreground">Remotes</dt>
               <dd className="mt-1 space-y-0.5">
-                {Object.entries(version.slots ?? {}).map(([slot, pin]) => (
-                  <div key={slot} className="flex gap-2 font-mono text-xs">
-                    <span className="text-muted-foreground">{slot}</span>
+                {Object.entries(version.remotes ?? {}).map(([remote, pin]) => (
+                  <div key={remote} className="flex gap-2 font-mono text-xs">
+                    <span className="text-muted-foreground">{remote}</span>
                     <span>{pin}</span>
                   </div>
                 ))}

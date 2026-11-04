@@ -8,12 +8,12 @@
  *   probe read the legacy package.json catalog and the root node_modules
  *   misses under the isolated linker) and "run bos upgrade to inherit" lines
  *   upgrade can never clear. Asserts the honest output: zero divergence
- *   lines for coherent pins, uncomposed notes for the subset slots.
+ *   lines for coherent pins, uncomposed notes for the subset remotes.
  *
- *   C2: the same child with a stale catalog entry — the owned slot
+ *   C2: the same child with a stale catalog entry — the owned remote
  *   diverges, and detection names the publish key the scoped train takes.
  *
- *   R: the realignment leg — `realignOwnedSlots` without a stored session
+ *   R: the realignment leg — `realignOwnedRemotes` without a stored session
  *   skips with the hand-repair instruction instead of hanging or failing.
  */
 
@@ -28,7 +28,7 @@ import { auditSessionComposition } from "../../src/services/resolution/compositi
 import { ResolutionSession } from "../../src/services/resolution/session";
 import {
   detectOwnedDivergentKeys,
-  realignOwnedSlots,
+  realignOwnedRemotes,
 } from "../../src/services/scaffold/upgrade-realign";
 
 const tempDirs: string[] = [];
@@ -43,7 +43,7 @@ const manifestBody = (shared: Record<string, string>): string =>
     shared,
   });
 
-/** The release built every slot against this chain. */
+/** The release built every remote against this chain. */
 const BUILT_SHARED = { react: "19.3.1", "@orpc/client": "2.0.0-beta.45" };
 const sriOf = (shared: Record<string, string>): string => computeManifestSri(manifestBody(shared));
 
@@ -89,7 +89,7 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
       "",
     ].join("\n"),
   });
-  const slot = (path: string) => ({
+  const remote = (path: string) => ({
     base: `${serverUrl}/${path}`,
     digest: { manifest: `${serverUrl}/${path}/mf-manifest.json`, integrity: sriOf(BUILT_SHARED) },
   });
@@ -104,15 +104,15 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
     templateInventory: [],
     compat: { minChild: "2.0.0-rc.26" },
     remotes: {
-      "app.ui": slot("app.ui"),
-      "app.api": slot("app.api"),
-      "app.auth": slot("app.auth"),
-      "app.auth.ui": slot("app.auth.ui"),
-      "plugins.ai": slot("plugins.ai"),
-      "plugins.registry": slot("plugins.registry"),
-      "plugins.proposals": slot("plugins.proposals"),
-      "plugins.votes": slot("plugins.votes"),
-      "plugins.template": slot("plugins.template"),
+      "app.ui": remote("app.ui"),
+      "app.api": remote("app.api"),
+      "app.auth": remote("app.auth"),
+      "app.auth.ui": remote("app.auth.ui"),
+      "plugins.ai": remote("plugins.ai"),
+      "plugins.registry": remote("plugins.registry"),
+      "plugins.proposals": remote("plugins.proposals"),
+      "plugins.votes": remote("plugins.votes"),
+      "plugins.template": remote("plugins.template"),
     },
   } as unknown as Manifest;
   const rawConfig = {
@@ -129,7 +129,7 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
     ...rawConfig,
     app: {
       ...rawConfig.app,
-      // Owned slots carry their own published production + pin (merged from
+      // Owned remotes carry their own published production + pin (merged from
       // the child's published config state) — what collectRemoteDescriptors reads.
       ui: {
         ...rawConfig.app.ui,
@@ -186,10 +186,10 @@ describe("child upgrade realignment — the opencrosspost regression", () => {
     expect(lines.some((line) => line.message.includes("plugins.ai"))).toBe(true);
   });
 
-  it("an owned slot diverging on a strict singleton is detected with its publish key", async () => {
+  it("an owned remote diverging on a strict singleton is detected with its publish key", async () => {
     const session = buildChildSession({ react: "19.2.0", "@orpc/client": "2.0.0-beta.45" });
     const { keys, lines } = await detectOwnedDivergentKeys(session);
-    // Both owned slots embed react in their shared set — both diverge.
+    // Both owned remotes embed react in their shared set — both diverge.
     expect(keys).toEqual(["api", "ui"]);
     const owned = lines.filter((line) => line.kind === "owned");
     expect(
@@ -200,10 +200,12 @@ describe("child upgrade realignment — the opencrosspost regression", () => {
     ).toBe(true);
   });
 
-  it("realignOwnedSlots without a stored session skips with the hand-repair instruction", async () => {
+  it("realignOwnedRemotes without a stored session skips with the hand-repair instruction", async () => {
     const session = buildChildSession({ react: "19.2.0" });
     const logs: string[] = [];
-    const outcome = await realignOwnedSlots(session.root, ["ui"], (message) => logs.push(message));
+    const outcome = await realignOwnedRemotes(session.root, ["ui"], (message) =>
+      logs.push(message),
+    );
     expect(outcome).toEqual({ keys: ["ui"], realigned: [], failures: [] });
     expect(logs.join("\n")).toContain("bos deploy --packages ui");
   });

@@ -4,7 +4,7 @@ import { fetchVerifiedManifest } from "./manifest-verify";
 
 /**
  * Rollback safety gate (atomic-deploys 11): before republishing a historical
- * snapshot, every pinned slot's version manifest must still serve and match
+ * snapshot, every pinned remote's version manifest must still serve and match
  * its SRI — Phase A made bytes additive and retention is keep-everything, so
  * a verify failure means the pointer is broken, never publishable. Snapshots
  * from before the pin existed cannot be verified this way; they are allowed
@@ -12,8 +12,8 @@ import { fetchVerifiedManifest } from "./manifest-verify";
  * the caller expected to warn loudly.
  */
 
-export interface RollbackSlotCheck {
-  slot: string;
+export interface RollbackRemoteCheck {
+  remote: string;
   manifest?: string;
   ok: boolean;
   reason?: string;
@@ -23,58 +23,60 @@ export interface RollbackVerification {
   /** false = pre-pin snapshot with no verifiable pins (force required) */
   verifiable: boolean;
   ok: boolean;
-  slots: RollbackSlotCheck[];
+  remotes: RollbackRemoteCheck[];
 }
 
-interface PinnedSlotRef {
+interface PinnedRemoteRef {
   production?: unknown;
   digest?: { manifest?: unknown; integrity?: unknown };
 }
 
-function collectPinnedSlots(config: BosConfigInput): Array<{ slot: string; ref: PinnedSlotRef }> {
-  const slots: Array<{ slot: string; ref: PinnedSlotRef }> = [];
-  walkRemotes(config as unknown as Record<string, unknown>, ({ slot, entry }) => {
-    if (entry && typeof entry === "object") slots.push({ slot, ref: entry as PinnedSlotRef });
+function collectPinnedRemotes(
+  config: BosConfigInput,
+): Array<{ remote: string; ref: PinnedRemoteRef }> {
+  const remotes: Array<{ remote: string; ref: PinnedRemoteRef }> = [];
+  walkRemotes(config as unknown as Record<string, unknown>, ({ remote, entry }) => {
+    if (entry && typeof entry === "object") remotes.push({ remote, ref: entry as PinnedRemoteRef });
   });
-  return slots;
+  return remotes;
 }
 
-function digestOf(ref: PinnedSlotRef): { manifest: string; integrity: string } | null {
+function digestOf(ref: PinnedRemoteRef): { manifest: string; integrity: string } | null {
   const manifest = typeof ref.digest?.manifest === "string" ? ref.digest.manifest : undefined;
   const integrity = typeof ref.digest?.integrity === "string" ? ref.digest.integrity : undefined;
   return manifest && integrity ? { manifest, integrity } : null;
 }
 
 export interface RemoteDescriptor {
-  slot: string;
+  remote: string;
   /** the remote's production base URL (…/bundles/<account>/<gateway>/<workspace>/) */
   base: string;
   digest: { manifest: string; integrity: string };
 }
 
-/** Every pinned slot with both a production base and a verifiable pin. */
+/** Every pinned remote with both a production base and a verifiable pin. */
 export function collectRemoteDescriptors(config: BosConfigInput): RemoteDescriptor[] {
-  return collectPinnedSlots(config)
-    .map(({ slot, ref }) => {
+  return collectPinnedRemotes(config)
+    .map(({ remote, ref }) => {
       const digest = digestOf(ref);
       const base = typeof ref.production === "string" ? ref.production : undefined;
-      return digest && base ? { slot, base, digest } : null;
+      return digest && base ? { remote, base, digest } : null;
     })
     .filter((entry): entry is RemoteDescriptor => entry !== null);
 }
 
-async function verifySlot(
-  slot: string,
-  ref: PinnedSlotRef,
+async function verifyRemote(
+  remote: string,
+  ref: PinnedRemoteRef,
   fetchImpl: typeof fetch,
-): Promise<RollbackSlotCheck> {
+): Promise<RollbackRemoteCheck> {
   const base = typeof ref.production === "string" ? ref.production : undefined;
   const digest = digestOf(ref);
-  if (!digest) return { slot, ok: true };
+  if (!digest) return { remote, ok: true };
   const { manifest, integrity } = digest;
 
   if (!base)
-    return { slot, manifest, ok: false, reason: "no production URL to fetch the manifest from" };
+    return { remote, manifest, ok: false, reason: "no production URL to fetch the manifest from" };
 
   const verified = await fetchVerifiedManifest({
     base,
@@ -82,9 +84,9 @@ async function verifySlot(
     fetchImpl,
   });
   if (!verified.ok) {
-    return { slot, manifest, ok: false, reason: verified.reason };
+    return { remote, manifest, ok: false, reason: verified.reason };
   }
-  return { slot, manifest, ok: true };
+  return { remote, manifest, ok: true };
 }
 
 export async function verifyRollbackSnapshot(
@@ -92,23 +94,23 @@ export async function verifyRollbackSnapshot(
   opts?: { fetchImpl?: typeof fetch },
 ): Promise<RollbackVerification> {
   const fetchImpl = opts?.fetchImpl ?? fetch;
-  const pinned = collectPinnedSlots(config).filter((entry) => digestOf(entry.ref) !== null);
+  const pinned = collectPinnedRemotes(config).filter((entry) => digestOf(entry.ref) !== null);
 
   if (pinned.length === 0) {
-    return { verifiable: false, ok: false, slots: [] };
+    return { verifiable: false, ok: false, remotes: [] };
   }
 
-  const slots = await Promise.all(
-    pinned.map((entry) => verifySlot(entry.slot, entry.ref, fetchImpl)),
+  const remotes = await Promise.all(
+    pinned.map((entry) => verifyRemote(entry.remote, entry.ref, fetchImpl)),
   );
-  return { verifiable: true, ok: slots.every((check) => check.ok), slots };
+  return { verifiable: true, ok: remotes.every((check) => check.ok), remotes };
 }
 
-export function summarizeSlotPins(config: BosConfigInput): string {
-  const pinned = collectPinnedSlots(config)
+export function summarizeRemoteDigests(config: BosConfigInput): string {
+  const pinned = collectPinnedRemotes(config)
     .map((entry) => {
       const digest = digestOf(entry.ref);
-      return digest ? `${entry.slot}=${digest.manifest}` : null;
+      return digest ? `${entry.remote}=${digest.manifest}` : null;
     })
     .filter(Boolean) as string[];
   return pinned.length > 0 ? pinned.join(" ") : "no version pins (pre-pin snapshot)";

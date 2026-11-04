@@ -246,7 +246,7 @@ export declare const contract: {
             }>;
             provenance: z.ZodEnum<{
                 pointer: "pointer";
-                slot: "slot";
+                record: "record";
             }>;
             fromCache: z.ZodBoolean;
         }, z.core.$strip>, z.ZodObject<{

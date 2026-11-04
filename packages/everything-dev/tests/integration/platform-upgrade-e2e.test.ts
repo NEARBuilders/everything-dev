@@ -7,7 +7,7 @@
  *   the fresh 24h cache) → stale fail-loud (cache deleted / TTL expired, pin
  *   unresolvable) → C2 upgrade ignores the pin, re-pins the latest release →
  *   #546 replay (drifted-react republish: the composition gate names the
- *   skewed slots, `bos platform manifest --check` flags the drift) → the
+ *   skewed remotes, `bos platform manifest --check` flags the drift) → the
  *   mixed-tree replay (a caret-authored root publishes exact catalog rows,
  *   the child upgrade consumes them verbatim, a drifted install fails loud).
  *
@@ -75,12 +75,12 @@ let rootDir: string;
 let childDir: string;
 
 /** The fake FastKV: parent-config fetch + platform-manifest fetch + the
- * immutable version-slot fetch (#574). */
+ * immutable version-record fetch (#574). */
 const fetchParent = async (account: string, gateway: string) =>
   (registry.get(`apps/${account}/${gateway}/bos.config.json`) as Record<string, unknown>) ?? null;
 const fetchTag = async (account: string, gateway: string) =>
   registry.get(`apps/${account}/${gateway}/manifest.json`) ?? null;
-const fetchSlot = async (account: string, gateway: string, version: string) =>
+const fetchRecord = async (account: string, gateway: string, version: string) =>
   registry.get(`apps/${account}/${gateway}/versions/${version}.json`) ?? null;
 
 function frameworkRootFixture(version: string, reactVersion: string): string {
@@ -218,7 +218,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
       localConfig: readChildConfig(),
       fetchTag,
       fetchParent,
-      fetchSlot,
+      fetchRecord,
     });
     expect(derived).toEqual({ image: PLATFORM_IMAGE_REF, tag: "v2.0.0-rc.1" });
 
@@ -227,7 +227,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
       localConfig: readChildConfig(),
       fetchTag,
       fetchParent,
-      fetchSlot,
+      fetchRecord,
     }))!;
     expect(resolved.fromCache).toBe(false);
     expect(resolved.source).toEqual({ account: ROOT_ACCOUNT, gateway: ROOT_GATEWAY });
@@ -250,7 +250,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     expect(violations[0]).toContain("the release manifest pins 19.2.4");
   });
 
-  it("R2 — the root publishes vB; the pinned child still resolves vA from the immutable slot (#574)", async () => {
+  it("R2 — the root publishes vB; the pinned child still resolves vA from the immutable remote (#574)", async () => {
     writeFileSync(
       join(rootDir, "packages", "everything-dev", "package.json"),
       `${JSON.stringify({ name: "everything-dev", version: "2.0.0-rc.2" })}\n`,
@@ -258,25 +258,25 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     publishRootRelease("2.0.0-rc.1");
 
     // the pointer flipped to vB, but the child's vA pin resolves from the
-    // immutable version slot — no cache needed, no stale-pin grace
+    // immutable version record — no cache needed, no stale-pin grace
     const pinned = await resolvePlatformManifest({
       configDir: childDir,
       localConfig: readChildConfig(),
       fetchTag,
       fetchParent,
-      fetchSlot,
+      fetchRecord,
     });
     expect(pinned).not.toBeNull();
     expect(pinned!.manifest.frameworkVersion).toBe("2.0.0-rc.1");
-    expect(pinned!.provenance).toBe("slot");
+    expect(pinned!.provenance).toBe("record");
     expect(pinned!.fromCache).toBe(false);
   });
 
-  it("stale fail-loud — a pin whose slot was never published fails with the actionable error (#568 class)", async () => {
+  it("stale fail-loud — a pin whose remote was never published fails with the actionable error (#568 class)", async () => {
     const cacheFile = join(childDir, ".bos", "manifest.json");
     if (existsSync(cacheFile)) rmSync(cacheFile);
 
-    // a version whose manifest leg never published a slot — the release
+    // a version whose manifest leg never published a record — the release
     // deploy must be re-run (the old "pin not found, publish or clear the
     // pin" dead path is gone)
     await expect(
@@ -285,12 +285,12 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
         localConfig: { ...readChildConfig(), release: "2.0.0-rc.99" },
         fetchTag,
         fetchParent,
-        fetchSlot,
+        fetchRecord,
       }),
     ).rejects.toThrow(/never published/);
   });
 
-  it("the cache is an offline aid, not stale-pin grace — an expired cache is irrelevant when the slot resolves", async () => {
+  it("the cache is an offline aid, not stale-pin grace — an expired cache is irrelevant when the remote resolves", async () => {
     const cacheFile = join(childDir, ".bos", "manifest.json");
     const cache = {
       schemaVersion: 1 as const,
@@ -308,28 +308,28 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
         templateInventory: [],
         compat: { minChild: "2.0.0-rc.1" },
       }),
-      provenance: "slot" as const,
+      provenance: "record" as const,
     };
     writeFileSync(cacheFile, `${JSON.stringify(cache)}\n`);
 
     // past the TTL, pinned resolution ignores the cache entirely — the
-    // immutable slot serves the pin (permanent resolution)
+    // immutable remote serves the pin (permanent resolution)
     await expect(
       resolvePlatformManifest({
         configDir: childDir,
         localConfig: readChildConfig(),
         fetchTag,
         fetchParent,
-        fetchSlot,
+        fetchRecord,
         now: () => Date.now() + 25 * 60 * 60_000,
       }),
     ).resolves.toMatchObject({
-      provenance: "slot",
+      provenance: "record",
       fromCache: false,
       manifest: { frameworkVersion: "2.0.0-rc.1" },
     });
 
-    // inside the TTL with the slot reads failing (offline dev), the cache
+    // inside the TTL with the remote reads failing (offline dev), the cache
     // stands in
     await expect(
       resolvePlatformManifest({
@@ -337,7 +337,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
         localConfig: readChildConfig(),
         fetchTag,
         fetchParent,
-        fetchSlot: async () => {
+        fetchRecord: async () => {
           throw new Error("registry unreachable");
         },
         now: () => Date.now() + 23 * 60 * 60_000,
@@ -373,7 +373,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
   });
 
   it("the incident replay — an authored release whose version record is absent never blocks the upgrade", async () => {
-    // the Nov-03 burned slot: the child is aligned to a release the chain
+    // the Nov-03 burned record: the child is aligned to a release the chain
     // never recorded. Everyday resolution fails loud on it; the upgrade —
     // the sanctioned repair — must resolve latest and move the tree anyway.
     writeFileSync(
@@ -439,7 +439,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
           templateInventory: [],
           compat: { minChild: "2.0.0-rc.1" },
         }),
-        provenance: "slot",
+        provenance: "record",
       })}\n`,
     );
 
@@ -486,7 +486,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
 
 describe("#546 replay — drifted-react republish after the child stayed pinned", () => {
   /** The child's ui bundle still builds against react 19.2.4 while the
-   * root's published ui slot serves 19.3.0 — the composition negotiation
+   * root's published ui remote serves 19.3.0 — the composition negotiation
    * fails with the federation runtime's cryptic error at `mf.loadRemote`.
    * The host boot guard raises SharedSingletonSkewError; here the same skew
    * surfaces through the two pre-flight mirrors. */
@@ -556,19 +556,19 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
     rmSync(childDir, { recursive: true, force: true });
   });
 
-  it("mf check's ui gate names the skewed slots and versions", async () => {
+  it("mf check's ui gate names the skewed remotes and versions", async () => {
     const config = JSON.parse(readFileSync(join(childDir, "bos.config.json"), "utf-8"));
     const report = await checkUiCompositionCompat(config);
     expect(report.ok).toBe(false);
-    const rootSlot = report.slots.find((slot) => slot.slot === "app.ui")!;
-    const childSlot = report.slots.find((slot) => slot.slot === "plugins.votes.ui")!;
-    expect(rootSlot.reachable).toBe(true);
-    expect(childSlot.reachable).toBe(true);
-    expect(rootSlot.ok).toBe(false);
-    expect(childSlot.ok).toBe(false);
-    expect(rootSlot.reason).toContain("react");
-    expect(rootSlot.reason).toContain("19.2.4");
-    expect(rootSlot.reason).toContain("19.3.0");
+    const rootRemote = report.remotes.find((remote) => remote.remote === "app.ui")!;
+    const childRemote = report.remotes.find((remote) => remote.remote === "plugins.votes.ui")!;
+    expect(rootRemote.reachable).toBe(true);
+    expect(childRemote.reachable).toBe(true);
+    expect(rootRemote.ok).toBe(false);
+    expect(childRemote.ok).toBe(false);
+    expect(rootRemote.reason).toContain("react");
+    expect(rootRemote.reason).toContain("19.2.4");
+    expect(rootRemote.reason).toContain("19.3.0");
   });
 
   it("platform manifest --check flags the pin drift and the compat skew", async () => {
@@ -584,7 +584,7 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
         localConfig,
         fetchTag,
         fetchParent,
-        fetchSlot,
+        fetchRecord,
       });
     } catch {
       const latest = await resolvePlatformManifest({
@@ -592,7 +592,7 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
         localConfig: { ...localConfig, release: undefined },
         fetchTag,
         fetchParent,
-        fetchSlot,
+        fetchRecord,
       });
       resolved = latest;
       const pinned = typeof localConfig.release === "string" ? localConfig.release : undefined;
@@ -620,19 +620,19 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
  * Release-scoped extends inheritance (ADR 0034 amendment) — the incident
  * replay on the deploy train's composition plane:
  *
- *   The root publishes rc.1 (its release manifest records the auth slot
- *   pins), then rc.2 whose LIVE config moves the inherited auth slots to
+ *   The root publishes rc.1 (its release manifest records the auth remote
+ *   pins), then rc.2 whose LIVE config moves the inherited auth remotes to
  *   react 19.3.0. A child pinned rc.1 — its own ui built against react
  *   19.2.4 — deploys: the train stamps app.auth/app.auth.ui from the rc.1
- *   release's slots map, the extends-merged shape composes rc.1 auth against
+ *   release's remotes map, the extends-merged shape composes rc.1 auth against
  *   rc.1 ui, and the composition gate is green. The same deploy WITHOUT the
- *   stamps (a pre-slots release) composes live rc.2 auth against rc.1 ui —
+ *   stamps (a pre-remotes release) composes live rc.2 auth against rc.1 ui —
  *   the #546 skew — and the gate blocks publish with the remediation named.
  */
 describe("release-scoped inheritance — a pinned child deploy survives the root's newer publish", () => {
   const ACCOUNT = "root.near";
   const GATEWAY = "root";
-  const CHILD_SLOT = { account: "child.near", gateway: "child.example" };
+  const CHILD_RUNTIME = { account: "child.near", gateway: "child.example" };
   const liveConfigKey = `apps/${ACCOUNT}/${GATEWAY}/bos.config.json`;
 
   const authRc37Shared = { "everything-dev/ui/auth": "2.0.0-rc.37", react: "19.2.4" };
@@ -664,9 +664,9 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     },
   };
 
-  /** The root's release compose: the release manifest records its slot pins,
+  /** The root's release compose: the release manifest records its remote pins,
    * and the live parent config carries the same pins — the moving pointer the
-   * incident trips over. Each release's live auth slots carry that release's
+   * incident trips over. Each release's live auth remotes carry that release's
    * shared-singleton versions (rc.1: react 19.2.4; rc.2: 19.3.0). */
   function publishRootRelease(
     version: string,
@@ -743,7 +743,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     const resolvedRelease = await resolveReleaseManifestForDeploy({
       configDir: childDir,
       authoredConfig,
-      resolveOptions: { fetchTag, fetchParent, fetchSlot },
+      resolveOptions: { fetchTag, fetchParent, fetchRecord },
     });
     const payload = structuredClone(authoredConfig);
     const app = payload.app as Record<string, Record<string, unknown>>;
@@ -757,7 +757,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
         manifest: resolvedRelease,
       }).stamped;
     }
-    const bootShape = await resolveBootShape(payload, CHILD_SLOT, { io: registryIo });
+    const bootShape = await resolveBootShape(payload, CHILD_RUNTIME, { io: registryIo });
     const bootCheck = verifyResolvedBootShape(payload, bootShape);
     const gate = await runCompositionGate({
       configDir: childDir,
@@ -819,7 +819,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     }
   });
 
-  it("the child deploy stamps inherited auth slots from its pinned release — the composition gate is green", async () => {
+  it("the child deploy stamps inherited auth remotes from its pinned release — the composition gate is green", async () => {
     const authoredConfig = {
       extends: `bos://${ACCOUNT}/${GATEWAY}`,
       account: "child.near",
@@ -839,7 +839,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     expect(bootOk).toBe(true);
     expect(violations).toEqual([]);
 
-    // the release records the parent's plugin slots too — the child's own
+    // the release records the parent's plugin remotes too — the child's own
     // declared plugin set owns that domain, so none of them stamp
     expect(stamped).toEqual(["app.auth", "app.auth.ui"]);
     const app = merged.app as Record<string, Record<string, Record<string, string>>>;
@@ -851,7 +851,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     expect(ok).toBe(true);
   });
 
-  it("without the stamps (a pre-slots release) the deploy gate blocks with the #546 skew and the remediation", async () => {
+  it("without the stamps (a pre-remotes release) the deploy gate blocks with the #546 skew and the remediation", async () => {
     const authoredConfig = {
       extends: `bos://${ACCOUNT}/${GATEWAY}`,
       account: "child.near",
@@ -1017,7 +1017,7 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
           manifest: releaseManifest,
           source: { account: ACCOUNT, gateway: GATEWAY },
           from: "version",
-          provenance: "slot",
+          provenance: "record",
           fromCache: false,
         } as never;
       }

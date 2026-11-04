@@ -25,7 +25,7 @@
 
 - [MCP server](/api/mcp): Model Context Protocol server (Streamable HTTP, stateless). Auto-generates tools from the API's OpenAPI spec. Connect your MCP client to discover and call all API operations.
 - [MCP discovery](/.well-known/mcp.json): JSON descriptor with server name, endpoint URL, and auth scheme.
-- [Version](/.well-known/version): deployed snapshot fingerprint, per-slot version-manifest pins, and the last watch-tick outcome — self-serve deploy state for agents.
+- [Version](/.well-known/version): deployed snapshot fingerprint, per-remote version-manifest digests, and the last watch-tick outcome — self-serve deploy state for agents.
 
 ## Auth
 

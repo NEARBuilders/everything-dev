@@ -10,7 +10,7 @@ import type {
 import type { PublishTrainError, PublishTrainOk } from "../services/deploy/errors";
 import { isValidImageDigest } from "../services/deploy/image";
 import { runPostPublishLegs } from "../services/deploy/legs";
-import { summarizeSlotPins, verifyRollbackSnapshot } from "../services/deploy/rollback";
+import { summarizeRemoteDigests, verifyRollbackSnapshot } from "../services/deploy/rollback";
 import {
   fetchLiveConfig,
   fetchRollbackHistory,
@@ -209,7 +209,7 @@ async function rollbackBody(
     blockHeight: entry.blockHeight,
     blockTimestamp: new Date(Number(entry.blockTimestampNs.slice(0, 13))).toISOString(),
     ...(entry.txHash ? { txHash: entry.txHash } : {}),
-    summary: summarizeSlotPins(entry.value as BosConfigInput),
+    summary: summarizeRemoteDigests(entry.value as BosConfigInput),
   }));
 
   if (input.listOnly) {
@@ -253,8 +253,8 @@ async function rollbackBody(
   }
 
   const verification = await verifyRollbackSnapshot(target.value as BosConfigInput);
-  const slotChecks = verification.slots.map((check) => ({
-    slot: check.slot,
+  const remoteChecks = verification.remotes.map((check) => ({
+    remote: check.remote,
     ok: check.ok,
     ...(check.reason ? { reason: check.reason } : {}),
   }));
@@ -262,8 +262,9 @@ async function rollbackBody(
     return {
       status: "error",
       registryUrl: "",
-      verification: slotChecks,
-      error: "Refusing to roll back — a pinned slot's bytes are gone or no longer match their SRI",
+      verification: remoteChecks,
+      error:
+        "Refusing to roll back — a pinned remote's bytes are gone or no longer match their SRI",
     };
   }
 
@@ -310,7 +311,7 @@ async function rollbackBody(
     registryUrl: rollback.registryUrl,
     txHash: rollback.txHash,
     history: historyEntries,
-    ...(slotChecks.length > 0 ? { verification: slotChecks } : {}),
+    ...(remoteChecks.length > 0 ? { verification: remoteChecks } : {}),
   };
 }
 
@@ -443,7 +444,7 @@ async function deployBody(
     registryUrl: result.registryUrl,
     txHash: result.txHash,
     fingerprint: result.fingerprint,
-    slotPins: result.slotPins,
+    remoteDigests: result.remoteDigests,
     built: result.built,
     skipped: result.skipped,
     deployResults: result.deployResults,

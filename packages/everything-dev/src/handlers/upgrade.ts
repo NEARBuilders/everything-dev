@@ -559,7 +559,7 @@ export function registerUpgrade(builder: BosBuilder) {
 
         // #546: the UI composition compat gate — sibling UI manifests must
         // agree on named shared singletons (the mf-check mirror of the
-        // host's boot guard). Absent when no UI slots exist.
+        // host's boot guard). Absent when no UI remotes exist.
         const ui = await checkUiCompositionCompat(authored, { timeoutMs: input.timeoutMs });
 
         // ADR 0034 pt 5 — the release compat gate, additive to the federation
@@ -601,7 +601,7 @@ export function registerUpgrade(builder: BosBuilder) {
           hostReachable: report.hostReachable,
           hostReason: report.hostReason,
           remotes: report.remotes,
-          ...(ui.slots.length > 0 ? { ui: { ok: ui.ok, slots: ui.slots } } : {}),
+          ...(ui.remotes.length > 0 ? { ui: { ok: ui.ok, remotes: ui.remotes } } : {}),
           ...(manifest ? { manifest } : {}),
         };
       });

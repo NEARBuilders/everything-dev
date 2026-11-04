@@ -181,7 +181,7 @@ describe("auth.ui artifact targets (#549)", () => {
     rmSync(projectDir, { recursive: true, force: true });
   });
 
-  it("emits manifest.gen.json + routeTree.gen.ts for a local auth.ui slot", async () => {
+  it("emits manifest.gen.json + routeTree.gen.ts for a local auth.ui remote", async () => {
     await generateCodeArtifacts(projectDir, CONFIG, {
       runtimeConfig: buildAuthRuntimeConfig(authUiDir),
     });
