@@ -99,6 +99,18 @@ export default App({
             },
           },
         },
+        // The NEP-366 relayer, ephemeral mode (the gas keypair is generated
+        // at boot and stored encrypted in the relayerKey table): publishes
+        // relay a scoped delegate action signed locally instead of
+        // broadcasting with raw key material, so deploy secrets carry no
+        // writer key and every write lands in the relayedTransaction audit
+        // table. Gas cap equals the CLI publish's prepaid gas (300 Tgas);
+        // the allowlist is the registry namespace itself.
+        relayer: {
+          whitelistedContracts: ["dev.everything.near"],
+          maxGasPerTransaction: "300000000000000",
+          maxDepositPerTransaction: "0",
+        },
       },
     },
   }),
