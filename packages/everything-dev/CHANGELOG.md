@@ -1,5 +1,43 @@
 # everything-dev
 
+## 2.0.0-rc.37
+
+### Minor Changes
+
+- 602545a: Registry wire cutover (ticket 10): `manifest.json` thin tag + `versions/<v>.json` records, strict no-alias resolution
+
+  The registry wire cuts over atomically with this release. **Old CLIs fail loud until `bos upgrade`** — a child below the cutover floor resolves nothing and is told to upgrade.
+
+  **New keys** (the old `platform.json`, `platform-versions/`, and `manifests/` keys are abandoned in place — FastKV is immutable, never written again):
+
+  - `apps/<account>/<gateway>/manifest.json` — the thin tag: `{ schemaVersion, version, digest }`; the digest pins the record's exact bytes
+  - `apps/<account>/<gateway>/versions/<v>.json` — the full manifest, immutable
+  - `apps/<account>/<gateway>/deploys/<ts>.json` — the per-deploy audit record
+
+  **Strict no-alias cutover**: resolution speaks only the new format. An extends target still publishing the pre-cutover composition is rejected loud: "the runtime you extend publishes a pre-cutover composition — it must redeploy on ≥ 2.0.0-rc.37". No dual-read, no legacy parser in the core. The resolution machine verifies the thin tag's digest against the fetched record's bytes — a mismatch is an `integrityFailure`, never a silent pass.
+
+  **Manifest + config wire**: the manifest's `slots:`/`pin:` maps are now `remotes:`/`digest:`; stamped config entries carry `digest:` (republishes scrub legacy `pin:` stamps). The compat floor never sits below the cutover release — pre-cutover children cannot parse the wire.
+
+  **Operator notes**:
+
+  - Run `bos upgrade` on any child before (or immediately after) the parent's first post-cutover deploy; until then the child fails loud with exactly that instruction.
+  - The release train writes the version record + flips the thin tag in one atomic FastKV write; publish confirmation now verifies both legs byte-equal before the publish counts.
+  - `bos manifest` (`--check`) replaces the retired `bos platform manifest` surface.
+  - The compat window's non-release freshness gate now compares against the published version record the tag names (the full manifest no longer rides the pointer).
+
+### Patch Changes
+
+- 7b0a5c6: `bos platform manifest` is removed — the command is **`bos manifest`** (no alias; `--check` semantics unchanged). The mf-check compat section and its result field are labeled `manifest`, and the local manifest cache moved from `.bos/platform-manifest.json` to `.bos/manifest.json` (the stale file is deleted on the next `bos upgrade`).
+- e600338: The authored config's `platform:` pin field is renamed to `release:` — run `bos upgrade` to migrate; the upgrade rewrites the key surgically and stamps the current chain release.
+
+  `bos upgrade` no longer dies on the pin it exists to move: the release is chosen fresh from the registry (never from the offline cache), the target release's version record is verified before anything mutates, and a child authored against a release whose record is absent upgrades anyway — the stranded-pin state is repaired, not refused.
+
+  The upgrade install now handles pnpm's supply-chain holdback: a stale lockfile entry naming a fresh framework release is repaired automatically (exclude posture reconciled, lockfile regenerated, one retry) instead of failing with the raw `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` dump.
+
+  Fixes the version-record read double-prefixing its registry key (`apps/a/g/apps/a/g/...`), which made every pinned release unresolvable while its record sat published — the stranded-pin incident.
+
+- 1c26350: Fix the scaffolded child api template (`.github/templates/api/`): the slim shell declared only the `API_DATABASE_URL` secret while `plugin.dev.ts` also wrote `BETTER_AUTH_SECRET` (a secrets-vault concern only the platform root's api consumes), and the shell's `initialize` passed the connection string where `DatabaseLive` expects the plugin config object. Fresh `bos init` children with an api override now typecheck against the live root's published contracts — surfaced by the init.full integration gate after ticket 04 repointed its parent to the production root (the previously stale deployed auth contract had been self-skipping that assertion).
+
 ## 2.0.0-rc.36
 
 ### Minor Changes
