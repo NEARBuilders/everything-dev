@@ -1,4 +1,4 @@
-import { isPrivateKey, Near, type PrivateKey } from "near-kit";
+import { isPrivateKey, Near, type PrivateKey, parseKey } from "near-kit";
 import { FileKeyStore } from "near-kit/keys/file";
 import type { TxStatus } from "../registry/confirm";
 import type { NetworkId } from "../registry/fastkv";
@@ -28,6 +28,17 @@ export interface NearTransactionResult {
   success: true;
   txHash?: string;
   signedWith: "env" | "credentials-file" | "near-cli-keychain";
+}
+
+/** near-kit's default mainnet RPC (free.rpc.fastnear.com) accepts signed
+ * broadcasts via send_tx and silently drops them post-acceptance (2026-11-04:
+ * every publish broadcast since 02:42 died UNKNOWN_TRANSACTION while the same
+ * endpoint served fresh nonce views, from CI runners and local machines
+ * alike). NEAR_RPC_URL pins the signing stack to an endpoint with a real
+ * transaction pool — set it to https://rpc.mainnet.near.org. Mirrors the
+ * auth plugin's dev-wiring convention (plugins/auth/plugin.dev.ts). */
+export function resolveNearRpcUrl(): string | undefined {
+  return process.env.NEAR_RPC_URL || undefined;
 }
 
 function assertPrivateKey(key: string): PrivateKey {
@@ -101,6 +112,7 @@ async function submitWithNearKit(
     network: tx.network,
     defaultSignerId: tx.account,
     privateKey: assertPrivateKey(privateKey),
+    rpcUrl: resolveNearRpcUrl(),
   });
 
   const outcome = await near
@@ -136,24 +148,152 @@ export async function submitRegistryWrite(
 
 /** Classify a broadcast transaction for the publish-confirmation machine.
  * The wait level is NONE — one cheap RPC read of the current state, never a
- * wait-for-inclusion poll (the confirmation loop paces itself). Explicit
- * rejection maps to `invalid`; not-found/unknown maps to `unknown` (the
- * confirmation loop's own grace window decides when unknown is terminal);
- * every probe failure maps to the conservative `unreachable` — a status probe
- * that cannot run must never kill a publish content-polling can still verify. */
+ * wait-for-inclusion poll (the confirmation loop paces itself). The registry
+ * namespace account is codeless: publishes execute with CodeDoesNotExist and
+ * that is the designed success state, so a failed execution reads as
+ * `included` — only a transaction the chain has never seen (`unknown`), a
+ * consumed nonce or a missing publish key (`invalid`), or an unusable probe
+ * (`unreachable`, informative-only) classify differently. Discrimination goes
+ * through near-kit's `error.name` (every class sets it; the classes are not
+ * re-exported from the package root). */
 export async function classifyTransactionOutcome(
   txHash: string,
   accountId: string,
   network: NetworkId,
 ): Promise<TxStatus> {
-  const near = new Near({ network, defaultSignerId: accountId });
+  const near = new Near({ network, defaultSignerId: accountId, rpcUrl: resolveNearRpcUrl() });
   try {
     await near.getTransactionStatus(txHash, accountId, "NONE");
     return "included";
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/invalid|expired|nonce/i.test(message)) return "invalid";
-    if (/not found|unknown|does not exist/i.test(message)) return "unknown";
-    return "unreachable";
+    if (!(error instanceof Error)) return "unreachable";
+    const congested =
+      error.name === "InvalidTransactionError" &&
+      (Boolean((error as { shardCongested?: boolean }).shardCongested) ||
+        Boolean((error as { shardStuck?: boolean }).shardStuck));
+    switch (error.name) {
+      case "ContractNotDeployedError":
+      case "FunctionCallError":
+      case "ContractExecutionError":
+      case "InvalidTransactionError":
+        return congested ? "unknown" : "included";
+      case "InvalidNonceError":
+      case "AccessKeyDoesNotExistError":
+      case "AccountDoesNotExistError":
+        return "invalid";
+      case "NetworkError":
+        return /not found|unknown/i.test(error.message) ? "unknown" : "unreachable";
+      default:
+        return "unreachable";
+    }
   }
+}
+
+/** One publish prepays 300 Tgas; the floor covers a full-price (1e9 yoctoNEAR
+ * per gas unit) inclusion burn of a failed execution. */
+const MIN_PUBLISH_ALLOWANCE_YOCTO = 300_000_000_000_000_000_000_000n;
+
+export interface PublishKeyHealth {
+  ok: boolean;
+  warning?: string;
+  error?: string;
+}
+
+interface ScopedAccessKeyPermission {
+  receiver_id: string;
+  method_names: string[];
+  allowance?: string | null;
+  balance?: string;
+}
+
+/** Verify the signing key exists on the publisher account and is scoped to
+ * exactly what a publish calls (`__fastdata_kv` on the registry namespace)
+ * before the build train runs — a rotated or exhausted key otherwise surfaces
+ * only as an UNKNOWN_TRANSACTION broadcast that never appears on-chain. Probe
+ * failures are soft: an unreachable registry RPC must not block an
+ * otherwise-valid publish. */
+export async function checkPublishKeyHealth(input: {
+  account: string;
+  contract: string;
+  privateKey: string;
+  network: NetworkId;
+}): Promise<PublishKeyHealth> {
+  const near = new Near({
+    network: input.network,
+    defaultSignerId: input.account,
+    rpcUrl: resolveNearRpcUrl(),
+  });
+  const publicKey = parseKey(input.privateKey).publicKey.toString();
+  let view: Awaited<ReturnType<Near["getAccessKey"]>>;
+  try {
+    view = await near.getAccessKey(input.account, publicKey);
+  } catch (error) {
+    if (!(error instanceof Error)) {
+      return { ok: true, warning: "key health check skipped (registry RPC unreachable)" };
+    }
+    if (error.name === "AccountDoesNotExistError") {
+      return {
+        ok: false,
+        error: `publisher account ${input.account} does not exist on ${input.network}`,
+      };
+    }
+    if (error.name === "AccessKeyDoesNotExistError") {
+      return {
+        ok: false,
+        error: publishKeyRepairHint(input.account, input.contract, publicKey),
+      };
+    }
+    return { ok: true, warning: "key health check skipped (registry RPC unreachable)" };
+  }
+  if (!view) {
+    return { ok: false, error: publishKeyRepairHint(input.account, input.contract, publicKey) };
+  }
+  const permission = view.permission as
+    | "FullAccess"
+    | { FunctionCall?: ScopedAccessKeyPermission; GasKeyFunctionCall?: ScopedAccessKeyPermission };
+  if (typeof permission !== "object") {
+    return { ok: true };
+  }
+  const isGasKey = "GasKeyFunctionCall" in permission;
+  const scoped = isGasKey ? permission.GasKeyFunctionCall : permission.FunctionCall;
+  if (!scoped) {
+    return { ok: true };
+  }
+  const kind = isGasKey ? "gas key" : "publish key";
+  if (scoped.receiver_id !== input.contract) {
+    return {
+      ok: false,
+      error:
+        `the signing ${kind} is scoped to receiver ${scoped.receiver_id}, but publishes call ` +
+        `${input.contract} — ${publishKeyRepairHint(input.account, input.contract, publicKey)}`,
+    };
+  }
+  if (scoped.method_names.length > 0 && !scoped.method_names.includes("__fastdata_kv")) {
+    return {
+      ok: false,
+      error:
+        `the signing ${kind} is scoped to methods [${scoped.method_names.join(", ")}], but ` +
+        `publishes call \`__fastdata_kv\` — ${publishKeyRepairHint(input.account, input.contract, publicKey)}`,
+    };
+  }
+  const capped = scoped.allowance ?? scoped.balance;
+  if (capped && BigInt(capped) < MIN_PUBLISH_ALLOWANCE_YOCTO) {
+    return {
+      ok: false,
+      error:
+        `the signing ${kind}'s remaining ${isGasKey ? "balance" : "allowance"} (${capped} ` +
+        `yoctoNEAR) is below one publish's prepaid gas (~${MIN_PUBLISH_ALLOWANCE_YOCTO} ` +
+        "yoctoNEAR) — re-add the key without an allowance cap",
+    };
+  }
+  return { ok: true };
+}
+
+function publishKeyRepairHint(account: string, contract: string, publicKey: string): string {
+  return (
+    `the signing key ${publicKey} is not a publish key on ${account}. Fix on-chain, then re-run: ` +
+    `\`near account add-key ${account} ${publicKey} --receiver-id ${contract} ` +
+    '--method-names __fastdata_kv network-config mainnet" ' +
+    "signed by any existing full-access signer, or re-mint with `bos login --key` and update NEAR_PRIVATE_KEY"
+  );
 }

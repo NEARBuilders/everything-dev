@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
+import { mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { buildRuntimeConfigEffect, type ConfigVersionManifestError } from "everything-dev/config";
+import { pointerFingerprint } from "everything-dev/fingerprint";
+import { parseBootSnapshot, snapshotFingerprintMatches } from "everything-dev/snapshot";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../../src/services/config";
@@ -105,6 +110,7 @@ beforeAll(() => {
 });
 afterAll(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("adoptPublishedPointer", () => {
@@ -308,5 +314,80 @@ describe("adoptPublishedPointer", () => {
     expect((squashed as SnapshotAdoptError).message).toContain("has no domain");
     expect(resolveMergedConfigInputMock).not.toHaveBeenCalled();
     expect(result.after).toBe(result.before);
+  });
+
+  it("persists the approved snapshot on a swapped adopt — verified bytes for a restart", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "boot-snapshot-"));
+    vi.stubEnv("BOS_SNAPSHOT_DIR", dir);
+    buildRuntimeConfigMock.mockReturnValue(Effect.succeed(derivedConfig));
+    composeUiMock.mockReturnValue(Effect.succeed({ digest: "digest-prewarm" }));
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const snapshot = yield* RuntimeSnapshot;
+        return yield* adoptPublishedPointer({ snapshot, publishedConfig: publishedPointer });
+      }).pipe(Effect.provide(snapshotLayer)),
+    );
+    const stored = parseBootSnapshot(
+      await readFile(path.join(dir, "v1.citynode.near", "citynode.app.json"), "utf8"),
+    );
+    expect(stored.runtimeRef).toBe("bos://v1.citynode.near/citynode.app");
+    expect(stored.fingerprint).toBe(pointerFingerprint(stored.config));
+    expect(snapshotFingerprintMatches(stored)).toBe(true);
+    expect(stored.config.app.ui).toMatchObject({
+      production: "https://cdn.example.test/ui/",
+      digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-remote-pin" },
+    });
+    expect(stored.remotes["app.ui"]).toEqual({
+      base: "https://cdn.example.test/ui/",
+      digest: { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-remote-pin" },
+    });
+  });
+
+  it("re-persists on an unchanged adopt — a deleted snapshot heals on the next tick", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "boot-snapshot-"));
+    vi.stubEnv("BOS_SNAPSHOT_DIR", dir);
+    buildRuntimeConfigMock.mockReturnValue(Effect.succeed(derivedConfig));
+    composeUiMock.mockReturnValue(Effect.succeed({ digest: "digest-prewarm" }));
+    const target = path.join(dir, "v1.citynode.near", "citynode.app.json");
+    const outcomes = await Effect.runPromise(
+      Effect.gen(function* () {
+        const snapshot = yield* RuntimeSnapshot;
+        const first = yield* adoptPublishedPointer({
+          snapshot,
+          publishedConfig: publishedPointer,
+        });
+        yield* Effect.tryPromise(() => unlink(target));
+        const second = yield* adoptPublishedPointer({
+          snapshot,
+          publishedConfig: publishedPointer,
+        });
+        return { first, second };
+      }).pipe(Effect.provide(snapshotLayer)),
+    );
+    expect(outcomes.first.status).toBe("swapped");
+    expect(outcomes.second.status).toBe("unchanged");
+    await expect(readFile(target, "utf8")).resolves.toContain("everything-dev/boot-snapshot");
+  });
+
+  it("a persist failure never fails the adopt — the snapshot is an addition, not a dependency", async () => {
+    // Deterministic persist failure on every OS: the snapshot root's parent
+    // is a regular file, so the recursive mkdir refuses instantly (ENOTDIR /
+    // EEXIST-on-file). A /proc path was tried first and HANGS on Linux —
+    // procfs exists there and the recursive walk never settles.
+    const blocker = path.join(
+      await mkdtemp(path.join(tmpdir(), "boot-snapshot-blocker-")),
+      "blocker",
+    );
+    await writeFile(blocker, "not a directory");
+    vi.stubEnv("BOS_SNAPSHOT_DIR", blocker);
+    buildRuntimeConfigMock.mockReturnValue(Effect.succeed(derivedConfig));
+    composeUiMock.mockReturnValue(Effect.succeed({ digest: "digest-prewarm" }));
+    const outcome = await Effect.runPromise(
+      Effect.gen(function* () {
+        const snapshot = yield* RuntimeSnapshot;
+        return yield* adoptPublishedPointer({ snapshot, publishedConfig: publishedPointer });
+      }).pipe(Effect.provide(snapshotLayer)),
+    );
+    expect(outcome.status).toBe("swapped");
   });
 });

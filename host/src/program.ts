@@ -18,7 +18,7 @@ import type { AuthVariables } from "./lib/auth";
 import { getCspStrict, SecurityMiddleware } from "./middleware/security";
 import { createStaticAssetProxyHandler } from "./middleware/static-proxy";
 import { setupApiRoutes } from "./routes/api";
-import type { HealthLoadingState } from "./routes/health";
+import { getSnapshotBootHealth, type HealthLoadingState } from "./routes/health";
 import { createSsrFallbackHandler } from "./routes/ssr";
 import { createSessionMiddleware, registerAuthHandler } from "./services/auth";
 import { ConfigService, type RuntimeConfig } from "./services/config";
@@ -90,6 +90,7 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
     const getBaseConfig = async () =>
       (await Effect.runPromiseWith(effectContext)(snapshot.get)).config;
     const getServingState = () => Effect.runPromiseWith(effectContext)(snapshot.get);
+    const bootedFromSnapshot = process.env.BOS_BOOT_SNAPSHOT === "1";
     const app = new Hono<HonoEnv>();
 
     app.onError((err: unknown, c: Context<HonoEnv>) => {
@@ -130,10 +131,12 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
       }
     }
 
-    app.get("/health", (c: Context<HonoEnv>) => {
+    app.get("/health", async (c: Context<HonoEnv>) => {
       const apiReady = apiProxyMode || Boolean(plugins.api?.router && plugins.status.available);
       const composeOk = !ssrEnabled || compositionHealth.status === "ready";
       const probeFailed = compositionHealth.selfProbe?.status === "failed";
+      const serving = await getServingState();
+      const snapshotBoot = getSnapshotBootHealth(bootedFromSnapshot, serving.pointer !== undefined);
       return c.json(
         {
           status:
@@ -143,6 +146,7 @@ export const createStartServer = (onReady?: () => void, platform?: PlatformBuild
           api: apiProxyMode || plugins.api ? "ready" : "unavailable",
           auth: plugins.auth ? "ready" : "unavailable",
           ssr: compositionHealth,
+          snapshot: snapshotBoot,
           ...(plugins.status.error ? { error: plugins.status.error } : {}),
           ...(plugins.status.failures.length > 0 ? { failures: plugins.status.failures } : {}),
           ...(plugins.status.warnings.length > 0 ? { warnings: plugins.status.warnings } : {}),
