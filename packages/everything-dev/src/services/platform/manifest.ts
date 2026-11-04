@@ -1,7 +1,7 @@
 /**
  * The platform release manifest (ADR 0034) — schema, composer, inventory,
  * registry key helpers, and the compat check. One composer feeds both publish
- * homes (FastKV pointer slot + in-image staging); the image digest is
+ * homes (FastKV thin tag + in-image staging); the image digest is
  * deliberately absent — it derives from the tags at deploy preflight. The
  * homes' one known divergence is the compat floor: publisher-side (previous
  * release) in FastKV, own version — failing closed — in the image, which

@@ -6,14 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // the production-config tests below are about auth naming, not version-manifest
 // resolution — every remote pins a manifest, and resolution is stubbed
 vi.mock("../../src/services/deploy/version-manifest", () => ({
-  resolveSlotVersion: vi.fn(async () => ({
+  resolveRemoteVersion: vi.fn(async () => ({
     entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
     entryIntegrity: "sha384-entry",
   })),
-  clearSlotVersionCache: vi.fn(),
+  clearRemoteVersionCache: vi.fn(),
 }));
 
-const SLOT_DIGEST = { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" };
+const REMOTE_DIGEST = { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" };
 
 let originalFetch: typeof globalThis.fetch;
 
@@ -37,10 +37,14 @@ function makeBosConfig(authSection: Record<string, unknown>) {
   return {
     account: "test.near",
     app: {
-      host: { development: "local:host", production: "https://host.example", digest: SLOT_DIGEST },
-      ui: { production: "https://ui.example", digest: SLOT_DIGEST },
-      api: { development: "local:api", production: "https://api.example", digest: SLOT_DIGEST },
-      auth: { digest: SLOT_DIGEST, ...authSection },
+      host: {
+        development: "local:host",
+        production: "https://host.example",
+        digest: REMOTE_DIGEST,
+      },
+      ui: { production: "https://ui.example", digest: REMOTE_DIGEST },
+      api: { development: "local:api", production: "https://api.example", digest: REMOTE_DIGEST },
+      auth: { digest: REMOTE_DIGEST, ...authSection },
     },
   } as any;
 }
@@ -116,7 +120,7 @@ describe("buildRuntimeConfig resolves app.auth remote name from plugin.manifest.
     expect(result.auth!.name).toBe("custom-auth-name");
   });
 
-  it("falls back to the slot key when the plugin.manifest.json fetch fails", async () => {
+  it("falls back to the remote key when the plugin.manifest.json fetch fails", async () => {
     const authUrl = "https://auth3.example";
     globalThis.fetch = vi.fn(
       async () => new Response("not found", { status: 404 }),

@@ -39,6 +39,10 @@ Format: context → decision → consequences, one file per decision.
 | [0034](./0034-platform-release-manifest.md) | The platform release manifest — one pin, everything derived | Accepted |
 | [0035](./0035-deploy-console-hosting-adapter.md) | The deploy console — thin hosting adapter, substrate-independent state | Proposed |
 | [0036](./0036-three-pin-planes.md) | The three pin planes — cross-plane verification as the security model | Proposed |
+| [0037](./0037-sonner-shared-singleton.md) | Sonner is a shared singleton across federation remotes | Accepted |
+| [0038](./0038-pglite-only-local-db.md) | PGlite-only local databases — no compose, no port fights | Accepted |
+| [0039](./0039-cross-app-wallet-claim.md) | Cross-app wallet claim | Accepted |
+| [0040](./0040-registry-wire-cutover.md) | The registry wire cutover — thin tag + immutable records, slot→remote vocabulary | Accepted |
 
 
 Skipped numbers: 0006 exists; there are no gaps otherwise. 0015–0018 were
@@ -50,7 +54,7 @@ split) was added on a side branch that never merged to main — do not reuse it.
 ## Number assignment discipline
 
 - Take the next free number (`ls docs/adr/ | sort -n | tail -1`, then +1 —
-  next free is **0037**). Never reuse a number, even for a rejected ADR.
+  next free is **0041**). Never reuse a number, even for a rejected ADR.
 - When citing an ADR in code, plans, changesets, or AGENTS.md, cite the
   number **with the filename** if the context could be ambiguous.
 - Superseded ADRs stay in place with a `Superseded by` status link to the

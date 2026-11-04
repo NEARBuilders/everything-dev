@@ -13,7 +13,7 @@ import type { ResolutionSession } from "./session";
 /**
  * The one dev-boot chain-audit adapter: every consumer that audits a
  * resolution session's release plane (`bos dev`'s post-boot report, the
- * upgrade's owned-slot realignment) derives its inputs from here, so the
+ * upgrade's owned-remote realignment) derives its inputs from here, so the
  * audit cannot fork into silently divergent copies.
  */
 export {
@@ -41,6 +41,6 @@ export const auditSessionComposition = (
 const configRemotePathsOf = (config: unknown): string[] => {
   if (!config || typeof config !== "object") return [];
   const paths: string[] = [];
-  walkRemotes(config as Record<string, unknown>, ({ slot }) => paths.push(slot));
+  walkRemotes(config as Record<string, unknown>, ({ remote }) => paths.push(remote));
   return paths;
 };

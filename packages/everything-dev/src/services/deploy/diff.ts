@@ -90,7 +90,7 @@ export function pinsFromDeployState(
   return readDeployState(configDir).apps[`${account}/${gateway}`] ?? {};
 }
 
-/** Previous pins by workspace key, from the published config's slot pins. */
+/** Previous pins by workspace key, from the published config's remote pins. */
 export function digestsFromPublishedConfig(
   config: BosConfigInput,
   account: string,

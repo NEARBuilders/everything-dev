@@ -15,7 +15,7 @@ import type {
 import { fetchJsonOrNull } from "../../utils/http-client";
 import { getNetworkIdForAccount } from "../../utils/network";
 import { fetchApiPluginManifest } from "../codegen/api-contract";
-import { type ResolvedSlotVersion, resolveSlotVersion } from "../deploy/version-manifest";
+import { type ResolvedRemoteVersion, resolveRemoteVersion } from "../deploy/version-manifest";
 import { manifestPluginsToNodes } from "../registry/dag";
 import {
   ConfigExtendsError,
@@ -324,20 +324,20 @@ export const buildRuntimeConfigEffect = Effect.fn("buildRuntimeConfig")(function
 });
 
 /**
- * Version-manifest derivation (atomic-deploys 04): for every remote slot,
+ * Version-manifest derivation (atomic-deploys 04): for every remote remote,
  * resolve its `pin` (fetch + SRI-verify the pinned manifest, process-cached
  * per pin) and stamp the derived entry-level fields — `entryUrl` (hashed
  * container entry), the browser-manifest `entry`, and entry-level
  * `integrity`/`ssrIntegrity`/`ssrEntryUrl` — so consumers load immutable
  * hashed bytes without knowing the pointer indirection.
  *
- * Pinned remote slots derive in every environment, development included —
+ * Pinned remote remotes derive in every environment, development included —
  * hash-canonical bundles never serve the fixed-name dev entry, so a dev
- * consumer pointing at remote production slots needs the same `entryUrl`
- * stamps or its readiness probe 404s forever. Unpinned remote slots skip
+ * consumer pointing at remote production remotes needs the same `entryUrl`
+ * stamps or its readiness probe 404s forever. Unpinned remote remotes skip
  * silently in development (a local-links resolution has nothing to pin);
  * outside development they fail loud — the deploy train pins every
- * workspace it uploads, so a manifest-less slot there is a
+ * workspace it uploads, so a manifest-less remote there is a
  * pre-atomic-deploy config.
  */
 async function deriveVersionManifestFields(
@@ -350,13 +350,13 @@ async function deriveVersionManifestFields(
   const derive = async (
     label: string,
     slotConfig: { digest?: unknown } | undefined,
-    slot: { url?: string; remoteUrl?: string; source?: string } | undefined,
-    apply: (resolved: ResolvedSlotVersion) => void,
+    remote: { url?: string; remoteUrl?: string; source?: string } | undefined,
+    apply: (resolved: ResolvedRemoteVersion) => void,
   ): Promise<void> => {
-    if (!slot || slot.source !== "remote" || !slot.url) return;
+    if (!remote || remote.source !== "remote" || !remote.url) return;
     // A config without a production form (a dev resolution materialized
     // under NODE_ENV=production) has no deployment artifacts to pin — the
-    // slot URL is the local listening fallback. Pin enforcement is for
+    // remote URL is the local listening fallback. Pin enforcement is for
     // published configs.
     const slotWithProduction = slotConfig as { production?: unknown } | undefined;
     if (!slotWithProduction || slotWithProduction.production === undefined) return;
@@ -372,16 +372,16 @@ async function deriveVersionManifestFields(
     if (!digest) {
       if (isDev) return;
       throw new Error(
-        `remote "${label}" (${slot.url}) carries no version-manifest digest — remote slots must pin ` +
+        `remote "${label}" (${remote.url}) carries no version-manifest digest — remote remotes must pin ` +
           `a version manifest outside development (pre-atomic-deploy config; redeploy required)`,
       );
     }
-    // The pin resolves against the slot's REMOTE base — the host slot's `url`
+    // The pin resolves against the remote's REMOTE base — the host remote's `url`
     // is its own listening origin (the bytes it would serve don't exist
     // there); its `remoteUrl` carries the deployment bundle base.
-    let resolved: ResolvedSlotVersion;
+    let resolved: ResolvedRemoteVersion;
     try {
-      resolved = await resolveSlotVersion({ base: slot.remoteUrl ?? slot.url, digest });
+      resolved = await resolveRemoteVersion({ base: remote.remoteUrl ?? remote.url, digest });
     } catch (cause) {
       if (isDev) {
         warnOutsideEffect(
@@ -395,7 +395,7 @@ async function deriveVersionManifestFields(
     apply(resolved);
   };
 
-  const applyUi = (ui: RuntimePluginConfig["ui"], r: ResolvedSlotVersion): void => {
+  const applyUi = (ui: RuntimePluginConfig["ui"], r: ResolvedRemoteVersion): void => {
     if (!ui) return;
     ui.entryUrl = r.entryUrl;
     ui.entry = r.browserManifestUrl ?? ui.entry;
@@ -431,7 +431,7 @@ async function deriveVersionManifestFields(
   for (const [key, plugin] of Object.entries(result.plugins ?? {})) {
     let pluginConfig = config.plugins?.[key];
     // The auth mirror (config.ts adds plugins.auth when the authored config
-    // has no plugins.auth entry) derives from the app.auth slot — it is the
+    // has no plugins.auth entry) derives from the app.auth remote — it is the
     // only compose surface for the auth ui, and its pins live on app.auth.
     const isAuthMirror =
       key === "auth" && result.auth && (plugin === result.auth || plugin.url === result.auth.url);
@@ -630,7 +630,7 @@ function buildRuntimePluginConfig(
 
 /**
  * Resolve a plugin entry's associated ui surface (`plugins.<id>.ui` / legacy
- * `plugins.<id>.app.ui`) into the runtime ui config. Extracted so app-slot
+ * `plugins.<id>.app.ui`) into the runtime ui config. Extracted so app-remote
  * entries (app.auth) resolve their ui the same way.
  */
 function buildRuntimeUiConfig(

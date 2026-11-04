@@ -41,13 +41,13 @@ function harness(opts: {
     /** immutable version records (#574): release version → manifest */
     records?: Record<string, Manifest>;
     /** simulate an unreachable registry for the record reads (offline dev) */
-    failSlotReads?: boolean;
+    failRecordReads?: boolean;
   }>;
   cached?: {
     manifest: Manifest;
     source: { account: string; gateway: string };
     resolvedAt?: string;
-    provenance?: "slot" | "pointer";
+    provenance?: "record" | "pointer";
   };
   useDefaultCache?: boolean;
   /** injectable clock for the cache-freshness check */
@@ -60,10 +60,10 @@ function harness(opts: {
     )?.manifest;
     return manifest ? makeTag(manifest) : null;
   };
-  const fetchSlot = async (account: string, gateway: string, version: string) => {
+  const fetchRecord = async (account: string, gateway: string, version: string) => {
     const node = opts.chain.find((n) => n.account === account && n.gateway === gateway);
     if (!node) return null;
-    if (node.failSlotReads) throw new Error("registry unreachable");
+    if (node.failRecordReads) throw new Error("registry unreachable");
     if (node.records?.[version]) return node.records[version];
     // a node's tag manifest doubles as its own version record
     if (node.manifest && node.manifest.frameworkVersion === version) return node.manifest;
@@ -79,7 +79,7 @@ function harness(opts: {
         configDir: tmpRoot,
         localConfig,
         fetchTag,
-        fetchSlot,
+        fetchRecord,
         fetchParent,
         ...(opts.now ? { now: opts.now } : {}),
         ...(opts.useDefaultCache
@@ -127,14 +127,14 @@ describe("resolvePlatformManifest", () => {
     });
     const resolved = await h.run({ ...childConfig, release: "2.1.0" });
     expect(resolved?.manifest.frameworkVersion).toBe("2.1.0");
-    expect(resolved?.provenance).toBe("slot");
+    expect(resolved?.provenance).toBe("record");
     expect(resolved?.source).toEqual({ account: "root.near", gateway: "root" });
     expect(h.writes).toHaveLength(1);
   });
 
   it("permanent resolution (#574): a pin to an older release still resolves after the pointer flipped", async () => {
     // the root republished past the child's pin — the pointer says rc.15,
-    // the child pins rc.14 — the immutable slot serves it forever
+    // the child pins rc.14 — the immutable remote serves it forever
     const h = harness({
       chain: [
         {
@@ -147,7 +147,7 @@ describe("resolvePlatformManifest", () => {
     });
     const resolved = await h.run({ ...childConfig, release: "2.0.0-rc.14" });
     expect(resolved?.manifest.frameworkVersion).toBe("2.0.0-rc.14");
-    expect(resolved?.provenance).toBe("slot");
+    expect(resolved?.provenance).toBe("record");
     expect(resolved?.fromCache).toBe(false);
   });
 
@@ -176,7 +176,7 @@ describe("resolvePlatformManifest", () => {
           account: "root.near",
           gateway: "root",
           manifest: makeManifest("2.0.0-rc.14"),
-          failSlotReads: true,
+          failRecordReads: true,
         },
       ],
     });
@@ -219,18 +219,18 @@ describe("resolvePlatformManifest", () => {
           account: "root.near",
           gateway: "root",
           manifest: makeManifest("2.0.0-rc.14"),
-          failSlotReads: true,
+          failRecordReads: true,
         },
       ],
       cached: {
         manifest: cachedManifest,
         source: { account: "root.near", gateway: "root" },
-        provenance: "slot",
+        provenance: "record",
       },
     });
     const resolved = await h.run({ ...childConfig, release: "2.0.0-rc.14" });
     expect(resolved?.fromCache).toBe(true);
-    expect(resolved?.provenance).toBe("slot");
+    expect(resolved?.provenance).toBe("record");
     expect(resolved?.manifest.frameworkVersion).toBe("2.0.0-rc.14");
   });
 

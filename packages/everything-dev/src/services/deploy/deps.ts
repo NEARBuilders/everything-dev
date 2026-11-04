@@ -6,7 +6,7 @@ import type { StorageLegDeps } from "./upload-leg";
 import {
   composeWorkspaceVersionManifest,
   readBuildReport,
-  resolveSlotVersion,
+  resolveRemoteVersion,
 } from "./version-manifest";
 
 /**
@@ -25,7 +25,7 @@ export class BundleStorage extends Context.Service<BundleStorage, StorageLegDeps
       collectDistFiles,
       uploadWorkspaceDist,
       uploadBundle,
-      resolveSlotVersion,
+      resolveRemoteVersion,
       readBuildReport,
       composeWorkspaceVersionManifest,
       buildSourceArchive,

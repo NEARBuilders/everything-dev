@@ -23,7 +23,7 @@ import { type ResolutionIo, walkExtendsChain } from "./session";
  * holds by construction rather than by imitation. It deliberately does NOT
  * parse the leaf as-is when the leaf carries an extends ref: that is the
  * leaf-vs-merged confusion behind the rc.23 gate regression, where every
- * extends child was rejected for an `app.host` slot it legitimately inherits.
+ * extends child was rejected for an `app.host` remote it legitimately inherits.
  *
  * Invariants:
  * - `ok` is one-directional soundness: `ok: true` means a consumer boot of
@@ -102,7 +102,7 @@ function extendsRefOf(payload: unknown): string | undefined {
  */
 export async function resolveBootShape(
   payload: unknown,
-  slot: { account: string; gateway: string },
+  runtime: { account: string; gateway: string },
   opts: BootCheckOptions = {},
 ): Promise<ResolvedBootShape> {
   if (payload === null || typeof payload !== "object") {
@@ -112,7 +112,7 @@ export async function resolveBootShape(
   if (!extendsRefOf(input)) {
     return { chain: [], config: structuredClone(input) };
   }
-  const walked = await walkExtendsChain(`bos://${slot.account}/${slot.gateway}`, {
+  const walked = await walkExtendsChain(`bos://${runtime.account}/${runtime.gateway}`, {
     env: PUBLISHED_CONFIG_ENV,
     ...(opts.registry ? { registry: opts.registry } : {}),
     ...(opts.io ? { io: opts.io } : {}),
@@ -138,7 +138,7 @@ export function verifyResolvedBootShape(
 
 export async function verifyBootPayload(
   payload: unknown,
-  slot: { account: string; gateway: string },
+  runtime: { account: string; gateway: string },
   opts: BootCheckOptions = {},
 ): Promise<BootCheckReport> {
   if (payload === null || typeof payload !== "object") {
@@ -156,7 +156,7 @@ export async function verifyBootPayload(
     };
   }
   try {
-    return verifyResolvedBootShape(payload, await resolveBootShape(payload, slot, opts));
+    return verifyResolvedBootShape(payload, await resolveBootShape(payload, runtime, opts));
   } catch (error) {
     if (!(error instanceof Error)) throw error;
     return {

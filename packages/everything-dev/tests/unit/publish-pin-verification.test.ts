@@ -113,13 +113,13 @@ describe("publishToFastKv pin verification gate", () => {
     vi.restoreAllMocks();
   });
 
-  it("blocks the publish when a pinned slot's bytes fail verification", async () => {
+  it("blocks the publish when a pinned remote's bytes fail verification", async () => {
     verifyRollbackSnapshotMock.mockResolvedValue({
       verifiable: true,
       ok: false,
-      slots: [
+      remotes: [
         {
-          slot: "plugins.registry",
+          remote: "plugins.registry",
           manifest: "versions/309a65a9735d13e7.json",
           ok: false,
           reason: "manifest fetch failed: 404",
@@ -139,13 +139,13 @@ describe("publishToFastKv pin verification gate", () => {
     expect(submitRegistryWriteMock).not.toHaveBeenCalled();
   });
 
-  it("publishes when every pinned slot verifies", async () => {
+  it("publishes when every pinned remote verifies", async () => {
     verifyRollbackSnapshotMock.mockResolvedValue({
       verifiable: true,
       ok: true,
-      slots: [
+      remotes: [
         {
-          slot: "app.host",
+          remote: "app.host",
           manifest: "versions/aaaaaaaaaaaaaaaa.json",
           ok: true,
         },
@@ -159,7 +159,7 @@ describe("publishToFastKv pin verification gate", () => {
   });
 
   it("a config with no pins skips the gate", async () => {
-    verifyRollbackSnapshotMock.mockResolvedValue({ verifiable: false, ok: false, slots: [] });
+    verifyRollbackSnapshotMock.mockResolvedValue({ verifiable: false, ok: false, remotes: [] });
 
     const result = await publishToFastKv({ ...baseInput, configDir });
 

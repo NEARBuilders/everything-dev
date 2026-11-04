@@ -61,7 +61,7 @@ const worstStatus = (a: DevProcessStatus, b: DevProcessStatus): DevProcessStatus
 
 /**
  * One row per plugin: `plugin-ui:<id>` companions merge into their parent
- * (`plugin:<id>`, or the `auth` app slot for the auth mirror) as an inline
+ * (`plugin:<id>`, or the `auth` app remote for the auth mirror) as an inline
  * ui-port annotation. Orphan ui rows (no parent process) render as-is.
  * Folder-form plugin UIs never get a companion service — their UI build is a
  * child of the parent's dev process — so their `uiPort` synthesizes the same

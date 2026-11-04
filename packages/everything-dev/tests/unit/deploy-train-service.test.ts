@@ -36,7 +36,7 @@ vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
 
 const configWithoutDomain = { account: "v1.acct.near" } as BosConfig;
 // The pre-publish schema gate (train) rejects payloads that could not boot;
-// the ready fixture carries the required app slots.
+// the ready fixture carries the required app remotes.
 const configReady = {
   account: "v1.acct.near",
   domain: "app.test",

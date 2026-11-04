@@ -40,8 +40,16 @@ _Avoid_: stage (dev/build/upload/publish are train stages, not legs), step
 Whether the deploy train owns its runtime image — `root` (a Dockerfile at the config root or `BOS_IMAGE`; the train can produce a digest and must pin Railway to it) or `child` (inherits the platform's universal image per ADR 0020/0021; its image ref derives from the platform release manifest — no image bytes to build, pin, or boot). One function resolves it; the image, smoke, and Railway gates all consume it.
 _Avoid_: root vs consumer (the account naming, not the image-ownership question), tenant tier
 
+**Remote**:
+A named position in the composition — `app.<key>`, `app.<key>.ui`, `plugins.<id>`, `plugins.<id>.ui` — and (loosely) the workspace it loads bytes from. The walker in `services/remotes.ts` derives every dotted path; never fork the traversal.
+_Avoid_: config slot (retired — the ticket-11 vocabulary; attachment slots in the descriptor domain and port slots in the infra planner are different concepts), surface (a remote's `ui`/`ssr` loading surfaces are not remotes)
+
+**Registry key**:
+One of the four typed keys in `services/registry/keys.ts` (ADR 0040), each with one wire form: `runtimeConfig` (`apps/<account>/<gateway>/bos.config.json`), `manifest` (`apps/<account>/<gateway>/manifest.json` — the thin tag: version + digest), `version` (`versions/<v>.json` — the immutable per-release record, written once), `deployRecord` (`deploys/<ts>.json` — the audit trail). A `RuntimeRef` (`bos://<account>/<gateway>`) names the identity every key hangs from. Never hand-build registry paths.
+_Avoid_: platform.json (the retired pre-cutover key — abandoned in place), slot (a key is not a slot), hand-built path strings (the golden tests pin the wire forms)
+
 **Platform release manifest**:
-The machine-readable contract of one framework release (ADR 0034): framework + every-plugin versions, the release catalog, exact shared-dep versions with their flags, the hashed template inventory, and the compat floor — composed once by the deploy train and published to two homes with byte-identical content (the FastKV pointer slot `apps/<root-account>/<root-gateway>/platform.json` beside the config, and the in-image copy generated inside the docker build). Carries image `ref` + tags, never the digest.
+The machine-readable contract of one framework release (ADR 0034): framework + every-plugin versions, the release catalog, exact shared-dep versions with their flags, the hashed template inventory, and the compat floor — composed once by the deploy train and published to two homes with byte-identical content (FastKV as the thin tag `apps/<root-account>/<root-gateway>/manifest.json` naming the immutable `versions/<v>.json` record — ADR 0040 — and the in-image copy generated inside the docker build). Carries image `ref` + tags, never the digest.
 _Avoid_: version manifest (that's the per-workspace deploy pin), plugin manifest (the per-plugin bundle metadata), release notes
 
 **Derived release**:
@@ -57,8 +65,8 @@ One of the three independently-pinned byte sources a booting runtime consumes �
 _Avoid_: trust layer, security layer (nothing is layered — the planes are peers), integrity plane (integrity is one pin among three)
 
 **Release composition**:
-The version-scoped composition surface a release-authored runtime composes from (ADR 0034 consumer boot): every inherited remote — `app.*` and `plugins.*` — stamps at resolution with the authored release's recorded `{ production, pin }` (`ResolutionSession.releaseManifest` → `release-composition.ts`), so production, local dev, and type generation all share one co-versioned byte set. Child-authored remotes stay untouched; remotes provisioned by later parent releases are omitted from an older release's composition and surfaced at dev boot ("present upstream from rc.N — run `bos upgrade` to inherit") rather than silently live-followed. `bos upgrade` is the release mover.
-_Avoid_: version plane, release plane (retired), plane stamping (the mechanism; the release composition is the outcome), pointer-live (what it replaces: extends inheritance that drifted with the parent's latest deploy), slots override (it is not a config source — it stamps the inherited entries)
+The version-scoped composition surface a release-authored runtime composes from (ADR 0034 consumer boot): every inherited remote — `app.*` and `plugins.*` — stamps at resolution with the authored release's recorded `{ production, digest }` (`ResolutionSession.releaseManifest` → `release-composition.ts`), so production, local dev, and type generation all share one co-versioned byte set. Child-authored remotes stay untouched; remotes provisioned by later parent releases are omitted from an older release's composition and surfaced at dev boot ("present upstream from rc.N — run `bos upgrade` to inherit") rather than silently live-followed. `bos upgrade` is the release mover.
+_Avoid_: version plane, release plane (retired), plane stamping (the mechanism; the release composition is the outcome), pointer-live (what it replaces: extends inheritance that drifted with the parent's latest deploy), remotes override (it is not a config source — it stamps the inherited entries)
 
 ## Organization access
 

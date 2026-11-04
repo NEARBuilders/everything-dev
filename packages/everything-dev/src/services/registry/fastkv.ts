@@ -73,24 +73,11 @@ function runtimeRefOf(accountId: string, gatewayId: string): RuntimeRef {
   return `bos://${accountId}/${gatewayId}`;
 }
 
-export function parseBosUrl(bosUrl: string): {
-  accountId: string;
-  gatewayId: string;
-  pathSegments: string[];
-} {
-  const parsed = parseRuntimeRef(bosUrl);
-  return {
-    accountId: parsed.accountId,
-    gatewayId: parsed.gatewayId,
-    pathSegments: parsed.path,
-  };
-}
-
 export async function fetchBosConfigFromFastKv<T>(bosUrl: string, registry?: string): Promise<T> {
-  const { accountId, gatewayId, pathSegments } = parseBosUrl(bosUrl);
+  const { accountId, gatewayId, path } = parseRuntimeRef(bosUrl);
   try {
     return await registryClientShape.read<T>(
-      configKey(accountId, gatewayId, pathSegments),
+      configKey(accountId, gatewayId, path),
       registry !== undefined ? { registry } : undefined,
     );
   } catch (error) {
@@ -106,9 +93,10 @@ export async function fetchBosConfigFromFastKv<T>(bosUrl: string, registry?: str
 
 /**
  * Read an arbitrary registry key under `apps/<account>/<gateway>/` — the
- * well-known-slot seam (ADR 0034's `platform.json` lives beside the config).
+ * well-known-key seam (the release manifest's thin tag at `manifest.json`
+ * lives beside the config).
  * Absent key (404) → null; a network failure throws so callers can distinguish
- * "the slot is empty" from "the slot is unreachable" (a swallowed error here
+ * "the key is empty" from "the key is unreachable" (a swallowed error here
  * would silently tighten a compat floor).
  */
 export async function fetchRegistryKey<T>(

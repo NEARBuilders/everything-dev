@@ -4,7 +4,7 @@ import { entryUrls, type RemoteEntry } from "../../src/ui/remote-entry";
 const APPS = "https://cdn.example.com/apps";
 const APPS_SSR = "https://cdn.example.com/apps-ssr";
 
-const remoteSlot = (over: Partial<RemoteEntry> = {}): RemoteEntry => ({
+const remoteEntry = (over: Partial<RemoteEntry> = {}): RemoteEntry => ({
   name: "apps",
   url: APPS,
   entryUrl: `${APPS}/remoteEntry.aaa.js`,
@@ -16,9 +16,9 @@ const remoteSlot = (over: Partial<RemoteEntry> = {}): RemoteEntry => ({
   ...over,
 });
 
-describe("entryUrls — pinned remote slot", () => {
+describe("entryUrls — pinned remote remote", () => {
   it("production: pin-derived hashed entries win on both surfaces, no busters", () => {
-    expect(entryUrls(remoteSlot(), "production")).toEqual({
+    expect(entryUrls(remoteEntry(), "production")).toEqual({
       ui: `${APPS}/remoteEntry.aaa.js`,
       ssr: `${APPS_SSR}/remoteEntry.server.aaa.js`,
       browserManifest: `${APPS}/mf-manifest.bbb.json`,
@@ -26,13 +26,13 @@ describe("entryUrls — pinned remote slot", () => {
   });
 
   it("development: the pin-derived entry still wins over the fixed dev name", () => {
-    const urls = entryUrls(remoteSlot(), "development");
+    const urls = entryUrls(remoteEntry(), "development");
     expect(urls.ui).toBe(`${APPS}/remoteEntry.aaa.js`);
     expect(urls.ssr).toBe(`${APPS_SSR}/remoteEntry.server.aaa.js`);
   });
 
   it("hashed URLs never grow a buster, even with integrity present", () => {
-    const urls = entryUrls(remoteSlot(), "development");
+    const urls = entryUrls(remoteEntry(), "development");
     expect(urls.ui).not.toContain("?");
     expect(urls.ssr).not.toContain("?");
   });
@@ -41,7 +41,7 @@ describe("entryUrls — pinned remote slot", () => {
 describe("entryUrls — dev fixed names (no pin derivation in development)", () => {
   it("the ui buster comes from integrity; server buster from ssrIntegrity", () => {
     const urls = entryUrls(
-      remoteSlot({ entryUrl: undefined, ssrEntryUrl: undefined }),
+      remoteEntry({ entryUrl: undefined, ssrEntryUrl: undefined }),
       "development",
     );
     expect(urls.ui).toBe(`${APPS}/remoteEntry.js?v=sha384-entry`);
@@ -50,7 +50,7 @@ describe("entryUrls — dev fixed names (no pin derivation in development)", () 
 
   it("no integrity sources — plain fixed dev names, exactly the dev contract", () => {
     const urls = entryUrls(
-      remoteSlot({
+      remoteEntry({
         entryUrl: undefined,
         ssrEntryUrl: undefined,
         integrity: undefined,
@@ -64,7 +64,7 @@ describe("entryUrls — dev fixed names (no pin derivation in development)", () 
 
   it("server buster order: ssrIntegrity beats containerVersion", () => {
     const urls = entryUrls(
-      remoteSlot({
+      remoteEntry({
         entryUrl: undefined,
         ssrEntryUrl: undefined,
         ssrIntegrity: "sha384-ssr",
@@ -77,7 +77,7 @@ describe("entryUrls — dev fixed names (no pin derivation in development)", () 
 
   it("containerVersion is the dev-only freshness fallback for local containers", () => {
     const urls = entryUrls(
-      remoteSlot({
+      remoteEntry({
         entryUrl: undefined,
         ssrEntryUrl: undefined,
         ssrIntegrity: undefined,
@@ -89,8 +89,8 @@ describe("entryUrls — dev fixed names (no pin derivation in development)", () 
   });
 });
 
-describe("entryUrls — local slot (atomic-deploys 08)", () => {
-  const localSlot = (over: Partial<RemoteEntry> = {}): RemoteEntry => ({
+describe("entryUrls — local remote (atomic-deploys 08)", () => {
+  const localEntry = (over: Partial<RemoteEntry> = {}): RemoteEntry => ({
     name: "auth-ui",
     url: "http://localhost:4111",
     localPath: "/w/plugins/auth-ui",
@@ -100,18 +100,18 @@ describe("entryUrls — local slot (atomic-deploys 08)", () => {
   });
 
   it("dev fixed ui entry from the dev server base, SSR container from the loopback base", () => {
-    const urls = entryUrls(localSlot(), "development");
+    const urls = entryUrls(localEntry(), "development");
     expect(urls.ui).toBe("http://localhost:4111/remoteEntry.js");
     expect(urls.ssr).toBe("http://127.0.0.1:4112/ssr/remoteEntry.server.js?v=1727987612345");
   });
 
-  it("browserManifest is structurally absent — local slots have no pin-derived manifest", () => {
-    expect(entryUrls(localSlot(), "development").browserManifest).toBeUndefined();
+  it("browserManifest is structurally absent — local remotes have no pin-derived manifest", () => {
+    expect(entryUrls(localEntry(), "development").browserManifest).toBeUndefined();
   });
 
-  it("a stamped browserManifestUrl never survives a local slot", () => {
+  it("a stamped browserManifestUrl never survives a local remote", () => {
     const urls = entryUrls(
-      localSlot({ browserManifestUrl: "https://cdn.example.com/apps/mf-manifest.aaa.json" }),
+      localEntry({ browserManifestUrl: "https://cdn.example.com/apps/mf-manifest.aaa.json" }),
       "development",
     );
     expect(urls.browserManifest).toBeUndefined();
@@ -121,7 +121,7 @@ describe("entryUrls — local slot (atomic-deploys 08)", () => {
 describe("entryUrls — base selection (publicUrl ?? url, ADR 0011)", () => {
   it("dev fixed ui entry rides the publicUrl base, trailing slash trimmed", () => {
     const urls = entryUrls(
-      remoteSlot({ entryUrl: undefined, publicUrl: "https://bundles.example.com/apps/" }),
+      remoteEntry({ entryUrl: undefined, publicUrl: "https://bundles.example.com/apps/" }),
       "development",
     );
     expect(urls.ui).toBe("https://bundles.example.com/apps/remoteEntry.js?v=sha384-entry");
@@ -129,7 +129,7 @@ describe("entryUrls — base selection (publicUrl ?? url, ADR 0011)", () => {
 
   it("a pin-derived entryUrl ignores the base entirely", () => {
     const urls = entryUrls(
-      remoteSlot({ publicUrl: "https://bundles.example.com/apps/" }),
+      remoteEntry({ publicUrl: "https://bundles.example.com/apps/" }),
       "production",
     );
     expect(urls.ui).toBe(`${APPS}/remoteEntry.aaa.js`);
@@ -145,24 +145,24 @@ describe("entryUrls — base selection (publicUrl ?? url, ADR 0011)", () => {
 });
 
 describe("entryUrls — loud throw outside development", () => {
-  it("ui surface: a remote slot without the derived entry names the slot and surface", () => {
-    expect(() => entryUrls(remoteSlot({ entryUrl: undefined }), "production").ui).toThrow(
-      /slot "apps" has no derived ui entry/,
+  it("ui surface: a remote remote without the derived entry names the remote and surface", () => {
+    expect(() => entryUrls(remoteEntry({ entryUrl: undefined }), "production").ui).toThrow(
+      /remote "apps" has no derived ui entry/,
     );
   });
 
-  it("ssr surface: an SSR-configured slot without the derived ssr entry names the slot and surface", () => {
-    expect(() => entryUrls(remoteSlot({ ssrEntryUrl: undefined }), "production").ssr).toThrow(
-      /slot "apps" has no derived ssr entry/,
+  it("ssr surface: an SSR-configured remote without the derived ssr entry names the remote and surface", () => {
+    expect(() => entryUrls(remoteEntry({ ssrEntryUrl: undefined }), "production").ssr).toThrow(
+      /remote "apps" has no derived ssr entry/,
     );
   });
 
   it("surfaces throw independently — resolving ui does not trip the ssr surface", () => {
-    const urls = entryUrls(remoteSlot({ ssrEntryUrl: undefined }), "production");
+    const urls = entryUrls(remoteEntry({ ssrEntryUrl: undefined }), "production");
     expect(urls.ui).toBe(`${APPS}/remoteEntry.aaa.js`);
   });
 
-  it("a slot with no SSR coordinates at all resolves ui without throwing — ssr is undefined", () => {
+  it("a remote with no SSR coordinates at all resolves ui without throwing — ssr is undefined", () => {
     const urls = entryUrls(
       {
         name: "api",
@@ -177,7 +177,7 @@ describe("entryUrls — loud throw outside development", () => {
   });
 
   it("staging resolves like production — only development gets fixed names", () => {
-    expect(() => entryUrls(remoteSlot({ entryUrl: undefined }), "staging").ui).toThrow(
+    expect(() => entryUrls(remoteEntry({ entryUrl: undefined }), "staging").ui).toThrow(
       /has no derived ui entry/,
     );
   });

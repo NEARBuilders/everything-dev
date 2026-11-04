@@ -8,7 +8,7 @@ const body = JSON.stringify({ entry: "ui/entry.abc.js" });
 const sri = `sha384-${(await import("node:crypto")).createHash("sha384").update(body).digest("base64")}`;
 
 describe("manifestDocumentUrl", () => {
-  it("joins the slot base and the pin's manifest path, tolerating slash drift", () => {
+  it("joins the remote base and the pin's manifest path, tolerating slash drift", () => {
     expect(manifestDocumentUrl("https://cdn/ui/", "versions/a.json")).toBe(
       "https://cdn/ui/versions/a.json",
     );

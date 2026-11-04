@@ -97,10 +97,10 @@ export function selectWorkspaceTargets(packages: string, bosConfig: BosConfig | 
 }
 
 function isLocalTarget(key: string, bosConfig: BosConfig | null): boolean {
-  const slot =
+  const remote =
     (bosConfig?.app as Record<string, { development?: string }> | undefined)?.[key] ??
     bosConfig?.plugins?.[key];
-  const dev = (slot as { development?: unknown } | undefined)?.development;
+  const dev = (remote as { development?: unknown } | undefined)?.development;
   return typeof dev === "string" && dev.startsWith("local:");
 }
 

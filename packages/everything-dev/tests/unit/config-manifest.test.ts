@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildRuntimeConfig } from "../../src/config";
 import { configInputToDescriptor, toConfigInput } from "../../src/descriptor/resolve";
-import { clearSlotVersionCache } from "../../src/services/deploy/version-manifest";
+import { clearRemoteVersionCache } from "../../src/services/deploy/version-manifest";
 import { mergeBosConfigWithExtends } from "../../src/services/resolution/merge";
 import { BosConfigSchema } from "../../src/types";
 
@@ -44,8 +44,8 @@ const configWithPins = {
   },
 };
 
-describe("config slot `pin`", () => {
-  it("survives BosConfigSchema.parse on every slot kind", () => {
+describe("config remote `pin`", () => {
+  it("survives BosConfigSchema.parse on every remote kind", () => {
     const parsed = BosConfigSchema.parse(configWithPins);
     expect(parsed.app.ui.digest?.manifest).toBe("versions/bbb.json");
     expect(parsed.app.host.digest?.manifest).toBe("versions/aaa.json");
@@ -54,7 +54,7 @@ describe("config slot `pin`", () => {
     expect(parsed.plugins?.auth?.ui?.digest?.manifest).toBe("versions/eee.json");
   });
 
-  it("keeps a slot without a pin valid (direct entry SRI)", () => {
+  it("keeps a remote without a pin valid (direct entry SRI)", () => {
     const parsed = BosConfigSchema.parse({
       account: "a",
       app: {
@@ -66,7 +66,7 @@ describe("config slot `pin`", () => {
     expect(parsed.app.ui.digest).toBeUndefined();
   });
 
-  it("survives the descriptor roundtrip (ui slots carry it like integrity)", () => {
+  it("survives the descriptor roundtrip (ui remotes carry it like integrity)", () => {
     const descriptor = configInputToDescriptor(configWithPins);
     const authored = toConfigInput(descriptor as never) as typeof configWithPins;
     expect(authored.plugins?.auth?.ui?.digest).toEqual({
@@ -148,7 +148,7 @@ describe("auth mirror version-manifest derivation", () => {
     ssr: { entry: `remoteEntry.server.${entry}`, integrity: "sha384-ssr" },
   });
 
-  const slots = {
+  const remotes = {
     host: { base: "https://cdn.mirror.test/host", entry: "remoteEntry.host.js" },
     ui: { base: "https://cdn.mirror.test/ui", entry: "remoteEntry.ui.js" },
     api: { base: "https://cdn.mirror.test/api", entry: "remoteEntry.api.js" },
@@ -157,9 +157,9 @@ describe("auth mirror version-manifest derivation", () => {
   };
 
   const bodies = new Map<string, string>(
-    Object.values(slots).map((slot) => [
-      `${slot.base}/versions/${slot.entry}.json`,
-      JSON.stringify(makeManifest(slot.entry)),
+    Object.values(remotes).map((remote) => [
+      `${remote.base}/versions/${remote.entry}.json`,
+      JSON.stringify(makeManifest(remote.entry)),
     ]),
   );
 
@@ -169,43 +169,45 @@ describe("auth mirror version-manifest derivation", () => {
     app: {
       host: {
         development: "local:host",
-        production: `${slots.host.base}/`,
+        production: `${remotes.host.base}/`,
         digest: {
-          manifest: `versions/${slots.host.entry}.json`,
-          integrity: sri(bodies.get(`${slots.host.base}/versions/${slots.host.entry}.json`)!),
+          manifest: `versions/${remotes.host.entry}.json`,
+          integrity: sri(bodies.get(`${remotes.host.base}/versions/${remotes.host.entry}.json`)!),
         },
       },
       ui: {
         development: "local:ui",
-        production: `${slots.ui.base}/`,
+        production: `${remotes.ui.base}/`,
         digest: {
-          manifest: `versions/${slots.ui.entry}.json`,
-          integrity: sri(bodies.get(`${slots.ui.base}/versions/${slots.ui.entry}.json`)!),
+          manifest: `versions/${remotes.ui.entry}.json`,
+          integrity: sri(bodies.get(`${remotes.ui.base}/versions/${remotes.ui.entry}.json`)!),
         },
       },
       api: {
         development: "local:api",
-        production: `${slots.api.base}/`,
+        production: `${remotes.api.base}/`,
         digest: {
-          manifest: `versions/${slots.api.entry}.json`,
-          integrity: sri(bodies.get(`${slots.api.base}/versions/${slots.api.entry}.json`)!),
+          manifest: `versions/${remotes.api.entry}.json`,
+          integrity: sri(bodies.get(`${remotes.api.base}/versions/${remotes.api.entry}.json`)!),
         },
       },
       auth: {
         name: "@everything-dev/auth-plugin",
         development: "local:plugins/auth",
-        production: `${slots.auth.base}/`,
+        production: `${remotes.auth.base}/`,
         digest: {
-          manifest: `versions/${slots.auth.entry}.json`,
-          integrity: sri(bodies.get(`${slots.auth.base}/versions/${slots.auth.entry}.json`)!),
+          manifest: `versions/${remotes.auth.entry}.json`,
+          integrity: sri(bodies.get(`${remotes.auth.base}/versions/${remotes.auth.entry}.json`)!),
         },
         ui: {
           name: "auth-ui",
           development: "local:plugins/auth/ui",
-          production: `${slots.authUi.base}/`,
+          production: `${remotes.authUi.base}/`,
           digest: {
-            manifest: `versions/${slots.authUi.entry}.json`,
-            integrity: sri(bodies.get(`${slots.authUi.base}/versions/${slots.authUi.entry}.json`)!),
+            manifest: `versions/${remotes.authUi.entry}.json`,
+            integrity: sri(
+              bodies.get(`${remotes.authUi.base}/versions/${remotes.authUi.entry}.json`)!,
+            ),
           },
         },
       },
@@ -213,7 +215,7 @@ describe("auth mirror version-manifest derivation", () => {
   });
 
   beforeEach(() => {
-    clearSlotVersionCache();
+    clearRemoteVersionCache();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL) => {
@@ -234,15 +236,17 @@ describe("auth mirror version-manifest derivation", () => {
     expect(runtime.plugins?.auth).toBeDefined();
     expect(runtime.auth).toBeDefined();
     expect(runtime.plugins?.auth?.entryUrl).toBe(runtime.auth?.entryUrl);
-    expect(runtime.plugins?.auth?.entryUrl).toBe(`${slots.auth.base}/${slots.auth.entry}`);
+    expect(runtime.plugins?.auth?.entryUrl).toBe(`${remotes.auth.base}/${remotes.auth.entry}`);
     expect(runtime.plugins?.auth?.integrity).toBe(runtime.auth?.integrity);
     expect(runtime.plugins?.auth?.integrity).toBe("sha384-entry");
 
     expect(runtime.plugins?.auth?.ui?.entryUrl).toBe(runtime.auth?.ui?.entryUrl);
-    expect(runtime.plugins?.auth?.ui?.entryUrl).toBe(`${slots.authUi.base}/${slots.authUi.entry}`);
+    expect(runtime.plugins?.auth?.ui?.entryUrl).toBe(
+      `${remotes.authUi.base}/${remotes.authUi.entry}`,
+    );
     expect(runtime.plugins?.auth?.ui?.ssrEntryUrl).toBe(runtime.auth?.ui?.ssrEntryUrl);
     expect(runtime.plugins?.auth?.ui?.ssrEntryUrl).toBe(
-      `${slots.authUi.base}/remoteEntry.server.${slots.authUi.entry}`,
+      `${remotes.authUi.base}/remoteEntry.server.${remotes.authUi.entry}`,
     );
     expect(runtime.plugins?.auth?.ui?.ssrIntegrity).toBe(runtime.auth?.ui?.ssrIntegrity);
   });
@@ -259,7 +263,7 @@ describe("dev-env version-manifest derivation", () => {
     entryIntegrity: "sha384-entry",
   });
 
-  const slots = {
+  const remotes = {
     host: { base: "https://cdn.dev.test/host", entry: "remoteEntry.host.js" },
     ui: { base: "https://cdn.dev.test/ui", entry: "remoteEntry.ui.js" },
     api: { base: "https://cdn.dev.test/api", entry: "remoteEntry.api.js" },
@@ -267,19 +271,19 @@ describe("dev-env version-manifest derivation", () => {
   };
 
   const bodies = new Map<string, string>(
-    Object.values(slots).map((slot) => [
-      `${slot.base}/versions/${slot.entry}.json`,
-      JSON.stringify(makeManifest(slot.entry)),
+    Object.values(remotes).map((remote) => [
+      `${remote.base}/versions/${remote.entry}.json`,
+      JSON.stringify(makeManifest(remote.entry)),
     ]),
   );
 
-  const slot = (
-    name: keyof typeof slots,
+  const remote = (
+    name: keyof typeof remotes,
     opts: { withDevForm?: boolean; withPin?: boolean } = {},
   ) => {
-    const base = `${slots[name].base}/`;
-    const pinManifest = `versions/${slots[name].entry}.json`;
-    const bodyKey = `${slots[name].base}/versions/${slots[name].entry}.json`;
+    const base = `${remotes[name].base}/`;
+    const pinManifest = `versions/${remotes[name].entry}.json`;
+    const bodyKey = `${remotes[name].base}/versions/${remotes[name].entry}.json`;
     const ref = {
       ...(opts.withDevForm === false ? {} : { development: `local:${name}` }),
       production: base,
@@ -294,10 +298,10 @@ describe("dev-env version-manifest derivation", () => {
     account: "child.near",
     domain: "child.dev",
     app: {
-      host: slot("host"),
-      ui: slot("ui"),
-      api: slot("api"),
-      auth: { name: "@everything-dev/auth-plugin", ...slot("auth", { withDevForm: false }) },
+      host: remote("host"),
+      ui: remote("ui"),
+      api: remote("api"),
+      auth: { name: "@everything-dev/auth-plugin", ...remote("auth", { withDevForm: false }) },
     },
   });
 
@@ -305,18 +309,18 @@ describe("dev-env version-manifest derivation", () => {
     account: "child.near",
     domain: "child.dev",
     app: {
-      host: slot("host", { withPin: false }),
-      ui: slot("ui", { withPin: false }),
-      api: slot("api", { withPin: false }),
+      host: remote("host", { withPin: false }),
+      ui: remote("ui", { withPin: false }),
+      api: remote("api", { withPin: false }),
       auth: {
         name: "@everything-dev/auth-plugin",
-        ...slot("auth", { withDevForm: false, withPin: false }),
+        ...remote("auth", { withDevForm: false, withPin: false }),
       },
     },
   });
 
   beforeEach(() => {
-    clearSlotVersionCache();
+    clearRemoteVersionCache();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL) => {
@@ -331,18 +335,18 @@ describe("dev-env version-manifest derivation", () => {
     vi.unstubAllGlobals();
   });
 
-  it("derives pinned remote slots in development exactly like production", async () => {
+  it("derives pinned remote remotes in development exactly like production", async () => {
     const runtime = await buildRuntimeConfig(config, process.cwd(), "development");
 
     expect(runtime.host.source).toBe("remote");
-    expect(runtime.host.entryUrl).toBe(`${slots.host.base}/${slots.host.entry}`);
-    expect(runtime.ui.entryUrl).toBe(`${slots.ui.base}/${slots.ui.entry}`);
-    expect(runtime.api.entryUrl).toBe(`${slots.api.base}/${slots.api.entry}`);
-    expect(runtime.auth?.entryUrl).toBe(`${slots.auth.base}/${slots.auth.entry}`);
+    expect(runtime.host.entryUrl).toBe(`${remotes.host.base}/${remotes.host.entry}`);
+    expect(runtime.ui.entryUrl).toBe(`${remotes.ui.base}/${remotes.ui.entry}`);
+    expect(runtime.api.entryUrl).toBe(`${remotes.api.base}/${remotes.api.entry}`);
+    expect(runtime.auth?.entryUrl).toBe(`${remotes.auth.base}/${remotes.auth.entry}`);
     expect(runtime.auth?.integrity).toBe("sha384-entry");
   });
 
-  it("skips unpinned remote slots silently in development", async () => {
+  it("skips unpinned remote remotes silently in development", async () => {
     const runtime = await buildRuntimeConfig(unpinnedConfig, process.cwd(), "development");
 
     expect(runtime.host.entryUrl).toBeUndefined();
@@ -361,7 +365,7 @@ describe("dev-env version-manifest derivation", () => {
     expect(runtime.auth?.entryUrl).toBeUndefined();
   });
 
-  it("still throws loudly on an unpinned remote slot in production", async () => {
+  it("still throws loudly on an unpinned remote remote in production", async () => {
     await expect(buildRuntimeConfig(unpinnedConfig, process.cwd(), "production")).rejects.toThrow(
       /carries no version-manifest digest/,
     );

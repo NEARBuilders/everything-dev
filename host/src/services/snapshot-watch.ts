@@ -9,7 +9,7 @@ const refOf = (bosUrl: string) => {
 import { pointerFingerprint } from "everything-dev/fingerprint";
 import { verifySriForUrl } from "everything-dev/integrity";
 import type { BosConfig, RuntimeConfig } from "everything-dev/types";
-import { resolveSlotVersion } from "everything-dev/version-manifest-resolve";
+import { resolveRemoteVersion } from "everything-dev/version-manifest-resolve";
 import { logger } from "../utils/logger";
 import { ConfigService } from "./config";
 import { RuntimeSnapshot } from "./runtime-snapshot";
@@ -35,7 +35,7 @@ export function watchIntervalMs(): number {
 }
 
 /**
- * The published pointer's version identity: a hash over every slot's
+ * The published pointer's version identity: a hash over every remote's
  * `pin` — cheap to compute (no version-manifest fetch), and stable exactly
  * when the deployed set is. A pointer-fingerprint change is what triggers
  * the adopt transaction.
@@ -151,10 +151,10 @@ interface VerifyTarget {
 }
 
 /**
- * SRI-verify the live slots against their derived pins (the monitor's old
- * job, ported): every production slot is pin-derived, so each target URL IS
+ * SRI-verify the live remotes against their derived pins (the monitor's old
+ * job, ported): every production remote is pin-derived, so each target URL IS
  * the (hashed) entry — verified directly, no fixed-name resolution; an
- * extends-ref slot re-reads the PARENT config from FastKV and verifies
+ * extends-ref remote re-reads the PARENT config from FastKV and verifies
  * against the parent's latest pin — an upstream republish is noticed without
  * a restart (the parent's freshly-resolved `entryIntegrity` no longer matches
  * this snapshot's (older) entry bytes).
@@ -221,19 +221,19 @@ async function verifyCurrentEntries(config: RuntimeConfig): Promise<void> {
         kind: "runtimeConfig",
         ref: refOf(target.extendsRef),
       });
-      const parentSlot = getSlotForExtends(parentConfig, target.key);
+      const parentRemote = getRemoteForExtends(parentConfig, target.key);
       const parentPin = getPinForExtends(parentConfig, target.key);
       if (parentPin) {
         // resolve the parent's pin to its (possibly newer) entry coordinates
         // and verify this snapshot's (older) entry bytes against them — an
         // upstream republish surfaces as an integrity failure
-        const resolved = await resolveSlotVersion({
-          base: typeof parentSlot?.production === "string" ? parentSlot.production : "",
+        const resolved = await resolveRemoteVersion({
+          base: typeof parentRemote?.production === "string" ? parentRemote.production : "",
           digest: parentPin,
         });
         await verifySriForUrl(target.url, resolved.entryIntegrity, { resolveEntryUrl: false });
-      } else if (parentSlot && typeof parentSlot.integrity === "string") {
-        await verifySriForUrl(target.url, parentSlot.integrity, { resolveEntryUrl: false });
+      } else if (parentRemote && typeof parentRemote.integrity === "string") {
+        await verifySriForUrl(target.url, parentRemote.integrity, { resolveEntryUrl: false });
       }
       continue;
     }
@@ -243,7 +243,7 @@ async function verifyCurrentEntries(config: RuntimeConfig): Promise<void> {
   }
 }
 
-function getSlotForExtends(
+function getRemoteForExtends(
   config: Record<string, unknown>,
   key: string,
 ): Record<string, unknown> | undefined {
@@ -268,8 +268,8 @@ function getPinForExtends(
   config: Record<string, unknown>,
   key: string,
 ): { manifest: string; integrity: string } | undefined {
-  const slot = getSlotForExtends(config, key);
-  const pin = slot?.pin as { manifest?: unknown; integrity?: unknown } | undefined;
+  const remote = getRemoteForExtends(config, key);
+  const pin = remote?.pin as { manifest?: unknown; integrity?: unknown } | undefined;
   if (
     pin &&
     typeof pin.manifest === "string" &&

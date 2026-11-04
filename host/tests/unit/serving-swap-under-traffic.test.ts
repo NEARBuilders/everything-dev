@@ -130,7 +130,7 @@ const publishedPointer = {
     ui: {
       development: "local:ui",
       production: `${assetBaseUrl}/ui/`,
-      pin: { manifest: "versions/x.json", integrity: "sha384-slot-pin" },
+      digest: { manifest: "versions/x.json", integrity: "sha384-remote-pin" },
     },
   },
 } as unknown as BosConfig;

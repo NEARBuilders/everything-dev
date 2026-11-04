@@ -87,5 +87,5 @@ To scaffold a **new app** instead of modifying this one, use `bos init` — `eve
 - `/skill.md`, `/llms.txt` — raw doc endpoints
 - `/skills/<package>/<skill>/SKILL.md` — the skill family
 - `/.well-known/mcp.json` — MCP discovery
-- `/.well-known/version` — deployed fingerprint + per-slot pins
+- `/.well-known/version` — deployed fingerprint + per-remote digests
 - `/api` (Scalar docs), `/api/spec.json` (OpenAPI), `/api/mcp` (MCP server)

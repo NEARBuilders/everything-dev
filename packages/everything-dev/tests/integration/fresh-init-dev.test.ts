@@ -37,10 +37,10 @@ import { runCommand, writeGeneratedAuthStubs } from "./typecheck-utils";
  * Local-only for now (skipped in CI): the shipped rc.30 bytes still carry
  * the consumer-facing defects this PR fixes (the plane audit's @unknown
  * false divergences, the host's declared-list-gated plugin secrets), and
- * the root's live config composes plugin slots the rc.30 release manifest
+ * the root's live config composes plugin remotes the rc.30 release manifest
  * does not record. The gate wires the child to the local framework (link
  * overrides) so it exercises THIS tree end to end; flip the skip back to
- * CI-only once a release ships the fixes and records the live slots.
+ * CI-only once a release ships the fixes and records the live remotes.
  *
  * Resolves the real parent chain over the registry: the hermetic fetch
  * guard would otherwise block those in-process registry reads — the seam
@@ -110,7 +110,7 @@ describe.skipIf(process.env.CI === "true")(
       });
       // A real scaffolded child declares its extends — the resolution walk
       // (and `bos dev`'s release-composition audit) read it from the config. The
-      // api slot declares the platform root secret beside its database URL —
+      // api remote declares the platform root secret beside its database URL —
       // the plugin's secrets schema requires both (the vault derives the
       // runtime KEK from it).
       const configPath = join(testDir, "bos.config.json");

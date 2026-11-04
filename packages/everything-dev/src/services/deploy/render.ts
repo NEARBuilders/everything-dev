@@ -19,8 +19,8 @@ export interface UploadOutcomeRender {
 export interface PublishSectionRender {
   registryUrl: string;
   fingerprint: string;
-  /** slot → pin line, in config order */
-  slotPins: Array<[string, string]>;
+  /** remote → pin line, in config order */
+  remoteDigests: Array<[string, string]>;
   /** the per-deploy audit manifest's filename */
   auditManifestFile: string;
 }

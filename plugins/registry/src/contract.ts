@@ -205,7 +205,7 @@ export const contract = oc.router({
             manifest: z.record(z.string(), z.unknown()),
             source: z.object({ account: z.string(), gateway: z.string() }),
             from: z.enum(["version", "manifest", "cache"]),
-            provenance: z.enum(["slot", "pointer"]),
+            provenance: z.enum(["record", "pointer"]),
             fromCache: z.boolean(),
           }),
           z.object({

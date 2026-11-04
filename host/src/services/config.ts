@@ -41,7 +41,7 @@ function getFallbackGatewayId(config: RuntimeConfig) {
 /**
  * Browser-facing base for a ui surface (ADR 0011): `publicUrl` declares the
  * base browsers must load a remote from — the image-native runtime serves
- * /bundles/<account>/<gateway>/<slot>/ same-origin while its server-side MF
+ * /bundles/<account>/<gateway>/<remote>/ same-origin while its server-side MF
  * loading stays on the container-local `url`. Absent (dev stacks, published
  * configs, tenant overrides) `url` is directly reachable and wins.
  */

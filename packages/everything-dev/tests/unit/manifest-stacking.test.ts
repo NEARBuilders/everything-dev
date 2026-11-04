@@ -6,14 +6,14 @@ import { buildDependencyDAG } from "../../src/services/registry/dag";
 // version-manifest resolution — every remote pins a manifest, and
 // resolution is stubbed
 vi.mock("../../src/services/deploy/version-manifest", () => ({
-  resolveSlotVersion: vi.fn(async () => ({
+  resolveRemoteVersion: vi.fn(async () => ({
     entryUrl: "https://cdn.example.test/remoteEntry.aaa.js",
     entryIntegrity: "sha384-entry",
   })),
-  clearSlotVersionCache: vi.fn(),
+  clearRemoteVersionCache: vi.fn(),
 }));
 
-const SLOT_DIGEST = { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" };
+const REMOTE_DIGEST = { manifest: "versions/8f3ac1d2feedbeef.json", integrity: "sha384-pin" };
 
 const { fetchApiPluginManifestMock } = vi.hoisted(() => ({
   fetchApiPluginManifestMock: vi.fn(),
@@ -59,26 +59,26 @@ function makeRemoteBosConfig() {
         name: "host",
         development: "http://localhost:3000",
         production: "http://host.cdn",
-        digest: SLOT_DIGEST,
+        digest: REMOTE_DIGEST,
       },
       ui: {
         name: "ui",
         development: "http://localhost:3003",
         production: "http://ui.cdn",
-        digest: SLOT_DIGEST,
+        digest: REMOTE_DIGEST,
       },
       api: {
         name: "api",
         development: "http://localhost:3001",
         production: "http://api.cdn",
-        digest: SLOT_DIGEST,
+        digest: REMOTE_DIGEST,
       },
       auth: {
         name: "auth",
         extends: "dev.everything.near/auth",
         development: "http://localhost:3002",
         production: "http://auth.cdn",
-        digest: SLOT_DIGEST,
+        digest: REMOTE_DIGEST,
       },
     },
     plugins: {
@@ -86,7 +86,7 @@ function makeRemoteBosConfig() {
         name: "pluginA",
         url: "http://pluginA.cdn",
         source: "remote" as const,
-        digest: SLOT_DIGEST,
+        digest: REMOTE_DIGEST,
       },
     },
   } as any;
@@ -119,7 +119,7 @@ describe("manifest stacking (one level deep)", () => {
           url: "http://pluginA.cdn",
           entry: "http://pluginA.cdn/mf-manifest.json",
           source: "remote",
-          digest: SLOT_DIGEST,
+          digest: REMOTE_DIGEST,
         },
       },
     });
@@ -159,7 +159,7 @@ describe("manifest stacking (one level deep)", () => {
           source: "remote",
           variables: { TIMEOUT: 10000 },
           secrets: ["MY_SECRET"],
-          digest: SLOT_DIGEST,
+          digest: REMOTE_DIGEST,
         },
       },
     });

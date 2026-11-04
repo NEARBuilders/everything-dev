@@ -22,8 +22,9 @@ Consequences:
 
 ```
 apps/<account>/<gateway>/bos.config.json          # a published runtime config
-apps/<account>/<gateway>/platform.json            # the platform release manifest (ADR 0034, full trains only)
-apps/<account>/<gateway>/manifests/<ts>.json      # per-deploy audit manifest (cross-references the other two by SRI)
+apps/<account>/<gateway>/manifest.json            # the release thin tag: {schemaVersion, version, digest} (ADR 0040, full trains only)
+apps/<account>/<gateway>/versions/<v>.json         # the immutable per-release manifest record (written once, never republished)
+apps/<account>/<gateway>/deploys/<ts>.json         # per-deploy audit trail (cross-references the other keys by SRI)
 nostr/<account>                                    # (contextual.near) NEAR↔nostr identity binding
 ```
 
@@ -36,7 +37,7 @@ https://kv.test.fastnear.com/...                                            # te
 
 Or in code: `fetchBosConfigFromFastKv("bos://<account>/<gateway>")` from `everything-dev/fastkv`.
 
-The `platform.json` slot carries the platform release manifest (ADR 0034): framework/every-plugin versions, the release catalog, exact shared-dep versions, the hashed template inventory, and the compat floor — image `ref` + tags, never the digest. It is written by the deploy train on the **same atomic transaction** as the config and the audit manifest (a third `registryEntries` key — all three land or none do), rides only framework-rooted production trains (children and config-only publishes write nothing), and its compat floor derives from the previous release: a registry failure reading that release skips the manifest for that deploy rather than publishing a wrong window. Children resolve it through the extends chain like the catalog — the root runtime owns it.
+The thin tag names `versions/<v>.json`, which carries the platform release manifest (ADR 0034): framework/every-plugin versions, the release catalog, exact shared-dep versions, the hashed template inventory, and the compat floor — image `ref` + tags, never the digest. The record is immutable: a divergent republish of the same version is refused, loud (ADR 0040). It is written by the deploy train on the **same atomic transaction** as the config and the audit manifest (the tag and record ride the same atomic transaction as the config and the audit trail — all land or none do), rides only framework-rooted production trains (children and config-only publishes write nothing), and its compat floor derives from the previous release: a registry failure reading that release skips the manifest for that deploy rather than publishing a wrong window. Children resolve it through the extends chain like the catalog — the root runtime owns it.
 
 ## Writing (bos publish)
 

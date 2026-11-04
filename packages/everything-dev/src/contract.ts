@@ -289,8 +289,8 @@ export const RollbackHistoryEntrySchema = z.object({
   summary: z.string(),
 });
 
-export const RollbackSlotCheckSchema = z.object({
-  slot: z.string(),
+export const RollbackRemoteCheckSchema = z.object({
+  remote: z.string(),
   ok: z.boolean(),
   reason: z.string().optional(),
 });
@@ -301,7 +301,7 @@ export const RollbackResultSchema = z.object({
   txHash: z.string().optional(),
   error: z.string().optional(),
   history: z.array(RollbackHistoryEntrySchema).optional(),
-  verification: z.array(RollbackSlotCheckSchema).optional(),
+  verification: z.array(RollbackRemoteCheckSchema).optional(),
 });
 
 export const PublishResultSchema = z.object({
@@ -309,7 +309,7 @@ export const PublishResultSchema = z.object({
   registryUrl: z.string(),
   txHash: z.string().optional(),
   fingerprint: z.string().optional(),
-  slotPins: z.record(z.string(), z.string()).optional(),
+  remoteDigests: z.record(z.string(), z.string()).optional(),
   error: z.string().optional(),
   built: z.array(z.string()).optional(),
   skipped: z.array(z.string()).optional(),
@@ -396,7 +396,7 @@ export const DeployResultSchema = z.object({
   registryUrl: z.string(),
   txHash: z.string().optional(),
   fingerprint: z.string().optional(),
-  slotPins: z.record(z.string(), z.string()).optional(),
+  remoteDigests: z.record(z.string(), z.string()).optional(),
   history: z.array(DeployManifestListEntrySchema).optional(),
   built: z.array(z.string()).optional(),
   skipped: z.array(z.string()).optional(),
@@ -698,7 +698,7 @@ export const UpgradeOptionsSchema = z.object({
   noRealign: z
     .boolean()
     .default(false)
-    .describe("Skip republishing owned slots the audit finds built against an older chain"),
+    .describe("Skip republishing owned remotes the audit finds built against an older chain"),
 
   from: z
     .enum(["v1"])
@@ -778,7 +778,7 @@ export const UpgradeResultSchema = z.object({
       /** version = the immutable version record (an exact authored release's
        * target); pointer = the moving platform.json tag (latest resolution) —
        * #574. */
-      provenance: z.enum(["slot", "pointer"]).optional(),
+      provenance: z.enum(["record", "pointer"]).optional(),
     })
     .optional(),
   /** Dry-run/check only: whether any update is available. */
@@ -793,7 +793,7 @@ export const UpgradeResultSchema = z.object({
     .optional(),
   blockers: z.array(UpgradeAuditFindingSchema).readonly().optional(),
   notes: z.array(z.string()).optional(),
-  /** Owned slots republished after the version delta (the audit's
+  /** Owned remotes republished after the version delta (the audit's
    * "built against an older chain" repair, executed). */
   realignment: z
     .object({
@@ -1021,8 +1021,8 @@ export const MfCheckRemoteResultSchema = z.object({
   reason: z.string().optional(),
 });
 
-export const MfCheckUiSlotSchema = z.object({
-  slot: z.string(),
+export const MfCheckUiRemoteSchema = z.object({
+  remote: z.string(),
   url: z.string(),
   reachable: z.boolean(),
   ok: z.boolean(),
@@ -1035,11 +1035,11 @@ export const MfCheckResultSchema = z.object({
   hostReachable: z.boolean(),
   hostReason: z.string().optional(),
   remotes: z.array(MfCheckRemoteResultSchema),
-  /** The UI composition compat gate (#546) — present when UI slots exist. */
+  /** The UI composition compat gate (#546) — present when UI remotes exist. */
   ui: z
     .object({
       ok: z.boolean(),
-      slots: z.array(MfCheckUiSlotSchema),
+      remotes: z.array(MfCheckUiRemoteSchema),
     })
     .optional(),
   /** The release compat gate (ADR 0034 pt 5) — present when a release manifest resolves. */
@@ -1063,9 +1063,9 @@ export const ManifestResultSchema = z.object({
   version: z.string().nullable(),
   source: z.string().optional(),
   fromCache: z.boolean().optional(),
-  /** slot = immutable version slot (an exact pin's target); pointer = the
-   * moving platform.json (unpinned resolution) — #574. */
-  provenance: z.enum(["slot", "pointer"]).optional(),
+  /** remote = immutable version remote (an exact pin's target); pointer = the
+   * moving manifest.json thin tag (unpinned resolution) — #574. *
+  provenance: z.enum(["record", "pointer"]).optional(),
   error: z.string().optional(),
   /** Set when the authored release no longer matches anything in the
    * extends chain — the root republished past it (issue #546). */

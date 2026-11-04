@@ -25,7 +25,7 @@ import type { Manifest } from "../platform/manifest";
 import { ManifestTagSchema } from "../platform/manifest-schema";
 import { type ConfirmLeg, confirmPublish, describeConfirmTimeout } from "../registry/confirm";
 import { fetchBosConfigFromFastKv, fetchConfigHistory } from "../registry/fastkv";
-import { pointerFingerprint, slotPins } from "../registry/fingerprint";
+import { pointerFingerprint, remoteDigests } from "../registry/fingerprint";
 import { keyPathOf, parseRuntimeRef, runtimeRefOf } from "../registry/keys";
 import {
   deployAuditKeyOf,
@@ -336,15 +336,15 @@ export async function runPublishTrain(
 
     // Folder-form plugin ui: the workspace build also produces <plugin>/ui/dist
     // (web remoteEntry + ssr container) — upload it as its own bundle key and
-    // pin <slot>.<key>.ui.* so the host can compose the ui surface in production.
+    // pin <remote>.<key>.ui.* so the host can compose the ui surface in production.
     let uiOutcomeShared: Record<string, string> | undefined;
     if (hasFolderFormUi(ws.path)) {
       const uiDistDir = join(ws.path, "ui", "dist");
-      const uiSlot = ws.kind === "app" ? "app" : "plugins";
-      const rawSlot = (uiSlot === "app" ? rawConfig.app : rawConfig.plugins) as
+      const section = ws.kind === "app" ? "app" : "plugins";
+      const rawSection = (section === "app" ? rawConfig.app : rawConfig.plugins) as
         | Record<string, Record<string, unknown> | undefined>
         | undefined;
-      const rawUi = rawSlot?.[key]?.ui as Record<string, unknown> | undefined;
+      const rawUi = rawSection?.[key]?.ui as Record<string, unknown> | undefined;
       const uiName = resolveUiRuntimeName(rawUi, join(ws.path, "ui"), key);
       let uiIntegrity: string | undefined;
       let uiSsrIntegrity: string | undefined;
@@ -670,14 +670,14 @@ export async function runPublishTrain(
   // `local:` development targets — workspace-relative refs are meaningless
   // across an extends boundary, and children inheriting one cannot spawn it.
   // The authored surface keeps them for the parent's own dev; children fall
-  // back to the slot's published URL. Rollback payloads are already
+  // back to the remote's published URL. Rollback payloads are already
   // canonical — republished verbatim.
   if (input.exactPayload !== true) {
     publishPayload = stripLocalDevelopmentTargets(publishPayload);
   }
 
   // KEEP: release-scoped extends inheritance (ADR 0034 amendment) — every
-  // remote slot the authored config does not declare is a base-runtime slot
+  // remote remote the authored config does not declare is a base-runtime remote
   // whose bytes re-point at the authored platform pin's release, so the
   // parent's live config pointer can move (a root rc.N+1 publish) without
   // skewing a pinned child's composition. Resolution failures warn and
@@ -698,7 +698,7 @@ export async function runPublishTrain(
         if (stamped.stamped.length > 0) {
           console.log(
             colors.dim(
-              `  Release-scoped slots (${resolvedRelease.frameworkVersion}): stamped ${stamped.stamped.join(", ")}`,
+              `  Release-scoped remotes (${resolvedRelease.frameworkVersion}): stamped ${stamped.stamped.join(", ")}`,
             ),
           );
         }
@@ -706,7 +706,7 @@ export async function runPublishTrain(
     } catch (error) {
       console.log(
         colors.dim(
-          `  Note: release-manifest resolution failed — continuing without release-scoped slots: ${error instanceof Error ? error.message : String(error)}`,
+          `  Note: release-manifest resolution failed — continuing without release-scoped remotes: ${error instanceof Error ? error.message : String(error)}`,
         ),
       );
     }
@@ -756,12 +756,12 @@ export async function runPublishTrain(
 
   const pinVerification = await verifyRollbackSnapshot(publishPayload);
   if (pinVerification.verifiable && !pinVerification.ok) {
-    const failures = pinVerification.slots
+    const failures = pinVerification.remotes
       .filter((check) => !check.ok)
-      .map((check) => `    ${check.slot}: ${check.reason}`)
+      .map((check) => `    ${check.remote}: ${check.reason}`)
       .join("\n");
     console.error(
-      `  ${colors.error(icons.err)} Publish blocked — a pinned slot's bytes do not serve at its production URL:\n${failures}`,
+      `  ${colors.error(icons.err)} Publish blocked — a pinned remote's bytes do not serve at its production URL:\n${failures}`,
     );
     throw new PublishTrainError({
       kind: "pin-verification",
@@ -769,14 +769,14 @@ export async function runPublishTrain(
       built,
       skipped,
       deployResults,
-      error: `Publish blocked — pinned slot bytes missing or SRI mismatched:\n${failures}`,
+      error: `Publish blocked — pinned remote bytes missing or SRI mismatched:\n${failures}`,
     });
   }
 
   if (input.exactPayload !== true) {
     // KEEP: a rollback republishes a snapshot that was a valid deploy — the
     // gate must never block the recovery path (its snapshot's inherited
-    // slots merge over the parent's moved-on pins; boot-check + pin
+    // remotes merge over the parent's moved-on pins; boot-check + pin
     // verification above already gate the bytes).
     if (!bootShape) {
       throw new PublishTrainError({
@@ -788,15 +788,15 @@ export async function runPublishTrain(
         error: "the extends walk failed without a boot-check rejection",
       });
     }
-    const verifiedSlots = pinVerification.verifiable
-      ? new Set(pinVerification.slots.filter((check) => check.ok).map((check) => check.slot))
+    const verifiedRemotes = pinVerification.verifiable
+      ? new Set(pinVerification.remotes.filter((check) => check.ok).map((check) => check.remote))
       : undefined;
     const compositionGate = await runCompositionGate({
       configDir,
       authoredConfig: publishRawConfig as Record<string, unknown>,
       resolvedShape: bootShape.config as Record<string, unknown>,
       resolvedRelease,
-      ...(verifiedSlots ? { verifiedSlots } : {}),
+      ...(verifiedRemotes ? { verifiedRemotes } : {}),
     });
     if (!compositionGate.ok) {
       throw new PublishTrainError({
@@ -819,7 +819,7 @@ export async function runPublishTrain(
   const publishedAt = new Date().toISOString();
   // version identity printed + returned for every deploy (atomic-deploys 12)
   const fingerprint = pointerFingerprint(publishPayload as never);
-  const publishSlotPins = slotPins(publishPayload as never);
+  const publishRemoteDigests = remoteDigests(publishPayload as never);
   const registryEntries: Record<string, string> = {
     [registryKey]: JSON.stringify(publishPayload),
   };
@@ -938,9 +938,9 @@ export async function runPublishTrain(
       if (releaseLeg) {
         const frameworkVersion = composed.manifest.frameworkVersion;
         const recordKey = getVersionKey(account, gateway, frameworkVersion);
-        let existingSlot: unknown;
+        let existingRecord: unknown;
         try {
-          existingSlot = await readVersionRecord<unknown>(
+          existingRecord = await readVersionRecord<unknown>(
             account,
             gateway,
             frameworkVersion,
@@ -956,9 +956,9 @@ export async function runPublishTrain(
             error: `the release leg could not verify the version record's immutability (${recordKey}): ${error instanceof Error ? error.message : String(error)}`,
           });
         }
-        if (existingSlot !== null) {
+        if (existingRecord !== null) {
           const existingValue =
-            typeof existingSlot === "string" ? existingSlot : JSON.stringify(existingSlot);
+            typeof existingRecord === "string" ? existingRecord : JSON.stringify(existingRecord);
           if (existingValue !== composed.record.value) {
             throw new PublishTrainError({
               kind: "platform-manifest",
@@ -1009,7 +1009,7 @@ export async function runPublishTrain(
   render?.publish?.({
     registryUrl,
     fingerprint,
-    slotPins: Object.entries(publishSlotPins),
+    remoteDigests: Object.entries(publishRemoteDigests),
     auditManifestFile: manifestKey.split("/").pop() ?? manifestKey,
   });
 
@@ -1200,7 +1200,7 @@ export async function runPublishTrain(
       registryUrl,
       txHash: result.txHash,
       fingerprint,
-      slotPins: publishSlotPins,
+      remoteDigests: publishRemoteDigests,
       built,
       skipped,
       deployResults,

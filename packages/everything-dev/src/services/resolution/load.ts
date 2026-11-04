@@ -597,7 +597,7 @@ export async function resolveComposableReference(
     // safety argument as the entry itself: keep its local target when the
     // plugin resolves locally, or the folder-form ui surface silently
     // disappears (no BOS_UI_PORT, an unassigned ui dev server, and a
-    // port collision with another plugin's ui slot).
+    // port collision with another plugin's ui remote).
     associatedUi: stripUnsafeLocalDevelopment(
       associatedUi,
       allowLocalPaths || Boolean(localDevelopment),
