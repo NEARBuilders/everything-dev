@@ -83,7 +83,14 @@ export function isSnapshotLive(targetValue: unknown, liveValue: unknown): boolea
 export async function publishRollbackSnapshot(
   targetValue: unknown,
   input: RollbackSnapshotInput,
-  opts?: { skipVerify?: boolean; restorePlatformPointer?: { key: string; value: string } },
+  opts?: {
+    skipVerify?: boolean;
+    restorePlatformPointer?: { key: string; value: string };
+    /** Promote framing (ADR 0042 ticket 05): activate a recorded deployment
+     * without the rollback branding — the payload republishes verbatim with
+     * NO rolledBackFrom stamp (a promotion is not a rollback). */
+    promote?: boolean;
+  },
 ): Promise<RollbackSnapshotOutcome> {
   if (!opts?.skipVerify) {
     const verification = await verifyRollbackSnapshot(targetValue as BosConfigInput);
@@ -121,7 +128,12 @@ export async function publishRollbackSnapshot(
   // crash (host-less child snapshots have no app.host of their own) and
   // lossy (Zod's strip mode dropped keys the schema didn't know); a
   // rollback's whole value proposition is byte-faithful republication.
-  const payload = buildRollbackPayload(targetValue as BosConfigInput, new Date().toISOString());
+  // Promote skips the rolledBackFrom brand: activating a recorded deployment
+  // is not a rollback, and the lockfile leg composes from the payload either
+  // way (ADR 0042 ticket 04).
+  const payload = opts?.promote
+    ? (targetValue as BosConfigInput)
+    : buildRollbackPayload(targetValue as BosConfigInput, new Date().toISOString());
   const result = await publishToFastKv({
     // The declared input type is the parsed BosConfig; the runtime payload is
     // the raw snapshot — the same declared-vs-runtime split the train's

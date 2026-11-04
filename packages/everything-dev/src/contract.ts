@@ -304,6 +304,37 @@ export const RollbackResultSchema = z.object({
   verification: z.array(RollbackRemoteCheckSchema).optional(),
 });
 
+export const PromoteOptionsSchema = z.object({
+  version: z
+    .string()
+    .describe(
+      "The deployment to activate — a block height (or timestamp prefix) from the publish history",
+    ),
+  force: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Allow pre-Phase-A snapshots without verifiable manifest pins (their bytes were overwritten in place)",
+    ),
+  dryRun: z.boolean().default(false).describe("Preview the promotion without publishing"),
+  verbose: z.boolean().default(false).describe("Show full output instead of clean summary"),
+  env: z
+    .enum(["production", "staging"])
+    .default("production")
+    .describe("Environment: production or staging"),
+  network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
+  privateKey: z.string().optional(),
+  wallet: z.boolean().default(false),
+  registry: z
+    .string()
+    .optional()
+    .describe(
+      "Override FastKV registry contract account (defaults: dev.everything.near / dev.allthethings.testnet)",
+    ),
+});
+
+export const PromoteResultSchema = RollbackResultSchema;
+
 export const PublishResultSchema = z.object({
   status: z.enum(["published", "error", "dry-run"]),
   registryUrl: z.string(),
@@ -1161,6 +1192,7 @@ export const commandOptionSchemas = {
   publish: PublishOptionsSchema,
   lock: LockOptionsSchema,
   rollback: RollbackOptionsSchema,
+  promote: PromoteOptionsSchema,
   deploy: DeployOptionsSchema,
   smoke: SmokeOptionsSchema,
   login: LoginOptionsSchema,
@@ -1225,6 +1257,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/rollback" })
     .input(RollbackOptionsSchema)
     .output(RollbackResultSchema),
+  promote: oc
+    .route({ method: "POST", path: "/promote" })
+    .input(PromoteOptionsSchema)
+    .output(PromoteResultSchema),
   deploy: oc
     .route({ method: "POST", path: "/deploy" })
     .input(DeployOptionsSchema)
@@ -1324,6 +1360,8 @@ export type PublishResult = z.infer<typeof PublishResultSchema>;
 export type LockOptions = z.infer<typeof LockOptionsSchema>;
 export type LockResult = z.infer<typeof LockResultSchema>;
 export type RollbackResult = z.infer<typeof RollbackResultSchema>;
+export type PromoteOptions = z.infer<typeof PromoteOptionsSchema>;
+export type PromoteResult = z.infer<typeof PromoteResultSchema>;
 export type DeployOptions = z.infer<typeof DeployOptionsSchema>;
 export type DeployResult = z.infer<typeof DeployResultSchema>;
 export type DeployLegOutcome = z.infer<typeof DeployLegOutcomeSchema>;
@@ -1457,6 +1495,15 @@ export const cliCommandMeta = {
     commandPath: ["rollback"],
     summary: "Republish an earlier config snapshot from the registry publish history",
     interactive: true,
+  },
+  promote: {
+    commandPath: ["promote"],
+    summary:
+      "Activate a recorded deployment without rebuilding — verified republish, no rollback branding (the lockfile + pointer ride the train)",
+    interactive: false,
+    fields: {
+      version: { positional: true },
+    },
   },
   deploy: {
     commandPath: ["deploy"],
