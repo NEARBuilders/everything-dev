@@ -31,6 +31,11 @@ vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
   return {
     ...actual,
     resolveSigningStrategy: resolveSigningStrategyMock,
+    // #771's preflight key-health probe hits the real registry RPC from
+    // inside the train — outside this test's injected RegistryStore/Signer
+    // seams. The hermetic guard blocks it in CI and a real RPC answers
+    // locally; either way the probe must not be the thing under test here.
+    checkPublishKeyHealth: vi.fn(async () => ({ ok: true })),
   };
 });
 

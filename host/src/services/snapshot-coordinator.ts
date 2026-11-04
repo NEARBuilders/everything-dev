@@ -6,7 +6,9 @@ import {
 } from "everything-dev/config";
 import { verifySriForUrl } from "everything-dev/integrity";
 import { resolveMergedConfigInput } from "everything-dev/resolution";
+import { bootSnapshotOf, writeBootSnapshot } from "everything-dev/snapshot";
 import type { BosConfig, BosConfigInput } from "everything-dev/types";
+import { logger } from "../utils/logger";
 import {
   createRuntimeSnapshotState,
   deploymentFingerprint,
@@ -35,6 +37,34 @@ const describeCause = (cause: unknown): string =>
 
 const adoptFailure = (message: string, cause: unknown) =>
   new SnapshotAdoptError({ message: `${message}: ${describeCause(cause)}`, cause });
+
+/**
+ * Persist the approved snapshot (ADR 0041): one writer seam — every verified
+ * generation is stamped to disk so a restart can serve it during a
+ * registry/CDN outage. Non-fatal: a snapshot-write failure must never fail
+ * the adopt.
+ */
+const persistBootSnapshot = (resolvedPointer: BosConfig) =>
+  Effect.tryPromise(async () => {
+    if (!resolvedPointer.domain) {
+      throw new Error(`resolved pointer for ${resolvedPointer.account} has no domain`);
+    }
+    await writeBootSnapshot(
+      bootSnapshotOf({
+        account: resolvedPointer.account,
+        gateway: resolvedPointer.domain,
+        config: resolvedPointer,
+      }),
+    );
+  }).pipe(
+    Effect.catch((cause) =>
+      Effect.sync(() =>
+        logger.warn(
+          `[SnapshotCoordinator] approved-snapshot persist failed (non-fatal): ${describeCause(cause)}`,
+        ),
+      ),
+    ),
+  );
 
 /**
  * A published pointer stores only the runtime's own overrides — remotes it
@@ -100,6 +130,7 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
   const current = yield* snapshot.get;
   const nextFingerprint = deploymentFingerprint(nextConfig);
   if (nextFingerprint === current.fingerprint) {
+    yield* persistBootSnapshot(resolvedPointer);
     return { status: "unchanged" };
   }
 
@@ -134,6 +165,7 @@ const adoptTransaction = Effect.fn("SnapshotCoordinator.adoptTransaction")(funct
 
   nextConfig.deploymentFingerprint = nextFingerprint;
   yield* snapshot.swap(nextState);
+  yield* persistBootSnapshot(resolvedPointer);
   return { status: "swapped", fingerprint: nextFingerprint, digest: composed.digest };
 });
 

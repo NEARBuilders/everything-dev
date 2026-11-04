@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CommandDescriptor } from "../../src/cli/catalog";
 import { commandCatalog, findCommandDescriptor } from "../../src/cli/catalog";
 import { describeOf, flagHelpLines } from "../../src/cli/flags";
+import { parseCommandInput } from "../../src/cli/parse";
 import { bosContract, cliCommandMeta, commandOptionSchemas } from "../../src/contract";
 import { cliCommandMeta as facadeMeta } from "../../src/contract.meta";
 
@@ -84,5 +85,12 @@ describe("command meta lives in the contract", () => {
   it("findCommandDescriptor resolves multi-word paths", () => {
     expect(findCommandDescriptor(["plugin", "add"]).descriptor.key).toBe("pluginAdd");
     expect(findCommandDescriptor(["registry", "use"]).descriptor.key).toBe("registryUse");
+  });
+
+  it("parses deploy --wallet — publish/rollback parity, the gasless relay path", () => {
+    const descriptor = findCommandDescriptor(["deploy"]).descriptor;
+    const input = parseCommandInput(descriptor, ["--wallet"]) as { wallet: boolean };
+    expect(input.wallet).toBe(true);
+    expect(flagHelpLines(descriptor).join("\n")).toContain("--wallet");
   });
 });

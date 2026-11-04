@@ -1,29 +1,32 @@
 /**
- * The registry sentinel (registry-primitive ticket 12): a cold-cache
+ * The registry sentinel (registry-primitive ticket 12, wire updated to the
+ * ADR 0040 cutover by the boot-snapshot sprint's ticket 04): a cold-cache
  * registry-resolution check that runs independent of deploys and PRs — the
  * detector for registry-side drift (wrong gateway, missing manifest legs,
  * stale index). Nightly in `.github/workflows/backcompat-nightly.yml`.
  *
  * Checks, against the production root (overridable via SENTINEL_ACCOUNT /
  * SENTINEL_GATEWAY):
- *   1. the manifest tag serves and parses;
- *   2. the tag's version record serves and is byte-identical content
- *      (the train's atomic write carries both — a divergence is drift);
+ *   1. the thin tag serves at `manifest.json` and parses
+ *      (`{ schemaVersion, version, digest }`);
+ *   2. the named immutable version record serves at `versions/<v>.json` and
+ *      its serialized bytes hash to the tag's digest (the digest chain);
  *   3. the resolution machine resolves Latest AND Pinned with the cache
  *      force-missed (exactly what a fresh child does);
- *   4. no dead-end ancestor: every extends ancestor serves manifest legs,
+ *   4. no dead-end ancestor: every extends ancestor serves a thin tag,
  *      or its last registry write is inside the staleness budget — the
  *      gateway-incident shape (`dev.everything.dev`) reds here.
  * Every check prints its evidence (chain, block heights, dates, digests);
  * any failure exits 1.
  */
-import { createHash } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  digestOfManifest,
   type Manifest,
   ManifestSchema,
+  ManifestTagSchema,
 } from "../packages/everything-dev/src/services/platform/manifest-schema";
 import {
   fetchConfigHistory,
@@ -40,7 +43,8 @@ import {
 const ACCOUNT = process.env.SENTINEL_ACCOUNT ?? DEFAULT_PARENT_ACCOUNT;
 const GATEWAY = process.env.SENTINEL_GATEWAY ?? DEFAULT_PARENT_GATEWAY;
 const REF = `bos://${ACCOUNT}/${GATEWAY}`;
-const TAG_KEY = `apps/${ACCOUNT}/${GATEWAY}/platform.json`;
+const TAG_REL_KEY = "manifest.json";
+const TAG_KEY = `apps/${ACCOUNT}/${GATEWAY}/${TAG_REL_KEY}`;
 const STALENESS_BUDGET_DAYS = Number(process.env.SENTINEL_STALENESS_DAYS ?? 30);
 
 const failures: string[] = [];
@@ -52,59 +56,66 @@ const evidence = (label: string, detail: unknown): void => {
 const check = (ok: boolean, failMessage: string): void => {
   if (!ok) failures.push(failMessage);
 };
-const sha256 = (value: unknown): string =>
-  createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
 const ageDays = (blockTimestampNs: string): number =>
   (Date.now() - Number(blockTimestampNs) / 1_000_000) / 86_400_000;
 
-// 1 + 2 — the tag home and its immutable version record
-const tag = await fetchRegistryKeyOrNull<unknown>(ACCOUNT, GATEWAY, "platform.json");
+// 1 — the thin tag at its cutover home
+const tag = await fetchRegistryKeyOrNull<unknown>(ACCOUNT, GATEWAY, TAG_REL_KEY);
 check(
   tag !== null,
-  `the manifest tag does not serve at ${TAG_KEY} — the release leg never published (or was wiped)`,
+  `the thin tag does not serve at ${TAG_KEY} — the release leg never published (or was wiped)`,
 );
 let manifest: Manifest | undefined;
+let tagVersion: string | undefined;
 if (tag) {
-  try {
-    manifest = ManifestSchema.parse(tag);
-    evidence("tag frameworkVersion", manifest.frameworkVersion);
-    evidence("tag gitSha", manifest.gitSha ?? "none");
-  } catch (error) {
+  const decoded = ManifestTagSchema.safeParse(tag);
+  if (!decoded.success) {
     check(
       false,
-      `the manifest tag does not parse: ${error instanceof Error ? error.message : String(error)}`,
+      `the tag does not decode as the thin shape ({ schemaVersion, version, digest }): ${decoded.error.message}`,
     );
+  } else {
+    tagVersion = decoded.data.version;
+    evidence("tag version", decoded.data.version);
+    evidence("tag digest", decoded.data.digest);
   }
 }
 
-if (manifest) {
-  const record = await fetchRegistryKey<unknown>(
-    ACCOUNT,
-    GATEWAY,
-    `platform-versions/${manifest.frameworkVersion}.json`,
-  );
+// 2 — the immutable version record the tag names, verified by the digest chain
+if (tagVersion) {
+  const record = await fetchRegistryKey<unknown>(ACCOUNT, GATEWAY, `versions/${tagVersion}.json`);
   check(
     record !== null,
-    `the version record for ${manifest.frameworkVersion} does not serve — the release deploy is incomplete`,
+    `the version record for ${tagVersion} does not serve at versions/${tagVersion}.json — the release deploy is incomplete`,
   );
   if (record) {
-    const identical = JSON.stringify(tag) === JSON.stringify(record);
+    manifest = ManifestSchema.safeParse(record).success ? ManifestSchema.parse(record) : undefined;
+    if (!manifest) {
+      check(false, `the version record does not parse as a release manifest`);
+    }
+    // JSON preserves key order, so the re-serialized record's bytes are the
+    // published bytes — the same assumption the resolution machine's digest
+    // verification makes (ADR 0040).
+    const recordDigest = digestOfManifest(JSON.stringify(record));
+    const tagDigest =
+      tag && typeof tag === "object" && "digest" in tag
+        ? (tag as { digest: string }).digest
+        : undefined;
     check(
-      identical,
-      `the tag and the version record diverge — tag sha ${sha256(tag)}, record sha ${sha256(record)}`,
+      recordDigest === tagDigest,
+      `the digest chain is broken — tag names ${tagDigest}, the record hashes to ${recordDigest}`,
     );
-    evidence("tag/record digest", `${sha256(tag)} (both, when identical)`);
+    evidence("tag → record digest", recordDigest);
+    evidence("record frameworkVersion", manifest?.frameworkVersion ?? "unparsed");
   }
 }
+const pinnedRelease = manifest?.frameworkVersion ?? tagVersion ?? "unknown";
 
 // 3 — the machine, cold: Latest + Pinned with the cache force-missed
 const cacheDir = mkdtempSync(join(tmpdir(), "registry-sentinel-"));
 const neverCached = { state: "miss" as const };
 const localConfig = { extends: REF };
-for (const query of [
-  { kind: "Latest" },
-  { kind: "Pinned", release: manifest?.frameworkVersion ?? "unknown" },
-] as const) {
+for (const query of [{ kind: "Latest" }, { kind: "Pinned", release: pinnedRelease }] as const) {
   const outcome = await resolveRelease({
     query: query as never,
     localConfig,
@@ -140,7 +151,7 @@ for (let hop = 0; hop < 5 && cursor; hop++) {
 evidence("extends chain", ancestors.map((a) => `bos://${a.account}/${a.gateway}`).join(" → "));
 
 for (const node of ancestors) {
-  const leg = await fetchRegistryKeyOrNull<unknown>(node.account, node.gateway, "platform.json");
+  const leg = await fetchRegistryKeyOrNull<unknown>(node.account, node.gateway, "manifest.json");
   if (leg) continue;
   const history = await fetchConfigHistory({
     accountId: node.account,

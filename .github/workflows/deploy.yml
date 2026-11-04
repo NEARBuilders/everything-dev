@@ -268,6 +268,10 @@ jobs:
     timeout-minutes: 60
     env:
       NEAR_PRIVATE_KEY: ${{ secrets.NEAR_PRIVATE_KEY }}
+      # near-kit's default RPC (free.rpc.fastnear.com) accepts signed
+      # broadcasts and silently drops them — pin the signing stack to an
+      # endpoint with a real transaction pool.
+      NEAR_RPC_URL: https://rpc.mainnet.near.org
       BOS_STORAGE_ORIGIN: https://upload.everything.dev
       BOS_STORAGE_API_KEY: ${{ secrets.BOS_STORAGE_API_KEY }}
       BOS_BUNDLE_CDN_ORIGIN: https://cdn.everything.dev

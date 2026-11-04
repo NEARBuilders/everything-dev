@@ -10,7 +10,7 @@
  * the snapshot: it authorizes restarts of an already-approved generation, it
  * never activates a new one).
  */
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { type BosConfig, BosConfigSchema } from "../../types";
@@ -123,6 +123,41 @@ export function bootSnapshotOf(input: {
  * a different fingerprint implementation — refuse, loud. */
 export function snapshotFingerprintMatches(snapshot: BootSnapshot): boolean {
   return pointerFingerprint(snapshot.config) === snapshot.fingerprint;
+}
+
+export class BootSnapshotIntegrityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BootSnapshotIntegrityError";
+  }
+}
+
+/** Verified load: refuses a snapshot whose recomputed fingerprint mismatches
+ * — the degraded boot rung serves this file, so it must be the exact
+ * composition the coordinator verified when it wrote it. */
+export function verifiedBootSnapshot(snapshot: BootSnapshot): BootSnapshot {
+  if (!snapshotFingerprintMatches(snapshot)) {
+    throw new BootSnapshotIntegrityError(
+      `boot snapshot fingerprint mismatch: stored ${snapshot.fingerprint}, recomputed ${pointerFingerprint(snapshot.config)} — the file was hand-edited or written by a foreign writer; refusing to serve it`,
+    );
+  }
+  return snapshot;
+}
+
+/** Absent → null; present-but-invalid → throws (the caller distinguishes a
+ * missing snapshot from a corrupt one — both refuse, with different causes). */
+export async function readBootSnapshot(
+  account: string,
+  gateway: string,
+  input?: { dir?: string },
+): Promise<BootSnapshot | null> {
+  let bytes: string;
+  try {
+    bytes = await readFile(snapshotPath(account, gateway, input), "utf8");
+  } catch {
+    return null;
+  }
+  return parseBootSnapshot(bytes);
 }
 
 export function serializeBootSnapshot(snapshot: BootSnapshot): string {

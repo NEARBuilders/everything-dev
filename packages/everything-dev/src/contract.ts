@@ -387,6 +387,12 @@ export const DeployOptionsSchema = z.object({
   network: z.enum(["mainnet", "testnet"]).optional().describe("NEAR network: mainnet or testnet"),
 
   privateKey: z.string().optional(),
+  wallet: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Publish gaslessly with a one-time wallet approval (NEP-366 delegate action relayed by the platform relayer)",
+    ),
   service: z.string().optional().describe("Override Railway service name from config"),
 
   registry: z

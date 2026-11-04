@@ -1,13 +1,16 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { pointerFingerprint } from "../../src/services/registry/fingerprint";
 import {
+  BootSnapshotIntegrityError,
   bootSnapshotOf,
   parseBootSnapshot,
+  readBootSnapshot,
   snapshotFingerprintMatches,
   snapshotPath,
+  verifiedBootSnapshot,
   writeBootSnapshot,
 } from "../../src/services/snapshot/schema";
 import { BosConfigSchema } from "../../src/types";
@@ -166,6 +169,42 @@ describe("strictness", () => {
     expect(() =>
       parseBootSnapshot(JSON.stringify({ ...snapshot, fingerprint: "tooshort" })),
     ).toThrow();
+  });
+});
+
+describe("readBootSnapshot", () => {
+  it("returns null for an absent snapshot — the fresh-activation case", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "boot-snapshot-"));
+    expect(await readBootSnapshot(ACCOUNT, GATEWAY, { dir })).toBeNull();
+  });
+
+  it("reads back a persisted snapshot", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "boot-snapshot-"));
+    const snapshot = bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config });
+    await writeBootSnapshot(snapshot, { dir });
+    expect(await readBootSnapshot(ACCOUNT, GATEWAY, { dir })).toEqual(snapshot);
+  });
+
+  it("throws on present-but-invalid bytes — distinct from absent", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "boot-snapshot-"));
+    const target = snapshotPath(ACCOUNT, GATEWAY, { dir });
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, "{ not json", "utf8");
+    await expect(readBootSnapshot(ACCOUNT, GATEWAY, { dir })).rejects.toThrow();
+  });
+});
+
+describe("verifiedBootSnapshot", () => {
+  it("passes a snapshot built by bootSnapshotOf", () => {
+    const snapshot = bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config });
+    expect(verifiedBootSnapshot(snapshot)).toBe(snapshot);
+  });
+
+  it("refuses a tampered fingerprint with the named integrity error", () => {
+    const snapshot = bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config });
+    expect(() => verifiedBootSnapshot({ ...snapshot, fingerprint: "0".repeat(16) })).toThrow(
+      BootSnapshotIntegrityError,
+    );
   });
 });
 

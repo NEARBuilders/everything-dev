@@ -203,6 +203,14 @@ describe("confirmPublish — the publish-confirmation state machine", () => {
     expect(txStatus).toHaveBeenCalledTimes(1);
   });
 
+  it("the probe never preempts a verify — content wins even when txStatus says invalid", async () => {
+    const txStatus = vi.fn<() => Promise<TxStatus>>().mockResolvedValue("invalid");
+    const h = harness([configLeg({ v: 1 })], { txHash: "tx1", txStatus });
+    h.serve(CONFIG_KEY, { v: 1 });
+    await expect(h.outcome).resolves.toEqual({ ok: true, verified: ["runtimeConfig"] });
+    expect(txStatus).not.toHaveBeenCalled();
+  });
+
   it("a transaction unknown past the grace window is terminal — dropped at broadcast", async () => {
     const clock = fakeClock();
     const verdict = await confirmPublish({

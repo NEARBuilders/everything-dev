@@ -27,6 +27,8 @@ import { readLockfileIfExists } from "../lockfile/schema";
 import { latestUrlFor } from "../registry/client";
 import { runtimeRefOf } from "../registry/keys";
 import { resolvePublishedConfig } from "../registry/published";
+import { bootSnapshotOf, readBootSnapshot, writeBootSnapshot } from "../snapshot/schema";
+import { bootSnapshotEnv, createRegistryConfigSource } from "./snapshot-source";
 import { isRegistryStart, resolveStartConfigSource, type StartConfigSource } from "./source";
 
 export class StartFetchFailed extends Data.TaggedError("StartFetchFailed")<{ message: string }> {}
@@ -38,6 +40,19 @@ export class StartRemoteConfigMissing extends Data.TaggedError("StartRemoteConfi
 export class StartConfigMissing extends Data.TaggedError("StartConfigMissing")<
   Record<string, never>
 > {}
+
+/** The degraded-boot rung's seams (ADR 0041): the live registry fetch, the
+ * persisted snapshot load, and the persist-on-resolution writer — one source
+ * for both the healthy and the degraded path. */
+const registryConfigSource = createRegistryConfigSource({
+  fetchPublishedConfig: (account, gateway, registryOverride) =>
+    resolvePublishedConfig(account, gateway, registryOverride),
+  loadSnapshot: (account, gateway, dir) =>
+    readBootSnapshot(account, gateway, dir ? { dir } : undefined),
+  persistSnapshot: async (account, gateway, resolved) => {
+    await writeBootSnapshot(bootSnapshotOf({ account, gateway, config: resolved }));
+  },
+});
 
 /**
  * A production start booting from an explicit config has declared that config
@@ -82,7 +97,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
     const warnings: string[] = [];
 
     let config: BosConfig | null = null;
-    let remoteConfig: BosConfig | null = null;
+    let configResolutionSource: "registry" | "snapshot" | undefined;
 
     if (explicitConfig.configPath) {
       config = deps.session?.config ?? null;
@@ -92,8 +107,14 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
         { kind: "runtimeConfig", ref: runtimeRefOf({ accountId: account, gatewayId: domain }) },
         registry !== undefined ? { registry } : undefined,
       );
-      remoteConfig = yield* Effect.tryPromise({
-        try: () => resolvePublishedConfig(account, domain, registry),
+      const resolved = yield* Effect.tryPromise({
+        try: () =>
+          registryConfigSource.resolve({
+            account,
+            gateway: domain,
+            registry: registry !== undefined ? registry : undefined,
+            allowSnapshot: getProcessEnv("BOS_SNAPSHOT_BOOT") !== "never",
+          }),
         catch: (error) =>
           new StartFetchFailed({
             message: `Failed to fetch config for bos://${account}/${domain}: ${
@@ -101,12 +122,15 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
             }\nExpected URL: ${expectedUrl}`,
           }),
       });
-      if (remoteConfig) {
-        config = remoteConfig;
-      } else {
+      if (resolved === null) {
         return yield* new StartRemoteConfigMissing({
           message: `No config found at bos://${account}/${domain}. Verify the account and gateway are correct and the config has been published.\nExpected URL: ${expectedUrl}`,
         });
+      }
+      config = resolved.config;
+      configResolutionSource = resolved.source;
+      for (const warning of resolved.warnings) {
+        warnings.push(warning);
       }
     } else {
       config = deps.session?.config ?? null;
@@ -285,23 +309,22 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
 
     const configSource = explicitConfig.configPath
       ? explicitConfig.configPath
-      : remoteConfig
-        ? `bos://${explicitConfig.registry?.account}/${explicitConfig.registry?.domain}`
+      : explicitConfig.registry
+        ? `bos://${explicitConfig.registry.account}/${explicitConfig.registry.domain}`
         : (findConfigPath() ?? "bos.config.json");
 
-    const configSourceHttp =
-      remoteConfig && explicitConfig.registry
-        ? latestUrlFor(
-            {
-              kind: "runtimeConfig",
-              ref: runtimeRefOf({
-                accountId: explicitConfig.registry.account,
-                gatewayId: explicitConfig.registry.domain,
-              }),
-            },
-            registry !== undefined ? { registry } : undefined,
-          )
-        : undefined;
+    const configSourceHttp = explicitConfig.registry
+      ? latestUrlFor(
+          {
+            kind: "runtimeConfig",
+            ref: runtimeRefOf({
+              accountId: explicitConfig.registry.account,
+              gatewayId: explicitConfig.registry.domain,
+            }),
+          },
+          registry !== undefined ? { registry } : undefined,
+        )
+      : undefined;
 
     const summary: StartSummary = {
       configSource,
@@ -321,6 +344,7 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
       packages: ["host"],
       env: {
         NODE_ENV: "production",
+        ...bootSnapshotEnv(configResolutionSource),
         ...productionEnv,
         ...stagingEnvVars,
         ...plan.launch.env,

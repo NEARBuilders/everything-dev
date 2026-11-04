@@ -20,6 +20,7 @@ const {
   pluginUiUrlDeployEntriesMock,
   submitRegistryWriteMock,
   probeStorageOriginMock,
+  checkPublishKeyHealthMock,
 } = vi.hoisted(() => ({
   buildWorkspaceTargetsMock: vi.fn(),
   generateCodeArtifactsMock: vi.fn(),
@@ -34,6 +35,7 @@ const {
   pluginUiUrlDeployEntriesMock: vi.fn(() => []),
   submitRegistryWriteMock: vi.fn(),
   probeStorageOriginMock: vi.fn(),
+  checkPublishKeyHealthMock: vi.fn(),
 }));
 
 vi.mock("../../src/services/workspace/build-train", async (importOriginal) => {
@@ -64,6 +66,7 @@ vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
     ...actual,
     resolveSigningStrategy: resolveSigningStrategyMock,
     submitRegistryWrite: submitRegistryWriteMock,
+    checkPublishKeyHealth: checkPublishKeyHealthMock,
   };
 });
 
@@ -189,6 +192,7 @@ describe("publishToFastKv preflight ordering", () => {
       privateKey: "ed25519:test",
       source: "provided",
     });
+    checkPublishKeyHealthMock.mockResolvedValue({ ok: true });
     openResolutionMock.mockResolvedValue({ config: bosConfig, rawConfig: bosConfig } as never);
     writeFileSync(join(configDir, "bos.config.json"), JSON.stringify(bosConfig, null, 2));
   }, 120_000);
@@ -216,6 +220,27 @@ describe("publishToFastKv preflight ordering", () => {
     expect(buildWorkspaceTargetsMock).not.toHaveBeenCalled();
     expect(uploadWorkspaceDistMock).not.toHaveBeenCalled();
     expect(result.registryUrl).toContain("dev.everything.near");
+  }, 120_000);
+
+  it("aborts before the build train when the publish key is unhealthy on-chain", async () => {
+    process.env.BOS_BUNDLE_CDN_ORIGIN = "https://cdn.example.test";
+    process.env.BOS_STORAGE_ORIGIN = "https://upload.example.test";
+    checkPublishKeyHealthMock.mockResolvedValue({
+      ok: false,
+      error:
+        "the signing key ed25519:deadbeef is not an access key on dev.everything.near — " +
+        "re-mint with `bos login --key` and update NEAR_PRIVATE_KEY",
+    });
+
+    const result = await publishToFastKv({ ...baseInput, configDir });
+
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("the signing key ed25519:deadbeef is not an access key");
+    expect(result.error).toContain("bos login --key");
+    expect(checkPublishKeyHealthMock).toHaveBeenCalled();
+    expect(generateCodeArtifactsMock).not.toHaveBeenCalled();
+    expect(buildWorkspaceTargetsMock).not.toHaveBeenCalled();
+    expect(uploadWorkspaceDistMock).not.toHaveBeenCalled();
   }, 120_000);
 
   it("aborts before the build train on a session account mismatch", async () => {
