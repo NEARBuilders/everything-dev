@@ -23,6 +23,11 @@ vi.mock("../../src/services/registry/pointer", async (importOriginal) => {
 
 const digest64 = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const imageRef = { image: "ghcr.io/nearbuilders/everything-dev", source: "repository" as const };
+
+function thinTag(version: string) {
+  return { schemaVersion: 1, version, digest: digestOfManifest(JSON.stringify({ version })) };
+}
+
 const pin: ChildImagePin = {
   image: "ghcr.io/nearbuilders/everything-dev",
   tag: "v2.0.0-rc.14",
@@ -482,7 +487,7 @@ describe("runPostPublishLegs", () => {
     sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-manifest-ok-"));
     vi.stubEnv("BOS_IMAGE", "");
     vi.stubEnv("RAILWAY_TOKEN", "project-token");
-    readManifestTagMock.mockResolvedValue({ frameworkVersion: "2.0.0-rc.14" });
+    readManifestTagMock.mockResolvedValue(thinTag("2.0.0-rc.14"));
     const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
 
     const outcome = await runPostPublishLegs(
@@ -510,7 +515,7 @@ describe("runPostPublishLegs", () => {
     sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-manifest-red-"));
     vi.stubEnv("BOS_IMAGE", "");
     vi.stubEnv("RAILWAY_TOKEN", "project-token");
-    readManifestTagMock.mockResolvedValue({ frameworkVersion: "1.9.9" });
+    readManifestTagMock.mockResolvedValue(thinTag("1.9.9"));
     const deps = {
       ...baseDeps(),
       resolveChildImagePin: vi.fn().mockResolvedValue(pin),
@@ -537,6 +542,129 @@ describe("runPostPublishLegs", () => {
     expect(deps.runSmoke).not.toHaveBeenCalled();
     expect(deps.rollbackToPreviousSnapshot).toHaveBeenCalled();
     expect(outcome.legs.smoke?.status).toBe("failed");
+  });
+
+  it("the manifest leg: a legacy rich-shape pointer fails the schema decode and rolls back", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-manifest-legacy-"));
+    vi.stubEnv("BOS_IMAGE", "");
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    readManifestTagMock.mockResolvedValue({ frameworkVersion: "2.0.0-rc.14" });
+    const deps = {
+      ...baseDeps(),
+      resolveChildImagePin: vi.fn().mockResolvedValue(pin),
+      rollbackToPreviousSnapshot: vi.fn().mockResolvedValue({ ok: true, blockHeight: 42 }),
+    };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: true,
+        runtimeConfig: null,
+        account: "acct",
+        domain: "gw",
+        localConfig: { extends: "bos://acct/gateway" },
+        release: true,
+        publishedFrameworkVersion: "2.0.0-rc.14",
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toContain(
+      "release pointer failed thin-tag schema decode, expected 2.0.0-rc.14",
+    );
+    expect(deps.runSmoke).not.toHaveBeenCalled();
+    expect(deps.rollbackToPreviousSnapshot).toHaveBeenCalled();
+    expect(outcome.legs.smoke?.status).toBe("failed");
+  });
+
+  it("the manifest leg: an absent release pointer fails and rolls back", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-manifest-absent-"));
+    vi.stubEnv("BOS_IMAGE", "");
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    readManifestTagMock.mockResolvedValue(null);
+    const deps = {
+      ...baseDeps(),
+      resolveChildImagePin: vi.fn().mockResolvedValue(pin),
+      rollbackToPreviousSnapshot: vi.fn().mockResolvedValue({ ok: true, blockHeight: 42 }),
+    };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: true,
+        runtimeConfig: null,
+        account: "acct",
+        domain: "gw",
+        localConfig: { extends: "bos://acct/gateway" },
+        release: true,
+        publishedFrameworkVersion: "2.0.0-rc.14",
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toContain("release pointer absent, expected 2.0.0-rc.14");
+    expect(deps.rollbackToPreviousSnapshot).toHaveBeenCalled();
+    expect(outcome.legs.smoke?.status).toBe("failed");
+  });
+
+  it("the manifest leg: a registry read failure fails and rolls back", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-manifest-read-err-"));
+    vi.stubEnv("BOS_IMAGE", "");
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    readManifestTagMock.mockRejectedValue(new Error("registry unreachable"));
+    const deps = {
+      ...baseDeps(),
+      resolveChildImagePin: vi.fn().mockResolvedValue(pin),
+      rollbackToPreviousSnapshot: vi.fn().mockResolvedValue({ ok: true, blockHeight: 42 }),
+    };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: true,
+        runtimeConfig: null,
+        account: "acct",
+        domain: "gw",
+        localConfig: { extends: "bos://acct/gateway" },
+        release: true,
+        publishedFrameworkVersion: "2.0.0-rc.14",
+      },
+      deps,
+    );
+
+    expect(outcome.failure).toContain("release pointer read failed: registry unreachable");
+    expect(deps.rollbackToPreviousSnapshot).toHaveBeenCalled();
+    expect(outcome.legs.smoke?.status).toBe("failed");
+  });
+
+  it("a non-release train skips the manifest-leg pointer read entirely", async () => {
+    sessionRoot = mkdtempSync(join(tmpdir(), "bos-legs-manifest-skip-"));
+    vi.stubEnv("BOS_IMAGE", "");
+    vi.stubEnv("RAILWAY_TOKEN", "project-token");
+    readManifestTagMock.mockRejectedValue(new Error("must not be read on a non-release train"));
+    const deps = { ...baseDeps(), resolveChildImagePin: vi.fn().mockResolvedValue(pin) };
+
+    const outcome = await runPostPublishLegs(
+      {
+        sessionRoot,
+        env: "production",
+        smoke: true,
+        runtimeConfig: null,
+        account: "acct",
+        domain: "gw",
+        localConfig: { extends: "bos://acct/gateway" },
+        publishedFrameworkVersion: "2.0.0-rc.14",
+      },
+      deps,
+    );
+
+    expect(readManifestTagMock).not.toHaveBeenCalled();
+    expect(deps.runSmoke).toHaveBeenCalled();
+    expect(outcome.failure).toBeUndefined();
+    expect(outcome.legs.smoke?.status).toBe("ok");
   });
 
   it("fails before any leg when the pin cannot resolve", async () => {

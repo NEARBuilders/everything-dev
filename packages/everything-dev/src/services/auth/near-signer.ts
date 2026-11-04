@@ -1,5 +1,6 @@
 import { isPrivateKey, Near, type PrivateKey } from "near-kit";
 import { FileKeyStore } from "near-kit/keys/file";
+import type { TxStatus } from "../registry/confirm";
 import type { NetworkId } from "../registry/fastkv";
 import { executeKeychainTransaction, isNearCliInstalled, NearTransactionError } from "./near-cli";
 
@@ -131,4 +132,28 @@ export async function submitRegistryWrite(
   }
 
   return submitWithNearKit(tx, resolved.privateKey);
+}
+
+/** Classify a broadcast transaction for the publish-confirmation machine.
+ * The wait level is NONE — one cheap RPC read of the current state, never a
+ * wait-for-inclusion poll (the confirmation loop paces itself). Explicit
+ * rejection maps to `invalid`; not-found/unknown maps to `unknown` (the
+ * confirmation loop's own grace window decides when unknown is terminal);
+ * every probe failure maps to the conservative `unreachable` — a status probe
+ * that cannot run must never kill a publish content-polling can still verify. */
+export async function classifyTransactionOutcome(
+  txHash: string,
+  accountId: string,
+  network: NetworkId,
+): Promise<TxStatus> {
+  const near = new Near({ network, defaultSignerId: accountId });
+  try {
+    await near.getTransactionStatus(txHash, accountId, "NONE");
+    return "included";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/invalid|expired|nonce/i.test(message)) return "invalid";
+    if (/not found|unknown|does not exist/i.test(message)) return "unknown";
+    return "unreachable";
+  }
 }

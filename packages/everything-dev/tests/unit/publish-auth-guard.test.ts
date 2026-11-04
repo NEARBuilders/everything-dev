@@ -4,15 +4,22 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeSessionHandle } from "../../src/services/auth/session";
 
-const { ensureDelegateKeyMock, submitRegistryWriteDelegatedMock } = vi.hoisted(() => ({
-  ensureDelegateKeyMock: vi.fn(),
-  submitRegistryWriteDelegatedMock: vi.fn(),
-}));
+const { ensureDelegateKeyMock, submitRegistryWriteDelegatedMock, classifyTransactionOutcomeMock } =
+  vi.hoisted(() => ({
+    ensureDelegateKeyMock: vi.fn(),
+    submitRegistryWriteDelegatedMock: vi.fn(),
+    classifyTransactionOutcomeMock: vi.fn(),
+  }));
 
 vi.mock("../../src/services/auth/delegate-signer", () => ({
   ensureDelegateKey: ensureDelegateKeyMock,
   submitRegistryWriteDelegated: submitRegistryWriteDelegatedMock,
 }));
+
+vi.mock("../../src/services/auth/near-signer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/auth/near-signer")>();
+  return { ...actual, classifyTransactionOutcome: classifyTransactionOutcomeMock };
+});
 
 const { fetchBosConfigFromFastKvMock } = vi.hoisted(() => ({
   fetchBosConfigFromFastKvMock: vi.fn(),
@@ -222,5 +229,9 @@ describe("publishToFastKv publish.auth guard", () => {
     expect(submitted.relayEndpoint).toBe("http://localhost:3003/api/auth/near/relay");
     expect(submitted.apiKey).toBe("api_test");
     expect(submitted.delegatePrivateKey).toBe("ed25519:delegate-secret");
+    // the tx-status probe queries by (hash, sender) and only the train's own
+    // direct-key broadcast answers it — a relayed tx moves the relayer's
+    // signature, so wallet mode must never consult it
+    expect(classifyTransactionOutcomeMock).not.toHaveBeenCalled();
   });
 });

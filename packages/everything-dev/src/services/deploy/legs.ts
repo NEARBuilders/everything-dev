@@ -3,6 +3,7 @@ import { join } from "node:path";
 import process from "node:process";
 import type { DeployLegOutcome } from "../../contract";
 import { colors, icons } from "../../utils/theme";
+import { ManifestTagSchema } from "../platform/manifest-schema";
 import { readManifestTag } from "../registry/pointer";
 import {
   buildAndPushImage,
@@ -494,21 +495,28 @@ export async function runPostPublishLegs(
         let diagnosis: string | undefined;
         if (input.release && input.publishedFrameworkVersion) {
           try {
-            const pointer = await readManifestTag<{ frameworkVersion?: string }>(
+            const tagBytes = await readManifestTag<unknown>(
               input.account ?? "",
               input.domain ?? "",
               input.registry,
             );
-            if (pointer?.frameworkVersion !== input.publishedFrameworkVersion) {
-              cause =
-                `release pointer serves ${pointer?.frameworkVersion ?? "nothing"}, ` +
-                `expected ${input.publishedFrameworkVersion}`;
+            if (!tagBytes) {
+              cause = `release pointer absent, expected ${input.publishedFrameworkVersion}`;
             } else {
-              console.log(
-                colors.dim(
-                  `  manifest leg: the release pointer serves ${pointer.frameworkVersion}`,
-                ),
-              );
+              const decoded = ManifestTagSchema.safeParse(tagBytes);
+              if (!decoded.success) {
+                cause =
+                  `release pointer failed thin-tag schema decode, ` +
+                  `expected ${input.publishedFrameworkVersion}`;
+              } else if (decoded.data.version !== input.publishedFrameworkVersion) {
+                cause =
+                  `release pointer serves ${decoded.data.version}, ` +
+                  `expected ${input.publishedFrameworkVersion}`;
+              } else {
+                console.log(
+                  colors.dim(`  manifest leg: the release pointer serves ${decoded.data.version}`),
+                );
+              }
             }
           } catch (error) {
             cause = `release pointer read failed: ${error instanceof Error ? error.message : String(error)}`;
