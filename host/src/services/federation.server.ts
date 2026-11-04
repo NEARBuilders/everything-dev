@@ -7,8 +7,8 @@ import { verifySriForUrl } from "everything-dev/integrity";
 import {
   type ConstructedTree,
   type ConstructInput,
-  type EntrySlot,
   entryUrls,
+  type RemoteEntry,
   type RouteConfigModule,
   UI_EXPOSES,
   UI_REMOTE_SERVER_ENTRY_FILENAME,
@@ -188,7 +188,7 @@ const LOCAL_CONTAINER_READY_TIMEOUT_MS = 120_000;
 export async function localUiRemoteEntry(source: {
   name: string;
   localRoot: string;
-}): Promise<EntrySlot> {
+}): Promise<RemoteEntry> {
   let server = localDistServers.get(source.localRoot);
   if (!server) {
     server = await startLocalDistServer(path.join(source.localRoot, "dist"));
@@ -207,7 +207,7 @@ export async function localUiRemoteEntry(source: {
 }
 
 export const waitForLocalContainer = Effect.fn("waitForLocalContainer")(function* (
-  entry: EntrySlot,
+  entry: RemoteEntry,
   env: BosEnv,
 ): Effect.fn.Return<void, FederationError> {
   const containerUrl = entryUrls(entry, env).ssr;
@@ -407,7 +407,7 @@ function verifyEntryIntegrity(params: {
   });
 }
 
-function verifyUiEntry(entry: EntrySlot, entryUrl: string) {
+function verifyUiEntry(entry: RemoteEntry, entryUrl: string) {
   return verifyEntryIntegrity({
     remoteName: entry.name,
     remoteUrl: entry.ssrUrl,
@@ -416,7 +416,7 @@ function verifyUiEntry(entry: EntrySlot, entryUrl: string) {
   });
 }
 
-function requireSsrEntryUrl(entry: EntrySlot, env: BosEnv): string {
+function requireSsrEntryUrl(entry: RemoteEntry, env: BosEnv): string {
   const ssr = entryUrls(entry, env).ssr;
   if (!ssr) {
     throw new FederationError({
@@ -432,7 +432,7 @@ function requireSsrEntryUrl(entry: EntrySlot, env: BosEnv): string {
 
 const loadUiExpose = Effect.fn("loadUiExpose")(
   function* <T>(params: {
-    entry: EntrySlot;
+    entry: RemoteEntry;
     env: BosEnv;
     expose: string;
     unwrapDefault: boolean;
@@ -477,7 +477,7 @@ function hasRouteConfigLoaders(
 }
 
 const loadValidatedRouteConfig = Effect.fn("loadValidatedRouteConfig")(function* (
-  entry: EntrySlot,
+  entry: RemoteEntry,
   env: BosEnv,
 ) {
   const module = yield* loadUiExpose<RouteConfigModule>({
@@ -499,7 +499,7 @@ const loadValidatedRouteConfig = Effect.fn("loadValidatedRouteConfig")(function*
 
 /** A plugin ui's generated import map (`./routeConfig` expose) for host construction. */
 export const loadUiRouteConfig = Effect.fn("loadUiRouteConfig")(function* (
-  entry: EntrySlot,
+  entry: RemoteEntry,
   env: BosEnv,
 ) {
   return yield* loadValidatedRouteConfig(entry, env);
@@ -511,7 +511,7 @@ export interface ComposeModule {
 
 /** The core ui's construction engine (`./compose` expose) — executes inside the core's module graph. */
 export const loadUiComposeModule = Effect.fn("loadUiComposeModule")(function* (
-  entry: EntrySlot,
+  entry: RemoteEntry,
   env: BosEnv,
 ) {
   return yield* loadUiExpose<ComposeModule>({
@@ -527,7 +527,7 @@ export const loadUiComposeModule = Effect.fn("loadUiComposeModule")(function* (
 export const loadCoreUiRouteConfig = loadUiRouteConfig;
 
 export const loadRouterModule = Effect.fn("loadRouterModule")(
-  function* (config: RuntimeConfig, localEntry?: EntrySlot) {
+  function* (config: RuntimeConfig, localEntry?: RemoteEntry) {
     const useCache = shouldCacheRouterModule(config) && !localEntry;
     const ssrEntryUrl = requireSsrEntryUrl(localEntry ?? config.ui, config.env);
     const ssrIntegrity = localEntry ? localEntry.ssrIntegrity : config.ui.ssrIntegrity;

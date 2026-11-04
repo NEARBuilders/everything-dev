@@ -20,7 +20,7 @@ import { buildDependencyDAG, getDependenciesForNode, getSingletonKey } from "eve
 import { installIntegrityFetchHook } from "everything-dev/federation";
 import { IntegrityRegistry, verifyConfigAgainstChain } from "everything-dev/integrity";
 import type { RuntimeConfig, RuntimePluginConfig, SharedConfig } from "everything-dev/types";
-import { type EntrySlot, entryUrls } from "everything-dev/ui/manifest";
+import { entryUrls, type RemoteEntry } from "everything-dev/ui/manifest";
 import type { RuntimePlugin } from "../types";
 import { logger } from "../utils/logger";
 import { maskDbUrl } from "../utils/mask-db-url";
@@ -79,7 +79,7 @@ function dbUrlSummary(url: string | undefined): string {
  * resolution errors name the CONFIG KEY (e.g. "plugins.apps"), not the MF
  * container name.
  */
-const pluginSlot = (config: RuntimePluginConfig, key: string): EntrySlot => ({
+const pluginSlot = (config: RuntimePluginConfig, key: string): RemoteEntry => ({
   ...config,
   name: key,
 });
@@ -505,7 +505,7 @@ const loadPluginEntryEffect = Effect.fn("loadPluginEntryEffect")(function* (para
   const args: [unknown, unknown?] = [{ variables, secrets }];
   if (pluginsClient) args.push(pluginsClient);
 
-  const remoteUrl = entryUrls(pluginSlot(entry.config, entry.key), env).web;
+  const remoteUrl = entryUrls(pluginSlot(entry.config, entry.key), env).ui;
   const result = yield* loadRemoteWithRetry<Omit<HostPluginEntry, "key" | "name" | "warnings">>({
     label: entry.key,
     remoteUrl,
@@ -650,7 +650,7 @@ export const initializePlugins = Effect.fn("initializePlugins")(
         const runtime = createPluginRuntime({
           registry: Object.fromEntries(
             allEntries.map((entry) => {
-              const remoteUrl = entryUrls(pluginSlot(entry.config, entry.key), config.env).web;
+              const remoteUrl = entryUrls(pluginSlot(entry.config, entry.key), config.env).ui;
               return [entry.runtimeId, { remote: remoteUrl }];
             }),
           ),

@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 
-export const PlatformReleaseManifestSchema = z.object({
+export const ManifestSchema = z.object({
   schemaVersion: z.literal(1),
   kind: z.literal("everything-dev/platform-manifest"),
   frameworkVersion: z.string().min(1),
@@ -61,4 +61,4 @@ export const PlatformReleaseManifestSchema = z.object({
     )
     .optional(),
 });
-export type PlatformReleaseManifest = z.infer<typeof PlatformReleaseManifestSchema>;
+export type Manifest = z.infer<typeof ManifestSchema>;

@@ -35,12 +35,12 @@ export {
   resolvePlatformManifest,
   walkExtendsChain,
 } from "../registry/resolution";
-export { type PlatformReleaseManifest, PlatformReleaseManifestSchema } from "./manifest-schema";
+export { type Manifest, ManifestSchema } from "./manifest-schema";
 
-import { type PlatformReleaseManifest, PlatformReleaseManifestSchema } from "./manifest-schema";
+import { type Manifest, ManifestSchema } from "./manifest-schema";
 
-/** One recorded release slot (see {@link PlatformReleaseManifestSchema.slots}). */
-export interface ReleaseSlotRecord {
+/** One recorded release slot (see {@link ManifestSchema.slots}). */
+export interface RemoteRecord {
   base: string;
   pin: { manifest: string; integrity: string };
 }
@@ -121,12 +121,12 @@ export interface ComposePlatformReleaseManifestInputs {
   /** The release's own slot-pin map — sorted here so identical payloads
    * compose identical manifest bytes across machines (the burned-version
    * guard compares serialized bytes). */
-  slots?: Record<string, ReleaseSlotRecord>;
+  slots?: Record<string, RemoteRecord>;
 }
 
 export function composePlatformReleaseManifest(
   inputs: ComposePlatformReleaseManifestInputs,
-): PlatformReleaseManifest {
+): Manifest {
   // The manifest carries only the derivable tag — the exact version tag the
   // tag scheme pushes for semver releases (ADR 0021). Sha-tags are git facts
   // an image build cannot see; derivation (`ref@v<version>` → digest) keys off
@@ -141,7 +141,7 @@ export function composePlatformReleaseManifest(
   const slots = inputs.slots
     ? Object.fromEntries(Object.entries(inputs.slots).sort(([a], [b]) => (a < b ? -1 : 1)))
     : undefined;
-  return PlatformReleaseManifestSchema.parse({
+  return ManifestSchema.parse({
     schemaVersion: 1,
     kind: "everything-dev/platform-manifest",
     frameworkVersion: inputs.frameworkVersion,
@@ -157,7 +157,7 @@ export function composePlatformReleaseManifest(
 }
 
 /** The one serializer for both publish homes — byte-identical by construction. */
-export function serializePlatformReleaseManifest(manifest: PlatformReleaseManifest): string {
+export function serializePlatformReleaseManifest(manifest: Manifest): string {
   return JSON.stringify(manifest);
 }
 
@@ -170,7 +170,7 @@ export function serializePlatformReleaseManifest(manifest: PlatformReleaseManife
  * dir, then `<pkg>/dist/`). Both candidates are tried; absent or unparsable →
  * null.
  */
-export function readInImagePlatformManifest(): PlatformReleaseManifest | null {
+export function readInImagePlatformManifest(): Manifest | null {
   const moduleFile = fileURLToPath(import.meta.url);
   const candidates = [
     join(moduleFile, "..", "..", "platform-manifest.json"),
@@ -178,7 +178,7 @@ export function readInImagePlatformManifest(): PlatformReleaseManifest | null {
   ];
   for (const path of candidates) {
     try {
-      return PlatformReleaseManifestSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
+      return ManifestSchema.parse(JSON.parse(readFileSync(path, "utf-8")));
     } catch {
       // try the next layout candidate
     }
@@ -218,7 +218,7 @@ export interface PlatformCompatViolation {
  * a relaxation of it.
  */
 export function checkPlatformCompat(
-  manifest: PlatformReleaseManifest,
+  manifest: Manifest,
   subject: PlatformCompatSubject,
 ): PlatformCompatViolation[] {
   const violations: PlatformCompatViolation[] = [];
@@ -280,8 +280,8 @@ export function checkPlatformCompat(
  * mocks. Resolution comes from `registry/resolution.ts` (the machine's
  * compatibility adapter).
  */
-export class PlatformManifestService extends Context.Service<
-  PlatformManifestService,
+export class ManifestService extends Context.Service<
+  ManifestService,
   {
     resolvePlatformManifest: typeof resolvePlatformManifest;
     composePlatformReleaseManifest: typeof composePlatformReleaseManifest;

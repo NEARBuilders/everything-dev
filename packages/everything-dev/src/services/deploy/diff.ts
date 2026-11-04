@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { BosConfigInput } from "../../types";
-import { collectSlotPinRefs } from "./rollback";
+import { collectRemoteDescriptors } from "./rollback";
 import type { DistFile } from "./storage";
 
 /**
@@ -91,13 +91,13 @@ export function pinsFromDeployState(
 }
 
 /** Previous pins by workspace key, from the published config's slot pins. */
-export function pinsFromPublishedConfig(
+export function digestsFromPublishedConfig(
   config: BosConfigInput,
   account: string,
   gateway: string,
 ): Record<string, PreviousPin> {
   const pins: Record<string, PreviousPin> = {};
-  for (const ref of collectSlotPinRefs(config)) {
+  for (const ref of collectRemoteDescriptors(config)) {
     const workspace = workspaceKeyOfBase(ref.base);
     const nsMatch = BUNDLE_BASE_PATTERN.exec(`${ref.base.replace(/\/$/, "")}/`);
     if (!workspace || !nsMatch || nsMatch[1] !== account || nsMatch[2] !== gateway) continue;

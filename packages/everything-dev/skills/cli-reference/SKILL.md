@@ -136,15 +136,15 @@ bos status
 
 Output includes installed vs latest versions for each workspace package, whether the parent extends reference is reachable, whether `.env` exists, and when the last sync ran. No flags.
 
-### `bos platform manifest`
+### `bos manifest`
 
 Show the resolved platform release manifest (ADR 0034) — the contract of the framework release this runtime is pinned to.
 
 **Flags:** `--check`
 
 ```bash
-bos platform manifest          # print the resolved manifest + its source
-bos platform manifest --check  # also run the compat gate; exit 1 on violations
+bos manifest                   # print the resolved manifest + its source
+bos manifest --check           # also run the compat gate; exit 1 on violations
 ```
 
 Resolution order: the in-image manifest first (the booted host self-describes from the release bytes it runs on), registry resolution through the extends chain otherwise (`.bos/platform-manifest.json` is the offline cache, 24h TTL). `--check` verifies the workspace's strict-singleton pins against the manifest's `sharedDeps` and the framework version against the release's compat floor — the same check the deploy smoke gate runs. When the authored pin names a release the chain no longer serves (a root republish overwrote the slot — #546), the report fails with a **drift** field instead of the raw pin error: `parent platform is <published> (published at bos://…), you pinned <pinned> — run \`bos upgrade\` to realign`. Status is `absent` (no manifest resolves — pre-0034 behavior applies) or `fail` (unresolvable/error) with diagnostics.
@@ -315,6 +315,6 @@ Requires the `DATABASE_URL` secret to be set on the target plugin. Uses the plug
 
 **"Which command deploys?"** `pnpm run deploy` (the full train: preflight → build → upload → publish → image). Config-only is `bos publish`; one plugin is `bos plugin publish <key>`.
 
-**"What release am I on?"** `bos platform manifest` — the resolved platform release manifest and its source; `--check` adds the compat gate. `bos upgrade --check` is the manual drift alarm against the latest release.
+**"What release am I on?"** `bos manifest` — the resolved release manifest and its source; `--check` adds the compat gate. `bos upgrade --check` is the manual drift alarm against the latest release.
 
 **"What is running right now?"** `bos ps` for tracked dev processes, `bos status` for health and versions, `ls .bos/logs/` for per-service logs.

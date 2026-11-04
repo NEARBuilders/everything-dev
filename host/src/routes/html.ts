@@ -1,5 +1,5 @@
 import { getBaseStyles, getHydrateScript, getThemeInitScript } from "everything-dev/ui/head";
-import { type EntrySlot, entryUrls } from "everything-dev/ui/manifest";
+import { entryUrls, type RemoteEntry } from "everything-dev/ui/manifest";
 import type { ClientRuntimeConfig, RuntimeConfig } from "../services/config";
 
 const escapeHtml = (value: string): string =>
@@ -22,7 +22,7 @@ export function renderClientShellHtml(
   const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
   const sriAttr = ` crossorigin="anonymous"${uiIntegrity ? ` integrity="${uiIntegrity}"` : ""}`;
   const uiVersion = uiIntegrity ? `?v=${encodeURIComponent(uiIntegrity)}` : "";
-  const coreEntrySrc = entryUrls(runtimeSourceConfig.ui, runtimeSourceConfig.env).web;
+  const coreEntrySrc = entryUrls(runtimeSourceConfig.ui, runtimeSourceConfig.env).ui;
 
   const pluginUiScripts = (
     runtimeConfig.ui?.compose
@@ -31,9 +31,9 @@ export function renderClientShellHtml(
           if (!ui?.url) return [];
           const pluginSri = ui.integrity ? ` integrity="${ui.integrity}"` : "";
           const pluginSrc = entryUrls(
-            { ...ui, name: plugin.name } satisfies EntrySlot,
+            { ...ui, name: plugin.name } satisfies RemoteEntry,
             runtimeSourceConfig.env,
-          ).web;
+          ).ui;
           return [
             `<script${nonceAttr} src="${pluginSrc}" crossorigin="anonymous"${pluginSri}></script>`,
           ];

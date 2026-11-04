@@ -1,15 +1,18 @@
 import { Effect } from "effect";
 import { DevFlowService } from "../services/dev/flow";
 import { chainHeadPinLagNotice } from "../services/platform/manifest";
-import { auditSessionPlane, type PlaneAuditLine } from "../services/resolution/plane-audit";
+import {
+  auditSessionComposition,
+  type CompositionAuditLine,
+} from "../services/resolution/composition-audit";
 import { ResolutionSessionService } from "../services/resolution/session";
 import type { BosBuilder } from "./shared";
 
-const renderAuditLines = (lines: readonly PlaneAuditLine[]): void => {
+const renderAuditLines = (lines: readonly CompositionAuditLine[]): void => {
   const divergences = lines.filter((line) => line.kind !== "uncomposed");
   const notes = lines.filter((line) => line.kind === "uncomposed");
   if (divergences.length > 0) {
-    console.log(`\n  ${divergences.length} release-plane divergence(s) in the composition:`);
+    console.log(`\n  ${divergences.length} release-composition divergence(s) in the composition:`);
     for (const line of divergences) {
       console.log(`  - ${line.message}`);
     }
@@ -17,7 +20,7 @@ const renderAuditLines = (lines: readonly PlaneAuditLine[]): void => {
   }
   if (notes.length > 0) {
     console.log(
-      `\n  ${notes.length} pinned-release slot(s) this config does not compose (informational):`,
+      `\n  ${notes.length} recorded remote(s) this config does not compose (informational):`,
     );
     for (const line of notes) {
       console.log(`  - ${line.message}`);
@@ -39,7 +42,7 @@ export function registerDev(builder: BosBuilder) {
         );
         if (notice) console.log(`\n  ${notice}\n`);
         const audit = yield* Effect.tryPromise({
-          try: () => auditSessionPlane(session),
+          try: () => auditSessionComposition(session),
           catch: () => undefined,
         });
         if (audit && audit.length > 0) renderAuditLines(audit);

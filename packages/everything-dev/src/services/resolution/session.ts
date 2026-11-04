@@ -12,7 +12,7 @@ import type {
 } from "../../types";
 import { BosConfigSchema } from "../../types";
 import { parseBosRef } from "../../utils/bos-ref";
-import { type PlatformReleaseManifest, resolvePlatformManifest } from "../platform/manifest";
+import { type Manifest, resolvePlatformManifest } from "../platform/manifest";
 import { fetchBosConfigFromFastKv } from "../registry/fastkv";
 import { readWorkspaceCatalog, resolveSourceDir } from "./init-source";
 import {
@@ -34,7 +34,7 @@ import {
 } from "./load";
 import type { BosEnv } from "./merge";
 import { mergeBosConfigWithExtends, resolveExtendsRef } from "./merge";
-import { stampInheritedReleaseSlots } from "./release-plane";
+import { stampInheritedRemotes } from "./release-composition";
 import { buildRuntimeConfig, buildRuntimePluginsForConfig } from "./runtime";
 import { collectUnknownKeys } from "./unknown-keys";
 
@@ -121,9 +121,9 @@ interface SessionParts {
   /** The resolved release manifest for a platform-pinned runtime (slot-first,
    * once per session) — null when unpinned, unresolvable, or no manifest
    * publishes. */
-  releaseManifest?: PlatformReleaseManifest | null;
+  releaseManifest?: Manifest | null;
   /** Consumer-plane stamping outcome for pinned runtimes (ADR 0034). */
-  releasePlane?: { stamped?: string[]; omitted?: string[] };
+  releaseComposition?: { stamped?: string[]; omitted?: string[] };
   env: BosEnv;
   warnings: string[];
 }
@@ -321,8 +321,8 @@ export class ResolutionSession {
   readonly unknownAuthoredKeys: readonly string[];
   readonly catalog: Record<string, string> | null;
   readonly repository: string | undefined;
-  readonly releaseManifest: PlatformReleaseManifest | null;
-  readonly releasePlane: {
+  readonly releaseManifest: Manifest | null;
+  readonly releaseComposition: {
     readonly stamped: readonly string[];
     readonly omitted: readonly string[];
   };
@@ -341,9 +341,9 @@ export class ResolutionSession {
     this.catalog = parts.catalog;
     this.repository = parts.repository;
     this.releaseManifest = parts.releaseManifest ?? null;
-    this.releasePlane = {
-      stamped: parts.releasePlane?.stamped ?? [],
-      omitted: parts.releasePlane?.omitted ?? [],
+    this.releaseComposition = {
+      stamped: parts.releaseComposition?.stamped ?? [],
+      omitted: parts.releaseComposition?.omitted ?? [],
     };
     this.#env = parts.env;
     this.#warnings = parts.warnings;
@@ -457,7 +457,7 @@ export async function openResolution(
         // pointer exactly as before. An authored-but-unresolvable manifest
         // fails loud right here (the slot-first contract names the key)
         // instead of skewing later.
-        const releaseManifest: PlatformReleaseManifest | null =
+        const releaseManifest: Manifest | null =
           rawConfig && typeof rawConfig.release === "string"
             ? ((
                 await resolvePlatformManifest({
@@ -466,16 +466,16 @@ export async function openResolution(
                 })
               )?.manifest ?? null)
             : null;
-        let releasePlane: NonNullable<SessionParts["releasePlane"]> = {};
+        let releaseComposition: NonNullable<SessionParts["releaseComposition"]> = {};
         if (releaseManifest) {
           const tree = structuredClone(mergedRaw) as Record<string, unknown>;
-          const stamp = stampInheritedReleaseSlots({
+          const stamp = stampInheritedRemotes({
             config: tree,
             authoredConfig: rawConfig as Record<string, unknown>,
             slots: releaseManifest.slots,
             mode: "consumer",
           });
-          releasePlane = { stamped: stamp.stamped, omitted: stamp.omitted };
+          releaseComposition = { stamped: stamp.stamped, omitted: stamp.omitted };
           overlayMerged = tree as BosConfigInput;
         }
         if (env === "development" && !dispatch.remote) {
@@ -520,7 +520,7 @@ export async function openResolution(
           catalog: collectCatalogs ? Object.assign({}, ...[...catalogs].reverse()) : null,
           repository,
           releaseManifest,
-          releasePlane,
+          releaseComposition,
         } satisfies Omit<SessionParts, "env" | "warnings">;
       } catch (error) {
         if (dispatch.remote && isConfigNotFound(error)) {

@@ -1,5 +1,5 @@
 import type { BosConfigInput } from "../../types";
-import { walkConfigSlots } from "../config-slots";
+import { walkRemotes } from "../remotes";
 import { fetchVerifiedManifest } from "./manifest-verify";
 
 /**
@@ -33,7 +33,7 @@ interface PinnedSlotRef {
 
 function collectPinnedSlots(config: BosConfigInput): Array<{ slot: string; ref: PinnedSlotRef }> {
   const slots: Array<{ slot: string; ref: PinnedSlotRef }> = [];
-  walkConfigSlots(config as unknown as Record<string, unknown>, ({ slot, entry }) => {
+  walkRemotes(config as unknown as Record<string, unknown>, ({ slot, entry }) => {
     if (entry && typeof entry === "object") slots.push({ slot, ref: entry as PinnedSlotRef });
   });
   return slots;
@@ -45,7 +45,7 @@ function pinOf(ref: PinnedSlotRef): { manifest: string; integrity: string } | nu
   return manifest && integrity ? { manifest, integrity } : null;
 }
 
-export interface SlotPinRef {
+export interface RemoteDescriptor {
   slot: string;
   /** the slot's production base URL (…/bundles/<account>/<gateway>/<workspace>/) */
   base: string;
@@ -53,14 +53,14 @@ export interface SlotPinRef {
 }
 
 /** Every pinned slot with both a production base and a verifiable pin. */
-export function collectSlotPinRefs(config: BosConfigInput): SlotPinRef[] {
+export function collectRemoteDescriptors(config: BosConfigInput): RemoteDescriptor[] {
   return collectPinnedSlots(config)
     .map(({ slot, ref }) => {
       const pin = pinOf(ref);
       const base = typeof ref.production === "string" ? ref.production : undefined;
       return pin && base ? { slot, base, pin } : null;
     })
-    .filter((entry): entry is SlotPinRef => entry !== null);
+    .filter((entry): entry is RemoteDescriptor => entry !== null);
 }
 
 async function verifySlot(

@@ -206,7 +206,7 @@ describe("uiSources", () => {
     const sources = uiSources(configWithPlugin());
     expect(sources.map((source) => source.key)).toEqual(["auth", "ui"]);
     expect(sources.map((source) => source.mfName)).toEqual(["auth-ui", "ui"]);
-    expect(sources.find((source) => source.key === "auth")?.webEntry).toBe(
+    expect(sources.find((source) => source.key === "auth")?.uiEntry).toBe(
       "https://cdn.example.com/auth-ui/remoteEntry.aaa.js",
     );
     expect(sources.find((source) => source.key === "ui")?.manifestUrl).toBe(

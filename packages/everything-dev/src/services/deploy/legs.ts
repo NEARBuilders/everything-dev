@@ -3,7 +3,7 @@ import { join } from "node:path";
 import process from "node:process";
 import type { DeployLegOutcome } from "../../contract";
 import { colors, icons } from "../../utils/theme";
-import { readPlatformPointer } from "../registry/pointer";
+import { readManifestTag } from "../registry/pointer";
 import {
   buildAndPushImage,
   deployImageToRailway,
@@ -492,7 +492,7 @@ export async function runPostPublishLegs(
         let diagnosis: string | undefined;
         if (input.release && input.publishedFrameworkVersion) {
           try {
-            const pointer = await readPlatformPointer<{ frameworkVersion?: string }>(
+            const pointer = await readManifestTag<{ frameworkVersion?: string }>(
               input.account ?? "",
               input.domain ?? "",
               input.registry,

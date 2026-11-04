@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   composePlatformReleaseManifest,
-  type PlatformReleaseManifest,
+  type Manifest,
   resolvePlatformManifest,
 } from "../../src/services/platform/manifest";
 
@@ -14,7 +14,7 @@ afterEach(() => {
   if (tmpRoot) rmSync(tmpRoot, { recursive: true, force: true });
 });
 
-function makeManifest(frameworkVersion: string): PlatformReleaseManifest {
+function makeManifest(frameworkVersion: string): Manifest {
   return composePlatformReleaseManifest({
     frameworkVersion,
     everyPluginVersion: "3.0.0-rc.9",
@@ -29,15 +29,15 @@ function harness(opts: {
   chain: Array<{
     account: string;
     gateway: string;
-    manifest?: PlatformReleaseManifest;
+    manifest?: Manifest;
     config?: Record<string, unknown>;
     /** immutable version slots (#574): pin version → manifest */
-    slots?: Record<string, PlatformReleaseManifest>;
+    slots?: Record<string, Manifest>;
     /** simulate an unreachable registry for the slot reads (offline dev) */
     failSlotReads?: boolean;
   }>;
   cached?: {
-    manifest: PlatformReleaseManifest;
+    manifest: Manifest;
     source: { account: string; gateway: string };
     resolvedAt?: string;
     provenance?: "slot" | "pointer";
@@ -281,7 +281,7 @@ describe("resolvePlatformManifest", () => {
     const resolved = await h.run(childConfig);
     expect(resolved).not.toBeNull();
     const cached = JSON.parse(readFileSync(join(tmpRoot, ".bos", "manifest.json"), "utf-8")) as {
-      manifest: PlatformReleaseManifest;
+      manifest: Manifest;
     };
     expect(cached.manifest.frameworkVersion).toBe("2.0.0-rc.14");
   });

@@ -7,8 +7,8 @@
  */
 
 export {
-  type PlatformReleaseManifest,
-  PlatformReleaseManifestSchema,
+  type Manifest,
+  ManifestSchema,
 } from "../platform/manifest-schema";
 export * from "./cache";
 export * from "./client";

@@ -1,7 +1,7 @@
 import { SHARED_DEP_SPECS } from "every-plugin/shared-deps-spec";
-import { type ConfigSlot, ensureObjectContainers, walkConfigSlots } from "../config-slots";
 import { resolveSlotVersion } from "../deploy/version-manifest";
-import type { ReleaseSlotRecord } from "../platform/manifest";
+import type { RemoteRecord } from "../platform/manifest";
+import { ensureObjectContainers, type Remote, walkRemotes } from "../remotes";
 import { isPlainObject } from "./merge";
 
 /**
@@ -27,15 +27,15 @@ const SLOT_SOURCE_KEYS = ["production", "development", "pin", "extends", "proxy"
  * an inherited slot — `variables`, `secrets`, `routes`, … — does not own its
  * bytes, so the release still pins them.
  */
-function declaresSlotSource(entry: ConfigSlot["entry"]): boolean {
+function declaresSlotSource(entry: Remote["entry"]): boolean {
   if (entry === false || typeof entry === "string") return true;
   return SLOT_SOURCE_KEYS.some((key) => entry[key] !== undefined);
 }
 
 /** Authored slot paths: every slot whose code source the leaf itself declares. */
-export function authoredSlotPaths(config: Record<string, unknown>): Set<string> {
+export function authoredRemoteKeys(config: Record<string, unknown>): Set<string> {
   const paths = new Set<string>();
-  walkConfigSlots(config, ({ slot, entry, isPluginRef }) => {
+  walkRemotes(config, ({ slot, entry, isPluginRef }) => {
     if (declaresSlotSource(entry)) paths.add(slot);
     // KEEP: a bare-string plugin ref (`extends: "bos://…"`) owns its whole
     // surface — composed resolution derives its ui from the extended config,
@@ -70,14 +70,14 @@ export interface StampOutcome {
  */
 export type ReleasePlaneMode = "payload" | "consumer";
 
-export function stampInheritedReleaseSlots(input: {
+export function stampInheritedRemotes(input: {
   config: Record<string, unknown>;
   authoredConfig: Record<string, unknown>;
-  slots: Record<string, ReleaseSlotRecord> | undefined;
+  slots: Record<string, RemoteRecord> | undefined;
   mode: ReleasePlaneMode;
 }): StampOutcome {
   const slots = input.slots ?? {};
-  const authored = authoredSlotPaths(input.authoredConfig);
+  const authored = authoredRemoteKeys(input.authoredConfig);
   const stamped: string[] = [];
   const omitted: string[] = [];
 
@@ -121,7 +121,7 @@ function slotEntryAt(
 function stampSlotRecord(
   config: Record<string, unknown>,
   slotPath: string,
-  record: ReleaseSlotRecord,
+  record: RemoteRecord,
 ): void {
   const segments = slotPath.split(".");
   if ((segments.length !== 2 && segments.length !== 3) || !segments[0] || !segments[1]) return;
@@ -135,8 +135,8 @@ function stampSlotRecord(
   container[leaf] = entry;
 }
 
-export interface PlaneAuditLine {
-  slot: string;
+export interface CompositionAuditLine {
+  remote: string;
   kind: "inherited" | "owned" | "provisioned" | "uncomposed";
   message: string;
 }
@@ -145,18 +145,18 @@ export interface PlaneAuditLine {
  * The publish key an owned slot realigns through: the workspace key the
  * scoped deploy train and `bos plugin publish` understand — `app.<key>` and
  * `app.<key>.ui` publish as the app key (`ui`, `api`, …), `plugins.<id>` and
- * `plugins.<id>.ui` as the plugin id. Slot paths themselves are not keys.
+ * `plugins.<id>.ui` as the plugin id. Remote paths themselves are not keys.
  */
-export function slotPublishKey(slot: string): string {
+export function workspaceKeyOfRemote(slot: string): string {
   const [domain, key] = slot.split(".");
   return domain === "app" || domain === "plugins" ? (key ?? slot) : slot;
 }
 
-/** The repair instruction for an owned slot diverging on shared singletons:
- * app slots republish through the scoped deploy train (they are not plugins);
- * plugin slots through the single-plugin publish. */
-function ownedSlotRepair(slot: string): string {
-  const key = slotPublishKey(slot);
+/** The repair instruction for an owned remote diverging on shared singletons:
+ * app remotes republish through the scoped deploy train (they are not plugins);
+ * plugin remotes through the single-plugin publish. */
+function ownedRemoteRepair(slot: string): string {
+  const key = workspaceKeyOfRemote(slot);
   const command = slot.startsWith("app.")
     ? `bos deploy --packages ${key}`
     : `bos plugin publish ${key}`;
@@ -165,50 +165,50 @@ function ownedSlotRepair(slot: string): string {
 
 /**
  * The dev-boot chain audit (ADR 0034 + #546's shared-singleton trust):
- * every pinned remote slot's embedded singleton versions are compared
+ * every pinned remote's embedded singleton versions are compared
  * against the local workspace catalog — the same `satisfiesConstraint`
  * family the deploy-train compat-window gate speaks, so one mismatch
  * reads the same way in the train and on screen. One line per divergent
  * slot, with the repair named for its ownership: inherited →
- * `bos upgrade` (the pin trails the chain serving the slot); owned →
+ * `bos upgrade` (the pin trails the chain serving the remote); owned →
  * `bos plugin publish <key>` (built against an older chain). Empty out:
- * the whole plane composes coherently.
+ * the whole composition composes coherently.
  *
- * Two plane-shape signals ride beside the version check:
- * - a config slot the pinned manifest does not record is genuinely
+ * Two composition-shape signals ride beside the version check:
+ * - a config remote the pinned manifest does not record is genuinely
  *   provisioned upstream after the pin — it composes live, unpinned bytes,
  *   and `bos upgrade` claims it;
- * - a manifest slot the merged config does not compose is NOT an upgrade
+ * - a manifest remote the merged config does not compose is NOT an upgrade
  *   candidate — a child declaring its own `plugins` domain wholesale-
- *   replaces the inherited one by design, so that is an uncomposed-slot
+ *   replaces the inherited one by design, so that is an uncomposed remote
  *   note, never a "run bos upgrade" instruction (an upgrade cannot change
  *   the merged shape).
  */
-export async function auditReleasePlane(input: {
+export async function auditReleaseComposition(input: {
   slots: Array<{ slot: string; base: string; pin: { manifest: string; integrity: string } }>;
   authoredPaths: Set<string>;
   /** The installed version this runtime composes for one singleton name —
    * the probe the boot guard consults too (catalog for framework names,
    * node_modules for the rest). */
   localVersionOf: (name: string) => string | undefined;
-  provisionedSlots?: readonly string[];
+  provisionedRemotes?: readonly string[];
   /** Every slot path the merged resolved config walks (authored + inherited). */
-  configSlotPaths?: readonly string[];
+  configRemotePaths?: readonly string[];
   /** Slot paths the pinned release manifest records. */
-  manifestSlotPaths?: readonly string[];
+  manifestRemotePaths?: readonly string[];
   pinnedReleaseVersion?: string;
   /** test seam — threaded to the version-manifest fetch */
   fetchImpl?: typeof fetch;
-}): Promise<PlaneAuditLine[]> {
-  const lines: PlaneAuditLine[] = [];
+}): Promise<CompositionAuditLine[]> {
+  const lines: CompositionAuditLine[] = [];
   const strictness = new Map(SHARED_DEP_SPECS.map((spec) => [spec.name, spec.critical]));
-  const manifestSlotPaths = new Set(input.manifestSlotPaths ?? []);
+  const manifestRemotePaths = new Set(input.manifestRemotePaths ?? []);
 
   for (const { slot, base, pin } of input.slots) {
     const kind = input.authoredPaths.has(slot) ? "owned" : "inherited";
     const repair =
       kind === "owned"
-        ? ownedSlotRepair(slot)
+        ? ownedRemoteRepair(slot)
         : "run bos upgrade (the pin trails the chain serving this slot)";
     try {
       const resolved = await resolveSlotVersion({
@@ -223,7 +223,7 @@ export async function auditReleasePlane(input: {
         const local = input.localVersionOf(name);
         if (local !== undefined && local === version) continue;
         lines.push({
-          slot,
+          remote: slot,
           kind,
           message:
             `${slot} was built against ${name}@${version}, this runtime composes ${name}@${local ?? "unknown"} — ` +
@@ -234,37 +234,41 @@ export async function auditReleasePlane(input: {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       lines.push({
-        slot,
+        remote: slot,
         kind,
         message: `${slot}'s version manifest does not serve at its production URL (${reason}) — ${repair}`,
       });
     }
   }
 
-  // Config slots the pinned manifest does not record: genuinely provisioned
+  // Config remotes the pinned manifest does not record: genuinely provisioned
   // upstream after the pin — they compose live, unpinned bytes, so the repair
   // is a real re-pin. Inherited only (authored slots are the leaf's own
   // decision, and pinned ones are already claimed by the manifest).
-  const pinnedSlots = new Set(input.slots.map((ref) => ref.slot));
-  for (const slot of input.configSlotPaths ?? []) {
-    if (!manifestSlotPaths.has(slot) && !pinnedSlots.has(slot) && !input.authoredPaths.has(slot)) {
+  const pinnedRemotes = new Set(input.slots.map((ref) => ref.slot));
+  for (const slot of input.configRemotePaths ?? []) {
+    if (
+      !manifestRemotePaths.has(slot) &&
+      !pinnedRemotes.has(slot) &&
+      !input.authoredPaths.has(slot)
+    ) {
       lines.push({
-        slot,
+        remote: slot,
         kind: "provisioned",
         message:
-          `slot "${slot}" is served by the extends chain but missing from the ` +
-          `${input.pinnedReleaseVersion ?? "pinned"} release plane — it composes live, unpinned bytes; ` +
+          `remote "" is served by the extends chain but missing from the ` +
+          `${input.pinnedReleaseVersion ?? "pinned"} release composition — it composes live, unpinned bytes; ` +
           `run bos upgrade to re-pin and claim it`,
       });
     }
   }
 
-  for (const slot of input.provisionedSlots ?? []) {
+  for (const slot of input.provisionedRemotes ?? []) {
     lines.push({
-      slot,
+      remote: slot,
       kind: "uncomposed",
       message:
-        `slot "${slot}" is recorded in the ${input.pinnedReleaseVersion ?? "pinned"} release ` +
+        `remote "" is recorded in the ${input.pinnedReleaseVersion ?? "pinned"} release ` +
         `but not composed by this config — declare it in your config's app/plugins domain to compose it`,
     });
   }

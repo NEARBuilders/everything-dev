@@ -3,7 +3,7 @@ import path from "node:path";
 import { Context, Layer } from "effect";
 import type { JsonObject, RuntimeConfig, SourceMode } from "../../types";
 
-export interface AuthSlotShape {
+export interface AuthRemoteShape {
   source: string;
   localPath?: string;
   url?: string;
@@ -17,9 +17,9 @@ export interface AuthSlotShape {
  * the infra planner, and the dev session.
  */
 export function isAuthMirrorPluginEntry(
-  authEntry: AuthSlotShape | undefined,
+  authEntry: AuthRemoteShape | undefined,
   pluginId: string,
-  pluginConfig: AuthSlotShape,
+  pluginConfig: AuthRemoteShape,
 ): boolean {
   if (pluginId !== "auth" || !authEntry) return false;
   if (pluginConfig === authEntry) return true;

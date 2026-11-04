@@ -23,8 +23,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { computeManifestSri } from "../../src/services/deploy/manifest-verify";
-import type { PlatformReleaseManifest } from "../../src/services/platform/manifest";
-import { auditSessionPlane } from "../../src/services/resolution/plane-audit";
+import type { Manifest } from "../../src/services/platform/manifest";
+import { auditSessionComposition } from "../../src/services/resolution/composition-audit";
 import { ResolutionSession } from "../../src/services/resolution/session";
 import {
   detectOwnedDivergentKeys,
@@ -114,7 +114,7 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
       "plugins.votes": slot("plugins.votes"),
       "plugins.template": slot("plugins.template"),
     },
-  } as unknown as PlatformReleaseManifest;
+  } as unknown as Manifest;
   const rawConfig = {
     extends: "bos://parent/gateway",
     release: frameworkVersion,
@@ -130,7 +130,7 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
     app: {
       ...rawConfig.app,
       // Owned slots carry their own published production + pin (merged from
-      // the child's published config state) — what collectSlotPinRefs reads.
+      // the child's published config state) — what collectRemoteDescriptors reads.
       ui: {
         ...rawConfig.app.ui,
         production: `${serverUrl}/app.ui`,
@@ -154,7 +154,7 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
     catalog: { ...catalog },
     repository: undefined,
     releaseManifest: manifest,
-    releasePlane: {
+    releaseComposition: {
       stamped: ["app.auth", "app.auth.ui"],
       omitted: [
         "plugins.ai",
@@ -172,7 +172,7 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
 describe("child upgrade realignment — the opencrosspost regression", () => {
   it("a coherent pinned subset child audits clean: uncomposed notes only, no upgrade advice", async () => {
     const session = buildChildSession({ react: "19.3.1", "@orpc/client": "2.0.0-beta.45" });
-    const lines = await auditSessionPlane(session);
+    const lines = await auditSessionComposition(session);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.every((line) => line.kind === "uncomposed")).toBe(true);
     expect(lines.some((line) => line.message.includes("unknown"))).toBe(false);
@@ -187,10 +187,10 @@ describe("child upgrade realignment — the opencrosspost regression", () => {
     expect(keys).toEqual(["api", "ui"]);
     const owned = lines.filter((line) => line.kind === "owned");
     expect(
-      owned.some((line) => line.slot === "app.ui" && line.message.includes("--packages ui")),
+      owned.some((line) => line.remote === "app.ui" && line.message.includes("--packages ui")),
     ).toBe(true);
     expect(
-      owned.some((line) => line.slot === "app.api" && line.message.includes("--packages api")),
+      owned.some((line) => line.remote === "app.api" && line.message.includes("--packages api")),
     ).toBe(true);
   });
 

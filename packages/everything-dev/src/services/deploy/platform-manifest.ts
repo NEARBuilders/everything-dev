@@ -8,16 +8,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { satisfiesConstraint } from "../../utils/semver";
-import { walkConfigSlots } from "../config-slots";
 import {
   composePlatformReleaseManifest,
   computeTemplateInventory,
-  type PlatformReleaseManifest,
-  type ReleaseSlotRecord,
+  type Manifest,
+  type RemoteRecord,
   resolvePlatformManifest,
   serializePlatformReleaseManifest,
 } from "../platform/manifest";
 import { platformPointerKeyOf } from "../registry/pointer";
+import { walkRemotes } from "../remotes";
 import { readWorkspaceCatalog } from "../workspace/catalog";
 import { readFrameworkVersion } from "./image";
 import { computeSriHash } from "./integrity";
@@ -25,7 +25,7 @@ import { computeSriHash } from "./integrity";
 /** The universal image (ADR 0020/0021) — the release manifest's image ref. */
 export const PLATFORM_IMAGE_REF = "ghcr.io/nearbuilders/everything-dev";
 
-export interface ReleaseSlotRef extends ReleaseSlotRecord {
+export interface ReleaseSlotRef extends RemoteRecord {
   slot: string;
 }
 
@@ -39,7 +39,7 @@ export interface ReleaseSlotRef extends ReleaseSlotRecord {
  */
 export function collectReleaseSlotPins(config: Record<string, unknown>): ReleaseSlotRef[] {
   const slots: ReleaseSlotRef[] = [];
-  walkConfigSlots(config, ({ slot, entry }) => {
+  walkRemotes(config, ({ slot, entry }) => {
     if (typeof entry !== "object" || entry === null) return;
     const base = typeof entry.production === "string" ? entry.production : undefined;
     const pin = entry.pin as { manifest?: unknown; integrity?: unknown } | undefined;
@@ -52,8 +52,8 @@ export function collectReleaseSlotPins(config: Record<string, unknown>): Release
   return slots;
 }
 
-/** The `Record<slot, ReleaseSlotRecord>` shape the manifest schema stores. */
-export function releaseSlotMap(config: Record<string, unknown>): Record<string, ReleaseSlotRecord> {
+/** The `Record<slot, RemoteRecord>` shape the manifest schema stores. */
+export function releaseSlotMap(config: Record<string, unknown>): Record<string, RemoteRecord> {
   return Object.fromEntries(
     collectReleaseSlotPins(config).map(({ slot, base, pin }) => [slot, { base, pin }]),
   );
@@ -156,7 +156,7 @@ export interface PlatformManifestPublishEntry {
   key: string;
   value: string;
   integrity: string;
-  manifest: PlatformReleaseManifest;
+  manifest: Manifest;
 }
 
 export function composePlatformManifestPublishEntry(opts: {
@@ -214,7 +214,7 @@ export interface DerivedImageRef {
  * Returns human-readable violations; empty = clean.
  */
 export function platformTruthViolations(
-  manifest: PlatformReleaseManifest,
+  manifest: Manifest,
   sharedByWorkspace: Map<string, Record<string, string> | undefined>,
 ): string[] {
   const violations: string[] = [];
@@ -278,7 +278,7 @@ export function compatWindowViolations(
 export async function deriveImageRefFromPlatformManifest(opts: {
   configDir: string;
   localConfig: Record<string, unknown>;
-  fetchManifest?: (account: string, gateway: string) => Promise<PlatformReleaseManifest | null>;
+  fetchManifest?: (account: string, gateway: string) => Promise<Manifest | null>;
   fetchSlot?: (account: string, gateway: string, version: string) => Promise<unknown>;
   fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
 }): Promise<DerivedImageRef | null> {

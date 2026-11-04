@@ -1,9 +1,13 @@
 import type { BosConfigInput } from "../../types";
-import { walkConfigSlots } from "../config-slots";
-import { collectSlotPinRefs } from "../deploy/rollback";
+import { collectRemoteDescriptors } from "../deploy/rollback";
 import { readInstalledFrameworkVersion } from "../framework-version";
+import { walkRemotes } from "../remotes";
 import { findWorkspaceRoot } from "../workspace/workspace";
-import { auditReleasePlane, authoredSlotPaths, type PlaneAuditLine } from "./release-plane";
+import {
+  auditReleaseComposition,
+  authoredRemoteKeys,
+  type CompositionAuditLine,
+} from "./release-composition";
 import type { ResolutionSession } from "./session";
 
 /**
@@ -13,30 +17,30 @@ import type { ResolutionSession } from "./session";
  * audit cannot fork into silently divergent copies.
  */
 export {
-  auditReleasePlane,
-  authoredSlotPaths,
-  type PlaneAuditLine,
-} from "./release-plane";
+  auditReleaseComposition,
+  authoredRemoteKeys,
+  type CompositionAuditLine,
+} from "./release-composition";
 
-export const auditSessionPlane = (
+export const auditSessionComposition = (
   session: NonNullable<ResolutionSession>,
   options?: { fetchImpl?: typeof fetch },
-): Promise<PlaneAuditLine[]> =>
-  auditReleasePlane({
-    slots: collectSlotPinRefs((session.config ?? {}) as BosConfigInput),
-    authoredPaths: authoredSlotPaths((session.rawConfig ?? {}) as Record<string, unknown>),
+): Promise<CompositionAuditLine[]> =>
+  auditReleaseComposition({
+    slots: collectRemoteDescriptors((session.config ?? {}) as BosConfigInput),
+    authoredPaths: authoredRemoteKeys((session.rawConfig ?? {}) as Record<string, unknown>),
     localVersionOf: (name) =>
       readInstalledFrameworkVersion(findWorkspaceRoot(session.root)?.dir ?? session.root, name),
-    provisionedSlots: session.releasePlane?.omitted,
-    configSlotPaths: configSlotPathsOf(session.config),
-    manifestSlotPaths: Object.keys(session.releaseManifest?.slots ?? {}),
+    provisionedRemotes: session.releaseComposition?.omitted,
+    configRemotePaths: configRemotePathsOf(session.config),
+    manifestRemotePaths: Object.keys(session.releaseManifest?.slots ?? {}),
     pinnedReleaseVersion: session.releaseManifest?.frameworkVersion,
     ...(options?.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
 
-const configSlotPathsOf = (config: unknown): string[] => {
+const configRemotePathsOf = (config: unknown): string[] => {
   if (!config || typeof config !== "object") return [];
   const paths: string[] = [];
-  walkConfigSlots(config as Record<string, unknown>, ({ slot }) => paths.push(slot));
+  walkRemotes(config as Record<string, unknown>, ({ slot }) => paths.push(slot));
   return paths;
 };

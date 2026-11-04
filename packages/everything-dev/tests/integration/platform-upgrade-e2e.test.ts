@@ -25,7 +25,7 @@ import { upgradeTemplate } from "../../src/cli/upgrade";
 import {
   resolveReleaseManifestForDeploy,
   runCompositionGate,
-  stampInheritedSlotsFromRelease,
+  stampRemotesFromRelease,
 } from "../../src/services/deploy/composition";
 import { computeManifestSri } from "../../src/services/deploy/manifest-verify";
 import {
@@ -37,12 +37,12 @@ import {
 import { checkUiCompositionCompat } from "../../src/services/federation/service";
 import {
   checkPlatformCompat,
-  type PlatformReleaseManifest,
-  PlatformReleaseManifestSchema,
+  type Manifest,
+  ManifestSchema,
   resolvePlatformManifest,
 } from "../../src/services/platform/manifest";
 import { parseRuntimeRef } from "../../src/services/registry/keys";
-import { platformVersionSlotKeyOf } from "../../src/services/registry/pointer";
+import { getVersionKey } from "../../src/services/registry/pointer";
 import * as resolutionModule from "../../src/services/registry/resolution";
 import {
   resolveBootShape,
@@ -77,7 +77,7 @@ let childDir: string;
 const fetchParent = async (account: string, gateway: string) =>
   (registry.get(`apps/${account}/${gateway}/bos.config.json`) as Record<string, unknown>) ?? null;
 const fetchManifest = async (account: string, gateway: string) =>
-  (registry.get(`apps/${account}/${gateway}/platform.json`) as PlatformReleaseManifest) ?? null;
+  (registry.get(`apps/${account}/${gateway}/platform.json`) as Manifest) ?? null;
 const fetchSlot = async (account: string, gateway: string, version: string) =>
   registry.get(`apps/${account}/${gateway}/platform-versions/${version}.json`) ?? null;
 
@@ -130,7 +130,7 @@ function childFixture(release?: string): string {
 /** The root's publish train, compressed: compose the release manifest from
  * the fixture tree and write both registry keys (the manifest rides the same
  * atomic FastKV write as the config in the real train). */
-function publishRootRelease(previousVersion?: string): PlatformReleaseManifest {
+function publishRootRelease(previousVersion?: string): Manifest {
   const entry = composePlatformManifestPublishEntry({
     configDir: rootDir,
     account: ROOT_ACCOUNT,
@@ -142,7 +142,7 @@ function publishRootRelease(previousVersion?: string): PlatformReleaseManifest {
   // version slot + the pointer flip
   registry.set(entry!.key, JSON.parse(entry!.value));
   registry.set(
-    platformVersionSlotKeyOf(ROOT_ACCOUNT, ROOT_GATEWAY, entry!.manifest.frameworkVersion),
+    getVersionKey(ROOT_ACCOUNT, ROOT_GATEWAY, entry!.manifest.frameworkVersion),
     JSON.parse(entry!.value),
   );
   registry.set(CONFIG_KEY, {
@@ -175,7 +175,7 @@ const upgradeSourceOptions: ExtendedRootSourceOptions = {
       );
       return value === undefined ? null : JSON.stringify(value);
     },
-    parseManifest: (value) => PlatformReleaseManifestSchema.parse(value),
+    parseManifest: (value) => ManifestSchema.parse(value),
   },
 };
 
@@ -300,7 +300,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
       kind: "everything-dev/platform-manifest-cache",
       resolvedAt: new Date().toISOString(),
       source: { account: ROOT_ACCOUNT, gateway: ROOT_GATEWAY },
-      manifest: PlatformReleaseManifestSchema.parse({
+      manifest: ManifestSchema.parse({
         schemaVersion: 1,
         kind: "everything-dev/platform-manifest",
         frameworkVersion: "2.0.0-rc.1",
@@ -431,7 +431,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
         kind: "everything-dev/platform-manifest-cache",
         resolvedAt: new Date().toISOString(),
         source: { account: ROOT_ACCOUNT, gateway: ROOT_GATEWAY },
-        manifest: PlatformReleaseManifestSchema.parse({
+        manifest: ManifestSchema.parse({
           schemaVersion: 1,
           kind: "everything-dev/platform-manifest",
           frameworkVersion: "2.0.0-rc.1",
@@ -451,7 +451,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
       seams: {
         readManifestTag: async () => null,
         readVersionRecord: async () => null,
-        parseManifest: (value) => PlatformReleaseManifestSchema.parse(value),
+        parseManifest: (value) => ManifestSchema.parse(value),
       },
     };
     await expect(readExtendedRootSource(childDir, darkSeams)).rejects.toThrow(
@@ -527,7 +527,7 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
     );
     registry.set(
       PLATFORM_KEY,
-      PlatformReleaseManifestSchema.parse({
+      ManifestSchema.parse({
         schemaVersion: 1,
         kind: "everything-dev/platform-manifest",
         frameworkVersion: "2.0.0-rc.3",
@@ -672,7 +672,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     version: string,
     previousVersion: string | undefined,
     shared: Record<string, string>,
-  ): PlatformReleaseManifest {
+  ): Manifest {
     writeFileSync(
       join(rootDir, "packages", "everything-dev", "package.json"),
       `${JSON.stringify({ name: "everything-dev", version })}\n`,
@@ -708,7 +708,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     });
     expect(entry).not.toBeNull();
     registry.set(entry!.key, JSON.parse(entry!.value));
-    registry.set(platformVersionSlotKeyOf(ACCOUNT, GATEWAY, version), JSON.parse(entry!.value));
+    registry.set(getVersionKey(ACCOUNT, GATEWAY, version), JSON.parse(entry!.value));
     registry.set(liveConfigKey, {
       account: ACCOUNT,
       domain: GATEWAY,
@@ -751,7 +751,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
     app.ui.pin = ownUiPin;
     let stamped: string[] = [];
     if (stamps && resolvedRelease?.slots) {
-      stamped = stampInheritedSlotsFromRelease({
+      stamped = stampRemotesFromRelease({
         payload,
         authoredConfig,
         manifest: resolvedRelease,
@@ -902,7 +902,7 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
 
   let rootDir: string;
   let childDir: string;
-  let releaseManifest: PlatformReleaseManifest;
+  let releaseManifest: Manifest;
 
   /** The incident's root: caret framework rows in the authored catalog (what
    * a pre-exact release shipped), workspace packages whose own versions are
@@ -1066,10 +1066,7 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
     releaseManifest = entry!.manifest;
     // the real train's atomic write: the immutable version slot + the pointer
     registry.set(entry!.key, JSON.parse(entry!.value));
-    registry.set(
-      platformVersionSlotKeyOf(ACCOUNT, GATEWAY, RELEASE_VERSION),
-      JSON.parse(entry!.value),
-    );
+    registry.set(getVersionKey(ACCOUNT, GATEWAY, RELEASE_VERSION), JSON.parse(entry!.value));
     registry.set(`apps/${ACCOUNT}/${GATEWAY}/bos.config.json`, {
       repository: "https://github.com/NEARBuilders/everything-dev",
     });

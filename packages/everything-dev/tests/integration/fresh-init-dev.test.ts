@@ -25,7 +25,7 @@ import { runCommand, writeGeneratedAuthStubs } from "./typecheck-utils";
  * published platform manifest, framework packages resolved through the
  * extends chain — install prompt-free (pnpm's permissions policy settled by
  * the init approve leg), resolve its pin against the extends chain, and BOOT
- * under `bos dev` cleanly: no release-plane divergence block, no shutdown
+ * under `bos dev` cleanly: no release-composition divergence block, no shutdown
  * noise, graceful quit.
  *
  * This is the opencrosspost rc.30 failure class, end to end. Template-level
@@ -109,7 +109,7 @@ describe.skipIf(process.env.CI === "true")(
         template: { development: "local:plugins/_template" },
       });
       // A real scaffolded child declares its extends — the resolution walk
-      // (and `bos dev`'s release-plane audit) read it from the config. The
+      // (and `bos dev`'s release-composition audit) read it from the config. The
       // api slot declares the platform root secret beside its database URL —
       // the plugin's secrets schema requires both (the vault derives the
       // runtime KEK from it).
@@ -280,7 +280,7 @@ describe.skipIf(process.env.CI === "true")(
         // The rc.30 regression class, asserted on the boot output: a fresh
         // child's plane composes coherently, and shutdown carries no pool
         // stack-trace noise from stale pinned bytes.
-        expect(output).not.toContain("release-plane divergence");
+        expect(output).not.toContain("release-composition divergence");
         expect(output).not.toContain("pool.end() called from");
       } finally {
         dev.kill("SIGTERM");

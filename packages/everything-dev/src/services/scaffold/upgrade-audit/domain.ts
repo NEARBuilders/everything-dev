@@ -67,7 +67,7 @@ export interface PluginInventory {
   readonly secrets: readonly string[];
 }
 
-export interface Manifest {
+export interface UpgradeManifest {
   readonly tier: "A" | "B";
   readonly blockerCount: number;
   readonly warnCount: number;
@@ -86,7 +86,7 @@ export interface Manifest {
 export interface AuditReport {
   readonly tier: "A" | "B";
   readonly findings: readonly Finding[];
-  readonly manifest: Manifest;
+  readonly manifest: UpgradeManifest;
 }
 
 export const KNOWN_CONFIG_KEYS = [

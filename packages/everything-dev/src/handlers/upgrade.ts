@@ -10,8 +10,8 @@ import { generateCodeArtifacts } from "../services/codegen/artifacts";
 import { checkFederationCompat, checkUiCompositionCompat } from "../services/federation/service";
 import { readInstalledFrameworkVersion } from "../services/framework-version";
 import {
+  ManifestService,
   type PlatformCompatViolation,
-  PlatformManifestService,
   type ResolvedPlatformManifest,
 } from "../services/platform/manifest";
 import { resolvePublishedConfig } from "../services/registry/published";
@@ -502,7 +502,7 @@ export function registerUpgrade(builder: BosBuilder) {
     }),
 
     mfCheck: builder.mfCheck.effect(function* (_opts, input) {
-      const manifestService = yield* PlatformManifestService;
+      const manifestService = yield* ManifestService;
       return yield* Effect.promise(async () => {
         let authored: BosConfig | null = null;
         try {
@@ -608,7 +608,7 @@ export function registerUpgrade(builder: BosBuilder) {
     }),
 
     manifest: builder.manifest.effect(function* (_opts, input) {
-      const manifestService = yield* PlatformManifestService;
+      const manifestService = yield* ManifestService;
       return yield* Effect.promise(async () => {
         // In-image: the booted host self-describes (ADR 0034 pt 1) — the
         // staged manifest is the release's own bytes; a compat check of the

@@ -9,7 +9,7 @@ import {
   platformTruthViolations,
   resolveExactCatalog,
 } from "../../src/services/deploy/platform-manifest";
-import { PlatformReleaseManifestSchema } from "../../src/services/platform/manifest";
+import { ManifestSchema } from "../../src/services/platform/manifest";
 
 const tmpRoot = join(import.meta.dirname, ".platform-publish-fixture");
 
@@ -57,7 +57,7 @@ describe("composePlatformManifestPublishEntry", () => {
     expect(entry).not.toBeNull();
     expect(entry!.key).toBe("apps/dev.everything.near/everything.dev/platform.json");
     expect(entry!.integrity).toMatch(/^sha384-/);
-    const parsed = PlatformReleaseManifestSchema.parse(JSON.parse(entry!.value));
+    const parsed = ManifestSchema.parse(JSON.parse(entry!.value));
     expect(parsed.frameworkVersion).toBe("2.0.0-rc.14");
     expect(parsed.everyPluginVersion).toBe("3.0.0-rc.9");
     expect(parsed.image.ref).toBe(PLATFORM_IMAGE_REF);
@@ -156,7 +156,7 @@ describe("resolveExactCatalog", () => {
       account: "root.near",
       gateway: "root",
     });
-    const parsed = PlatformReleaseManifestSchema.parse(JSON.parse(entry!.value));
+    const parsed = ManifestSchema.parse(JSON.parse(entry!.value));
     expect(parsed.catalog["everything-dev"]).toBe("2.0.0-rc.14");
     expect(parsed.catalog.react).toBe("19.2.9");
     expect(parsed.catalog["not-in-lockfile"]).toBe("^1.2.3");
@@ -195,7 +195,7 @@ describe("deriveImageRefFromPlatformManifest", () => {
 
 describe("platformTruthViolations", () => {
   it("flags a workspace whose installed shared version disagrees with the release manifest (#546)", () => {
-    const manifest = PlatformReleaseManifestSchema.parse({
+    const manifest = ManifestSchema.parse({
       schemaVersion: 1,
       kind: "everything-dev/platform-manifest",
       frameworkVersion: "2.0.0-rc.18",
@@ -230,7 +230,7 @@ describe("platformTruthViolations", () => {
   });
 
   it("passes when every workspace's shared record agrees with the release manifest", () => {
-    const manifest = PlatformReleaseManifestSchema.parse({
+    const manifest = ManifestSchema.parse({
       schemaVersion: 1,
       kind: "everything-dev/platform-manifest",
       frameworkVersion: "2.0.0-rc.18",
@@ -263,7 +263,7 @@ describe("platformTruthViolations", () => {
   });
 
   it("passes when a range-shaped pin is satisfied by the exact built version", () => {
-    const manifest = PlatformReleaseManifestSchema.parse({
+    const manifest = ManifestSchema.parse({
       schemaVersion: 1,
       kind: "everything-dev/platform-manifest",
       frameworkVersion: "2.0.0-rc.18",
@@ -296,7 +296,7 @@ describe("platformTruthViolations", () => {
   });
 
   it("flags a built prerelease that falls below the range-shaped pin's floor", () => {
-    const manifest = PlatformReleaseManifestSchema.parse({
+    const manifest = ManifestSchema.parse({
       schemaVersion: 1,
       kind: "everything-dev/platform-manifest",
       frameworkVersion: "2.0.0-rc.18",
