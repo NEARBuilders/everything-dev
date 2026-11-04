@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { pointerFingerprint } from "../../src/services/registry/fingerprint";
 import { type BootSnapshot, bootSnapshotOf } from "../../src/services/snapshot/schema";
-import { createRegistryConfigSource } from "../../src/services/start/snapshot-source";
+import {
+  BOOT_SNAPSHOT_ENV_KEY,
+  bootSnapshotEnv,
+  createRegistryConfigSource,
+} from "../../src/services/start/snapshot-source";
 import { BosConfigSchema } from "../../src/types";
 
 /**
@@ -62,6 +66,15 @@ function makeSource(overrides?: Partial<Deps>) {
     source.resolve({ account: ACCOUNT, gateway: GATEWAY, allowSnapshot });
   return { resolve, ...deps };
 }
+
+describe("boot marker env", () => {
+  it("marks only snapshot-sourced resolutions", () => {
+    expect(bootSnapshotEnv("snapshot")).toEqual({ [BOOT_SNAPSHOT_ENV_KEY]: "1" });
+    expect(bootSnapshotEnv("registry")).toEqual({});
+    expect(bootSnapshotEnv(undefined)).toEqual({});
+    expect(bootSnapshotEnv(null)).toEqual({});
+  });
+});
 
 describe("registry path", () => {
   it("serves the fetched config and persists it through the writer seam", async () => {
