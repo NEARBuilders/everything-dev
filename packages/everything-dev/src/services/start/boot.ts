@@ -22,6 +22,8 @@ import { type BootstrapDeps, DevStepError, loadEnvStep } from "../dev/boot";
 import { emitProgress } from "../dev/progress";
 import { type AppOrchestrator, buildServiceDescriptorMap } from "../dev/service-descriptor";
 import type { DevSessionData, StartSummary } from "../dev/session";
+import { applyCompositionLockfile, type LockfileDrift } from "../lockfile/boot";
+import { readLockfileIfExists } from "../lockfile/schema";
 import { latestUrlFor } from "../registry/client";
 import { runtimeRefOf } from "../registry/keys";
 import { resolvePublishedConfig } from "../registry/published";
@@ -77,6 +79,8 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
     const registry = input.registry ?? getProcessEnv("BOS_REGISTRY");
     setSnapshotWatchIntervalForBoot(explicitConfig, bosEnv);
 
+    const warnings: string[] = [];
+
     let config: BosConfig | null = null;
     let remoteConfig: BosConfig | null = null;
 
@@ -120,6 +124,28 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
         config = { ...config, domain: explicitConfig.registry.domain };
       }
     }
+
+    // The composition lockfile is the boot's authority for remote coordinates
+    // (ADR 0042 ticket 03): frozen descriptors stamp over the resolved
+    // composition — filling missing pins, overriding drifted ones — and every
+    // disagreement rides the start summary as a warning. Enforcement lives in
+    // CI (`bos lock --check`), not in the boot: a stale lockfile must never
+    // brick a restart.
+    const lockfile = yield* Effect.tryPromise(() => readLockfileIfExists(sessionRoot)).pipe(
+      Effect.catch(() => Effect.succeed(null)),
+    );
+    if (lockfile) {
+      const application = applyCompositionLockfile(config, lockfile);
+      config = application.config;
+      for (const entry of application.applied) {
+        warnings.push(`composition lockfile stamped ${entry} — the resolved remote had no pin`);
+      }
+      for (const entry of application.drift as LockfileDrift[]) {
+        warnings.push(
+          `composition lockfile drift at ${entry.path}: ${entry.detail} — the frozen composition wins; run \`bos lock\` to refresh`,
+        );
+      }
+    }
     const baseConfig: BosConfig = config;
 
     const port = input.port ?? getHostDevelopmentPort(baseConfig.app.host.development);
@@ -160,7 +186,6 @@ export const startBootstrap = (deps: BootstrapDeps, input: StartOptions) =>
     yield* emitProgress({ phase: "generate artifacts", status: "done" });
 
     const productionEnv: Record<string, string> = {};
-    const warnings: string[] = [];
 
     const localhostOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
     const corsOrigin = getProcessEnv("CORS_ORIGIN");
