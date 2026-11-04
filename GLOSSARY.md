@@ -41,11 +41,11 @@ Whether the deploy train owns its runtime image — `root` (a Dockerfile at the 
 _Avoid_: root vs consumer (the account naming, not the image-ownership question), tenant tier
 
 **Remote**:
-A named position in the composition — `app.<key>`, `app.<key>.ui`, `plugins.<id>`, `plugins.<id>.ui` — and (loosely) the workspace it loads bytes from. The walker in `services/remotes.ts` derives every dotted path; never fork the traversal.
+A named position in the composition — `app.<key>`, `app.<key>.ui`, `plugins.<id>`, `plugins.<id>.ui` — and (loosely) the workspace it loads bytes from. The walker in `src/services/remotes.ts` derives every dotted path; never fork the traversal.
 _Avoid_: config slot (retired — the ticket-11 vocabulary; attachment slots in the descriptor domain and port slots in the infra planner are different concepts), surface (a remote's `ui`/`ssr` loading surfaces are not remotes)
 
 **Registry key**:
-One of the four typed keys in `services/registry/keys.ts` (ADR 0040), each with one wire form: `runtimeConfig` (`apps/<account>/<gateway>/bos.config.json`), `manifest` (`apps/<account>/<gateway>/manifest.json` — the thin tag: version + digest), `version` (`versions/<v>.json` — the immutable per-release record, written once), `deployRecord` (`deploys/<ts>.json` — the audit trail). A `RuntimeRef` (`bos://<account>/<gateway>`) names the identity every key hangs from. Never hand-build registry paths.
+One of the four typed keys in `src/services/registry/keys.ts` (ADR 0040), each with one wire form: `runtimeConfig` (`apps/<account>/<gateway>/bos.config.json`), `manifest` (`apps/<account>/<gateway>/manifest.json` — the thin tag: version + digest), `version` (`versions/<v>.json` — the immutable per-release record, written once), `deployRecord` (`deploys/<ts>.json` — the audit trail). A `RuntimeRef` (`bos://<account>/<gateway>`) names the identity every key hangs from. Never hand-build registry paths.
 _Avoid_: platform.json (the retired pre-cutover key — abandoned in place), slot (a key is not a slot), hand-built path strings (the golden tests pin the wire forms)
 
 **Platform release manifest**:
