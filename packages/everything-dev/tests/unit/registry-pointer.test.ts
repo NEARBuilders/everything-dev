@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ManifestTagSchema } from "../../src/services/platform/manifest-schema";
 import { readManifestTag, readVersionRecord } from "../../src/services/registry/pointer";
+import { clearHttpCache } from "../../src/utils/http-client";
 
 /**
  * The wire-shape regression: the pointer reads fetch the runtime-prefixed
@@ -19,6 +21,7 @@ const fetchedUrls: string[] = [];
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  clearHttpCache();
   fetchedUrls.length = 0;
 });
 
@@ -70,5 +73,35 @@ describe("readManifestTag / readVersionRecord — the read wire keys", () => {
       "https://kv.main.fastnear.com/v0/latest/dev.everything.near/dev.everything.near/" +
         `apps%2F${ACCOUNT}%2F${GATEWAY}%2Fversions%2F9.9.9.json`,
     ]);
+  });
+});
+
+describe("the thin tag decodes through ManifestTagSchema as served over the wire", () => {
+  it("a registry-served thin tag decodes to its version — the smoke manifest leg's decode path", async () => {
+    stubRegistry(
+      JSON.stringify({ schemaVersion: 1, version: "2.0.0-rc.37", digest: "a".repeat(64) }),
+    );
+
+    const bytes = await readManifestTag<unknown>(ACCOUNT, GATEWAY);
+    const decoded = bytes ? ManifestTagSchema.safeParse(bytes) : null;
+
+    expect(decoded?.success).toBe(true);
+    if (decoded?.success) {
+      expect(decoded.data.version).toBe("2.0.0-rc.37");
+      expect(decoded.data.schemaVersion).toBe(1);
+    }
+    expect(fetchedUrls).toEqual([
+      "https://kv.main.fastnear.com/v0/latest/dev.everything.near/dev.everything.near/" +
+        `apps%2F${ACCOUNT}%2F${GATEWAY}%2Fmanifest.json`,
+    ]);
+  });
+
+  it("the pre-cutover rich shape served on the wire fails the thin-tag decode", async () => {
+    stubRegistry(JSON.stringify({ frameworkVersion: "2.0.0-rc.37" }));
+
+    const bytes = await readManifestTag<unknown>(ACCOUNT, GATEWAY);
+    const decoded = bytes ? ManifestTagSchema.safeParse(bytes) : null;
+
+    expect(decoded?.success).toBe(false);
   });
 });
