@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, unlink } from "node:fs/promises";
+import { mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Cause, Effect, Exit, Layer } from "effect";
@@ -370,7 +370,16 @@ describe("adoptPublishedPointer", () => {
   });
 
   it("a persist failure never fails the adopt — the snapshot is an addition, not a dependency", async () => {
-    vi.stubEnv("BOS_SNAPSHOT_DIR", "/proc/impossible/nonexistent-root");
+    // Deterministic persist failure on every OS: the snapshot root's parent
+    // is a regular file, so the recursive mkdir refuses instantly (ENOTDIR /
+    // EEXIST-on-file). A /proc path was tried first and HANGS on Linux —
+    // procfs exists there and the recursive walk never settles.
+    const blocker = path.join(
+      await mkdtemp(path.join(tmpdir(), "boot-snapshot-blocker-")),
+      "blocker",
+    );
+    await writeFile(blocker, "not a directory");
+    vi.stubEnv("BOS_SNAPSHOT_DIR", blocker);
     buildRuntimeConfigMock.mockReturnValue(Effect.succeed(derivedConfig));
     composeUiMock.mockReturnValue(Effect.succeed({ digest: "digest-prewarm" }));
     const outcome = await Effect.runPromise(
