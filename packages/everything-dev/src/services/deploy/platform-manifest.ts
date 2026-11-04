@@ -16,7 +16,7 @@ import {
   resolvePlatformManifest,
   serializePlatformReleaseManifest,
 } from "../platform/manifest";
-import { platformPointerKeyOf } from "../registry/pointer";
+import { getManifestKey } from "../registry/pointer";
 import { walkRemotes } from "../remotes";
 import { readWorkspaceCatalog } from "../workspace/catalog";
 import { readFrameworkVersion } from "./image";
@@ -188,7 +188,7 @@ export function composePlatformManifestPublishEntry(opts: {
   });
   const value = serializePlatformReleaseManifest(manifest);
   return {
-    key: platformPointerKeyOf(opts.account, opts.gateway),
+    key: getManifestKey(opts.account, opts.gateway),
     value,
     integrity: computeSriHash(value),
     manifest,

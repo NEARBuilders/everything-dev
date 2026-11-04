@@ -4,8 +4,8 @@ import { mergeBosConfigWithExtends, resolveExtendsRef } from "everything-dev/con
 import {
   keyPathOf,
   latestUrlFor,
+  ManifestSchema,
   networkIdForAccount,
-  PlatformReleaseManifestSchema,
   parseRuntimeRef,
   type RegistryClientShape,
   type ResolutionOutcome,
@@ -647,7 +647,7 @@ export function createRegistryMethods(
             });
             return record === null ? null : JSON.stringify(record);
           },
-          parseManifest: (value) => PlatformReleaseManifestSchema.parse(value),
+          parseManifest: (value) => ManifestSchema.parse(value),
           fetchParent: async (account, gateway) => {
             try {
               const parent = await client.readOrNull<BosConfigInput>({

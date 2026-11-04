@@ -127,13 +127,29 @@ describe.skipIf(process.env.CI === "true")(
       // generated BETTER_AUTH_SECRET (project-env ensureFile).
       await Effect.runPromise(makeProjectEnv().ensureFile(testDir));
 
-      // The pin + catalog come from the published release — the real bos init
-      // pathway (no local-tree catalog source).
+      // The release + catalog come from the published release — the real bos
+      // init pathway (no local-tree catalog source). Bounded lag-retry
+      // (ticket 12): a slow FastKV index must not red the gate spuriously —
+      // 3 attempts over ~2.5 minutes.
       const localConfig = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
-      const resolved = await resolvePlatformManifest({ configDir: testDir, localConfig });
+      let resolved: Awaited<ReturnType<typeof resolvePlatformManifest>> = null;
+      for (let attempt = 1; attempt <= 3 && !resolved; attempt++) {
+        try {
+          resolved = await resolvePlatformManifest({ configDir: testDir, localConfig });
+        } catch (error) {
+          if (attempt === 3) throw error;
+          console.warn(
+            `[gate] manifest resolution attempt ${attempt} failed (${error instanceof Error ? error.message : String(error)}) — retrying in 75s`,
+          );
+        }
+        if (!resolved && attempt < 3) {
+          console.warn(`[gate] manifest not resolved on attempt ${attempt} — retrying in 75s`);
+          await new Promise((resolveTimeout) => setTimeout(resolveTimeout, 75_000));
+        }
+      }
       if (!resolved) {
         throw new Error(
-          "No platform release manifest publishes on the extends chain — the consumer rc gate needs a published release",
+          "No release manifest publishes on the extends chain — the consumer rc gate needs a published release",
         );
       }
       published = resolved;

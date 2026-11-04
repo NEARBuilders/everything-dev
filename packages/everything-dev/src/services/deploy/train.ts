@@ -28,10 +28,10 @@ import { pointerFingerprint, slotPins } from "../registry/fingerprint";
 import { keyPathOf, parseRuntimeRef, runtimeRefOf } from "../registry/keys";
 import {
   deployAuditKeyOf,
-  platformPointerKeyOf,
-  platformVersionSlotKeyOf,
-  readPlatformPointer,
-  readPlatformVersionSlot,
+  getManifestKey,
+  getVersionKey,
+  readManifestTag,
+  readVersionRecord,
 } from "../registry/pointer";
 import { mergeAuthoredOverPublished, stripLocalDevelopmentTargets } from "../resolution/merge";
 import {
@@ -842,7 +842,7 @@ export async function runPublishTrain(
   if (!isStaging && input.build) {
     let pointer: Manifest | null;
     try {
-      const pointerBytes = await readPlatformPointer<unknown>(account, gateway, input.registry);
+      const pointerBytes = await readManifestTag<unknown>(account, gateway, input.registry);
       pointer = pointerBytes ? ManifestSchema.parse(pointerBytes) : null;
     } catch (error) {
       throw new PublishTrainError({
@@ -916,10 +916,10 @@ export async function runPublishTrain(
       }
       if (releaseLeg) {
         const frameworkVersion = composed.manifest.frameworkVersion;
-        const slotKey = platformVersionSlotKeyOf(account, gateway, frameworkVersion);
+        const slotKey = getVersionKey(account, gateway, frameworkVersion);
         let existingSlot: unknown;
         try {
-          existingSlot = await readPlatformVersionSlot<unknown>(
+          existingSlot = await readVersionRecord<unknown>(
             account,
             gateway,
             frameworkVersion,
@@ -970,7 +970,7 @@ export async function runPublishTrain(
             file: platformManifest.key,
             integrity: platformManifest.integrity,
             version: platformManifest.manifest.frameworkVersion,
-            pointer: platformPointerKeyOf(account, gateway),
+            pointer: getManifestKey(account, gateway),
           },
         }
       : {}),
@@ -978,7 +978,7 @@ export async function runPublishTrain(
   if (platformManifest) {
     // One atomic write (#573): the immutable version slot + the pointer flip.
     registryEntries[platformManifest.key] = platformManifest.value;
-    registryEntries[platformPointerKeyOf(account, gateway)] = platformManifest.value;
+    registryEntries[getManifestKey(account, gateway)] = platformManifest.value;
   }
   if (input.exactPayload && input.restorePlatformPointer) {
     registryEntries[input.restorePlatformPointer.key] = input.restorePlatformPointer.value;
@@ -1117,9 +1117,9 @@ export async function runPublishTrain(
           ? [
               {
                 kind: "platformPointer" as const,
-                wireKey: platformPointerKeyOf(account, gateway),
+                wireKey: getManifestKey(account, gateway),
                 expected: platformManifest.manifest,
-                read: () => readPlatformPointer<unknown>(account, gateway, input.registry),
+                read: () => readManifestTag<unknown>(account, gateway, input.registry),
               },
             ]
           : []),

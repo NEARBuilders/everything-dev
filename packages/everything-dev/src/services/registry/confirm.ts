@@ -37,7 +37,7 @@ export interface PlatformPointerConfirmLeg {
    * model's union until ticket 10's cutover, so it carries its wire key
    * explicitly instead of a RegistryKey. */
   readonly wireKey: string;
-  /** The pre-cutover transport, injected — `readPlatformPointer` bound to
+  /** The pre-cutover transport, injected — `readManifestTag` bound to
    * the runtime; never baked into keys.ts. */
   readonly read: () => Promise<unknown>;
   /** The expected value — the composed release manifest the leg wrote. */
