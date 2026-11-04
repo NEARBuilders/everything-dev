@@ -108,6 +108,24 @@
       "import": "./dist/services/registry/bundle-cache.mjs",
       "require": "./dist/services/registry/bundle-cache.cjs"
     },
+    "./snapshot": {
+      "development": {
+        "types": "./src/services/snapshot/schema.ts",
+        "import": "./src/services/snapshot/schema.ts"
+      },
+      "types": "./dist/services/snapshot/schema.d.mts",
+      "import": "./dist/services/snapshot/schema.mjs",
+      "require": "./dist/services/snapshot/schema.cjs"
+    },
+    "./lockfile": {
+      "development": {
+        "types": "./src/services/lockfile/schema.ts",
+        "import": "./src/services/lockfile/schema.ts"
+      },
+      "types": "./dist/services/lockfile/schema.d.mts",
+      "import": "./dist/services/lockfile/schema.mjs",
+      "require": "./dist/services/lockfile/schema.cjs"
+    },
     "./fingerprint": {
       "development": {
         "types": "./src/services/registry/fingerprint.ts",
