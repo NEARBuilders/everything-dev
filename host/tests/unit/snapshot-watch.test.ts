@@ -31,7 +31,7 @@ const publishedPointer = {
     ui: {
       development: "local:ui",
       production: "https://cdn.example.test/ui/",
-      pin: {
+      digest: {
         manifest: "versions/8f3ac1d2feedbeef.json",
         integrity: "sha384-pin",
       },

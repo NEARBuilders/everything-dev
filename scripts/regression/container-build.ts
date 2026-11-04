@@ -101,7 +101,7 @@ function rewriteUi<
     next.publicUrl = planned.publicUrl;
   }
   if (planned.pin !== undefined) {
-    (next as Record<string, unknown>).pin = planned.pin;
+    (next as Record<string, unknown>).digest = planned.pin;
   }
   return next;
 }
@@ -126,7 +126,7 @@ function rewritePluginRef(
     ),
   } as Record<string, unknown>;
   if (planned.pin !== undefined) {
-    next.pin = planned.pin;
+    next.digest = planned.pin;
   }
   if (next.ui) {
     next.ui = rewriteUi(
@@ -135,7 +135,7 @@ function rewritePluginRef(
         ...(planned.ui ? { production: planned.ui } : {}),
         ...(planned.uiName ? { name: planned.uiName } : {}),
         ...(planned.uiPublicUrl ? { publicUrl: planned.uiPublicUrl } : {}),
-        ...(planned.uiPin ? { pin: planned.uiPin } : {}),
+        ...(planned.uiPin ? { digest: planned.uiPin } : {}),
       },
     );
   }
@@ -152,7 +152,7 @@ function prepareLocalProductionConfig(
     app.host = {
       ...(app.host as Record<string, unknown>),
       production: plan.host,
-      ...(plan.hostPin ? { pin: plan.hostPin } : {}),
+      ...(plan.hostPin ? { digest: plan.hostPin } : {}),
     };
   }
 
@@ -163,7 +163,7 @@ function prepareLocalProductionConfig(
   if (app.api && plan.api !== undefined) {
     app.api = {
       ...stripIntegrity({ ...(app.api as Record<string, unknown>), production: plan.api }),
-      ...(plan.apiPin ? { pin: plan.apiPin } : {}),
+      ...(plan.apiPin ? { digest: plan.apiPin } : {}),
     };
   }
 
@@ -175,7 +175,7 @@ function prepareLocalProductionConfig(
               ...(app.auth as Record<string, unknown>),
               production: plan.auth,
             }),
-            ...(plan.authPin ? { pin: plan.authPin } : {}),
+            ...(plan.authPin ? { digest: plan.authPin } : {}),
           }
         : app.auth;
     const authRef = auth as Record<string, unknown>;
