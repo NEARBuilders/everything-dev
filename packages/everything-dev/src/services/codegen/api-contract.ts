@@ -5,7 +5,7 @@ import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import type { JsonObject, RuntimeConfig, RuntimePluginConfig } from "../../types";
 import { fetchJsonOrNull, fetchResponse } from "../../utils/http-client";
 import { isAuthMirrorPluginEntry } from "../dev/service-descriptor";
-import { buildAuthExportStub, buildAuthTypesGenContent } from "./auth-types";
+import { buildAuthContractStub, buildAuthExportStub, buildAuthTypesGenContent } from "./auth-types";
 
 export interface ApiPluginManifest {
   schemaVersion: 1;
@@ -681,7 +681,7 @@ export function writeGeneratedFiles(opts: {
         buildAuthTypesGenContent(exportImportPath, contractImportPath),
       );
     }
-  } else if (opts.authSource) {
+  } else {
     const generatedAuthExportPath = join(
       opts.configDir,
       ".bos",
@@ -692,6 +692,16 @@ export function writeGeneratedFiles(opts: {
     mkdirSync(dirname(generatedAuthExportPath), { recursive: true });
     if (!existsSync(generatedAuthExportPath)) {
       writeFileIfChanged(generatedAuthExportPath, buildAuthExportStub());
+    }
+    const generatedAuthContractPath = join(
+      opts.configDir,
+      ".bos",
+      "generated",
+      "auth",
+      "contract.d.ts",
+    );
+    if (!existsSync(generatedAuthContractPath)) {
+      writeFileIfChanged(generatedAuthContractPath, buildAuthContractStub());
     }
 
     for (const authTypesPath of authTypeTargets) {
