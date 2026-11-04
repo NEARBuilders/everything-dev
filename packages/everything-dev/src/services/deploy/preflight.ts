@@ -7,6 +7,7 @@ import { fetchResponse } from "../../utils/http-client";
 import { getNetworkIdForAccount } from "../../utils/network";
 import { colors } from "../../utils/theme";
 import {
+  checkPublishKeyHealth,
   describeSigningStrategy,
   resolveSigningStrategy,
   type SigningStrategy,
@@ -16,6 +17,7 @@ import { readSessionHandle } from "../auth/session";
 import {
   buildRegistryConfigUrlForNetwork,
   fetchPublishedConfigFromFastKv,
+  getRegistryNamespaceForAccount,
   getRegistryNamespaceForNetwork,
   type NetworkId,
 } from "../registry/fastkv";
@@ -339,6 +341,24 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
       console.log(`  Signing via ${colors.cyan(describeSigningStrategy(strategy))}`);
     } catch (error) {
       return fail(error instanceof Error ? error.message : "Unknown error");
+    }
+    // The publish key's on-chain health is checked before the build train so a
+    // rotated or exhausted key fails in seconds with the repair hint instead
+    // of surfacing after a full build as a broadcast that never appears
+    // on-chain.
+    if (strategy.strategy === "near-kit") {
+      const health = await checkPublishKeyHealth({
+        account,
+        contract: getRegistryNamespaceForAccount(account, input.registry),
+        privateKey: strategy.privateKey,
+        network,
+      });
+      if (health.warning) {
+        console.log(colors.dim(`  ${health.warning}`));
+      }
+      if (health.error) {
+        return fail(health.error);
+      }
     }
   }
 
