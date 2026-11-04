@@ -303,22 +303,23 @@ export class PlatformManifestService extends Context.Service<
 /**
  * The child-side upgrade-path line (`.scratch/catalog-drift/issues/05`):
  * when the resolved chain head is a NEWER release than this runtime's
- * authored pin, the runtime is servable-but-behind — the dev boot surfaces
- * the upgrade instead of waiting for a load-time skew to explain it. Empty
- * (no notice) when either side is unknown, or the pin is current-or-ahead.
- * Never reads npm: the FastKV pointer only advances when the parent's
- * release leg completed, so "pin trails pointer" already implies "the
- * chain is servable right now" — no transient mid-train state leaks in.
+ * authored release, the runtime is servable-but-behind — the dev boot
+ * surfaces the upgrade instead of waiting for a load-time skew to explain
+ * it. Empty (no notice) when either side is unknown, or the release is
+ * current-or-ahead. Never reads npm: the FastKV pointer only advances when
+ * the parent's release leg completed, so "release trails pointer" already
+ * implies "the chain is servable right now" — no transient mid-train state
+ * leaks in.
  */
 export function chainHeadPinLagNotice(
   headFrameworkVersion: string | undefined,
-  authoredPlatformPin: string | undefined,
+  authoredRelease: string | undefined,
 ): string | undefined {
-  if (!headFrameworkVersion || !authoredPlatformPin) return undefined;
-  if (compareSemver(headFrameworkVersion, authoredPlatformPin) <= 0) return undefined;
+  if (!headFrameworkVersion || !authoredRelease) return undefined;
+  if (compareSemver(headFrameworkVersion, authoredRelease) <= 0) return undefined;
   return (
-    `platform upgrade for this runtime: the chain head advanced to ${headFrameworkVersion}, ` +
-    `this runtime pins ${authoredPlatformPin} — run bos upgrade; until then the pinned release ` +
+    `release upgrade available for this runtime: the chain head advanced to ${headFrameworkVersion}, ` +
+    `this runtime targets ${authoredRelease} — run bos upgrade; until then the authored release ` +
     `keeps resolving the older chain`
   );
 }

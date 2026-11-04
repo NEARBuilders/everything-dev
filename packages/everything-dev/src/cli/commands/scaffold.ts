@@ -169,10 +169,10 @@ export const scaffoldRenderers: Record<string, ResultRenderer> = {
     } else {
       console.log(colors.green(`${icons.ok} Upgrade complete`));
     }
-    if (result.platform) {
-      const provenance = result.platform.provenance ? ` ${result.platform.provenance}` : "";
+    if (result.release) {
+      const provenance = result.release.provenance ? ` ${result.release.provenance}` : "";
       console.log(
-        `  ${colors.dim(`Platform ${result.platform.resolved}${provenance}${result.platform.fromCache ? " (cached)" : ""} — ${result.platform.source}`)}`,
+        `  ${colors.dim(`Release ${result.release.resolved}${provenance}${result.release.fromCache ? " (cached)" : ""} — ${result.release.source}`)}`,
       );
     }
     const mainPkg = result.packages.find(

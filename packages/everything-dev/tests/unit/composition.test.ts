@@ -485,7 +485,7 @@ describe("runCompositionGate — compat leg", () => {
     const configDir = scaffoldChild("2.0.0-rc.24", "19.2.9");
     const report = await runCompositionGate({
       configDir,
-      authoredConfig: { platform: "2.0.0-rc.24" },
+      authoredConfig: { release: "2.0.0-rc.24" },
       resolvedShape: {},
       resolvedRelease: manifestWithSlots(undefined),
     });
@@ -496,7 +496,7 @@ describe("runCompositionGate — compat leg", () => {
     const configDir = scaffoldChild("2.0.0-rc.25", "19.2.9");
     const report = await runCompositionGate({
       configDir,
-      authoredConfig: { platform: "2.0.0-rc.24" },
+      authoredConfig: { release: "2.0.0-rc.24" },
       resolvedShape: {},
       resolvedRelease: manifestWithSlots(undefined),
     });

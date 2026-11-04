@@ -24,7 +24,7 @@ beforeEach(() => {
     `${JSON.stringify({
       account: "child.near",
       extends: "bos://dev.everything.near/everything.dev",
-      platform: "2.0.0-rc.16",
+      release: "2.0.0-rc.16",
     })}\n`,
   );
 });
@@ -90,7 +90,7 @@ function platformManifestEffect(layer: Layer.Layer<PlatformManifestService>): Pr
 describe("platformManifest handler — pin drift (issue #546)", () => {
   it("reports the published parent platform against the stale pin instead of a cryptic pin-not-found error", async () => {
     const resolve = vi.fn(async (opts: { localConfig: Record<string, unknown> }) => {
-      if (typeof opts.localConfig.platform === "string") {
+      if (typeof opts.localConfig.release === "string") {
         throw new Error(
           "platform pin 2.0.0-rc.16 not found in the extends chain (bos://dev.everything.near/everything.dev) — publish the release or clear the pin",
         );

@@ -42,7 +42,9 @@ import {
   PlatformReleaseManifestSchema,
   resolvePlatformManifest,
 } from "../../src/services/platform/manifest";
+import { parseRuntimeRef } from "../../src/services/registry/keys";
 import { platformVersionSlotKeyOf } from "../../src/services/registry/pointer";
+import * as resolutionModule from "../../src/services/registry/resolution";
 import {
   resolveBootShape,
   verifyResolvedBootShape,
@@ -51,7 +53,7 @@ import * as initSourceModule from "../../src/services/resolution/init-source";
 import * as sessionModule from "../../src/services/resolution/session";
 import * as initModule from "../../src/services/scaffold/init";
 import * as syncModule from "../../src/services/scaffold/sync";
-import { applyPlatformPin } from "../../src/services/scaffold/upgrade-migration";
+import { applyRelease } from "../../src/services/scaffold/upgrade-migration";
 import { installDriftError } from "../../src/services/scaffold/upgrade-packages";
 import {
   type ExtendedRootSourceOptions,
@@ -109,7 +111,7 @@ function frameworkRootFixture(version: string, reactVersion: string): string {
   return dir;
 }
 
-function childFixture(platform?: string): string {
+function childFixture(release?: string): string {
   const dir = mkdtempSync(join(tmpdir(), "platform-e2e-child-"));
   tempDirs.push(dir);
   mkdirSync(join(dir, "ui"), { recursive: true });
@@ -119,7 +121,7 @@ function childFixture(platform?: string): string {
       extends: `bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`,
       account: "child.near",
       domain: "child.example",
-      ...(platform ? { platform } : {}),
+      ...(release ? { release } : {}),
       app: { ui: { development: "local:ui" } },
     })}\n`,
   );
@@ -157,7 +159,26 @@ function readChildConfig(): Record<string, unknown> {
   >;
 }
 
-const upgradeSourceOptions: ExtendedRootSourceOptions = { fetchManifest, fetchParent };
+/** The upgrade-source seams over the fake FastKV: the resolution machine's
+ * tag/record reads point at the registry map; the cache read is forced-miss
+ * inside readExtendedRootSource (policy — not overridable). */
+const upgradeSourceOptions: ExtendedRootSourceOptions = {
+  fetchParent,
+  seams: {
+    async readManifestTag(ref) {
+      const { accountId, gatewayId } = parseRuntimeRef(ref);
+      return (registry.get(`apps/${accountId}/${gatewayId}/platform.json`) as unknown) ?? null;
+    },
+    async readVersionRecord(ref, release) {
+      const { accountId, gatewayId } = parseRuntimeRef(ref);
+      const value = registry.get(
+        `apps/${accountId}/${gatewayId}/platform-versions/${release}.json`,
+      );
+      return value === undefined ? null : JSON.stringify(value);
+    },
+    parseManifest: (value) => PlatformReleaseManifestSchema.parse(value),
+  },
+};
 
 describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
   beforeAll(() => {
@@ -183,16 +204,16 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     });
   });
 
-  it("C1 — the child upgrade resolves the chain and stamps the vA pin", async () => {
+  it("C1 — the child upgrade resolves the chain and stamps the release", async () => {
     const source = await readExtendedRootSource(childDir, upgradeSourceOptions);
     expect(source.platform.manifest.frameworkVersion).toBe("2.0.0-rc.1");
     expect(source.catalog.react).toBe("19.2.4");
     expect(source.extendsChain).toEqual([`bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`]);
     expect(source.repository).toBe("https://github.com/NEARBuilders/everything-dev");
 
-    const stampedFile = await applyPlatformPin(childDir, source);
+    const stampedFile = await applyRelease(childDir, source);
     expect(stampedFile).toBe("bos.config.json");
-    expect(readChildConfig().platform).toBe("2.0.0-rc.1");
+    expect(readChildConfig().release).toBe("2.0.0-rc.1");
   });
 
   it("C-deploy — the child's image pin derives from the manifest, the truth gate stays silent", async () => {
@@ -265,7 +286,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     await expect(
       resolvePlatformManifest({
         configDir: childDir,
-        localConfig: { ...readChildConfig(), platform: "2.0.0-rc.99" },
+        localConfig: { ...readChildConfig(), release: "2.0.0-rc.99" },
         fetchManifest,
         fetchParent,
         fetchSlot,
@@ -328,7 +349,7 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     ).resolves.toMatchObject({ fromCache: true, manifest: { frameworkVersion: "2.0.0-rc.1" } });
   });
 
-  it("C2 — the upgrade ignores the pin, resolves the latest release, and re-pins", async () => {
+  it("C2 — the upgrade ignores the authored release, resolves the latest release, and re-stamps", async () => {
     writeFileSync(
       join(rootDir, "packages", "everything-dev", "package.json"),
       `${JSON.stringify({ name: "everything-dev", version: "2.0.0-rc.3" })}\n`,
@@ -351,8 +372,119 @@ describe("platform upgrade e2e — publish, pin, stale, re-pin, skew", () => {
     expect(source.platform.manifest.frameworkVersion).toBe("2.0.0-rc.3");
     expect(source.catalog.react).toBe("19.3.0");
 
-    await applyPlatformPin(childDir, source);
-    expect(readChildConfig().platform).toBe("2.0.0-rc.3");
+    await applyRelease(childDir, source);
+    expect(readChildConfig().release).toBe("2.0.0-rc.3");
+  });
+
+  it("the incident replay — an authored release whose version record is absent never blocks the upgrade", async () => {
+    // the Nov-03 burned slot: the child is aligned to a release the chain
+    // never recorded. Everyday resolution fails loud on it; the upgrade —
+    // the sanctioned repair — must resolve latest and move the tree anyway.
+    writeFileSync(
+      join(childDir, "bos.config.json"),
+      `${JSON.stringify({
+        extends: `bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`,
+        account: "child.near",
+        domain: "child.example",
+        release: "2.0.0-rc.99",
+        app: { ui: { development: "local:ui" } },
+      })}\n`,
+    );
+
+    const source = await readExtendedRootSource(childDir, upgradeSourceOptions);
+    expect(source.authoredRelease).toBe("2.0.0-rc.99");
+    expect(source.platform.manifest.frameworkVersion).toBe("2.0.0-rc.3");
+
+    await applyRelease(childDir, source);
+    const config = readChildConfig();
+    expect(config.release).toBe("2.0.0-rc.3");
+    expect(config.platform).toBeUndefined();
+  });
+
+  it("the codemod — a legacy platform key rewrites to the release field in the same stamp", async () => {
+    writeFileSync(
+      join(childDir, "bos.config.json"),
+      `${JSON.stringify({
+        extends: `bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`,
+        account: "child.near",
+        domain: "child.example",
+        platform: "2.0.0-rc.99",
+        app: { ui: { development: "local:ui" } },
+      })}\n`,
+    );
+
+    const source = await readExtendedRootSource(childDir, upgradeSourceOptions);
+    await applyRelease(childDir, source);
+    const config = readChildConfig();
+    expect(config.release).toBe("2.0.0-rc.3");
+    expect(config.platform).toBeUndefined();
+  });
+
+  it("cache refusal — the upgrade-of-record never chooses a release from the offline cache", async () => {
+    // a fresh cache stands in on the child (the offline-dev aid) while the
+    // registry goes dark — the upgrade refuses instead of stamping stale bytes
+    const cacheFile = join(childDir, ".bos", "platform-manifest.json");
+    mkdirSync(join(childDir, ".bos"), { recursive: true });
+    writeFileSync(
+      cacheFile,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        kind: "everything-dev/platform-manifest-cache",
+        resolvedAt: new Date().toISOString(),
+        source: { account: ROOT_ACCOUNT, gateway: ROOT_GATEWAY },
+        manifest: PlatformReleaseManifestSchema.parse({
+          schemaVersion: 1,
+          kind: "everything-dev/platform-manifest",
+          frameworkVersion: "2.0.0-rc.1",
+          everyPluginVersion: "3.0.0-rc.9",
+          image: { ref: PLATFORM_IMAGE_REF, tags: ["v2.0.0-rc.1"] },
+          catalog: { react: "19.2.4", effect: "4.0.0-rc.112" },
+          sharedDeps: {},
+          templateInventory: [],
+          compat: { minChild: "2.0.0-rc.1" },
+        }),
+        provenance: "slot",
+      })}\n`,
+    );
+
+    const darkSeams: ExtendedRootSourceOptions = {
+      fetchParent,
+      seams: {
+        readManifestTag: async () => null,
+        readVersionRecord: async () => null,
+        parseManifest: (value) => PlatformReleaseManifestSchema.parse(value),
+      },
+    };
+    await expect(readExtendedRootSource(childDir, darkSeams)).rejects.toThrow(
+      /No platform release manifest resolves/,
+    );
+    // and the cache file was never the excuse — it is untouched on disk
+    expect(existsSync(cacheFile)).toBe(true);
+    rmSync(cacheFile, { force: true });
+  });
+
+  it("stamp refusal — a release whose version record never published fails before any mutation (#568)", async () => {
+    // the root's deploy flipped the tag to rc.4 but its manifest leg never
+    // wrote the version record — the upgrade refuses at the source, with the
+    // child's authored config untouched
+    writeFileSync(
+      join(rootDir, "packages", "everything-dev", "package.json"),
+      `${JSON.stringify({ name: "everything-dev", version: "2.0.0-rc.4" })}\n`,
+    );
+    const entry = composePlatformManifestPublishEntry({
+      configDir: rootDir,
+      account: ROOT_ACCOUNT,
+      gateway: ROOT_GATEWAY,
+      previousFrameworkVersion: "2.0.0-rc.3",
+    });
+    expect(entry).not.toBeNull();
+    registry.set(entry!.key, JSON.parse(entry!.value));
+
+    const before = readFileSync(join(childDir, "bos.config.json"), "utf-8");
+    await expect(readExtendedRootSource(childDir, upgradeSourceOptions)).rejects.toThrow(
+      /version record is not published/,
+    );
+    expect(readFileSync(join(childDir, "bos.config.json"), "utf-8")).toBe(before);
   });
 });
 
@@ -387,7 +519,7 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
         extends: `bos://${ROOT_ACCOUNT}/${ROOT_GATEWAY}`,
         account: "child.near",
         domain: "child.example",
-        platform: "2.0.0-rc.1",
+        release: "2.0.0-rc.1",
         app: { ui: { production: `${baseUrl}/root-ui-manifest.json` } },
         plugins: {
           votes: { ui: { production: `${baseUrl}/child-ui-manifest.json` } },
@@ -458,13 +590,13 @@ describe("#546 replay — drifted-react republish after the child stayed pinned"
     } catch {
       const latest = await resolvePlatformManifest({
         configDir: childDir,
-        localConfig: { ...localConfig, platform: undefined },
+        localConfig: { ...localConfig, release: undefined },
         fetchManifest,
         fetchParent,
         fetchSlot,
       });
       resolved = latest;
-      const pinned = typeof localConfig.platform === "string" ? localConfig.platform : undefined;
+      const pinned = typeof localConfig.release === "string" ? localConfig.release : undefined;
       drift = pinned ? { pinned, published: latest!.manifest.frameworkVersion } : undefined;
     }
     expect(resolved).not.toBeNull();
@@ -693,7 +825,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       extends: `bos://${ACCOUNT}/${GATEWAY}`,
       account: "child.near",
       domain: "child.example",
-      platform: "2.0.0-rc.1",
+      release: "2.0.0-rc.1",
       app: { ui: { development: "local:ui" } },
       plugins: { feedback: { extends: `bos://${ACCOUNT}/${GATEWAY}/votes` } },
     };
@@ -725,7 +857,7 @@ describe("release-scoped inheritance — a pinned child deploy survives the root
       extends: `bos://${ACCOUNT}/${GATEWAY}`,
       account: "child.near",
       domain: "child.example",
-      platform: "2.0.0-rc.1",
+      release: "2.0.0-rc.1",
       app: { ui: { development: "local:ui" } },
       plugins: { feedback: { extends: `bos://${ACCOUNT}/${GATEWAY}/votes` } },
     };
@@ -875,13 +1007,30 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
 
   /** The upgrade seams that reach outside the fixture tree — the manifest leg
    * resolves the composed bytes from this describe's fixture (never a
-   * hand-written manifest), everything else is the harness boundary. */
+   * hand-written manifest), everything else is the harness boundary. The
+   * machine mock answers both queries the upgrade source makes (Latest
+   * target + record verification). */
   function mockUpgradeSeams(): void {
-    vi.spyOn(platformManifestModule, "resolvePlatformManifest").mockResolvedValue({
-      manifest: releaseManifest,
-      source: { account: ACCOUNT, gateway: GATEWAY },
-      fromCache: false,
-    } as never);
+    vi.spyOn(resolutionModule, "resolveRelease").mockImplementation(async (input) => {
+      if (input.query.kind === "Pinned" && input.query.release === RELEASE_VERSION) {
+        return {
+          state: "Resolved",
+          manifest: releaseManifest,
+          source: { account: ACCOUNT, gateway: GATEWAY },
+          from: "version",
+          provenance: "slot",
+          fromCache: false,
+        } as never;
+      }
+      return {
+        state: "Resolved",
+        manifest: releaseManifest,
+        source: { account: ACCOUNT, gateway: GATEWAY },
+        from: "manifest",
+        provenance: "pointer",
+        fromCache: false,
+      } as never;
+    });
     vi.spyOn(initSourceModule, "fetchParentConfig").mockResolvedValue({
       repository: "https://github.com/NEARBuilders/everything-dev",
     } as never);
@@ -970,9 +1119,9 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
     // the pin froze to the release the upgrade landed from
     expect(result.migrated).toContain("bos.config.json");
     const migratedConfig = JSON.parse(readFileSync(join(childDir, "bos.config.json"), "utf-8")) as {
-      platform?: string;
+      release?: string;
     };
-    expect(migratedConfig.platform).toBe(RELEASE_VERSION);
+    expect(migratedConfig.release).toBe(RELEASE_VERSION);
     // the coherence floor: the exact catalog plus the release install is
     // coherent, and the newer rc that floated past it is named by the gate
     expect(
@@ -1011,8 +1160,8 @@ describe("upgrade coherence — the mixed-tree replay (caret rows cannot float)"
       .mock.calls.filter(([, opts]) => !opts?.dryRun);
     expect(applyingSyncs).toEqual([]);
     const migratedConfig = JSON.parse(readFileSync(join(childDir, "bos.config.json"), "utf-8")) as {
-      platform?: string;
+      release?: string;
     };
-    expect(migratedConfig.platform).toBeUndefined();
+    expect(migratedConfig.release).toBeUndefined();
   });
 });

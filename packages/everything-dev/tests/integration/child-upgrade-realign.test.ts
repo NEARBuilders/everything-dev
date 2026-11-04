@@ -117,7 +117,7 @@ const buildChildSession = (catalog: Record<string, string>): ResolutionSession =
   } as unknown as PlatformReleaseManifest;
   const rawConfig = {
     extends: "bos://parent/gateway",
-    platform: frameworkVersion,
+    release: frameworkVersion,
     app: { ui: { development: "local:ui" }, api: { development: "local:api" } },
     plugins: {
       auth: { development: "local:plugins/auth" },

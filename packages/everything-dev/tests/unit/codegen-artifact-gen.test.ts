@@ -153,7 +153,7 @@ describe("generateCodeArtifactsEffect — strict types gen on a fresh checkout",
     stubCdn(requested);
 
     const result = await Effect.runPromise(
-      generateCodeArtifactsEffect(tempDir, { platform: null } as never, {
+      generateCodeArtifactsEffect(tempDir, { release: null } as never, {
         runtimeConfig: runtime,
         runtimeMapStrict: true,
       }),
@@ -178,7 +178,7 @@ describe("generateCodeArtifactsEffect — strict types gen on a fresh checkout",
     stubCdn(requested);
 
     await Effect.runPromise(
-      generateCodeArtifactsEffect(tempDir, { platform: null } as never, {
+      generateCodeArtifactsEffect(tempDir, { release: null } as never, {
         runtimeConfig: runtime,
         runtimeMapStrict: true,
       }),
@@ -226,7 +226,7 @@ describe("ArtifactGenError — the wire message is never empty", () => {
     stubCdn();
 
     const error = await Effect.runPromise(
-      generateCodeArtifactsEffect(tempDir, { platform: null } as never, {
+      generateCodeArtifactsEffect(tempDir, { release: null } as never, {
         runtimeConfig: runtime,
         runtimeMapStrict: true,
       }),

@@ -96,7 +96,12 @@ export const AppDescriptorSchema = z
     description: z.string().optional(),
     repository: z.string().optional(),
     testnet: z.string().optional(),
-    /** The platform release pin (ADR 0034): the exact framework version this app targets. */
+    /** The authored release (ADR 0034): the exact framework version this app targets. */
+    release: z.string().optional(),
+    /** Retired authored key, kept declared solely so pre-`release:` authored
+     * files still parse — `bos upgrade` rewrites it to `release:` surgically.
+     * It carries no semantics: no consumer reads it, the resolved config
+     * strips it, and strict gates fail it with the migration hint. */
     platform: z.string().optional(),
     staging: z
       .object({

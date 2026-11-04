@@ -111,7 +111,7 @@ describe("resolvePlatformManifest", () => {
         { account: "mid.near", gateway: "mid", manifest: makeManifest("2.1.0") },
       ],
     });
-    const resolved = await h.run({ ...childConfig, platform: "2.1.0" });
+    const resolved = await h.run({ ...childConfig, release: "2.1.0" });
     expect(resolved?.manifest.frameworkVersion).toBe("2.1.0");
     expect(resolved?.provenance).toBe("slot");
     expect(resolved?.source).toEqual({ account: "root.near", gateway: "root" });
@@ -131,7 +131,7 @@ describe("resolvePlatformManifest", () => {
         },
       ],
     });
-    const resolved = await h.run({ ...childConfig, platform: "2.0.0-rc.14" });
+    const resolved = await h.run({ ...childConfig, release: "2.0.0-rc.14" });
     expect(resolved?.manifest.frameworkVersion).toBe("2.0.0-rc.14");
     expect(resolved?.provenance).toBe("slot");
     expect(resolved?.fromCache).toBe(false);
@@ -150,7 +150,7 @@ describe("resolvePlatformManifest", () => {
     const h = harness({
       chain: [{ account: "root.near", gateway: "root", manifest: makeManifest("2.0.0-rc.14") }],
     });
-    await expect(h.run({ ...childConfig, platform: "9.0.0" })).rejects.toThrow(
+    await expect(h.run({ ...childConfig, release: "9.0.0" })).rejects.toThrow(
       /9\.0\.0.*never published/s,
     );
   });
@@ -166,7 +166,7 @@ describe("resolvePlatformManifest", () => {
         },
       ],
     });
-    await expect(h.run({ ...childConfig, platform: "2.0.0-rc.14" })).rejects.toThrow(
+    await expect(h.run({ ...childConfig, release: "2.0.0-rc.14" })).rejects.toThrow(
       /platform-versions\/2\.0\.0-rc\.14\.json/,
     );
   });
@@ -187,7 +187,7 @@ describe("resolvePlatformManifest", () => {
         source: { account: "root.near", gateway: "root" },
       },
     });
-    await expect(h.run({ ...childConfig, platform: "9.0.0" })).rejects.toThrow(/never published/);
+    await expect(h.run({ ...childConfig, release: "9.0.0" })).rejects.toThrow(/never published/);
   });
 
   it("no manifest anywhere → null (today's behavior, ADR 0034 pt 7)", async () => {
@@ -214,7 +214,7 @@ describe("resolvePlatformManifest", () => {
         provenance: "slot",
       },
     });
-    const resolved = await h.run({ ...childConfig, platform: "2.0.0-rc.14" });
+    const resolved = await h.run({ ...childConfig, release: "2.0.0-rc.14" });
     expect(resolved?.fromCache).toBe(true);
     expect(resolved?.provenance).toBe("slot");
     expect(resolved?.manifest.frameworkVersion).toBe("2.0.0-rc.14");
@@ -241,7 +241,7 @@ describe("resolvePlatformManifest", () => {
         resolvedAt: new Date(Date.now() - 25 * 60 * 60_000).toISOString(),
       },
     });
-    await expect(h.run({ ...childConfig, platform: "2.0.0-rc.14" })).rejects.toThrow(
+    await expect(h.run({ ...childConfig, release: "2.0.0-rc.14" })).rejects.toThrow(
       /2\.0\.0-rc\.14/,
     );
   });

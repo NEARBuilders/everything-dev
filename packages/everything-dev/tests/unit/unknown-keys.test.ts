@@ -22,7 +22,7 @@ describe("collectUnknownKeys", () => {
           account: "a.near",
           domain: "a.dev",
           extends: "bos://p.near/p.dev",
-          platform: "2.0.0-rc.14",
+          release: "2.0.0-rc.14",
           repository: "https://github.com/acme/app",
           ci: { railway: { service: "app" } },
           publish: { auth: "key" },
@@ -30,6 +30,16 @@ describe("collectUnknownKeys", () => {
         BosConfigSchema,
       ),
     ).toEqual([]);
+  });
+
+  it("flags the retired platform key — the strict gate behind the migration hint", () => {
+    expect(
+      collectUnknownKeys(
+        { extends: "bos://p.near/p.dev", platform: "2.0.0-rc.13" },
+        BosConfigSchema,
+      ),
+    ).toEqual(["platform"]);
+    expect(collectUnknownKeys({ release: "2.0.0-rc.14" }, BosConfigSchema)).toEqual([]);
   });
 
   it("does not descend into records — plugin keys are not unknown keys", () => {

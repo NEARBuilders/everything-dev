@@ -483,7 +483,7 @@ function renderTypeScript(map: GeneratedRuntimeMap): string {
 
 export const RUNTIME_MAP_GENERATED_AT = ${JSON.stringify(map.generatedAt)};
 export const RUNTIME_MAP_ENV = ${JSON.stringify(map.env)};
-export const RUNTIME_PLATFORM = ${JSON.stringify(map.platform)};
+export const RUNTIME_RELEASE = ${JSON.stringify(map.release)};
 
 export const RUNTIME_SOURCES = ${json(map.sources)} as const;
 
@@ -509,7 +509,7 @@ export type UnresolvedSource = (typeof UNRESOLVED_SOURCES)[number];
 interface GeneratedRuntimeMap {
   generatedAt: string;
   env: string;
-  platform: string | null;
+  release: string | null;
   extends: string | null;
   sources: Array<{
     key: string;
@@ -530,7 +530,7 @@ interface GeneratedRuntimeMap {
 export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function* (
   configDir: string,
   runtimeConfig: RuntimeConfig,
-  opts?: { strict?: boolean; env?: string; platform?: string | null; extendsChain?: string[] },
+  opts?: { strict?: boolean; env?: string; release?: string | null; extendsChain?: string[] },
 ): Effect.fn.Return<RuntimeMapResult | null, Error> {
   const allowUnresolved = envBool("BOS_MAP_ALLOW_UNRESOLVED");
   const unresolved: UnresolvedSource[] = [];
@@ -637,7 +637,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
   const map: GeneratedRuntimeMap = {
     generatedAt: isoNow(yield* Clock.currentTimeMillis),
     env: opts?.env ?? "unknown",
-    platform: opts?.platform ?? null,
+    release: opts?.release ?? null,
     extends: opts?.extendsChain?.join(" → ") ?? null,
     sources: sources.map((source) => ({
       key: source.key,

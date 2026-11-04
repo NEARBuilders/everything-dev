@@ -76,6 +76,39 @@ export function frameworkReleaseAgeExcludes(catalog: Record<string, string>): st
 }
 
 /**
+ * Pre-install invariant: the workspace's `minimumReleaseAgeExclude` rows must
+ * cover every exact framework catalog row — a freshly released version
+ * younger than pnpm's holdback fails the install otherwise (the Nov-03
+ * stranded-rc incident). Returns the uncovered `name@version` rows; empty
+ * when covered (or when the catalog carries no exact framework rows).
+ */
+export function releaseAgeExcludesCoverageGaps(doc: WorkspaceYamlDoc): string[] {
+  const excludes = new Set(doc.minimumReleaseAgeExclude ?? []);
+  return frameworkReleaseAgeExcludes(doc.catalog ?? {}).filter((entry) => !excludes.has(entry));
+}
+
+/**
+ * File-level pre-install invariant: reads pnpm-workspace.yaml and returns the
+ * uncovered release-age exclude rows. Unparseable or catalog-less files yield
+ * no gaps (nothing to cover); reconciliation is what repairs real gaps.
+ */
+export function verifyReleaseAgeExcludes(root: string): string[] {
+  const yamlPath = join(root, "pnpm-workspace.yaml");
+  if (!existsSync(yamlPath)) return [];
+
+  let doc: WorkspaceYamlDoc;
+  try {
+    const parsed = parse(readFileSync(yamlPath, "utf8")) as WorkspaceYamlDoc | null;
+    if (!parsed || typeof parsed !== "object") return [];
+    doc = parsed;
+  } catch {
+    return [];
+  }
+
+  return releaseAgeExcludesCoverageGaps(doc);
+}
+
+/**
  * Mutates the parsed workspace doc: overrides for the catalog-pinned keys
  * follow the catalog rows, framework release-age excludes are regenerated
  * from the catalog's current framework versions (non-framework entries the

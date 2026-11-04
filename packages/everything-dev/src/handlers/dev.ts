@@ -35,7 +35,7 @@ export function registerDev(builder: BosBuilder) {
       if (result.status === "started" && session) {
         const notice = chainHeadPinLagNotice(
           session.releaseManifest?.frameworkVersion,
-          session.rawConfig?.platform,
+          session.rawConfig?.release,
         );
         if (notice) console.log(`\n  ${notice}\n`);
         const audit = yield* Effect.tryPromise({

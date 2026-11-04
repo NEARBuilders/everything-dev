@@ -143,7 +143,7 @@ describe.skipIf(process.env.CI === "true")(
         extendsGateway: "everything.dev",
         account: "test.near",
         domain: "test.dev",
-        platform: published.manifest.frameworkVersion,
+        release: published.manifest.frameworkVersion,
         catalog: published.manifest.catalog,
         overrides: ["ui", "api", "host", "plugins"],
         plugins: ["template"],
@@ -214,11 +214,11 @@ describe.skipIf(process.env.CI === "true")(
       // fresh tree: unresolvable pin, config failure, crash.
       expect([0, 1]).toContain(result.code);
       const report = JSON.parse(result.stdout) as {
-        platform?: { resolved?: string };
+        release?: { resolved?: string };
         error?: string;
       };
       expect(report.error).toBeUndefined();
-      expect(report.platform?.resolved).toMatch(/^\d+\.\d+\.\d+/);
+      expect(report.release?.resolved).toMatch(/^\d+\.\d+\.\d+/);
     }, 300_000);
 
     it("bos dev boots the fresh child cleanly and quits gracefully", async () => {

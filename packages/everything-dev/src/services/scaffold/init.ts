@@ -567,9 +567,10 @@ export async function personalizeConfig(
     starter?: StarterLevel;
     /** The platform release's catalog (ADR 0034) — skips the local chain walk. */
     catalog?: Record<string, string>;
-    /** The framework version to pin (ADR 0034) — stamped onto the authored
-     * config; absent in sync mode, the child's existing pin is preserved. */
-    platform?: string;
+    /** The framework version to stamp as the authored release (ADR 0034) —
+     * written onto the authored config; absent in sync mode, the child's
+     * existing release is preserved. */
+    release?: string;
   },
 ): Promise<void> {
   const has = (section: OverrideSection) => opts.overrides.includes(section);
@@ -585,11 +586,12 @@ export async function personalizeConfig(
       delete config.starter;
     }
   };
-  const applyPlatformField = (config: Record<string, unknown>): void => {
-    if (opts.platform !== undefined) {
-      config.platform = opts.platform;
-    } else if (opts.mode !== "sync") {
+  const applyReleaseField = (config: Record<string, unknown>): void => {
+    if (opts.release !== undefined) {
       delete config.platform;
+      config.release = opts.release;
+    } else if (opts.mode !== "sync") {
+      delete config.release;
     }
   };
 
@@ -608,7 +610,7 @@ export async function personalizeConfig(
             "mode",
             "existingConfig",
             "catalog",
-            "platform",
+            "release",
           ].includes(key),
       )
       .map(([key]) => key),
@@ -643,7 +645,7 @@ export async function personalizeConfig(
     }
 
     applyStarter(config);
-    applyPlatformField(config);
+    applyReleaseField(config);
 
     if (config.app && typeof config.app === "object") {
       const app = config.app as Record<string, unknown>;
@@ -741,7 +743,7 @@ export async function personalizeConfig(
     }
 
     applyStarter(config);
-    applyPlatformField(config);
+    applyReleaseField(config);
 
     if (config.app && typeof config.app === "object") {
       const app = config.app as Record<string, unknown>;
@@ -811,13 +813,13 @@ export async function personalizeConfig(
     }
 
     if (opts.mode === "sync" && opts.existingConfig) {
-      // "platform" is managed (ADR 0034): the child's pin survives
+      // "release" is managed (ADR 0034): the child's authored release survives
       // personalization instead of being stripped as an unknown root key.
       const managedRootKeys = new Set([
         "extends",
         "account",
         "domain",
-        "platform",
+        "release",
         "app",
         "plugins",
       ]);
@@ -1103,19 +1105,54 @@ export async function runPnpmInstall(
   );
 }
 
+/**
+ * The upgrade install: same invocation as a plain install but with the
+ * output captured (relayed live as it streams) so a failure carries the
+ * text the release-age remediation classifies.
+ */
 export async function runPnpmInstallForUpgrade(
   destination: string,
   opts?: {
     spinner?: { message: (msg: string) => void };
   },
 ): Promise<void> {
-  await runWithProgress(
-    "pnpm",
-    ["install", "--force"],
-    destination,
-    opts?.spinner,
-    "Installing dependencies",
-  );
+  const timeout = COMMAND_TIMEOUTS["pnpm"] ?? 2 * 60_000;
+  const child = execa("pnpm", ["install", "--force"], {
+    cwd: destination,
+    stdio: ["inherit", "pipe", "pipe"],
+    timeout,
+    all: true,
+    env: { ...process.env, BOS_NO_BANNER: "1" },
+  });
+  let captured = "";
+  child.stdout?.on("data", (chunk: Buffer) => process.stdout.write(chunk));
+  child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));
+  child.all?.on("data", (chunk: Buffer) => {
+    captured += chunk.toString();
+  });
+
+  if (opts?.spinner) {
+    const start = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      opts.spinner!.message(`Installing dependencies... (${elapsed}s)`);
+    }, 2000);
+    try {
+      await child;
+    } catch (error) {
+      (error as { output?: string }).output = captured;
+      throw error;
+    } finally {
+      clearInterval(interval);
+    }
+    return;
+  }
+  try {
+    await child;
+  } catch (error) {
+    (error as { output?: string }).output = captured;
+    throw error;
+  }
 }
 
 /**
@@ -1218,8 +1255,8 @@ export async function scaffoldMinimalProject(
     catalogSourceDir?: string;
     /** the platform release's catalog (ADR 0034) — preferred over the walk */
     catalog?: Record<string, string>;
-    /** the framework version to pin (ADR 0034) */
-    platform?: string;
+    /** the framework version to stamp as the authored release (ADR 0034) */
+    release?: string;
   },
 ): Promise<number> {
   mkdirSync(destination, { recursive: true });
@@ -1234,7 +1271,7 @@ export async function scaffoldMinimalProject(
     ...(opts.title ? { title: opts.title } : {}),
     ...(opts.description ? { description: opts.description } : {}),
     ...(opts.starter ? { starter: opts.starter } : {}),
-    ...(opts.platform ? { platform: opts.platform } : {}),
+    ...(opts.release ? { release: opts.release } : {}),
   };
 
   if (parentConfig.app && typeof parentConfig.app === "object") {

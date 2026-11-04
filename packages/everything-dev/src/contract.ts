@@ -770,13 +770,14 @@ export const UpgradeResultSchema = z.object({
   migrated: z.array(z.string()).optional(),
   availablePlugins: z.array(z.string()).optional(),
   /** The resolved platform release manifest when one publishes (ADR 0034). */
-  platform: z
+  release: z
     .object({
       resolved: z.string(),
       source: z.string(),
       fromCache: z.boolean(),
-      /** slot = the immutable version slot (an exact pin's target); pointer =
-       * the moving platform.json (unpinned resolution) — #574. */
+      /** version = the immutable version record (an exact authored release's
+       * target); pointer = the moving platform.json tag (latest resolution) —
+       * #574. */
       provenance: z.enum(["slot", "pointer"]).optional(),
     })
     .optional(),

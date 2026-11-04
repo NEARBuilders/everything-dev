@@ -643,19 +643,21 @@ export function registerUpgrade(builder: BosBuilder) {
               localConfig: authoredConfig,
             });
           } catch (pinError) {
-            // The pin names a release the chain no longer serves — the root
-            // republished past it (issue #546). Resolve the latest published
-            // manifest so the report names the drift instead of the cryptic
-            // pin-not-found error.
+            // The authored release names a release the chain no longer serves
+            // — the root republished past it (issue #546). Resolve the latest
+            // published manifest so the report names the drift instead of the
+            // cryptic pin-not-found error.
             const latest = await platformManifest.resolvePlatformManifest({
               configDir: projectDir,
-              localConfig: { ...authoredConfig, platform: undefined },
+              localConfig: { ...authoredConfig, release: undefined },
             });
             if (!latest) throw pinError;
             resolved = latest;
-            const pinned =
-              typeof authoredConfig.platform === "string" ? authoredConfig.platform : undefined;
-            drift = pinned ? { pinned, published: latest.manifest.frameworkVersion } : undefined;
+            const authored =
+              typeof authoredConfig.release === "string" ? authoredConfig.release : undefined;
+            drift = authored
+              ? { pinned: authored, published: latest.manifest.frameworkVersion }
+              : undefined;
           }
           if (!resolved) {
             return { status: "absent" as const, version: null };

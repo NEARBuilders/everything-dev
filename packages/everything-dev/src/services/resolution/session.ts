@@ -448,16 +448,17 @@ export async function openResolution(
 
         let overlayMerged = mergedRaw;
         let devOverlay: Record<string, unknown> | undefined;
-        // Release-plane stamping (ADR 0034 consumer boot): a platform-pinned
-        // runtime composes the pinned release's recorded slots — production,
+        // Release stamping (ADR 0034 consumer boot): a release-authored
+        // runtime composes the authored release's recorded slots — production,
         // local dev, and type generation inherit the same bytes instead of
         // the parent's live config pointer. Runs before the dev overlay so
-        // the overlay still wins on conflict. Only a PIN resolves the plane:
-        // an unpinned runtime follows the parent's live pointer exactly as
-        // before. A pinned-but-unresolvable manifest fails loud right here
-        // (the slot-first contract names the key) instead of skewing later.
+        // the overlay still wins on conflict. Only an authored release
+        // resolves the stamp: an unauthored runtime follows the parent's live
+        // pointer exactly as before. An authored-but-unresolvable manifest
+        // fails loud right here (the slot-first contract names the key)
+        // instead of skewing later.
         const releaseManifest: PlatformReleaseManifest | null =
-          rawConfig && typeof rawConfig.platform === "string"
+          rawConfig && typeof rawConfig.release === "string"
             ? ((
                 await resolvePlatformManifest({
                   configDir: dispatch.root,
