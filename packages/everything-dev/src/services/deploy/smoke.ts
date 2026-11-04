@@ -245,7 +245,18 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
     const exitWatch = watchContainerExit(container);
     const bootChecks = Promise.all([
       pollUntil("health", () =>
-        fetchStatusOk(`${baseUrl}/health`).then((r) => `status ${r.status}`),
+        fetchStatusOk(`${baseUrl}/health`).then(async (r) => {
+          const health = (await r.json()) as { snapshot?: { booted?: boolean } };
+          // A registry-sourced production boot must never claim snapshot
+          // provenance — the degraded rung (ADR 0041) only triggers when the
+          // registry is unreachable, which a healthy publish never is.
+          if (health.snapshot?.booted) {
+            throw new Error(
+              "/health reports snapshot provenance on a registry-sourced boot — the degraded rung triggered on a healthy publish",
+            );
+          }
+          return `status ${r.status}`;
+        }),
       ),
       pollUntil("ssr page", async () => {
         const response = await fetchStatusOk(`${baseUrl}/`);
