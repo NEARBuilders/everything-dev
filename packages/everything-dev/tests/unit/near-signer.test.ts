@@ -311,6 +311,21 @@ describe("submitRegistryWrite", () => {
     await expect(submitRegistryWrite(txArgs)).rejects.toBe(cause);
   });
 
+  it("pins the Near client to NEAR_RPC_URL when set — the default endpoint accepts broadcasts and drops them", async () => {
+    const original = process.env.NEAR_RPC_URL;
+    process.env.NEAR_RPC_URL = "https://rpc.mainnet.near.org";
+    try {
+      builder.send.mockResolvedValueOnce({ transaction: { hash: "ABCDEF123" } });
+
+      await submitRegistryWrite(txArgs);
+
+      expect(nearCalls[0]).toMatchObject({ rpcUrl: "https://rpc.mainnet.near.org" });
+    } finally {
+      if (original === undefined) delete process.env.NEAR_RPC_URL;
+      else process.env.NEAR_RPC_URL = original;
+    }
+  });
+
   it("delegates to the near-cli-rs keychain when no key resolves on a TTY", async () => {
     const home = mkdtempSync(join(tmpdir(), "near-signer-"));
     tempHomes.push(home);
