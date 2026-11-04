@@ -168,3 +168,36 @@ describe("strictness", () => {
     ).toThrow();
   });
 });
+
+describe("the staging stamp (ADR 0043) — lockfileDigest on the approved snapshot", () => {
+  it("carries the control plane's staging identity through persist + load", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "boot-snapshot-stage-"));
+    const staged = bootSnapshotOf({
+      account: ACCOUNT,
+      gateway: GATEWAY,
+      config,
+      manifestTag: { version: "2.0.0-rc.37", digest: "b143bf5f" },
+      lockfileDigest: "a".repeat(64),
+    });
+    expect(staged.lockfileDigest).toBe("a".repeat(64));
+    await writeBootSnapshot(staged, { dir });
+    const loaded = parseBootSnapshot(
+      await readFile(snapshotPath(ACCOUNT, GATEWAY, { dir }), "utf8"),
+    );
+    expect(loaded.lockfileDigest).toBe("a".repeat(64));
+    expect(snapshotFingerprintMatches(loaded)).toBe(true);
+  });
+
+  it("host-written snapshots (no staging) omit the key entirely", async () => {
+    const snapshot = bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config });
+    expect(snapshot.lockfileDigest).toBeUndefined();
+    expect("lockfileDigest" in snapshot).toBe(false);
+  });
+
+  it("refuses a lockfileDigest that is not 64-hex", () => {
+    const snapshot = bootSnapshotOf({ account: ACCOUNT, gateway: GATEWAY, config });
+    expect(() =>
+      parseBootSnapshot(JSON.stringify({ ...snapshot, lockfileDigest: "nope" })),
+    ).toThrow();
+  });
+});

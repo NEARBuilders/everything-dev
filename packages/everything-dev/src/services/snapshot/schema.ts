@@ -55,6 +55,13 @@ export const BootSnapshotSchema = z
     /** The registry deploy record (`deploys/<ts>.json` key) naming the publish
      * that produced the generation. */
     deployRecordKey: z.string().nullable(),
+    /** The composition lockfile's content digest (ADR 0042 ticket 04) — the
+     * control-plane staging stamp (ADR 0043): the identity that ties this
+     * approved generation to the deployment record that named it. */
+    lockfileDigest: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
     writtenAt: z.string().min(1),
   })
   .strict();
@@ -94,6 +101,7 @@ export function bootSnapshotOf(input: {
   config: BosConfig;
   manifestTag?: { version: string; digest: string } | null;
   deployRecordKey?: string | null;
+  lockfileDigest?: string;
   writtenAt?: string;
 }): BootSnapshot {
   return BootSnapshotSchema.parse({
@@ -105,6 +113,7 @@ export function bootSnapshotOf(input: {
     config: input.config,
     remotes: pinnedRemotesOf(input.config),
     deployRecordKey: input.deployRecordKey ?? null,
+    ...(input.lockfileDigest ? { lockfileDigest: input.lockfileDigest } : {}),
     writtenAt: input.writtenAt ?? new Date().toISOString(),
   });
 }
