@@ -40,7 +40,7 @@ export async function submitRegistryWriteDelegated(
   const delegate = await near
     .transaction(opts.account)
     .functionCall(opts.contract, "__fastdata_kv", opts.args, {
-      gas: "300 Tgas",
+      gas: "30 Tgas",
       attachedDeposit: "0 yocto",
     })
     .delegate({ receiverId: opts.contract, blockHeightOffset: 200 });

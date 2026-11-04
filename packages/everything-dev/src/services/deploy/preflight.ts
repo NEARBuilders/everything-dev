@@ -7,6 +7,7 @@ import { fetchResponse } from "../../utils/http-client";
 import { getNetworkIdForAccount } from "../../utils/network";
 import { colors } from "../../utils/theme";
 import {
+  checkPublishBalance,
   checkPublishKeyHealth,
   describeSigningStrategy,
   resolveSigningStrategy,
@@ -358,6 +359,18 @@ export async function preflightPublish(input: PreflightInput): Promise<PublishPr
       }
       if (health.error) {
         return fail(health.error);
+      }
+      // The publish account must hold the prepayment lock (attached gas at
+      // the worst-case gas price) or every broadcast is rejected at admission
+      // and surfaces only as a silent "dropped at broadcast" after a full
+      // build — checked here so a low balance fails in seconds with the
+      // exact top-up numbers.
+      const balance = await checkPublishBalance({ account, network });
+      if (balance.warning) {
+        console.log(colors.dim(`  ${balance.warning}`));
+      }
+      if (balance.error) {
+        return fail(balance.error);
       }
     }
   }

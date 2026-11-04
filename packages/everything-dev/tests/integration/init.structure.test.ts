@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import {
@@ -104,6 +104,48 @@ describe("bos init — structure", () => {
       expect(existsSync(join(selectedDir, "plugins", "example"))).toBe(false);
     } finally {
       rmSync(selectedDir, { recursive: true, force: true });
+    }
+  });
+
+  it("never copies generated artifacts from a dirty source tree", async () => {
+    const dirtySourceDir = mkdtempSync(join(tmpdir(), "bos-init-dirty-source-"));
+    const dirtyChildDir = mkdtempSync(join(tmpdir(), "bos-init-dirty-child-"));
+    try {
+      const writeSource = (path: string, content: string) => {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, content);
+      };
+      writeSource(
+        join(dirtySourceDir, "plugins", "_template", "src", "index.ts"),
+        "export const plugin = {};",
+      );
+      writeSource(
+        join(dirtySourceDir, "plugins", "_template", "src", "lib", "auth-types.gen.ts"),
+        'export type * from "../../../auth/src/auth-export.ts";',
+      );
+      writeSource(join(dirtySourceDir, "ui", "src", "lib", "api.ts"), "export const api = 1;");
+      writeSource(
+        join(dirtySourceDir, "ui", "src", "lib", "api-types.gen.ts"),
+        "export type ApiContract = Record<string, never>;",
+      );
+
+      const patterns = buildInitPatterns(["ui", "plugins"], ["template"], {
+        template: "_template",
+      });
+      await copyFilteredFiles(dirtySourceDir, dirtyChildDir, patterns, {
+        overrides: ["ui", "plugins"],
+        plugins: ["template"],
+      });
+
+      expect(existsSync(join(dirtyChildDir, "plugins", "_template", "src", "index.ts"))).toBe(true);
+      expect(
+        existsSync(join(dirtyChildDir, "plugins", "_template", "src", "lib", "auth-types.gen.ts")),
+      ).toBe(false);
+      expect(existsSync(join(dirtyChildDir, "ui", "src", "lib", "api.ts"))).toBe(true);
+      expect(existsSync(join(dirtyChildDir, "ui", "src", "lib", "api-types.gen.ts"))).toBe(false);
+    } finally {
+      rmSync(dirtySourceDir, { recursive: true, force: true });
+      rmSync(dirtyChildDir, { recursive: true, force: true });
     }
   });
 

@@ -297,3 +297,44 @@ describe("writeGeneratedFiles — apiDependsOn filtering", () => {
     expect(authClient).toContain("export type PluginsClient = Record<string, never>;");
   });
 });
+
+describe("writeGeneratedFiles — degraded auth resolution still writes auth-types targets", () => {
+  it("overwrites a stale plugin auth-types.gen.ts with stub imports when auth failed to resolve", async () => {
+    const { writeGeneratedFiles } = await import("../../src/services/codegen/api-contract");
+    testDir = mkdtempSync(join(tmpdir(), "api-contract-degraded-"));
+
+    const apiSrc = join(testDir, "api", "src");
+    const templateLib = join(testDir, "plugins", "_template", "src", "lib");
+    const contractPath = join(apiSrc, "contract.ts");
+    writeFile(contractPath, "export type ContractType = { ping: string };");
+
+    const staleContent = `export type * from "../../../auth/src/auth-export.ts";
+import type { InferOutput } from "../../../auth/src/contract.d.ts";
+`;
+    writeFile(join(templateLib, "auth-types.gen.ts"), staleContent);
+
+    writeGeneratedFiles({
+      configDir: testDir,
+      sources: [makeContractSource("api", contractPath)],
+      pluginKeys: ["template"],
+      authSource: null,
+      authExportPath: null,
+      apiDependsOn: undefined,
+      pluginLocalPaths: { template: join(testDir, "plugins", "_template") },
+    });
+
+    const authDir = join(testDir, ".bos", "generated", "auth");
+    expect(existsSync(join(authDir, "auth-export.d.ts"))).toBe(true);
+    expect(existsSync(join(authDir, "contract.d.ts"))).toBe(true);
+
+    const templateAuthTypes = readFileSync(join(templateLib, "auth-types.gen.ts"), "utf-8");
+    expect(templateAuthTypes).not.toBe(staleContent);
+    expect(templateAuthTypes).toContain(".bos/generated/auth/auth-export.d.ts");
+
+    const uiAuthTypes = readFileSync(
+      join(testDir, "ui", "src", "lib", "auth-types.gen.ts"),
+      "utf-8",
+    );
+    expect(uiAuthTypes).toContain(".bos/generated/auth/auth-export.d.ts");
+  });
+});
