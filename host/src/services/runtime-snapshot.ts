@@ -1,9 +1,11 @@
-import { createHash } from "node:crypto";
 import { Context, Effect, Layer, Ref } from "effect";
+import { deploymentFingerprint } from "everything-dev/fingerprint";
 import type { RuntimeConfig } from "everything-dev/types";
 import { ConfigService } from "./config";
 import { type ClientConfigCacheState, createClientConfigCacheState } from "./serving-caches";
 import { createUiComposeCacheState, type UiComposeCacheState } from "./ui-compose";
+
+export { deploymentFingerprint };
 
 export interface RuntimeSnapshotState {
   /** hash over the load-bearing remote coordinates — changes on every adopted deploy */
@@ -107,28 +109,4 @@ export class RuntimeSnapshot extends Context.Service<
         });
       }),
     );
-}
-
-/**
- * Deployment fingerprint: a stable hash over every load-bearing remote
- * coordinate (entryUrl + integrity per remote) — a new published deploy mints a
- * new fingerprint even when the composed digest is unchanged.
- */
-export function deploymentFingerprint(config: RuntimeConfig): string {
-  const parts: Array<string> = [];
-  const remote = (
-    prefix: string,
-    s: { entryUrl?: string; integrity?: string; ssrIntegrity?: string } | undefined,
-  ) => {
-    if (!s) return;
-    parts.push(`${prefix}:${s.entryUrl ?? ""}:${s.integrity ?? ""}:${s.ssrIntegrity ?? ""}`);
-  };
-  remote("ui", config.ui);
-  remote("api", config.api);
-  remote("auth", config.auth);
-  for (const [key, plugin] of Object.entries(config.plugins ?? {})) {
-    remote(`plugin.${key}`, plugin);
-    remote(`plugin.${key}.ui`, plugin.ui);
-  }
-  return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 16);
 }

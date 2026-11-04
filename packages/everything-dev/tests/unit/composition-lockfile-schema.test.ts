@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  digestOfLockfile,
   LOCKFILE_NAME,
   lockfileFingerprint,
   lockfileOf,
@@ -10,6 +11,7 @@ import {
   parseLockfile,
   serializeLockfile,
   writeLockfile,
+  writeLockfileSync,
 } from "../../src/services/lockfile/schema";
 import { pointerFingerprint } from "../../src/services/registry/fingerprint";
 import { BosConfigSchema } from "../../src/types";
@@ -194,5 +196,28 @@ describe("writeLockfile — the producer seam (ADR 0042 ticket 02)", () => {
     expect(drifted.status).toBe("drift");
     expect(drifted.drift.join(" ")).toContain("differs from the resolved composition");
     expect(parseLockfile(await readFile(path.join(dir, "bos.lock.json"), "utf8"))).toEqual(stale);
+  });
+});
+
+describe("digestOfLockfile + writeLockfileSync — the train's producer seam (ADR 0042 ticket 04)", () => {
+  it("digests the serialized bytes deterministically", () => {
+    const lock = lockfileOf({ account: ACCOUNT, gateway: GATEWAY, config });
+    const serialized = serializeLockfile(lock);
+    expect(digestOfLockfile(serialized)).toBe(digestOfLockfile(serialized));
+    expect(digestOfLockfile(serialized)).toMatch(/^[0-9a-f]{64}$/);
+    expect(digestOfLockfile(`${serialized}x`)).not.toBe(digestOfLockfile(serialized));
+  });
+
+  it("writes sync (the train is sync-fs) — atomic, parent dirs created", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "lockfile-sync-"));
+    const lock = lockfileOf({
+      account: ACCOUNT,
+      gateway: GATEWAY,
+      config,
+      release: "2.0.0-rc.37",
+    });
+    const target = writeLockfileSync(lock, dir);
+    expect(target).toBe(path.join(dir, "bos.lock.json"));
+    expect(parseLockfile(await readFile(target, "utf8"))).toEqual(lock);
   });
 });

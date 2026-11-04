@@ -12,7 +12,9 @@
  * (`lockfileFingerprint` ≡ `pointerFingerprint` over the same config), and
  * JSON round-trips preserve that order.
  */
+
 import { createHash } from "node:crypto";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -154,8 +156,25 @@ export function serializeLockfile(lock: CompositionLockfile): string {
   return `${JSON.stringify(lock, null, 2)}\n`;
 }
 
+/** The lockfile's content digest — what a deployment record names when it
+ * answers "what exact composition was live". */
+export function digestOfLockfile(serialized: string): string {
+  return createHash("sha256").update(serialized).digest("hex");
+}
+
 export function parseLockfile(bytes: string): CompositionLockfile {
   return CompositionLockfileSchema.parse(JSON.parse(bytes));
+}
+
+/** The sync producer for the deploy train (its publish path is sync-fs):
+ * atomic temp + rename, parent dirs created. */
+export function writeLockfileSync(lock: CompositionLockfile, configDir?: string): string {
+  const target = lockfilePath(configDir);
+  mkdirSync(path.dirname(target), { recursive: true });
+  const temp = `${target}.tmp`;
+  writeFileSync(temp, serializeLockfile(lock));
+  renameSync(temp, target);
+  return target;
 }
 
 /** Absent or unparseable → null: the lockfile is an input, and a corrupt one
