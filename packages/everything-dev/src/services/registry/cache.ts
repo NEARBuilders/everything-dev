@@ -11,10 +11,10 @@
  * is refused: pin-less resolution degrades to "no manifest"; pinned
  * resolution fails loud with the slot key named.
  *
- * Storage: one record at `<configDir>/.bos/platform-manifest.json` (the
- * rename is ticket 08; this module only owns the semantics). The record's
- * wire shape (`kind`, fields) is unchanged from the pre-module layout so
- * existing on-disk caches keep reading.
+ * Storage: one record at `<configDir>/.bos/manifest.json`. The record's
+ * wire shape (`kind`, fields) is unchanged from the pre-rename layout; the
+ * old `platform-manifest.json` location is not read — the upgrade
+ * migration phase deletes a stale one for cleanliness.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -55,7 +55,7 @@ export interface WriteManifestCacheOptions {
 }
 
 function defaultCachePath(configDir: string): string {
-  return join(configDir, ".bos", "platform-manifest.json");
+  return join(configDir, ".bos", "manifest.json");
 }
 
 function defaultRead(configDir: string): ManifestCacheRecord | null {

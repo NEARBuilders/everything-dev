@@ -69,7 +69,7 @@ function serviceWith(
   );
 }
 
-function platformManifestEffect(layer: Layer.Layer<PlatformManifestService>): Promise<unknown> {
+function manifestEffect(layer: Layer.Layer<PlatformManifestService>): Promise<unknown> {
   const effectHandler =
     (fn: (opts: unknown, input: unknown) => Generator) => (opts: unknown, input: unknown) =>
       // eslint-disable-next-line effecttsgo/any-unknown-in-error-context -- test harness mirrors @orpc middlewareGen interop
@@ -79,15 +79,15 @@ function platformManifestEffect(layer: Layer.Layer<PlatformManifestService>): Pr
     typesGen: { effect: effectHandler },
     typecheck: { effect: effectHandler },
     mfCheck: { effect: effectHandler },
-    platformManifest: { effect: effectHandler },
+    manifest: { effect: effectHandler },
   } as unknown as BosBuilder;
   const router = registerUpgrade(builder) as unknown as {
-    platformManifest: (input: unknown, opts: unknown) => Promise<unknown>;
+    manifest: (input: unknown, opts: unknown) => Promise<unknown>;
   };
-  return router.platformManifest({ check: false }, { context: {} });
+  return router.manifest({ check: false }, { context: {} });
 }
 
-describe("platformManifest handler — pin drift (issue #546)", () => {
+describe("manifest handler — release drift (issue #546)", () => {
   it("reports the published parent platform against the stale pin instead of a cryptic pin-not-found error", async () => {
     const resolve = vi.fn(async (opts: { localConfig: Record<string, unknown> }) => {
       if (typeof opts.localConfig.release === "string") {
@@ -100,7 +100,7 @@ describe("platformManifest handler — pin drift (issue #546)", () => {
         gateway: "everything.dev",
       });
     });
-    const result = (await platformManifestEffect(serviceWith(resolve))) as {
+    const result = (await manifestEffect(serviceWith(resolve))) as {
       status: string;
       version: string | null;
       drift?: { pinned: string; published: string };
@@ -111,8 +111,8 @@ describe("platformManifest handler — pin drift (issue #546)", () => {
     expect(result.status).toBe("fail");
     expect(result.version).toBe("2.0.0-rc.18");
     expect(result.drift).toEqual({ pinned: "2.0.0-rc.16", published: "2.0.0-rc.18" });
-    expect(result.error).toContain("parent platform is 2.0.0-rc.18");
-    expect(result.error).toContain("you pinned 2.0.0-rc.16");
+    expect(result.error).toContain("parent release is 2.0.0-rc.18");
+    expect(result.error).toContain("you target 2.0.0-rc.16");
     expect(result.error).toContain("bos upgrade");
   });
 
@@ -120,7 +120,7 @@ describe("platformManifest handler — pin drift (issue #546)", () => {
     const resolve = vi.fn(async () =>
       resolved({ account: "dev.everything.near", gateway: "everything.dev" }),
     );
-    const result = (await platformManifestEffect(serviceWith(resolve))) as {
+    const result = (await manifestEffect(serviceWith(resolve))) as {
       status: string;
       version: string | null;
       drift?: unknown;

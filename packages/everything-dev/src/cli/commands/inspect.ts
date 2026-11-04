@@ -286,13 +286,13 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
         );
       }
     }
-    if (result.platform) {
-      for (const v of result.platform.violations) {
-        console.log(`  ${colors.dim("platform".padEnd(10))} ${colors.error("FAIL")} ${v.message}`);
+    if (result.manifest) {
+      for (const v of result.manifest.violations) {
+        console.log(`  ${colors.dim("manifest".padEnd(10))} ${colors.error("FAIL")} ${v.message}`);
       }
-      if (result.platform.ok) {
+      if (result.manifest.ok) {
         console.log(
-          `  ${colors.dim("platform".padEnd(10))} ${colors.green("OK  ")} release contract satisfied`,
+          `  ${colors.dim("manifest".padEnd(10))} ${colors.green("OK  ")} release contract satisfied`,
         );
       }
     }
@@ -311,15 +311,15 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     return;
   },
 
-  platformManifest: async (result, _ctx) => {
+  manifest: async (result, _ctx) => {
     console.log();
     if (result.status === "fail") {
-      console.error(`[CLI] ${result.error || "platform manifest resolution failed"}`);
+      console.error(`[CLI] ${result.error || "release manifest resolution failed"}`);
       if (result.drift) {
         console.log();
         console.log(
           colors.error(
-            `  parent platform is ${result.drift.published} (published), you pinned ${result.drift.pinned} — run \`bos upgrade\` to realign`,
+            `  parent release is ${result.drift.published} (published), you target ${result.drift.pinned} — run \`bos upgrade\` to realign`,
           ),
         );
       }
@@ -329,7 +329,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
     if (result.status === "absent") {
       console.log(
         colors.yellow(
-          `  ${icons.err} No platform release manifest resolves${result.error ? ` — ${result.error}` : ""}.`,
+          `  ${icons.err} No release manifest resolves${result.error ? ` — ${result.error}` : ""}.`,
         ),
       );
       console.log(
@@ -339,7 +339,7 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
       return;
     }
     console.log(
-      `  ${colors.dim("Platform")}  ${colors.green(result.version ?? "?")}  ${colors.dim(`(${[result.provenance, result.source, result.fromCache ? "cached" : undefined].filter(Boolean).join(", ")})`)}`,
+      `  ${colors.dim("Manifest")}  ${colors.green(result.version ?? "?")}  ${colors.dim(`(${[result.provenance, result.source, result.fromCache ? "cached" : undefined].filter(Boolean).join(", ")})`)}`,
     );
     if (result.compat) {
       for (const v of result.compat.violations) {
@@ -349,13 +349,13 @@ export const inspectRenderers: Record<string, ResultRenderer> = {
       if (!result.compat.ok) {
         console.log(
           colors.error(
-            "  platform-compat: ✗ the workspace does not satisfy this release's compat contract — bump the framework or clear the pin",
+            "  manifest-compat: ✗ the workspace does not satisfy this release's compat contract — bump the framework or clear the release",
           ),
         );
         console.log();
         process.exit(1);
       }
-      console.log(colors.green("  platform-compat: ✓ workspace satisfies the release contract"));
+      console.log(colors.green("  manifest-compat: ✓ workspace satisfies the release contract"));
     }
     console.log();
     return;

@@ -1042,8 +1042,8 @@ export const MfCheckResultSchema = z.object({
       slots: z.array(MfCheckUiSlotSchema),
     })
     .optional(),
-  /** The platform compat gate (ADR 0034 pt 5) — present when a release manifest resolves. */
-  platform: z
+  /** The release compat gate (ADR 0034 pt 5) — present when a release manifest resolves. */
+  manifest: z
     .object({
       ok: z.boolean(),
       violations: z.array(PlatformCompatViolationSchema),
@@ -1051,14 +1051,14 @@ export const MfCheckResultSchema = z.object({
     .optional(),
 });
 
-export const PlatformManifestOptionsSchema = z.object({
+export const ManifestOptionsSchema = z.object({
   check: z
     .boolean()
     .default(false)
-    .describe("Also run the platform compat check against the local workspace"),
+    .describe("Also run the release compat check against the local workspace"),
 });
 
-export const PlatformManifestResultSchema = z.object({
+export const ManifestResultSchema = z.object({
   status: z.enum(["ok", "absent", "fail"]),
   version: z.string().nullable(),
   source: z.string().optional(),
@@ -1067,7 +1067,7 @@ export const PlatformManifestResultSchema = z.object({
    * moving platform.json (unpinned resolution) — #574. */
   provenance: z.enum(["slot", "pointer"]).optional(),
   error: z.string().optional(),
-  /** Set when the authored `platform` pin no longer matches anything in the
+  /** Set when the authored release no longer matches anything in the
    * extends chain — the root republished past it (issue #546). */
   drift: z
     .object({
@@ -1154,7 +1154,7 @@ export const commandOptionSchemas = {
   typecheck: TypecheckOptionsSchema,
   typesGen: TypesGenOptionsSchema,
   mfCheck: MfCheckOptionsSchema,
-  platformManifest: PlatformManifestOptionsSchema,
+  manifest: ManifestOptionsSchema,
   secretsSet: SecretsSetOptionsSchema,
   secretsList: SecretsListOptionsSchema,
   secretsRemove: SecretsRemoveOptionsSchema,
@@ -1266,10 +1266,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/mf/check" })
     .input(MfCheckOptionsSchema)
     .output(MfCheckResultSchema),
-  platformManifest: oc
-    .route({ method: "POST", path: "/platform/manifest" })
-    .input(PlatformManifestOptionsSchema)
-    .output(PlatformManifestResultSchema),
+  manifest: oc
+    .route({ method: "POST", path: "/manifest" })
+    .input(ManifestOptionsSchema)
+    .output(ManifestResultSchema),
   secretsSet: oc
     .route({ method: "POST", path: "/secrets/set" })
     .input(SecretsSetOptionsSchema)
@@ -1492,10 +1492,10 @@ export const cliCommandMeta = {
       "Verify Module Federation runtime compatibility across published host + plugin bundles",
     interactive: false,
   },
-  platformManifest: {
-    commandPath: ["platform", "manifest"],
+  manifest: {
+    commandPath: ["manifest"],
     summary:
-      "Show the platform release manifest — the booted host or the resolved release self-describes (ADR 0034)",
+      "Show the release manifest — the booted host or the resolved release self-describes (ADR 0034)",
     interactive: false,
   },
   secretsSet: {
