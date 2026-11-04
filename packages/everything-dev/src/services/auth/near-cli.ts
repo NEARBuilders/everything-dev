@@ -137,7 +137,7 @@ export async function executeKeychainTransaction(
     );
   }
 
-  const gas = "300Tgas";
+  const gas = "30Tgas";
   const deposit = "0NEAR";
   const argsBase64 = Buffer.from(JSON.stringify(config.args)).toString("base64");
 

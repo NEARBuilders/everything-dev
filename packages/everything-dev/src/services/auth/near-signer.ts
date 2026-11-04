@@ -104,6 +104,23 @@ export function describeSigningStrategy(strategy: SigningStrategy): string {
     : `~/.near-credentials`;
 }
 
+/** The gas one registry write attaches. A FastKV publish targets the codeless
+ * namespace account — it executes as CodeDoesNotExist (the designed success
+ * state) and burns almost nothing, so 30 Tgas is generous. The previous 300
+ * Tgas inflated the prepayment lock to ~0.30 NEAR and pushed under-funded
+ * accounts into silent broadcast drops (2026-11-04 outage: NotEnoughBalance
+ * surfaced as "dropped at broadcast" on every deploy for 14 hours). */
+export const PUBLISH_ATTACHED_GAS = "30 Tgas";
+export const PUBLISH_ATTACHED_GAS_UNITS = 30_000_000_000_000n;
+
+/** Admission prices the prepayment at the shard's worst-case gas price, so
+ * the publish account must hold attached_gas × gas_price — not burn it. A 2×
+ * safety margin covers intra-epoch price adjustment; the head-block
+ * `gas_price` under-reports it (observed 2026-11-04: admission priced at
+ * ~1.003 nanoNEAR/gas while the head RPC reported 1e8 yoctoNEAR/gas). */
+const PUBLISH_BALANCE_SAFETY = 2n;
+const PUBLISH_BALANCE_LOW_HEADROOM = 3n;
+
 async function submitWithNearKit(
   tx: RegistryWriteRequest,
   privateKey: string,
@@ -115,15 +132,38 @@ async function submitWithNearKit(
     rpcUrl: resolveNearRpcUrl(),
   });
 
-  const outcome = await near
-    .transaction(tx.account)
-    .functionCall(tx.contract, tx.method, tx.args, {
-      gas: "300 Tgas",
-      attachedDeposit: "0 yocto",
-    })
-    .send({ waitUntil: "NONE" });
+  let outcome: Awaited<
+    ReturnType<ReturnType<ReturnType<Near["transaction"]>["functionCall"]>["send"]>
+  >;
+  // The builder caches the signed transaction, so its hash survives even when
+  // send() throws on the designed execution failure below.
+  const pending = near.transaction(tx.account).functionCall(tx.contract, tx.method, tx.args, {
+    gas: PUBLISH_ATTACHED_GAS,
+    attachedDeposit: "0 yocto",
+  });
+  let txHash: string | undefined;
+  try {
+    // EXECUTED_OPTIMISTIC waits for the pool's verdict instead of accepting
+    // the hash fire-and-forget: admission rejections (NotEnoughBalance,
+    // stale nonce, missing key) surface here with their real reason, never
+    // as a silent broadcast the confirm loop can only call "dropped".
+    outcome = await pending.send({ waitUntil: "EXECUTED_OPTIMISTIC" });
+    txHash = outcome?.transaction?.hash;
+  } catch (error) {
+    if (error instanceof Error && DESIGNED_EXECUTION_FAILURE.test(error.name)) {
+      // The codeless namespace executes every publish as CodeDoesNotExist —
+      // that is the designed success state (ADR 0001, action-indexed writes).
+      txHash ??= (error as { transaction?: { hash?: string } }).transaction?.hash;
+      txHash ??=
+        typeof pending.getHash === "function" ? (pending.getHash() ?? undefined) : undefined;
+      return { success: true, txHash, signedWith: "env" };
+    }
+    const rejection = describePublishRejection(error, tx.account);
+    if (rejection) throw new NearTransactionError(rejection);
+    throw error;
+  }
 
-  return { success: true, txHash: outcome?.transaction?.hash, signedWith: "env" };
+  return { success: true, txHash, signedWith: "env" };
 }
 
 export async function submitRegistryWrite(
@@ -189,9 +229,9 @@ export async function classifyTransactionOutcome(
   }
 }
 
-/** One publish prepays 300 Tgas; the floor covers a full-price (1e9 yoctoNEAR
+/** One publish prepays 30 Tgas; the floor covers a full-price (1e9 yoctoNEAR
  * per gas unit) inclusion burn of a failed execution. */
-const MIN_PUBLISH_ALLOWANCE_YOCTO = 300_000_000_000_000_000_000_000n;
+const MIN_PUBLISH_ALLOWANCE_YOCTO = 30_000_000_000_000_000_000_000n;
 
 export interface PublishKeyHealth {
   ok: boolean;
@@ -284,6 +324,125 @@ export async function checkPublishKeyHealth(input: {
         `the signing ${kind}'s remaining ${isGasKey ? "balance" : "allowance"} (${capped} ` +
         `yoctoNEAR) is below one publish's prepaid gas (~${MIN_PUBLISH_ALLOWANCE_YOCTO} ` +
         "yoctoNEAR) — re-add the key without an allowance cap",
+    };
+  }
+  return { ok: true };
+}
+
+/** Execution failures whose name marks the designed CodeDoesNotExist success
+ * (the registry namespace account is codeless). Everything else with the
+ * InvalidTxError wire shape is a real admission rejection. */
+const DESIGNED_EXECUTION_FAILURE =
+  /^(ContractNotDeployedError|FunctionCallError|ContractExecutionError)$/;
+
+/** Turn a near-kit admission rejection into a human reason, or null when the
+ * error is not one (execution outcomes are designed success; congestion means
+ * the tx lands later). Discriminates on the `InvalidTxError` wire shape the
+ * RPC returns for pre-inclusion rejections — e.g. the 2026-11-04 outage where
+ * `NotEnoughBalance` surfaced only as "dropped at broadcast". */
+export function describePublishRejection(error: unknown, account: string): string | null {
+  if (!(error instanceof Error) || error.name !== "InvalidTransactionError") return null;
+  const congested =
+    Boolean((error as { shardCongested?: boolean }).shardCongested) ||
+    Boolean((error as { shardStuck?: boolean }).shardStuck);
+  if (congested) return null;
+  const invalidTx = (error as { data?: { InvalidTxError?: Record<string, unknown> } }).data
+    ?.InvalidTxError;
+  if (!invalidTx) return null;
+  if (invalidTx.NotEnoughBalance) {
+    const { balance, cost } = invalidTx.NotEnoughBalance as { balance: string; cost: string };
+    try {
+      return (
+        `the publish account ${account} holds ${formatNearAmount(BigInt(balance))} NEAR but ` +
+        `this publish needs ${formatNearAmount(BigInt(cost))} NEAR to prepay its gas — ` +
+        `top up the account`
+      );
+    } catch {
+      return `the publish account ${account} cannot cover this publish's gas prepayment — top up the account`;
+    }
+  }
+  if (invalidTx.InvalidNonce) {
+    return `stale nonce — another publish signed with this key in the same window; resubmit`;
+  }
+  if (invalidTx.AccessKeyDoesNotExist || invalidTx.InvalidSignerKey) {
+    return `the signing key is not an access key on ${account} — re-mint with \`bos login --key\``;
+  }
+  if (invalidTx.Expired) {
+    return `the transaction's block reference expired before inclusion — resubmit`;
+  }
+  return `the transaction was rejected at admission: ${JSON.stringify(invalidTx)}`;
+}
+
+/** Format a yoctoNEAR bigint for humans — integer part plus up to 6 decimals,
+ * trailing zeros trimmed (0.0000284 stays honest; 300000000000000000000000
+ * reads as "0.3"). */
+export function formatNearAmount(yocto: bigint): string {
+  const whole = yocto / 10n ** 24n;
+  const frac = (yocto % 10n ** 24n).toString().padStart(24, "0").slice(0, 6).replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : `${whole}`;
+}
+
+/** The admission bound: balance must cover attached gas at the (worst-case)
+ * gas price — the burn is nearly zero, the prepayment lock is not. */
+export function classifyPublishBalance(
+  balance: bigint,
+  required: bigint,
+): { ok: boolean; low: boolean } {
+  const ok = balance >= required;
+  return { ok, low: ok && balance < required * PUBLISH_BALANCE_LOW_HEADROOM };
+}
+
+export interface PublishBalanceHealth {
+  ok: boolean;
+  warning?: string;
+  error?: string;
+}
+
+/** Check the publish account can actually prepay its gas before the build
+ * train runs — a balance a hair under the prepayment lock surfaces only as a
+ * silent broadcast drop otherwise (the 2026-11-04 outage: 0.30089 NEAR held,
+ * 0.30092 NEAR required, every deploy dead for 14 hours). Soft-skips when the
+ * registry RPC is unreachable, like the key health check. */
+export async function checkPublishBalance(input: {
+  account: string;
+  network: NetworkId;
+}): Promise<PublishBalanceHealth> {
+  const near = new Near({
+    network: input.network,
+    defaultSignerId: input.account,
+    rpcUrl: resolveNearRpcUrl(),
+  });
+  let balance: bigint;
+  let minGasPrice: bigint;
+  try {
+    const [view, config] = await Promise.all([
+      near.getBalance(input.account),
+      near.rpc.call("EXPERIMENTAL_protocol_config", { finality: "final" }) as Promise<{
+        min_gas_price: string;
+      }>,
+    ]);
+    balance = BigInt(view);
+    minGasPrice = BigInt(config.min_gas_price);
+  } catch {
+    return { ok: true, warning: "balance check skipped (registry RPC unreachable)" };
+  }
+  const required = PUBLISH_ATTACHED_GAS_UNITS * minGasPrice * PUBLISH_BALANCE_SAFETY;
+  const classified = classifyPublishBalance(balance, required);
+  if (!classified.ok) {
+    return {
+      ok: false,
+      error:
+        `the publish account ${input.account} holds ${formatNearAmount(balance)} NEAR but ` +
+        `prepaying ${PUBLISH_ATTACHED_GAS} at the current gas price needs ` +
+        `${formatNearAmount(required)} NEAR — top up the account`,
+    };
+  }
+  if (classified.low) {
+    return {
+      ok: true,
+      warning:
+        `publish account ${input.account} is low: ${formatNearAmount(balance)} NEAR ` +
+        `(one publish locks ~${formatNearAmount(required)} NEAR) — top up soon`,
     };
   }
   return { ok: true };
