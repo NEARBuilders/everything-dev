@@ -728,9 +728,7 @@ export async function runPublishTrain(
     bootShape = await resolveBootShape(
       publishPayload,
       { account, gateway },
-      {
-        ...(input.registry ? { registry: input.registry } : {}),
-      },
+      input.registry ? { registry: input.registry } : undefined,
     );
   } catch {
     // KEEP: re-walked by verifyBootPayload, which owns the chain-failure report
@@ -740,9 +738,7 @@ export async function runPublishTrain(
     : await verifyBootPayload(
         publishPayload,
         { account, gateway },
-        {
-          ...(input.registry ? { registry: input.registry } : {}),
-        },
+        input.registry ? { registry: input.registry } : undefined,
       );
   if (!bootCheck.ok) {
     const detail = bootCheck.issues
@@ -1084,14 +1080,16 @@ export async function runPublishTrain(
   // this runtime boot from the staged state instead of resolving. Stamped
   // with the release thin tag (when the release leg ran) and the lockfile
   // digest (the deployment record's identity). Non-fatal, like every
-  // provenance leg.
-  const stageBootSnapshot = () => {
+  // provenance leg — and AWAITED: a floating write settles after the caller
+  // (a test's teardown, a process exit) has removed the target dir, and the
+  // escaped rejection kills the run.
+  const stageBootSnapshot = async () => {
     if (!lockfileSerialized) return;
     try {
       const manifestTag = platformManifest
         ? ManifestTagSchema.parse(JSON.parse(platformManifest.tag.value))
         : null;
-      writeBootSnapshot(
+      await writeBootSnapshot(
         bootSnapshotOf({
           account,
           gateway,
@@ -1127,7 +1125,7 @@ export async function runPublishTrain(
       console.log("  Already up to date — skipping transaction");
       persistDeployState();
       persistLockfile();
-      stageBootSnapshot();
+      await stageBootSnapshot();
       return {
         status: "published",
         registryUrl,
@@ -1302,7 +1300,7 @@ export async function runPublishTrain(
     }
     persistDeployState();
     persistLockfile();
-    stageBootSnapshot();
+    await stageBootSnapshot();
 
     return {
       status: "published",
