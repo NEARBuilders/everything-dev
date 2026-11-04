@@ -111,7 +111,7 @@ describe("waitForFrameworkPackages", () => {
       probe: async () => {
         probes += 1;
         now += 15_000;
-        return probes < 3 ? false : true;
+        return probes >= 3;
       },
       sleep: async () => undefined,
       now: () => now,

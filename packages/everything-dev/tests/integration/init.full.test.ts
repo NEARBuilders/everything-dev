@@ -50,7 +50,7 @@ describe.skipIf(process.env.CI !== "true")("bos init — full (install + typeche
 
     await personalizeConfig(testDir, {
       extendsAccount: "dev.everything.near",
-      extendsGateway: "dev.everything.dev",
+      extendsGateway: "everything.dev",
       account: "test.near",
       domain: "test.dev",
       workspaceOpts: { sourceDir: REPO_ROOT },

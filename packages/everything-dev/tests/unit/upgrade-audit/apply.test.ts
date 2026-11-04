@@ -40,7 +40,7 @@ describe("authorConfig", () => {
     await run(authorConfig(projectDir, [], false));
     const source = await readFile(join(projectDir, "bos.app.ts"), "utf-8");
     expect(source).toContain('import { App } from "everything-dev/descriptor"');
-    expect(source).toContain('"extends": "bos://dev.everything.near/dev.everything.dev"');
+    expect(source).toContain('"extends": "bos://dev.everything.near/everything.dev"');
     expect(source).toContain('"account": "example.near"');
     expect(source).toContain('"path": "api"');
     expect(source).toContain('"path": "ui"');

@@ -37,6 +37,16 @@ import {
 } from "./init";
 import { pruneUnusedUiFiles } from "./prune";
 
+/**
+ * The production root the scaffold extends when the operator names none —
+ * the ONLY default gateway in the codebase. The dead-end
+ * `dev.everything.dev` gateway must never reappear here (the gateway
+ * incident's permanent lesson); `tests/unit/scaffold-root.test.ts` locks
+ * the constants and their registry-key shape.
+ */
+export const DEFAULT_PARENT_ACCOUNT = "dev.everything.near";
+export const DEFAULT_PARENT_GATEWAY = "everything.dev";
+
 export async function fetchInitParent(
   extendsAccount: string,
   extendsGateway: string,
@@ -92,8 +102,8 @@ export class InitFlowService extends Context.Service<
               }
             }
 
-            extendsAccount = extendsAccount || "dev.everything.near";
-            extendsGateway = extendsGateway || "everything.dev";
+            extendsAccount = extendsAccount || DEFAULT_PARENT_ACCOUNT;
+            extendsGateway = extendsGateway || DEFAULT_PARENT_GATEWAY;
 
             directory = directory || domain || extendsGateway;
             const targetDir = resolve(directory);

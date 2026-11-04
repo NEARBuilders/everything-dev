@@ -53,7 +53,7 @@ const MANIFEST: ApiPluginManifest = {
 function makeRemoteBosConfig() {
   return {
     account: "test.near",
-    extends: "dev.everything.near/dev.everything.dev",
+    extends: "dev.everything.near/everything.dev",
     app: {
       host: {
         name: "host",
@@ -198,7 +198,7 @@ describe("manifest stacking (one level deep)", () => {
     const result = await buildRuntimeConfig(
       {
         account: "test.near",
-        extends: "dev.everything.near/dev.everything.dev",
+        extends: "dev.everything.near/everything.dev",
         app: {
           host: {
             name: "host",
