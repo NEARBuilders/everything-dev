@@ -7,6 +7,7 @@ import { generateUiManifest } from "every-plugin/ui/manifest-generator";
 import { writeResolvedConfig } from "../../config";
 import type { BosConfig, RuntimeConfig } from "../../types";
 import { formatUnknownError } from "../../utils/errors";
+import { readLockfileIfExists } from "../lockfile/schema";
 import type { BosEnv } from "../resolution/merge";
 import { openResolution } from "../resolution/session";
 import { type ContractBridgeStatus, syncApiContractBridge } from "./api-contract";
@@ -167,11 +168,20 @@ export const generateCodeArtifactsEffect = Effect.fn("generateCodeArtifacts")(fu
   // fails the run on an unresolvable map so typecheck catches an upstream
   // rename; dev/build/train paths warn and continue (a flaky remote must
   // not block a boot — the runtime load fails loudly on its own).
+  // The composition lockfile (ADR 0042), when present, is the runtime map's
+  // provenance input: the explainer reports the frozen fingerprint and any
+  // drift between serving digests and frozen ones instead of drifting
+  // silently. Absent or corrupt → null (the explainer degrades, the build
+  // doesn't fail).
+  const lockfile = yield* Effect.tryPromise(() => readLockfileIfExists(configDir)).pipe(
+    Effect.catch(() => Effect.succeed(null)),
+  );
   yield* generateRuntimeMapEffect(configDir, runtimeConfig, {
     strict: opts?.runtimeMapStrict === true,
     env,
     release: config.release ?? null,
     ...(opts?.extendsChain ? { extendsChain: opts.extendsChain } : {}),
+    lockfile,
   }).pipe(
     Effect.catch((error) => {
       if (opts?.runtimeMapStrict === true) {

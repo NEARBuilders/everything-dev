@@ -9,7 +9,8 @@ import {
   generateRuntimeMapEffect,
   type MapSource,
 } from "../../src/services/codegen/runtime-map";
-import type { RuntimeConfig } from "../../src/types";
+import { lockfileOf } from "../../src/services/lockfile/schema";
+import { BosConfigSchema, type RuntimeConfig } from "../../src/types";
 
 function source(
   key: string,
@@ -327,5 +328,71 @@ describe("generateRuntimeMapEffect — backend inventory (#594 review)", () => {
     expect(apiBackend.note).toContain("registry unreachable");
     // the other backends still inventory
     expect(map.backends).toHaveLength(4);
+  });
+
+  it("a composition lockfile rides along as provenance — matching digests compose, drifting ones are named", async () => {
+    const { Effect } = await vi.importActual<typeof import("effect")>("effect");
+    const runtime = fixtureRuntime();
+    // the serving ui digest — the lockfile will freeze a DIFFERENT one
+    runtime.ui = {
+      ...runtime.ui,
+      digest: { manifest: "versions/ui-serving.json", integrity: "sha384-serving" },
+    } as RuntimeConfig["ui"];
+    // the ui route manifest — without it the ui source lands in `unresolved`
+    // and never carries a serving digest to compare
+    writeFileSync(join(tempDir, "ui", "src", "manifest.gen.json"), JSON.stringify(routeManifest));
+
+    const lockConfig = BosConfigSchema.parse({
+      account: "child.near",
+      domain: "child.dev",
+      app: {
+        host: {
+          development: "local:host",
+          production: "https://cdn/host/",
+          digest: { manifest: "versions/host-frozen.json", integrity: "sha384-host" },
+        },
+        ui: {
+          development: "local:ui",
+          production: "https://cdn/ui/",
+          digest: { manifest: "versions/ui-frozen.json", integrity: "sha384-ui" },
+        },
+        api: {
+          development: "local:api",
+          production: "https://cdn/api/",
+          digest: { manifest: "versions/api-frozen.json", integrity: "sha384-api" },
+        },
+      },
+    });
+    const lock = lockfileOf({ account: "child.near", gateway: "child.dev", config: lockConfig });
+
+    await Effect.runPromise(
+      generateRuntimeMapEffect(tempDir, runtime, { env: "development", lockfile: lock }),
+    );
+
+    const map = JSON.parse(readFileSync(join(tempDir, ".bos/generated/runtime-map.json"), "utf8"));
+    expect(map.lockfile.fingerprint).toBe(lock.fingerprint);
+    expect(map.lockfile.release).toBeNull();
+    const uiDrift = map.lockfile.drift.find((entry: { key: string }) => entry.key === "ui");
+    expect(uiDrift).toEqual({
+      key: "ui",
+      kind: "core",
+      serving: "versions/ui-serving.json",
+      frozen: "versions/ui-frozen.json",
+    });
+    // matching frozen digests produce no drift entries
+    expect(
+      map.lockfile.drift.find((entry: { key: string }) => entry.key === "host"),
+    ).toBeUndefined();
+    // the serving digests stay truthful — never replaced by the frozen ones
+    const uiSource = map.sources.find((source: { key: string }) => source.key === "ui");
+    expect(uiSource.digest).toBe("versions/ui-serving.json");
+  });
+
+  it("no lockfile — the map omits the provenance block entirely", async () => {
+    const { Effect } = await vi.importActual<typeof import("effect")>("effect");
+    const runtime = fixtureRuntime();
+    await Effect.runPromise(generateRuntimeMapEffect(tempDir, runtime, { env: "development" }));
+    const map = JSON.parse(readFileSync(join(tempDir, ".bos/generated/runtime-map.json"), "utf8"));
+    expect(map.lockfile).toBeUndefined();
   });
 });

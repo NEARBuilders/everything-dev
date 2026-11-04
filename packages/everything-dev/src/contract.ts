@@ -316,6 +316,22 @@ export const PublishResultSchema = z.object({
   deployResults: z.array(WorkspaceDeployResultSchema).optional(),
 });
 
+export const LockOptionsSchema = z.object({
+  check: z
+    .boolean()
+    .default(false)
+    .describe("CI gate — exit 1 when the resolved composition differs from bos.lock.json"),
+});
+
+export const LockResultSchema = z.object({
+  status: z.enum(["written", "unchanged", "drift", "error"]),
+  path: z.string(),
+  fingerprint: z.string().optional(),
+  drift: z.array(z.string()).optional(),
+  error: z.string().optional(),
+  code: z.number().optional(),
+});
+
 export const DeployOptionsSchema = z.object({
   statusList: z.boolean().default(false),
   env: z
@@ -1143,6 +1159,7 @@ export const commandOptionSchemas = {
   pluginRemove: PluginRemoveOptionsSchema,
   pluginPublish: PluginPublishOptionsSchema,
   publish: PublishOptionsSchema,
+  lock: LockOptionsSchema,
   rollback: RollbackOptionsSchema,
   deploy: DeployOptionsSchema,
   smoke: SmokeOptionsSchema,
@@ -1200,6 +1217,10 @@ export const bosContract = oc.router({
     .route({ method: "POST", path: "/publish" })
     .input(PublishOptionsSchema)
     .output(PublishResultSchema),
+  lock: oc
+    .route({ method: "POST", path: "/lock" })
+    .input(LockOptionsSchema)
+    .output(LockResultSchema),
   rollback: oc
     .route({ method: "POST", path: "/rollback" })
     .input(RollbackOptionsSchema)
@@ -1300,6 +1321,8 @@ export type PluginPublishResult = z.infer<typeof PluginPublishResultSchema>;
 export type WorkspaceDeployResult = z.infer<typeof WorkspaceDeployResultSchema>;
 export type PublishOptions = z.infer<typeof PublishOptionsSchema>;
 export type PublishResult = z.infer<typeof PublishResultSchema>;
+export type LockOptions = z.infer<typeof LockOptionsSchema>;
+export type LockResult = z.infer<typeof LockResultSchema>;
 export type RollbackResult = z.infer<typeof RollbackResultSchema>;
 export type DeployOptions = z.infer<typeof DeployOptionsSchema>;
 export type DeployResult = z.infer<typeof DeployResultSchema>;
@@ -1422,6 +1445,12 @@ export const cliCommandMeta = {
     commandPath: ["publish"],
     summary:
       "Publish the current workspace configuration (no build — use bos deploy for the full train)",
+    interactive: false,
+  },
+  lock: {
+    commandPath: ["lock"],
+    summary:
+      "Freeze the resolved composition into bos.lock.json (--check verifies drift for CI — exit 1)",
     interactive: false,
   },
   rollback: {

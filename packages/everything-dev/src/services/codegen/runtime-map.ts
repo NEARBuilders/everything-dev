@@ -44,6 +44,7 @@ import {
   resolveMountSegment,
 } from "every-plugin/ui/manifest";
 import type { RuntimeConfig } from "../../types";
+import type { CompositionLockfile } from "../lockfile/schema";
 
 const CORE_UI_KEY = "ui";
 const FETCH_TIMEOUT_MS = Number(process.env.BOS_MAP_FETCH_TIMEOUT_MS ?? 15_000);
@@ -525,12 +526,78 @@ interface GeneratedRuntimeMap {
   mounts: ComposedRuntimeMap["mounts"];
   routes: ComposedRuntimeMap["routes"];
   shadowed: ComposedRuntimeMap["shadowed"];
+  lockfile?: {
+    fingerprint: string;
+    release: string | null;
+    resolvedAt: string;
+    /** Sources whose serving digest differs from the frozen one — the
+     * explainer telling the truth about a stale lockfile. */
+    drift: Array<{ key: string; kind: string; serving: string | null; frozen: string | null }>;
+  };
+}
+
+/** The lockfile's dotted config path for a map source key (ui sources). */
+function lockfileKeyFor(key: string, kind: SourceDescriptor["kind"]): string {
+  if (kind === "core") return "app.ui";
+  if (kind === "auth-ui") return "app.auth.ui";
+  return `plugins.${key}.ui`;
+}
+
+/** The lockfile's dotted config path for a backend key. */
+function lockfileKeyForBackend(key: string): string {
+  if (key === "host") return "app.host";
+  if (key === "api") return "app.api";
+  if (key === "auth") return "app.auth";
+  return `plugins.${key}`;
+}
+
+function frozenDigestFor(lockfile: CompositionLockfile, lockfileKey: string): string | null {
+  const entry = lockfile.remotes[lockfileKey];
+  return entry?.kind === "descriptor" && entry.digest ? entry.digest.manifest : null;
+}
+
+function lockfileProvenance(
+  lockfile: CompositionLockfile | null | undefined,
+  sources: Array<{ key: string; kind: string; digest?: string }>,
+  backends: BackendRecord[],
+): GeneratedRuntimeMap["lockfile"] {
+  if (!lockfile) return undefined;
+  const drift: NonNullable<GeneratedRuntimeMap["lockfile"]>["drift"] = [];
+  const check = (key: string, kind: string, lockfileKey: string, serving?: string) => {
+    const frozen = frozenDigestFor(lockfile, lockfileKey);
+    if (frozen && serving && frozen !== serving) {
+      drift.push({ key, kind, serving: serving ?? null, frozen });
+    }
+  };
+  for (const source of sources) {
+    check(source.key, source.kind, lockfileKeyFor(source.key, source.kind as never), source.digest);
+  }
+  for (const backend of backends) {
+    check(
+      backend.key,
+      `backend/${backend.kind}`,
+      lockfileKeyForBackend(backend.key),
+      backend.digest,
+    );
+  }
+  return {
+    fingerprint: lockfile.fingerprint,
+    release: lockfile.release,
+    resolvedAt: lockfile.resolvedAt,
+    drift,
+  };
 }
 
 export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function* (
   configDir: string,
   runtimeConfig: RuntimeConfig,
-  opts?: { strict?: boolean; env?: string; release?: string | null; extendsChain?: string[] },
+  opts?: {
+    strict?: boolean;
+    env?: string;
+    release?: string | null;
+    extendsChain?: string[];
+    lockfile?: CompositionLockfile | null;
+  },
 ): Effect.fn.Return<RuntimeMapResult | null, Error> {
   const allowUnresolved = envBool("BOS_MAP_ALLOW_UNRESOLVED");
   const unresolved: UnresolvedSource[] = [];
@@ -658,6 +725,7 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
     mounts: composed.mounts,
     routes: composed.routes,
     shadowed: composed.shadowed,
+    lockfile: lockfileProvenance(opts?.lockfile, sources, backends),
   };
 
   const jsonPath = join(configDir, ".bos/generated/runtime-map.json");
@@ -681,6 +749,13 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
   );
   for (const entry of unresolved) {
     yield* Effect.logWarning(`[runtime-map] unresolved ${entry.key}: ${entry.reason}`);
+  }
+  if (map.lockfile && map.lockfile.drift.length > 0) {
+    yield* Effect.logWarning(
+      `[runtime-map] composition lockfile drift — ${map.lockfile.drift
+        .map((entry) => `${entry.key} (${entry.frozen} frozen, ${entry.serving} serving)`)
+        .join("; ")} — run \`bos lock\` and commit the result`,
+    );
   }
   yield* Effect.log(
     `[runtime-map] wrote ${jsonPath}${tsPath ? ` + ${tsPath}` : " (no local core ui — ts emission skipped)"}`,
