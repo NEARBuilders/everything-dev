@@ -44,7 +44,7 @@ export function deployAuditKeyOf(
  * published; a read failure throws — an unknown state must never silently
  * classify a release as non-release. The keyPath is RELATIVE —
  * `fetchRegistryKey` wraps it with the runtime prefix (a full key here
- * double-prefixes the wire key and reads a slot that can never exist). */
+ * double-prefixes the wire key and reads a key that can never exist). */
 export function readManifestTag<T>(
   accountId: string,
   gatewayId: string,
@@ -53,7 +53,7 @@ export function readManifestTag<T>(
   return fetchRegistryKey<T>(accountId, gatewayId, MANIFEST_TAG_REL_KEY, registry);
 }
 
-/** The release leg's immutability check: the version slot must either be
+/** The release leg's immutability check: the version record must either be
  * absent or hold byte-identical content — a divergent republish is a burned
  * version. */
 export function readVersionRecord<T>(

@@ -1,12 +1,12 @@
 import { SHARED_DEP_SPECS } from "every-plugin/shared-deps-spec";
-import { resolveSlotVersion } from "../deploy/version-manifest";
+import { resolveRemoteVersion } from "../deploy/version-manifest";
 import type { RemoteRecord } from "../platform/manifest";
 import { ensureObjectContainers, type Remote, walkRemotes } from "../remotes";
 import { isPlainObject } from "./merge";
 
 /**
  * The release plane (ADR 0034 amendment — release-scoped extends
- * inheritance): a platform-pinned child composes the slots the pinned
+ * inheritance): a platform-pinned child composes the remotes the pinned
  * release recorded instead of drifting with the parent's live config
  * pointer. One implementation, two adapters: the deploy train stamps the
  * child's publish payload before it publishes, and every consumer boot
@@ -18,43 +18,43 @@ import { isPlainObject } from "./merge";
  * host's shared-singleton guard (#546) refuses the composition at boot.
  */
 
-/** Keys that name where a slot's code comes from — owning the slot's bytes. */
-const SLOT_SOURCE_KEYS = ["production", "development", "digest", "extends", "proxy"] as const;
+/** Keys that name where a remote's code comes from — owning the remote's bytes. */
+const REMOTE_SOURCE_KEYS = ["production", "development", "digest", "extends", "proxy"] as const;
 
 /**
- * A slot is authored when its entry names a code source (or opts out with
+ * A remote is authored when its entry names a code source (or opts out with
  * `ui: false` / owns it via a bare plugin ref). An entry that only configures
- * an inherited slot — `variables`, `secrets`, `routes`, … — does not own its
+ * an inherited remote — `variables`, `secrets`, `routes`, … — does not own its
  * bytes, so the release still pins them.
  */
-function declaresSlotSource(entry: Remote["entry"]): boolean {
+function declaresRemoteSource(entry: Remote["entry"]): boolean {
   if (entry === false || typeof entry === "string") return true;
-  return SLOT_SOURCE_KEYS.some((key) => entry[key] !== undefined);
+  return REMOTE_SOURCE_KEYS.some((key) => entry[key] !== undefined);
 }
 
-/** Authored slot paths: every slot whose code source the leaf itself declares. */
+/** Authored remote paths: every remote whose code source the leaf itself declares. */
 export function authoredRemoteKeys(config: Record<string, unknown>): Set<string> {
   const paths = new Set<string>();
-  walkRemotes(config, ({ slot, entry, isPluginRef }) => {
-    if (declaresSlotSource(entry)) paths.add(slot);
+  walkRemotes(config, ({ remote, entry, isPluginRef }) => {
+    if (declaresRemoteSource(entry)) paths.add(remote);
     // KEEP: a bare-string plugin ref (`extends: "bos://…"`) owns its whole
     // surface — composed resolution derives its ui from the extended config,
     // so the ownership set must include it independently of the `ui` key.
-    if (isPluginRef) paths.add(`${slot}.ui`);
+    if (isPluginRef) paths.add(`${remote}.ui`);
   });
   return paths;
 }
 
-/** Stamped and omitted slot paths (diagnostic), in stamp order. */
+/** Stamped and omitted remote paths (diagnostic), in stamp order. */
 export interface StampOutcome {
   stamped: string[];
   omitted: string[];
 }
 
 /**
- * `payload` — the deploy train's publish-payload seam: `app.*` slots only,
+ * `payload` — the deploy train's publish-payload seam: `app.*` remotes only,
  * created when absent (a payload's authored config may know nothing about an
- * inherited app slot; the stamp is its introduction). Creating plugin entries
+ * inherited app remote; the stamp is its introduction). Creating plugin entries
  * is deliberately refused — a child's declared `plugins` object owns the
  * whole domain in one wholesale replace (`mergeBosConfigWithExtends`), so a
  * stamped plugin ui record alone carries no required `name` and the wholesale
@@ -63,8 +63,8 @@ export interface StampOutcome {
  * `consumer` — every consumer boot (`bos dev`, host boot, tenant
  * resolution): `app.*` AND `plugins.*` stamp by **merging `{ production, pin
  * }` into the existing inherited entry** — schema-valid by construction (the
- * live entry already carries the slot's full shape). Nothing is created: a
- * path absent from the merged shape is a post-release provisioned slot the
+ * live entry already carries the remote's full shape). Nothing is created: a
+ * path absent from the merged shape is a post-release provisioned remote the
  * pinned plane cannot claim, so it is omitted and reported for the dev
  * audit instead of being silently live-followed (the skew bug class).
  */
@@ -81,26 +81,26 @@ export function stampInheritedRemotes(input: {
   const stamped: string[] = [];
   const omitted: string[] = [];
 
-  for (const [slotPath, record] of Object.entries(remotes)) {
-    const isAppSlot = /^app\.[^.]+(\.ui)?$/.test(slotPath);
-    if (input.mode === "payload" && !isAppSlot) continue;
-    if (authored.has(slotPath)) continue;
-    if (input.mode === "consumer" && !slotEntryAt(input.config, slotPath)) {
-      omitted.push(slotPath);
+  for (const [remotePath, record] of Object.entries(remotes)) {
+    const isAppRemote = /^app\.[^.]+(\.ui)?$/.test(remotePath);
+    if (input.mode === "payload" && !isAppRemote) continue;
+    if (authored.has(remotePath)) continue;
+    if (input.mode === "consumer" && !remoteEntryAt(input.config, remotePath)) {
+      omitted.push(remotePath);
       continue;
     }
-    stampSlotRecord(input.config, slotPath, record);
-    stamped.push(slotPath);
+    stampRemoteRecord(input.config, remotePath, record);
+    stamped.push(remotePath);
   }
   return { stamped, omitted };
 }
 
-/** The entry object at a dotted slot path (2–3 segments), if it exists. */
-function slotEntryAt(
+/** The entry object at a dotted remote path (2–3 segments), if it exists. */
+function remoteEntryAt(
   config: Record<string, unknown>,
-  slotPath: string,
+  remotePath: string,
 ): Record<string, unknown> | undefined {
-  const segments = slotPath.split(".");
+  const segments = remotePath.split(".");
   if ((segments.length !== 2 && segments.length !== 3) || !segments[0] || !segments[1]) {
     return undefined;
   }
@@ -118,12 +118,12 @@ function slotEntryAt(
 
 /** Write `{ production, digest }` for one dotted remote path (2–3 segments),
  * merging into an existing entry rather than replacing it. */
-function stampSlotRecord(
+function stampRemoteRecord(
   config: Record<string, unknown>,
-  slotPath: string,
+  remotePath: string,
   record: RemoteRecord,
 ): void {
-  const segments = slotPath.split(".");
+  const segments = remotePath.split(".");
   if ((segments.length !== 2 && segments.length !== 3) || !segments[0] || !segments[1]) return;
   const leaf = segments.at(-1);
   const container = ensureObjectContainers(config, segments.slice(0, -1));
@@ -142,22 +142,22 @@ export interface CompositionAuditLine {
 }
 
 /**
- * The publish key an owned slot realigns through: the workspace key the
+ * The publish key an owned remote realigns through: the workspace key the
  * scoped deploy train and `bos plugin publish` understand — `app.<key>` and
  * `app.<key>.ui` publish as the app key (`ui`, `api`, …), `plugins.<id>` and
  * `plugins.<id>.ui` as the plugin id. Remote paths themselves are not keys.
  */
-export function workspaceKeyOfRemote(slot: string): string {
-  const [domain, key] = slot.split(".");
-  return domain === "app" || domain === "plugins" ? (key ?? slot) : slot;
+export function workspaceKeyOfRemote(remote: string): string {
+  const [domain, key] = remote.split(".");
+  return domain === "app" || domain === "plugins" ? (key ?? remote) : remote;
 }
 
 /** The repair instruction for an owned remote diverging on shared singletons:
  * app remotes republish through the scoped deploy train (they are not plugins);
  * plugin remotes through the single-plugin publish. */
-function ownedRemoteRepair(slot: string): string {
-  const key = workspaceKeyOfRemote(slot);
-  const command = slot.startsWith("app.")
+function ownedRemoteRepair(remote: string): string {
+  const key = workspaceKeyOfRemote(remote);
+  const command = remote.startsWith("app.")
     ? `bos deploy --packages ${key}`
     : `bos plugin publish ${key}`;
   return `run ${command} (built against an older chain)`;
@@ -169,7 +169,7 @@ function ownedRemoteRepair(slot: string): string {
  * against the local workspace catalog — the same `satisfiesConstraint`
  * family the deploy-train compat-window gate speaks, so one mismatch
  * reads the same way in the train and on screen. One line per divergent
- * slot, with the repair named for its ownership: inherited →
+ * remote, with the repair named for its ownership: inherited →
  * `bos upgrade` (the pin trails the chain serving the remote); owned →
  * `bos plugin publish <key>` (built against an older chain). Empty out:
  * the whole composition composes coherently.
@@ -185,16 +185,16 @@ function ownedRemoteRepair(slot: string): string {
  *   the merged shape).
  */
 export async function auditReleaseComposition(input: {
-  remotes: Array<{ slot: string; base: string; digest: { manifest: string; integrity: string } }>;
+  remotes: Array<{ remote: string; base: string; digest: { manifest: string; integrity: string } }>;
   authoredPaths: Set<string>;
   /** The installed version this runtime composes for one singleton name —
    * the probe the boot guard consults too (catalog for framework names,
    * node_modules for the rest). */
   localVersionOf: (name: string) => string | undefined;
   provisionedRemotes?: readonly string[];
-  /** Every slot path the merged resolved config walks (authored + inherited). */
+  /** Every remote path the merged resolved config walks (authored + inherited). */
   configRemotePaths?: readonly string[];
-  /** Slot paths the pinned release manifest records. */
+  /** Remote paths the pinned release manifest records. */
   manifestRemotePaths?: readonly string[];
   pinnedReleaseVersion?: string;
   /** test seam — threaded to the version-manifest fetch */
@@ -204,14 +204,14 @@ export async function auditReleaseComposition(input: {
   const strictness = new Map(SHARED_DEP_SPECS.map((spec) => [spec.name, spec.critical]));
   const manifestRemotePaths = new Set(input.manifestRemotePaths ?? []);
 
-  for (const { slot, base, digest } of input.remotes) {
-    const kind = input.authoredPaths.has(slot) ? "owned" : "inherited";
+  for (const { remote, base, digest } of input.remotes) {
+    const kind = input.authoredPaths.has(remote) ? "owned" : "inherited";
     const repair =
       kind === "owned"
-        ? ownedRemoteRepair(slot)
-        : "run bos upgrade (the pin trails the chain serving this slot)";
+        ? ownedRemoteRepair(remote)
+        : "run bos upgrade (the pin trails the chain serving this remote)";
     try {
-      const resolved = await resolveSlotVersion({
+      const resolved = await resolveRemoteVersion({
         base,
         digest,
         ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
@@ -223,10 +223,10 @@ export async function auditReleaseComposition(input: {
         const local = input.localVersionOf(name);
         if (local !== undefined && local === version) continue;
         lines.push({
-          remote: slot,
+          remote,
           kind,
           message:
-            `${slot} was built against ${name}@${version}, this runtime composes ${name}@${local ?? "unknown"} — ` +
+            `${remote} was built against ${name}@${version}, this runtime composes ${name}@${local ?? "unknown"} — ` +
             `${repair}`,
         });
         break;
@@ -234,41 +234,41 @@ export async function auditReleaseComposition(input: {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       lines.push({
-        remote: slot,
+        remote,
         kind,
-        message: `${slot}'s version manifest does not serve at its production URL (${reason}) — ${repair}`,
+        message: `${remote}'s version manifest does not serve at its production URL (${reason}) — ${repair}`,
       });
     }
   }
 
   // Config remotes the pinned manifest does not record: genuinely provisioned
   // upstream after the pin — they compose live, unpinned bytes, so the repair
-  // is a real re-pin. Inherited only (authored slots are the leaf's own
+  // is a real re-pin. Inherited only (authored remotes are the leaf's own
   // decision, and pinned ones are already claimed by the manifest).
-  const pinnedRemotes = new Set(input.remotes.map((ref) => ref.slot));
-  for (const slot of input.configRemotePaths ?? []) {
+  const pinnedRemotes = new Set(input.remotes.map((ref) => ref.remote));
+  for (const remote of input.configRemotePaths ?? []) {
     if (
-      !manifestRemotePaths.has(slot) &&
-      !pinnedRemotes.has(slot) &&
-      !input.authoredPaths.has(slot)
+      !manifestRemotePaths.has(remote) &&
+      !pinnedRemotes.has(remote) &&
+      !input.authoredPaths.has(remote)
     ) {
       lines.push({
-        remote: slot,
+        remote,
         kind: "provisioned",
         message:
-          `remote "${slot}" is served by the extends chain but missing from the ` +
+          `remote "${remote}" is served by the extends chain but missing from the ` +
           `${input.pinnedReleaseVersion ?? "pinned"} release composition — it composes live, unpinned bytes; ` +
           `run bos upgrade to re-pin and claim it`,
       });
     }
   }
 
-  for (const slot of input.provisionedRemotes ?? []) {
+  for (const remote of input.provisionedRemotes ?? []) {
     lines.push({
-      remote: slot,
+      remote,
       kind: "uncomposed",
       message:
-        `remote "${slot}" is recorded in the ${input.pinnedReleaseVersion ?? "pinned"} release ` +
+        `remote "${remote}" is recorded in the ${input.pinnedReleaseVersion ?? "pinned"} release ` +
         `but not composed by this config — declare it in your config's app/plugins domain to compose it`,
     });
   }

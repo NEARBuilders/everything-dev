@@ -34,9 +34,9 @@ const publishedPointer = {
     ui: {
       development: "local:ui",
       production: "https://cdn.example.test/ui/",
-      pin: {
+      digest: {
         manifest: "versions/8f3ac1d2feedbeef.json",
-        integrity: "sha384-slot-pin",
+        integrity: "sha384-remote-pin",
       },
     },
     api: { development: "local:api", production: "https://cdn.example.test/api/" },
@@ -44,7 +44,7 @@ const publishedPointer = {
 } as unknown as BosConfig;
 
 // what resolveMergedConfigInput returns for a child pointer: the extends
-// chain walked, so slots the child inherits — notably app.host — are present
+// chain walked, so remotes the child inherits — notably app.host — are present
 const mergedPointer = {
   ...publishedPointer,
   app: {
@@ -237,7 +237,7 @@ describe("adoptPublishedPointer", () => {
     vi.stubGlobal("fetch", vi.fn(fakeCdnFetch) as unknown as typeof fetch);
   });
 
-  it("derives from the extends-merged pointer — inherited slots (app.host) reach the runtime build", async () => {
+  it("derives from the extends-merged pointer — inherited remotes (app.host) reach the runtime build", async () => {
     // a child pointer carries no app.host (inherited via extends); building
     // straight from the raw pointer crashed the adopt with
     // `Cannot read properties of undefined (reading 'production')`

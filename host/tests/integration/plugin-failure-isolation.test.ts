@@ -41,7 +41,7 @@ function makeLoaded(key: string) {
   };
 }
 
-function slot(name: string) {
+function entry(name: string) {
   return {
     name,
     url: `https://cdn.example.com/${name}`,
@@ -56,9 +56,9 @@ function makeConfig(overrides: Partial<RuntimeConfig>, pluginNames: string[]): R
     env: "production",
     account: "test.near",
     networkId: "mainnet",
-    ui: slot("ui"),
+    ui: entry("ui"),
     api: { name: "api" },
-    plugins: Object.fromEntries(pluginNames.map((name) => [name, slot(name)])),
+    plugins: Object.fromEntries(pluginNames.map((name) => [name, entry(name)])),
     ...overrides,
   } as unknown as RuntimeConfig;
 }
@@ -108,7 +108,7 @@ describe("plugin failure isolation", () => {
         {
           host: undefined,
           domain: undefined,
-          auth: { ...slot("auth"), name: "auth" },
+          auth: { ...entry("auth"), name: "auth" },
         } as Partial<RuntimeConfig>,
         ["votes"],
       ),

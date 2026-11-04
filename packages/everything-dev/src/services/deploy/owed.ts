@@ -16,7 +16,7 @@
 import { compareSemver as compareVersions } from "../../utils/semver";
 
 /** Tri-state pointer read: `present` (a completed release cycle exists),
- * `absent` (read succeeded, no slot — a first release), or `unknown` (the
+ * `absent` (read succeeded, no remote — a first release), or `unknown` (the
  * read itself failed). */
 export interface PointerRead {
   state: "absent" | "present" | "unknown";
@@ -29,7 +29,7 @@ export interface OwedWorkDetail {
   localFrameworkVersion?: string;
   /** The published pointer's frameworkVersion — absent when no pointer exists. */
   pointerFrameworkVersion?: string;
-  /** The pointer read succeeded and found a slot — a completed release cycle. */
+  /** The pointer read succeeded and found a remote — a completed release cycle. */
   pointerExists: boolean;
 }
 

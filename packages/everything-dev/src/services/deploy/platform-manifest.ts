@@ -26,37 +26,40 @@ import { computeSriHash } from "./integrity";
 /** The universal image (ADR 0020/0021) — the release manifest's image ref. */
 export const PLATFORM_IMAGE_REF = "ghcr.io/nearbuilders/everything-dev";
 
-export interface ReleaseSlotRef extends RemoteRecord {
-  slot: string;
+export interface ReleaseRemoteRef extends RemoteRecord {
+  remote: string;
 }
 
 /**
- * The release's pinned slots: every config slot (dotted config path, keyed by
- * the same path shape the release-slot stamping writes back — `app.auth`,
+ * The release's pinned remotes: every config remote (dotted config path, keyed by
+ * the same path shape the release-remote stamping writes back — `app.auth`,
  * `app.auth.ui`, `plugins.votes.ui`, …) with a production URL and an
  * immutable version-manifest pin in the release's publish payload. The
  * release leg records them in the release manifest so pinned children can
- * re-point inherited slots at these bytes.
+ * re-point inherited remotes at these bytes.
  */
-export function collectReleaseSlotPins(config: Record<string, unknown>): ReleaseSlotRef[] {
-  const slots: ReleaseSlotRef[] = [];
-  walkRemotes(config, ({ slot, entry }) => {
+export function collectReleaseRemoteDigests(config: Record<string, unknown>): ReleaseRemoteRef[] {
+  const remotes: ReleaseRemoteRef[] = [];
+  walkRemotes(config, ({ remote, entry }) => {
     if (typeof entry !== "object" || entry === null) return;
     const base = typeof entry.production === "string" ? entry.production : undefined;
     const digest = entry.digest as { manifest?: unknown; integrity?: unknown } | undefined;
     const manifest = typeof digest?.manifest === "string" ? digest.manifest : undefined;
     const integrity = typeof digest?.integrity === "string" ? digest.integrity : undefined;
     if (base && manifest && integrity) {
-      slots.push({ slot, base, digest: { manifest, integrity } });
+      remotes.push({ remote, base, digest: { manifest, integrity } });
     }
   });
-  return slots;
+  return remotes;
 }
 
-/** The `Record<slot, RemoteRecord>` shape the manifest schema stores. */
-export function releaseSlotMap(config: Record<string, unknown>): Record<string, RemoteRecord> {
+/** The `Record<remote, RemoteRecord>` shape the manifest schema stores. */
+export function releaseRemoteMap(config: Record<string, unknown>): Record<string, RemoteRecord> {
   return Object.fromEntries(
-    collectReleaseSlotPins(config).map(({ slot, base, digest }) => [slot, { base, digest }]),
+    collectReleaseRemoteDigests(config).map(({ remote, base, digest }) => [
+      remote,
+      { base, digest },
+    ]),
   );
 }
 
@@ -177,7 +180,7 @@ export function composePlatformManifestPublishEntry(opts: {
   /** The deploy's repo HEAD — the serving build's identity on the wire. */
   gitSha?: string;
   imageRef?: string;
-  /** The release's own publish payload — its pinned slots ride the manifest
+  /** The release's own publish payload — its pinned remotes ride the manifest
    * (ADR 0034 amendment: release-scoped extends inheritance). */
   publishPayload?: Record<string, unknown>;
 }): PlatformManifestPublishEntry | null {
@@ -201,7 +204,7 @@ export function composePlatformManifestPublishEntry(opts: {
     catalog: resolveExactCatalog(opts.configDir),
     templateInventory: computeTemplateInventory(opts.configDir),
     compatMinChild,
-    ...(opts.publishPayload ? { remotes: releaseSlotMap(opts.publishPayload) } : {}),
+    ...(opts.publishPayload ? { remotes: releaseRemoteMap(opts.publishPayload) } : {}),
   });
   const value = serializePlatformReleaseManifest(manifest);
   const tag = manifestTagOf(manifest, value);
@@ -304,14 +307,14 @@ export async function deriveImageRefFromPlatformManifest(opts: {
   configDir: string;
   localConfig: Record<string, unknown>;
   fetchTag?: (account: string, gateway: string) => Promise<unknown>;
-  fetchSlot?: (account: string, gateway: string, version: string) => Promise<unknown>;
+  fetchRecord?: (account: string, gateway: string, version: string) => Promise<unknown>;
   fetchParent?: (account: string, gateway: string) => Promise<Record<string, unknown> | null>;
 }): Promise<DerivedImageRef | null> {
   const resolved = await resolvePlatformManifest({
     configDir: opts.configDir,
     localConfig: opts.localConfig,
     ...(opts.fetchTag ? { fetchTag: opts.fetchTag } : {}),
-    ...(opts.fetchSlot ? { fetchSlot: opts.fetchSlot } : {}),
+    ...(opts.fetchRecord ? { fetchRecord: opts.fetchRecord } : {}),
     ...(opts.fetchParent ? { fetchParent: opts.fetchParent } : {}),
   });
   if (!resolved) return null;

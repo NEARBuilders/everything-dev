@@ -198,8 +198,8 @@ function manifestUrl(remoteUrl: string): string {
 }
 
 async function fetchManifest(url: string, timeoutMs: number): Promise<unknown> {
-  // A pinned slot's resolved `browserManifestUrl` IS the manifest document
-  // (hashed name); plain slot URLs are bases that the fixed name appends to.
+  // A pinned remote's resolved `browserManifestUrl` IS the manifest document
+  // (hashed name); plain remote URLs are bases that the fixed name appends to.
   const target = url.endsWith(".json") ? url : manifestUrl(url);
   const res = await fetchRaw(target, {}, timeoutMs);
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
@@ -212,15 +212,15 @@ function listFederationRemotes(bosConfig: BosConfig): Array<{ role: string; url:
     const url = readProductionUrl((bosConfig?.app as Record<string, unknown> | undefined)?.[role]);
     if (url) out.push({ role, url });
   }
-  for (const [id, slot] of Object.entries(bosConfig?.plugins ?? {})) {
-    const url = readProductionUrl(slot);
+  for (const [id, remote] of Object.entries(bosConfig?.plugins ?? {})) {
+    const url = readProductionUrl(remote);
     if (url) out.push({ role: id, url });
   }
   return out;
 }
 
-export interface UiCompositionSlot {
-  slot: string;
+export interface UiCompositionRemote {
+  remote: string;
   url: string;
   reachable: boolean;
   ok: boolean;
@@ -229,7 +229,7 @@ export interface UiCompositionSlot {
 
 export interface UiCompositionReport {
   ok: boolean;
-  slots: UiCompositionSlot[];
+  remotes: UiCompositionRemote[];
 }
 
 /**
@@ -238,7 +238,7 @@ export interface UiCompositionReport {
  * provider; plugin UI remotes are consumers. Any singleton named by two or
  * more UI manifests at different versions fails the composition at
  * `mf.loadRemote` with the federation runtime's cryptic negotiation error —
- * this names the slots and versions instead. Server remotes (api/auth) are
+ * this names the remotes and versions instead. Server remotes (api/auth) are
  * intentionally out of scope: the host-side `checkFederationCompat` covers
  * them against the host's own core map.
  */
@@ -248,32 +248,32 @@ export async function checkUiCompositionCompat(
 ): Promise<UiCompositionReport> {
   const timeoutMs = opts.timeoutMs ?? 15_000;
 
-  const uiSlots: Array<{ slot: string; url: string }> = [];
-  const pushSlot = (slot: string, entry: unknown): void => {
+  const uiRemotes: Array<{ remote: string; url: string }> = [];
+  const pushRemote = (remote: string, entry: unknown): void => {
     const asRef = entry as { browserManifestUrl?: string; production?: string };
     const url =
       typeof asRef?.browserManifestUrl === "string" && asRef.browserManifestUrl
         ? asRef.browserManifestUrl
         : readProductionUrl(entry);
-    if (url) uiSlots.push({ slot, url });
+    if (url) uiRemotes.push({ remote, url });
   };
-  pushSlot("app.ui", (bosConfig?.app as Record<string, unknown> | undefined)?.ui);
-  for (const [id, slot] of Object.entries(bosConfig?.plugins ?? {})) {
-    if (!slot || typeof slot === "string") continue;
-    const ui = (slot as BosPluginRef).ui;
-    if (ui) pushSlot(`plugins.${id}.ui`, ui);
+  pushRemote("app.ui", (bosConfig?.app as Record<string, unknown> | undefined)?.ui);
+  for (const [id, remote] of Object.entries(bosConfig?.plugins ?? {})) {
+    if (!remote || typeof remote === "string") continue;
+    const ui = (remote as BosPluginRef).ui;
+    if (ui) pushRemote(`plugins.${id}.ui`, ui);
   }
 
-  if (uiSlots.length === 0) return { ok: true, slots: [] };
+  if (uiRemotes.length === 0) return { ok: true, remotes: [] };
 
   const resolved = await Promise.all(
-    uiSlots.map(async ({ slot, url }) => {
+    uiRemotes.map(async ({ remote, url }) => {
       try {
         const manifest = (await fetchManifest(url, timeoutMs)) as RemoteManifest;
-        return { slot, url, reachable: true, shared: manifest.shared ?? [] };
+        return { remote, url, reachable: true, shared: manifest.shared ?? [] };
       } catch (e) {
         return {
-          slot,
+          remote,
           url,
           reachable: false,
           shared: [] as Array<{ name: string; version?: string }>,
@@ -283,21 +283,21 @@ export async function checkUiCompositionCompat(
     }),
   );
 
-  const byName = new Map<string, Array<{ slot: string; version: string }>>();
+  const byName = new Map<string, Array<{ remote: string; version: string }>>();
   for (const entry of resolved) {
     for (const dep of entry.shared) {
       if (typeof dep.version !== "string") continue;
       const uses = byName.get(dep.name) ?? [];
-      uses.push({ slot: entry.slot, version: dep.version });
+      uses.push({ remote: entry.remote, version: dep.version });
       byName.set(dep.name, uses);
     }
   }
 
-  const slots: UiCompositionSlot[] = resolved.map((entry) => {
+  const remotes: UiCompositionRemote[] = resolved.map((entry) => {
     if (!entry.reachable) {
       return {
-        slot: entry.slot,
-        url: uiSlots.find((s) => s.slot === entry.slot)!.url,
+        remote: entry.remote,
+        url: uiRemotes.find((s) => s.remote === entry.remote)!.url,
         reachable: false,
         ok: false,
         reason: entry.reason,
@@ -310,27 +310,27 @@ export async function checkUiCompositionCompat(
     });
     if (skewed.length === 0) {
       return {
-        slot: entry.slot,
-        url: uiSlots.find((s) => s.slot === entry.slot)!.url,
+        remote: entry.remote,
+        url: uiRemotes.find((s) => s.remote === entry.remote)!.url,
         reachable: true,
         ok: true,
       };
     }
     return {
-      slot: entry.slot,
-      url: uiSlots.find((s) => s.slot === entry.slot)!.url,
+      remote: entry.remote,
+      url: uiRemotes.find((s) => s.remote === entry.remote)!.url,
       reachable: true,
       ok: false,
-      reason: `shared singleton skew across UI slots: ${skewed
+      reason: `shared singleton skew across UI remotes: ${skewed
         .map((name) => {
           const uses = byName.get(name)!;
-          return `${name} is ${uses.map((use) => `${use.slot}=${use.version}`).join(", ")}`;
+          return `${name} is ${uses.map((use) => `${use.remote}=${use.version}`).join(", ")}`;
         })
         .join("; ")}`,
     };
   });
 
-  return { ok: slots.every((slot) => slot.ok), slots };
+  return { ok: remotes.every((remote) => remote.ok), remotes };
 }
 
 function readProductionUrl(entry: unknown): string | null {

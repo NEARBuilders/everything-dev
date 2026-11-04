@@ -73,7 +73,7 @@ export interface UiSource {
    * verified on every fetch so mutable-latest bytes that drifted from the
    * resolved pin fail the compose loud instead of rendering a mixed tree */
   manifestIntegrity?: string;
-  /** the MF browser manifest URL (mf-manifest.json — hashed when the slot
+  /** the MF browser manifest URL (mf-manifest.json — hashed when the remote
    * pins a version manifest); rides the compose payload for hydrate-time
    * remote registration */
   browserManifestUrl?: string;
@@ -144,7 +144,7 @@ export function uiSources(config: RuntimeConfig): UiSource[] {
         localPath: ui.localPath,
       },
       localRoot: ui.localPath ? resolveLocalRoot(ui.localPath) : undefined,
-      // Remote sources publish their manifest at a known URL; local slots are
+      // Remote sources publish their manifest at a known URL; local remotes are
       // read straight from the workspace (src/manifest.gen.json) — no URL.
       manifestUrl: ui.url ? `${ui.url.replace(/\/$/, "")}/${MANIFEST_FILENAME}` : undefined,
       manifestIntegrity: ui.manifestIntegrity,
@@ -352,7 +352,7 @@ const resolveComposableSources = Effect.fn("resolveComposableSources")(function*
         }
         // A local ui source is authored into this runtime — a manifest that
         // names another plugin is a configuration bug, not a transient remote
-        // failure: fail loud instead of silently dropping the slot.
+        // failure: fail loud instead of silently dropping the remote.
         if (source.localRoot) {
           return yield* new UiComposeError({
             operation: `[Compose] local ui source "${source.key}" manifest names itself "${manifest.name}" — expected "${source.key}"`,

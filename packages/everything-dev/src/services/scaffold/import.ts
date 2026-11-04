@@ -26,7 +26,7 @@ import { fetchResponse } from "../../utils/http-client";
 import { computeSnapshotHash } from "../../utils/snapshot-hash";
 import { listWorkspaceSubtreeFiles } from "../../utils/workspace-subtree";
 import { computeSriHash } from "../deploy/integrity";
-import { parseBosUrl } from "../registry/fastkv";
+import { parseRuntimeRef } from "../registry/keys";
 import { resolveExtendsRef } from "../resolution/merge";
 import type { ResolutionIo } from "../resolution/session";
 import { type WalkLink, walkExtendsChain } from "../resolution/session";
@@ -140,8 +140,8 @@ export function parseFromSpec(spec: string): ImportFromSpec {
         `Targeted extends refs are not supported for import sources: ${spec}. Omit the #target and pass the workspace as the positional argument.`,
       );
     }
-    const parsed = parseBosUrl(bosPart);
-    if (parsed.pathSegments.length > 0) {
+    const parsed = parseRuntimeRef(bosPart);
+    if (parsed.path.length > 0) {
       throw new Error(`Unsupported bos:// path — expected bos://<account>/<gateway>: ${spec}`);
     }
     return {

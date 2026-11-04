@@ -18,7 +18,7 @@ import {
 import {
   detectOwnedDivergentKeys,
   type OwnedRealignment,
-  realignOwnedSlots,
+  realignOwnedRemotes,
 } from "./upgrade-realign";
 import { buildChangelogUrl, type ExtendedRootSource } from "./upgrade-source";
 
@@ -203,7 +203,7 @@ export async function runMigrationPhase(
       for (const line of lines) {
         if (line.kind === "owned") console.error(`  [realign] ${line.message}`);
       }
-      return await realignOwnedSlots(projectDir, keys, console.error);
+      return await realignOwnedRemotes(projectDir, keys, console.error);
     });
   }
 

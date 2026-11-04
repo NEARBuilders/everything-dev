@@ -118,47 +118,47 @@ interface SourceDescriptor {
   note?: string;
 }
 
-function describeSlot(
+function describeRemote(
   _root: string,
   key: string,
   kind: SourceDescriptor["kind"],
-  slot:
+  remote:
     | { url?: string; localPath?: string; source?: string; digest?: { manifest?: string } }
     | undefined,
   unresolved: UnresolvedSource[],
 ): SourceDescriptor | null {
-  if (!slot) return null;
-  const digest = slot.digest?.manifest;
-  if (slot.localPath) {
-    const manifestPath = join(slot.localPath, "src/manifest.gen.json");
+  if (!remote) return null;
+  const digest = remote.digest?.manifest;
+  if (remote.localPath) {
+    const manifestPath = join(remote.localPath, "src/manifest.gen.json");
     if (existsSync(manifestPath)) {
-      return { key, kind, source: "local", location: slot.localPath, manifestPath, digest };
+      return { key, kind, source: "local", location: remote.localPath, manifestPath, digest };
     }
-    if (isHttp(slot.url)) {
+    if (isHttp(remote.url)) {
       return {
         key,
         kind,
         source: "remote",
-        location: slot.url,
-        manifestUrl: manifestUrlFor(slot.url),
+        location: remote.url,
+        manifestUrl: manifestUrlFor(remote.url),
         digest,
-        note: `local path "${slot.localPath}" is absent; using the published bundle`,
+        note: `local path "${remote.localPath}" is absent; using the published bundle`,
       };
     }
     unresolved.push({
       key,
       kind,
-      reason: `local path "${slot.localPath}" is absent and there is no production target`,
+      reason: `local path "${remote.localPath}" is absent and there is no production target`,
     });
     return null;
   }
-  if (isHttp(slot.url)) {
+  if (isHttp(remote.url)) {
     return {
       key,
       kind,
       source: "remote",
-      location: slot.url,
-      manifestUrl: manifestUrlFor(slot.url),
+      location: remote.url,
+      manifestUrl: manifestUrlFor(remote.url),
       digest,
     };
   }
@@ -370,7 +370,7 @@ function describeBackend(
   root: string,
   key: string,
   kind: BackendRecord["kind"],
-  slot:
+  remote:
     | {
         name?: string;
         url?: string;
@@ -384,38 +384,38 @@ function describeBackend(
       }
     | undefined,
 ): BackendRecord | null {
-  if (!slot) return null;
-  const name = typeof slot.name === "string" ? slot.name : null;
-  const digest = slot.digest?.manifest;
-  const dependsOn = slot.dependsOn;
-  if (slot.localPath) {
+  if (!remote) return null;
+  const name = typeof remote.name === "string" ? remote.name : null;
+  const digest = remote.digest?.manifest;
+  const dependsOn = remote.dependsOn;
+  if (remote.localPath) {
     return {
       key,
       kind,
       name,
       source: "local",
-      location: slot.localPath.startsWith(root)
-        ? slot.localPath.slice(root.length + 1)
-        : slot.localPath,
+      location: remote.localPath.startsWith(root)
+        ? remote.localPath.slice(root.length + 1)
+        : remote.localPath,
       ...(digest ? { digest } : {}),
-      ...(slot.integrity ? { integrity: slot.integrity } : {}),
+      ...(remote.integrity ? { integrity: remote.integrity } : {}),
       ...(dependsOn ? { dependsOn } : {}),
     };
   }
-  const remote = slot.remoteUrl ?? slot.url;
-  if (isHttp(remote)) {
+  const base = remote.remoteUrl ?? remote.url;
+  if (isHttp(base)) {
     return {
       key,
       kind,
       name,
       source: "remote",
-      location: remote,
+      location: base,
       // the host ships no plugin manifest asset (it is not an every-plugin
       // module) — probing it 404s on every real host and, in strict mode,
       // fails types gen in every scaffolded child
-      ...(kind !== "host" ? { pluginManifestUrl: pluginManifestUrlFor(remote) } : {}),
+      ...(kind !== "host" ? { pluginManifestUrl: pluginManifestUrlFor(base) } : {}),
       ...(digest ? { digest } : {}),
-      ...(slot.integrity ? { integrity: slot.integrity } : {}),
+      ...(remote.integrity ? { integrity: remote.integrity } : {}),
       ...(dependsOn ? { dependsOn } : {}),
     };
   }
@@ -536,16 +536,16 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
   const unresolved: UnresolvedSource[] = [];
 
   const descriptors = [
-    describeSlot(configDir, CORE_UI_KEY, "core", runtimeConfig.ui, unresolved),
-    describeSlot(configDir, "auth", "auth-ui", runtimeConfig.auth?.ui, unresolved),
+    describeRemote(configDir, CORE_UI_KEY, "core", runtimeConfig.ui, unresolved),
+    describeRemote(configDir, "auth", "auth-ui", runtimeConfig.auth?.ui, unresolved),
   ];
   for (const [key, plugin] of Object.entries(runtimeConfig.plugins ?? {})) {
-    // `plugins.auth` is the auth mirror (the auth app slot's backend owns
+    // `plugins.auth` is the auth mirror (the auth app remote's backend owns
     // it — planner isAuthMirrorFor): its ui is the same source already
     // described under the "auth" key — describing it twice collides with
     // its own claims.
     if (key === "auth" && runtimeConfig.auth !== undefined) continue;
-    descriptors.push(describeSlot(configDir, key, "plugin-ui", plugin.ui, unresolved));
+    descriptors.push(describeRemote(configDir, key, "plugin-ui", plugin.ui, unresolved));
   }
 
   const sources: Array<SourceDescriptor & { manifest: PluginManifest }> = [];
@@ -578,21 +578,21 @@ export const generateRuntimeMapEffect = Effect.fn("generateRuntimeMap")(function
   }
 
   // Backend inventory (#594 review): the auth mirror dedupes against the
-  // auth app slot's backend (same source, same key collision rule). Effect
+  // auth app remote's backend (same source, same key collision rule). Effect
   // generators cannot await — the fetch loop runs inside the promise.
-  const backendSlots: Array<BackendRecord | null> = [
+  const described: Array<BackendRecord | null> = [
     describeBackend(configDir, "host", "host", runtimeConfig.host),
     describeBackend(configDir, "api", "api", runtimeConfig.api),
     describeBackend(configDir, "auth", "auth", runtimeConfig.auth),
   ];
   for (const [key, plugin] of Object.entries(runtimeConfig.plugins ?? {})) {
     if (key === "auth" && runtimeConfig.auth !== undefined) continue;
-    backendSlots.push(describeBackend(configDir, key, "plugin", plugin));
+    described.push(describeBackend(configDir, key, "plugin", plugin));
   }
   const backends: BackendRecord[] = yield* Effect.tryPromise({
     try: async () => {
       const collected: BackendRecord[] = [];
-      for (const backend of backendSlots) {
+      for (const backend of described) {
         if (!backend) continue;
         if (backend.pluginManifestUrl) {
           try {

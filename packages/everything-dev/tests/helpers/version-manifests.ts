@@ -15,7 +15,7 @@ export function versionManifestText(shared: Record<string, string>): string {
   });
 }
 
-/** A pin pointing `file` (relative to a slot base) at these exact bytes. */
+/** A pin pointing `file` (relative to a remote base) at these exact bytes. */
 export function pinFor(
   file: string,
   shared: Record<string, string>,
@@ -24,7 +24,7 @@ export function pinFor(
 }
 
 /** A `fetch` serving JSON documents from an in-memory route map — 404s
- * otherwise. Route keys are full URLs including any slot base prefix. */
+ * otherwise. Route keys are full URLs including any remote base prefix. */
 export const versionManifestFetcher: (routes: Record<string, string>) => typeof fetch = (routes) =>
   (async (input: Parameters<typeof fetch>[0]) => {
     const text = routes[String(input)];

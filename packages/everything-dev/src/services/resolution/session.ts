@@ -118,7 +118,7 @@ interface SessionParts {
   unknownAuthoredKeys?: string[];
   catalog: Record<string, string> | null;
   repository: string | undefined;
-  /** The resolved release manifest for a platform-pinned runtime (slot-first,
+  /** The resolved release manifest for a platform-pinned runtime (record-first,
    * once per session) — null when unpinned, unresolvable, or no manifest
    * publishes. */
   releaseManifest?: Manifest | null;
@@ -449,13 +449,13 @@ export async function openResolution(
         let overlayMerged = mergedRaw;
         let devOverlay: Record<string, unknown> | undefined;
         // Release stamping (ADR 0034 consumer boot): a release-authored
-        // runtime composes the authored release's recorded slots — production,
+        // runtime composes the authored release's recorded remotes — production,
         // local dev, and type generation inherit the same bytes instead of
         // the parent's live config pointer. Runs before the dev overlay so
         // the overlay still wins on conflict. Only an authored release
         // resolves the stamp: an unauthored runtime follows the parent's live
         // pointer exactly as before. An authored-but-unresolvable manifest
-        // fails loud right here (the slot-first contract names the key)
+        // fails loud right here (the record-first contract names the key)
         // instead of skewing later.
         const releaseManifest: Manifest | null =
           rawConfig && typeof rawConfig.release === "string"

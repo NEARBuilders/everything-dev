@@ -192,7 +192,7 @@ export const publishRenderers: Record<string, ResultRenderer> = {
         for (const check of rollbackResult.verification) {
           const mark = check.ok ? colors.green(icons.ok) : colors.error(icons.err);
           const reason = check.reason ? colors.dim(` — ${check.reason}`) : "";
-          console.log(`  ${mark} ${check.slot}${reason}`);
+          console.log(`  ${mark} ${check.remote}${reason}`);
         }
       }
       console.log();

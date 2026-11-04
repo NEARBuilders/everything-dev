@@ -1,10 +1,10 @@
 import { isPlainObject } from "./resolution/merge";
 
 /**
- * The one app/plugins config-slot walker — every consumer that names config
- * slots (pin verification, release-slot records, deploy-state keys, slot
- * stamps, authorship checks, pointer fingerprints) derives its traversal from
- * here so the dotted-slot-path domain cannot fork per module into silently
+ * The one app/plugins remote walker — every consumer that names config
+ * remotes (pin verification, release records, deploy-state keys, stamps,
+ * authorship checks, pointer fingerprints) derives its traversal from
+ * here so the dotted-path domain cannot fork per module into silently
  * divergent copies (coding-standards: a hand-maintained constant paralleling
  * what the config schema knows is a driftable copy).
  *
@@ -15,21 +15,24 @@ import { isPlainObject } from "./resolution/merge";
  */
 
 export interface Remote {
-  slot: string;
+  remote: string;
   entry: Record<string, unknown> | string | false;
   readonly isPluginRef: boolean;
 }
 
-export function walkRemotes(config: Record<string, unknown>, visit: (slot: Remote) => void): void {
+export function walkRemotes(
+  config: Record<string, unknown>,
+  visit: (remote: Remote) => void,
+): void {
   const app = config.app;
   if (isPlainObject(app)) {
     for (const [key, entry] of Object.entries(app)) {
       if (!isPlainObject(entry)) continue;
-      visit({ slot: `app.${key}`, entry, isPluginRef: false });
+      visit({ remote: `app.${key}`, entry, isPluginRef: false });
       if ("ui" in entry) {
         const ui = (entry as Record<string, unknown>).ui;
         if (isPlainObject(ui) || ui === false) {
-          visit({ slot: `app.${key}.ui`, entry: ui, isPluginRef: false });
+          visit({ remote: `app.${key}.ui`, entry: ui, isPluginRef: false });
         }
       }
     }
@@ -39,16 +42,16 @@ export function walkRemotes(config: Record<string, unknown>, visit: (slot: Remot
     for (const [id, entry] of Object.entries(plugins)) {
       if (typeof entry === "string") {
         if (entry.length > 0) {
-          visit({ slot: `plugins.${id}`, entry, isPluginRef: true });
+          visit({ remote: `plugins.${id}`, entry, isPluginRef: true });
         }
         continue;
       }
       if (!isPlainObject(entry)) continue;
-      visit({ slot: `plugins.${id}`, entry, isPluginRef: false });
+      visit({ remote: `plugins.${id}`, entry, isPluginRef: false });
       if ("ui" in entry) {
         const ui = entry.ui;
         if (isPlainObject(ui) || ui === false) {
-          visit({ slot: `plugins.${id}.ui`, entry: ui, isPluginRef: false });
+          visit({ remote: `plugins.${id}.ui`, entry: ui, isPluginRef: false });
         }
       }
     }

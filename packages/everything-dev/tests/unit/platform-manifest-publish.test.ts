@@ -47,7 +47,7 @@ function scaffoldFrameworkRoot(): string {
 }
 
 describe("composePlatformManifestPublishEntry", () => {
-  it("composes the registry entry for a framework-rooted deploy — slot key, SRI, schema-valid bytes", () => {
+  it("composes the registry entry for a framework-rooted deploy — remote key, SRI, schema-valid bytes", () => {
     const configDir = scaffoldFrameworkRoot();
     const entry = composePlatformManifestPublishEntry({
       configDir,
@@ -187,7 +187,7 @@ describe("deriveImageRefFromPlatformManifest", () => {
       configDir,
       localConfig: { extends: "bos://root.near/root" },
       fetchTag: async () => manifestTagOf(manifest, serializePlatformReleaseManifest(manifest)),
-      fetchSlot: async () => manifest,
+      fetchRecord: async () => manifest,
     });
     expect(derived).toEqual({
       image: "ghcr.io/nearbuilders/everything-dev",

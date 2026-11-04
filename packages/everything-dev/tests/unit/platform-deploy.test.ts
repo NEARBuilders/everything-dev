@@ -28,7 +28,7 @@ describe("platformUrlDeployEntries (image-native)", () => {
     expect(entries[0].integrity).toBeUndefined();
   });
 
-  it("derives the SSR container URL for the ui slot", () => {
+  it("derives the SSR container URL for the ui remote", () => {
     const entries = platformUrlDeployEntries({
       origin: ORIGIN,
       account: "v1.citynode.near",
@@ -105,7 +105,7 @@ describe("pluginUiUrlDeployEntries (folder-form plugin ui)", () => {
   const ORIGIN = "https://citynode.app";
   const BASE = `${ORIGIN}/bundles/v1.citynode.near/citynode.app`;
 
-  it("writes app.<key>.ui.* fields for an app-slot plugin", () => {
+  it("writes app.<key>.ui.* fields for an app-remote plugin", () => {
     const entries = pluginUiUrlDeployEntries({
       origin: ORIGIN,
       account: "v1.citynode.near",
@@ -136,7 +136,7 @@ describe("pluginUiUrlDeployEntries (folder-form plugin ui)", () => {
     ]);
   });
 
-  it("pins plugins.<id>.ui.* fields for a plugins-slot entry", () => {
+  it("pins plugins.<id>.ui.* fields for a plugins-remote entry", () => {
     const entries = pluginUiUrlDeployEntries({
       origin: ORIGIN,
       account: "v1.citynode.near",

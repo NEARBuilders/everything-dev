@@ -78,7 +78,7 @@ export function composeWorkspaceVersionManifest(input: {
 }
 
 /**
- * Version-manifest slot resolution (atomic-deploys 04): a config slot's
+ * Version-manifest resolution (atomic-deploys 04): a config remote's
  * `pin` ({ manifest, integrity }) resolves to the derived entry-level fields
  * every consumer needs. The cache is keyed by the full pin — the pinned
  * bytes are immutable, so a verified entry is cached for the process
@@ -87,7 +87,7 @@ export function composeWorkspaceVersionManifest(input: {
  * failure fails the deploy, which is the platform's rollback).
  */
 
-export interface ResolvedSlotVersion {
+export interface ResolvedRemoteVersion {
   /** Absolute URL of the content-hashed container entry. */
   entryUrl: string;
   entryIntegrity: string;
@@ -97,7 +97,7 @@ export interface ResolvedSlotVersion {
   ssrEntryUrl?: string;
   ssrIntegrity?: string;
   /** Shared-singleton `name → version` the pinned build embedded (#546) —
-   * stamped onto UI slots so the host's composition guard can detect a
+   * stamped onto UI remotes so the host's composition guard can detect a
    * platform skew before loading. */
   sharedVersions?: Record<string, string>;
   /** Full per-file digest map of the dist (object path → SRI), when the
@@ -108,22 +108,22 @@ export interface ResolvedSlotVersion {
 }
 
 export interface RemoteDigest {
-  /** versioned manifest filename, relative to the slot's production base */
+  /** versioned manifest filename, relative to the remote's production base */
   manifest: string;
   /** the manifest document's own SRI */
   integrity: string;
 }
 
-const cache = new Map<string, ResolvedSlotVersion>();
+const cache = new Map<string, ResolvedRemoteVersion>();
 
-export function clearSlotVersionCache(): void {
+export function clearRemoteVersionCache(): void {
   cache.clear();
 }
 
-function slotVersionFromManifest(
+function remoteVersionFromManifest(
   base: string,
   manifest: WorkspaceVersionManifest,
-): ResolvedSlotVersion {
+): ResolvedRemoteVersion {
   const trimmedBase = base.replace(/\/$/, "");
   return {
     entryUrl: `${trimmedBase}/${manifest.entry}`,
@@ -144,18 +144,18 @@ function slotVersionFromManifest(
 }
 
 /**
- * Staged-slot preference (ADR 0020/0021 self-contained tier): when a runtime
- * stages its own namespace under `BOS_BUNDLE_DIR`, a slot resolves from the
+ * Staged-remote preference (ADR 0020/0021 self-contained tier): when a runtime
+ * stages its own namespace under `BOS_BUNDLE_DIR`, a remote resolves from the
  * staged dist's own version manifest instead of the config's pin — pinned
  * manifest bytes that predate the image (deploy lag after a release bump)
  * cannot exist in the staged namespace, so their hashed files would 404 the
  * disk and fall through to the network, where the stale immutable bytes
  * still answer 200 and boot a foreign build. The staged manifest is trusted
- * (staged by the image build itself) and skipped entirely when the slot is
+ * (staged by the image build itself) and skipped entirely when the remote is
  * absent from the staged namespace or the pinned manifest is present (the
  * normal healthy case, which keeps the pin's SRI check).
  */
-function readStagedSlotVersion(base: string, digest: RemoteDigest): ResolvedSlotVersion | null {
+function readStagedRemoteVersion(base: string, digest: RemoteDigest): ResolvedRemoteVersion | null {
   const bundleDir = process.env.BOS_BUNDLE_DIR;
   if (!bundleDir) return null;
 
@@ -180,24 +180,24 @@ function readStagedSlotVersion(base: string, digest: RemoteDigest): ResolvedSlot
     const manifest = WorkspaceVersionManifestSchema.parse(
       JSON.parse(readFileSync(manifestPath, "utf8")),
     );
-    return slotVersionFromManifest(base, manifest);
+    return remoteVersionFromManifest(base, manifest);
   } catch {
     return null;
   }
 }
 
-export async function resolveSlotVersion(input: {
+export async function resolveRemoteVersion(input: {
   base: string;
   digest: RemoteDigest;
   fetchImpl?: typeof fetch;
-}): Promise<ResolvedSlotVersion> {
+}): Promise<ResolvedRemoteVersion> {
   const key = `${input.base}::${input.digest.manifest}::${input.digest.integrity}`;
   // content-addressed: a verified pin is cached for the process lifetime and
   // never refetched — the cache IS the last-known-good
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const staged = readStagedSlotVersion(input.base, input.digest);
+  const staged = readStagedRemoteVersion(input.base, input.digest);
   if (staged) {
     cache.set(key, staged);
     return staged;
@@ -218,7 +218,7 @@ export async function resolveSlotVersion(input: {
     JSON.parse(verified.text),
   );
 
-  const resolved = slotVersionFromManifest(input.base, manifest);
+  const resolved = remoteVersionFromManifest(input.base, manifest);
   cache.set(key, resolved);
   return resolved;
 }

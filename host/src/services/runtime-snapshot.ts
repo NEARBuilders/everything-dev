@@ -6,7 +6,7 @@ import { type ClientConfigCacheState, createClientConfigCacheState } from "./ser
 import { createUiComposeCacheState, type UiComposeCacheState } from "./ui-compose";
 
 export interface RuntimeSnapshotState {
-  /** hash over the load-bearing slot coordinates — changes on every adopted deploy */
+  /** hash over the load-bearing remote coordinates — changes on every adopted deploy */
   fingerprint: string;
   config: RuntimeConfig;
   /** the adopted published pointer — set by the coordinator on every swap;
@@ -110,25 +110,25 @@ export class RuntimeSnapshot extends Context.Service<
 }
 
 /**
- * Deployment fingerprint: a stable hash over every load-bearing slot
- * coordinate (entryUrl + integrity per slot) — a new published deploy mints a
+ * Deployment fingerprint: a stable hash over every load-bearing remote
+ * coordinate (entryUrl + integrity per remote) — a new published deploy mints a
  * new fingerprint even when the composed digest is unchanged.
  */
 export function deploymentFingerprint(config: RuntimeConfig): string {
   const parts: Array<string> = [];
-  const slot = (
+  const remote = (
     prefix: string,
     s: { entryUrl?: string; integrity?: string; ssrIntegrity?: string } | undefined,
   ) => {
     if (!s) return;
     parts.push(`${prefix}:${s.entryUrl ?? ""}:${s.integrity ?? ""}:${s.ssrIntegrity ?? ""}`);
   };
-  slot("ui", config.ui);
-  slot("api", config.api);
-  slot("auth", config.auth);
+  remote("ui", config.ui);
+  remote("api", config.api);
+  remote("auth", config.auth);
   for (const [key, plugin] of Object.entries(config.plugins ?? {})) {
-    slot(`plugin.${key}`, plugin);
-    slot(`plugin.${key}.ui`, plugin.ui);
+    remote(`plugin.${key}`, plugin);
+    remote(`plugin.${key}.ui`, plugin.ui);
   }
   return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 16);
 }
